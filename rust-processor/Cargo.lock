@@ -856,6 +856,7 @@ dependencies = [
  "chrono-tz",
  "clap",
  "crc32fast",
+ "crossbeam-channel",
  "flate2",
  "futures-util",
  "jwalk",

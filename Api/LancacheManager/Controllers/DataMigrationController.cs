@@ -19,24 +19,6 @@ public class DataMigrationController : ControllerBase
 {
     private static readonly SemaphoreSlim _importStartLock = new(1, 1);
 
-    /// <summary>
-    /// Per-operation mutable result holder. The two import action methods share one
-    /// <see cref="StartImportAsync"/> register factory, but the terminal metrics
-    /// (counts + message) are only known at emit time. Each method fills this holder
-    /// immediately BEFORE calling <c>CompleteOperation</c>; the <c>onTerminalEmit</c>
-    /// closure (created in the factory) reads it to build the single DataImportComplete
-    /// event. Records* stay null for success-no-progress and the early validation
-    /// fast-fail paths.
-    /// </summary>
-    private sealed class DataImportResultHolder
-    {
-        public string? Message { get; set; }
-        public ulong? RecordsImported { get; set; }
-        public ulong? RecordsSkipped { get; set; }
-        public ulong? RecordsErrors { get; set; }
-        public ulong? TotalRecords { get; set; }
-    }
-
     private readonly ILogger<DataMigrationController> _logger;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
@@ -114,11 +96,14 @@ public class DataMigrationController : ControllerBase
         string? backupPath = null;
 
         // Send started notification
-        _operationTracker.UpdateProgress(operationId, 0, "Starting LancacheManager import...");
+        var startingSnapshot = result.CurrentProgress!;
+        _operationTracker.UpdateProgress(operationId, 0, startingSnapshot.StageKey);
         await _notifications.NotifyAllAsync(SignalREvents.DataImportStarted, new
         {
             OperationId = operationId,
             Message = "Starting LancacheManager import...",
+            startingSnapshot.StageKey,
+            startingSnapshot.Context,
             // Wire value matches the old ImportType enum's JSON converter output exactly.
             ImportType = "lancache-manager"
         });
@@ -152,16 +137,14 @@ public class DataMigrationController : ControllerBase
             _logger.LogInformation("Found {TotalRecords} records in source LancacheManager database", totalRecords);
 
             // Send initial progress
-            _operationTracker.UpdateProgress(operationId, 0, $"Found {totalRecords:N0} records to import");
-            await _notifications.NotifyAllAsync(SignalREvents.DataImportProgress, new
-            {
-                OperationId = operationId,
-                PercentComplete = 0.0,
-                Status = OperationStatus.Running,
-                Message = $"Found {totalRecords:N0} records to import",
-                RecordsProcessed = 0UL,
-                TotalRecords = totalRecords
-            });
+            await ReportImportProgressAsync(
+                operationId,
+                result,
+                processed: 0,
+                total: totalRecords,
+                imported: recordsImported,
+                skipped: recordsSkipped,
+                message: $"Found {totalRecords:N0} records to import");
 
             // Read and insert in batches
             var offset = 0;
@@ -281,21 +264,16 @@ public class DataMigrationController : ControllerBase
                 // Send progress notification after each batch
                 var recordsProcessed = (ulong)offset + (ulong)batchSize;
                 if (recordsProcessed > totalRecords) recordsProcessed = totalRecords;
-                var percentComplete = totalRecords > 0 ? (double)recordsProcessed / totalRecords * 100.0 : 0;
 
                 var progressMessage = $"Importing records... {recordsProcessed:N0} of {totalRecords:N0}";
-                _operationTracker.UpdateProgress(operationId, percentComplete, progressMessage);
-                await _notifications.NotifyAllAsync(SignalREvents.DataImportProgress, new
-                {
-                    OperationId = operationId,
-                    PercentComplete = percentComplete,
-                    Status = OperationStatus.Running,
-                    Message = progressMessage,
-                    RecordsProcessed = recordsProcessed,
-                    TotalRecords = totalRecords,
-                    RecordsImported = recordsImported,
-                    RecordsSkipped = recordsSkipped
-                });
+                await ReportImportProgressAsync(
+                    operationId,
+                    result,
+                    recordsProcessed,
+                    totalRecords,
+                    recordsImported,
+                    recordsSkipped,
+                    progressMessage);
 
                 if (!hasRecords)
                     break;
@@ -382,13 +360,16 @@ public class DataMigrationController : ControllerBase
         }
 
         var operation = activeImports.First();
+        var snapshot = (operation.Metadata as DataImportMetrics)?.CurrentProgress;
         return Ok(new DataImportStatusResponse
         {
             IsProcessing = true,
             Status = operation.Status,
             Message = operation.Message,
-            PercentComplete = operation.PercentComplete,
-            OperationId = operation.Id
+            PercentComplete = snapshot?.PercentComplete ?? operation.PercentComplete,
+            OperationId = operation.Id,
+            StageKey = snapshot?.StageKey,
+            Context = snapshot?.Context ?? new Dictionary<string, object?>()
         });
     }
 
@@ -446,7 +427,7 @@ public class DataMigrationController : ControllerBase
         }
     }
 
-    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, DataImportResultHolder? Result, OperationConflictResponse? Conflict)> StartImportAsync(
+    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, DataImportMetrics? Result, OperationConflictResponse? Conflict)> StartImportAsync(
         string operationName,
         CancellationToken cancellationToken)
     {
@@ -463,7 +444,11 @@ public class DataMigrationController : ControllerBase
             }
 
             var cts = new CancellationTokenSource();
-            var result = new DataImportResultHolder();
+            var result = new DataImportMetrics();
+            result.CaptureProgress(
+                "signalr.dataImport.starting",
+                0,
+                new Dictionary<string, object?>());
             // Single terminal emit for the whole op: every CompleteOperation (success, cancel,
             // exception, AND the early validation fast-fails) funnels here exactly once. The owning
             // method fills `result` before completing; cancel/error/validation fall back to info.Error.
@@ -472,6 +457,8 @@ public class DataMigrationController : ControllerBase
                 OperationType.DataImport,
                 operationName,
                 cts,
+                metadata: result,
+                onTerminalCleanup: result.ClearProgress,
                 onTerminalEmit: info => info.Cancelled
                     ? _notifications.NotifyAllAsync(SignalREvents.DataImportComplete,
                         new DataImportComplete(
@@ -503,12 +490,50 @@ public class DataMigrationController : ControllerBase
                                 RecordsErrors: result.RecordsErrors,
                                 TotalRecords: result.TotalRecords)));
             registeredId = operationId;
+            _operationTracker.UpdateProgress(
+                operationId,
+                result.CurrentProgress!.PercentComplete,
+                result.CurrentProgress.StageKey);
             return (operationId, cts, result, null);
         }
         finally
         {
             _importStartLock.Release();
         }
+    }
+
+    private async Task ReportImportProgressAsync(
+        Guid operationId,
+        DataImportMetrics metrics,
+        ulong processed,
+        ulong total,
+        ulong imported,
+        ulong skipped,
+        string message)
+    {
+        var percentComplete = total > 0 ? (double)processed / total * 100.0 : 0.0;
+        var snapshot = metrics.CaptureProgress(
+            "signalr.dataImport.progress",
+            percentComplete,
+            new Dictionary<string, object?>
+            {
+                ["processed"] = processed,
+                ["total"] = total
+            });
+        _operationTracker.UpdateProgress(operationId, snapshot.PercentComplete, snapshot.StageKey);
+        await _notifications.NotifyAllAsync(SignalREvents.DataImportProgress, new
+        {
+            OperationId = operationId,
+            snapshot.PercentComplete,
+            Status = OperationStatus.Running,
+            Message = message,
+            snapshot.StageKey,
+            snapshot.Context,
+            RecordsProcessed = processed,
+            TotalRecords = total,
+            RecordsImported = imported,
+            RecordsSkipped = skipped
+        });
     }
 
 }

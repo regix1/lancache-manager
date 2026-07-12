@@ -471,31 +471,28 @@ public class CacheController : ControllerBase
         var activeOp = _corruptionDetectionService.GetActiveOperation();
         if (activeOp == null)
         {
-            return Ok(new { isRunning = false });
+            return Ok(new CorruptionDetectionStatusResponse { IsRunning = false });
         }
 
-        var detectionMethod = (activeOp.Metadata as CorruptionDetectionMetrics)?
-            .DetectionMethod.ToWireString();
-        var stageKey = activeOp.Message.StartsWith("signalr.", StringComparison.Ordinal)
-            ? activeOp.Message
-            : detectionMethod == "structural"
-                ? "signalr.corruptionDetect.startingStructural"
-                : "signalr.corruptionDetect.startingRepeatedMiss";
+        var metrics = activeOp.Metadata as CorruptionDetectionMetrics;
+        var detectionMethod = metrics?.DetectionMethod.ToWireString();
+        var snapshot = metrics?.CurrentProgress;
+        var context = snapshot == null
+            ? new Dictionary<string, object?>()
+            : new Dictionary<string, object?>(snapshot.Context);
+        context["detectionMethod"] = detectionMethod;
 
-        return Ok(new
+        return Ok(new CorruptionDetectionStatusResponse
         {
-            isRunning = activeOp.Status == OperationStatus.Running,
-            operationId = activeOp.Id,
-            status = activeOp.Status,
-            message = activeOp.Message,
-            stageKey,
-            context = new Dictionary<string, object?>
-            {
-                ["detectionMethod"] = detectionMethod
-            },
-            percentComplete = activeOp.PercentComplete,
-            startTime = activeOp.StartedAt.ToString("o"),
-            detectionMethod
+            IsRunning = activeOp.Status == OperationStatus.Running,
+            OperationId = activeOp.Id,
+            Status = activeOp.Status,
+            Message = activeOp.Message,
+            StageKey = snapshot?.StageKey ?? activeOp.Message,
+            Context = context,
+            PercentComplete = snapshot?.PercentComplete ?? activeOp.PercentComplete,
+            StartTime = activeOp.StartedAt.ToString("o"),
+            DetectionMethod = detectionMethod
         });
     }
 

@@ -27,6 +27,9 @@ import type {
 } from '../SignalRContext/types';
 import i18n from '@/i18n';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
+import { formatCount } from '@/utils/formatters';
+import { hasUnresolvedInterpolation, translateRecoveryStage } from '@/utils/stageKeyMessage';
+import type { NotificationProgressMode, StageContext } from './types';
 
 type GameDetectionInterpolation = Record<string, string | number | boolean>;
 
@@ -356,6 +359,192 @@ export const formatGameDetectionFailureMessage = (event: GameDetectionCompleteEv
 // Corruption Detection
 // ============================================================================
 
+interface CorruptionProgressInput {
+  detectionMethod?: CorruptionDetectionProgressEvent['detectionMethod'];
+  stageKey?: string;
+  context?: StageContext;
+  percentComplete?: number | null;
+  filesProcessed?: number;
+  totalFiles?: number;
+}
+
+interface CorruptionProgressPresentation {
+  message: string;
+  detailMessage?: string;
+  progressMode: NotificationProgressMode;
+  progressAriaValueText: string;
+}
+
+function finiteNonNegative(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function preferredNumber(contextValue: unknown, legacyValue: unknown): number | undefined {
+  return finiteNonNegative(contextValue) ?? finiteNonNegative(legacyValue);
+}
+
+function formatFilesPerSecond(rate: number): string {
+  return formatCount(rate >= 10 ? Math.round(rate) : Number(rate.toFixed(1)));
+}
+
+function formatCoarseDuration(seconds: number): string {
+  if (seconds < 60) return i18n.t('signalr.corruptionDetect.metrics.duration.underMinute');
+
+  const totalMinutes = Math.max(1, Math.round(seconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) {
+    return i18n.t('signalr.corruptionDetect.metrics.duration.minutes', {
+      minutes: formatCount(totalMinutes)
+    });
+  }
+  if (minutes === 0) {
+    return i18n.t('signalr.corruptionDetect.metrics.duration.hours', {
+      hours: formatCount(hours)
+    });
+  }
+  return i18n.t('signalr.corruptionDetect.metrics.duration.hoursMinutes', {
+    hours: formatCount(hours),
+    minutes: formatCount(minutes)
+  });
+}
+
+function safeCorruptionMessage(
+  stageKey: string | undefined,
+  context: StageContext,
+  fallbackKey: string
+): string {
+  return translateRecoveryStage(stageKey, context, fallbackKey);
+}
+
+/**
+ * Normalize a live SignalR checkpoint or recovered REST snapshot once, then
+ * produce the same stable primary copy and truthful optional metrics for both.
+ */
+export function formatCorruptionProgress(
+  input: CorruptionProgressInput
+): CorruptionProgressPresentation {
+  const context = input.context ?? {};
+  const pass = context.pass;
+  const detectionMethod =
+    input.detectionMethod ??
+    (context.detectionMethod === 'structural' || context.detectionMethod === 'repeated_miss'
+      ? context.detectionMethod
+      : undefined);
+  const isEnumeration =
+    input.stageKey === 'signalr.corruptionDetect.enumerating' || pass === 'counting';
+  const isStructuralInspection =
+    detectionMethod === 'structural' &&
+    (input.stageKey === 'signalr.corruptionDetect.scanningHeaders' ||
+      input.stageKey === 'signalr.corruptionDetect.scanning' ||
+      pass === 'scanning');
+
+  if (isEnumeration) {
+    const count = preferredNumber(context.count, input.filesProcessed);
+    const rate = finiteNonNegative(context.filesPerSecond);
+    const parts: string[] = [];
+    if (count !== undefined) {
+      parts.push(
+        i18n.t('signalr.corruptionDetect.metrics.found', { count: formatCount(Math.floor(count)) })
+      );
+    }
+    if (rate !== undefined && rate > 0) {
+      parts.push(
+        i18n.t('signalr.corruptionDetect.metrics.rate', {
+          filesPerSecond: formatFilesPerSecond(rate)
+        })
+      );
+    }
+    const detailMessage = parts.length > 0 ? parts.join(' • ') : undefined;
+    const message = i18n.t('signalr.corruptionDetect.enumerating');
+    return {
+      message,
+      detailMessage,
+      progressMode: 'indeterminate',
+      progressAriaValueText: detailMessage ? `${message} ${detailMessage}` : message
+    };
+  }
+
+  if (isStructuralInspection) {
+    const processed = preferredNumber(context.filesProcessed, input.filesProcessed);
+    const total = preferredNumber(context.totalFiles, input.totalFiles);
+    const suspects = preferredNumber(context.totalCorrupted, context.suspects);
+    const rate = finiteNonNegative(context.filesPerSecond);
+    const etaSeconds = finiteNonNegative(context.etaSeconds);
+    const parts: string[] = [];
+
+    if (processed !== undefined) {
+      const processedDisplay = formatCount(Math.floor(processed));
+      if (total !== undefined && total > 0) {
+        parts.push(
+          i18n.t('signalr.corruptionDetect.metrics.checkedOfTotal', {
+            processed: processedDisplay,
+            total: formatCount(Math.floor(total))
+          })
+        );
+      } else {
+        parts.push(
+          i18n.t('signalr.corruptionDetect.metrics.checked', { processed: processedDisplay })
+        );
+      }
+    }
+    if (suspects !== undefined) {
+      parts.push(
+        i18n.t('signalr.corruptionDetect.metrics.invalid', {
+          suspects: formatCount(Math.floor(suspects))
+        })
+      );
+    }
+    if (rate !== undefined && rate > 0) {
+      parts.push(
+        i18n.t('signalr.corruptionDetect.metrics.rate', {
+          filesPerSecond: formatFilesPerSecond(rate)
+        })
+      );
+    }
+    if (
+      etaSeconds !== undefined &&
+      total !== undefined &&
+      total > 0 &&
+      processed !== undefined &&
+      processed <= total &&
+      rate !== undefined &&
+      rate > 0
+    ) {
+      parts.push(
+        i18n.t('signalr.corruptionDetect.metrics.remaining', {
+          eta: formatCoarseDuration(etaSeconds)
+        })
+      );
+    }
+
+    const detailMessage = parts.length > 0 ? parts.join(' • ') : undefined;
+    const message = i18n.t('signalr.corruptionDetect.scanningHeaders');
+    return {
+      message,
+      detailMessage,
+      progressMode: 'determinate',
+      progressAriaValueText: detailMessage ? `${message} ${detailMessage}` : message
+    };
+  }
+
+  const fallbackKey =
+    detectionMethod === 'structural'
+      ? 'signalr.corruptionDetect.scanningHeaders'
+      : 'signalr.corruptionDetect.scanningLogs';
+  const message = safeCorruptionMessage(
+    input.stageKey === 'signalr.corruptionDetect.scanning' ? undefined : input.stageKey,
+    context,
+    fallbackKey
+  );
+  const safeMessage = hasUnresolvedInterpolation(message) ? i18n.t(fallbackKey) : message;
+  return {
+    message: safeMessage,
+    progressMode: 'determinate',
+    progressAriaValueText: safeMessage
+  };
+}
+
 /**
  * Formats the message for corruption detection started.
  * @param event - The corruption detection started event from SignalR
@@ -380,22 +569,7 @@ export const formatCorruptionDetectionStartedMessage = (
  */
 export const formatCorruptionDetectionProgressMessage = (
   event: CorruptionDetectionProgressEvent
-): string => {
-  // The enumerating/counting phase reports a rising `count` of cache files
-  // discovered; surface the live count instead of freezing on the scanning
-  // header message at 0%. Default count to 0 so the placeholder always resolves.
-  if (event.stageKey === 'signalr.corruptionDetect.enumerating') {
-    return i18n.t(event.stageKey, { count: 0, ...(event.context ?? {}) });
-  }
-  if (event.stageKey && event.stageKey !== 'signalr.corruptionDetect.scanning') {
-    return i18n.t(event.stageKey, event.context ?? {});
-  }
-  return i18n.t(
-    event.detectionMethod === 'structural'
-      ? 'signalr.corruptionDetect.scanningHeaders'
-      : 'signalr.corruptionDetect.scanningLogs'
-  );
-};
+): string => formatCorruptionProgress(event).message;
 
 /**
  * Formats the success message for corruption detection completion.

@@ -6,13 +6,16 @@ use crate::cache_corruption_detector::{
 use crate::{cache_utils, cancel, progress_utils};
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
+use crossbeam_channel::{bounded, Receiver, RecvTimeoutError, Sender, TrySendError};
 use jwalk::WalkDir;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs::{File, Metadata, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant, SystemTime};
 
 pub const MAX_PREFIX_BYTES: u64 = u16::MAX as u64;
 pub const MIN_STABLE_AGE_SECONDS: u64 = 600;
@@ -165,6 +168,8 @@ pub enum InspectionOutcome {
 pub struct StructuralScanResult {
     pub report: CorruptionReport,
     pub cancelled: bool,
+    #[allow(dead_code)]
+    pipeline: PipelineTelemetry,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -177,6 +182,181 @@ struct ScanProgress {
     files_processed: usize,
     total_files: usize,
     timestamp: String,
+}
+
+#[derive(Clone, Copy)]
+struct StructuralScanConfig {
+    inspection_parallelism: usize,
+    task_queue_capacity: usize,
+    result_queue_capacity: usize,
+    progress_interval: Duration,
+    milestone_interval: Duration,
+    layout: Option<Layout>,
+}
+
+impl StructuralScanConfig {
+    fn production(root: &Path) -> Self {
+        let inspection_parallelism = cache_utils::detect_filesystem_type(root)
+            .recommended_parallelism()
+            .max(1);
+        Self {
+            inspection_parallelism,
+            task_queue_capacity: inspection_parallelism,
+            result_queue_capacity: inspection_parallelism,
+            progress_interval: Duration::from_secs(1),
+            milestone_interval: Duration::from_secs(10),
+            layout: Layout::native(),
+        }
+    }
+
+    fn normalized(mut self) -> Self {
+        self.inspection_parallelism = self.inspection_parallelism.max(1);
+        self.task_queue_capacity = self.task_queue_capacity.max(1);
+        self.result_queue_capacity = self.result_queue_capacity.max(1);
+        if self.progress_interval.is_zero() {
+            self.progress_interval = Duration::from_millis(1);
+        }
+        if self.milestone_interval.is_zero() {
+            self.milestone_interval = Duration::from_millis(1);
+        }
+        self
+    }
+}
+
+#[derive(Debug)]
+struct InspectionTask {
+    path: PathBuf,
+    path_digest: u128,
+}
+
+#[derive(Debug)]
+struct InspectionResult {
+    path: PathBuf,
+    inspection: Result<Inspection>,
+}
+
+trait ScanClock: Sync {
+    fn elapsed(&self) -> Duration;
+}
+
+struct RealScanClock {
+    started_at: Instant,
+}
+
+impl RealScanClock {
+    fn new() -> Self {
+        Self {
+            started_at: Instant::now(),
+        }
+    }
+}
+
+impl ScanClock for RealScanClock {
+    fn elapsed(&self) -> Duration {
+        self.started_at.elapsed()
+    }
+}
+
+trait InspectionObserver: Sync {
+    fn task_scheduled(&self, _path: &Path) {}
+    fn inspection_started(&self, _path: &Path) {}
+    fn inspection_wait(&self, _path: &Path) {}
+    fn inspection_after_read(&self, _path: &Path) {}
+    fn inspection_completed(&self, _path: &Path, _inspection: &Result<Inspection>) {}
+    fn result_merged(&self) {}
+    fn cancellation_observed(&self) {}
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+#[allow(dead_code)]
+struct PipelineTelemetry {
+    worker_count: usize,
+    task_queue_high_water: usize,
+    result_queue_high_water: usize,
+    outstanding_high_water: usize,
+    scheduled: usize,
+    completed: usize,
+    merged: usize,
+    inspection_elapsed_seconds: f64,
+    final_files_per_second: Option<f64>,
+}
+
+#[derive(Default)]
+struct PipelineCounters {
+    task_queue_high_water: AtomicUsize,
+    result_queue_high_water: AtomicUsize,
+    outstanding_high_water: AtomicUsize,
+    completed: AtomicUsize,
+}
+
+fn record_high_water(counter: &AtomicUsize, value: usize) {
+    let mut current = counter.load(Ordering::Relaxed);
+    while value > current {
+        match counter.compare_exchange_weak(current, value, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(actual) => current = actual,
+        }
+    }
+}
+
+struct InspectionTelemetry {
+    phase_started_at: Duration,
+    last_progress_at: Duration,
+    last_sample_at: Duration,
+    last_sample_count: usize,
+    ewma_files_per_second: Option<f64>,
+}
+
+impl InspectionTelemetry {
+    fn new(now: Duration) -> Self {
+        Self {
+            phase_started_at: now,
+            last_progress_at: now,
+            last_sample_at: now,
+            last_sample_count: 0,
+            ewma_files_per_second: None,
+        }
+    }
+
+    fn progress_due(&self, now: Duration, interval: Duration) -> bool {
+        now.saturating_sub(self.last_progress_at) >= interval
+    }
+
+    fn sample(&mut self, now: Duration, count: usize) -> ProgressRate {
+        let sample_elapsed = now.saturating_sub(self.last_sample_at).as_secs_f64();
+        if sample_elapsed > 0.0 {
+            let completed = count.saturating_sub(self.last_sample_count) as f64;
+            let sample_rate = completed / sample_elapsed;
+            if sample_rate.is_finite() && sample_rate >= 0.0 {
+                self.ewma_files_per_second = Some(match self.ewma_files_per_second {
+                    Some(previous) => previous * 0.75 + sample_rate * 0.25,
+                    None => sample_rate,
+                });
+            }
+            self.last_sample_at = now;
+            self.last_sample_count = count;
+        }
+        self.last_progress_at = now;
+        ProgressRate {
+            elapsed_seconds: now.saturating_sub(self.phase_started_at).as_secs_f64(),
+            files_per_second: self.ewma_files_per_second,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ProgressRate {
+    elapsed_seconds: f64,
+    files_per_second: Option<f64>,
+}
+
+#[derive(Clone, Copy)]
+struct ProgressDetails {
+    rate: ProgressRate,
+    eta_seconds: Option<u64>,
+    worker_count: usize,
+    task_queue_capacity: usize,
+    result_queue_capacity: usize,
 }
 
 fn read_usize(bytes: &[u8], offset: usize) -> Option<usize> {
@@ -906,6 +1086,7 @@ fn update_progress(
     total: usize,
     candidates: usize,
     coverage: &StructuralCoverage,
+    details: ProgressDetails,
 ) -> Result<()> {
     let Some(path) = progress_path else {
         return Ok(());
@@ -919,10 +1100,12 @@ fn update_progress(
     } else {
         "signalr.corruptionDetect.scanningHeaders"
     };
-    let percent = if counting {
+    let percent = if status == "completed" {
+        100.0
+    } else if counting {
         0.0
     } else if total == 0 {
-        100.0
+        0.0
     } else {
         (processed as f64 / total as f64 * 100.0).min(99.9)
     };
@@ -933,10 +1116,26 @@ fn update_progress(
         "totalFiles": total,
         "totalCorrupted": candidates,
         "coverage": coverage,
+        "elapsedSeconds": details.rate.elapsed_seconds,
+        "workerCount": details.worker_count,
+        "taskQueueCapacity": details.task_queue_capacity,
+        "resultQueueCapacity": details.result_queue_capacity,
     });
     if counting {
         // `processed` carries the running eligible-file count during the counting pass.
         context["count"] = serde_json::json!(processed);
+    }
+    if let Some(rate) = details
+        .rate
+        .files_per_second
+        .filter(|rate| rate.is_finite() && *rate >= 0.0)
+    {
+        context["filesPerSecond"] = serde_json::json!(rate);
+    }
+    if !counting {
+        if let Some(eta_seconds) = details.eta_seconds {
+            context["etaSeconds"] = serde_json::json!(eta_seconds);
+        }
     }
     progress_utils::write_progress_json(
         path,
@@ -950,14 +1149,633 @@ fn update_progress(
             timestamp: progress_utils::current_timestamp(),
         },
     )
+    .context("failed to write structural scan progress")
 }
 
-fn walk(root: &Path) -> impl Iterator<Item = jwalk::Result<jwalk::DirEntry<((), ())>>> {
+fn count_walk(root: &Path) -> impl Iterator<Item = jwalk::Result<jwalk::DirEntry<((), ())>>> {
     let parallelism = cache_utils::detect_filesystem_type(root).recommended_parallelism();
     WalkDir::new(root)
         .follow_links(false)
-        .parallelism(jwalk::Parallelism::RayonNewPool(parallelism))
+        .parallelism(jwalk::Parallelism::RayonNewPool(parallelism.max(1)))
         .into_iter()
+}
+
+fn inspection_walk(root: &Path) -> impl Iterator<Item = jwalk::Result<jwalk::DirEntry<((), ())>>> {
+    WalkDir::new(root)
+        .follow_links(false)
+        .parallelism(jwalk::Parallelism::Serial)
+        .into_iter()
+}
+
+fn eta_seconds(total: usize, processed: usize, rate: ProgressRate) -> Option<u64> {
+    let files_per_second = rate.files_per_second?;
+    if rate.elapsed_seconds < 2.0 || !files_per_second.is_finite() || files_per_second <= 0.0 {
+        return None;
+    }
+    let remaining = total.saturating_sub(processed) as f64;
+    let eta = (remaining / files_per_second).ceil();
+    if eta.is_finite() && eta >= 0.0 {
+        Some(eta as u64)
+    } else {
+        None
+    }
+}
+
+fn progress_details(
+    telemetry: &mut InspectionTelemetry,
+    now: Duration,
+    processed: usize,
+    total: usize,
+    config: StructuralScanConfig,
+    include_eta: bool,
+) -> ProgressDetails {
+    let rate = telemetry.sample(now, processed);
+    ProgressDetails {
+        rate,
+        eta_seconds: include_eta
+            .then(|| eta_seconds(total, processed, rate))
+            .flatten(),
+        worker_count: config.inspection_parallelism,
+        task_queue_capacity: config.task_queue_capacity,
+        result_queue_capacity: config.result_queue_capacity,
+    }
+}
+
+fn merge_inspection_result(
+    result: InspectionResult,
+    coverage: &mut StructuralCoverage,
+    candidates: &mut Vec<CorruptionCandidate>,
+    warning_count: &mut usize,
+) {
+    coverage.files_seen = coverage.files_seen.saturating_add(1);
+    match result.inspection {
+        Ok(inspection) => {
+            coverage.bytes_read = coverage.bytes_read.saturating_add(inspection.bytes_read);
+            coverage.sparse_files = coverage
+                .sparse_files
+                .saturating_add(usize::from(inspection.sparse));
+            match inspection.outcome {
+                InspectionOutcome::Consistent => {
+                    coverage.files_checked = coverage.files_checked.saturating_add(1);
+                    coverage.consistent = coverage.consistent.saturating_add(1);
+                }
+                InspectionOutcome::Proven(evidence) => {
+                    coverage.files_checked = coverage.files_checked.saturating_add(1);
+                    candidates.push(structural_candidate(&result.path, evidence));
+                }
+                InspectionOutcome::Skip(reason) => {
+                    let count = coverage
+                        .skipped_by_reason
+                        .entry(reason.to_string())
+                        .or_default();
+                    *count = count.saturating_add(1);
+                }
+            }
+        }
+        Err(_error) => {
+            *warning_count = warning_count.saturating_add(1);
+            if *warning_count <= 5 {
+                eprintln!(
+                    "WARNING: structural inspection I/O error (sample {}/5); path details suppressed",
+                    *warning_count
+                );
+            }
+            coverage.io_errors = coverage.io_errors.saturating_add(1);
+            let count = coverage
+                .skipped_by_reason
+                .entry(SkipReason::IoError.as_str().to_string())
+                .or_default();
+            *count = count.saturating_add(1);
+        }
+    }
+}
+
+fn request_pipeline_stop(
+    stop: &AtomicBool,
+    start_gate: &RwLock<()>,
+    observer: Option<&dyn InspectionObserver>,
+) -> Result<()> {
+    let _guard = start_gate
+        .write()
+        .map_err(|_| anyhow::anyhow!("structural inspection start gate was poisoned"))?;
+    stop.store(true, Ordering::Release);
+    if let Some(observer) = observer {
+        observer.cancellation_observed();
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn inspection_worker(
+    root: &Path,
+    now: SystemTime,
+    scan_started_utc: DateTime<Utc>,
+    layout: Option<Layout>,
+    task_receiver: Receiver<InspectionTask>,
+    result_sender: Sender<InspectionResult>,
+    stop: &AtomicBool,
+    start_gate: &RwLock<()>,
+    counters: &PipelineCounters,
+    observer: Option<&dyn InspectionObserver>,
+) -> Result<()> {
+    while let Ok(task) = task_receiver.recv() {
+        let start_guard = start_gate
+            .read()
+            .map_err(|_| anyhow::anyhow!("structural inspection start gate was poisoned"))?;
+        if stop.load(Ordering::Acquire) || cancel::is_cancelled() {
+            break;
+        }
+        if let Some(observer) = observer {
+            observer.inspection_started(&task.path);
+        }
+        drop(start_guard);
+        if let Some(observer) = observer {
+            observer.inspection_wait(&task.path);
+        }
+
+        let inspection = match layout {
+            Some(layout) => inspect_path_with_layout_and_hook(
+                root,
+                &task.path,
+                task.path_digest,
+                now,
+                scan_started_utc,
+                layout,
+                || {
+                    if let Some(observer) = observer {
+                        observer.inspection_after_read(&task.path);
+                    }
+                },
+            ),
+            None => Ok(Inspection {
+                outcome: InspectionOutcome::Skip(SkipReason::UnsupportedPlatform.as_str()),
+                bytes_read: 0,
+                sparse: false,
+            }),
+        };
+        if let Some(observer) = observer {
+            observer.inspection_completed(&task.path, &inspection);
+        }
+        counters.completed.fetch_add(1, Ordering::Relaxed);
+        result_sender
+            .send(InspectionResult {
+                path: task.path,
+                inspection,
+            })
+            .context("structural inspection result channel disconnected")?;
+        record_high_water(&counters.result_queue_high_water, result_sender.len());
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn merge_pipeline_result(
+    result: InspectionResult,
+    coverage: &mut StructuralCoverage,
+    candidates: &mut Vec<CorruptionCandidate>,
+    warning_count: &mut usize,
+    merged: &mut usize,
+    scheduled: usize,
+    counters: &PipelineCounters,
+    observer: Option<&dyn InspectionObserver>,
+) {
+    merge_inspection_result(result, coverage, candidates, warning_count);
+    *merged = merged.saturating_add(1);
+    record_high_water(
+        &counters.outstanding_high_water,
+        scheduled.saturating_sub(*merged),
+    );
+    if let Some(observer) = observer {
+        observer.result_merged();
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_inspection_checkpoint(
+    progress_path: Option<&Path>,
+    status: &str,
+    total: usize,
+    coverage: &StructuralCoverage,
+    candidates: usize,
+    telemetry: &mut InspectionTelemetry,
+    clock: &dyn ScanClock,
+    config: StructuralScanConfig,
+) -> Result<ProgressRate> {
+    let now = clock.elapsed();
+    let mut details = progress_details(
+        telemetry,
+        now,
+        coverage.files_seen,
+        total,
+        config,
+        status != "cancelled",
+    );
+    if status == "completed" {
+        details.eta_seconds = Some(0);
+    } else if status == "cancelled" {
+        details.eta_seconds = None;
+    }
+    update_progress(
+        progress_path,
+        status,
+        "scanning",
+        coverage.files_seen,
+        total,
+        candidates,
+        coverage,
+        details,
+    )?;
+    Ok(details.rate)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_parallel_inspection<F: FnMut() -> bool>(
+    root: &Path,
+    scan_started_utc: DateTime<Utc>,
+    progress_path: Option<&Path>,
+    total: usize,
+    coverage: &mut StructuralCoverage,
+    candidates: &mut Vec<CorruptionCandidate>,
+    config: StructuralScanConfig,
+    clock: &dyn ScanClock,
+    observer: Option<&dyn InspectionObserver>,
+    cancellation_requested: &mut F,
+) -> Result<(bool, PipelineTelemetry)> {
+    let config = config.normalized();
+    let now = SystemTime::from(scan_started_utc);
+    let phase_started_at = clock.elapsed();
+    let mut progress_telemetry = InspectionTelemetry::new(phase_started_at);
+    update_progress(
+        progress_path,
+        "scanning",
+        "scanning",
+        0,
+        total,
+        candidates.len(),
+        coverage,
+        ProgressDetails {
+            rate: ProgressRate {
+                elapsed_seconds: 0.0,
+                files_per_second: Some(0.0),
+            },
+            eta_seconds: None,
+            worker_count: config.inspection_parallelism,
+            task_queue_capacity: config.task_queue_capacity,
+            result_queue_capacity: config.result_queue_capacity,
+        },
+    )?;
+    eprintln!(
+        "[structural] inspection starting total={total} workers={} task_capacity={} result_capacity={}",
+        config.inspection_parallelism, config.task_queue_capacity, config.result_queue_capacity
+    );
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let start_gate = Arc::new(RwLock::new(()));
+    let counters = Arc::new(PipelineCounters::default());
+    let (task_sender, task_receiver) = bounded(config.task_queue_capacity);
+    let (result_sender, result_receiver) = bounded(config.result_queue_capacity);
+    let mut scheduled = 0usize;
+    let mut merged = 0usize;
+    let mut warning_count = 0usize;
+    let mut cancelled = false;
+    let mut last_milestone_at = phase_started_at;
+
+    std::thread::scope(|scope| -> Result<()> {
+        let mut handles = Vec::with_capacity(config.inspection_parallelism);
+        let mut spawn_error = None;
+        for worker_index in 0..config.inspection_parallelism {
+            let worker_receiver = task_receiver.clone();
+            let worker_sender = result_sender.clone();
+            let worker_stop = Arc::clone(&stop);
+            let worker_start_gate = Arc::clone(&start_gate);
+            let worker_counters = Arc::clone(&counters);
+            let builder =
+                std::thread::Builder::new().name(format!("structural-inspector-{worker_index}"));
+            match builder.spawn_scoped(scope, move || {
+                inspection_worker(
+                    root,
+                    now,
+                    scan_started_utc,
+                    config.layout,
+                    worker_receiver,
+                    worker_sender,
+                    &worker_stop,
+                    &worker_start_gate,
+                    &worker_counters,
+                    observer,
+                )
+            }) {
+                Ok(handle) => handles.push(handle),
+                Err(error) => {
+                    spawn_error = Some(
+                        anyhow::Error::new(error)
+                            .context("failed to spawn structural inspection worker"),
+                    );
+                    break;
+                }
+            }
+        }
+        drop(task_receiver);
+        drop(result_sender);
+
+        let mut fatal_error = spawn_error;
+        if fatal_error.is_some() {
+            request_pipeline_stop(&stop, &start_gate, observer)?;
+        }
+
+        let mut walk = inspection_walk(root);
+        let mut pending_task = None;
+        let mut traversal_complete = fatal_error.is_some();
+        while !traversal_complete || pending_task.is_some() {
+            if fatal_error.is_none() && cancellation_requested() {
+                cancelled = true;
+                request_pipeline_stop(&stop, &start_gate, observer)?;
+                pending_task = None;
+                traversal_complete = true;
+            }
+
+            while let Ok(result) = result_receiver.try_recv() {
+                merge_pipeline_result(
+                    result,
+                    coverage,
+                    candidates,
+                    &mut warning_count,
+                    &mut merged,
+                    scheduled,
+                    &counters,
+                    observer,
+                );
+            }
+
+            let clock_now = clock.elapsed();
+            if progress_telemetry.progress_due(clock_now, config.progress_interval) {
+                if let Err(error) = emit_inspection_checkpoint(
+                    progress_path,
+                    "scanning",
+                    total,
+                    coverage,
+                    candidates.len(),
+                    &mut progress_telemetry,
+                    clock,
+                    config,
+                ) {
+                    fatal_error = Some(error);
+                    request_pipeline_stop(&stop, &start_gate, observer)?;
+                    pending_task = None;
+                    traversal_complete = true;
+                }
+            }
+            if clock_now.saturating_sub(last_milestone_at) >= config.milestone_interval {
+                last_milestone_at = clock_now;
+                let rate = progress_telemetry.ewma_files_per_second.unwrap_or(0.0);
+                let eta = eta_seconds(
+                    total,
+                    coverage.files_seen,
+                    ProgressRate {
+                        elapsed_seconds: clock_now.saturating_sub(phase_started_at).as_secs_f64(),
+                        files_per_second: Some(rate),
+                    },
+                );
+                eprintln!(
+                    "[structural] inspection progress processed={}/{} suspects={} files_per_second={:.1} eta_seconds={}",
+                    coverage.files_seen,
+                    total,
+                    candidates.len(),
+                    rate,
+                    eta.map_or_else(|| "unknown".to_string(), |value| value.to_string())
+                );
+            }
+
+            if fatal_error.is_some() || cancelled {
+                break;
+            }
+
+            if pending_task.is_none() && !traversal_complete {
+                match walk.next() {
+                    Some(Ok(entry)) => {
+                        let path = entry.path();
+                        if let Some(path_digest) =
+                            cache_utils::strict_cache_file_digest(root, &path)
+                        {
+                            pending_task = Some(InspectionTask { path, path_digest });
+                        }
+                    }
+                    Some(Err(error)) => {
+                        if error.depth() == 0 {
+                            fatal_error = Some(
+                                anyhow::Error::new(error)
+                                    .context("failed to enumerate structural cache root"),
+                            );
+                            request_pipeline_stop(&stop, &start_gate, observer)?;
+                            traversal_complete = true;
+                        } else {
+                            coverage.io_errors = coverage.io_errors.saturating_add(1);
+                            let count = coverage
+                                .skipped_by_reason
+                                .entry(SkipReason::IoError.as_str().to_string())
+                                .or_default();
+                            *count = count.saturating_add(1);
+                        }
+                    }
+                    None => traversal_complete = true,
+                }
+            }
+
+            if let Some(task) = pending_task.take() {
+                let scheduled_path = task.path.clone();
+                match task_sender.try_send(task) {
+                    Ok(()) => {
+                        scheduled = scheduled.saturating_add(1);
+                        record_high_water(&counters.task_queue_high_water, task_sender.len());
+                        record_high_water(
+                            &counters.outstanding_high_water,
+                            scheduled.saturating_sub(merged),
+                        );
+                        if let Some(observer) = observer {
+                            observer.task_scheduled(&scheduled_path);
+                        }
+                    }
+                    Err(TrySendError::Full(task)) => {
+                        pending_task = Some(task);
+                        match result_receiver.recv_timeout(Duration::from_millis(25)) {
+                            Ok(result) => merge_pipeline_result(
+                                result,
+                                coverage,
+                                candidates,
+                                &mut warning_count,
+                                &mut merged,
+                                scheduled,
+                                &counters,
+                                observer,
+                            ),
+                            Err(RecvTimeoutError::Timeout) => {}
+                            Err(RecvTimeoutError::Disconnected) => {
+                                fatal_error = Some(anyhow::anyhow!(
+                                    "structural inspection result channel disconnected while scheduling"
+                                ));
+                                request_pipeline_stop(&stop, &start_gate, observer)?;
+                                pending_task = None;
+                                traversal_complete = true;
+                            }
+                        }
+                    }
+                    Err(TrySendError::Disconnected(_task)) => {
+                        fatal_error = Some(anyhow::anyhow!(
+                            "structural inspection task channel disconnected while scheduling"
+                        ));
+                        request_pipeline_stop(&stop, &start_gate, observer)?;
+                        traversal_complete = true;
+                    }
+                }
+            }
+        }
+
+        drop(task_sender);
+        loop {
+            match result_receiver.recv_timeout(Duration::from_millis(100)) {
+                Ok(result) => merge_pipeline_result(
+                    result,
+                    coverage,
+                    candidates,
+                    &mut warning_count,
+                    &mut merged,
+                    scheduled,
+                    &counters,
+                    observer,
+                ),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+            let clock_now = clock.elapsed();
+            if progress_telemetry.progress_due(clock_now, config.progress_interval) {
+                if let Err(error) = emit_inspection_checkpoint(
+                    progress_path,
+                    "scanning",
+                    total,
+                    coverage,
+                    candidates.len(),
+                    &mut progress_telemetry,
+                    clock,
+                    config,
+                ) {
+                    fatal_error.get_or_insert(error);
+                    request_pipeline_stop(&stop, &start_gate, observer)?;
+                }
+            }
+            if clock_now.saturating_sub(last_milestone_at) >= config.milestone_interval {
+                last_milestone_at = clock_now;
+                let rate = progress_telemetry.ewma_files_per_second.unwrap_or(0.0);
+                let eta = eta_seconds(
+                    total,
+                    coverage.files_seen,
+                    ProgressRate {
+                        elapsed_seconds: clock_now.saturating_sub(phase_started_at).as_secs_f64(),
+                        files_per_second: Some(rate),
+                    },
+                );
+                eprintln!(
+                    "[structural] inspection progress processed={}/{} suspects={} files_per_second={:.1} eta_seconds={}",
+                    coverage.files_seen,
+                    total,
+                    candidates.len(),
+                    rate,
+                    eta.map_or_else(|| "unknown".to_string(), |value| value.to_string())
+                );
+            }
+        }
+
+        for handle in handles {
+            match handle.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    fatal_error.get_or_insert(
+                        error.context("structural inspection worker terminated with an error"),
+                    );
+                }
+                Err(_) => {
+                    fatal_error.get_or_insert_with(|| {
+                        anyhow::anyhow!("structural inspection worker panicked")
+                    });
+                }
+            }
+        }
+
+        let completed = counters.completed.load(Ordering::Relaxed);
+        if merged != completed {
+            fatal_error.get_or_insert_with(|| {
+                anyhow::anyhow!(
+                    "structural inspection result accounting mismatch: completed={completed} merged={merged}"
+                )
+            });
+        }
+        if !cancelled && fatal_error.is_none() && completed != scheduled {
+            fatal_error.get_or_insert_with(|| {
+                anyhow::anyhow!(
+                    "structural inspection task accounting mismatch: scheduled={scheduled} completed={completed}"
+                )
+            });
+        }
+        if let Some(error) = fatal_error {
+            return Err(error);
+        }
+        Ok(())
+    })?;
+
+    if warning_count > 5 {
+        eprintln!(
+            "WARNING: structural inspection I/O errors suppressed after 5 samples; total={warning_count}"
+        );
+    }
+    let inspection_elapsed_seconds = clock
+        .elapsed()
+        .saturating_sub(phase_started_at)
+        .as_secs_f64();
+    let final_files_per_second = if inspection_elapsed_seconds > 0.0 {
+        let rate = merged as f64 / inspection_elapsed_seconds;
+        rate.is_finite().then_some(rate)
+    } else {
+        progress_telemetry.ewma_files_per_second
+    };
+    let telemetry = PipelineTelemetry {
+        worker_count: config.inspection_parallelism,
+        task_queue_high_water: counters.task_queue_high_water.load(Ordering::Relaxed),
+        result_queue_high_water: counters.result_queue_high_water.load(Ordering::Relaxed),
+        outstanding_high_water: counters.outstanding_high_water.load(Ordering::Relaxed),
+        scheduled,
+        completed: counters.completed.load(Ordering::Relaxed),
+        merged,
+        inspection_elapsed_seconds,
+        final_files_per_second,
+    };
+    Ok((cancelled, telemetry))
+}
+
+fn build_report(
+    scan_started_utc: DateTime<Utc>,
+    mut candidates: Vec<CorruptionCandidate>,
+    coverage: StructuralCoverage,
+) -> CorruptionReport {
+    candidates.sort_by(|left, right| left.exact_paths.cmp(&right.exact_paths));
+    let mut service_counts = BTreeMap::new();
+    for candidate in &candidates {
+        *service_counts.entry(candidate.service.clone()).or_default() += 1;
+    }
+    CorruptionReport {
+        contract_version: CORRUPTION_CONTRACT_VERSION,
+        detection_method: DetectionMethod::Structural,
+        scan_started_utc: scan_started_utc.to_rfc3339_opts(SecondsFormat::AutoSi, true),
+        settings: CorruptionSettings {
+            threshold: None,
+            lookback_days: None,
+            min_stable_age_seconds: Some(MIN_STABLE_AGE_SECONDS),
+            max_prefix_bytes: Some(MAX_PREFIX_BYTES),
+        },
+        service_counts,
+        detection_counts: BTreeMap::from([("structural".to_string(), candidates.len())]),
+        total: candidates.len(),
+        coverage: Some(coverage),
+        candidates,
+    }
 }
 
 pub fn scan(
@@ -974,6 +1792,30 @@ fn scan_with_cancellation<F: FnMut() -> bool>(
     progress_path: Option<&Path>,
     mut cancellation_requested: F,
 ) -> Result<StructuralScanResult> {
+    let config = StructuralScanConfig::production(root);
+    let clock = RealScanClock::new();
+    scan_with_runtime(
+        root,
+        scan_started_utc,
+        progress_path,
+        config,
+        &clock,
+        None,
+        &mut cancellation_requested,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scan_with_runtime<F: FnMut() -> bool>(
+    root: &Path,
+    scan_started_utc: DateTime<Utc>,
+    progress_path: Option<&Path>,
+    config: StructuralScanConfig,
+    clock: &dyn ScanClock,
+    observer: Option<&dyn InspectionObserver>,
+    cancellation_requested: &mut F,
+) -> Result<StructuralScanResult> {
+    let config = config.normalized();
     let root_link_metadata = std::fs::symlink_metadata(root)
         .with_context(|| format!("failed to inspect structural cache root {}", root.display()))?;
     if root_link_metadata.file_type().is_symlink() || !root_link_metadata.is_dir() {
@@ -992,20 +1834,37 @@ fn scan_with_cancellation<F: FnMut() -> bool>(
         bail!("structural cache root changed during setup");
     }
 
-    let scan_started_at = std::time::Instant::now();
-    eprintln!(
-        "[structural] scan starting under {}",
-        canonical_root.display()
-    );
+    let scan_started_at = clock.elapsed();
+    eprintln!("[structural] scan starting");
 
     let mut total = 0usize;
     let mut cancelled = false;
     let mut coverage = StructuralCoverage::default();
     // Emit the enumerating stage immediately so the UI leaves any prior scanningHeaders/0%
     // state instead of sitting on a frozen 0% for the whole (potentially multi-minute) count.
-    update_progress(progress_path, "scanning", "counting", 0, 0, 0, &coverage)?;
+    let mut count_telemetry = InspectionTelemetry::new(clock.elapsed());
+    update_progress(
+        progress_path,
+        "scanning",
+        "counting",
+        0,
+        0,
+        0,
+        &coverage,
+        ProgressDetails {
+            rate: ProgressRate {
+                elapsed_seconds: 0.0,
+                files_per_second: None,
+            },
+            eta_seconds: None,
+            worker_count: 0,
+            task_queue_capacity: 0,
+            result_queue_capacity: 0,
+        },
+    )?;
     eprintln!("[structural] enumerating cache files (this pass computes the total)...");
-    for entry in walk(root) {
+    let mut last_count_milestone_at = clock.elapsed();
+    for entry in count_walk(root) {
         if cancellation_requested() {
             cancelled = true;
             break;
@@ -1017,38 +1876,51 @@ fn scan_with_cancellation<F: FnMut() -> bool>(
                     return Err(error).context("failed to enumerate structural cache root");
                 }
                 coverage.io_errors = coverage.io_errors.saturating_add(1);
-                *coverage
+                let count = coverage
                     .skipped_by_reason
                     .entry("count_enumeration_io_error".to_string())
-                    .or_default() += 1;
+                    .or_default();
+                *count = count.saturating_add(1);
                 continue;
             }
         };
         if cache_utils::strict_cache_file_digest(root, &entry.path()).is_some() {
             total = total.saturating_add(1);
-            if total.is_multiple_of(2_000) {
-                update_progress(
-                    progress_path,
-                    "scanning",
-                    "counting",
-                    total,
-                    0,
-                    0,
-                    &coverage,
-                )?;
-            }
-            if total.is_multiple_of(50_000) {
-                eprintln!("[structural] enumerated {total} eligible cache files so far...");
-            }
+        }
+        let now = clock.elapsed();
+        if count_telemetry.progress_due(now, config.progress_interval) {
+            let details = progress_details(&mut count_telemetry, now, total, 0, config, false);
+            update_progress(
+                progress_path,
+                "scanning",
+                "counting",
+                total,
+                0,
+                0,
+                &coverage,
+                details,
+            )?;
+        }
+        if now.saturating_sub(last_count_milestone_at) >= config.milestone_interval {
+            last_count_milestone_at = now;
+            eprintln!("[structural] enumeration progress eligible_files={total}");
         }
     }
     eprintln!(
         "[structural] enumeration complete: {total} eligible cache files in {:.1}s (cancelled={cancelled})",
-        scan_started_at.elapsed().as_secs_f64()
+        clock.elapsed().saturating_sub(scan_started_at).as_secs_f64()
     );
 
     let mut candidates = Vec::new();
     // Final counting emit: report the full eligible-file count now that enumeration finished.
+    let counting_details = progress_details(
+        &mut count_telemetry,
+        clock.elapsed(),
+        total,
+        0,
+        config,
+        false,
+    );
     update_progress(
         progress_path,
         "scanning",
@@ -1057,104 +1929,28 @@ fn scan_with_cancellation<F: FnMut() -> bool>(
         total,
         0,
         &coverage,
+        counting_details,
     )?;
+    let mut pipeline = PipelineTelemetry::default();
     if !cancelled {
-        let now = SystemTime::from(scan_started_utc);
-        // Resolve the native cache-header layout once; it is compile-time constant.
-        let layout = Layout::native();
-        eprintln!("[structural] inspecting {total} cache files...");
-        for entry in walk(root) {
-            if cancellation_requested() {
-                cancelled = true;
-                break;
-            }
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(error) => {
-                    if error.depth() == 0 {
-                        return Err(error).context("failed to enumerate structural cache root");
-                    }
-                    coverage.io_errors = coverage.io_errors.saturating_add(1);
-                    *coverage
-                        .skipped_by_reason
-                        .entry(SkipReason::IoError.as_str().to_string())
-                        .or_default() += 1;
-                    continue;
-                }
-            };
-            let path = entry.path();
-            // Compute the strict cache digest ONCE here and thread it into the inspector so it
-            // is not recomputed inside inspect_path_with_layout_and_hook.
-            let Some(path_digest) = cache_utils::strict_cache_file_digest(root, &path) else {
-                continue;
-            };
-            coverage.files_seen += 1;
-            let inspection = match layout {
-                Some(layout) => {
-                    inspect_path_with_layout(root, &path, path_digest, now, scan_started_utc, layout)
-                }
-                None => Ok(Inspection {
-                    outcome: InspectionOutcome::Skip(SkipReason::UnsupportedPlatform.as_str()),
-                    bytes_read: 0,
-                    sparse: false,
-                }),
-            };
-            match inspection {
-                Ok(inspection) => {
-                    coverage.bytes_read = coverage.bytes_read.saturating_add(inspection.bytes_read);
-                    coverage.sparse_files += usize::from(inspection.sparse);
-                    match inspection.outcome {
-                        InspectionOutcome::Consistent => {
-                            coverage.files_checked += 1;
-                            coverage.consistent += 1;
-                        }
-                        InspectionOutcome::Proven(evidence) => {
-                            coverage.files_checked += 1;
-                            candidates.push(structural_candidate(&path, evidence));
-                        }
-                        InspectionOutcome::Skip(reason) => {
-                            *coverage
-                                .skipped_by_reason
-                                .entry(reason.to_string())
-                                .or_default() += 1;
-                        }
-                    }
-                }
-                Err(error) => {
-                    eprintln!(
-                        "WARNING: structural scan skipped {}: {error:#}",
-                        path.display()
-                    );
-                    coverage.io_errors += 1;
-                    *coverage
-                        .skipped_by_reason
-                        .entry(SkipReason::IoError.as_str().to_string())
-                        .or_default() += 1;
-                }
-            }
-            let processed = coverage.files_seen;
-            if processed.is_multiple_of(2_000) {
-                update_progress(
-                    progress_path,
-                    "scanning",
-                    "scanning",
-                    processed,
-                    total,
-                    candidates.len(),
-                    &coverage,
-                )?;
-            }
-            if processed.is_multiple_of(50_000) {
-                eprintln!(
-                    "[structural] inspected {processed}/{total} files, {} suspects so far...",
-                    candidates.len()
-                );
-            }
-        }
+        let result = run_parallel_inspection(
+            root,
+            scan_started_utc,
+            progress_path,
+            total,
+            &mut coverage,
+            &mut candidates,
+            config,
+            clock,
+            observer,
+            cancellation_requested,
+        )?;
+        cancelled = result.0;
+        pipeline = result.1;
     }
     eprintln!(
         "[structural] scan finished in {:.1}s: files_seen={} files_checked={} consistent={} suspects={} sparse={} io_errors={} bytes_read={} skipped_by_reason={:?} (cancelled={cancelled})",
-        scan_started_at.elapsed().as_secs_f64(),
+        clock.elapsed().saturating_sub(scan_started_at).as_secs_f64(),
         coverage.files_seen,
         coverage.files_checked,
         coverage.consistent,
@@ -1164,37 +1960,53 @@ fn scan_with_cancellation<F: FnMut() -> bool>(
         coverage.bytes_read,
         coverage.skipped_by_reason
     );
-    candidates.sort_by(|left, right| left.exact_paths.cmp(&right.exact_paths));
-    let mut service_counts = BTreeMap::new();
-    for candidate in &candidates {
-        *service_counts.entry(candidate.service.clone()).or_default() += 1;
+    let report = build_report(scan_started_utc, candidates, coverage.clone());
+    if cancelled && pipeline.worker_count == 0 {
+        let details = progress_details(
+            &mut count_telemetry,
+            clock.elapsed(),
+            total,
+            0,
+            config,
+            false,
+        );
+        update_progress(
+            progress_path,
+            "cancelled",
+            "counting",
+            total,
+            0,
+            report.total,
+            &coverage,
+            details,
+        )?;
+    } else {
+        let details = ProgressDetails {
+            rate: ProgressRate {
+                elapsed_seconds: pipeline.inspection_elapsed_seconds,
+                files_per_second: pipeline.final_files_per_second,
+            },
+            eta_seconds: if cancelled { None } else { Some(0) },
+            worker_count: pipeline.worker_count,
+            task_queue_capacity: config.task_queue_capacity,
+            result_queue_capacity: config.result_queue_capacity,
+        };
+        update_progress(
+            progress_path,
+            if cancelled { "cancelled" } else { "completed" },
+            "scanning",
+            coverage.files_seen,
+            total,
+            report.total,
+            &coverage,
+            details,
+        )?;
     }
-    let report = CorruptionReport {
-        contract_version: CORRUPTION_CONTRACT_VERSION,
-        detection_method: DetectionMethod::Structural,
-        scan_started_utc: scan_started_utc.to_rfc3339_opts(SecondsFormat::AutoSi, true),
-        settings: CorruptionSettings {
-            threshold: None,
-            lookback_days: None,
-            min_stable_age_seconds: Some(MIN_STABLE_AGE_SECONDS),
-            max_prefix_bytes: Some(MAX_PREFIX_BYTES),
-        },
-        service_counts,
-        detection_counts: BTreeMap::from([("structural".to_string(), candidates.len())]),
-        total: candidates.len(),
-        coverage: Some(coverage.clone()),
-        candidates,
-    };
-    update_progress(
-        progress_path,
-        if cancelled { "cancelled" } else { "completed" },
-        "scanning",
-        coverage.files_seen,
-        total,
-        report.total,
-        &coverage,
-    )?;
-    Ok(StructuralScanResult { report, cancelled })
+    Ok(StructuralScanResult {
+        report,
+        cancelled,
+        pipeline,
+    })
 }
 
 pub fn revalidate_for_removal(
@@ -1314,6 +2126,8 @@ pub(crate) fn write_linux_v5_test_fixture(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicU64;
+    use std::sync::{Barrier, Condvar, Mutex};
 
     fn put_usize(buffer: &mut [u8], offset: usize, value: usize) {
         buffer[offset..offset + std::mem::size_of::<usize>()].copy_from_slice(&value.to_ne_bytes());
@@ -1363,6 +2177,958 @@ mod tests {
 
     fn old_now() -> SystemTime {
         SystemTime::now() + Duration::from_secs(MIN_STABLE_AGE_SECONDS + 5)
+    }
+
+    fn test_config(parallelism: usize, capacity: usize) -> StructuralScanConfig {
+        StructuralScanConfig {
+            inspection_parallelism: parallelism,
+            task_queue_capacity: capacity,
+            result_queue_capacity: capacity,
+            progress_interval: Duration::from_secs(1),
+            milestone_interval: Duration::from_secs(10),
+            layout: Some(Layout::linux_x86_64()),
+        }
+    }
+
+    struct ManualClock {
+        millis: AtomicU64,
+    }
+
+    impl ManualClock {
+        fn new() -> Self {
+            Self {
+                millis: AtomicU64::new(0),
+            }
+        }
+
+        fn advance(&self, duration: Duration) {
+            let millis = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+            self.millis.fetch_add(millis, Ordering::Relaxed);
+        }
+    }
+
+    impl ScanClock for ManualClock {
+        fn elapsed(&self) -> Duration {
+            Duration::from_millis(self.millis.load(Ordering::Relaxed))
+        }
+    }
+
+    fn fixed_scan_started() -> DateTime<Utc> {
+        Utc::now() + chrono::Duration::seconds((MIN_STABLE_AGE_SECONDS + 30) as i64)
+    }
+
+    fn serial_reference(
+        root: &Path,
+        scan_started_utc: DateTime<Utc>,
+        layout: Layout,
+    ) -> CorruptionReport {
+        let mut coverage = StructuralCoverage::default();
+        let mut total = 0usize;
+        for entry in count_walk(root) {
+            match entry {
+                Ok(entry) => {
+                    if cache_utils::strict_cache_file_digest(root, &entry.path()).is_some() {
+                        total = total.saturating_add(1);
+                    }
+                }
+                Err(error) if error.depth() > 0 => {
+                    coverage.io_errors = coverage.io_errors.saturating_add(1);
+                    let count = coverage
+                        .skipped_by_reason
+                        .entry("count_enumeration_io_error".to_string())
+                        .or_default();
+                    *count = count.saturating_add(1);
+                }
+                Err(error) => panic!("serial count root error: {error}"),
+            }
+        }
+
+        let now = SystemTime::from(scan_started_utc);
+        let mut candidates = Vec::new();
+        let mut warning_count = 0usize;
+        for entry in inspection_walk(root) {
+            match entry {
+                Ok(entry) => {
+                    let path = entry.path();
+                    let Some(path_digest) = cache_utils::strict_cache_file_digest(root, &path)
+                    else {
+                        continue;
+                    };
+                    let inspection = inspect_path_with_layout(
+                        root,
+                        &path,
+                        path_digest,
+                        now,
+                        scan_started_utc,
+                        layout,
+                    );
+                    merge_inspection_result(
+                        InspectionResult { path, inspection },
+                        &mut coverage,
+                        &mut candidates,
+                        &mut warning_count,
+                    );
+                }
+                Err(error) if error.depth() > 0 => {
+                    coverage.io_errors = coverage.io_errors.saturating_add(1);
+                    let count = coverage
+                        .skipped_by_reason
+                        .entry(SkipReason::IoError.as_str().to_string())
+                        .or_default();
+                    *count = count.saturating_add(1);
+                }
+                Err(error) => panic!("serial inspection root error: {error}"),
+            }
+        }
+        assert_eq!(coverage.files_seen, total);
+        build_report(scan_started_utc, candidates, coverage)
+    }
+
+    fn update_max(counter: &AtomicUsize, value: usize) {
+        record_high_water(counter, value);
+    }
+
+    struct BarrierObserver {
+        barrier: Barrier,
+        active: AtomicUsize,
+        max_active: AtomicUsize,
+        max_bytes_read: AtomicUsize,
+    }
+
+    impl BarrierObserver {
+        fn new(parties: usize) -> Self {
+            Self {
+                barrier: Barrier::new(parties),
+                active: AtomicUsize::new(0),
+                max_active: AtomicUsize::new(0),
+                max_bytes_read: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl InspectionObserver for BarrierObserver {
+        fn inspection_started(&self, _path: &Path) {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            update_max(&self.max_active, active);
+        }
+
+        fn inspection_wait(&self, _path: &Path) {
+            self.barrier.wait();
+        }
+
+        fn inspection_completed(&self, _path: &Path, inspection: &Result<Inspection>) {
+            if let Ok(inspection) = inspection {
+                update_max(
+                    &self.max_bytes_read,
+                    usize::try_from(inspection.bytes_read).unwrap_or(usize::MAX),
+                );
+            }
+            self.active.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn parallel_inspection_is_concurrent_and_bounded() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let parallelism = 4;
+        for index in 0..(parallelism * 4) {
+            let key = format!("steam/concurrent-{index}");
+            materialize(
+                root,
+                key.as_bytes(),
+                b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+                b"data",
+            );
+        }
+        let observer = BarrierObserver::new(parallelism);
+        let clock = ManualClock::new();
+        let started = fixed_scan_started();
+        let mut never_cancel = || false;
+        let result = scan_with_runtime(
+            root,
+            started,
+            None,
+            test_config(parallelism, parallelism),
+            &clock,
+            Some(&observer),
+            &mut never_cancel,
+        )
+        .unwrap();
+
+        assert!(!result.cancelled);
+        assert!(observer.max_active.load(Ordering::SeqCst) > 1);
+        assert!(observer.max_active.load(Ordering::SeqCst) <= parallelism);
+        assert_eq!(result.report.coverage.as_ref().unwrap().files_seen, 16);
+        assert_eq!(result.pipeline.scheduled, 16);
+        assert_eq!(result.pipeline.completed, 16);
+        assert_eq!(result.pipeline.merged, 16);
+        assert!(result.pipeline.task_queue_high_water <= parallelism);
+        assert!(result.pipeline.result_queue_high_water <= parallelism);
+        assert!(result.pipeline.outstanding_high_water <= parallelism * 4 + 1);
+    }
+
+    #[test]
+    fn parallel_scan_matches_serial_reference_for_mixed_fixtures() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let started = fixed_scan_started();
+        materialize(
+            root,
+            b"steam/valid-200",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+            b"data",
+        );
+        materialize(
+            root,
+            b"steam/valid-empty",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+            b"",
+        );
+        materialize(
+            root,
+            b"steam/valid-206",
+            b"HTTP/1.1 206 Partial\r\nContent-Range: bytes 0-3/10\r\nContent-Length: 4\r\n\r\n",
+            b"data",
+        );
+        materialize(
+            root,
+            b"steam/short",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n",
+            b"data",
+        );
+        materialize(
+            root,
+            b"steam/overlong",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n",
+            b"data",
+        );
+        materialize(
+            root,
+            b"steam/unsupported",
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n",
+            b"",
+        );
+        materialize(
+            root,
+            b"steam/ambiguous",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n",
+            b"",
+        );
+
+        let zero_digest = u128::from_be_bytes(md5::compute(b"steam/zero").0);
+        let zero_path = cache_utils::cache_path_for_digest(root, zero_digest);
+        std::fs::create_dir_all(zero_path.parent().unwrap()).unwrap();
+        std::fs::write(&zero_path, b"").unwrap();
+
+        let truncated_digest = u128::from_be_bytes(md5::compute(b"steam/truncated").0);
+        let truncated_path = cache_utils::cache_path_for_digest(root, truncated_digest);
+        std::fs::create_dir_all(truncated_path.parent().unwrap()).unwrap();
+        std::fs::write(&truncated_path, [0u8; 16]).unwrap();
+
+        let (bad_crc_path, _) = materialize(
+            root,
+            b"steam/bad-crc",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+            b"",
+        );
+        let mut bad_crc = std::fs::read(&bad_crc_path).unwrap();
+        put_u32(&mut bad_crc, Layout::linux_x86_64().crc32, 0);
+        std::fs::write(&bad_crc_path, bad_crc).unwrap();
+
+        let (mismatch_bytes, _) = fixture(
+            b"steam/path-key-source",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+            b"",
+        );
+        let mismatch_digest = u128::from_be_bytes(md5::compute(b"steam/path-key-target").0);
+        let mismatch_path = cache_utils::cache_path_for_digest(root, mismatch_digest);
+        std::fs::create_dir_all(mismatch_path.parent().unwrap()).unwrap();
+        std::fs::write(mismatch_path, mismatch_bytes).unwrap();
+        let (recent_path, _) = materialize(
+            root,
+            b"steam/recent",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+            b"",
+        );
+        let recent_file = OpenOptions::new().write(true).open(recent_path).unwrap();
+        recent_file
+            .set_times(
+                std::fs::FileTimes::new().set_modified(
+                    SystemTime::from(started)
+                        .checked_sub(Duration::from_secs(30))
+                        .unwrap(),
+                ),
+            )
+            .unwrap();
+        std::fs::write(root.join("foreign-entry"), b"ignored").unwrap();
+
+        let serial = serial_reference(root, started, Layout::linux_x86_64());
+        let clock = ManualClock::new();
+        let mut never_cancel = || false;
+        let parallel = scan_with_runtime(
+            root,
+            started,
+            None,
+            test_config(4, 4),
+            &clock,
+            None,
+            &mut never_cancel,
+        )
+        .unwrap();
+        assert_eq!(parallel.report, serial);
+    }
+
+    struct CancellationObserver {
+        active: AtomicUsize,
+        completed: AtomicUsize,
+        cancellation_seen: AtomicBool,
+        scheduled_after_cancellation: AtomicUsize,
+        released: Mutex<bool>,
+        release_signal: Condvar,
+    }
+
+    impl CancellationObserver {
+        fn new() -> Self {
+            Self {
+                active: AtomicUsize::new(0),
+                completed: AtomicUsize::new(0),
+                cancellation_seen: AtomicBool::new(false),
+                scheduled_after_cancellation: AtomicUsize::new(0),
+                released: Mutex::new(false),
+                release_signal: Condvar::new(),
+            }
+        }
+    }
+
+    impl InspectionObserver for CancellationObserver {
+        fn task_scheduled(&self, _path: &Path) {
+            if self.cancellation_seen.load(Ordering::SeqCst) {
+                self.scheduled_after_cancellation
+                    .fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        fn inspection_started(&self, _path: &Path) {
+            self.active.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn inspection_wait(&self, _path: &Path) {
+            let mut released = self.released.lock().unwrap();
+            while !*released {
+                released = self.release_signal.wait(released).unwrap();
+            }
+        }
+
+        fn inspection_completed(&self, _path: &Path, _inspection: &Result<Inspection>) {
+            self.completed.fetch_add(1, Ordering::SeqCst);
+            self.active.fetch_sub(1, Ordering::SeqCst);
+        }
+
+        fn cancellation_observed(&self) {
+            self.cancellation_seen.store(true, Ordering::SeqCst);
+            let mut released = self.released.lock().unwrap();
+            *released = true;
+            self.release_signal.notify_all();
+        }
+    }
+
+    #[test]
+    fn parallel_scan_cancellation_stops_scheduling_and_drains_workers() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let progress_path = temp.path().join("progress.json");
+        let parallelism = 4;
+        for index in 0..64 {
+            let key = format!("steam/cancel-{index}");
+            materialize(
+                &root,
+                key.as_bytes(),
+                b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+                b"data",
+            );
+        }
+        let observer = CancellationObserver::new();
+        let clock = ManualClock::new();
+        let mut cancel_when_workers_are_held = || {
+            observer.active.load(Ordering::SeqCst) == parallelism
+                && !observer.cancellation_seen.load(Ordering::SeqCst)
+        };
+        let result = scan_with_runtime(
+            &root,
+            fixed_scan_started(),
+            Some(&progress_path),
+            test_config(parallelism, parallelism),
+            &clock,
+            Some(&observer),
+            &mut cancel_when_workers_are_held,
+        )
+        .unwrap();
+
+        assert!(result.cancelled);
+        assert!(observer.cancellation_seen.load(Ordering::SeqCst));
+        assert_eq!(
+            observer.scheduled_after_cancellation.load(Ordering::SeqCst),
+            0
+        );
+        assert_eq!(observer.active.load(Ordering::SeqCst), 0);
+        assert_eq!(result.pipeline.completed, result.pipeline.merged);
+        assert_eq!(
+            result.pipeline.completed,
+            observer.completed.load(Ordering::SeqCst)
+        );
+        assert!(result.pipeline.scheduled >= result.pipeline.completed);
+        assert!(result.pipeline.completed <= parallelism);
+        let progress: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(progress_path).unwrap()).unwrap();
+        assert_eq!(progress["status"], "cancelled");
+        assert_eq!(
+            progress["filesProcessed"].as_u64(),
+            Some(result.pipeline.merged as u64)
+        );
+        assert!(progress["context"].get("etaSeconds").is_none());
+    }
+
+    struct PathologicalObserver {
+        mutate_after_read: PathBuf,
+        disappear_before_open: PathBuf,
+        mutated: AtomicBool,
+        disappeared: AtomicBool,
+        max_bytes_read: AtomicUsize,
+    }
+
+    impl InspectionObserver for PathologicalObserver {
+        fn inspection_wait(&self, path: &Path) {
+            if path == self.disappear_before_open && !self.disappeared.swap(true, Ordering::SeqCst)
+            {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+
+        fn inspection_after_read(&self, path: &Path) {
+            if path == self.mutate_after_read && !self.mutated.swap(true, Ordering::SeqCst) {
+                let mut file = OpenOptions::new().append(true).open(path).unwrap();
+                use std::io::Write;
+                file.write_all(b"changed").unwrap();
+                file.flush().unwrap();
+            }
+        }
+
+        fn inspection_completed(&self, _path: &Path, inspection: &Result<Inspection>) {
+            if let Ok(inspection) = inspection {
+                update_max(
+                    &self.max_bytes_read,
+                    usize::try_from(inspection.bytes_read).unwrap_or(usize::MAX),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn parallel_scan_pathological_entries_remain_bounded_typed_outcomes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let payload = vec![7u8; 1024 * 1024];
+        let headers = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+            payload.len()
+        );
+        materialize(&root, b"steam/million", headers.as_bytes(), &payload);
+
+        let (tiny_offset, _) = materialize(
+            &root,
+            b"steam/tiny-offset",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+            b"data",
+        );
+        let mut bytes = std::fs::read(&tiny_offset).unwrap();
+        put_u16(&mut bytes, Layout::linux_x86_64().body_start, 1);
+        std::fs::write(&tiny_offset, bytes).unwrap();
+
+        let empty_digest = u128::from_be_bytes(md5::compute(b"steam/pathological-empty").0);
+        let empty_path = cache_utils::cache_path_for_digest(&root, empty_digest);
+        std::fs::create_dir_all(empty_path.parent().unwrap()).unwrap();
+        std::fs::write(empty_path, b"").unwrap();
+
+        let (ambiguous_path, _) = materialize(
+            &root,
+            b"steam/ambiguous-pathological",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nContent-Length: 4\r\n\r\n",
+            b"data",
+        );
+        let (mutate_path, _) = materialize(
+            &root,
+            b"steam/mutate",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+            b"data",
+        );
+        let (disappear_path, _) = materialize(
+            &root,
+            b"steam/disappear",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+            b"data",
+        );
+        std::fs::write(root.join("foreign-shape"), vec![1u8; 1024 * 1024]).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::ffi::CString;
+            use std::os::unix::ffi::OsStrExt;
+            use std::os::unix::fs::symlink;
+            let target = root.join("symlink-target");
+            std::fs::write(&target, b"target").unwrap();
+            let symlink_digest = u128::from_be_bytes(md5::compute(b"steam/symlink-pipeline").0);
+            let symlink_path = cache_utils::cache_path_for_digest(&root, symlink_digest);
+            std::fs::create_dir_all(symlink_path.parent().unwrap()).unwrap();
+            symlink(target, symlink_path).unwrap();
+
+            let fifo_digest = u128::from_be_bytes(md5::compute(b"steam/fifo-pipeline").0);
+            let fifo_path = cache_utils::cache_path_for_digest(&root, fifo_digest);
+            std::fs::create_dir_all(fifo_path.parent().unwrap()).unwrap();
+            let fifo_c = CString::new(fifo_path.as_os_str().as_bytes()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+        }
+
+        let observer = PathologicalObserver {
+            mutate_after_read: mutate_path,
+            disappear_before_open: disappear_path,
+            mutated: AtomicBool::new(false),
+            disappeared: AtomicBool::new(false),
+            max_bytes_read: AtomicUsize::new(0),
+        };
+        let clock = ManualClock::new();
+        let mut never_cancel = || false;
+        let result = scan_with_runtime(
+            &root,
+            fixed_scan_started(),
+            None,
+            test_config(4, 4),
+            &clock,
+            Some(&observer),
+            &mut never_cancel,
+        )
+        .unwrap();
+        let coverage = result.report.coverage.as_ref().unwrap();
+        assert!(observer.max_bytes_read.load(Ordering::SeqCst) <= MAX_PREFIX_BYTES as usize);
+        assert!(
+            coverage
+                .skipped_by_reason
+                .get("changed")
+                .copied()
+                .unwrap_or(0)
+                >= 2
+        );
+        assert_eq!(
+            coverage
+                .skipped_by_reason
+                .get("ambiguous_http_headers")
+                .copied(),
+            Some(1)
+        );
+        #[cfg(unix)]
+        {
+            assert_eq!(coverage.skipped_by_reason.get("symlink").copied(), Some(1));
+            assert_eq!(
+                coverage.skipped_by_reason.get("special_file").copied(),
+                Some(1)
+            );
+        }
+        assert_eq!(result.report.total, 2);
+        assert!(result.report.candidates.iter().all(|candidate| {
+            candidate.exact_paths != [ambiguous_path.display().to_string()]
+                && candidate.exact_paths != [observer.mutate_after_read.display().to_string()]
+                && candidate.exact_paths != [observer.disappear_before_open.display().to_string()]
+        }));
+    }
+
+    #[test]
+    fn parallel_progress_is_time_based_and_rate_eta_are_sane() {
+        let temp = tempfile::tempdir().unwrap();
+        let progress_path = temp.path().join("progress.json");
+        let clock = ManualClock::new();
+        let config = test_config(4, 4);
+        let mut telemetry = InspectionTelemetry::new(clock.elapsed());
+        let mut coverage = StructuralCoverage::default();
+
+        update_progress(
+            Some(&progress_path),
+            "scanning",
+            "scanning",
+            0,
+            10_000,
+            0,
+            &coverage,
+            ProgressDetails {
+                rate: ProgressRate {
+                    elapsed_seconds: 0.0,
+                    files_per_second: Some(0.0),
+                },
+                eta_seconds: None,
+                worker_count: 4,
+                task_queue_capacity: 4,
+                result_queue_capacity: 4,
+            },
+        )
+        .unwrap();
+        let immediate = std::fs::read_to_string(&progress_path).unwrap();
+        let immediate_value: serde_json::Value = serde_json::from_str(&immediate).unwrap();
+        assert_eq!(immediate_value["filesProcessed"], 0);
+        assert_eq!(immediate_value["totalFiles"], 10_000);
+        assert_eq!(immediate_value["percentComplete"], 0.0);
+        assert!(immediate_value["context"].get("etaSeconds").is_none());
+
+        clock.advance(Duration::from_millis(500));
+        assert!(!telemetry.progress_due(clock.elapsed(), config.progress_interval));
+        assert_eq!(std::fs::read_to_string(&progress_path).unwrap(), immediate);
+
+        coverage.files_seen = 1;
+        clock.advance(Duration::from_millis(600));
+        assert!(telemetry.progress_due(clock.elapsed(), config.progress_interval));
+        let details = progress_details(
+            &mut telemetry,
+            clock.elapsed(),
+            coverage.files_seen,
+            10_000,
+            config,
+            true,
+        );
+        update_progress(
+            Some(&progress_path),
+            "scanning",
+            "scanning",
+            coverage.files_seen,
+            10_000,
+            0,
+            &coverage,
+            details,
+        )
+        .unwrap();
+        let below_one_percent: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&progress_path).unwrap()).unwrap();
+        assert!(below_one_percent["percentComplete"].as_f64().unwrap() < 1.0);
+        assert!(below_one_percent["context"]["filesPerSecond"]
+            .as_f64()
+            .unwrap()
+            .is_finite());
+
+        coverage.files_seen = 2;
+        clock.advance(Duration::from_millis(1_100));
+        let details = progress_details(
+            &mut telemetry,
+            clock.elapsed(),
+            coverage.files_seen,
+            10_000,
+            config,
+            true,
+        );
+        assert!(details.rate.files_per_second.unwrap().is_finite());
+        assert!(details.rate.files_per_second.unwrap() >= 0.0);
+        assert!(details.eta_seconds.is_some());
+        update_progress(
+            Some(&progress_path),
+            "completed",
+            "scanning",
+            10_000,
+            10_000,
+            0,
+            &coverage,
+            ProgressDetails {
+                eta_seconds: Some(0),
+                ..details
+            },
+        )
+        .unwrap();
+        let terminal: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&progress_path).unwrap()).unwrap();
+        assert_eq!(terminal["percentComplete"], 100.0);
+        assert_eq!(terminal["context"]["etaSeconds"], 0);
+
+        let enumeration_path = temp.path().join("enumeration.json");
+        update_progress(
+            Some(&enumeration_path),
+            "scanning",
+            "counting",
+            7,
+            0,
+            0,
+            &coverage,
+            ProgressDetails {
+                eta_seconds: Some(999),
+                ..details
+            },
+        )
+        .unwrap();
+        let enumeration: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(enumeration_path).unwrap()).unwrap();
+        assert_eq!(enumeration["context"]["count"], 7);
+        assert_eq!(enumeration["percentComplete"], 0.0);
+        assert!(enumeration["context"].get("etaSeconds").is_none());
+
+        let normalized = StructuralScanConfig {
+            inspection_parallelism: 0,
+            task_queue_capacity: 0,
+            result_queue_capacity: 0,
+            ..config
+        }
+        .normalized();
+        assert_eq!(normalized.inspection_parallelism, 1);
+        assert_eq!(normalized.task_queue_capacity, 1);
+        assert_eq!(normalized.result_queue_capacity, 1);
+    }
+
+    struct FirstWaveObserver {
+        parties: usize,
+        arrivals: AtomicUsize,
+        active: AtomicUsize,
+        max_active: AtomicUsize,
+        released: Mutex<bool>,
+        release_signal: Condvar,
+    }
+
+    impl FirstWaveObserver {
+        fn new(parties: usize) -> Self {
+            Self {
+                parties,
+                arrivals: AtomicUsize::new(0),
+                active: AtomicUsize::new(0),
+                max_active: AtomicUsize::new(0),
+                released: Mutex::new(false),
+                release_signal: Condvar::new(),
+            }
+        }
+    }
+
+    impl InspectionObserver for FirstWaveObserver {
+        fn inspection_started(&self, _path: &Path) {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            update_max(&self.max_active, active);
+        }
+
+        fn inspection_wait(&self, _path: &Path) {
+            let ordinal = self.arrivals.fetch_add(1, Ordering::SeqCst);
+            if ordinal >= self.parties {
+                return;
+            }
+            let mut released = self.released.lock().unwrap();
+            if ordinal + 1 == self.parties {
+                *released = true;
+                self.release_signal.notify_all();
+            }
+            while !*released {
+                released = self.release_signal.wait(released).unwrap();
+            }
+        }
+
+        fn inspection_completed(&self, _path: &Path, _inspection: &Result<Inspection>) {
+            self.active.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn linux_rss_kib() -> (Option<u64>, Option<u64>) {
+        let Ok(status) = std::fs::read_to_string("/proc/self/status") else {
+            return (None, None);
+        };
+        let parse = |name: &str| {
+            status.lines().find_map(|line| {
+                let value = line.strip_prefix(name)?.trim();
+                value.split_ascii_whitespace().next()?.parse::<u64>().ok()
+            })
+        };
+        (parse("VmRSS:"), parse("VmHWM:"))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn with_rss_monitor<T>(
+        operation: impl FnOnce() -> T,
+    ) -> (T, Option<u64>, Option<u64>, Option<u64>) {
+        let (baseline, _) = linux_rss_kib();
+        let peak = Arc::new(AtomicU64::new(baseline.unwrap_or(0)));
+        let stop = Arc::new(AtomicBool::new(false));
+        let monitor_peak = Arc::clone(&peak);
+        let monitor_stop = Arc::clone(&stop);
+        let monitor = std::thread::spawn(move || {
+            while !monitor_stop.load(Ordering::Acquire) {
+                if let (Some(rss), _) = linux_rss_kib() {
+                    let mut current = monitor_peak.load(Ordering::Relaxed);
+                    while rss > current {
+                        match monitor_peak.compare_exchange_weak(
+                            current,
+                            rss,
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                        ) {
+                            Ok(_) => break,
+                            Err(actual) => current = actual,
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let result = operation();
+        stop.store(true, Ordering::Release);
+        monitor.join().unwrap();
+        let (_, high_water) = linux_rss_kib();
+        (
+            result,
+            baseline,
+            Some(peak.load(Ordering::Relaxed)),
+            high_water,
+        )
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn with_rss_monitor<T>(
+        operation: impl FnOnce() -> T,
+    ) -> (T, Option<u64>, Option<u64>, Option<u64>) {
+        (operation(), None, None, None)
+    }
+
+    #[test]
+    #[ignore]
+    fn diagnostic_parallel_structural_scan_throughput_and_rss() {
+        let fixture_count = std::env::var("STRUCTURAL_BENCH_N")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(20_000)
+            .max(1);
+        let requested_threads = std::env::var("STRUCTURAL_BENCH_THREADS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(8)
+            .max(1);
+        let worker_count = requested_threads.min(fixture_count);
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+
+        let fixture_started = Instant::now();
+        for index in 0..fixture_count {
+            let key = format!("steam/benchmark-{index:08}");
+            materialize(
+                root,
+                key.as_bytes(),
+                b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+                b"data",
+            );
+        }
+        let fixture_elapsed = fixture_started.elapsed();
+
+        let count_started = Instant::now();
+        let counted = count_walk(root)
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| cache_utils::strict_cache_file_digest(root, &entry.path()).is_some())
+            .count();
+        let count_elapsed = count_started.elapsed();
+        assert_eq!(counted, fixture_count);
+
+        let scan_started_utc = fixed_scan_started();
+        let now = SystemTime::from(scan_started_utc);
+        let serial_started = Instant::now();
+        let mut serial_coverage = StructuralCoverage::default();
+        let mut serial_candidates = Vec::new();
+        let mut warning_count = 0usize;
+        for entry in inspection_walk(root) {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let Some(path_digest) = cache_utils::strict_cache_file_digest(root, &path) else {
+                continue;
+            };
+            let inspection = inspect_path_with_layout(
+                root,
+                &path,
+                path_digest,
+                now,
+                scan_started_utc,
+                Layout::linux_x86_64(),
+            );
+            merge_inspection_result(
+                InspectionResult { path, inspection },
+                &mut serial_coverage,
+                &mut serial_candidates,
+                &mut warning_count,
+            );
+        }
+        let serial_elapsed = serial_started.elapsed();
+        assert_eq!(serial_coverage.files_seen, fixture_count);
+        assert_eq!(serial_coverage.consistent, fixture_count);
+        assert!(serial_candidates.is_empty());
+
+        let observer = FirstWaveObserver::new(worker_count);
+        let config = test_config(worker_count, worker_count);
+        let clock = RealScanClock::new();
+        let mut parallel_coverage = StructuralCoverage::default();
+        let mut parallel_candidates = Vec::new();
+        let mut never_cancel = || false;
+        let parallel_started = Instant::now();
+        let (parallel_result, rss_baseline, rss_peak, rss_high_water) = with_rss_monitor(|| {
+            run_parallel_inspection(
+                root,
+                scan_started_utc,
+                None,
+                fixture_count,
+                &mut parallel_coverage,
+                &mut parallel_candidates,
+                config,
+                &clock,
+                Some(&observer),
+                &mut never_cancel,
+            )
+        });
+        let parallel_elapsed = parallel_started.elapsed();
+        let (cancelled, telemetry) = parallel_result.unwrap();
+        assert!(!cancelled);
+        assert_eq!(parallel_coverage, serial_coverage);
+        assert!(parallel_candidates.is_empty());
+        assert!(telemetry.task_queue_high_water <= worker_count);
+        assert!(telemetry.result_queue_high_water <= worker_count);
+        assert!(telemetry.outstanding_high_water <= worker_count * 4 + 1);
+        assert_eq!(telemetry.scheduled, fixture_count);
+        assert_eq!(telemetry.completed, fixture_count);
+        assert_eq!(telemetry.merged, fixture_count);
+        assert!(observer.max_active.load(Ordering::SeqCst) <= worker_count);
+        if worker_count > 1 {
+            assert!(observer.max_active.load(Ordering::SeqCst) > 1);
+        }
+
+        let count_rate = fixture_count as f64 / count_elapsed.as_secs_f64();
+        let serial_rate = fixture_count as f64 / serial_elapsed.as_secs_f64();
+        let parallel_rate = fixture_count as f64 / parallel_elapsed.as_secs_f64();
+        let speedup = serial_elapsed.as_secs_f64() / parallel_elapsed.as_secs_f64();
+        eprintln!(
+            "[structural-bench] fixtures={} creation_seconds={:.3} count_seconds={:.3} count_files_per_second={:.1}",
+            fixture_count,
+            fixture_elapsed.as_secs_f64(),
+            count_elapsed.as_secs_f64(),
+            count_rate
+        );
+        eprintln!(
+            "[structural-bench] serial_seconds={:.3} serial_files_per_second={:.1} parallel_seconds={:.3} parallel_files_per_second={:.1} speedup={:.2} workers={}",
+            serial_elapsed.as_secs_f64(),
+            serial_rate,
+            parallel_elapsed.as_secs_f64(),
+            parallel_rate,
+            speedup,
+            worker_count
+        );
+        eprintln!(
+            "[structural-bench] extrapolation_parallel_minutes_2m={:.1} extrapolation_parallel_minutes_4m={:.1} task_high_water={} result_high_water={} outstanding_high_water={}",
+            2_000_000.0 / parallel_rate / 60.0,
+            4_000_000.0 / parallel_rate / 60.0,
+            telemetry.task_queue_high_water,
+            telemetry.result_queue_high_water,
+            telemetry.outstanding_high_water
+        );
+        eprintln!(
+            "[structural-bench] rss_baseline_kib={} rss_peak_kib={} rss_delta_kib={} vmhwm_kib={}",
+            rss_baseline.map_or_else(|| "unavailable".to_string(), |value| value.to_string()),
+            rss_peak.map_or_else(|| "unavailable".to_string(), |value| value.to_string()),
+            rss_baseline
+                .zip(rss_peak)
+                .map(|(baseline, peak)| peak.saturating_sub(baseline))
+                .map_or_else(|| "unavailable".to_string(), |value| value.to_string()),
+            rss_high_water.map_or_else(|| "unavailable".to_string(), |value| value.to_string())
+        );
     }
 
     #[test]

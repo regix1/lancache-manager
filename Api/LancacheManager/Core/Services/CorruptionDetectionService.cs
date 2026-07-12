@@ -88,13 +88,26 @@ public class CorruptionDetectionService
                 LookbackDays = lookbackDays,
                 DetectionMethod = detectionMethod
             };
+            var startingStageKey = detectionMethod == CorruptionDetectionMethod.Structural
+                ? "signalr.corruptionDetect.startingStructural"
+                : "signalr.corruptionDetect.startingRepeatedMiss";
+            metadata.CaptureProgress(
+                startingStageKey,
+                0,
+                context: null,
+                authoritativeContext: new Dictionary<string, object?>
+                {
+                    ["detectionMethod"] = detectionMethod.ToWireString()
+                });
             Guid operationId = Guid.Empty;
             operationId = _operationTracker.RegisterOperation(
                 OperationType.CorruptionDetection,
                 "Corruption Detection",
                 cts,
                 metadata,
+                onTerminalCleanup: metadata.ClearProgress,
                 onTerminalEmit: info => EmitTerminalAsync(info, operationId, metadata));
+            _operationTracker.UpdateProgress(operationId, 0, startingStageKey);
 
             _operationStateService.SaveState($"{_operationStateKey}_{operationId}", new OperationState
             {
@@ -107,7 +120,7 @@ public class CorruptionDetectionService
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
             {
                 OperationId = operationId,
-                StageKey = "signalr.corruptionDetect.starting",
+                StageKey = startingStageKey,
                 DetectionMethod = detectionMethod.ToWireString(),
                 Context = new Dictionary<string, object?>
                 {
@@ -117,14 +130,15 @@ public class CorruptionDetectionService
 
             var startedAtUtc = CaptureScanStartedUtc();
             var token = cts.Token;
-            _ = Task.Run(
-                () => RunDetectionAsync(
+            _ = StartDetectionWorker(
+                workerToken => RunDetectionAsync(
                     operationId,
                     threshold,
                     lookbackDays,
                     detectionMethod,
+                    metadata,
                     startedAtUtc,
-                    token),
+                    workerToken),
                 token);
 
             return operationId;
@@ -134,6 +148,15 @@ public class CorruptionDetectionService
             _startLock.Release();
         }
     }
+
+    // Do not pass the operation token to Task.Run itself. If cancellation wins during the
+    // asynchronous start notification, Task.Run(token) suppresses the delegate entirely and the
+    // registered operation never reaches its cancellation cleanup. The worker receives the same
+    // token and owns the terminal transition.
+    internal static Task StartDetectionWorker(
+        Func<CancellationToken, Task> worker,
+        CancellationToken cancellationToken) =>
+        Task.Run(() => worker(cancellationToken));
 
     private Task EmitTerminalAsync(
         OperationTerminalInfo info,
@@ -209,6 +232,7 @@ public class CorruptionDetectionService
         int threshold,
         int lookbackDays,
         CorruptionDetectionMethod detectionMethod,
+        CorruptionDetectionMetrics metadata,
         DateTime startedAtUtc,
         CancellationToken cancellationToken)
     {
@@ -246,6 +270,7 @@ public class CorruptionDetectionService
                     threshold,
                     lookbackDays,
                     detectionMethod,
+                    metadata,
                     scanStartedUtc,
                     datasourceIndex,
                     datasources.Count,
@@ -315,6 +340,7 @@ public class CorruptionDetectionService
         int threshold,
         int lookbackDays,
         CorruptionDetectionMethod detectionMethod,
+        CorruptionDetectionMetrics metadata,
         string scanStartedUtc,
         int datasourceIndex,
         int datasourceCount,
@@ -336,55 +362,49 @@ public class CorruptionDetectionService
             };
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
-            var lastMessage = string.Empty;
-            var lastPercent = 0.0;
-            var lastOverallPercent = datasourceIndex * 100.0 / datasourceCount;
-            const double percentThreshold = 5.0;
-            var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<CorruptionDetectionProgressData>(
-                startInfo,
-                operationId,
-                cancellationToken,
-                progressFile,
-                async progressData =>
-                {
-                    var keyChanged = progressData.StageKey != lastMessage;
-                    var percentChanged = Math.Abs(progressData.PercentComplete - lastPercent) >= percentThreshold;
-                    if (!keyChanged && !percentChanged)
-                    {
-                        return;
-                    }
+            var relay = new CorruptionProgressRelay(
+                metadata,
+                detectionMethod,
+                datasourceName,
+                datasourceIndex,
+                datasourceCount);
+            var startingStageKey = detectionMethod == CorruptionDetectionMethod.Structural
+                ? "signalr.corruptionDetect.startingStructural"
+                : "signalr.corruptionDetect.startingRepeatedMiss";
+            await RelayProgressAsync(relay.Capture(startingStageKey, 0, null, 0, 0));
 
-                    lastMessage = progressData.StageKey ?? string.Empty;
-                    lastPercent = progressData.PercentComplete;
-                    var overallPercent = Math.Max(
-                        lastOverallPercent,
-                        CalculateOverallProgress(
-                            datasourceIndex,
-                            datasourceCount,
-                            progressData.PercentComplete));
-                    lastOverallPercent = overallPercent;
-                    _operationTracker.UpdateProgress(
-                        operationId,
-                        overallPercent,
-                        progressData.StageKey ?? "signalr.corruptionDetect.scanning");
-                    var context = progressData.Context ?? new Dictionary<string, object?>();
-                    context["detectionMethod"] = detectionMethod.ToWireString();
-                    context["datasourceName"] = datasourceName;
-                    await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
+            StructuralStderrObserver? stderrObserver = detectionMethod == CorruptionDetectionMethod.Structural
+                ? new StructuralStderrObserver(_logger, datasourceName)
+                : null;
+            Action<string>? stderrLineObserver = stderrObserver == null ? null : stderrObserver.Observe;
+            ProcessExecutionResult result;
+            try
+            {
+                result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<CorruptionDetectionProgressData>(
+                    startInfo,
+                    operationId,
+                    cancellationToken,
+                    progressFile,
+                    async progressData =>
                     {
-                        OperationId = operationId,
-                        PercentComplete = overallPercent,
-                        Status = OperationStatus.Running,
-                        StageKey = progressData.StageKey,
-                        DetectionMethod = detectionMethod.ToWireString(),
-                        Context = context,
-                        filesProcessed = progressData.FilesProcessed,
-                        totalFiles = progressData.TotalFiles,
-                        currentFile = progressData.CurrentFile,
-                        datasourceName
-                    });
-                },
-                "corruption_manager");
+                        var stageKey = string.IsNullOrWhiteSpace(progressData.StageKey)
+                            ? "signalr.corruptionDetect.scanning"
+                            : progressData.StageKey;
+                        await RelayProgressAsync(relay.Capture(
+                            stageKey,
+                            progressData.PercentComplete,
+                            progressData.Context,
+                            progressData.FilesProcessed,
+                            progressData.TotalFiles));
+                    },
+                    "corruption_manager",
+                    onStderrLine: stderrLineObserver,
+                    maxRetainedStderrChars: stderrObserver == null ? null : 256 * 1024);
+            }
+            finally
+            {
+                stderrObserver?.Complete();
+            }
 
             if (!string.IsNullOrEmpty(result.Error))
             {
@@ -406,6 +426,35 @@ public class CorruptionDetectionService
                 detectionMethod,
                 scanStartedUtc);
             return report;
+
+            async Task RelayProgressAsync(CorruptionRelayDecision decision)
+            {
+                if (decision.IsNew)
+                {
+                    _operationTracker.UpdateProgress(
+                        operationId,
+                        decision.Snapshot.PercentComplete,
+                        decision.Snapshot.StageKey);
+                }
+
+                if (!decision.ShouldEmit)
+                {
+                    return;
+                }
+
+                await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
+                {
+                    OperationId = operationId,
+                    decision.Snapshot.PercentComplete,
+                    Status = OperationStatus.Running,
+                    decision.Snapshot.StageKey,
+                    DetectionMethod = detectionMethod.ToWireString(),
+                    decision.Snapshot.Context,
+                    FilesProcessed = decision.Snapshot.Context["filesProcessed"],
+                    TotalFiles = decision.Snapshot.Context["totalFiles"],
+                    DatasourceName = datasourceName
+                });
+            }
         }
         finally
         {
@@ -1545,8 +1594,8 @@ public class CorruptionDetectionProgressData
     [JsonPropertyName("context")]
     public Dictionary<string, object?>? Context { get; set; }
 
-    public int FilesProcessed { get; set; }
-    public int TotalFiles { get; set; }
+    public long FilesProcessed { get; set; }
+    public long TotalFiles { get; set; }
     public double PercentComplete { get; set; }
     public string? CurrentFile { get; set; }
     public string? Timestamp { get; set; }

@@ -6,6 +6,9 @@ namespace LancacheManager.Models;
 /// </summary>
 public class CorruptionDetectionMetrics
 {
+    private OperationProgressSnapshot? _currentProgress;
+    private long _progressRevision;
+
     public Guid? ScanId { get; set; }
 
     public int Threshold { get; set; }
@@ -27,5 +30,25 @@ public class CorruptionDetectionMetrics
     /// Timestamp of the last completed corruption detection.
     /// </summary>
     public DateTime? LastDetectionTime { get; set; }
+
+    public OperationProgressSnapshot? CurrentProgress => Volatile.Read(ref _currentProgress);
+
+    public OperationProgressSnapshot CaptureProgress(
+        string stageKey,
+        double percentComplete,
+        IReadOnlyDictionary<string, object?>? context,
+        IReadOnlyDictionary<string, object?>? authoritativeContext = null)
+    {
+        var snapshot = OperationProgressSnapshot.Create(
+            stageKey,
+            percentComplete,
+            context,
+            Interlocked.Increment(ref _progressRevision),
+            authoritativeContext);
+        Volatile.Write(ref _currentProgress, snapshot);
+        return snapshot;
+    }
+
+    public void ClearProgress() => Volatile.Write(ref _currentProgress, null);
 
 }

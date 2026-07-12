@@ -32,8 +32,13 @@ public class DatabaseResetStatusResponse
     public bool IsProcessing { get; set; }
     public OperationStatus? Status { get; set; }
     public string? Message { get; set; }
-    public int? PercentComplete { get; set; }
+    public double? PercentComplete { get; set; }
     public Guid? OperationId { get; set; }
+    public string? StageKey { get; set; }
+    public IReadOnlyDictionary<string, object?> Context { get; set; } = new Dictionary<string, object?>();
+    public int? TablesCleared { get; set; }
+    public int? TotalTables { get; set; }
+    public int? FilesDeleted { get; set; }
 }
 
 /// <summary>
@@ -46,6 +51,8 @@ public class DataImportStatusResponse
     public string? Message { get; set; }
     public double? PercentComplete { get; set; }
     public Guid? OperationId { get; set; }
+    public string? StageKey { get; set; }
+    public IReadOnlyDictionary<string, object?> Context { get; set; } = new Dictionary<string, object?>();
 }
 
 /// <summary>

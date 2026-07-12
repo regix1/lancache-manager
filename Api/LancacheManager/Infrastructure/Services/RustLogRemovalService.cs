@@ -26,6 +26,9 @@ public class RustLogRemovalService
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private Guid? _currentTrackerOperationId;
     private TaskCompletionSource<Guid>? _operationRegisteredTcs;
+    private LogRemovalCurrentProgress? _currentProgress;
+    private long _progressRevision;
+    private readonly ProgressEmitGate _progressEmitGate = new();
 
     // Completion payload captured BY VALUE just before each CompleteOperation call so the
     // onTerminalEmit closure (fired exactly once inside CompleteOperation) can build the typed
@@ -94,44 +97,22 @@ public class RustLogRemovalService
     /// <summary>
     /// Gets the removal status including isProcessing and service fields
     /// </summary>
-    public object GetRemovalStatus()
+    public LogRemovalStatusResponse GetRemovalStatus()
     {
-        ProgressData? progress = null;
-        var datasourceName = CurrentDatasource;
-        if (datasourceName != null)
+        var progress = Volatile.Read(ref _currentProgress);
+        return new LogRemovalStatusResponse
         {
-            try
-            {
-                var operationsDir = _pathResolver.GetOperationsDirectory();
-                var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");
-                if (File.Exists(progressPath))
-                {
-                    var json = File.ReadAllText(progressPath);
-                    progress = System.Text.Json.JsonSerializer.Deserialize<ProgressData>(json);
-                }
-            }
-            catch
-            {
-                // Ignore read errors - file may be being written
-            }
-        }
-
-        // Return object with isProcessing and service fields that frontend expects
-        return new
-        {
-            isProcessing = IsProcessing,
-            service = CurrentService,
-            operationId = _currentTrackerOperationId,
-            filesProcessed = progress?.FilesProcessed ?? 0,
-            linesProcessed = progress?.LinesProcessed ?? 0,
-            linesRemoved = progress?.LinesRemoved ?? 0,
-            percentComplete = progress?.PercentComplete ?? 0,
-            status = progress?.Status ?? (IsProcessing ? "starting" : "idle"),
-            stageKey = progress?.StageKey ?? "",
-            // Recovery renders i18n.t(stageKey, context); stage templates like
-            // "signalr.logRemoval.removing" interpolate {{service}}, so the
-            // context must carry it or the placeholder renders literally.
-            context = new Dictionary<string, object?> { ["service"] = CurrentService }
+            IsProcessing = IsProcessing,
+            Service = CurrentService,
+            Datasource = progress?.Datasource,
+            OperationId = _currentTrackerOperationId,
+            FilesProcessed = progress?.FilesProcessed ?? 0,
+            LinesProcessed = progress?.LinesProcessed ?? 0,
+            LinesRemoved = progress?.LinesRemoved ?? 0,
+            PercentComplete = progress?.Snapshot.PercentComplete,
+            Status = IsProcessing ? OperationStatus.Running : null,
+            StageKey = progress?.Snapshot.StageKey,
+            Context = progress?.Snapshot.Context ?? new Dictionary<string, object?>()
         };
     }
 
@@ -173,6 +154,13 @@ public class RustLogRemovalService
         int DatabaseRecordsDeleted = 0,
         string? Datasource = null,
         string? StageKey = null);
+
+    private sealed record LogRemovalCurrentProgress(
+        OperationProgressSnapshot Snapshot,
+        int FilesProcessed,
+        long LinesProcessed,
+        long LinesRemoved,
+        string? Datasource);
 
     /// <summary>
     /// Builds the onTerminalEmit closure that emits the terminal LogRemovalComplete event EXACTLY
@@ -289,6 +277,7 @@ public class RustLogRemovalService
                 },
                 onTerminalCleanup: () =>
                 {
+                    Volatile.Write(ref _currentProgress, null);
                     CurrentService = null;
                     CurrentDatasource = null;
                     _currentTrackerOperationId = null;
@@ -298,6 +287,19 @@ public class RustLogRemovalService
                 onTerminalEmit: BuildTerminalEmit()
             );
             NotifyOperationRegistered();
+            _progressEmitGate.Reset();
+            var initialProgress = CaptureLogRemovalProgress(
+                "signalr.logRemoval.starting.default",
+                0,
+                new Dictionary<string, object?> { ["service"] = service },
+                0,
+                0,
+                0,
+                datasource: null);
+            _operationTracker.UpdateProgress(
+                _currentTrackerOperationId.Value,
+                initialProgress.Snapshot.PercentComplete,
+                initialProgress.Snapshot.StageKey);
 
             // Seed the completion payload (incl. operation id) so the onTerminalEmit closure always
             // has the service name and sensible default messages even on early/leaked terminal paths.
@@ -350,19 +352,15 @@ public class RustLogRemovalService
                 Context = new Dictionary<string, object?> { ["service"] = service }
             });
 
-            // Send initial progress notification
-            await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
-            {
-                OperationId = _currentTrackerOperationId,
-                PercentComplete = 0.0,
-                Status = OperationStatus.Running,
-                StageKey = "signalr.logRemoval.starting.multi",
-                Context = new Dictionary<string, object?> { ["service"] = service, ["datasourceCount"] = datasources.Count },
-                FilesProcessed = 0,
-                LinesProcessed = 0,
-                LinesRemoved = 0,
-                Service = service
-            });
+            await PublishLogRemovalProgressAsync(
+                "signalr.logRemoval.starting.multi",
+                0,
+                new Dictionary<string, object?> { ["service"] = service, ["datasourceCount"] = datasources.Count },
+                0,
+                0,
+                0,
+                service,
+                datasource: null);
 
             // Process each datasource sequentially
             var totalFilesProcessed = 0;
@@ -423,21 +421,19 @@ public class RustLogRemovalService
                         arguments,
                         Path.GetDirectoryName(rustExecutablePath));
 
-                    await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
-                    {
-                        OperationId = _currentTrackerOperationId,
-                        // Band START for this datasource (bottom of its slice of [0, ceiling]); the inner
-                        // file ticks below fill upward from here so there is no jump at the boundary.
-                        PercentComplete = (double)datasourcesProcessed / datasources.Count * MultiDatasourceFileCeiling,
-                        Status = OperationStatus.Running,
-                        StageKey = "signalr.logRemoval.processingDatasource",
-                        Context = new Dictionary<string, object?> { ["service"] = service, ["datasourceName"] = datasource.Name },
-                        FilesProcessed = totalFilesProcessed,
-                        LinesProcessed = totalLinesProcessed,
-                        LinesRemoved = totalLinesRemoved,
-                        Service = service,
-                        Datasource = datasource.Name
-                    });
+                    await PublishLogRemovalProgressAsync(
+                        "signalr.logRemoval.processingDatasource",
+                        (double)datasourcesProcessed / datasources.Count * MultiDatasourceFileCeiling,
+                        new Dictionary<string, object?>
+                        {
+                            ["service"] = service,
+                            ["datasourceName"] = datasource.Name
+                        },
+                        totalFilesProcessed,
+                        totalLinesProcessed,
+                        totalLinesRemoved,
+                        service,
+                        datasource.Name);
 
                     // Hybrid transport (mirrors CacheClearingService): the stdout progress event is a
                     // zero-latency wake-up; log_service_manager.rs's progress-file DTO is unchanged, so
@@ -457,7 +453,16 @@ public class RustLogRemovalService
                             // Scale this datasource's inner 0-100% into its band so the outer card moves
                             // smoothly across datasources instead of jumping at each boundary. The bands
                             // fill [0, MultiDatasourceFileCeiling]; DB cleanup owns the remaining top slice.
-                            await SendProgressAsync(progressData, service, datasource.Name, datasourcesProcessed, datasources.Count, MultiDatasourceFileCeiling);
+                            await SendProgressAsync(
+                                progressData,
+                                service,
+                                datasource.Name,
+                                totalFilesProcessed,
+                                totalLinesProcessed,
+                                totalLinesRemoved,
+                                datasourcesProcessed,
+                                datasources.Count,
+                                MultiDatasourceFileCeiling);
                         },
                         processLabel: "log_removal");
 
@@ -540,7 +545,11 @@ public class RustLogRemovalService
                 await _nginxLogRotationService.ReopenNginxLogsAsync();
 
                 // Clean up database records for this service
-                var dbCleanupResult = await CleanupDbRecordsAsync(service);
+                var dbCleanupResult = await CleanupDbRecordsAsync(
+                    service,
+                    totalFilesProcessed,
+                    totalLinesProcessed,
+                    totalLinesRemoved);
 
                 // Build completion message + capture final metrics for the onTerminalEmit closure.
                 var logMessage = $"Successfully removed {service} entries from {datasourcesProcessed} datasource(s)";
@@ -665,6 +674,7 @@ public class RustLogRemovalService
             }
 
             IsProcessing = false;
+            Volatile.Write(ref _currentProgress, null);
             CurrentService = null;
             CurrentDatasource = null;
             _currentTrackerOperationId = null;
@@ -738,6 +748,7 @@ public class RustLogRemovalService
                 },
                 onTerminalCleanup: () =>
                 {
+                    Volatile.Write(ref _currentProgress, null);
                     CurrentService = null;
                     CurrentDatasource = null;
                     _currentTrackerOperationId = null;
@@ -747,6 +758,23 @@ public class RustLogRemovalService
                 onTerminalEmit: BuildTerminalEmit()
             );
             NotifyOperationRegistered();
+            _progressEmitGate.Reset();
+            var initialProgress = CaptureLogRemovalProgress(
+                "signalr.logRemoval.starting.single",
+                0,
+                new Dictionary<string, object?>
+                {
+                    ["service"] = service,
+                    ["datasourceName"] = datasourceName
+                },
+                0,
+                0,
+                0,
+                datasourceName);
+            _operationTracker.UpdateProgress(
+                _currentTrackerOperationId.Value,
+                initialProgress.Snapshot.PercentComplete,
+                initialProgress.Snapshot.StageKey);
 
             // Seed the completion payload (incl. operation id + datasource) so the onTerminalEmit
             // closure always has the service name and sensible default messages.
@@ -788,19 +816,19 @@ public class RustLogRemovalService
                     Context = new Dictionary<string, object?> { ["service"] = service, ["datasourceName"] = datasourceName }
                 });
 
-                await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
-                {
-                    OperationId = _currentTrackerOperationId,
-                    PercentComplete = 0.0,
-                    Status = OperationStatus.Running,
-                    StageKey = "signalr.logRemoval.starting.single",
-                    Context = new Dictionary<string, object?> { ["service"] = service, ["datasourceName"] = datasourceName },
-                    FilesProcessed = 0,
-                    LinesProcessed = 0,
-                    LinesRemoved = 0,
-                    Service = service,
-                    Datasource = datasourceName
-                });
+                await PublishLogRemovalProgressAsync(
+                    "signalr.logRemoval.starting.single",
+                    0,
+                    new Dictionary<string, object?>
+                    {
+                        ["service"] = service,
+                        ["datasourceName"] = datasourceName
+                    },
+                    0,
+                    0,
+                    0,
+                    service,
+                    datasourceName);
 
                 // Hybrid transport (mirrors CacheClearingService): the stdout progress event is a
                 // zero-latency wake-up; the progress-file DTO is unchanged, so the callback still
@@ -817,7 +845,13 @@ public class RustLogRemovalService
                             return;
                         }
 
-                        await SendProgressAsync(progressData, service, datasourceName);
+                        await SendProgressAsync(
+                            progressData,
+                            service,
+                            datasourceName,
+                            completedFiles: 0,
+                            completedLines: 0,
+                            completedRemoved: 0);
                     },
                     processLabel: "log_removal");
 
@@ -939,6 +973,7 @@ public class RustLogRemovalService
             }
 
             IsProcessing = false;
+            Volatile.Write(ref _currentProgress, null);
             CurrentService = null;
             CurrentDatasource = null;
             _currentTrackerOperationId = null;
@@ -970,6 +1005,9 @@ public class RustLogRemovalService
         ProgressData progress,
         string service,
         string datasourceName,
+        int completedFiles,
+        long completedLines,
+        long completedRemoved,
         int datasourceIndex = 0,
         int datasourceCount = 1,
         double ceiling = 100.0)
@@ -996,19 +1034,136 @@ public class RustLogRemovalService
         }
 
         var scaledPercent = ScaleIntoBand(progress.PercentComplete, datasourceIndex, datasourceCount, ceiling);
-
-        return _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
-        {
-            OperationId = _currentTrackerOperationId,
-            PercentComplete = scaledPercent,
-            Status = OperationStatus.Running,
-            StageKey = progress.StageKey,
-            Context = enrichedContext,
+        var cumulative = AddCumulativeCounters(
+            completedFiles,
+            completedLines,
+            completedRemoved,
             progress.FilesProcessed,
             progress.LinesProcessed,
-            progress.LinesRemoved,
+            progress.LinesRemoved);
+        return PublishLogRemovalProgressAsync(
+            string.IsNullOrWhiteSpace(progress.StageKey)
+                ? "signalr.logRemoval.removing"
+                : progress.StageKey,
+            scaledPercent,
+            enrichedContext,
+            cumulative.Files,
+            cumulative.Lines,
+            cumulative.Removed,
+            service,
+            datasourceName);
+    }
+
+    internal static (int Files, long Lines, long Removed) AddCumulativeCounters(
+        int completedFiles,
+        long completedLines,
+        long completedRemoved,
+        int currentFiles,
+        long currentLines,
+        long currentRemoved) =>
+        (
+            checked(completedFiles + currentFiles),
+            checked(completedLines + currentLines),
+            checked(completedRemoved + currentRemoved));
+
+    private LogRemovalCurrentProgress CaptureLogRemovalProgress(
+        string stageKey,
+        double percentComplete,
+        IReadOnlyDictionary<string, object?> context,
+        int filesProcessed,
+        long linesProcessed,
+        long linesRemoved,
+        string? datasource)
+    {
+        var completeContext = new Dictionary<string, object?>(context)
+        {
+            ["filesProcessed"] = filesProcessed,
+            ["linesProcessed"] = linesProcessed,
+            ["linesRemoved"] = linesRemoved
+        };
+        var snapshot = OperationProgressSnapshot.Create(
+            stageKey,
+            percentComplete,
+            completeContext,
+            Interlocked.Increment(ref _progressRevision));
+        var current = new LogRemovalCurrentProgress(
+            snapshot,
+            filesProcessed,
+            linesProcessed,
+            linesRemoved,
+            datasource);
+        Volatile.Write(ref _currentProgress, current);
+        return current;
+    }
+
+    private async Task PublishLogRemovalProgressAsync(
+        string stageKey,
+        double percentComplete,
+        IReadOnlyDictionary<string, object?> context,
+        int filesProcessed,
+        long linesProcessed,
+        long linesRemoved,
+        string service,
+        string? datasource)
+    {
+        var enrichedContext = new Dictionary<string, object?>(context)
+        {
+            ["service"] = service
+        };
+        if (datasource != null)
+        {
+            enrichedContext["datasourceName"] = datasource;
+        }
+
+        var current = Volatile.Read(ref _currentProgress);
+        var candidateContext = new Dictionary<string, object?>(enrichedContext)
+        {
+            ["filesProcessed"] = filesProcessed,
+            ["linesProcessed"] = linesProcessed,
+            ["linesRemoved"] = linesRemoved
+        };
+        var isNew = current == null
+            || current.FilesProcessed != filesProcessed
+            || current.LinesProcessed != linesProcessed
+            || current.LinesRemoved != linesRemoved
+            || !current.Snapshot.HasSameProgress(stageKey, percentComplete, candidateContext);
+        if (isNew)
+        {
+            current = CaptureLogRemovalProgress(
+                stageKey,
+                percentComplete,
+                enrichedContext,
+                filesProcessed,
+                linesProcessed,
+                linesRemoved,
+                datasource);
+            if (_currentTrackerOperationId.HasValue)
+            {
+                _operationTracker.UpdateProgress(
+                    _currentTrackerOperationId.Value,
+                    current.Snapshot.PercentComplete,
+                    current.Snapshot.StageKey);
+            }
+        }
+
+        if (current == null
+            || !_progressEmitGate.ShouldEmit(current.Snapshot.StageKey, current.Snapshot.Revision))
+        {
+            return;
+        }
+
+        await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
+        {
+            OperationId = _currentTrackerOperationId,
+            current.Snapshot.PercentComplete,
+            Status = OperationStatus.Running,
+            current.Snapshot.StageKey,
+            current.Snapshot.Context,
+            current.FilesProcessed,
+            current.LinesProcessed,
+            current.LinesRemoved,
             Service = service,
-            Datasource = datasourceName
+            Datasource = datasource
         });
     }
 
@@ -1018,9 +1173,11 @@ public class RustLogRemovalService
     /// [index/count, (index+1)/count] * ceiling. Guards against a zero/negative count and clamps the
     /// inner percent to 0-100 so a stray Rust value can't push the outer bar outside its band.
     /// </summary>
-    private static double ScaleIntoBand(double innerPercent, int index, int count, double ceiling)
+    internal static double ScaleIntoBand(double innerPercent, int index, int count, double ceiling)
     {
-        var clampedInner = Math.Clamp(innerPercent, 0.0, 100.0);
+        var clampedInner = double.IsFinite(innerPercent)
+            ? Math.Clamp(innerPercent, 0.0, 100.0)
+            : 0.0;
 
         if (count <= 1)
         {
@@ -1126,7 +1283,11 @@ public class RustLogRemovalService
     /// Cleans up database records for a removed service.
     /// Deletes LogEntries, Downloads, and ServiceStats for the specified service.
     /// </summary>
-    private async Task<DatabaseCleanupResult> CleanupDbRecordsAsync(string service)
+    private async Task<DatabaseCleanupResult> CleanupDbRecordsAsync(
+        string service,
+        int filesProcessed,
+        long linesProcessed,
+        long linesRemoved)
     {
         var result = new DatabaseCleanupResult();
 
@@ -1134,19 +1295,15 @@ public class RustLogRemovalService
         {
             _logger.LogInformation("Starting database cleanup for service: {Service}", service);
 
-            // Send progress update
-            await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
-            {
-                OperationId = _currentTrackerOperationId,
-                PercentComplete = 95.0,
-                Status = OperationStatus.Running,
-                StageKey = "signalr.logRemoval.cleaningDatabase",
-                Context = new Dictionary<string, object?> { ["service"] = service },
-                FilesProcessed = 0,
-                LinesProcessed = 0,
-                LinesRemoved = 0,
-                Service = service
-            });
+            await PublishLogRemovalProgressAsync(
+                "signalr.logRemoval.cleaningDatabase",
+                95.0,
+                new Dictionary<string, object?> { ["service"] = service },
+                filesProcessed,
+                linesProcessed,
+                linesRemoved,
+                service,
+                datasource: null);
 
             // Use a new DbContext from factory for this operation
             await using var context = await _dbContextFactory.CreateDbContextAsync();

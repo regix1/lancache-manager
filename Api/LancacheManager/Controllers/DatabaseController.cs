@@ -118,13 +118,28 @@ public class DatabaseController : ControllerBase
         if (_dbService.IsResetOperationRunning)
         {
             var progress = DatabaseService.CurrentResetProgress;
+            if (progress == null)
+            {
+                return Ok(new DatabaseResetStatusResponse
+                {
+                    IsProcessing = true,
+                    Status = OperationStatus.Pending,
+                    OperationId = DatabaseService.CurrentResetOperationId
+                });
+            }
+
             return Ok(new DatabaseResetStatusResponse
             {
                 IsProcessing = progress.IsProcessing,
                 Status = progress.Status,
                 Message = progress.Message,
-                PercentComplete = (int)progress.PercentComplete,
-                OperationId = DatabaseService.CurrentResetOperationId
+                PercentComplete = progress.Snapshot.PercentComplete,
+                OperationId = progress.OperationId,
+                StageKey = progress.Snapshot.StageKey,
+                Context = progress.Snapshot.Context,
+                TablesCleared = progress.TablesCleared,
+                TotalTables = progress.TotalTables,
+                FilesDeleted = progress.FilesDeleted
             });
         }
 

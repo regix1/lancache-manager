@@ -6415,7 +6415,21 @@
       "scanning": "正在扫描缓存损坏证据…",
       "scanningLogs": "正在扫描日志文件，查找仍在磁盘上却反复未命中的缓存文件…",
       "scanningHeaders": "正在检查 nginx 缓存头、有效负载偏移和有效负载长度…",
-      "enumerating": "正在枚举缓存文件…已发现 {{count}} 个",
+      "enumerating": "正在枚举缓存文件…",
+      "metrics": {
+        "found": "已发现 {{count}} 个文件",
+        "checked": "已检查 {{processed}} 个文件",
+        "checkedOfTotal": "已检查 {{processed}} / {{total}} 个文件",
+        "invalid": "发现 {{suspects}} 个无效文件",
+        "rate": "{{filesPerSecond}} 个文件/秒",
+        "remaining": "大约还需 {{eta}}",
+        "duration": {
+          "underMinute": "不到 1 分钟",
+          "minutes": "{{minutes}} 分钟",
+          "hours": "{{hours}} 小时",
+          "hoursMinutes": "{{hours}} 小时 {{minutes}} 分钟"
+        }
+      },
       "complete": "损坏扫描完成：发现 {{count}} 个可疑文件。",
       "completeRepeatedMiss": "重复 MISS 扫描完成：发现 {{count}} 个可疑文件。",
       "completeStructural": "结构扫描完成：发现 {{count}} 个无效缓存文件。",
@@ -6469,6 +6483,7 @@
       "clearedGameDetections": "已清除缓存的游戏检测结果（{{count}} 行）",
       "clearedUserPreferences": "已清除用户偏好设置（{{count}} 行）",
       "clearedUserSessions": "已清除用户会话（{{count}} 行）和 Steam 认证数据",
+      "clearedTable": "已清除 {{tableName}}（{{count}} 行）",
       "sessionsCleared": {
         "logout": "所有用户会话已被清除 - 立即登出"
       },
@@ -6480,6 +6495,7 @@
       }
     },
     "dataImport": {
+      "starting": "正在开始数据导入…",
       "progress": "正在导入: {{processed}}/{{total}} 条记录"
     },
     "depotMapping": {
@@ -6720,6 +6736,7 @@
       }
     },
     "logRemoval": {
+      "recovering": "正在删除日志条目…",
       "progressWithCount": "正在移除 {{service}} 条目（已移除 {{linesRemoved}} 行）...",
       "removing": "正在从日志中移除 {{service}} 条目...",
       "complete": "已从日志中移除 {{service}} 条目。",

@@ -21,7 +21,12 @@
  *   - steam_session_error: custom one-shot error toast (not a lifecycle, no recovery)
  */
 
-import type { NotificationRegistryEntry, NotificationType, SimpleRecoveryConfig } from './types';
+import type {
+  NotificationRegistryEntry,
+  NotificationType,
+  SimpleRecoveryConfig,
+  StageContext
+} from './types';
 import type { OperationStatus } from '@/types/operations';
 import {
   NOTIFICATION_IDS,
@@ -49,6 +54,7 @@ import {
   buildGameDetectionInterpolation,
   formatCorruptionDetectionStartedMessage,
   formatCorruptionDetectionProgressMessage,
+  formatCorruptionProgress,
   formatCorruptionDetectionCompleteMessage,
   formatCorruptionDetectionFailureMessage,
   formatCacheClearProgressMessage,
@@ -59,7 +65,7 @@ import {
   formatDataImportCompleteMessage,
   formatDataImportFailureMessage
 } from './detailMessageFormatters';
-import { translateStageKeyMessage } from '@utils/stageKeyMessage';
+import { translateRecoveryStage, translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { classifyRemovalKind, removalStageKey } from './removalKind';
 import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from '@components/features/management/schedules/scheduled-prefill/constants';
@@ -147,8 +153,6 @@ function prefixCorruptionRemovalService(
 // access these REST property names directly (snake_case/camelCase as the wire
 // delivers them) and must NOT be normalized against the SignalR event shapes.
 
-type StageContext = Record<string, string | number | boolean>;
-
 /** GET /api/logs/process/status - RustLogProcessorService.GetStatus() */
 interface LogProcessingStatusResponse {
   isProcessing: boolean;
@@ -189,11 +193,14 @@ interface DatabaseResetStatusResponse {
   /** Canonical OperationStatus or null (null replaces the legacy `"idle"` sentinel). */
   status?: OperationStatus | null;
   message?: string | null;
-  /** C# `int?` - genuinely nullable */
+  /** C# `double?` - genuinely nullable */
   percentComplete?: number | null;
   stageKey?: string;
   context?: StageContext;
-  operationId?: string;
+  operationId?: string | null;
+  tablesCleared?: number | null;
+  totalTables?: number | null;
+  filesDeleted?: number | null;
 }
 
 /** GET /api/depots/rebuild/progress - SteamPicsProgress */
@@ -213,11 +220,14 @@ interface DepotRebuildProgressResponse {
 /** GET /api/logs/remove/status - RustServiceRemovalService.GetLogRemovalStatus() */
 interface LogRemovalStatusResponse {
   isProcessing: boolean;
-  service: string;
-  operationId?: string;
-  percentComplete: number;
+  service?: string | null;
+  datasource?: string | null;
+  operationId?: string | null;
+  filesProcessed: number;
+  percentComplete?: number | null;
   linesProcessed: number;
   linesRemoved: number;
+  status?: OperationStatus | null;
   stageKey?: string;
   context?: StageContext;
 }
@@ -252,11 +262,11 @@ interface GameDetectionStatusResponse {
  */
 interface CorruptionDetectionStatusResponse {
   isRunning: boolean;
-  operationId?: string;
+  operationId?: string | null;
   detectionMethod?: 'repeated_miss' | 'structural';
-  status?: string;
-  message?: string;
-  startTime?: string;
+  status?: OperationStatus | null;
+  message?: string | null;
+  startTime?: string | null;
   stageKey?: string;
   context?: StageContext;
   percentComplete?: number;
@@ -265,7 +275,7 @@ interface CorruptionDetectionStatusResponse {
 /** GET /api/migration/import/status - DataImportStatusResponse */
 interface DataImportStatusResponse {
   isProcessing: boolean;
-  status?: string | null;
+  status?: OperationStatus | null;
   message?: string | null;
   /** C# `double?` - genuinely nullable */
   percentComplete?: number | null;
@@ -357,6 +367,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     cancelTooltipKey: CANCEL_TOOLTIP.logProcessing,
     recovery: {
       kind: 'simple',
+      translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/logs/process/status',
       isProcessing: (data: LogProcessingStatusResponse) => data.isProcessing && !data.silentMode,
       shouldSkip: (data: LogProcessingStatusResponse) => data.isProcessing && data.silentMode,
@@ -414,16 +425,50 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     cancelTooltipKey: CANCEL_TOOLTIP.logRemoval,
     recovery: {
       kind: 'simple',
+      translationValidation: {
+        kind: 'stageKey',
+        cases: [
+          {
+            stageKey: 'signalr.logRemoval.starting.default',
+            context: { service: 'steam' }
+          },
+          {
+            stageKey: 'signalr.logRemoval.starting.multi',
+            context: { service: 'steam', datasourceCount: 2 }
+          },
+          {
+            stageKey: 'signalr.logRemoval.starting.single',
+            context: { service: 'steam', datasourceName: 'access.log' }
+          },
+          {
+            stageKey: 'signalr.logRemoval.processingDatasource',
+            context: { service: 'steam', datasourceName: 'access.log' }
+          },
+          {
+            stageKey: 'signalr.logRemoval.progressWithCount',
+            context: { service: 'steam', linesRemoved: 12 }
+          },
+          { stageKey: 'signalr.logRemoval.removing', context: { service: 'steam' } },
+          { stageKey: 'signalr.logRemoval.cleaningDatabase', context: { service: 'steam' } }
+        ]
+      },
       apiEndpoint: '/api/logs/remove/status',
       isProcessing: (data: LogRemovalStatusResponse) => data.isProcessing && Boolean(data.service),
       createNotification: (data: LogRemovalStatusResponse) => ({
-        message: data.stageKey
-          ? i18n.t(data.stageKey, data.context ?? {})
-          : i18n.t('signalr.logRemoval.starting.default', { service: data.service }),
-        progress: data.percentComplete,
+        message: translateRecoveryStage(
+          data.stageKey,
+          {
+            ...(data.context ?? {}),
+            ...(data.service != null && { service: data.service }),
+            ...(data.datasource != null && { datasourceName: data.datasource })
+          },
+          'signalr.logRemoval.recovering'
+        ),
+        progress: data.percentComplete ?? 0,
         details: {
-          service: data.service,
-          operationId: data.operationId,
+          service: data.service ?? undefined,
+          operationId: data.operationId ?? undefined,
+          filesProcessed: data.filesProcessed,
           linesProcessed: data.linesProcessed,
           linesRemoved: data.linesRemoved
         }
@@ -666,6 +711,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     cancelTooltipKey: CANCEL_TOOLTIP.gameDetection,
     recovery: {
       kind: 'simple',
+      translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/games/detect/active',
       isProcessing: (data: GameDetectionStatusResponse) =>
         data.isProcessing && data.operation !== null,
@@ -740,22 +786,32 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     cancelTooltipKey: CANCEL_TOOLTIP.corruptionDetection,
     recovery: {
       kind: 'simple',
+      translationValidation: {
+        kind: 'stageKey',
+        cases: [
+          { stageKey: 'signalr.corruptionDetect.startingStructural', context: {} },
+          { stageKey: 'signalr.corruptionDetect.startingRepeatedMiss', context: {} },
+          { stageKey: 'signalr.corruptionDetect.enumerating', context: { count: 0 } },
+          { stageKey: 'signalr.corruptionDetect.scanningHeaders', context: {} },
+          { stageKey: 'signalr.corruptionDetect.scanningLogs', context: {} }
+        ]
+      },
       apiEndpoint: '/api/cache/corruption/detect/status',
       isProcessing: (data: CorruptionDetectionStatusResponse) => data.isRunning,
-      createNotification: (data: CorruptionDetectionStatusResponse) => ({
-        message: data.stageKey
-          ? i18n.t(data.stageKey, data.context ?? {})
-          : i18n.t(
-              data.detectionMethod === 'structural'
-                ? 'signalr.corruptionDetect.scanningHeaders'
-                : 'signalr.corruptionDetect.scanningLogs'
-            ),
-        progress: data.percentComplete ?? 0,
-        details: {
-          operationId: data.operationId,
-          detectionMethod: data.detectionMethod
-        }
-      }),
+      createNotification: (data: CorruptionDetectionStatusResponse) => {
+        const presentation = formatCorruptionProgress(data);
+        return {
+          message: presentation.message,
+          detailMessage: presentation.detailMessage,
+          progress: data.percentComplete ?? 0,
+          progressMode: presentation.progressMode,
+          progressAriaValueText: presentation.progressAriaValueText,
+          details: {
+            operationId: data.operationId ?? undefined,
+            detectionMethod: data.detectionMethod
+          }
+        };
+      },
       staleMessage: 'Corruption detection completed'
     } satisfies SimpleRecoveryConfig<CorruptionDetectionStatusResponse>,
     events: {
@@ -776,6 +832,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getMessage: (event: CorruptionDetectionProgressEvent) =>
         formatCorruptionDetectionProgressMessage(event),
       getProgress: (event: CorruptionDetectionProgressEvent) => event.percentComplete,
+      getDetailMessage: (event: CorruptionDetectionProgressEvent) =>
+        formatCorruptionProgress(event).detailMessage,
+      getProgressMode: (event: CorruptionDetectionProgressEvent) =>
+        formatCorruptionProgress(event).progressMode,
+      getProgressAriaValueText: (event: CorruptionDetectionProgressEvent) =>
+        formatCorruptionProgress(event).progressAriaValueText,
       getStatus: (event: CorruptionDetectionProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CorruptionDetectionProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.corruptionDetect.complete', event.context ?? {}),
@@ -809,16 +871,30 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     cancelTooltipKey: CANCEL_TOOLTIP.cacheClearing,
     recovery: {
       kind: 'simple',
+      translationValidation: {
+        kind: 'stageKey',
+        cases: [
+          { stageKey: 'signalr.cacheClear.initializing', context: {} },
+          { stageKey: 'signalr.cacheClear.starting', context: {} },
+          {
+            stageKey: 'signalr.cacheClear.progress',
+            context: { processed: 1, totalDirs: 2, activeCount: 1 }
+          }
+        ]
+      },
       apiEndpoint: '/api/cache/operations',
       isProcessing: (data: CacheOperationsResponse) =>
         data.isProcessing && Boolean(data.operations?.length),
       createNotification: (data: CacheOperationsResponse) => {
         const activeOp = data.operations?.[0];
         return {
-          message:
-            activeOp?.statusMessage ??
-            (activeOp?.stageKey ? i18n.t(activeOp.stageKey, activeOp.context ?? {}) : undefined) ??
-            i18n.t('signalr.cacheClear.starting'),
+          message: activeOp?.stageKey
+            ? translateRecoveryStage(
+                activeOp.stageKey,
+                activeOp.context,
+                'signalr.cacheClear.starting'
+              )
+            : (activeOp?.statusMessage ?? i18n.t('signalr.cacheClear.starting')),
           progress: activeOp?.percentComplete ?? 0,
           details: {
             operationId: activeOp?.operationId ?? activeOp?.id,
@@ -882,12 +958,20 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     cancelTooltipKey: CANCEL_TOOLTIP.dataImport,
     recovery: {
       kind: 'simple',
+      translationValidation: {
+        kind: 'stageKey',
+        cases: [
+          { stageKey: 'signalr.dataImport.starting', context: {} },
+          {
+            stageKey: 'signalr.dataImport.progress',
+            context: { processed: 10, total: 100 }
+          }
+        ]
+      },
       apiEndpoint: '/api/migration/import/status',
       isProcessing: (data: DataImportStatusResponse) => data.isProcessing,
       createNotification: (data: DataImportStatusResponse) => ({
-        message: data.stageKey
-          ? i18n.t(data.stageKey, data.context ?? {})
-          : i18n.t('signalr.generic.unknown'),
+        message: translateRecoveryStage(data.stageKey, data.context, 'signalr.dataImport.starting'),
         // `??` (not `||`): backend field is `double?` - nullable. `??` preserves 0.
         progress: data.percentComplete ?? 0,
         details: {
@@ -941,13 +1025,33 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     cancelTooltipKey: CANCEL_TOOLTIP.evictionScan,
     recovery: {
       kind: 'simple',
+      translationValidation: {
+        kind: 'stageKey',
+        cases: [
+          { stageKey: 'signalr.evictionScan.scanning', context: {} },
+          { stageKey: 'signalr.evictionScan.scanningFiles', context: { filesFound: 10 } },
+          {
+            stageKey: 'signalr.evictionScan.progress',
+            context: { totalProcessed: 10, totalEstimate: 100 }
+          },
+          { stageKey: 'signalr.evictionScan.finalizing', context: {} },
+          { stageKey: 'signalr.evictionScan.postProcessing', context: {} },
+          { stageKey: 'signalr.evictionScan.refreshingSummary', context: {} },
+          {
+            stageKey: 'signalr.evictionScan.refreshingSummaryCounted',
+            context: { filesChecked: 10, filesTotal: 100 }
+          }
+        ]
+      },
       apiEndpoint: '/api/stats/eviction/scan/status',
       isProcessing: (data: EvictionScanStatusResponse) => data.isProcessing && !data.silentMode,
       shouldSkip: (data: EvictionScanStatusResponse) => data.isProcessing && data.silentMode,
       createNotification: (data: EvictionScanStatusResponse) => ({
-        message: data.stageKey
-          ? i18n.t(data.stageKey, data.context ?? {})
-          : i18n.t('signalr.evictionScan.scanning'),
+        message: translateRecoveryStage(
+          data.stageKey,
+          data.context,
+          'signalr.evictionScan.scanning'
+        ),
         progress: data.percentComplete,
         details: {
           operationId: data.operationId ?? undefined
@@ -999,12 +1103,30 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     cancelTooltipKey: CANCEL_TOOLTIP.cacheSizeScan,
     recovery: {
       kind: 'simple',
+      translationValidation: {
+        kind: 'stageKey',
+        cases: [
+          { stageKey: 'signalr.cacheSizeScan.starting', context: {} },
+          {
+            stageKey: 'signalr.cacheSizeScan.scanning',
+            context: { directoriesScanned: 10, totalDirectories: 100, totalFiles: 1000 }
+          },
+          { stageKey: 'signalr.cacheSizeScan.sizing', context: {} },
+          { stageKey: 'signalr.cacheSizeScan.counting', context: {} },
+          {
+            stageKey: 'signalr.cacheSizeScan.calibrating',
+            context: { step: 1, totalSteps: 3 }
+          }
+        ]
+      },
       apiEndpoint: '/api/cache/size/scan/status',
       isProcessing: (data: CacheSizeScanStatusResponse) => data.isProcessing,
       createNotification: (data: CacheSizeScanStatusResponse) => ({
-        message: data.stageKey
-          ? i18n.t(data.stageKey, data.context ?? {})
-          : i18n.t('signalr.cacheSizeScan.starting'),
+        message: translateRecoveryStage(
+          data.stageKey,
+          data.context,
+          'signalr.cacheSizeScan.starting'
+        ),
         progress: data.percentComplete,
         details: {
           operationId: data.operationId ?? undefined
@@ -1057,6 +1179,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     // This endpoint stale-completes it (or re-seeds a card for a genuinely active run).
     recovery: {
       kind: 'simple',
+      translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/system/schedules/scheduledPrefill/run-status',
       isProcessing: (data: ScheduledPrefillRunStatusResponse) =>
         data.isRunning && data.showNotification !== false,
@@ -1254,6 +1377,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     cancelTooltipKey: CANCEL_TOOLTIP.depotMapping,
     recovery: {
       kind: 'simple',
+      translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/depots/rebuild/progress',
       isProcessing: (data: DepotRebuildProgressResponse) => data.isProcessing,
       createNotification: (data: DepotRebuildProgressResponse) => {
@@ -1290,13 +1414,43 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     cancelTooltipKey: CANCEL_TOOLTIP.databaseReset,
     recovery: {
       kind: 'simple',
+      translationValidation: {
+        kind: 'stageKey',
+        cases: [
+          { stageKey: 'signalr.dbReset.starting', context: {} },
+          { stageKey: 'signalr.dbReset.startingTables', context: { count: 2 } },
+          {
+            stageKey: 'signalr.dbReset.deleting',
+            context: { tableName: 'Downloads', deletedRows: 10, totalRows: 100 }
+          },
+          {
+            stageKey: 'signalr.dbReset.clearingLogEntries',
+            context: { deleted: 10, total: 100, percent: 10 }
+          },
+          { stageKey: 'signalr.dbReset.clearedLogEntries', context: { count: 10 } },
+          { stageKey: 'signalr.dbReset.clearedDownloads', context: { count: 10 } },
+          { stageKey: 'signalr.dbReset.clearedClientStats', context: { count: 10 } },
+          { stageKey: 'signalr.dbReset.clearedServiceStats', context: { count: 10 } },
+          { stageKey: 'signalr.dbReset.clearedDepotMappings', context: { count: 10 } },
+          { stageKey: 'signalr.dbReset.clearedGameDetections', context: { count: 10 } },
+          { stageKey: 'signalr.dbReset.clearedUserPreferences', context: { count: 10 } },
+          { stageKey: 'signalr.dbReset.clearedUserSessions', context: { count: 10 } },
+          {
+            stageKey: 'signalr.dbReset.clearedTable',
+            context: { tableName: 'Events', count: 10 }
+          },
+          { stageKey: 'signalr.dbReset.optimizing', context: {} },
+          { stageKey: 'signalr.dbReset.cleanup', context: {} },
+          { stageKey: 'signalr.dbReset.failedExitCode', context: { exitCode: 1 } },
+          { stageKey: 'signalr.dbReset.failed', context: { errorDetail: 'error' } },
+          { stageKey: 'signalr.dbReset.error.fatal', context: { errorDetail: 'error' } }
+        ]
+      },
       apiEndpoint: '/api/database/reset-status',
       isProcessing: (data: DatabaseResetStatusResponse) => data.isProcessing,
       createNotification: (data: DatabaseResetStatusResponse) => ({
-        message: data.stageKey
-          ? i18n.t(data.stageKey, data.context ?? {})
-          : i18n.t('signalr.dbReset.starting'),
-        // `??` (not `||`): backend field is `int?` - nullable. `??` preserves 0.
+        message: translateRecoveryStage(data.stageKey, data.context, 'signalr.dbReset.starting'),
+        // `??` (not `||`): backend field is `double?` - nullable. `??` preserves 0.
         progress: data.percentComplete ?? 0,
         // Always emit a defined details object so the deferred-cancel watchdog can
         // attach an operationId when it arrives via a later SignalR progress tick.
@@ -1317,6 +1471,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     cancelTooltipKey: CANCEL_TOOLTIP.epicGameMapping,
     recovery: {
       kind: 'simple',
+      translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/epic/game-mappings/schedule',
       isProcessing: (data: EpicGameMappingScheduleResponse) => data.isProcessing,
       createNotification: (data: EpicGameMappingScheduleResponse) => ({

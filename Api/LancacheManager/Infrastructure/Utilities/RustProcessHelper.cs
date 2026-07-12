@@ -242,7 +242,9 @@ public partial class RustProcessHelper
         string? progressFilePath,
         Func<TProgress, Task>? onProgress,
         string processLabel = "rust",
-        int pollIntervalMs = DefaultProgressPollMs) where TProgress : class =>
+        int pollIntervalMs = DefaultProgressPollMs,
+        Action<string>? onStderrLine = null,
+        int? maxRetainedStderrChars = null) where TProgress : class =>
         RunTrackedProcessAsync(
             startInfo,
             operationId,
@@ -252,7 +254,9 @@ public partial class RustProcessHelper
                 cancellationToken,
                 progressFilePath,
                 onProgress,
-                pollIntervalMs),
+                pollIntervalMs,
+                onStderrLine,
+                maxRetainedStderrChars),
             processLabel: processLabel);
 
     private async Task<ProcessExecutionResult> ExecuteWithProgressPollingAsync<TProgress>(
@@ -260,7 +264,9 @@ public partial class RustProcessHelper
         CancellationToken cancellationToken,
         string? progressFilePath,
         Func<TProgress, Task>? onProgress,
-        int pollIntervalMs) where TProgress : class
+        int pollIntervalMs,
+        Action<string>? onStderrLine,
+        int? maxRetainedStderrChars) where TProgress : class
     {
         using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Task? pollTask = null;
@@ -276,8 +282,14 @@ public partial class RustProcessHelper
                 pollCts.Token);
         }
 
-        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        // Stream reads deliberately do not use the operation token. Cancellation kills the child;
+        // EOF then drains diagnostics without abandoning a pipe or deadlocking process shutdown.
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = PumpStderrLinesAsync(
+            process.StandardError,
+            onStderrLine,
+            maxRetainedStderrChars,
+            ex => _logger.LogWarning(ex, "Rust stderr observer threw; continuing to drain the child pipe"));
 
         try
         {
@@ -298,30 +310,80 @@ public partial class RustProcessHelper
         }
         finally
         {
-            // rust-7: when WaitForExitAsync throws on cancel, outputTask/errorTask would otherwise
-            // go unobserved. Observe both and surface any captured stderr at Debug so a killed
-            // binary still leaves diagnostics behind.
-            await LogStderrAsync(outputTask, errorTask);
+            pollCts.Cancel();
+            if (pollTask != null)
+            {
+                try { await pollTask; } catch (OperationCanceledException) { }
+            }
+
+            // A killed child normally closes both pipes immediately. Bound only the exceptional
+            // platform case so cancellation cannot strand the worker forever.
+            await Task.WhenAll(
+                ObserveReaderTaskAsync(outputTask, "stdout"),
+                ObserveReaderTaskAsync(errorTask, "stderr"));
         }
     }
 
-    /// <summary>
-    /// Awaits the stdout/stderr read tasks defensively (swallowing read faults from a killed child)
-    /// and logs any captured stderr at Debug. Used on cancel paths so output tasks are observed.
-    /// </summary>
-    private async Task LogStderrAsync(Task<string> outputTask, Task<string> errorTask)
+    private async Task ObserveReaderTaskAsync(Task<string> task, string streamName)
     {
-        try { await outputTask; } catch { /* read may fault when the child was killed */ }
-
         try
         {
-            var stderr = await errorTask;
-            if (!string.IsNullOrWhiteSpace(stderr))
+            var content = await task.WaitAsync(TimeSpan.FromSeconds(2));
+            if (streamName == "stderr" && !string.IsNullOrWhiteSpace(content))
             {
-                _logger.LogDebug("Cancelled/exited process stderr: {Stderr}", stderr);
+                _logger.LogDebug("Cancelled/exited process stderr: {Stderr}", content);
             }
         }
-        catch { /* read may fault when the child was killed */ }
+        catch (TimeoutException)
+        {
+            _logger.LogDebug("Timed out draining cancelled/exited process {Stream}", streamName);
+            _ = task.ContinueWith(
+                completed => _logger.LogDebug(
+                    completed.Exception,
+                    "Late cancelled/exited process {Stream} drain faulted",
+                    streamName),
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Cancelled/exited process {Stream} drain faulted", streamName);
+        }
+    }
+
+    internal static async Task<string> PumpStderrLinesAsync(
+        TextReader reader,
+        Action<string>? onStderrLine,
+        int? maxRetainedChars,
+        Action<Exception>? onCallbackError = null)
+    {
+        if (maxRetainedChars is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxRetainedChars));
+        }
+
+        var tail = new BoundedTextTail(maxRetainedChars);
+        string? line;
+        while ((line = await reader.ReadLineAsync()) != null)
+        {
+            tail.AppendLine(line);
+            if (onStderrLine == null)
+            {
+                continue;
+            }
+
+            try
+            {
+                onStderrLine(line);
+            }
+            catch (Exception ex)
+            {
+                onCallbackError?.Invoke(ex);
+            }
+        }
+
+        return tail.ToString();
     }
 
     private async Task PollProgressFileLoopAsync<T>(

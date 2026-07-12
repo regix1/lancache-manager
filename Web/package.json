@@ -9,16 +9,17 @@
     "predev": "npm run sync-version",
     "prebuild": "npm run sync-version",
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && npm run validate:notifications -- --dist",
     "preview": "vite preview",
-    "lint": "eslint . && node scripts/validate-stage-keys.mjs && node scripts/validate-badges.mjs",
+    "lint": "eslint . && npm run validate:notifications && node scripts/validate-badges.mjs",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "knip": "knip",
     "knip:fix": "knip --fix --fix-type exports,types --format",
     "setup:hooks": "node scripts/setup-git-hooks.mjs",
     "prepare": "node --input-type=module -e \"import { existsSync } from 'node:fs'; if (existsSync('scripts/setup-git-hooks.mjs')) { await import('./scripts/setup-git-hooks.mjs'); }\"",
-    "validate:stage-keys": "node scripts/validate-stage-keys.mjs"
+    "validate:stage-keys": "node scripts/validate-stage-keys.mjs",
+    "validate:notifications": "node scripts/validate-stage-keys.mjs"
   },
   "dependencies": {
     "@fontsource/outfit": "^5.2.8",

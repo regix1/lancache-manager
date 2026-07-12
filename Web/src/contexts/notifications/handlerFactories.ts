@@ -6,6 +6,7 @@
 
 import type {
   NotificationType,
+  NotificationProgressMode,
   UnifiedNotification,
   SetNotifications,
   ScheduleAutoDismiss,
@@ -453,6 +454,12 @@ interface StatusAwareProgressConfig<T> {
   getMessage: (event: T) => string;
   /** Function to get progress percentage (0-100) */
   getProgress: (event: T) => number;
+  /** Optional secondary metrics shown below the stable primary message. */
+  getDetailMessage?: (event: T) => string | undefined;
+  /** Optional phase-aware progress semantics. */
+  getProgressMode?: (event: T) => NotificationProgressMode | undefined;
+  /** Optional textual equivalent of the progress metrics. */
+  getProgressAriaValueText?: (event: T) => string | undefined;
   /** Function to get the status from the event */
   getStatus: (event: T) => string | undefined;
   /** Message to show on completion (can use event data) */
@@ -621,6 +628,15 @@ export function createStatusAwareProgressHandler<T>(
                 ...n,
                 message: config.getMessage(event),
                 progress: config.getProgress(event),
+                ...(config.getDetailMessage && {
+                  detailMessage: config.getDetailMessage(event)
+                }),
+                ...(config.getProgressMode && {
+                  progressMode: config.getProgressMode(event)
+                }),
+                ...(config.getProgressAriaValueText && {
+                  progressAriaValueText: config.getProgressAriaValueText(event)
+                }),
                 // Merge event details (e.g., operationId) into existing details; stale
                 // cancel flags are dropped when the operationId changed (see mergeEventDetails).
                 ...(eventDetails ? { details: mergeEventDetails(n.details, eventDetails) } : {})
@@ -639,6 +655,15 @@ export function createStatusAwareProgressHandler<T>(
             status: 'running',
             message: config.getMessage(event),
             progress: config.getProgress(event),
+            ...(config.getDetailMessage && {
+              detailMessage: config.getDetailMessage(event)
+            }),
+            ...(config.getProgressMode && {
+              progressMode: config.getProgressMode(event)
+            }),
+            ...(config.getProgressAriaValueText && {
+              progressAriaValueText: config.getProgressAriaValueText(event)
+            }),
             startedAt: new Date(),
             details: config.getDetails?.(event)
           };

@@ -18,7 +18,6 @@ import i18n from '../../i18n';
 import {
   useNotifications,
   type UnifiedNotification,
-  type NotificationType,
   type NotificationStatus,
   NOTIFICATION_ANIMATION_DURATION_MS
 } from '@contexts/notifications';
@@ -29,6 +28,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
 import type { CancelKind } from '@contexts/notifications/types';
+import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
 
 // ============================================================================
 // Cancellable Operation Types (derived from the registry — single source)
@@ -62,35 +62,6 @@ const CANCEL_CONFIG_BY_TYPE: Record<string, CancelConfig> = (() => {
 // ============================================================================
 
 const FORCE_KILL_TOOLTIP_KEY = 'common.notifications.forceKillOperation';
-
-/**
- * Stable, localized operation labels for the notification eyebrow. The main
- * notification message changes throughout an operation's lifecycle; this label
- * keeps the operation itself identifiable at a glance. Generic toast-style
- * notifications are intentionally excluded because they do not represent a
- * named background operation.
- */
-const NOTIFICATION_TITLE_KEYS: Record<NotificationType, string | null> = {
-  log_processing: 'common.notifications.titles.logProcessing',
-  cache_clearing: 'common.notifications.titles.cacheClearing',
-  log_removal: 'common.notifications.titles.logRemoval',
-  service_removal: 'common.notifications.titles.serviceRemoval',
-  game_removal: 'common.notifications.titles.gameRemoval',
-  corruption_removal: 'common.notifications.titles.corruptionRemoval',
-  corruption_detection: 'common.notifications.titles.corruptionDetection',
-  database_reset: 'common.notifications.titles.databaseReset',
-  depot_mapping: 'common.notifications.titles.depotMapping',
-  game_detection: 'common.notifications.titles.gameDetection',
-  data_import: 'common.notifications.titles.dataImport',
-  epic_game_mapping: 'common.notifications.titles.epicGameMapping',
-  xbox_game_mapping: 'common.notifications.titles.xboxGameMapping',
-  eviction_scan: 'common.notifications.titles.evictionScan',
-  eviction_removal: 'common.notifications.titles.evictionRemoval',
-  cache_size_scan: 'common.notifications.titles.cacheSizeScan',
-  scheduled_prefill: 'common.notifications.titles.scheduledPrefill',
-  bulk_removal: 'common.notifications.titles.bulkRemoval',
-  generic: null
-};
 
 /**
  * Surface a genuine cancel/force-kill failure to the user via the `show-toast` bridge. `handleCancel`
@@ -333,7 +304,9 @@ const renderDepotMappingTitle = ({ notification, t, webApiStatus }: ContentRende
  * Renders the default title/message area.
  */
 const renderDefaultTitle = ({ notification }: ContentRendererProps) => (
-  <div className="text-sm font-medium text-themed-primary break-words sm:truncate">
+  <div
+    className={`text-sm font-medium text-themed-primary break-words ${notification.type === 'corruption_detection' ? 'whitespace-normal' : 'sm:truncate'}`}
+  >
     {notification.message}
   </div>
 );
@@ -408,7 +381,7 @@ const renderCompletionDetails = ({ notification, t, formatBytesLocal }: ContentR
  * Renders the progress bar for running operations.
  */
 const renderProgressBar = ({ notification, t }: ContentRendererProps) => {
-  if (notification.status !== 'running' || notification.progress === undefined) {
+  if (notification.status !== 'running') {
     return null;
   }
 
@@ -418,34 +391,100 @@ const renderProgressBar = ({ notification, t }: ContentRendererProps) => {
     return null;
   }
 
-  const color = getNotificationColor(notification);
+  const isIndeterminate = notification.progressMode === 'indeterminate';
+  if (!isIndeterminate && notification.progress === undefined) return null;
+
+  const rawProgress = Number.isFinite(notification.progress) ? (notification.progress ?? 0) : 0;
+  const clampedProgress = Math.max(0, Math.min(100, rawProgress));
+  const ariaValueText =
+    notification.progressAriaValueText ??
+    (notification.detailMessage
+      ? `${notification.message} ${notification.detailMessage}`
+      : notification.message);
 
   return (
-    <div className="mt-2">
-      <div className="w-full rounded-full h-2 bg-[var(--theme-bg-tertiary)]">
+    <div className="mt-2 tabular-nums">
+      {isIndeterminate ? (
         <div
-          className="h-2 rounded-full progress-bar-animate"
-          style={{
-            backgroundColor: color,
-            width: `${Math.max(0, Math.min(100, notification.progress))}%`
-          }}
+          className="relative w-full overflow-hidden rounded-full h-2 bg-[var(--theme-bg-tertiary)]"
+          role="progressbar"
+          aria-label={notification.message}
+          aria-valuetext={ariaValueText}
+        >
+          <div className="notification-progress-indeterminate absolute inset-y-0 left-0 rounded-full bg-[var(--theme-info)]" />
+        </div>
+      ) : (
+        <progress
+          className="notification-progress-determinate block h-2 w-full overflow-hidden rounded-full"
+          max={100}
+          value={clampedProgress}
+          aria-label={notification.message}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={clampedProgress}
+          aria-valuetext={ariaValueText}
         />
-      </div>
-      <div className="flex justify-between items-center mt-1">
-        <span className="text-xs text-themed-muted">
-          {t('common.notifications.progressComplete', {
-            value: notification.progress.toFixed(1)
-          })}
-        </span>
-        {notification.details?.estimatedTime && (
-          <span className="text-xs text-themed-muted">
-            {t('common.notifications.remaining', { value: notification.details.estimatedTime })}
+      )}
+      {!isIndeterminate && (
+        <div className="flex flex-wrap justify-between items-center gap-x-3 mt-1">
+          <span className="text-xs text-themed-muted tabular-nums">
+            {t('common.notifications.progressComplete', {
+              value: clampedProgress.toFixed(1)
+            })}
           </span>
-        )}
-      </div>
+          {notification.details?.estimatedTime && (
+            <span className="text-xs text-themed-muted">
+              {t('common.notifications.remaining', { value: notification.details.estimatedTime })}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 };
+
+const ANNOUNCEMENT_MIN_INTERVAL_MS = 5000;
+
+function isTerminalStatus(status: NotificationStatus): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+/** Rate-limit screen-reader updates while keeping stage/terminal changes immediate. */
+function useNotificationAnnouncement(notification: UnifiedNotification): string {
+  const accessibleText =
+    notification.progressAriaValueText ??
+    [notification.message, notification.detailMessage].filter(Boolean).join(' ');
+  const [announcement, setAnnouncement] = useState(accessibleText);
+  const lastAnnouncementRef = useRef({
+    at: Date.now(),
+    message: notification.message,
+    wholePercent: Math.floor(notification.progress ?? 0),
+    terminal: isTerminalStatus(notification.status)
+  });
+
+  useEffect(() => {
+    const now = Date.now();
+    const wholePercent = Math.floor(notification.progress ?? 0);
+    const terminal = isTerminalStatus(notification.status);
+    const previous = lastAnnouncementRef.current;
+    const shouldAnnounce =
+      notification.message !== previous.message ||
+      (terminal && !previous.terminal) ||
+      (wholePercent !== previous.wholePercent && now - previous.at >= ANNOUNCEMENT_MIN_INTERVAL_MS);
+
+    if (shouldAnnounce) {
+      setAnnouncement(accessibleText);
+      lastAnnouncementRef.current = {
+        at: now,
+        message: notification.message,
+        wholePercent,
+        terminal
+      };
+    }
+  }, [accessibleText, notification.message, notification.progress, notification.status]);
+
+  return announcement;
+}
 
 // ============================================================================
 // Main Components
@@ -480,6 +519,7 @@ const UnifiedNotificationItem = ({
   const color = getNotificationColor(notification);
   const icon = getNotificationIcon(notification);
   const titleKey = NOTIFICATION_TITLE_KEYS[notification.type];
+  const announcement = useNotificationAnnouncement(notification);
 
   // Determine which title renderer to use
   const renderTitle = () => {
@@ -495,13 +535,22 @@ const UnifiedNotificationItem = ({
 
   return (
     <div
-      className="flex items-start sm:items-center gap-3 p-2 rounded-lg bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out"
+      className="flex items-start sm:items-center gap-3 p-2 rounded-lg bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out motion-reduce:transition-none"
       style={{
         borderLeft: `3px solid ${color}`,
         opacity: isAnimatingOut ? 0 : 1
       }}
     >
       {icon}
+
+      <div
+        className="sr-only"
+        role={notification.status === 'failed' ? 'alert' : 'status'}
+        aria-live={notification.status === 'failed' ? 'assertive' : 'polite'}
+        aria-atomic="true"
+      >
+        {announcement}
+      </div>
 
       <div className="flex-1 min-w-0">
         {titleKey && (
@@ -514,7 +563,9 @@ const UnifiedNotificationItem = ({
 
         {/* Detail message (except for service_removal which shows details differently) */}
         {notification.detailMessage && notification.type !== 'service_removal' && (
-          <div className="text-xs text-themed-muted mt-0.5">{notification.detailMessage}</div>
+          <div className="text-xs text-themed-muted mt-0.5 min-w-0 whitespace-normal break-words tabular-nums">
+            {notification.detailMessage}
+          </div>
         )}
 
         {/* Type-specific completion details */}
@@ -548,7 +599,7 @@ const UnifiedNotificationItem = ({
             >
               <button
                 onClick={onCancel}
-                className="p-1 rounded hover:bg-themed-hover transition-colors"
+                className="flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:bg-themed-hover motion-reduce:transition-none"
                 aria-label={
                   notification.details?.cancelRequested &&
                   CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind === 'serverOp'
@@ -563,7 +614,7 @@ const UnifiedNotificationItem = ({
         {(notification.status === 'completed' || notification.status === 'failed') && (
           <button
             onClick={onDismiss}
-            className="p-1 rounded hover:bg-themed-hover transition-colors"
+            className="flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:bg-themed-hover motion-reduce:transition-none"
             aria-label={t('common.dismiss')}
           >
             <X className="w-4 h-4 text-themed-secondary" />
@@ -709,7 +760,7 @@ const UniversalNotificationBar: React.FC = () => {
   return (
     <div className={`w-full ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}>
       <div
-        className="w-full border-b shadow-sm bg-[var(--theme-nav-bg)] border-[var(--theme-nav-border)] transition duration-300 ease-out"
+        className="w-full border-b shadow-sm bg-[var(--theme-nav-bg)] border-[var(--theme-nav-border)] transition duration-300 ease-out motion-reduce:transition-none"
         style={{
           transform: isAnimatingOut ? 'translateY(-100%)' : 'translateY(0)',
           opacity: isAnimatingOut ? 0 : 1

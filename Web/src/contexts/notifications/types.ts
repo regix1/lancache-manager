@@ -39,6 +39,9 @@ export type NotificationType =
  */
 export type NotificationStatus = OperationStatus;
 
+/** Whether a running notification has a known progress denominator. */
+export type NotificationProgressMode = 'determinate' | 'indeterminate';
+
 /**
  * Unified notification data structure.
  * Represents all types of notifications in the system with a common interface.
@@ -52,6 +55,10 @@ export interface UnifiedNotification {
   status: NotificationStatus;
   /** Progress percentage (0-100) for operations that support progress tracking */
   progress?: number;
+  /** Explicit progress semantics; numeric progress remains for legacy determinate cards. */
+  progressMode?: NotificationProgressMode;
+  /** Text equivalent of the visible progress metrics for assistive technology. */
+  progressAriaValueText?: string;
   /** Primary message displayed to the user */
   message: string;
   /** Secondary detail message with additional information */
@@ -88,6 +95,7 @@ export interface UnifiedNotification {
 
     // For service_removal
     service?: string;
+    filesProcessed?: number;
     linesProcessed?: number;
     linesRemoved?: number;
 
@@ -255,6 +263,15 @@ export interface RegistryProgressConfig {
   /** Function to get progress percentage (0-100) from the event */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getProgress: (event: any) => number;
+  /** Optional secondary progress metrics shown below the stable primary message. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getDetailMessage?: (event: any) => string | undefined;
+  /** Optional determinate/indeterminate override for phase-aware operations. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getProgressMode?: (event: any) => NotificationProgressMode | undefined;
+  /** Optional textual equivalent of the progress state. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getProgressAriaValueText?: (event: any) => string | undefined;
   /** Function to get the status from the event */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getStatus: (event: any) => string | undefined;
@@ -337,8 +354,19 @@ export type CancelKind = 'serverOp' | 'clientQueue' | 'none';
  * NOT be normalized against the SignalR event property names (a field can cross
  * both boundaries with different casing).
  */
+export type StageContext = Record<string, string | number | boolean>;
+
+export type RecoveryTranslationValidation =
+  | {
+      kind: 'stageKey';
+      cases: readonly { stageKey: string; context: StageContext }[];
+    }
+  | { kind: 'dedicated' };
+
 export interface SimpleRecoveryConfig<TData = unknown> {
   kind: 'simple';
+  /** Data-driven classification consumed by validate-stage-keys.mjs. */
+  translationValidation: RecoveryTranslationValidation;
   apiEndpoint: string;
   isProcessing: (data: TData) => boolean;
   shouldSkip?: (data: TData) => boolean;

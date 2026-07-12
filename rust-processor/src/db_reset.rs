@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::Serialize;
+use serde_json::{json, Map, Value};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -20,6 +21,9 @@ struct ProgressData {
     percent_complete: f64,
     status: String,
     message: String,
+    #[serde(rename = "stageKey")]
+    stage_key: String,
+    context: Value,
     #[serde(rename = "tablesCleared")]
     tables_cleared: usize,
     #[serde(rename = "totalTables")]
@@ -44,6 +48,8 @@ impl ProgressData {
             percent_complete,
             status,
             message,
+            stage_key: String::new(),
+            context: Value::Object(Map::new()),
             tables_cleared,
             total_tables,
             files_deleted,
@@ -52,19 +58,31 @@ impl ProgressData {
     }
 }
 
-/// Writes the progress file (unchanged schema/durability checkpoint), then emits the matching
-/// stdout event via `reporter` (file write ALWAYS happens first). `stage_key` is stdout-only -
-/// db_reset's file-side `ProgressData` has no stage_key/context fields, so this does not touch
-/// the file schema.
-fn write_progress(progress_path: &Path, reporter: &ProgressReporter, stage_key: &str, progress: &ProgressData) -> Result<()> {
+/// Builds one complete stage context, persists it, then emits that exact same context on stdout.
+/// The progress file is always written first so an event-driven host can safely use stdout as a
+/// wake-up for the durable checkpoint.
+fn write_progress(
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+    stage_key: &str,
+    progress: &mut ProgressData,
+    stage_context: Value,
+) -> Result<()> {
+    let mut context = Map::from_iter([
+        ("tablesCleared".to_string(), json!(progress.tables_cleared)),
+        ("totalTables".to_string(), json!(progress.total_tables)),
+        ("filesDeleted".to_string(), json!(progress.files_deleted)),
+        ("message".to_string(), json!(progress.message)),
+    ]);
+    if let Value::Object(additions) = stage_context {
+        context.extend(additions);
+    }
+
+    progress.stage_key = stage_key.to_string();
+    progress.context = Value::Object(context);
     progress_utils::write_progress_json(progress_path, progress)?;
 
-    let context = serde_json::json!({
-        "tablesCleared": progress.tables_cleared,
-        "totalTables": progress.total_tables,
-        "filesDeleted": progress.files_deleted,
-        "message": progress.message,
-    });
+    let context = progress.context.clone();
 
     match progress.status.as_str() {
         "starting" => reporter.emit_started(stage_key, context),
@@ -98,17 +116,18 @@ async fn reset_database(
         4,
         0,
     );
-    write_progress(progress_path, reporter, "signalr.dbReset.starting", &progress)?;
+    write_progress(
+        progress_path,
+        reporter,
+        "signalr.dbReset.starting",
+        &mut progress,
+        json!({}),
+    )?;
 
     // Create PostgreSQL connection pool
     let pool = db::create_pool().await?;
 
-    let tables = vec![
-        "LogEntries",
-        "Downloads",
-        "ClientStats",
-        "ServiceStats",
-    ];
+    let tables = vec!["LogEntries", "Downloads", "ClientStats", "ServiceStats"];
 
     // Disable foreign key constraints using session replication role
     // (equivalent to PostgreSQL's way to bypass FK checks during bulk delete)
@@ -124,7 +143,10 @@ async fn reset_database(
     let mut total_rows = 0i64;
     for table_name in &tables {
         let count_sql = format!("SELECT COUNT(*) FROM \"{}\"", table_name);
-        match sqlx::query_scalar::<_, i64>(&count_sql).fetch_one(&pool).await {
+        match sqlx::query_scalar::<_, i64>(&count_sql)
+            .fetch_one(&pool)
+            .await
+        {
             Ok(count) => total_rows += count,
             Err(e) => eprintln!("Warning: Failed to count {}: {}", table_name, e),
         }
@@ -137,22 +159,37 @@ async fn reset_database(
     for table_name in &tables {
         // Cooperative cancel: check between table-level iterations
         if cancel::is_cancelled() {
-            println!("Cancel requested — stopping at table boundary ({} of {} tables cleared)", tables_cleared, tables.len());
+            println!(
+                "Cancel requested — stopping at table boundary ({} of {} tables cleared)",
+                tables_cleared,
+                tables.len()
+            );
             progress.is_processing = false;
             progress.status = "cancelled".to_string();
             progress.message = format!(
                 "Database reset cancelled. Cleared {} of {} tables, deleted {} files.",
-                tables_cleared, tables.len(), 0usize
+                tables_cleared,
+                tables.len(),
+                0usize
             );
-            write_progress(progress_path, reporter, "signalr.dbReset.cancelled", &progress)?;
-            std::process::exit(0);
+            write_progress(
+                progress_path,
+                reporter,
+                "signalr.dbReset.cancelled",
+                &mut progress,
+                json!({}),
+            )?;
+            return Ok(());
         }
 
         println!("Clearing table: {}", table_name);
 
         // Count rows in this table
         let count_sql = format!("SELECT COUNT(*) FROM \"{}\"", table_name);
-        let table_row_count = match sqlx::query_scalar::<_, i64>(&count_sql).fetch_one(&pool).await {
+        let table_row_count = match sqlx::query_scalar::<_, i64>(&count_sql)
+            .fetch_one(&pool)
+            .await
+        {
             Ok(count) => count,
             Err(e) => {
                 eprintln!("  Warning: Failed to count {}: {}", table_name, e);
@@ -190,18 +227,37 @@ async fn reset_database(
                         0.0
                     };
 
-                    progress.message = format!("Clearing {}... ({} / {} rows)", table_name, deleted_rows, total_rows);
+                    progress.message = format!(
+                        "Clearing {}... ({} / {} rows)",
+                        table_name, deleted_rows, total_rows
+                    );
                     progress.percent_complete = overall_progress.min(85.0);
                     progress.status = "deleting".to_string();
-                    write_progress(progress_path, reporter, "signalr.dbReset.deleting", &progress)?;
+                    write_progress(
+                        progress_path,
+                        reporter,
+                        "signalr.dbReset.deleting",
+                        &mut progress,
+                        json!({
+                            "tableName": table_name,
+                            "deletedRows": deleted_rows,
+                            "totalRows": total_rows,
+                        }),
+                    )?;
 
                     if batch_num % 10 == 0 {
-                        println!("  Batch {}: Deleted {} rows (total: {} / {})", batch_num, deleted, deleted_rows, total_rows);
+                        println!(
+                            "  Batch {}: Deleted {} rows (total: {} / {})",
+                            batch_num, deleted, deleted_rows, total_rows
+                        );
                     }
 
                     // Cooperative cancel: check after each batch completes (at a clean batch boundary)
                     if cancel::is_cancelled() {
-                        println!("Cancel requested — stopping after batch {} ({} rows deleted)", batch_num, deleted_rows);
+                        println!(
+                            "Cancel requested — stopping after batch {} ({} rows deleted)",
+                            batch_num, deleted_rows
+                        );
                         progress.is_processing = false;
                         progress.tables_cleared = tables_cleared;
                         progress.status = "cancelled".to_string();
@@ -209,12 +265,21 @@ async fn reset_database(
                             "Database reset cancelled after {} rows deleted ({} of {} tables fully cleared).",
                             deleted_rows, tables_cleared, tables.len()
                         );
-                        write_progress(progress_path, reporter, "signalr.dbReset.cancelled", &progress)?;
-                        std::process::exit(0);
+                        write_progress(
+                            progress_path,
+                            reporter,
+                            "signalr.dbReset.cancelled",
+                            &mut progress,
+                            json!({}),
+                        )?;
+                        return Ok(());
                     }
                 }
                 Err(e) => {
-                    eprintln!("  Warning: Failed to delete batch from {}: {}", table_name, e);
+                    eprintln!(
+                        "  Warning: Failed to delete batch from {}: {}",
+                        table_name, e
+                    );
                     table_had_error = true;
                     break;
                 }
@@ -225,7 +290,10 @@ async fn reset_database(
             tables_cleared += 1;
         }
         progress.tables_cleared = tables_cleared;
-        println!("  Completed: {} (total deleted: {})", table_name, deleted_rows);
+        println!(
+            "  Completed: {} (total deleted: {})",
+            table_name, deleted_rows
+        );
     }
 
     // Re-enable foreign key constraints
@@ -239,7 +307,13 @@ async fn reset_database(
     progress.message = "Optimizing database...".to_string();
     progress.percent_complete = 88.0;
     progress.status = "optimizing".to_string();
-    write_progress(progress_path, reporter, "signalr.dbReset.optimizing", &progress)?;
+    write_progress(
+        progress_path,
+        reporter,
+        "signalr.dbReset.optimizing",
+        &mut progress,
+        json!({}),
+    )?;
 
     println!("Running ANALYZE to update statistics...");
     sqlx::query("ANALYZE")
@@ -253,11 +327,20 @@ async fn reset_database(
     progress.message = "Cleaning up files...".to_string();
     progress.percent_complete = 90.0;
     progress.status = "cleanup".to_string();
-    write_progress(progress_path, reporter, "signalr.dbReset.cleanup", &progress)?;
+    write_progress(
+        progress_path,
+        reporter,
+        "signalr.dbReset.cleanup",
+        &mut progress,
+        json!({}),
+    )?;
 
     // Cooperative cancel: check before file deletion loop
     if cancel::is_cancelled() {
-        println!("Cancel requested — stopping before file cleanup ({} tables cleared)", tables_cleared);
+        println!(
+            "Cancel requested — stopping before file cleanup ({} tables cleared)",
+            tables_cleared
+        );
         progress.is_processing = false;
         progress.tables_cleared = tables_cleared;
         progress.status = "cancelled".to_string();
@@ -265,8 +348,14 @@ async fn reset_database(
             "Database reset cancelled. Cleared {} of {} tables (all rows deleted), no data files removed.",
             tables_cleared, tables.len()
         );
-        write_progress(progress_path, reporter, "signalr.dbReset.cancelled", &progress)?;
-        std::process::exit(0);
+        write_progress(
+            progress_path,
+            reporter,
+            "signalr.dbReset.cancelled",
+            &mut progress,
+            json!({}),
+        )?;
+        return Ok(());
     }
 
     let mut files_deleted = 0;
@@ -305,7 +394,13 @@ async fn reset_database(
         tables_cleared,
         files_deleted
     );
-    write_progress(progress_path, reporter, "signalr.dbReset.complete", &progress)?;
+    write_progress(
+        progress_path,
+        reporter,
+        "signalr.dbReset.complete",
+        &mut progress,
+        json!({}),
+    )?;
 
     println!("\nDatabase reset completed successfully!");
     println!("  Tables cleared: {}", tables_cleared);
@@ -323,18 +418,21 @@ async fn main() -> anyhow::Result<()> {
     // `-p`/`--progress` flag). Stripped before the existing positional-argument checks below so
     // it can be appended anywhere without disturbing the required <data_directory>
     // <progress_json_path> positions.
-    let progress_enabled = if let Some(pos) = args.iter().position(|a| a == "--progress" || a == "-p") {
-        args.remove(pos);
-        true
-    } else {
-        false
-    };
+    let progress_enabled =
+        if let Some(pos) = args.iter().position(|a| a == "--progress" || a == "-p") {
+            args.remove(pos);
+            true
+        } else {
+            false
+        };
 
     if args.len() != 3 {
         eprintln!("Usage: database_reset <data_directory> <progress_json_path> [--progress]");
         eprintln!("\nExample:");
         eprintln!("  database_reset ./data ./data/reset_progress.json");
-        eprintln!("\nNote: Database connection is configured via DATABASE_URL environment variable.");
+        eprintln!(
+            "\nNote: Database connection is configured via DATABASE_URL environment variable."
+        );
         anyhow::bail!("invalid arguments");
     }
 
@@ -356,7 +454,7 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("Error: {:?}", e);
 
             // Write error progress
-            let error_progress = ProgressData::new(
+            let mut error_progress = ProgressData::new(
                 false,
                 0.0,
                 "error".to_string(),
@@ -365,9 +463,89 @@ async fn main() -> anyhow::Result<()> {
                 4,
                 0,
             );
-            let _ = write_progress(progress_path, &reporter, "signalr.dbReset.error.fatal", &error_progress);
+            let error_detail = format!("Database reset failed: {e}");
+            let _ = write_progress(
+                progress_path,
+                &reporter,
+                "signalr.dbReset.error.fatal",
+                &mut error_progress,
+                json!({ "errorDetail": error_detail }),
+            );
 
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_file_persists_complete_deleting_stage_context() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let progress_path = directory.path().join("reset-progress.json");
+        let reporter = ProgressReporter::new(false);
+        let mut progress = ProgressData::new(
+            true,
+            42.0,
+            "deleting".to_string(),
+            "Clearing Downloads".to_string(),
+            1,
+            4,
+            2,
+        );
+
+        write_progress(
+            &progress_path,
+            &reporter,
+            "signalr.dbReset.deleting",
+            &mut progress,
+            json!({
+                "tableName": "Downloads",
+                "deletedRows": 12,
+                "totalRows": 30,
+            }),
+        )
+        .expect("write progress");
+
+        let saved: Value = serde_json::from_slice(&fs::read(progress_path).expect("read progress"))
+            .expect("deserialize progress");
+        assert_eq!(saved["stageKey"], "signalr.dbReset.deleting");
+        assert_eq!(saved["context"], progress.context);
+        assert_eq!(saved["context"]["tableName"], "Downloads");
+        assert_eq!(saved["context"]["deletedRows"], 12);
+        assert_eq!(saved["context"]["totalRows"], 30);
+        assert_eq!(saved["context"]["tablesCleared"], 1);
+        assert_eq!(saved["context"]["filesDeleted"], 2);
+    }
+
+    #[test]
+    fn fatal_progress_contains_error_detail_placeholder() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let progress_path = directory.path().join("reset-progress.json");
+        let reporter = ProgressReporter::new(false);
+        let mut progress = ProgressData::new(
+            false,
+            0.0,
+            "error".to_string(),
+            "reset failed".to_string(),
+            0,
+            4,
+            0,
+        );
+
+        write_progress(
+            &progress_path,
+            &reporter,
+            "signalr.dbReset.error.fatal",
+            &mut progress,
+            json!({ "errorDetail": "reset failed" }),
+        )
+        .expect("write progress");
+
+        let saved: Value = serde_json::from_slice(&fs::read(progress_path).expect("read progress"))
+            .expect("deserialize progress");
+        assert_eq!(saved["context"]["errorDetail"], "reset failed");
     }
 }

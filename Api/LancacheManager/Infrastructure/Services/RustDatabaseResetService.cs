@@ -1,4 +1,3 @@
-using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
@@ -21,6 +20,9 @@ public class RustDatabaseResetService
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
     private readonly SemaphoreSlim _startLock = new(1, 1);
+    private ResetCurrentProgress? _currentProgress;
+    private long _progressRevision;
+    private readonly ProgressEmitGate _progressEmitGate = new();
 
     public bool IsProcessing { get; private set; }
     public Guid? CurrentOperationId => _currentTrackerOperationId;
@@ -41,25 +43,9 @@ public class RustDatabaseResetService
         _operationTracker = operationTracker;
     }
 
-    /// <summary>
-    /// Strongly-typed SignalR progress payload for database reset. Built from the polled Rust
-    /// <see cref="ProgressData"/> so we never forward that raw DTO over SignalR: its
-    /// <c>[JsonPropertyName("stage_key")]</c> would override the global camelCase policy and the
-    /// frontend would receive <c>stage_key</c> for db-reset while every other op emits <c>stageKey</c>
-    /// (D-rust-2). This record carries no JsonPropertyName attributes, so the global camelCase policy
-    /// serializes <c>StageKey</c> as <c>stageKey</c> like all other progress events.
-    /// </summary>
-    public record DatabaseResetProgress(
-        Guid? OperationId,
-        bool IsProcessing,
-        double PercentComplete,
-        string Status,
-        string StageKey,
-        int TablesCleared,
-        int TotalTables,
-        int FilesDeleted,
-        DateTime Timestamp,
-        Dictionary<string, object?>? Context = null);
+    private sealed record ResetCurrentProgress(
+        OperationProgressSnapshot Snapshot,
+        DatabaseResetProgress Payload);
 
     public class ProgressData
     {
@@ -72,7 +58,10 @@ public class RustDatabaseResetService
         [System.Text.Json.Serialization.JsonPropertyName("status")]
         public string Status { get; set; } = string.Empty;
 
-        [System.Text.Json.Serialization.JsonPropertyName("stage_key")]
+        [System.Text.Json.Serialization.JsonPropertyName("message")]
+        public string? Message { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
         public string StageKey { get; set; } = string.Empty;
 
         [System.Text.Json.Serialization.JsonPropertyName("context")]
@@ -102,58 +91,30 @@ public class RustDatabaseResetService
     /// <summary>
     /// Gets the current database reset status including progress data from Rust
     /// </summary>
-    public object GetResetStatus()
+    public DatabaseResetStatusResponse GetResetStatus()
     {
-        if (!IsProcessing)
+        var current = Volatile.Read(ref _currentProgress);
+        if (!IsProcessing || current == null)
         {
-            return new
+            return new DatabaseResetStatusResponse
             {
-                isProcessing = false,
-                status = "idle",
-                operationId = _currentTrackerOperationId
+                IsProcessing = false,
+                OperationId = _currentTrackerOperationId
             };
         }
 
-        // Read progress from Rust progress file
-        var operationsDir = _pathResolver.GetOperationsDirectory();
-        var progressPath = Path.Combine(operationsDir, "reset_progress.json");
-
-        ProgressData? progress = null;
-        try
+        return new DatabaseResetStatusResponse
         {
-            if (File.Exists(progressPath))
-            {
-                var json = File.ReadAllText(progressPath);
-                progress = JsonSerializer.Deserialize<ProgressData>(json);
-            }
-        }
-        catch
-        {
-            // Ignore read errors - file may be being written
-        }
-
-        if (progress == null)
-        {
-            return new
-            {
-                isProcessing = true,
-                status = "starting",
-                stageKey = "signalr.dbReset.starting",
-                operationId = _currentTrackerOperationId
-            };
-        }
-
-        return new
-        {
-            isProcessing = true,
-            status = progress.Status,
-            percentComplete = progress.PercentComplete,
-            stageKey = progress.StageKey,
-            context = progress.Context,
-            tablesCleared = progress.TablesCleared,
-            totalTables = progress.TotalTables,
-            filesDeleted = progress.FilesDeleted,
-            operationId = _currentTrackerOperationId
+            IsProcessing = true,
+            Status = current.Payload.Status,
+            Message = current.Payload.Message,
+            PercentComplete = current.Snapshot.PercentComplete,
+            StageKey = current.Snapshot.StageKey,
+            Context = current.Snapshot.Context,
+            TablesCleared = current.Payload.TablesCleared,
+            TotalTables = current.Payload.TotalTables,
+            FilesDeleted = current.Payload.FilesDeleted,
+            OperationId = _currentTrackerOperationId
         };
     }
 
@@ -193,6 +154,7 @@ public class RustDatabaseResetService
                 _cancellationTokenSource,
                 onTerminalCleanup: () =>
                 {
+                    Volatile.Write(ref _currentProgress, null);
                     IsProcessing = false;
                     _currentTrackerOperationId = null;
                     _cancellationTokenSource?.Dispose();
@@ -227,13 +189,30 @@ public class RustDatabaseResetService
                                 Context: new Dictionary<string, object?> { ["errorDetail"] = info.Error }))
             );
             _currentTrackerOperationId = trackerOperationId;
+            _progressEmitGate.Reset();
+
+            var initialProgress = new ProgressData
+            {
+                IsProcessing = true,
+                PercentComplete = 0,
+                Status = "starting",
+                Message = "Starting database reset...",
+                StageKey = "signalr.dbReset.starting",
+                TablesCleared = 0,
+                TotalTables = 4,
+                FilesDeleted = 0,
+                Timestamp = DateTime.UtcNow
+            };
+            await ReportProgressAsync(initialProgress, emit: false);
 
             // Send started event
             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetStarted, new
             {
                 OperationId = _currentTrackerOperationId,
-                StageKey = "signalr.dbReset.starting"
+                StageKey = "signalr.dbReset.starting",
+                Context = Volatile.Read(ref _currentProgress)?.Snapshot.Context
             });
+            await ReportProgressAsync(initialProgress);
 
             var dataDirectory = _pathResolver.GetDataDirectory();
             var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -249,20 +228,6 @@ public class RustDatabaseResetService
             _logger.LogInformation("Starting rust database reset");
             _logger.LogInformation($"Progress file: {progressPath}");
 
-            // Send initial progress
-            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-            {
-                OperationId = _currentTrackerOperationId,
-                isProcessing = true,
-                percentComplete = 0.0,
-                status = "starting",
-                StageKey = "signalr.dbReset.starting",
-                tablesCleared = 0,
-                totalTables = 4,
-                filesDeleted = 0,
-                timestamp = DateTime.UtcNow
-            });
-
             // Wrap Rust process execution in shared lock to prevent concurrent database access
             // This prevents database connection issues and SignalR disconnects during reset
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
@@ -272,9 +237,8 @@ public class RustDatabaseResetService
 
             return await _cacheManagementService.ExecuteWithLockAsync(async () =>
             {
-                // Hybrid transport (mirrors CacheClearingService): the stdout progress event is a
-                // zero-latency wake-up: db_reset.rs's progress-file DTO/schema is unchanged, so the
-                // callback still re-reads it for the real data on every tick.
+                // Hybrid transport (mirrors CacheClearingService): stdout is a zero-latency wake-up;
+                // the callback re-reads the durable file containing the same stage/context.
                 var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                     startInfo,
                     _currentTrackerOperationId,
@@ -287,9 +251,7 @@ public class RustDatabaseResetService
                             return;
                         }
 
-                        await _notifications.NotifyAllAsync(
-                            SignalREvents.DatabaseResetProgress,
-                            ToProgressPayload(progressData));
+                        await ReportProgressAsync(progressData);
                     },
                     processLabel: "database_reset");
 
@@ -305,21 +267,48 @@ public class RustDatabaseResetService
                     var finalProgress = await ReadProgressFileAsync(progressPath);
                     if (finalProgress != null)
                     {
-                        await _notifications.NotifyAllAsync(
-                            SignalREvents.DatabaseResetProgress,
-                            ToProgressPayload(finalProgress));
+                        await ReportProgressAsync(finalProgress);
+
+                        if (string.Equals(finalProgress.Status, "cancelled", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (_currentTrackerOperationId.HasValue)
+                            {
+                                _operationTracker.CompleteOperation(
+                                    _currentTrackerOperationId.Value,
+                                    success: false,
+                                    error: "Cancelled by user");
+                            }
+
+                            return false;
+                        }
+
+                        if (string.Equals(finalProgress.Status, "error", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(finalProgress.Status, "failed", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (_currentTrackerOperationId.HasValue)
+                            {
+                                _operationTracker.CompleteOperation(
+                                    _currentTrackerOperationId.Value,
+                                    success: false,
+                                    error: finalProgress.Message ?? "Database reset failed");
+                            }
+
+                            return false;
+                        }
                     }
                     else
                     {
                         // Fallback completion message
-                        await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
+                        await ReportProgressAsync(new ProgressData
                         {
-                            OperationId = _currentTrackerOperationId,
-                            isProcessing = false,
-                            percentComplete = 100.0,
-                            status = OperationStatus.Completed,
+                            IsProcessing = false,
+                            PercentComplete = 100.0,
+                            Status = "completed",
+                            Message = "Database reset completed",
                             StageKey = "signalr.dbReset.complete",
-                            timestamp = DateTime.UtcNow
+                            TablesCleared = 4,
+                            TotalTables = 4,
+                            Timestamp = DateTime.UtcNow
                         });
                     }
 
@@ -335,15 +324,15 @@ public class RustDatabaseResetService
                 }
                 else
                 {
-                    await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
+                    await ReportProgressAsync(new ProgressData
                     {
-                        OperationId = _currentTrackerOperationId,
-                        isProcessing = false,
-                        percentComplete = 0.0,
-                        status = OperationStatus.Failed,
+                        IsProcessing = false,
+                        PercentComplete = Volatile.Read(ref _currentProgress)?.Snapshot.PercentComplete ?? 0.0,
+                        Status = "error",
+                        Message = $"Database reset failed with exit code {exitCode}",
                         StageKey = "signalr.dbReset.failedExitCode",
                         Context = new Dictionary<string, object?> { ["exitCode"] = exitCode },
-                        timestamp = DateTime.UtcNow
+                        Timestamp = DateTime.UtcNow
                     });
 
                     if (_currentTrackerOperationId.HasValue)
@@ -358,14 +347,14 @@ public class RustDatabaseResetService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Database reset was cancelled by user");
-            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
+            await ReportProgressAsync(new ProgressData
             {
-                OperationId = _currentTrackerOperationId,
-                isProcessing = false,
-                percentComplete = 0.0,
-                status = OperationStatus.Cancelled,
+                IsProcessing = false,
+                PercentComplete = Volatile.Read(ref _currentProgress)?.Snapshot.PercentComplete ?? 0.0,
+                Status = "cancelled",
+                Message = "Database reset was cancelled by user",
                 StageKey = "signalr.dbReset.cancelled",
-                timestamp = DateTime.UtcNow
+                Timestamp = DateTime.UtcNow
             });
 
             if (_currentTrackerOperationId.HasValue)
@@ -378,15 +367,15 @@ public class RustDatabaseResetService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting rust database reset");
-            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
+            await ReportProgressAsync(new ProgressData
             {
-                OperationId = _currentTrackerOperationId,
-                isProcessing = false,
-                percentComplete = 0.0,
-                status = OperationStatus.Failed,
+                IsProcessing = false,
+                PercentComplete = Volatile.Read(ref _currentProgress)?.Snapshot.PercentComplete ?? 0.0,
+                Status = "error",
+                Message = $"Database reset failed: {ex.Message}",
                 StageKey = "signalr.dbReset.failed",
                 Context = new Dictionary<string, object?> { ["errorDetail"] = ex.Message },
-                timestamp = DateTime.UtcNow
+                Timestamp = DateTime.UtcNow
             });
 
             if (_currentTrackerOperationId.HasValue)
@@ -399,6 +388,7 @@ public class RustDatabaseResetService
         finally
         {
             IsProcessing = false;
+            Volatile.Write(ref _currentProgress, null);
             _currentTrackerOperationId = null;
             _cancellationTokenSource?.Dispose();
         }
@@ -409,21 +399,71 @@ public class RustDatabaseResetService
         return await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
     }
 
-    /// <summary>
-    /// Projects the polled Rust <see cref="ProgressData"/> into the camelCase-serializing
-    /// <see cref="DatabaseResetProgress"/> record (stamping the current operation id), so the SignalR
-    /// payload emits <c>stageKey</c> instead of the DTO's attribute-forced <c>stage_key</c> (D-rust-2).
-    /// </summary>
-    private DatabaseResetProgress ToProgressPayload(ProgressData progress) =>
-        new(
-            OperationId: _currentTrackerOperationId,
-            IsProcessing: progress.IsProcessing,
-            PercentComplete: progress.PercentComplete,
-            Status: progress.Status,
-            StageKey: progress.StageKey,
-            TablesCleared: progress.TablesCleared,
-            TotalTables: progress.TotalTables,
-            FilesDeleted: progress.FilesDeleted,
-            Timestamp: progress.Timestamp == default ? DateTime.UtcNow : progress.Timestamp,
-            Context: progress.Context);
+    private async Task ReportProgressAsync(ProgressData progress, bool emit = true)
+    {
+        if (string.IsNullOrWhiteSpace(progress.StageKey))
+        {
+            _logger.LogWarning("Ignoring database reset progress without a stage key");
+            return;
+        }
+
+        var context = new Dictionary<string, object?>(progress.Context ?? new Dictionary<string, object?>())
+        {
+            ["tablesCleared"] = progress.TablesCleared,
+            ["totalTables"] = progress.TotalTables,
+            ["filesDeleted"] = progress.FilesDeleted
+        };
+        var current = Volatile.Read(ref _currentProgress);
+        var isNew = current == null
+            || !current.Snapshot.HasSameProgress(progress.StageKey, progress.PercentComplete, context)
+            || current.Payload.IsProcessing != progress.IsProcessing
+            || current.Payload.Message != progress.Message;
+        if (isNew)
+        {
+            var snapshot = OperationProgressSnapshot.Create(
+                progress.StageKey,
+                progress.PercentComplete,
+                context,
+                Interlocked.Increment(ref _progressRevision));
+            var payload = new DatabaseResetProgress(
+                OperationId: _currentTrackerOperationId,
+                IsProcessing: progress.IsProcessing,
+                PercentComplete: snapshot.PercentComplete,
+                Status: ToOperationStatus(progress),
+                StageKey: snapshot.StageKey,
+                Message: progress.Message,
+                TablesCleared: progress.TotalTables == 0 ? null : progress.TablesCleared,
+                TotalTables: progress.TotalTables == 0 ? null : progress.TotalTables,
+                FilesDeleted: progress.FilesDeleted,
+                Timestamp: progress.Timestamp == default ? DateTime.UtcNow : progress.Timestamp,
+                Context: snapshot.Context);
+            current = new ResetCurrentProgress(snapshot, payload);
+            Volatile.Write(ref _currentProgress, current);
+            if (_currentTrackerOperationId.HasValue)
+            {
+                _operationTracker.UpdateProgress(
+                    _currentTrackerOperationId.Value,
+                    snapshot.PercentComplete,
+                    snapshot.StageKey);
+            }
+        }
+
+        if (!emit
+            || current == null
+            || (progress.IsProcessing
+                && !_progressEmitGate.ShouldEmit(current.Snapshot.StageKey, current.Snapshot.Revision)))
+        {
+            return;
+        }
+
+        await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, current.Payload);
+    }
+
+    private static OperationStatus ToOperationStatus(ProgressData progress) => progress.Status switch
+    {
+        "completed" => OperationStatus.Completed,
+        "cancelled" => OperationStatus.Cancelled,
+        "error" or "failed" => OperationStatus.Failed,
+        _ => OperationStatus.Running
+    };
 }

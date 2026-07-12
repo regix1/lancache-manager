@@ -48,6 +48,20 @@ public class RemovalStatusResponse
     public string? DetectionMethod { get; set; }
 }
 
+/// <summary>Recovery response for an active corruption detection operation.</summary>
+public sealed class CorruptionDetectionStatusResponse
+{
+    public bool IsRunning { get; set; }
+    public Guid? OperationId { get; set; }
+    public OperationStatus? Status { get; set; }
+    public string? Message { get; set; }
+    public string? StageKey { get; set; }
+    public IReadOnlyDictionary<string, object?> Context { get; set; } = new Dictionary<string, object?>();
+    public double? PercentComplete { get; set; }
+    public string? StartTime { get; set; }
+    public string? DetectionMethod { get; set; }
+}
+
 /// <summary>
 /// Response for cache size calculation
 /// </summary>

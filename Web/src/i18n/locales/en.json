@@ -6445,7 +6445,21 @@
       "scanning": "Scanning cache corruption evidence…",
       "scanningLogs": "Scanning log files for repeated misses on cache files still present on disk…",
       "scanningHeaders": "Checking nginx cache headers, payload offsets, and payload lengths…",
-      "enumerating": "Enumerating cache files… {{count}} found",
+      "enumerating": "Enumerating cache files…",
+      "metrics": {
+        "found": "{{count}} files found",
+        "checked": "{{processed}} files checked",
+        "checkedOfTotal": "{{processed}} of {{total}} files checked",
+        "invalid": "{{suspects}} invalid found",
+        "rate": "{{filesPerSecond}} files/s",
+        "remaining": "about {{eta}} remaining",
+        "duration": {
+          "underMinute": "under a minute",
+          "minutes": "{{minutes}} min",
+          "hours": "{{hours}} hr",
+          "hoursMinutes": "{{hours}} hr {{minutes}} min"
+        }
+      },
       "complete": "Corruption scan complete: {{count}} suspect files found.",
       "completeRepeatedMiss": "Repeated-MISS scan complete: {{count}} suspect files found.",
       "completeStructural": "Structural scan complete: {{count}} invalid cache files found.",
@@ -6499,6 +6513,7 @@
       "clearedGameDetections": "Cleared cached game detections ({{count}} rows)",
       "clearedUserPreferences": "Cleared user preferences ({{count}} rows)",
       "clearedUserSessions": "Cleared user sessions ({{count}} rows) and Steam auth data",
+      "clearedTable": "Cleared {{tableName}} ({{count}} rows)",
       "sessionsCleared": {
         "logout": "All user sessions have been cleared - logging out immediately"
       },
@@ -6510,6 +6525,7 @@
       }
     },
     "dataImport": {
+      "starting": "Starting data import…",
       "progress": "Importing: {{processed}} of {{total}} records"
     },
     "depotMapping": {
@@ -6750,6 +6766,7 @@
       }
     },
     "logRemoval": {
+      "recovering": "Removing log entries…",
       "progressWithCount": "Removing {{service}} entries ({{linesRemoved}} removed)...",
       "removing": "Removing {{service}} entries from logs...",
       "complete": "Removed {{service}} entries from logs.",

@@ -3,6 +3,7 @@ using LancacheManager.Models;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
 using LancacheManager.Core.Services.SteamKit2;
@@ -50,22 +51,21 @@ public class DatabaseService : IDatabaseService
     ];
     private static readonly ConcurrentDictionary<Guid, bool> _activeResetOperations = new();
     private static Guid? _currentResetOperationId;
-    private static ResetProgressInfo _currentResetProgress = new();
+    private static ResetProgressInfo? _currentResetProgress;
+    private long _resetProgressRevision;
+    private readonly ProgressEmitGate _resetProgressEmitGate = new();
 
-    public class ResetProgressInfo
-    {
-        public bool IsProcessing { get; set; }
-        public double PercentComplete { get; set; }
-        public string Message { get; set; } = "";
-        /// <summary>
-        /// Lifecycle status of the current reset. `null` replaces the previous `"idle"`
-        /// sentinel - no in-flight reset. Otherwise uses the canonical <see cref="OperationStatus"/>
-        /// values (lowercased on the wire via <see cref="OperationStatusJsonConverter"/>).
-        /// </summary>
-        public OperationStatus? Status { get; set; }
-    }
+    public sealed record ResetProgressInfo(
+        Guid OperationId,
+        bool IsProcessing,
+        OperationStatus Status,
+        string Message,
+        OperationProgressSnapshot Snapshot,
+        int? TablesCleared = null,
+        int? TotalTables = null,
+        int? FilesDeleted = null);
 
-    public static ResetProgressInfo CurrentResetProgress => _currentResetProgress;
+    public static ResetProgressInfo? CurrentResetProgress => Volatile.Read(ref _currentResetProgress);
     public static Guid? CurrentResetOperationId => _currentResetOperationId;
 
     public DatabaseService(
@@ -122,8 +122,8 @@ public class DatabaseService : IDatabaseService
         // resets process-wide). The lambda mirrors the worker finally (lines 900-904).
         // onTerminalEmit fires the typed DatabaseResetComplete event EXACTLY ONCE (CompletedFlag-gated) for
         // the normal success/error path AND the universal force-kill/cancel path. The legacy
-        // DatabaseResetProgress(status) completion emits in ResetSelectedTablesInternalAsync are preserved
-        // (frontend Complete handler is PR4).
+        // All phase progress is routed through ReportResetProgressAsync below; terminal completion
+        // remains centralized in the tracker's onTerminalEmit callback.
         Guid opId = default;
         opId = _operationTracker.RegisterOperation(
             OperationType.DatabaseReset,
@@ -135,6 +135,11 @@ public class DatabaseService : IDatabaseService
                 if (_currentResetOperationId == opId)
                 {
                     _currentResetOperationId = null;
+                }
+                var progress = Volatile.Read(ref _currentResetProgress);
+                if (progress?.OperationId == opId)
+                {
+                    Volatile.Write(ref _currentResetProgress, null);
                 }
             },
             onTerminalEmit: info => info.Cancelled
@@ -169,23 +174,33 @@ public class DatabaseService : IDatabaseService
         if (_activeResetOperations.TryAdd(operationId, true))
         {
             _currentResetOperationId = operationId;
+            _resetProgressEmitGate.Reset();
             _logger.LogInformation("Starting background reset operation {OperationId} for tables: {Tables}", operationId, string.Join(", ", tableNames));
 
-            // Initialize progress tracking
-            _currentResetProgress = new ResetProgressInfo
-            {
-                IsProcessing = true,
-                PercentComplete = 0,
-                Message = $"Starting reset of {tableNames.Count} table(s)...",
-                // Pre-run: the op is registered and about to execute. Pending covers this better than Running.
-                Status = OperationStatus.Pending
-            };
+            var startingContext = new Dictionary<string, object?> { ["count"] = tableNames.Count };
+            var startingSnapshot = OperationProgressSnapshot.Create(
+                "signalr.dbReset.startingTables",
+                0,
+                startingContext,
+                Interlocked.Increment(ref _resetProgressRevision));
+            Volatile.Write(ref _currentResetProgress, new ResetProgressInfo(
+                operationId,
+                IsProcessing: true,
+                Status: OperationStatus.Pending,
+                Message: $"Starting reset of {tableNames.Count} table(s)...",
+                Snapshot: startingSnapshot,
+                TablesCleared: 0,
+                TotalTables: tableNames.Count,
+                FilesDeleted: 0));
+            _operationTracker.UpdateProgress(operationId, 0, startingSnapshot.StageKey);
 
             // Send started event via SignalR
             _notifications.NotifyAllFireAndForget(SignalREvents.DatabaseResetStarted, new
             {
                 OperationId = operationId,
-                Message = $"Starting reset of {tableNames.Count} table(s)..."
+                Message = $"Starting reset of {tableNames.Count} table(s)...",
+                startingSnapshot.StageKey,
+                startingSnapshot.Context
             });
 
             // Start background task with cancellation token
@@ -204,24 +219,27 @@ public class DatabaseService : IDatabaseService
     /// </summary>
     private async Task DoResetAsync(Guid operationId, List<string> tableNames, CancellationToken cancellationToken)
     {
-        // Use a new DbContext from factory for background operation (don't use injected context)
-        await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var terminalOutcome = OperationStatus.Failed;
 
         try
         {
+            // Context acquisition is part of the reset lifecycle: a database outage here must flow
+            // through the same failed terminal report/cleanup as an exception during deletion.
+            await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
             _logger.LogInformation($"Starting selective database reset for tables: {string.Join(", ", tableNames)}");
 
             // Send initial progress update
-            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-            {
+            await ReportResetProgressAsync(
                 operationId,
-                isProcessing = true,
-                percentComplete = 0.0,
-                status = "starting",
-                stageKey = "signalr.dbReset.startingTables",
-                context = new Dictionary<string, object?> { ["count"] = tableNames.Count },
-                timestamp = DateTime.UtcNow
-            });
+                isProcessing: true,
+                percentComplete: 0,
+                status: OperationStatus.Running,
+                stageKey: "signalr.dbReset.startingTables",
+                context: new Dictionary<string, object?> { ["count"] = tableNames.Count },
+                message: $"Starting reset of {tableNames.Count} table(s)...",
+                tablesCleared: 0,
+                totalTables: tableNames.Count,
+                filesDeleted: 0);
 
             // Validate table names to prevent SQL injection. Corruption evidence is one logical
             // snapshot: clearing logs or either physical table must clear both candidate rows and
@@ -231,16 +249,16 @@ public class DatabaseService : IDatabaseService
             if (tablesToClear.Count == 0)
             {
                 _logger.LogWarning("No valid tables selected for reset");
-                await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                {
+                terminalOutcome = OperationStatus.Failed;
+                await ReportResetProgressAsync(
                     operationId,
-                    isProcessing = false,
-                    percentComplete = 0.0,
-                    status = OperationStatus.Failed,
-                    stageKey = "signalr.dbReset.noTablesSelected",
-                    context = new Dictionary<string, object?>(),
-                    timestamp = DateTime.UtcNow
-                });
+                    isProcessing: false,
+                    percentComplete: 0,
+                    status: OperationStatus.Failed,
+                    stageKey: "signalr.dbReset.noTablesSelected",
+                    context: new Dictionary<string, object?>(),
+                    message: "No valid tables selected for reset");
+                _operationTracker.CompleteOperation(operationId, success: false, error: "No valid tables selected for reset");
                 return;
             }
 
@@ -368,28 +386,19 @@ public class DatabaseService : IDatabaseService
                                 var progressPercent = Math.Min(currentProgress + progressPerTable * (logEntriesDeleted / (double)Math.Max(logEntriesTotal, 1)), 85.0);
                                 var progressMessage = $"Clearing log entries... {logEntriesDeleted:N0}/{logEntriesTotal:N0} ({percentDone:F1}%)";
 
-                                // Update static progress for API access
-                                _currentResetProgress = new ResetProgressInfo
-                                {
-                                    IsProcessing = true,
-                                    PercentComplete = progressPercent,
-                                    Message = progressMessage,
-                                    // Phase-specific detail lives in Message; Status carries the canonical lifecycle value.
-                                    Status = OperationStatus.Running
-                                };
-
-                                await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                                {
+                                await ReportResetProgressAsync(
                                     operationId,
-                                    isProcessing = true,
-                                    percentComplete = progressPercent,
-                                    status = "deleting",
-                                    stageKey = "signalr.dbReset.clearingLogEntries",
-                                    // Round to 1 decimal so the i18n template `{{percent}}%` renders "10.4"
-                                    // instead of the raw double's full precision ("10.355371590128088").
-                                    context = new Dictionary<string, object?> { ["deleted"] = logEntriesDeleted, ["total"] = logEntriesTotal, ["percent"] = Math.Round(percentDone, 1) },
-                                    timestamp = DateTime.UtcNow
-                                });
+                                    true,
+                                    progressPercent,
+                                    OperationStatus.Running,
+                                    "signalr.dbReset.clearingLogEntries",
+                                    new Dictionary<string, object?>
+                                    {
+                                        ["deleted"] = logEntriesDeleted,
+                                        ["total"] = logEntriesTotal,
+                                        ["percent"] = Math.Round(percentDone, 1)
+                                    },
+                                    progressMessage);
 
                                 // Small delay to allow other operations to acquire the lock
                                 await Task.Delay(50, cancellationToken);
@@ -408,16 +417,11 @@ public class DatabaseService : IDatabaseService
                             // Also reset legacy position
                             _stateRepository.SetLogPosition(0);
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                stageKey = "signalr.dbReset.clearedLogEntries",
-                                context = new Dictionary<string, object?> { ["count"] = logEntriesDeleted },
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportResetProgressAsync(operationId, true,
+                                Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
+                                "signalr.dbReset.clearedLogEntries",
+                                new Dictionary<string, object?> { ["count"] = logEntriesDeleted },
+                                $"Cleared log entries ({logEntriesDeleted:N0} rows)");
                             break;
 
                         case "Downloads":
@@ -426,16 +430,11 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {downloadsCount:N0} downloads");
                             deletedRows += downloadsCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                stageKey = "signalr.dbReset.clearedDownloads",
-                                context = new Dictionary<string, object?> { ["count"] = downloadsCount },
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportResetProgressAsync(operationId, true,
+                                Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
+                                "signalr.dbReset.clearedDownloads",
+                                new Dictionary<string, object?> { ["count"] = downloadsCount },
+                                $"Cleared downloads ({downloadsCount:N0} rows)");
                             break;
 
                         case "ClientStats":
@@ -444,16 +443,11 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {clientStatsCount:N0} client stats");
                             deletedRows += clientStatsCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                stageKey = "signalr.dbReset.clearedClientStats",
-                                context = new Dictionary<string, object?> { ["count"] = clientStatsCount },
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportResetProgressAsync(operationId, true,
+                                Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
+                                "signalr.dbReset.clearedClientStats",
+                                new Dictionary<string, object?> { ["count"] = clientStatsCount },
+                                $"Cleared client stats ({clientStatsCount:N0} rows)");
                             break;
 
                         case "ServiceStats":
@@ -462,16 +456,11 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {serviceStatsCount:N0} service stats");
                             deletedRows += serviceStatsCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                stageKey = "signalr.dbReset.clearedServiceStats",
-                                context = new Dictionary<string, object?> { ["count"] = serviceStatsCount },
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportResetProgressAsync(operationId, true,
+                                Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
+                                "signalr.dbReset.clearedServiceStats",
+                                new Dictionary<string, object?> { ["count"] = serviceStatsCount },
+                                $"Cleared service stats ({serviceStatsCount:N0} rows)");
                             break;
 
                         case "SteamDepotMappings":
@@ -505,16 +494,11 @@ public class DatabaseService : IDatabaseService
                                 }
                             }
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                stageKey = "signalr.dbReset.clearedDepotMappings",
-                                context = new Dictionary<string, object?> { ["count"] = mappingCount },
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportResetProgressAsync(operationId, true,
+                                Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
+                                "signalr.dbReset.clearedDepotMappings",
+                                new Dictionary<string, object?> { ["count"] = mappingCount },
+                                $"Cleared depot mappings ({mappingCount:N0} rows)");
                             break;
 
                         case "CachedGameDetections":
@@ -523,16 +507,11 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {gameDetectionCount:N0} cached game detections");
                             deletedRows += gameDetectionCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                stageKey = "signalr.dbReset.clearedGameDetections",
-                                context = new Dictionary<string, object?> { ["count"] = gameDetectionCount },
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportResetProgressAsync(operationId, true,
+                                Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
+                                "signalr.dbReset.clearedGameDetections",
+                                new Dictionary<string, object?> { ["count"] = gameDetectionCount },
+                                $"Cleared cached game detections ({gameDetectionCount:N0} rows)");
                             break;
 
                         case "UserPreferences":
@@ -541,16 +520,11 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {userPreferencesCount:N0} user preferences");
                             deletedRows += userPreferencesCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                stageKey = "signalr.dbReset.clearedUserPreferences",
-                                context = new Dictionary<string, object?> { ["count"] = userPreferencesCount },
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportResetProgressAsync(operationId, true,
+                                Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
+                                "signalr.dbReset.clearedUserPreferences",
+                                new Dictionary<string, object?> { ["count"] = userPreferencesCount },
+                                $"Cleared user preferences ({userPreferencesCount:N0} rows)");
 
                             // Mark that we need to broadcast preferences reset event after operation completes
                             shouldBroadcastPreferencesReset = true;
@@ -579,16 +553,11 @@ public class DatabaseService : IDatabaseService
 
                             // CRITICAL: Clear in-memory caches for both guest sessions and device registrations
                             // Without this, the services would still serve cached sessions from memory
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                stageKey = "signalr.dbReset.clearedUserSessions",
-                                context = new Dictionary<string, object?> { ["count"] = userSessionsCount },
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportResetProgressAsync(operationId, true,
+                                Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
+                                "signalr.dbReset.clearedUserSessions",
+                                new Dictionary<string, object?> { ["count"] = userSessionsCount },
+                                $"Cleared user sessions ({userSessionsCount:N0} rows)");
 
                             // IMMEDIATELY broadcast UserSessionsCleared event to log out all connected users
                             // This happens RIGHT AFTER deletion, not at the end of the operation
@@ -612,15 +581,9 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {eventsCount:N0} events (and associated event downloads via cascade)");
                             deletedRows += eventsCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared events ({eventsCount:N0} rows)",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "Events", eventsCount, $"Cleared events ({eventsCount:N0} rows)");
 
                             // Notify frontend to clear event cache
                             await _notifications.NotifyAllAsync(SignalREvents.EventsCleared, new
@@ -636,15 +599,10 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {eventDownloadsCount:N0} event download associations");
                             deletedRows += eventDownloadsCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared event download links ({eventDownloadsCount:N0} rows)",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "EventDownloads", eventDownloadsCount,
+                                $"Cleared event download links ({eventDownloadsCount:N0} rows)");
                             break;
 
                         case CachedCorruptionDetectionsTable:
@@ -663,15 +621,10 @@ public class DatabaseService : IDatabaseService
                                 corruptionScanCount);
                             deletedRows += corruptionDetectionCount + corruptionScanCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared corruption detection cache ({corruptionDetectionCount + corruptionScanCount:N0} rows)",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "CorruptionEvidence", corruptionDetectionCount + corruptionScanCount,
+                                $"Cleared corruption detection cache ({corruptionDetectionCount + corruptionScanCount:N0} rows)");
                             break;
 
                         case "ClientGroups":
@@ -681,15 +634,10 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {clientGroupsCount:N0} client groups (and associated members via cascade)");
                             deletedRows += clientGroupsCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared client groups ({clientGroupsCount:N0} rows)",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "ClientGroups", clientGroupsCount,
+                                $"Cleared client groups ({clientGroupsCount:N0} rows)");
 
                             // Notify frontend to clear client groups cache
                             await _notifications.NotifyAllAsync(SignalREvents.ClientGroupsCleared, new
@@ -706,15 +654,10 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {prefillSessionsCount:N0} prefill sessions (and associated history via cascade)");
                             deletedRows += prefillSessionsCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared prefill sessions ({prefillSessionsCount:N0} rows)",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "PrefillSessions", prefillSessionsCount,
+                                $"Cleared prefill sessions ({prefillSessionsCount:N0} rows)");
 
                             break;
 
@@ -724,15 +667,10 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {prefillHistoryCount:N0} prefill history entries");
                             deletedRows += prefillHistoryCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared prefill history ({prefillHistoryCount:N0} rows)",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "PrefillHistoryEntries", prefillHistoryCount,
+                                $"Cleared prefill history ({prefillHistoryCount:N0} rows)");
                             break;
 
                         case "BannedSteamUsers":
@@ -741,15 +679,10 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {bannedUsersCount:N0} banned Steam users");
                             deletedRows += bannedUsersCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared banned Steam users ({bannedUsersCount:N0} rows)",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "BannedSteamUsers", bannedUsersCount,
+                                $"Cleared banned Steam users ({bannedUsersCount:N0} rows)");
 
                             break;
 
@@ -759,15 +692,10 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {serviceDetectionsCount:N0} cached service detections");
                             deletedRows += serviceDetectionsCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared service detection cache ({serviceDetectionsCount:N0} rows)",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "CachedServiceDetections", serviceDetectionsCount,
+                                $"Cleared service detection cache ({serviceDetectionsCount:N0} rows)");
                             break;
 
                         case "PrefillCachedDepots":
@@ -776,15 +704,10 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {prefillCachedDepotsCount:N0} prefill cached depots");
                             deletedRows += prefillCachedDepotsCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared prefill cache status ({prefillCachedDepotsCount:N0} rows)",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "PrefillCachedDepots", prefillCachedDepotsCount,
+                                $"Cleared prefill cache status ({prefillCachedDepotsCount:N0} rows)");
                             break;
 
                         case "CacheSnapshots":
@@ -793,15 +716,10 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {cacheSnapshotsCount:N0} cache snapshots");
                             deletedRows += cacheSnapshotsCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared cache size history ({cacheSnapshotsCount:N0} rows)",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "CacheSnapshots", cacheSnapshotsCount,
+                                $"Cleared cache size history ({cacheSnapshotsCount:N0} rows)");
                             break;
 
                         case "EpicGameMappings":
@@ -816,15 +734,10 @@ public class DatabaseService : IDatabaseService
                                     .SetProperty(d => d.EpicAppId, (string?)null), cancellationToken);
                             _logger.LogInformation("Cleared Epic app ID from all downloads");
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared Epic game mappings ({epicMappingCount:N0} rows) and unmapped all Epic downloads",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "EpicGameMappings", epicMappingCount,
+                                $"Cleared Epic game mappings ({epicMappingCount:N0} rows) and unmapped all Epic downloads");
                             break;
 
                         case "EpicCdnPatterns":
@@ -832,15 +745,10 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {epicCdnCount:N0} Epic CDN patterns");
                             deletedRows += epicCdnCount;
 
-                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                            {
-                                operationId,
-                                isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
-                                status = "deleting",
-                                message = $"Cleared Epic CDN patterns ({epicCdnCount:N0} rows)",
-                                timestamp = DateTime.UtcNow
-                            });
+                            await ReportClearedTableAsync(operationId,
+                                Math.Min(currentProgress + progressPerTable, 85.0),
+                                "EpicCdnPatterns", epicCdnCount,
+                                $"Cleared Epic CDN patterns ({epicCdnCount:N0} rows)");
                             break;
                     }
 
@@ -850,15 +758,14 @@ public class DatabaseService : IDatabaseService
                 // Clean up files if LogEntries or Downloads were cleared
                 if (tablesToClear.Contains("LogEntries") || tablesToClear.Contains("Downloads"))
                 {
-                    await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                    {
+                    await ReportResetProgressAsync(
                         operationId,
-                        isProcessing = true,
-                        percentComplete = 90.0,
-                        status = "cleanup",
-                        message = "Cleaning up files...",
-                        timestamp = DateTime.UtcNow
-                    });
+                        true,
+                        90.0,
+                        OperationStatus.Running,
+                        "signalr.dbReset.cleanup",
+                        new Dictionary<string, object?>(),
+                        "Cleaning up files...");
 
                     var dataDirectory = _pathResolver.GetDataDirectory();
                     if (Directory.Exists(dataDirectory))
@@ -889,18 +796,6 @@ public class DatabaseService : IDatabaseService
                 cancellationToken.ThrowIfCancellationRequested();
                 await deleteTransaction.CommitAsync(cancellationToken);
 
-                // Send completion update
-                await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-                {
-                    operationId,
-                    isProcessing = false,
-                    percentComplete = 100.0,
-                    status = OperationStatus.Completed,
-                    message = $"Successfully cleared {tablesToClear.Count} table(s): {string.Join(", ", tablesToClear)}",
-                    timestamp = DateTime.UtcNow
-                });
-
-                _operationTracker.CompleteOperation(operationId, success: true);
             }
             catch
             {
@@ -928,36 +823,55 @@ public class DatabaseService : IDatabaseService
                     timestamp = DateTime.UtcNow
                 });
             }
+
+            // Re-enabling foreign-key enforcement is part of the reset. Publish/commit the success
+            // terminal only after the execution-strategy callback (including its finally) returned;
+            // otherwise a cleanup failure could leave a failed reset reported as completed.
+            terminalOutcome = OperationStatus.Completed;
+            await ReportResetProgressAsync(
+                operationId,
+                false,
+                100.0,
+                OperationStatus.Completed,
+                "signalr.dbReset.complete",
+                new Dictionary<string, object?>(),
+                $"Successfully cleared {tablesToClear.Count} table(s): {string.Join(", ", tablesToClear)}",
+                tablesCleared: tablesToClear.Count,
+                totalTables: tablesToClear.Count);
+
+            _operationTracker.CompleteOperation(operationId, success: true);
         }
         catch (OperationCanceledException)
         {
+            terminalOutcome = OperationStatus.Cancelled;
             _logger.LogInformation("Database reset operation {OperationId} was cancelled by user", operationId);
 
-            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-            {
+            var current = Volatile.Read(ref _currentResetProgress);
+            await ReportResetProgressAsync(
                 operationId,
-                isProcessing = false,
-                percentComplete = 0.0,
-                status = OperationStatus.Cancelled,
-                message = "Database reset was cancelled by user",
-                timestamp = DateTime.UtcNow
-            });
+                false,
+                current?.Snapshot.PercentComplete ?? 0,
+                OperationStatus.Cancelled,
+                "signalr.dbReset.cancelled",
+                new Dictionary<string, object?>(),
+                "Database reset was cancelled by user");
 
             _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
         }
         catch (Exception ex)
         {
+            terminalOutcome = OperationStatus.Failed;
             _logger.LogError(ex, "Error during selective database reset");
 
-            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
-            {
+            var current = Volatile.Read(ref _currentResetProgress);
+            await ReportResetProgressAsync(
                 operationId,
-                isProcessing = false,
-                percentComplete = 0.0,
-                status = OperationStatus.Failed,
-                message = $"Database reset failed: {ex.Message}",
-                timestamp = DateTime.UtcNow
-            });
+                false,
+                current?.Snapshot.PercentComplete ?? 0,
+                OperationStatus.Failed,
+                "signalr.dbReset.failed",
+                new Dictionary<string, object?> { ["errorDetail"] = ex.Message },
+                $"Database reset failed: {ex.Message}");
 
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
         }
@@ -970,18 +884,83 @@ public class DatabaseService : IDatabaseService
                 _currentResetOperationId = null;
             }
 
-            // Clear progress tracking - reflect actual outcome
-            var wasCancelled = cancellationToken.IsCancellationRequested;
-            _currentResetProgress = new ResetProgressInfo
+            var progress = Volatile.Read(ref _currentResetProgress);
+            if (progress?.OperationId == operationId)
             {
-                IsProcessing = false,
-                PercentComplete = wasCancelled ? 0 : 100,
-                Message = wasCancelled ? "Database reset was cancelled" : "Database reset completed",
-                Status = wasCancelled ? OperationStatus.Cancelled : OperationStatus.Completed
-            };
+                Volatile.Write(ref _currentResetProgress, null);
+            }
 
-            _logger.LogInformation("Reset operation {OperationId} {Outcome}", operationId, wasCancelled ? "cancelled" : "completed");
+            _logger.LogInformation("Reset operation {OperationId} ended with {Outcome}", operationId, terminalOutcome);
         }
+    }
+
+    private Task ReportClearedTableAsync(
+        Guid operationId,
+        double percentComplete,
+        string tableName,
+        int count,
+        string message) =>
+        ReportResetProgressAsync(
+            operationId,
+            true,
+            percentComplete,
+            OperationStatus.Running,
+            "signalr.dbReset.clearedTable",
+            new Dictionary<string, object?>
+            {
+                ["tableName"] = tableName,
+                ["count"] = count
+            },
+            message);
+
+    private async Task ReportResetProgressAsync(
+        Guid operationId,
+        bool isProcessing,
+        double percentComplete,
+        OperationStatus status,
+        string stageKey,
+        IReadOnlyDictionary<string, object?> context,
+        string message,
+        int? tablesCleared = null,
+        int? totalTables = null,
+        int? filesDeleted = null)
+    {
+        var snapshot = OperationProgressSnapshot.Create(
+            stageKey,
+            percentComplete,
+            context,
+            Interlocked.Increment(ref _resetProgressRevision));
+        var progress = new ResetProgressInfo(
+            operationId,
+            isProcessing,
+            status,
+            message,
+            snapshot,
+            tablesCleared,
+            totalTables,
+            filesDeleted);
+        Volatile.Write(ref _currentResetProgress, progress);
+        _operationTracker.UpdateProgress(operationId, snapshot.PercentComplete, snapshot.StageKey);
+
+        if (isProcessing && !_resetProgressEmitGate.ShouldEmit(snapshot.StageKey, snapshot.Revision))
+        {
+            return;
+        }
+
+        await _notifications.NotifyAllAsync(
+            SignalREvents.DatabaseResetProgress,
+            new DatabaseResetProgress(
+                OperationId: operationId,
+                IsProcessing: isProcessing,
+                PercentComplete: snapshot.PercentComplete,
+                Status: status,
+                StageKey: snapshot.StageKey,
+                Message: message,
+                TablesCleared: tablesCleared,
+                TotalTables: totalTables,
+                FilesDeleted: filesDeleted,
+                Timestamp: DateTime.UtcNow,
+                Context: snapshot.Context));
     }
 
     /// <summary>

@@ -43,9 +43,39 @@
   }
 }
 
-/* Progress bar smooth transition - uses transition instead of animation to avoid restart on re-render */
-.progress-bar-animate {
-  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+/* Universal notification progress states. */
+.notification-progress-determinate {
+  appearance: none;
+  border: 0;
+  background: var(--theme-bg-tertiary);
+}
+
+.notification-progress-determinate::-webkit-progress-bar {
+  background: var(--theme-bg-tertiary);
+}
+
+.notification-progress-determinate::-webkit-progress-value {
+  border-radius: inherit;
+  background: var(--theme-info);
+}
+
+.notification-progress-determinate::-moz-progress-bar {
+  border-radius: inherit;
+  background: var(--theme-info);
+}
+
+@keyframes notificationProgressIndeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(385%);
+  }
+}
+
+.notification-progress-indeterminate {
+  width: 35%;
+  animation: notificationProgressIndeterminate 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 /* Downloads page animations */
@@ -60,6 +90,13 @@
 
 /* Respect reduced-motion: skip the tab/section fade-in entrance animations. */
 @media (prefers-reduced-motion: reduce) {
+  .notification-progress-indeterminate {
+    left: 0;
+    width: 100%;
+    transform: none;
+    animation: none;
+  }
+
   .animate-fade-in,
   .animate-fadeIn {
     animation: none;
