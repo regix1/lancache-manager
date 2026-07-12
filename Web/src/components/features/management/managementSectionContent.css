@@ -165,17 +165,14 @@
 }
 
 .mgmt-corruption-actions > button,
-.mgmt-corruption-actions > .badge-count,
-.mgmt-corruption-header-actions > .badge-count {
+.mgmt-corruption-actions > .badge-count {
   min-height: 2.75rem;
 }
 
-.mgmt-corruption-header-actions button {
-  width: 2.75rem;
-  min-width: 2.75rem;
-  height: 2.75rem;
-  min-height: 2.75rem;
-}
+/* The header action cluster keeps the shared control sizing (SectionActionsMenu
+   kebab = 40px, matching the accordion chevron and every other section header).
+   Do NOT size buttons here to 2.75rem - that inflated the shared kebab and made
+   it taller than the chevron on this section only. */
 
 .mgmt-corruption-actions .mgmt-row__toggle {
   width: 2.75rem;
