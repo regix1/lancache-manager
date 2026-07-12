@@ -10,8 +10,14 @@ use crossbeam_channel::{bounded, Receiver, RecvTimeoutError, Sender, TrySendErro
 use jwalk::WalkDir;
 use serde::Serialize;
 use std::collections::BTreeMap;
+#[cfg(target_os = "linux")]
+use std::ffi::{CString, OsString};
 use std::fs::{File, Metadata, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
+#[cfg(target_os = "linux")]
+use std::os::fd::{AsRawFd, FromRawFd};
+#[cfg(target_os = "linux")]
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -190,7 +196,6 @@ struct StructuralScanConfig {
     task_queue_capacity: usize,
     result_queue_capacity: usize,
     progress_interval: Duration,
-    milestone_interval: Duration,
     layout: Option<Layout>,
 }
 
@@ -204,7 +209,6 @@ impl StructuralScanConfig {
             task_queue_capacity: inspection_parallelism,
             result_queue_capacity: inspection_parallelism,
             progress_interval: Duration::from_secs(1),
-            milestone_interval: Duration::from_secs(10),
             layout: Layout::native(),
         }
     }
@@ -215,9 +219,6 @@ impl StructuralScanConfig {
         self.result_queue_capacity = self.result_queue_capacity.max(1);
         if self.progress_interval.is_zero() {
             self.progress_interval = Duration::from_millis(1);
-        }
-        if self.milestone_interval.is_zero() {
-            self.milestone_interval = Duration::from_millis(1);
         }
         self
     }
@@ -837,6 +838,366 @@ fn open_nofollow(path: &Path) -> Result<File> {
         .with_context(|| format!("failed to open cache file {}", path.display()))
 }
 
+enum PreparedInspectionFile {
+    Ready { file: File, metadata: Metadata },
+    Skip { reason: SkipReason, sparse: bool },
+}
+
+#[allow(dead_code)] // `Legacy` is the non-Linux safety fallback; production runs the rooted variant.
+enum WorkerPathAccess {
+    #[cfg(target_os = "linux")]
+    Rooted(LinuxRootedAccess),
+    Legacy,
+}
+
+impl WorkerPathAccess {
+    fn new(root: &Path) -> Result<Self> {
+        #[cfg(target_os = "linux")]
+        {
+            return LinuxRootedAccess::new(root).map(Self::Rooted);
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = root;
+            Ok(Self::Legacy)
+        }
+    }
+
+    fn prepare(
+        &mut self,
+        root: &Path,
+        path: &Path,
+        now: SystemTime,
+    ) -> Result<PreparedInspectionFile> {
+        #[cfg(target_os = "linux")]
+        if let Self::Rooted(access) = self {
+            return access.prepare(root, path, now);
+        }
+
+        if has_symlink_component(root, path)? {
+            return Ok(PreparedInspectionFile::Skip {
+                reason: SkipReason::Symlink,
+                sparse: false,
+            });
+        }
+        let path_before = match std::fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(PreparedInspectionFile::Skip {
+                    reason: SkipReason::Changed,
+                    sparse: false,
+                });
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("failed to inspect {}", path.display()));
+            }
+        };
+        if !path_before.file_type().is_file() {
+            return Ok(PreparedInspectionFile::Skip {
+                reason: SkipReason::SpecialFile,
+                sparse: false,
+            });
+        }
+        if !stable_age(&path_before, now) {
+            return Ok(PreparedInspectionFile::Skip {
+                reason: SkipReason::Recent,
+                sparse: sparse(&path_before),
+            });
+        }
+        cache_utils::safe_path_under_root(root, path)
+            .with_context(|| format!("unsafe structural cache path {}", path.display()))?;
+        let file = open_nofollow(path)?;
+        let before = file.metadata()?;
+        if fingerprint(&before) != fingerprint(&path_before) {
+            return Ok(PreparedInspectionFile::Skip {
+                reason: SkipReason::Replaced,
+                sparse: sparse(&before),
+            });
+        }
+        Ok(PreparedInspectionFile::Ready {
+            file,
+            metadata: before,
+        })
+    }
+
+    fn uses_rooted_access(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            matches!(self, Self::Rooted(_))
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            false
+        }
+    }
+
+    fn current_path_matches(
+        &mut self,
+        root: &Path,
+        path: &Path,
+        expected: &FileFingerprint,
+    ) -> Result<bool> {
+        #[cfg(target_os = "linux")]
+        if let Self::Rooted(access) = self {
+            return access.current_path_matches(root, path, expected);
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = root;
+        path_fingerprint_matches(path, expected)
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct LinuxRootedAccess {
+    root: File,
+    root_dev: u64,
+    root_ino: u64,
+    cached_parent: Option<(PathBuf, File)>,
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxRootedAccess {
+    fn open_root(root: &Path) -> std::io::Result<File> {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let mut options = OpenOptions::new();
+        options
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        options.open(root)
+    }
+
+    fn new(root: &Path) -> Result<Self> {
+        use std::os::unix::fs::MetadataExt;
+
+        let root = Self::open_root(root)
+            .with_context(|| "failed to open structural cache root for rooted inspection")?;
+        let metadata = root.metadata()?;
+        Ok(Self {
+            root,
+            root_dev: metadata.dev(),
+            root_ino: metadata.ino(),
+            cached_parent: None,
+        })
+    }
+
+    fn relative_parts(root: &Path, path: &Path) -> Result<(PathBuf, OsString)> {
+        let relative = path
+            .strip_prefix(root)
+            .with_context(|| format!("path is outside cache root: {}", path.display()))?;
+        let leaf = relative
+            .file_name()
+            .context("structural cache path has no file name")?
+            .to_os_string();
+        let parent = relative.parent().unwrap_or_else(|| Path::new(""));
+        if parent
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            bail!("structural cache path contains a non-normal parent component");
+        }
+        Ok((parent.to_path_buf(), leaf))
+    }
+
+    fn open_at(directory: &File, name: &std::ffi::OsStr, flags: i32) -> std::io::Result<File> {
+        let name = CString::new(name.as_bytes()).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "structural cache path contains an embedded NUL",
+            )
+        })?;
+        let descriptor = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
+        if descriptor < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(unsafe { File::from_raw_fd(descriptor) })
+    }
+
+    fn open_parent_from(root: &File, relative: &Path) -> std::io::Result<File> {
+        let mut current = root.try_clone()?;
+        for component in relative.components() {
+            let Component::Normal(name) = component else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "structural cache parent contains a non-normal component",
+                ));
+            };
+            current = Self::open_at(
+                &current,
+                name,
+                libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )?;
+        }
+        Ok(current)
+    }
+
+    fn open_parent(&self, relative: &Path) -> std::io::Result<File> {
+        Self::open_parent_from(&self.root, relative)
+    }
+
+    fn open_leaf_cached(
+        &mut self,
+        parent: &Path,
+        leaf: &std::ffi::OsStr,
+        flags: i32,
+    ) -> std::io::Result<File> {
+        let reuse = self
+            .cached_parent
+            .as_ref()
+            .is_some_and(|(cached, _)| cached == parent);
+        if !reuse {
+            let directory = self.open_parent(parent)?;
+            self.cached_parent = Some((parent.to_path_buf(), directory));
+        }
+        let Some((_, directory)) = self.cached_parent.as_ref() else {
+            return Err(std::io::Error::other(
+                "structural cache parent cache was not initialized",
+            ));
+        };
+        Self::open_at(directory, leaf, flags)
+    }
+
+    fn unsafe_component(error: &std::io::Error) -> bool {
+        matches!(error.raw_os_error(), Some(code) if code == libc::ELOOP || code == libc::ENOTDIR)
+    }
+
+    fn prepare(
+        &mut self,
+        root: &Path,
+        path: &Path,
+        now: SystemTime,
+    ) -> Result<PreparedInspectionFile> {
+        let (parent, leaf) = Self::relative_parts(root, path)?;
+        let path_handle = match self.open_leaf_cached(
+            &parent,
+            &leaf,
+            libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(PreparedInspectionFile::Skip {
+                    reason: SkipReason::Changed,
+                    sparse: false,
+                });
+            }
+            Err(error) if Self::unsafe_component(&error) => {
+                return Ok(PreparedInspectionFile::Skip {
+                    reason: SkipReason::Symlink,
+                    sparse: false,
+                });
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("failed to inspect {}", path.display()));
+            }
+        };
+        let path_before = path_handle.metadata()?;
+        if path_before.file_type().is_symlink() {
+            return Ok(PreparedInspectionFile::Skip {
+                reason: SkipReason::Symlink,
+                sparse: false,
+            });
+        }
+        if !path_before.file_type().is_file() {
+            return Ok(PreparedInspectionFile::Skip {
+                reason: SkipReason::SpecialFile,
+                sparse: false,
+            });
+        }
+        if !stable_age(&path_before, now) {
+            return Ok(PreparedInspectionFile::Skip {
+                reason: SkipReason::Recent,
+                sparse: sparse(&path_before),
+            });
+        }
+
+        let file = match self.open_leaf_cached(
+            &parent,
+            &leaf,
+            libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(PreparedInspectionFile::Skip {
+                    reason: SkipReason::Changed,
+                    sparse: false,
+                });
+            }
+            Err(error) if Self::unsafe_component(&error) => {
+                return Ok(PreparedInspectionFile::Skip {
+                    reason: SkipReason::Replaced,
+                    sparse: false,
+                });
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to open cache file {}", path.display()));
+            }
+        };
+        let before = file.metadata()?;
+        if !before.file_type().is_file() || fingerprint(&before) != fingerprint(&path_before) {
+            return Ok(PreparedInspectionFile::Skip {
+                reason: SkipReason::Replaced,
+                sparse: sparse(&before),
+            });
+        }
+        Ok(PreparedInspectionFile::Ready {
+            file,
+            metadata: before,
+        })
+    }
+
+    fn current_path_matches(
+        &self,
+        root: &Path,
+        path: &Path,
+        expected: &FileFingerprint,
+    ) -> Result<bool> {
+        use std::os::unix::fs::MetadataExt;
+
+        let (parent, leaf) = Self::relative_parts(root, path)?;
+        let current_root = match Self::open_root(root) {
+            Ok(current_root) => current_root,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    || Self::unsafe_component(&error) =>
+            {
+                return Ok(false);
+            }
+            Err(error) => return Err(error).context("failed to reopen structural cache root"),
+        };
+        let root_metadata = current_root.metadata()?;
+        if root_metadata.dev() != self.root_dev || root_metadata.ino() != self.root_ino {
+            return Ok(false);
+        }
+        let directory = match Self::open_parent_from(&current_root, &parent) {
+            Ok(directory) => directory,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    || Self::unsafe_component(&error) =>
+            {
+                return Ok(false);
+            }
+            Err(error) => return Err(error).context("failed to reopen cache parent"),
+        };
+        let current = match Self::open_at(
+            &directory,
+            &leaf,
+            libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        ) {
+            Ok(file) => file,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    || Self::unsafe_component(&error) =>
+            {
+                return Ok(false);
+            }
+            Err(error) => return Err(error).context("failed to reopen cache file"),
+        };
+        let metadata = current.metadata()?;
+        Ok(metadata.file_type().is_file() && fingerprint(&metadata) == *expected)
+    }
+}
+
 fn stable_age(metadata: &Metadata, now: SystemTime) -> bool {
     metadata
         .modified()
@@ -919,51 +1280,40 @@ fn inspect_path_with_layout_and_hook<F: FnOnce()>(
     layout: Layout,
     after_read: F,
 ) -> Result<Inspection> {
-    if has_symlink_component(root, path)? {
-        return Ok(Inspection {
-            outcome: InspectionOutcome::Skip(SkipReason::Symlink.as_str()),
-            bytes_read: 0,
-            sparse: false,
-        });
-    }
-    let path_before = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+    let mut access = WorkerPathAccess::new(root)?;
+    inspect_path_with_layout_and_access(
+        root,
+        path,
+        path_digest,
+        now,
+        detected_at,
+        layout,
+        &mut access,
+        after_read,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn inspect_path_with_layout_and_access<F: FnOnce()>(
+    root: &Path,
+    path: &Path,
+    path_digest: u128,
+    now: SystemTime,
+    detected_at: DateTime<Utc>,
+    layout: Layout,
+    access: &mut WorkerPathAccess,
+    after_read: F,
+) -> Result<Inspection> {
+    let (mut file, before) = match access.prepare(root, path, now)? {
+        PreparedInspectionFile::Ready { file, metadata } => (file, metadata),
+        PreparedInspectionFile::Skip { reason, sparse } => {
             return Ok(Inspection {
-                outcome: InspectionOutcome::Skip(SkipReason::Changed.as_str()),
+                outcome: InspectionOutcome::Skip(reason.as_str()),
                 bytes_read: 0,
-                sparse: false,
-            })
-        }
-        Err(error) => {
-            return Err(error).with_context(|| format!("failed to inspect {}", path.display()))
+                sparse,
+            });
         }
     };
-    if !path_before.file_type().is_file() {
-        return Ok(Inspection {
-            outcome: InspectionOutcome::Skip(SkipReason::SpecialFile.as_str()),
-            bytes_read: 0,
-            sparse: false,
-        });
-    }
-    if !stable_age(&path_before, now) {
-        return Ok(Inspection {
-            outcome: InspectionOutcome::Skip(SkipReason::Recent.as_str()),
-            bytes_read: 0,
-            sparse: sparse(&path_before),
-        });
-    }
-    cache_utils::safe_path_under_root(root, path)
-        .with_context(|| format!("unsafe structural cache path {}", path.display()))?;
-    let mut file = open_nofollow(path)?;
-    let before = file.metadata()?;
-    if fingerprint(&before) != fingerprint(&path_before) {
-        return Ok(Inspection {
-            outcome: InspectionOutcome::Skip(SkipReason::Replaced.as_str()),
-            bytes_read: 0,
-            sparse: sparse(&before),
-        });
-    }
     let (prefix, bytes_read) = match read_prefix(&mut file, before.len(), layout) {
         Ok(value) => value,
         Err(error) => {
@@ -988,10 +1338,19 @@ fn inspect_path_with_layout_and_hook<F: FnOnce()>(
         });
     }
     let after = file.metadata()?;
-    let path_after = std::fs::symlink_metadata(path)?;
-    if fingerprint(&before) != fingerprint(&after)
-        || fingerprint(&after) != fingerprint(&path_after)
-        || path_after.file_type().is_symlink()
+    if fingerprint(&before) != fingerprint(&after) {
+        return Ok(Inspection {
+            outcome: InspectionOutcome::Skip(SkipReason::Changed.as_str()),
+            bytes_read,
+            sparse: sparse(&after),
+        });
+    }
+
+    // The legacy fallback preserves its historical all-file path restat. The Linux rooted-open
+    // path already holds a symlink-safe directory/file descriptor; it only rebuilds the current
+    // root-relative path for proven candidates, where an exact removable path will be persisted.
+    if !access.uses_rooted_access()
+        && !access.current_path_matches(root, path, &fingerprint(&before))?
     {
         return Ok(Inspection {
             outcome: InspectionOutcome::Skip(SkipReason::Changed.as_str()),
@@ -1003,6 +1362,15 @@ fn inspect_path_with_layout_and_hook<F: FnOnce()>(
         ParseOutcome::Consistent => InspectionOutcome::Consistent,
         ParseOutcome::Skip(reason) => InspectionOutcome::Skip(reason.as_str()),
         ParseOutcome::Proven(parsed) => {
+            if access.uses_rooted_access()
+                && !access.current_path_matches(root, path, &fingerprint(&before))?
+            {
+                return Ok(Inspection {
+                    outcome: InspectionOutcome::Skip(SkipReason::Changed.as_str()),
+                    bytes_read,
+                    sparse: sparse(&after),
+                });
+            }
             let key_md5 = format!(
                 "{:032x}",
                 u128::from_be_bytes(md5::compute(&parsed.cache_key).0)
@@ -1278,6 +1646,10 @@ fn inspection_worker(
     counters: &PipelineCounters,
     observer: Option<&dyn InspectionObserver>,
 ) -> Result<()> {
+    // Linux workers keep the current two-level cache directory open while consuming its files.
+    // jwalk emits siblings together, so this replaces millions of repeated root canonicalizations
+    // and parent-component stats with descriptor-relative leaf opens.
+    let mut path_access = WorkerPathAccess::new(root)?;
     while let Ok(task) = task_receiver.recv() {
         let start_guard = start_gate
             .read()
@@ -1294,13 +1666,14 @@ fn inspection_worker(
         }
 
         let inspection = match layout {
-            Some(layout) => inspect_path_with_layout_and_hook(
+            Some(layout) => inspect_path_with_layout_and_access(
                 root,
                 &task.path,
                 task.path_digest,
                 now,
                 scan_started_utc,
                 layout,
+                &mut path_access,
                 || {
                     if let Some(observer) = observer {
                         observer.inspection_after_read(&task.path);
@@ -1424,11 +1797,6 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
             result_queue_capacity: config.result_queue_capacity,
         },
     )?;
-    eprintln!(
-        "[structural] inspection starting total={total} workers={} task_capacity={} result_capacity={}",
-        config.inspection_parallelism, config.task_queue_capacity, config.result_queue_capacity
-    );
-
     let stop = Arc::new(AtomicBool::new(false));
     let start_gate = Arc::new(RwLock::new(()));
     let counters = Arc::new(PipelineCounters::default());
@@ -1438,7 +1806,6 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
     let mut merged = 0usize;
     let mut warning_count = 0usize;
     let mut cancelled = false;
-    let mut last_milestone_at = phase_started_at;
 
     std::thread::scope(|scope| -> Result<()> {
         let mut handles = Vec::with_capacity(config.inspection_parallelism);
@@ -1525,27 +1892,6 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                     traversal_complete = true;
                 }
             }
-            if clock_now.saturating_sub(last_milestone_at) >= config.milestone_interval {
-                last_milestone_at = clock_now;
-                let rate = progress_telemetry.ewma_files_per_second.unwrap_or(0.0);
-                let eta = eta_seconds(
-                    total,
-                    coverage.files_seen,
-                    ProgressRate {
-                        elapsed_seconds: clock_now.saturating_sub(phase_started_at).as_secs_f64(),
-                        files_per_second: Some(rate),
-                    },
-                );
-                eprintln!(
-                    "[structural] inspection progress processed={}/{} suspects={} files_per_second={:.1} eta_seconds={}",
-                    coverage.files_seen,
-                    total,
-                    candidates.len(),
-                    rate,
-                    eta.map_or_else(|| "unknown".to_string(), |value| value.to_string())
-                );
-            }
-
             if fatal_error.is_some() || cancelled {
                 break;
             }
@@ -1661,26 +2007,6 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                     fatal_error.get_or_insert(error);
                     request_pipeline_stop(&stop, &start_gate, observer)?;
                 }
-            }
-            if clock_now.saturating_sub(last_milestone_at) >= config.milestone_interval {
-                last_milestone_at = clock_now;
-                let rate = progress_telemetry.ewma_files_per_second.unwrap_or(0.0);
-                let eta = eta_seconds(
-                    total,
-                    coverage.files_seen,
-                    ProgressRate {
-                        elapsed_seconds: clock_now.saturating_sub(phase_started_at).as_secs_f64(),
-                        files_per_second: Some(rate),
-                    },
-                );
-                eprintln!(
-                    "[structural] inspection progress processed={}/{} suspects={} files_per_second={:.1} eta_seconds={}",
-                    coverage.files_seen,
-                    total,
-                    candidates.len(),
-                    rate,
-                    eta.map_or_else(|| "unknown".to_string(), |value| value.to_string())
-                );
             }
         }
 
@@ -1834,9 +2160,6 @@ fn scan_with_runtime<F: FnMut() -> bool>(
         bail!("structural cache root changed during setup");
     }
 
-    let scan_started_at = clock.elapsed();
-    eprintln!("[structural] scan starting");
-
     let mut total = 0usize;
     let mut cancelled = false;
     let mut coverage = StructuralCoverage::default();
@@ -1862,8 +2185,6 @@ fn scan_with_runtime<F: FnMut() -> bool>(
             result_queue_capacity: 0,
         },
     )?;
-    eprintln!("[structural] enumerating cache files (this pass computes the total)...");
-    let mut last_count_milestone_at = clock.elapsed();
     for entry in count_walk(root) {
         if cancellation_requested() {
             cancelled = true;
@@ -1901,15 +2222,7 @@ fn scan_with_runtime<F: FnMut() -> bool>(
                 details,
             )?;
         }
-        if now.saturating_sub(last_count_milestone_at) >= config.milestone_interval {
-            last_count_milestone_at = now;
-            eprintln!("[structural] enumeration progress eligible_files={total}");
-        }
     }
-    eprintln!(
-        "[structural] enumeration complete: {total} eligible cache files in {:.1}s (cancelled={cancelled})",
-        clock.elapsed().saturating_sub(scan_started_at).as_secs_f64()
-    );
 
     let mut candidates = Vec::new();
     // Final counting emit: report the full eligible-file count now that enumeration finished.
@@ -1948,18 +2261,6 @@ fn scan_with_runtime<F: FnMut() -> bool>(
         cancelled = result.0;
         pipeline = result.1;
     }
-    eprintln!(
-        "[structural] scan finished in {:.1}s: files_seen={} files_checked={} consistent={} suspects={} sparse={} io_errors={} bytes_read={} skipped_by_reason={:?} (cancelled={cancelled})",
-        clock.elapsed().saturating_sub(scan_started_at).as_secs_f64(),
-        coverage.files_seen,
-        coverage.files_checked,
-        coverage.consistent,
-        candidates.len(),
-        coverage.sparse_files,
-        coverage.io_errors,
-        coverage.bytes_read,
-        coverage.skipped_by_reason
-    );
     let report = build_report(scan_started_utc, candidates, coverage.clone());
     if cancelled && pipeline.worker_count == 0 {
         let details = progress_details(
@@ -2185,7 +2486,6 @@ mod tests {
             task_queue_capacity: capacity,
             result_queue_capacity: capacity,
             progress_interval: Duration::from_secs(1),
-            milestone_interval: Duration::from_secs(10),
             layout: Some(Layout::linux_x86_64()),
         }
     }
@@ -2222,6 +2522,16 @@ mod tests {
         scan_started_utc: DateTime<Utc>,
         layout: Layout,
     ) -> CorruptionReport {
+        let mut access = WorkerPathAccess::new(root).unwrap();
+        serial_reference_with_access(root, scan_started_utc, layout, &mut access)
+    }
+
+    fn serial_reference_with_access(
+        root: &Path,
+        scan_started_utc: DateTime<Utc>,
+        layout: Layout,
+        access: &mut WorkerPathAccess,
+    ) -> CorruptionReport {
         let mut coverage = StructuralCoverage::default();
         let mut total = 0usize;
         for entry in count_walk(root) {
@@ -2254,13 +2564,15 @@ mod tests {
                     else {
                         continue;
                     };
-                    let inspection = inspect_path_with_layout(
+                    let inspection = inspect_path_with_layout_and_access(
                         root,
                         &path,
                         path_digest,
                         now,
                         scan_started_utc,
                         layout,
+                        access,
+                        || {},
                     );
                     merge_inspection_result(
                         InspectionResult { path, inspection },
@@ -2464,6 +2776,10 @@ mod tests {
         std::fs::write(root.join("foreign-entry"), b"ignored").unwrap();
 
         let serial = serial_reference(root, started, Layout::linux_x86_64());
+        let mut legacy_access = WorkerPathAccess::Legacy;
+        let legacy =
+            serial_reference_with_access(root, started, Layout::linux_x86_64(), &mut legacy_access);
+        assert_eq!(serial, legacy);
         let clock = ManualClock::new();
         let mut never_cancel = || false;
         let parallel = scan_with_runtime(
@@ -2987,7 +3303,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn diagnostic_parallel_structural_scan_throughput_and_rss() {
+    fn parallel_structural_scan_throughput_and_rss() {
         let fixture_count = std::env::var("STRUCTURAL_BENCH_N")
             .ok()
             .and_then(|value| value.parse::<usize>().ok())
@@ -3024,7 +3340,41 @@ mod tests {
 
         let scan_started_utc = fixed_scan_started();
         let now = SystemTime::from(scan_started_utc);
-        let serial_started = Instant::now();
+        let legacy_started = Instant::now();
+        let mut legacy_access = WorkerPathAccess::Legacy;
+        let mut legacy_coverage = StructuralCoverage::default();
+        let mut legacy_candidates = Vec::new();
+        let mut legacy_warning_count = 0usize;
+        for entry in inspection_walk(root) {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let Some(path_digest) = cache_utils::strict_cache_file_digest(root, &path) else {
+                continue;
+            };
+            let inspection = inspect_path_with_layout_and_access(
+                root,
+                &path,
+                path_digest,
+                now,
+                scan_started_utc,
+                Layout::linux_x86_64(),
+                &mut legacy_access,
+                || {},
+            );
+            merge_inspection_result(
+                InspectionResult { path, inspection },
+                &mut legacy_coverage,
+                &mut legacy_candidates,
+                &mut legacy_warning_count,
+            );
+        }
+        let legacy_elapsed = legacy_started.elapsed();
+        assert_eq!(legacy_coverage.files_seen, fixture_count);
+        assert_eq!(legacy_coverage.consistent, fixture_count);
+        assert!(legacy_candidates.is_empty());
+
+        let rooted_started = Instant::now();
+        let mut rooted_access = WorkerPathAccess::new(root).unwrap();
         let mut serial_coverage = StructuralCoverage::default();
         let mut serial_candidates = Vec::new();
         let mut warning_count = 0usize;
@@ -3034,13 +3384,15 @@ mod tests {
             let Some(path_digest) = cache_utils::strict_cache_file_digest(root, &path) else {
                 continue;
             };
-            let inspection = inspect_path_with_layout(
+            let inspection = inspect_path_with_layout_and_access(
                 root,
                 &path,
                 path_digest,
                 now,
                 scan_started_utc,
                 Layout::linux_x86_64(),
+                &mut rooted_access,
+                || {},
             );
             merge_inspection_result(
                 InspectionResult { path, inspection },
@@ -3049,10 +3401,12 @@ mod tests {
                 &mut warning_count,
             );
         }
-        let serial_elapsed = serial_started.elapsed();
+        let serial_elapsed = rooted_started.elapsed();
         assert_eq!(serial_coverage.files_seen, fixture_count);
         assert_eq!(serial_coverage.consistent, fixture_count);
         assert!(serial_candidates.is_empty());
+        assert_eq!(serial_coverage, legacy_coverage);
+        assert_eq!(serial_candidates, legacy_candidates);
 
         let observer = FirstWaveObserver::new(worker_count);
         let config = test_config(worker_count, worker_count);
@@ -3092,9 +3446,11 @@ mod tests {
         }
 
         let count_rate = fixture_count as f64 / count_elapsed.as_secs_f64();
+        let legacy_rate = fixture_count as f64 / legacy_elapsed.as_secs_f64();
         let serial_rate = fixture_count as f64 / serial_elapsed.as_secs_f64();
         let parallel_rate = fixture_count as f64 / parallel_elapsed.as_secs_f64();
-        let speedup = serial_elapsed.as_secs_f64() / parallel_elapsed.as_secs_f64();
+        let rooted_speedup = legacy_elapsed.as_secs_f64() / serial_elapsed.as_secs_f64();
+        let parallel_speedup = legacy_elapsed.as_secs_f64() / parallel_elapsed.as_secs_f64();
         eprintln!(
             "[structural-bench] fixtures={} creation_seconds={:.3} count_seconds={:.3} count_files_per_second={:.1}",
             fixture_count,
@@ -3103,12 +3459,18 @@ mod tests {
             count_rate
         );
         eprintln!(
-            "[structural-bench] serial_seconds={:.3} serial_files_per_second={:.1} parallel_seconds={:.3} parallel_files_per_second={:.1} speedup={:.2} workers={}",
+            "[structural-bench] legacy_seconds={:.3} legacy_files_per_second={:.1} rooted_serial_seconds={:.3} rooted_serial_files_per_second={:.1} rooted_speedup={:.2}",
+            legacy_elapsed.as_secs_f64(),
+            legacy_rate,
             serial_elapsed.as_secs_f64(),
             serial_rate,
+            rooted_speedup
+        );
+        eprintln!(
+            "[structural-bench] parallel_seconds={:.3} parallel_files_per_second={:.1} speedup_vs_legacy={:.2} workers={}",
             parallel_elapsed.as_secs_f64(),
             parallel_rate,
-            speedup,
+            parallel_speedup,
             worker_count
         );
         eprintln!(
@@ -3467,6 +3829,44 @@ mod tests {
         .unwrap();
         assert!(matches!(
             changed.outcome,
+            InspectionOutcome::Skip("changed")
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rooted_candidate_rechecks_the_current_parent_path_after_read() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let (path, _) = materialize(
+            &root,
+            b"steam/rooted-parent-swap",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n",
+            b"1234",
+        );
+        let parent = path.parent().unwrap().to_path_buf();
+        let moved_parent = parent.with_extension("moved");
+        let outside_parent = temp.path().join("outside");
+        std::fs::create_dir_all(&outside_parent).unwrap();
+
+        let inspection = inspect_path_with_layout_and_hook(
+            &root,
+            &path,
+            cache_utils::strict_cache_file_digest(&root, &path).unwrap(),
+            old_now(),
+            Utc::now(),
+            Layout::linux_x86_64(),
+            || {
+                std::fs::rename(&parent, &moved_parent).unwrap();
+                symlink(&outside_parent, &parent).unwrap();
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(
+            inspection.outcome,
             InspectionOutcome::Skip("changed")
         ));
     }

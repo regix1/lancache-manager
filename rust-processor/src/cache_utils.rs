@@ -254,10 +254,11 @@ impl FilesystemType {
                 std::cmp::min(cpus * 2, 16)
             }
             FilesystemType::Nfs | FilesystemType::Smb => {
-                // Network filesystems: parallelism often HURTS performance
-                // Each operation requires network round-trip
-                // Use minimal parallelism to reduce NFS server load
-                2
+                // Network filesystems are latency-bound, not bandwidth-bound: each metadata
+                // lookup and header read costs a round-trip, so the only way to keep the link
+                // busy is to have several requests in flight. Too low a value leaves the
+                // scanner idle waiting on the wire; too high buries the server in IOPS.
+                8
             }
             FilesystemType::Unknown => 4,
         }
