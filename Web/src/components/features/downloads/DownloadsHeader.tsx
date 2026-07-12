@@ -162,21 +162,26 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           </div>
 
           <div className="today-stats">
-            <div className={`today-stat ${isHistoricalView ? 'disabled' : ''}`}>
+            <div
+              className={`today-stat ${isActive && !isHistoricalView ? 'is-live' : ''} ${isHistoricalView ? 'disabled' : ''}`}
+            >
               <HardDrive />
               <span className="today-label">{t('downloads.header.todayLabel')}</span>
               <span className="today-value">
                 {isHistoricalView ? t('downloads.header.disabled') : formatBytes(todayTotal)}
               </span>
-              <HelpPopover position="left" width={320}>
-                <HelpSection title={t('downloads.header.help.totalBytes.title')} variant="subtle">
-                  {t('downloads.header.help.totalBytes.description')}
-                </HelpSection>
-              </HelpPopover>
-              {isActive && !isHistoricalView && <div className="active-dot" />}
+              <span className="today-stat-help">
+                <HelpPopover position="left" width={320}>
+                  <HelpSection title={t('downloads.header.help.totalBytes.title')} variant="subtle">
+                    {t('downloads.header.help.totalBytes.description')}
+                  </HelpSection>
+                </HelpPopover>
+              </span>
             </div>
 
-            <div className={`today-stat ${isHistoricalView ? 'disabled' : ''}`}>
+            <div
+              className={`today-stat ${isActive && !isHistoricalView ? 'is-live' : ''} ${isHistoricalView ? 'disabled' : ''}`}
+            >
               <TrendingUp />
               <span className="today-label">{t('downloads.header.hitRateLabel')}</span>
               <span className="today-value">
@@ -184,11 +189,13 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                   ? t('downloads.header.disabled')
                   : formatPercent(overallHitPercent)}
               </span>
-              <HelpPopover position="left" width={320}>
-                <HelpSection title={t('downloads.header.help.hitRate.title')} variant="subtle">
-                  {t('downloads.header.help.hitRate.description')}
-                </HelpSection>
-              </HelpPopover>
+              <span className="today-stat-help">
+                <HelpPopover position="left" width={320}>
+                  <HelpSection title={t('downloads.header.help.hitRate.title')} variant="subtle">
+                    {t('downloads.header.help.hitRate.description')}
+                  </HelpSection>
+                </HelpPopover>
+              </span>
             </div>
           </div>
         </div>

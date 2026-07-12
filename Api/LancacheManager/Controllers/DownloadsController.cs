@@ -569,7 +569,8 @@ public class DownloadsController : ControllerBase
                 "sessions" => effectiveList.OrderByDescending(g => g.RequestCount).ToList(),
                 "alphabetical" => effectiveList.OrderBy(g => g.AppName, StringComparer.OrdinalIgnoreCase).ToList(),
                 "service" => effectiveList.OrderBy(g => g.Service).ThenByDescending(g => g.EndTimeUtc).ToList(),
-                _ => effectiveList.OrderByDescending(g => g.EndTimeUtc).ToList(), // "latest" default
+                // "recent" and "latest" are both pure chronological (newest end time first)
+                _ => effectiveList.OrderByDescending(g => g.EndTimeUtc).ToList(),
             };
 
             // Paginate from the post-merge list

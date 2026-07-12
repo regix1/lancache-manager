@@ -544,6 +544,10 @@
     border: 1px solid var(--theme-border-secondary);
   }
 
+  .downloads-header .today-stat.is-live {
+    border-color: var(--theme-success-on-border);
+  }
+
   .downloads-header .today-stat.disabled {
     opacity: 0.5;
   }
@@ -552,6 +556,12 @@
     width: 16px;
     height: 16px;
     color: var(--theme-text-muted);
+  }
+
+  .downloads-header .today-stat-help {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
   }
 
   .downloads-header .today-label {
@@ -563,26 +573,6 @@
     font-size: var(--font-size-md);
     font-weight: 600;
     color: var(--theme-text-primary);
-  }
-
-  .downloads-header .active-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--theme-success);
-    animation: header-dot-pulse 1.5s ease-in-out infinite;
-  }
-
-  @keyframes header-dot-pulse {
-    0%,
-    100% {
-      opacity: 1;
-      box-shadow: 0 0 0 0 var(--theme-success-strong);
-    }
-    50% {
-      opacity: 0.8;
-      box-shadow: 0 0 0 4px transparent;
-    }
   }
 
   /* Downloads Header - Mobile overrides */
@@ -634,7 +624,7 @@
       flex: 1;
       min-width: 0;
       padding: 0.4rem 0.6rem;
-      justify-content: center;
+      justify-content: flex-start;
     }
 
     .downloads-header .stats-row {
@@ -1922,7 +1912,6 @@
     .downloads-header .speed-indicator.active .speed-ring,
     .downloads-header .speed-indicator.active .speed-icon,
     .downloads-header .tab-button:not(.active) .tab-badge.has-active,
-    .downloads-header .active-dot,
     .active-empty-state .empty-icon-ring,
     .active-downloads-view .active-indicator,
     .active-loading-spinner {

@@ -1341,7 +1341,8 @@
       },
       "sort": {
         "prefix": "排序：",
-        "latest": "最新",
+        "recent": "最新",
+        "latest": "多次优先",
         "oldest": "最早",
         "largest": "最大",
         "smallest": "最小",

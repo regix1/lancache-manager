@@ -3,6 +3,7 @@ import type { RetroDownloadDto } from '@services/api.service';
 import type { Download as DownloadType, DownloadGroup } from '../../../types';
 
 export type RetroSortOrder =
+  | 'recent'
   | 'latest'
   | 'oldest'
   | 'largest'
@@ -230,6 +231,7 @@ export const groupByDepot = (
         return b.requestCount - a.requestCount;
       case 'alphabetical':
         return a.gameName.localeCompare(b.gameName);
+      case 'recent':
       case 'latest':
       default:
         return new Date(b.endTimeUtc).getTime() - new Date(a.endTimeUtc).getTime();

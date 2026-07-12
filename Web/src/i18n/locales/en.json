@@ -1341,7 +1341,8 @@
       },
       "sort": {
         "prefix": "Sort:",
-        "latest": "Newest",
+        "recent": "Newest",
+        "latest": "Frequent First",
         "oldest": "Oldest",
         "largest": "Largest",
         "smallest": "Smallest",
