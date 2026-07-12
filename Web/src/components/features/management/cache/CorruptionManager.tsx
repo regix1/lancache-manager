@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Search, Trash2 } from 'lucide-react';
 import '../managementSectionContent.css';
 import ApiService from '@services/api.service';
+import { ApiError } from '@services/apiError';
 import { type AuthMode } from '@services/auth.service';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
@@ -127,6 +128,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const [reviewOnlyServiceCounts, setReviewOnlyServiceCounts] = useState<Record<string, number>>(
     {}
   );
+  const [dismissingReviewService, setDismissingReviewService] = useState<string | null>(null);
+  const [isDismissingAll, setIsDismissingAll] = useState(false);
+  const [pendingDismissAll, setPendingDismissAll] = useState(false);
   const [missThreshold, setMissThreshold] = useState(3);
   const [detectionMode, setDetectionMode] = useState<CorruptionDetectionMode>('cache_and_logs');
   const [lookbackDays, setLookbackDays] = useState(30);
@@ -208,6 +212,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   );
 
   const formattedLastDetection = useFormattedDateTime(lastDetectionTime);
+  const isDismissalPending = dismissingReviewService !== null || isDismissingAll;
 
   const clearLoadedResults = useCallback(() => {
     resultEpochRef.current += 1;
@@ -224,13 +229,16 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     setPendingCorruptionRemoval(null);
     setPendingRemoveAll(false);
     setPendingRemoveSelected(false);
+    setPendingDismissAll(false);
     clearSelection();
   }, [clearSelection]);
 
   const applyCachedScan = useCallback(
-    (cached: CachedCorruptionDetectionResponse) => {
-      clearLoadedResults();
-
+    (cached: CachedCorruptionDetectionResponse, preserveOnInvalid = false) => {
+      const rejectInvalid = () => {
+        if (!preserveOnInvalid) clearLoadedResults();
+        return false;
+      };
       if (
         !cached.hasCachedResults ||
         !cached.scanId ||
@@ -249,7 +257,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         cached.removableTotal == null ||
         cached.reviewOnlyTotal == null
       ) {
-        return false;
+        return rejectInvalid();
       }
 
       const projection = projectCorruptionCounts(
@@ -264,9 +272,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         projection.removableTotal !== cached.removableTotal ||
         projection.reviewOnlyTotal !== cached.reviewOnlyTotal
       ) {
-        return false;
+        return rejectInvalid();
       }
 
+      clearLoadedResults();
       setCorruptionSummary(cached.corruptionCounts);
       setRemovableServiceCounts(cached.removableServiceCounts);
       setReviewOnlyServiceCounts(cached.reviewOnlyServiceCounts);
@@ -397,7 +406,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   // Start a background scan
   const startScan = useCallback(async () => {
-    if (isScanning || mockMode) return;
+    if (isScanning || isDismissalPending || mockMode) return;
 
     // Note: NotificationsContext automatically replaces notifications with the same ID
     // when a new operation starts, so manual dismissal is not needed
@@ -435,6 +444,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     }
   }, [
     isScanning,
+    isDismissalPending,
     mockMode,
     missThreshold,
     detectionMode,
@@ -611,7 +621,97 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     0
   );
 
+  const dismissReviewFindings = async (service?: string) => {
+    if (authMode !== 'authenticated') {
+      onError?.(t('common.fullAuthRequired'));
+      return;
+    }
+
+    const dismissAll = service === undefined;
+    const reviewCount = dismissAll
+      ? corruptionProjection.reviewOnlyTotal
+      : (reviewOnlyServiceCounts[service] ?? 0);
+    if (
+      !scanId ||
+      reviewCount === 0 ||
+      isDismissalPending ||
+      isLoading ||
+      isRefreshing ||
+      isScanning ||
+      isAnyRemovalRunning ||
+      anyCorruptionRemovalPending ||
+      startingRemoveAll ||
+      startingRemoveSelected ||
+      mockMode
+    ) {
+      return;
+    }
+
+    const requestEpoch = resultEpochRef.current;
+    const requestScanId = scanId;
+    if (dismissAll) setIsDismissingAll(true);
+    else setDismissingReviewService(service);
+
+    try {
+      const response = dismissAll
+        ? await ApiService.dismissAllCorruptionReviewFindings(requestScanId)
+        : await ApiService.dismissCorruptionReviewFindings(service, requestScanId);
+      if (requestEpoch !== resultEpochRef.current) return;
+
+      const applied = applyCachedScan(response.result, true);
+      if (!applied) {
+        notifyError(
+          t('management.corruption.errors.applyDismissResult'),
+          new Error('Dismiss response failed strict cached-v2 hydration'),
+          { logLabel: '[CorruptionManager] Failed to apply dismiss response' }
+        );
+        return;
+      }
+
+      addNotification({
+        type: 'generic',
+        status: 'completed',
+        message: t('management.corruption.notifications.dismissedReview', {
+          count: formatCount(response.dismissedCount)
+        }),
+        details: { notificationType: 'info' }
+      });
+    } catch (err: unknown) {
+      if (requestEpoch !== resultEpochRef.current) return;
+
+      if (err instanceof ApiError && err.kind === 'conflict') {
+        notifyError(t('management.corruption.errors.dismissConflict'), err, {
+          logLabel: '[CorruptionManager] Review dismissal conflicted with a newer scan'
+        });
+        await loadCachedData();
+      } else {
+        notifyError(t('management.corruption.errors.dismissReview'), err, {
+          logLabel: '[CorruptionManager] Failed to dismiss review findings'
+        });
+      }
+    } finally {
+      if (dismissAll) setIsDismissingAll(false);
+      else setDismissingReviewService((current) => (current === service ? null : current));
+    }
+  };
+
+  const handleDismissAll = () => {
+    if (authMode !== 'authenticated') {
+      onError?.(t('common.fullAuthRequired'));
+      return;
+    }
+    if (!scanId || corruptionProjection.reviewOnlyTotal === 0 || isDismissalPending) return;
+    setPendingDismissAll(true);
+  };
+
+  const confirmDismissAll = () => {
+    setPendingDismissAll(false);
+    void dismissReviewFindings();
+  };
+
   const handleRemoveCorruption = (service: string) => {
+    if (isDismissalPending || checkingPermissions || hasPermissionIssue || !isDockerAvailable)
+      return;
     if (authMode !== 'authenticated') {
       onError?.(t('common.fullAuthRequired'));
       return;
@@ -628,6 +728,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       !pendingCorruptionRemoval ||
       authMode !== 'authenticated' ||
       !scanId ||
+      isDismissalPending ||
+      checkingPermissions ||
+      hasPermissionIssue ||
+      !isDockerAvailable ||
       !isServiceRemovable(pendingCorruptionRemoval)
     )
       return;
@@ -664,6 +768,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   };
 
   const handleRemoveAll = () => {
+    if (isDismissalPending || checkingPermissions || hasPermissionIssue || !isDockerAvailable)
+      return;
     if (authMode !== 'authenticated') {
       onError?.(t('common.fullAuthRequired'));
       return;
@@ -676,7 +782,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   };
 
   const confirmRemoveAll = async () => {
-    if (authMode !== 'authenticated' || !scanId || corruptionProjection.removableTotal === 0)
+    if (
+      authMode !== 'authenticated' ||
+      !scanId ||
+      corruptionProjection.removableTotal === 0 ||
+      isDismissalPending ||
+      checkingPermissions ||
+      hasPermissionIssue ||
+      !isDockerAvailable
+    )
       return;
 
     setPendingRemoveAll(false);
@@ -693,6 +807,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   };
 
   const handleRemoveSelected = () => {
+    if (isDismissalPending || checkingPermissions || hasPermissionIssue || !isDockerAvailable)
+      return;
     if (authMode !== 'authenticated') {
       onError?.(t('common.fullAuthRequired'));
       return;
@@ -706,7 +822,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   };
 
   const confirmRemoveSelected = async () => {
-    if (authMode !== 'authenticated') return;
+    if (
+      authMode !== 'authenticated' ||
+      isDismissalPending ||
+      checkingPermissions ||
+      hasPermissionIssue ||
+      !isDockerAvailable
+    )
+      return;
 
     setPendingRemoveSelected(false);
     if (selectedRemovableServices.length === 0 || !scanId) return;
@@ -800,6 +923,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const visibleServiceKeys = corruptionList.map((row) => row.service);
   const removableServiceKeys = visibleServiceKeys.filter(isServiceRemovable);
   const allVisibleSelected = selection.allSelected(removableServiceKeys);
+  const isReadOnly = logsReadOnly || cacheReadOnly;
+  const directoryMissing = !logsExist || !cacheExist;
+  const hasPermissionIssue = isReadOnly || directoryMissing;
+  const showReadOnlyPlaceholder = showPermissionBlock(
+    checkingPermissions,
+    hasPermissionIssue || !isDockerAvailable
+  );
   // Shared busy gate for every batch control (same conditions Remove All disables on, plus
   // the optimistic "starting" flags so a second click can't fire mid-start).
   const batchGateActive =
@@ -811,18 +941,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     isCorruptionRemovalActive ||
     startingRemoveAll ||
     startingRemoveSelected ||
+    isDismissalPending ||
     authMode !== 'authenticated' ||
-    logsReadOnly ||
-    cacheReadOnly ||
+    checkingPermissions ||
+    hasPermissionIssue ||
     !isDockerAvailable;
-
-  const isReadOnly = logsReadOnly || cacheReadOnly;
-  const directoryMissing = !logsExist || !cacheExist;
-  const hasPermissionIssue = isReadOnly || directoryMissing;
-  const showReadOnlyPlaceholder = showPermissionBlock(
-    checkingPermissions,
-    hasPermissionIssue || !isDockerAvailable
-  );
 
   // Cancel is handled by UniversalNotificationBar via CANCEL_CONFIGS
   const controlSelectors = (
@@ -834,7 +957,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             options={detectionModeOptions}
             value={detectionMode}
             onChange={handleDetectionModeChange}
-            disabled={isScanning || isAnyRemovalRunning}
+            disabled={isScanning || isAnyRemovalRunning || isDismissalPending}
             dropdownWidth="w-72"
             alignRight={true}
             dropdownTitle={t('management.corruption.detectionModeTitle')}
@@ -847,7 +970,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             options={thresholdOptions}
             value={String(missThreshold)}
             onChange={handleThresholdChange}
-            disabled={isScanning || isAnyRemovalRunning}
+            disabled={isScanning || isAnyRemovalRunning || isDismissalPending}
             dropdownWidth="w-72"
             alignRight={true}
             dropdownTitle={t('management.corruption.sensitivityTitle')}
@@ -861,7 +984,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               options={lookbackOptions}
               value={String(lookbackDays)}
               onChange={handleLookbackChange}
-              disabled={isScanning || isAnyRemovalRunning}
+              disabled={isScanning || isAnyRemovalRunning || isDismissalPending}
               dropdownWidth="w-72"
               alignRight={true}
               dropdownTitle={t('management.corruption.evidenceLookbackTitle')}
@@ -911,7 +1034,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           <>
             <ActionMenuItem
               icon={<RefreshCw className="w-3.5 h-3.5" />}
-              disabled={isRefreshing || isScanning || isAnyRemovalRunning}
+              disabled={isRefreshing || isScanning || isAnyRemovalRunning || isDismissalPending}
               onClick={() => {
                 loadCachedData(true);
                 close();
@@ -921,7 +1044,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             </ActionMenuItem>
             <ActionMenuItem
               icon={<Search className="w-3.5 h-3.5" />}
-              disabled={isLoading || isScanning || isAnyRemovalRunning}
+              disabled={isLoading || isScanning || isAnyRemovalRunning || isDismissalPending}
               onClick={() => {
                 startScan();
                 close();
@@ -949,9 +1072,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                 mockMode ||
                 anyCorruptionRemovalPending ||
                 isCorruptionRemovalActive ||
+                isDismissalPending ||
                 authMode !== 'authenticated' ||
-                logsReadOnly ||
-                cacheReadOnly ||
+                checkingPermissions ||
+                hasPermissionIssue ||
                 !isDockerAvailable
               }
               onClick={() => {
@@ -1078,18 +1202,21 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             </Alert>
           )}
 
-          {/* Content */}
-          {showReadOnlyPlaceholder ? (
-            <ReadOnlyBadge
-              message={
-                directoryMissing
-                  ? t('management.corruption.directoryMissing', 'Required directories not found')
-                  : isReadOnly
-                    ? t('management.corruption.readOnly')
-                    : t('management.corruption.dockerSocketRequired')
-              }
-            />
-          ) : (
+          <>
+            {/* Storage permission issues block removal, but saved evidence and review housekeeping
+                remain available because dismissal only rewrites the persisted scan. */}
+            {showReadOnlyPlaceholder && (
+              <ReadOnlyBadge
+                message={
+                  directoryMissing
+                    ? t('management.corruption.directoryMissing', 'Required directories not found')
+                    : isReadOnly
+                      ? t('management.corruption.readOnly')
+                      : t('management.corruption.dockerSocketRequired')
+                }
+              />
+            )}
+
             <>
               {isLoading && !isScanning ? (
                 <LoadingState message={t('management.corruption.loadingCachedData')} />
@@ -1154,6 +1281,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                     color="gray"
                                     size="sm"
                                     onClick={() => toggleCorruptionDetails(service)}
+                                    disabled={isDismissalPending}
                                     aria-expanded={isRowExpanded}
                                   >
                                     {isRowExpanded ? (
@@ -1177,10 +1305,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                         mockMode ||
                                         anyCorruptionRemovalPending ||
                                         isCorruptionRemovalActive ||
+                                        isDismissalPending ||
                                         loadingDetailsServices.has(service) ||
                                         authMode !== 'authenticated' ||
-                                        logsReadOnly ||
-                                        cacheReadOnly ||
+                                        hasPermissionIssue ||
                                         !isDockerAvailable ||
                                         !serviceCanRemove
                                       }
@@ -1234,6 +1362,33 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                       surface="well"
                       isExpanded={reviewSectionOpen}
                       onToggle={() => setReviewSectionOpen((open) => !open)}
+                      badge={
+                        <Button
+                          variant="filled"
+                          color="gray"
+                          size="md"
+                          stableWidth
+                          loading={isDismissingAll}
+                          disabled={
+                            !scanId ||
+                            isDismissalPending ||
+                            isLoading ||
+                            isRefreshing ||
+                            isScanning ||
+                            isAnyRemovalRunning ||
+                            anyCorruptionRemovalPending ||
+                            startingRemoveAll ||
+                            startingRemoveSelected ||
+                            mockMode ||
+                            authMode !== 'authenticated'
+                          }
+                          aria-busy={isDismissingAll}
+                          aria-label={t('management.corruption.dismissAllAria')}
+                          onClick={handleDismissAll}
+                        >
+                          {t('management.corruption.dismissAll')}
+                        </Button>
+                      }
                     >
                       <p className="mgmt-scanmeta mb-3">
                         {t('management.corruption.reviewSectionNote')}
@@ -1260,7 +1415,35 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                     variant="filled"
                                     color="gray"
                                     size="sm"
+                                    stableWidth
+                                    loading={dismissingReviewService === service}
+                                    disabled={
+                                      !scanId ||
+                                      isDismissalPending ||
+                                      isLoading ||
+                                      isRefreshing ||
+                                      isScanning ||
+                                      isAnyRemovalRunning ||
+                                      anyCorruptionRemovalPending ||
+                                      startingRemoveAll ||
+                                      startingRemoveSelected ||
+                                      mockMode ||
+                                      authMode !== 'authenticated'
+                                    }
+                                    aria-busy={dismissingReviewService === service}
+                                    aria-label={t('management.corruption.dismissServiceAria', {
+                                      service: getServiceDisplayName(service)
+                                    })}
+                                    onClick={() => void dismissReviewFindings(service)}
+                                  >
+                                    {t('management.corruption.dismiss')}
+                                  </Button>
+                                  <Button
+                                    variant="filled"
+                                    color="gray"
+                                    size="sm"
                                     onClick={() => toggleReviewDetails(service)}
+                                    disabled={isDismissalPending}
                                     aria-expanded={isRowExpanded}
                                   >
                                     {isRowExpanded ? (
@@ -1323,9 +1506,50 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                 </div>
               ) : null}
             </>
-          )}
+          </>
         </div>
       </AccordionSection>
+
+      <Modal
+        opened={pendingDismissAll}
+        onClose={() => setPendingDismissAll(false)}
+        title={t('management.corruption.dismissAllModal.title')}
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            {t('management.corruption.dismissAllModal.description', {
+              count: formatCount(corruptionProjection.reviewOnlyTotal)
+            })}
+          </p>
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="default" onClick={() => setPendingDismissAll(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="filled"
+              color="gray"
+              stableWidth
+              onClick={confirmDismissAll}
+              disabled={
+                !scanId ||
+                corruptionProjection.reviewOnlyTotal === 0 ||
+                isDismissalPending ||
+                isLoading ||
+                isRefreshing ||
+                isScanning ||
+                isAnyRemovalRunning ||
+                anyCorruptionRemovalPending ||
+                startingRemoveAll ||
+                startingRemoveSelected ||
+                mockMode ||
+                authMode !== 'authenticated'
+              }
+            >
+              {t('management.corruption.dismissAll')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Remove All Corrupted Confirmation Modal */}
       <Modal
@@ -1358,7 +1582,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               variant="filled"
               color="red"
               onClick={confirmRemoveAll}
-              disabled={!scanId || corruptionProjection.removableTotal === 0}
+              disabled={
+                !scanId ||
+                corruptionProjection.removableTotal === 0 ||
+                isDismissalPending ||
+                checkingPermissions ||
+                hasPermissionIssue ||
+                !isDockerAvailable
+              }
             >
               {t('management.corruption.modal.removeAllConfirm')}
             </Button>
@@ -1395,7 +1626,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               variant="filled"
               color="red"
               onClick={confirmRemoveSelected}
-              disabled={!scanId || selectedRemovableTotal === 0}
+              disabled={
+                !scanId ||
+                selectedRemovableTotal === 0 ||
+                isDismissalPending ||
+                checkingPermissions ||
+                hasPermissionIssue ||
+                !isDockerAvailable
+              }
             >
               {t('management.batchSelect.removeSelected', {
                 count: selectedRemovableServices.length
@@ -1452,7 +1690,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               variant="filled"
               color="red"
               onClick={confirmRemoveCorruption}
-              disabled={!pendingCorruptionRemoval || !isServiceRemovable(pendingCorruptionRemoval)}
+              disabled={
+                !pendingCorruptionRemoval ||
+                !isServiceRemovable(pendingCorruptionRemoval) ||
+                isDismissalPending ||
+                checkingPermissions ||
+                hasPermissionIssue ||
+                !isDockerAvailable
+              }
             >
               {t('management.corruption.modal.deleteCacheAndLogs')}
             </Button>

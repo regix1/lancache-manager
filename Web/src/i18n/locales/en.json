@@ -163,8 +163,8 @@
         "logRemoval": "Log Removal",
         "serviceRemoval": "Service Cache Removal",
         "gameRemoval": "Game Cache Removal",
-        "corruptionRemoval": "Corruption Removal",
-        "corruptionDetection": "Corruption Detection",
+        "corruptionRemoval": "Validated Slice Removal",
+        "corruptionDetection": "Cache Integrity Scan",
         "databaseReset": "Database Reset",
         "depotMapping": "Depot Mapping",
         "gameDetection": "Game Detection",
@@ -180,8 +180,8 @@
       "cacheFilesDeleted": "{{formattedCount}} cache file deleted",
       "cacheFilesDeleted_other": "{{formattedCount}} cache files deleted",
       "cancelCacheClearing": "Cancel cache clearing",
-      "cancelCorruptionRemoval": "Cancel corruption removal",
-      "cancelCorruptionDetection": "Cancel corruption detection",
+      "cancelCorruptionRemoval": "Cancel validated slice removal",
+      "cancelCorruptionDetection": "Cancel cache integrity scan",
       "cancelDepotMapping": "Cancel depot mapping",
       "cancelGameDetection": "Cancel game detection",
       "cancelGameRemoval": "Cancel game removal",
@@ -1944,10 +1944,10 @@
             "affectedPages": "Cache tab • Game detection cards"
           },
           "cachedCorruptionDetections": {
-            "label": "Corruption Detection Cache",
-            "description": "Cached results from cache file corruption analysis",
-            "details": "Pre-computed corruption detection results to speed up corruption status checks",
-            "affectedPages": "Cache tab • Corruption detection"
+            "label": "Cache Integrity Scan Results",
+            "description": "Saved cache-slice retry and missing-path evidence",
+            "details": "Pre-computed cache integrity findings used to review validated and historical slice evidence",
+            "affectedPages": "Cache tab • Cache Integrity & Missing Data"
           },
           "clientGroups": {
             "label": "Client Groups",
@@ -2416,14 +2416,14 @@
       "batchCancelledWithFailures": "Log removal cancelled after {{count}} service logs, with {{failed}} failures"
     },
     "corruption": {
-      "title": "Corruption Detection",
-      "summary": "Scan for exact cache-slice corruption suspects and review or remove validated paths.",
-      "subtitle": "Review bounded retry evidence for physical cache slices",
-      "directoryMissing": "Required directories not found",
+      "title": "Cache Integrity & Missing Data",
+      "summary": "Inspect physical cache-slice retry and missing-path evidence, and remove only present paths validated by the backend.",
+      "subtitle": "Review bounded slice evidence without treating every missing path as corruption",
+      "directoryMissing": "Removal unavailable: required directories not found",
       "loadPreviousResults": "Load previous scan results from database",
-      "scanForCorrupted": "Scan for suspicious physical cache slices",
+      "scanForCorrupted": "Scan cache integrity and missing-slice evidence",
       "deleteCorrupted": "Remove the exact validated cache paths from this scan",
-      "scanningMessage": "Scanning logs for bounded cache-slice retry patterns… This may take several minutes for large log files.",
+      "scanningMessage": "Scanning logs for bounded cache-slice retry and missing-path evidence… This may take several minutes for large log files.",
       "loadingCachedData": "Loading cached scan data…",
       "loadingDetails": "Loading stored evidence…",
       "corruptedChunks": "{{count}} suspect slice",
@@ -2431,9 +2431,9 @@
       "removeAll": "Remove All",
       "removeAllServices": "Remove All",
       "removing": "Removing…",
-      "removalFailed": "Corruption removal failed",
-      "readOnly": "Read-only",
-      "dockerSocketRequired": "Docker socket required",
+      "removalFailed": "Validated slice removal failed",
+      "readOnly": "Removal unavailable: storage is read-only",
+      "dockerSocketRequired": "Removal unavailable: Docker socket required",
       "missCount": "Miss evidence:",
       "cache": "Cache:",
       "datasource": "Datasource:",
@@ -2448,21 +2448,21 @@
       "evidenceCount": "Evidence:",
       "retryEvidenceLabel": "Retry client and window:",
       "retryEvidence": "{{client}} · {{first}}–{{last}}",
-      "reviewOnlyTitle": "For inspection only",
-      "reviewOnlyDescription": "These {{count}} findings are for inspection only and can't be removed, the cached file is already gone or was not verified on disk.",
+      "reviewOnlyTitle": "Review findings",
+      "reviewOnlyDescription": "These {{count}} findings usually reflect partial eviction, normal cleanup, or historical missing-cache evidence—not confirmed corruption. No present cache path was validated to remove; if requested again, the client downloads the missing content.",
       "reviewOnlyAction": "No removable suspects are available in this stored scan selection.",
-      "mixedReviewTitle": "Some findings are inspection-only",
-      "mixedReviewDescription": "{{count}} of these findings can't be removed, the cached file is already gone or was not verified. Expand a service to see them grouped under \"Review only\".",
+      "mixedReviewTitle": "Some findings are for review",
+      "mixedReviewDescription": "{{count}} findings have no present, validated path to remove. They usually reflect partial eviction, normal cleanup, or historical missing-cache evidence—not confirmed corruption.",
       "removableSectionTitle": "Removable",
-      "reviewSectionTitle": "Review only",
-      "reviewSectionNote": "Shown for inspection. Nothing to remove here, the cached file is already gone or this is normal cache cleanup, not corruption.",
+      "reviewSectionTitle": "Review findings",
+      "reviewSectionNote": "Eviction Scan marks a whole download evicted only when none of its associated cache files remain. These slice-level findings can occur while sibling slices still exist and usually reflect partial eviction, normal cleanup, or historical evidence. There is no validated file to remove; the client downloads missing content again. Dismiss only clears this saved scan and does not change cache files, logs, or download records; a future scan may find the evidence again.",
       "removableCount": "{{count}} removable",
       "reviewCount": "{{count}} review",
       "dismiss": "Dismiss",
-      "restore": "Restore",
       "dismissAll": "Dismiss all",
-      "restoreAll": "Restore all",
-      "dismissedSectionTitle": "Dismissed",
+      "dismissing": "Dismissing…",
+      "dismissServiceAria": "Dismiss review findings for {{service}}",
+      "dismissAllAria": "Dismiss all review findings in this saved scan",
       "sliceKinds": {
         "no_range": "no-range cache key",
         "noslice": "noslice cache key",
@@ -2491,7 +2491,7 @@
       "detectionModeLogsOnlyDesc": "Flags one physical slice after {{threshold}}+ literal MISS observations within 60 seconds. Log evidence is review-only; evidence lookback does not apply and no cache path is validated or removed.",
       "detectionModeRedownload": "Re-download Detection",
       "detectionModeRedownloadShort": "Re-download",
-      "detectionModeRedownloadDesc": "Flags one physical slice when the same client receives it as a HIT {{threshold}}+ times within 60 seconds. This is a retry suspicion, not proof that content validation failed.",
+      "detectionModeRedownloadDesc": "Flags one physical slice when the same client receives it as a HIT {{threshold}}+ times within 60 seconds. Repeated requests suggest a client re-download or retry pattern; they do not prove that the client rejected the bytes or that cached content is corrupt.",
       "redownloadCount": "Retry evidence:",
       "redownloadRemovalUnavailable": "Removal is available only when the backend validates an exact mapped cache path for the stored candidate.",
       "sensitivityTitle": "Detection Sensitivity",
@@ -2505,7 +2505,7 @@
       "sensitivityLowShort": "Low",
       "sensitivityLowDesc": "Requires 10 qualifying observations on one slice within 60 seconds (fewer suspects)",
       "evidenceLookbackTitle": "Evidence Lookback",
-      "evidenceLookbackDescription": "Includes qualifying historical evidence within this window before the scan start.",
+      "evidenceLookbackDescription": "Uses qualifying evidence from this window before the scan starts. Longer lookbacks include more old slices removed by normal eviction or cleanup; use 1 or 7 days to focus on recent loss.",
       "evidenceWindow": "{{days}}-day evidence window",
       "lookback1Day": "1 day",
       "lookback7Days": "7 days",
@@ -2515,7 +2515,7 @@
       "help": {
         "whatThisDoes": {
           "title": "What This Does",
-          "description": "Finds bounded MISS or same-client HIT retry patterns for exact physical cache slices. Logs identify suspects; they do not prove payload corruption."
+          "description": "Eviction Scan marks a whole download evicted only when no associated cache file remains. This scan evaluates individual physical slices, so missing-slice evidence can remain while sibling slices still exist. Review findings usually reflect partial eviction, normal cleanup, or historical evidence—not confirmed corruption."
         },
         "whatRemovalDeletes": {
           "title": "What Gets Removed",
@@ -2541,16 +2541,16 @@
         "logsMissing": "Logs directory does not exist",
         "logsReadOnly": "Logs directory is read-only",
         "cacheReadOnly": "Cache directory is read-only",
-        "requiresWriteAccess": "Corruption removal requires write access to both logs and cache. Remove",
-        "requiresLogsWriteAccess": "Corruption removal requires write access to logs. Remove",
+        "requiresWriteAccess": "Validated-path removal requires write access to both logs and cache. Remove",
+        "requiresLogsWriteAccess": "Validated-path removal requires write access to logs. Remove",
         "fromVolumeMounts": "from your docker-compose volume mounts.",
         "dockerSocketUnavailable": "Docker socket not available",
-        "requiresNginxSignal": "Corruption removal requires signaling nginx to reopen logs afterward."
+        "requiresNginxSignal": "Validated-path removal requires signaling nginx to reopen logs afterward."
       },
       "emptyStates": {
         "noCorrupted": {
-          "title": "No suspect slices detected",
-          "subtitle": "No request pattern met this mode and sensitivity threshold"
+          "title": "No findings remain in this saved scan",
+          "subtitle": "No evidence met the threshold, or review findings were dismissed. Run a new scan to check again."
         },
         "noCachedData": {
           "title": "No cached data available",
@@ -2559,15 +2559,23 @@
       },
       "notifications": {
         "loadedResults": "Loaded previous results: {{removable}} removable suspects and {{review}} review findings across {{services}} services",
-        "noCorruptedInPrevious": "No suspect slices found in the previous scan",
-        "noPreviousResults": "No previous corruption scan results found"
+        "noCorruptedInPrevious": "No findings remain in the previous scan",
+        "noPreviousResults": "No previous cache integrity scan results found",
+        "dismissedReview": "Dismissed {{count}} review findings from this saved scan."
       },
       "errors": {
         "loadCachedData": "Failed to load cached data",
-        "startScan": "Failed to start corruption scan",
-        "removeCorrupted": "Failed to remove corrupted chunks for {{service}}",
+        "startScan": "Failed to start cache integrity scan",
+        "removeCorrupted": "Failed to remove validated suspect slices for {{service}}",
         "loadDetails": "Failed to load corruption details for {{service}}",
-        "removeAllCorrupted": "Failed to remove all corrupted chunks"
+        "removeAllCorrupted": "Failed to remove all validated suspect slices",
+        "dismissReview": "Failed to dismiss review findings. Reload results and try again.",
+        "dismissConflict": "The saved scan changed. Current results will be reloaded; try again.",
+        "applyDismissResult": "Findings were dismissed, but the updated saved scan could not be applied. Reload results."
+      },
+      "dismissAllModal": {
+        "title": "Dismiss all review findings?",
+        "description": "Dismiss {{count}} review findings from this saved scan? This changes only the saved scan; it does not delete cache files, access logs, log entries, or download records. A future scan can find the evidence again."
       },
       "modal": {
         "title": "Remove Validated Suspect Slices",
@@ -4905,7 +4913,7 @@
         },
         "management": {
           "label": "Management",
-          "description": "Authentication (API keys), Steam integration, database reset/clear buttons, cache management, log processing, corruption detection, game cache detector, theme customization (modals, color pickers, checkboxes, sliders), GC settings, alert banners, and Grafana endpoints"
+          "description": "Authentication (API keys), Steam integration, database reset/clear buttons, cache management, log processing, cache integrity scanning, game cache detector, theme customization (modals, color pickers, checkboxes, sliders), GC settings, alert banners, and Grafana endpoints"
         },
         "charts": {
           "label": "Charts & Graphs",
@@ -6392,11 +6400,11 @@
       }
     },
     "corruptionDetect": {
-      "starting": "Starting corruption detection scan…",
-      "scanningLogs": "Scanning log files…",
-      "complete": "Detection complete: {{removable}} removable suspects and {{reviewOnly}} review findings.",
-      "cancelled": "Detection cancelled by user",
-      "failed": "Corruption detection failed: {{errorDetail}}"
+      "starting": "Starting cache integrity scan…",
+      "scanningLogs": "Scanning log files for slice-level integrity and missing-path evidence…",
+      "complete": "Cache integrity scan complete: {{removable}} removable suspects and {{reviewOnly}} review findings.",
+      "cancelled": "Cache integrity scan cancelled by user",
+      "failed": "Cache integrity scan failed: {{errorDetail}}"
     },
     "corruptionRemove": {
       "starting": "Starting approved-path removal for {{service}}",
@@ -6421,7 +6429,7 @@
         "complete": "Removed {{count}} validated same-client retry suspects for {{service}} ({{files}} cache files deleted, {{logLines}} log lines removed, {{downloads}} downloads deleted, {{logEntries}} log entries deleted)"
       },
       "error": {
-        "fatal": "Corruption removal failed: {{errorDetail}}"
+        "fatal": "Validated slice removal failed: {{errorDetail}}"
       },
       "failed": {
         "generic": "Operation failed. Check server logs for details."

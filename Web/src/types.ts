@@ -415,6 +415,11 @@ export interface CachedCorruptionDetectionResponse {
   serviceRemovalAllowed?: Record<string, boolean>;
 }
 
+export interface DismissCorruptionReviewResponse {
+  dismissedCount: number;
+  result: CachedCorruptionDetectionResponse;
+}
+
 export type CacheEntityVariant = 'active' | 'evicted';
 
 /**

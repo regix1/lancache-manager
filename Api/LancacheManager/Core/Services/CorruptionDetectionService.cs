@@ -1,3 +1,4 @@
+using System.Data;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -513,11 +514,14 @@ public class CorruptionDetectionService
                 "Corruption scan start must be a whole-second UTC timestamp");
         }
 
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var strategy = dbContext.Database.CreateExecutionStrategy();
+        await using var strategyContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var strategy = strategyContext.Database.CreateExecutionStrategy();
         await strategy.ExecuteAsync(async () =>
         {
-            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
             try
             {
                 await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync(cancellationToken);
@@ -601,6 +605,13 @@ public class CorruptionDetectionService
             .Where(row => row.ScanId == scan.ScanId)
             .ToListAsync(cancellationToken);
         var candidates = rows.SelectMany(DeserializeCandidates).ToList();
+        return BuildCachedResult(scan, candidates);
+    }
+
+    private static CachedCorruptionResult BuildCachedResult(
+        CachedCorruptionScan scan,
+        IReadOnlyCollection<CorruptionCandidate> candidates)
+    {
         var counts = ProjectCounts(candidates);
         var serviceRemovalAllowed = counts.All.Keys
             .ToDictionary(
@@ -739,11 +750,14 @@ public class CorruptionDetectionService
         }
 
         var removedIds = new HashSet<string>(candidateIds, StringComparer.Ordinal);
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var strategy = dbContext.Database.CreateExecutionStrategy();
+        await using var strategyContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var strategy = strategyContext.Database.CreateExecutionStrategy();
         await strategy.ExecuteAsync(async () =>
         {
-            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
             try
             {
                 await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
@@ -785,6 +799,93 @@ public class CorruptionDetectionService
 
                 await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw new ConflictException("The corruption scan changed. Reload results and try again");
+            }
+            catch
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Prunes review-only findings from the current saved scan without touching cache files,
+    /// logs, downloads, removal evidence, or operation state. A null service dismisses review
+    /// findings for every service; a named service narrows the server-owned candidate scope.
+    /// </summary>
+    public async Task<CorruptionDismissalResult> DismissReviewOnlyFindingsAsync(
+        Guid scanId,
+        string? service = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var strategyContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var strategy = strategyContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
+            try
+            {
+                var scan = await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
+                var rows = await dbContext.CachedCorruptionDetections
+                    .Where(row => row.ScanId == scanId)
+                    .OrderBy(row => row.Id)
+                    .ToListAsync(cancellationToken);
+                var remainingCandidates = new List<CorruptionCandidate>();
+                long dismissedCount = 0;
+
+                foreach (var row in rows)
+                {
+                    var storedCandidates = DeserializeCandidates(row);
+                    var remainingInRow = new List<CorruptionCandidate>(storedCandidates.Count);
+                    foreach (var candidate in storedCandidates)
+                    {
+                        var inScope = service == null
+                            || string.Equals(candidate.Service, service, StringComparison.OrdinalIgnoreCase);
+                        if (inScope && !candidate.RemovalAllowed)
+                        {
+                            dismissedCount++;
+                        }
+                        else
+                        {
+                            remainingInRow.Add(candidate);
+                        }
+                    }
+
+                    remainingCandidates.AddRange(remainingInRow);
+                    if (remainingInRow.Count == storedCandidates.Count)
+                    {
+                        continue;
+                    }
+
+                    if (remainingInRow.Count == 0)
+                    {
+                        dbContext.CachedCorruptionDetections.Remove(row);
+                    }
+                    else
+                    {
+                        row.CandidatesJson = SerializeCandidates(remainingInRow);
+                        row.CorruptedChunkCount = remainingInRow.Count;
+                        row.RemovalAllowed = remainingInRow.Any(candidate => candidate.RemovalAllowed);
+                    }
+                }
+
+                var detection = BuildCachedResult(scan, remainingCandidates);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return new CorruptionDismissalResult(dismissedCount, detection);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw new ConflictException("The corruption scan changed. Reload results and try again");
             }
             catch
             {
@@ -1160,6 +1261,10 @@ public class CorruptionDetectionService
 }
 
 internal sealed record DatasourceCorruptionReport(string DatasourceName, CorruptionReport Report);
+
+public sealed record CorruptionDismissalResult(
+    long DismissedCount,
+    CachedCorruptionResult Detection);
 
 internal sealed record CorruptionCountProjection(
     Dictionary<string, long> All,

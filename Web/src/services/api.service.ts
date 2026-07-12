@@ -26,6 +26,7 @@ import type {
   SparklineDataResponse,
   CacheSnapshotResponse,
   CachedCorruptionDetectionResponse,
+  DismissCorruptionReviewResponse,
   CorruptionDetectionMode,
   CorruptedChunkDetail,
   GameCacheInfo,
@@ -1328,6 +1329,45 @@ class ApiService {
       return await this.handleResponse<CachedCorruptionDetectionResponse>(res);
     } catch (error: unknown) {
       console.error('getCachedCorruptionDetection error:', error);
+      throw error;
+    }
+  }
+
+  static async dismissCorruptionReviewFindings(
+    service: string,
+    scanId: string
+  ): Promise<DismissCorruptionReviewResponse> {
+    try {
+      const params = new URLSearchParams({ scanId });
+      const res = await fetch(
+        `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption/review-findings?${params.toString()}`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      return await this.handleResponse<DismissCorruptionReviewResponse>(res);
+    } catch (error: unknown) {
+      console.error('dismissCorruptionReviewFindings error:', error);
+      throw error;
+    }
+  }
+
+  static async dismissAllCorruptionReviewFindings(
+    scanId: string
+  ): Promise<DismissCorruptionReviewResponse> {
+    try {
+      const params = new URLSearchParams({ scanId });
+      const res = await fetch(
+        `${API_BASE}/cache/corruption/review-findings?${params.toString()}`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      return await this.handleResponse<DismissCorruptionReviewResponse>(res);
+    } catch (error: unknown) {
+      console.error('dismissAllCorruptionReviewFindings error:', error);
       throw error;
     }
   }

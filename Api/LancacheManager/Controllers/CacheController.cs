@@ -377,9 +377,15 @@ public class CacheController : ControllerBase
             return Ok(new CachedCorruptionResponse { HasCachedResults = false });
         }
 
+        return Ok(BuildCachedCorruptionResponse(cachedResults));
+    }
+
+    private static CachedCorruptionResponse BuildCachedCorruptionResponse(
+        CachedCorruptionResult cachedResults)
+    {
         var lastDetectionTimeUtc = cachedResults.LastDetectionTime.AsUtc();
 
-        return Ok(new CachedCorruptionResponse
+        return new CachedCorruptionResponse
         {
             HasCachedResults = true,
             ScanId = cachedResults.ScanId,
@@ -397,7 +403,7 @@ public class CacheController : ControllerBase
             LastDetectionTime = lastDetectionTimeUtc.ToString("o"),
             RemovalAllowed = cachedResults.RemovalAllowed,
             ServiceRemovalAllowed = cachedResults.ServiceRemovalAllowed
-        });
+        };
     }
 
     /// <summary>
@@ -489,6 +495,60 @@ public class CacheController : ControllerBase
 
         var details = await _corruptionDetectionService.GetDetailsAsync(scanId, service, cancellationToken);
         return Ok(details);
+    }
+
+    /// <summary>
+    /// DELETE /api/cache/services/{service}/corruption/review-findings - Dismiss saved
+    /// review-only findings for one service without changing source cache or log data.
+    /// </summary>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpDelete("services/{service}/corruption/review-findings")]
+    public async Task<IActionResult> DismissServiceCorruptionReviewFindingsAsync(
+        string service,
+        CancellationToken cancellationToken,
+        [FromQuery] Guid scanId)
+    {
+        if (!_serviceNameRegex.IsMatch(service))
+        {
+            throw new ValidationException("Invalid service name");
+        }
+
+        return await DismissCorruptionReviewFindingsAsync(scanId, service, cancellationToken);
+    }
+
+    /// <summary>
+    /// DELETE /api/cache/corruption/review-findings - Dismiss every saved review-only
+    /// finding without changing source cache or log data.
+    /// </summary>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpDelete("corruption/review-findings")]
+    public Task<IActionResult> DismissAllCorruptionReviewFindingsAsync(
+        CancellationToken cancellationToken,
+        [FromQuery] Guid scanId) =>
+        DismissCorruptionReviewFindingsAsync(
+            scanId,
+            service: null,
+            cancellationToken: cancellationToken);
+
+    private async Task<IActionResult> DismissCorruptionReviewFindingsAsync(
+        Guid scanId,
+        string? service,
+        CancellationToken cancellationToken)
+    {
+        if (scanId == Guid.Empty)
+        {
+            throw new ValidationException("A corruption scan ID is required");
+        }
+
+        var dismissal = await _corruptionDetectionService.DismissReviewOnlyFindingsAsync(
+            scanId,
+            service,
+            cancellationToken);
+        return Ok(new DismissCorruptionReviewResponse
+        {
+            DismissedCount = dismissal.DismissedCount,
+            Result = BuildCachedCorruptionResponse(dismissal.Detection)
+        });
     }
 
     /// <summary>

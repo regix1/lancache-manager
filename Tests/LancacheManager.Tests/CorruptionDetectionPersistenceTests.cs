@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
@@ -510,6 +512,366 @@ public sealed class CorruptionDetectionPersistenceTests
     }
 
     [Fact]
+    public async Task DismissReviewOnly_PerServiceRetainsRemovableAndOtherServiceEvidenceAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var scanId = Guid.NewGuid();
+        var removable = Candidate("default:steam-removable");
+        removable.Observations = NormalizationEquivalentObservations("MISS");
+        var steamReview = MissingCandidate("default:steam-review");
+        var epicReview = MissingCandidate("secondary:epic-review");
+        epicReview.Service = "epic";
+        await service.PersistCompletedScanAsync(
+            scanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [Report("default", removable, steamReview), Report("secondary", epicReview)]);
+
+        string epicJsonBefore;
+        string removableBefore;
+        await using (var beforeContext = database.Factory.CreateDbContext())
+        {
+            epicJsonBefore = (await beforeContext.CachedCorruptionDetections
+                .SingleAsync(row => row.ServiceName == "epic")).CandidatesJson;
+            removableBefore = CorruptionDetectionService.SerializeCandidates(
+                [Assert.Single(CorruptionDetectionService.DeserializeCandidates(
+                    await beforeContext.CachedCorruptionDetections
+                        .SingleAsync(row => row.ServiceName == "steam")),
+                    candidate => candidate.RemovalAllowed)]);
+        }
+
+        var dismissal = await service.DismissReviewOnlyFindingsAsync(scanId, "steam");
+
+        Assert.Equal(1, dismissal.DismissedCount);
+        Assert.Equal(2, dismissal.Detection.TotalCorruptedChunks);
+        Assert.Equal(1, dismissal.Detection.RemovableTotal);
+        Assert.Equal(1, dismissal.Detection.ReviewOnlyTotal);
+        Assert.Equal(1, dismissal.Detection.RemovableServiceCounts["steam"]);
+        Assert.Equal(1, dismissal.Detection.ReviewOnlyServiceCounts["epic"]);
+        var remainingSteam = Assert.Single(await service.GetDetailsAsync(scanId, "steam"));
+        Assert.True(remainingSteam.RemovalAllowed);
+        Assert.Equal(removableBefore, CorruptionDetectionService.SerializeCandidates([remainingSteam]));
+
+        await using var assertContext = database.Factory.CreateDbContext();
+        Assert.Equal(
+            epicJsonBefore,
+            (await assertContext.CachedCorruptionDetections
+                .SingleAsync(row => row.ServiceName == "epic")).CandidatesJson);
+        var steamRow = await assertContext.CachedCorruptionDetections
+            .SingleAsync(row => row.ServiceName == "steam");
+        Assert.Equal(1, steamRow.CorruptedChunkCount);
+        Assert.True(steamRow.RemovalAllowed);
+    }
+
+    [Fact]
+    public async Task DismissReviewOnly_AllServicesRemovesOnlyReviewCandidatesAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var scanId = Guid.NewGuid();
+        var removable = Candidate("default:removable");
+        var steamReview = MissingCandidate("default:steam-review");
+        var epicReview = MissingCandidate("secondary:epic-review");
+        epicReview.Service = "epic";
+        await service.PersistCompletedScanAsync(
+            scanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [Report("default", removable, steamReview), Report("secondary", epicReview)]);
+
+        var dismissal = await service.DismissReviewOnlyFindingsAsync(scanId);
+
+        Assert.Equal(2, dismissal.DismissedCount);
+        Assert.Equal(scanId, dismissal.Detection.ScanId);
+        Assert.Equal(1, dismissal.Detection.TotalCorruptedChunks);
+        Assert.Equal(1, dismissal.Detection.RemovableTotal);
+        Assert.Equal(0, dismissal.Detection.ReviewOnlyTotal);
+        Assert.Empty(dismissal.Detection.ReviewOnlyServiceCounts);
+        Assert.Equal(["default:removable"],
+            (await service.GetDetailsAsync(scanId, "steam")).Select(candidate => candidate.CandidateId));
+        Assert.Empty(await service.GetDetailsAsync(scanId, "epic"));
+    }
+
+    [Fact]
+    public async Task DismissReviewOnly_LastCandidatesRetainsZeroResultScanHeaderAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var scanId = Guid.NewGuid();
+        var completedAt = ScanStartedUtc.AddSeconds(7);
+        await service.PersistCompletedScanAsync(
+            scanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            completedAt,
+            [Report("default", MissingCandidate("default:review"))]);
+
+        var dismissal = await service.DismissReviewOnlyFindingsAsync(scanId);
+
+        Assert.Equal(1, dismissal.DismissedCount);
+        Assert.Equal(scanId, dismissal.Detection.ScanId);
+        Assert.Equal(CorruptionDetectionMode.CacheAndLogs, dismissal.Detection.DetectionMode);
+        Assert.Equal(3, dismissal.Detection.Threshold);
+        Assert.Equal(LookbackDays, dismissal.Detection.LookbackDays);
+        Assert.Equal(completedAt, dismissal.Detection.LastDetectionTime);
+        Assert.Equal(0, dismissal.Detection.TotalCorruptedChunks);
+        Assert.Empty(dismissal.Detection.CorruptionCounts);
+
+        await using var assertContext = database.Factory.CreateDbContext();
+        Assert.Equal(1, await assertContext.CachedCorruptionScans.CountAsync());
+        Assert.Equal(0, await assertContext.CachedCorruptionDetections.CountAsync());
+        Assert.Equal(scanId, (await assertContext.CachedCorruptionScans.SingleAsync()).ScanId);
+        var cached = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync());
+        Assert.True(cached.HasCachedResults);
+        Assert.Equal(scanId, cached.ScanId);
+        Assert.Equal(0, cached.TotalCorruptedChunks);
+    }
+
+    [Fact]
+    public async Task DismissReviewOnly_IsIdempotentForCurrentScopeAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var scanId = Guid.NewGuid();
+        await service.PersistCompletedScanAsync(
+            scanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [Report("default", Candidate("default:removable"), MissingCandidate("default:review"))]);
+
+        Assert.Equal(1, (await service.DismissReviewOnlyFindingsAsync(scanId, "steam")).DismissedCount);
+        var repeated = await service.DismissReviewOnlyFindingsAsync(scanId, "steam");
+
+        Assert.Equal(0, repeated.DismissedCount);
+        Assert.Equal(1, repeated.Detection.TotalCorruptedChunks);
+        Assert.Equal(1, repeated.Detection.RemovableTotal);
+        Assert.Equal(0, repeated.Detection.ReviewOnlyTotal);
+        Assert.Equal(["default:removable"],
+            (await service.GetDetailsAsync(scanId, "steam")).Select(candidate => candidate.CandidateId));
+    }
+
+    [Fact]
+    public async Task DismissReviewOnly_RejectsUnknownAndStaleScansWithoutChangingCurrentAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            service.DismissReviewOnlyFindingsAsync(Guid.NewGuid()));
+
+        var staleScanId = Guid.NewGuid();
+        await service.PersistCompletedScanAsync(
+            staleScanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [Report("default", MissingCandidate("default:stale-review"))]);
+        var currentScanId = Guid.NewGuid();
+        await service.PersistCompletedScanAsync(
+            currentScanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(2),
+            [Report("default", MissingCandidate("default:current-review"))]);
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            service.DismissReviewOnlyFindingsAsync(staleScanId));
+        var current = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync());
+        Assert.Equal(currentScanId, current.ScanId);
+        Assert.Equal(1, current.ReviewOnlyTotal);
+        Assert.Equal("default:current-review",
+            Assert.Single(await service.GetDetailsAsync(currentScanId, "steam")).CandidateId);
+    }
+
+    [Fact]
+    public async Task DismissReviewOnly_LaterScanCanRediscoverDismissedEvidenceAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var firstScanId = Guid.NewGuid();
+        await service.PersistCompletedScanAsync(
+            firstScanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [Report("default", MissingCandidate("default:review"))]);
+        await service.DismissReviewOnlyFindingsAsync(firstScanId);
+
+        var rediscoveredScanId = Guid.NewGuid();
+        await service.PersistCompletedScanAsync(
+            rediscoveredScanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(2),
+            [Report("default", MissingCandidate("default:review"))]);
+
+        var rediscovered = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync());
+        Assert.Equal(rediscoveredScanId, rediscovered.ScanId);
+        Assert.Equal(1, rediscovered.ReviewOnlyTotal);
+        Assert.Equal("default:review",
+            Assert.Single(await service.GetDetailsAsync(rediscoveredScanId, "steam")).CandidateId);
+    }
+
+    [Fact]
+    public async Task DismissReviewOnly_MultiRowFailureRollsBackEveryCandidateAndHeaderAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var scanId = Guid.NewGuid();
+        await service.PersistCompletedScanAsync(
+            scanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [
+                Report("default", MissingCandidate("default:review")),
+                Report("secondary", MissingCandidate("secondary:review"))
+            ]);
+        await using (var setup = database.Factory.CreateDbContext())
+        {
+            await setup.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TRIGGER "FailSecondaryDismiss"
+                BEFORE DELETE ON "CachedCorruptionDetections"
+                WHEN OLD."DatasourceName" = 'secondary'
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced dismissal rollback');
+                END;
+                """);
+        }
+
+        await Assert.ThrowsAsync<DbUpdateException>(() =>
+            service.DismissReviewOnlyFindingsAsync(scanId));
+
+        await using var assertContext = database.Factory.CreateDbContext();
+        Assert.Equal(1, await assertContext.CachedCorruptionScans.CountAsync());
+        Assert.Equal(2, await assertContext.CachedCorruptionDetections.CountAsync());
+        var cached = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync());
+        Assert.Equal(2, cached.ReviewOnlyTotal);
+    }
+
+    [Fact]
+    public async Task CandidateJsonConcurrencyTokenRejectsLostRowUpdateAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var scanId = Guid.NewGuid();
+        await service.PersistCompletedScanAsync(
+            scanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [Report("default", Candidate("default:removable"), MissingCandidate("default:review"))]);
+
+        await using var firstContext = database.Factory.CreateDbContext();
+        await using var secondContext = database.Factory.CreateDbContext();
+        var firstRow = await firstContext.CachedCorruptionDetections.SingleAsync();
+        var secondRow = await secondContext.CachedCorruptionDetections.SingleAsync();
+        firstRow.CandidatesJson += " ";
+        secondRow.CandidatesJson += "\r\n";
+
+        await firstContext.SaveChangesAsync();
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => secondContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task CandidatePruning_TranslatesConcurrencyFailuresWithoutChangingEvidenceAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var seedService = NewService(database.Factory);
+        var scanId = Guid.NewGuid();
+        await seedService.PersistCompletedScanAsync(
+            scanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [Report("default", Candidate("default:removable"), MissingCandidate("default:review"))]);
+        var conflictingService = NewService(new ThrowingConcurrencyDbContextFactory(database.Factory.Options));
+
+        var dismissalConflict = await Assert.ThrowsAsync<ConflictException>(() =>
+            conflictingService.DismissReviewOnlyFindingsAsync(scanId));
+        Assert.Equal("The corruption scan changed. Reload results and try again", dismissalConflict.Message);
+        var removalConflict = await Assert.ThrowsAsync<ConflictException>(() =>
+            conflictingService.ApplyRemovalSuccessAsync(scanId, ["default:removable"]));
+        Assert.Equal("The corruption scan changed. Reload results and try again", removalConflict.Message);
+
+        var unchanged = Assert.IsType<CachedCorruptionResult>(await seedService.GetDetectionAsync());
+        Assert.Equal(2, unchanged.TotalCorruptedChunks);
+        Assert.Equal(1, unchanged.RemovableTotal);
+        Assert.Equal(1, unchanged.ReviewOnlyTotal);
+    }
+
+    [Fact]
+    public async Task DismissReviewController_ReturnsTypedTransactionProjectionAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var scanId = Guid.NewGuid();
+        await service.PersistCompletedScanAsync(
+            scanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [Report("default", MissingCandidate("default:review"))]);
+        var controller = NewController(service);
+
+        var action = await controller.DismissServiceCorruptionReviewFindingsAsync(
+            "steam",
+            CancellationToken.None,
+            scanId);
+
+        var response = Assert.IsType<DismissCorruptionReviewResponse>(Assert.IsType<OkObjectResult>(action).Value);
+        Assert.Equal(1, response.DismissedCount);
+        Assert.True(response.Result.HasCachedResults);
+        Assert.Equal(scanId, response.Result.ScanId);
+        Assert.Equal(0, response.Result.TotalCorruptedChunks);
+        Assert.Equal(0, response.Result.ReviewOnlyTotal);
+    }
+
+    [Fact]
+    public async Task DismissReviewController_RejectsInvalidServiceAndEmptyScanIdAsync()
+    {
+        var controller = NewController(NewService(factory: null!));
+
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            controller.DismissServiceCorruptionReviewFindingsAsync(
+                "../steam",
+                CancellationToken.None,
+                Guid.NewGuid()));
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            controller.DismissAllCorruptionReviewFindingsAsync(
+                CancellationToken.None,
+                Guid.Empty));
+    }
+
+    [Fact]
     public async Task PersistenceModel_KeepsEvidenceIdentityAndOnlyLookbackMetadataAsync()
     {
         await using var database = await TestDatabase.CreateAsync();
@@ -522,6 +884,7 @@ public sealed class CorruptionDetectionPersistenceTests
         Assert.False(scan?.FindProperty(nameof(CachedCorruptionScan.LookbackDays))?.IsNullable);
 
         var candidate = context.Model.FindEntityType(typeof(CachedCorruptionDetection));
+        Assert.True(candidate?.FindProperty(nameof(CachedCorruptionDetection.CandidatesJson))?.IsConcurrencyToken);
         Assert.Null(candidate?.FindProperty("RemovableTotal"));
         Assert.Null(candidate?.FindProperty("ReviewOnlyTotal"));
         Assert.Null(candidate?.FindProperty("RemovableServiceCounts"));
@@ -583,6 +946,15 @@ public sealed class CorruptionDetectionPersistenceTests
         Assert.DoesNotContain("threshold", bulkRemovalParameters);
         Assert.DoesNotContain("detectionMode", bulkRemovalParameters);
         Assert.DoesNotContain("compareToCacheLogs", bulkRemovalParameters);
+
+        AssertDismissEndpoint(
+            nameof(CacheController.DismissServiceCorruptionReviewFindingsAsync),
+            "services/{service}/corruption/review-findings",
+            expectedParameters: ["service", "cancellationToken", "scanId"]);
+        AssertDismissEndpoint(
+            nameof(CacheController.DismissAllCorruptionReviewFindingsAsync),
+            "corruption/review-findings",
+            expectedParameters: ["cancellationToken", "scanId"]);
     }
 
     [Fact]
@@ -631,6 +1003,36 @@ public sealed class CorruptionDetectionPersistenceTests
             new JsonSerializerOptions(JsonSerializerDefaults.Web)));
         Assert.Equal(1, completionJson.RootElement.GetProperty("removableTotal").GetInt64());
         Assert.Equal(1, completionJson.RootElement.GetProperty("reviewOnlyTotal").GetInt64());
+
+        var dismissal = new DismissCorruptionReviewResponse
+        {
+            DismissedCount = 1,
+            Result = cached
+        };
+        using var dismissalJson = JsonDocument.Parse(JsonSerializer.Serialize(
+            dismissal,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        Assert.Equal(1, dismissalJson.RootElement.GetProperty("dismissedCount").GetInt64());
+        Assert.Equal(
+            cached.ScanId,
+            dismissalJson.RootElement.GetProperty("result").GetProperty("scanId").GetGuid());
+    }
+
+    private static void AssertDismissEndpoint(
+        string methodName,
+        string route,
+        IReadOnlyCollection<string> expectedParameters)
+    {
+        var method = typeof(CacheController).GetMethod(methodName)!;
+        Assert.Equal(route, Assert.Single(method.GetCustomAttributes(typeof(HttpDeleteAttribute), false)
+            .Cast<HttpDeleteAttribute>()).Template);
+        Assert.Equal("AdminOnly", Assert.Single(method.GetCustomAttributes(typeof(AuthorizeAttribute), false)
+            .Cast<AuthorizeAttribute>()).Policy);
+        Assert.Equal(
+            expectedParameters.OrderBy(name => name),
+            method.GetParameters().Select(parameter => parameter.Name!).OrderBy(name => name));
+        Assert.DoesNotContain(method.GetParameters(), parameter =>
+            parameter.Name is "candidateIds" or "paths" or "observations" or "removalAllowed" or "candidatesJson");
     }
 
     private static CorruptionDetectionService NewService(IDbContextFactory<AppDbContext> factory) =>
@@ -643,6 +1045,23 @@ public sealed class CorruptionDetectionPersistenceTests
             dbContextFactory: factory,
             operationStateService: null!,
             operationTracker: null!);
+
+    private static CacheController NewController(CorruptionDetectionService service) =>
+        new(
+            cacheService: null!,
+            cacheClearingService: null!,
+            corruptionDetectionService: service,
+            logger: NullLogger<CacheController>.Instance,
+            pathResolver: null!,
+            notifications: null!,
+            rustProcessHelper: null!,
+            nginxLogRotationService: null!,
+            operationTracker: null!,
+            datasourceService: null!,
+            dbContextFactory: null!,
+            reconciliationService: null!,
+            conflictChecker: null!,
+            operationQueue: null!);
 
     private static DatasourceCorruptionReport Report(
         string datasource,
@@ -846,9 +1265,27 @@ public sealed class CorruptionDetectionPersistenceTests
     private sealed class TestDbContextFactory(DbContextOptions<AppDbContext> options)
         : IDbContextFactory<AppDbContext>
     {
+        public DbContextOptions<AppDbContext> Options => options;
+
         public AppDbContext CreateDbContext() => new(options);
 
         public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(CreateDbContext());
+    }
+
+    private sealed class ThrowingConcurrencyDbContextFactory(DbContextOptions<AppDbContext> options)
+        : IDbContextFactory<AppDbContext>
+    {
+        public AppDbContext CreateDbContext() => new ThrowingConcurrencyDbContext(options);
+
+        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(CreateDbContext());
+    }
+
+    private sealed class ThrowingConcurrencyDbContext(DbContextOptions<AppDbContext> options)
+        : AppDbContext(options)
+    {
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+            throw new DbUpdateConcurrencyException();
     }
 }

@@ -183,6 +183,10 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<CachedCorruptionDetection>()
+            .Property(c => c.CandidatesJson)
+            .IsConcurrencyToken();
+
+        modelBuilder.Entity<CachedCorruptionDetection>()
             .HasIndex(c => new { c.ScanId, c.ServiceName, c.DatasourceName })
             .HasDatabaseName("IX_CachedCorruptionDetections_Scan_Service_Datasource")
             .IsUnique();

@@ -99,6 +99,13 @@ public class CachedCorruptionResponse
     public Dictionary<string, bool>? ServiceRemovalAllowed { get; set; }
 }
 
+/// <summary>Response after pruning review-only findings from a saved corruption scan.</summary>
+public class DismissCorruptionReviewResponse
+{
+    public long DismissedCount { get; set; }
+    public CachedCorruptionResponse Result { get; set; } = new();
+}
+
 /// <summary>
 /// Response for game image errors
 /// </summary>
