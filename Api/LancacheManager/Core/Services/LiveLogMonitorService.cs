@@ -30,6 +30,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
 
     // Configuration - optimized for real-time updates with minimal latency
     private readonly long _minFileSizeIncrease = 10_000; // 10 KB minimum increase to trigger processing (very responsive)
+    internal const long MaxConcurrentCorruptionIngestionBytes = 4 * 1024 * 1024;
     private DateTime _lastProcessTime = DateTime.MinValue;
     private readonly int _minSecondsBetweenProcessing = 1; // Minimum 1 second between processing runs (near-instant updates)
 
@@ -294,18 +295,26 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                     return;
                 }
 
-                // Heavy data ops run one at a time (OperationConflictChecker section 1a). The two
-                // IsProcessing guards above only cover the log pipeline's own flags; this covers
-                // every other heavy op (detections, scans). Skipping is cheap - the monitor ticks
-                // every second and simply picks the new lines up on the next free tick.
+                // Heavy data ops normally run one at a time (OperationConflictChecker section 1a).
+                // Corruption detection is read-only with respect to access.log and the Downloads
+                // projection, so a bounded automatic batch may run beside it to keep the Recent
+                // downloads list live. The byte cap prevents an accumulated/full-log import from
+                // bypassing the heavy-operation policy; manual processing never enters this path.
                 var conflict = await _conflictChecker.CheckAsync(
                     OperationType.LogProcessing, ConflictScope.Bulk(), CancellationToken.None);
-                if (conflict != null)
+                if (conflict != null && !CanBypassConflictForIncrementalIngestion(conflict, sizeIncrease))
                 {
                     _logger.LogDebug(
                         "Active {ActiveType} operation holds the heavy-op slot, skipping live update for '{Name}'",
                         conflict.ActiveOperationType, datasource.Name);
                     return;
+                }
+
+                if (conflict != null)
+                {
+                    _logger.LogDebug(
+                        "Allowing {PendingBytes} byte incremental live ingestion for '{Name}' during corruption detection",
+                        sizeIncrease, datasource.Name);
                 }
 
                 // Start processing
@@ -386,4 +395,14 @@ public class LiveLogMonitorService : ScheduledBackgroundService
             _isProcessing = false;
         }
     }
+
+    internal static bool CanBypassConflictForIncrementalIngestion(
+        OperationConflictResponse conflict,
+        long pendingBytes) =>
+        pendingBytes > 0 &&
+        pendingBytes <= MaxConcurrentCorruptionIngestionBytes &&
+        string.Equals(
+            conflict.ActiveOperationType,
+            nameof(OperationType.CorruptionDetection),
+            StringComparison.Ordinal);
 }
