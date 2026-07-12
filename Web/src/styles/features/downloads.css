@@ -546,6 +546,7 @@
 
   .downloads-header .today-stat.is-live {
     border-color: var(--theme-success-on-border);
+    background: var(--theme-success-on-bg);
   }
 
   .downloads-header .today-stat.disabled {
@@ -1483,8 +1484,9 @@
    * badges/bars/gauge centered - headers match their cells. */
 
   .retro-table-container {
-    --retro-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
-      'Courier New', monospace;
+    --retro-mono:
+      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+      monospace;
   }
 
   /* Sticky header strip */
