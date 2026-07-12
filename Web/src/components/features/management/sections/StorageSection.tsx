@@ -10,6 +10,7 @@ import {
   Search,
   RotateCcw,
   Trash2,
+  History,
   ChevronsDownUp,
   ChevronsUpDown
 } from 'lucide-react';
@@ -31,12 +32,15 @@ import { useDockerSocket } from '@contexts/useDockerSocket';
 import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
+import { ApiError } from '@services/apiError';
 import { getErrorMessage } from '@utils/error';
 import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
+import { formatCount } from '@utils/formatters';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import { useSelectionSet, type SelectionSet, type SelectionAdapter } from '@/hooks/useSelectionSet';
 import { useBulkRemoval, type EvictedQueueEntry } from '@contexts/BulkRemovalContext';
@@ -47,6 +51,10 @@ import DatasourcesManager from '../datasources/DatasourcesInfo';
 import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';
 import CorruptionManager from '../cache/CorruptionManager';
+import type {
+  HistoricalEvidencePurgeTarget,
+  IntegrityReviewSnapshot
+} from '../cache/integrityReviewSnapshot';
 import GameCacheDetector from '../game-detection/GameCacheDetector';
 import {
   MANAGEMENT_STORAGE_KEYS,
@@ -67,6 +75,7 @@ import {
   useScheduledRemovalRefresh
 } from '../game-detection/cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
+import type { HistoricalEvidencePurgeCompleteEvent } from '@contexts/SignalRContext/types';
 
 // Adapts the combined evicted selection set (prefixed keyspace) into the raw-keyed
 // SelectionAdapter each list expects, translating keys through the given prefix.
@@ -108,6 +117,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const { t } = useTranslation();
   const {
     logsReadOnly,
+    logsExist,
     cacheReadOnly,
     checkingPermissions,
     reload: reloadPermissions
@@ -159,7 +169,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const isEvictionDirty =
     evictionMode !== savedEvictionMode || pruneOrphanedDownloads !== savedPruneOrphanedDownloads;
 
-  const { notifications, addNotification, updateNotification } = useNotifications();
+  const { notifications, addNotification, updateNotification, isAnyRemovalRunning } =
+    useNotifications();
   const { notifyError } = useErrorHandler();
 
   // Local state for evicted items - same pattern as GameCacheDetector's games/services.
@@ -426,6 +437,148 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     types: ['eviction_removal'],
     status: ['running', 'waiting']
   });
+  const isHistoricalEvidencePurgeRunning = useOperationBusy({
+    types: ['historical_evidence_purge'],
+    status: ['running', 'waiting']
+  });
+  const hasHistoricalEvidenceConflict = useOperationBusy({
+    types: [
+      'log_processing',
+      'log_removal',
+      'cache_clearing',
+      'game_removal',
+      'service_removal',
+      'corruption_detection',
+      'corruption_removal',
+      'eviction_scan',
+      'eviction_removal'
+    ],
+    status: ['running', 'waiting']
+  });
+
+  const [integritySnapshot, setIntegritySnapshot] = useState<IntegrityReviewSnapshot>({
+    scanId: null,
+    reviewOnlyServiceCounts: {},
+    reviewOnlyTotal: 0,
+    isLoading: true,
+    isBusy: true
+  });
+  const [historicalEvidenceTarget, setHistoricalEvidenceTarget] =
+    useState<HistoricalEvidencePurgeTarget | null>(null);
+  const [startingHistoricalEvidencePurge, setStartingHistoricalEvidencePurge] = useState(false);
+  const [snapshotReloadToken, setSnapshotReloadToken] = useState(0);
+  const [historicalEvidenceExpanded, setHistoricalEvidenceExpanded] = useState(true);
+
+  const handleIntegritySnapshotChange = useCallback((snapshot: IntegrityReviewSnapshot) => {
+    setIntegritySnapshot(snapshot);
+  }, []);
+
+  const historicalEvidenceBusy =
+    isHistoricalEvidencePurgeRunning || startingHistoricalEvidencePurge;
+  const historicalEvidenceUnavailable =
+    integritySnapshot.isBusy ||
+    hasHistoricalEvidenceConflict ||
+    isAnyRemovalRunning ||
+    historicalEvidenceBusy ||
+    checkingPermissions ||
+    logsReadOnly ||
+    !logsExist ||
+    !isDockerAvailable ||
+    mockMode ||
+    !isAdmin ||
+    authMode !== 'authenticated' ||
+    !integritySnapshot.scanId;
+
+  const requestHistoricalEvidencePurge = useCallback(
+    (target: HistoricalEvidencePurgeTarget) => {
+      const count = target.service
+        ? (integritySnapshot.reviewOnlyServiceCounts[target.service] ?? 0)
+        : integritySnapshot.reviewOnlyTotal;
+      if (count === 0 || historicalEvidenceUnavailable) return;
+      setHistoricalEvidenceTarget(target);
+    },
+    [historicalEvidenceUnavailable, integritySnapshot]
+  );
+
+  const selectedHistoricalEvidenceCount = historicalEvidenceTarget?.service
+    ? (integritySnapshot.reviewOnlyServiceCounts[historicalEvidenceTarget.service] ?? 0)
+    : historicalEvidenceTarget
+      ? integritySnapshot.reviewOnlyTotal
+      : 0;
+
+  const confirmHistoricalEvidencePurge = useCallback(async () => {
+    if (
+      !historicalEvidenceTarget ||
+      !integritySnapshot.scanId ||
+      selectedHistoricalEvidenceCount === 0 ||
+      historicalEvidenceUnavailable
+    ) {
+      return;
+    }
+
+    setStartingHistoricalEvidencePurge(true);
+    try {
+      const response = await ApiService.purgeHistoricalEvidence(
+        integritySnapshot.scanId,
+        historicalEvidenceTarget.service
+      );
+      if (response.operationId && !response.queued && !response.alreadyRunning) {
+        addNotification(
+          buildSeededRunningNotification(
+            'historical_evidence_purge',
+            response.operationId,
+            t('signalr.historicalEvidencePurge.starting', {
+              count: formatCount(response.candidateCount)
+            }),
+            {
+              scope: response.scope,
+              service: historicalEvidenceTarget.service,
+              candidateCount: response.candidateCount
+            }
+          )
+        );
+      }
+      setHistoricalEvidenceTarget(null);
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.kind === 'conflict') {
+        notifyError(t('management.sections.data.historicalEvidence.errors.staleScan'), err, {
+          logLabel: '[StorageSection] Historical evidence purge used a stale scan'
+        });
+        setHistoricalEvidenceTarget(null);
+        setSnapshotReloadToken((token) => token + 1);
+      } else {
+        notifyError(t('management.sections.data.historicalEvidence.errors.start'), err, {
+          logLabel: '[StorageSection] Failed to start historical evidence purge'
+        });
+      }
+    } finally {
+      setStartingHistoricalEvidencePurge(false);
+    }
+  }, [
+    addNotification,
+    historicalEvidenceTarget,
+    historicalEvidenceUnavailable,
+    integritySnapshot.scanId,
+    notifyError,
+    selectedHistoricalEvidenceCount,
+    t
+  ]);
+
+  useEffect(() => {
+    const handleHistoricalEvidenceComplete = (event: HistoricalEvidencePurgeCompleteEvent) => {
+      setStartingHistoricalEvidencePurge(false);
+      if (!event.success || event.cancelled) return;
+      setHistoricalEvidenceTarget(null);
+      setSnapshotReloadToken((token) => token + 1);
+      void fetchEvictedItems();
+      onDataRefresh();
+    };
+
+    on('HistoricalEvidencePurgeComplete', handleHistoricalEvidenceComplete);
+    return () => {
+      off('HistoricalEvidencePurgeComplete', handleHistoricalEvidenceComplete);
+    };
+  }, [fetchEvictedItems, off, on, onDataRefresh]);
   // Wait-queue model: an eviction REMOVAL no longer disables the scan button (the scan
   // queues behind it - purple card feedback). Same-op only: scan already running or the
   // kick-off request in flight.
@@ -779,7 +932,16 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
           />
 
           {/* Corruption Detection */}
-          <CorruptionManager authMode={authMode} mockMode={mockMode} onError={onError} />
+          <CorruptionManager
+            isAdmin={isAdmin}
+            authMode={authMode}
+            mockMode={mockMode}
+            onError={onError}
+            onIntegritySnapshotChange={handleIntegritySnapshotChange}
+            onRequestHistoricalEvidencePurge={requestHistoricalEvidencePurge}
+            historicalEvidencePurgeBusy={historicalEvidenceBusy}
+            snapshotReloadToken={snapshotReloadToken}
+          />
 
           {/* Game Detection */}
           <ImageCacheContext.Provider value={imageCacheVersion}>
@@ -901,6 +1063,22 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                               >
                                 {t('management.sections.data.evictionRemoveAll', 'Remove All')}
                               </ActionMenuDangerItem>
+
+                              <ActionMenuDivider />
+
+                              <ActionMenuDangerItem
+                                icon={<History className="w-3.5 h-3.5" />}
+                                disabled={
+                                  integritySnapshot.reviewOnlyTotal === 0 ||
+                                  historicalEvidenceUnavailable
+                                }
+                                onClick={() => {
+                                  requestHistoricalEvidencePurge({});
+                                  close();
+                                }}
+                              >
+                                {t('management.sections.data.historicalEvidence.purgeAllAction')}
+                              </ActionMenuDangerItem>
                             </>
                           )}
                         </>
@@ -987,6 +1165,78 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                     )}
                   </AccordionSection>
 
+                  <AccordionSection
+                    title={t('management.sections.data.historicalEvidence.title')}
+                    description={t('management.sections.data.historicalEvidence.description')}
+                    count={
+                      integritySnapshot.reviewOnlyTotal > 0
+                        ? integritySnapshot.reviewOnlyTotal
+                        : undefined
+                    }
+                    surface="well"
+                    icon={History}
+                    iconColor="var(--theme-icon-orange)"
+                    isExpanded={historicalEvidenceExpanded}
+                    onToggle={() => setHistoricalEvidenceExpanded((expanded) => !expanded)}
+                  >
+                    <p className="mgmt-review-note">
+                      {t('management.sections.data.historicalEvidence.note')}
+                    </p>
+                    {integritySnapshot.isLoading ? (
+                      <LoadingState
+                        message={t('management.sections.data.historicalEvidence.loading')}
+                      />
+                    ) : integritySnapshot.reviewOnlyTotal > 0 ? (
+                      <div className="mgmt-list">
+                        {Object.entries(integritySnapshot.reviewOnlyServiceCounts)
+                          .filter(([, count]) => count > 0)
+                          .sort(([left], [right]) => left.localeCompare(right))
+                          .map(([service, count]) => (
+                            <div className="mgmt-row mgmt-history-row flex-wrap" key={service}>
+                              <div className="mgmt-row__body">
+                                <p className="mgmt-row__title mgmt-row__title--service">
+                                  {getServiceDisplayName(service)}
+                                </p>
+                                <p className="mgmt-row__meta">
+                                  {t(
+                                    'management.sections.data.historicalEvidence.serviceEvidenceCount',
+                                    { count: formatCount(count) }
+                                  )}
+                                </p>
+                              </div>
+                              <div className="mgmt-row__actions">
+                                <Button
+                                  variant="filled"
+                                  color="red"
+                                  size="sm"
+                                  stableWidth
+                                  disabled={historicalEvidenceUnavailable}
+                                  aria-busy={historicalEvidenceBusy}
+                                  aria-label={t(
+                                    'management.sections.data.historicalEvidence.purgeServiceAria',
+                                    { service: getServiceDisplayName(service) }
+                                  )}
+                                  onClick={() => requestHistoricalEvidencePurge({ service })}
+                                >
+                                  {t(
+                                    'management.sections.data.historicalEvidence.purgeServiceAction'
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <div className="mgmt-history-empty">
+                        <History aria-hidden="true" />
+                        <div>
+                          <p>{t('management.sections.data.historicalEvidence.emptyTitle')}</p>
+                          <span>{t('management.sections.data.historicalEvidence.emptyBody')}</span>
+                        </div>
+                      </div>
+                    )}
+                  </AccordionSection>
+
                   {/* Sub-accordion 2: Evicted Items */}
                   <AccordionSection
                     title={t('management.sections.data.evictedItemsHeading')}
@@ -1018,6 +1268,39 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
           </div>
         </div>
       </div>
+
+      <ConfirmationModal
+        opened={historicalEvidenceTarget !== null}
+        onClose={() => setHistoricalEvidenceTarget(null)}
+        onConfirm={() => void confirmHistoricalEvidencePurge()}
+        title={
+          historicalEvidenceTarget?.service
+            ? t('management.sections.data.historicalEvidence.modal.serviceTitle', {
+                service: getServiceDisplayName(historicalEvidenceTarget.service)
+              })
+            : t('management.sections.data.historicalEvidence.modal.allTitle')
+        }
+        confirmLabel={t('management.sections.data.historicalEvidence.modal.confirm')}
+        loading={startingHistoricalEvidencePurge}
+        confirmDisabled={selectedHistoricalEvidenceCount === 0 || historicalEvidenceUnavailable}
+      >
+        <p className="text-themed-secondary">
+          {t('management.sections.data.historicalEvidence.modal.scope', {
+            count: formatCount(selectedHistoricalEvidenceCount),
+            scope: historicalEvidenceTarget?.service
+              ? getServiceDisplayName(historicalEvidenceTarget.service)
+              : t('management.sections.data.historicalEvidence.modal.allServices')
+          })}
+        </p>
+        <Alert color="red">
+          <div className="space-y-2 text-sm">
+            <p>{t('management.sections.data.historicalEvidence.modal.permanent')}</p>
+            <p>{t('management.sections.data.historicalEvidence.modal.noCacheFiles')}</p>
+            <p>{t('management.sections.data.historicalEvidence.modal.statistics')}</p>
+            <p>{t('management.sections.data.historicalEvidence.modal.noRediscovery')}</p>
+          </div>
+        </Alert>
+      </ConfirmationModal>
 
       {/* Eviction Remove Confirmation Modal */}
       <Modal

@@ -43,6 +43,7 @@ WHERE LOWER("Service") = LOWER($1)
   AND "StatusCode" = $7
   AND "CacheStatus" = $8
   AND "HttpRange" = $9
+  AND "BytesServed" = $10
 RETURNING "DownloadId"
 "#;
 
@@ -127,6 +128,17 @@ enum Commands {
         #[arg(short, long)]
         progress: bool,
     },
+    /// Permanently purge exact review-only access-log/database evidence without touching cache.
+    PurgeHistory {
+        log_dir: String,
+        /// Exact service name, or the literal `all` for a server-resolved all-services envelope.
+        scope: String,
+        progress_json: String,
+        #[arg(long)]
+        evidence_file: String,
+        #[arg(short, long)]
+        progress: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -171,6 +183,16 @@ struct ValidatedRemovalEvidence {
     datasource: String,
     candidates: Vec<CorruptionCandidate>,
     exact_paths: Vec<PathBuf>,
+    observations: Vec<ExactLogObservation>,
+}
+
+#[derive(Debug)]
+struct ValidatedHistoryEvidence {
+    scan_id: Uuid,
+    mode: DetectionMode,
+    threshold: usize,
+    datasource: String,
+    candidate_count: usize,
     observations: Vec<ExactLogObservation>,
 }
 
@@ -284,6 +306,7 @@ fn write_progress(
                 .map(str::to_string);
             reporter.emit_failed(stage_key, context, detail);
         }
+        "cancelled" => reporter.emit_cancelled(stage_key, context),
         _ => reporter.emit_progress(percent_complete, stage_key, context),
     }
     Ok(())
@@ -343,14 +366,16 @@ fn expected_paths_for_candidate(
     Ok(paths)
 }
 
-fn validate_observation(
-    cache_dir: &Path,
+fn validate_observation_identity(
     candidate: &CorruptionCandidate,
     observation: &cache_corruption_detector::CandidateObservation,
     expected_status: &str,
 ) -> Result<ExactLogObservation> {
     if observation.raw_url.trim().is_empty() {
         bail!("candidate observation raw_url is missing; legacy evidence cannot be removed safely");
+    }
+    if observation.client_ip.trim().is_empty() {
+        bail!("candidate observation client_ip is missing");
     }
     if observation.method != "GET" {
         bail!("candidate observation method must be GET");
@@ -364,6 +389,27 @@ fn validate_observation(
     if observation.raw_range.as_deref() == Some("") {
         bail!("empty ranges must be represented as null in candidate observations");
     }
+
+    Ok(ExactLogObservation {
+        service: candidate.service.clone(),
+        raw_url: observation.raw_url.clone(),
+        timestamp: parse_evidence_timestamp(&observation.timestamp)?,
+        client_ip: observation.client_ip.clone(),
+        method: observation.method.clone(),
+        http_status: observation.http_status,
+        bytes_served: observation.bytes_served,
+        cache_status: observation.cache_status.clone(),
+        raw_range: observation.raw_range.clone(),
+    })
+}
+
+fn validate_observation(
+    cache_dir: &Path,
+    candidate: &CorruptionCandidate,
+    observation: &cache_corruption_detector::CandidateObservation,
+    expected_status: &str,
+) -> Result<ExactLogObservation> {
+    let exact = validate_observation_identity(candidate, observation, expected_status)?;
 
     let raw_range = observation.raw_range.as_deref().unwrap_or("");
     let mapping = cache_utils::physical_slices_for_request(
@@ -382,16 +428,7 @@ fn validate_observation(
         bail!("candidate observation does not map to the stored physical slice");
     }
 
-    Ok(ExactLogObservation {
-        service: candidate.service.clone(),
-        raw_url: observation.raw_url.clone(),
-        timestamp: parse_evidence_timestamp(&observation.timestamp)?,
-        client_ip: observation.client_ip.clone(),
-        method: observation.method.clone(),
-        http_status: observation.http_status,
-        cache_status: observation.cache_status.clone(),
-        raw_range: observation.raw_range.clone(),
-    })
+    Ok(exact)
 }
 
 fn load_and_validate_removal_evidence(
@@ -608,6 +645,258 @@ fn load_and_validate_removal_evidence(
     })
 }
 
+fn valid_ranged_slice(slice: &CacheSliceKind) -> bool {
+    let CacheSliceKind::Ranged { start, end } = slice else {
+        return false;
+    };
+    start % cache_utils::DEFAULT_SLICE_SIZE == 0
+        && end
+            .checked_sub(*start)
+            .and_then(|length| length.checked_add(1))
+            == Some(cache_utils::DEFAULT_SLICE_SIZE)
+}
+
+fn validate_history_observation_mapping(
+    candidate: &CorruptionCandidate,
+    observation: &cache_corruption_detector::CandidateObservation,
+) -> Result<()> {
+    // The synthetic root is used only to reuse the pure request-to-slice calculation. History
+    // purge has no cache-root input and this function performs no filesystem access.
+    let mapping = cache_utils::physical_slices_for_request(
+        Path::new("history-validation-only"),
+        &candidate.service,
+        &observation.raw_url,
+        observation.raw_range.as_deref().unwrap_or(""),
+    )
+    .context("candidate observation contains an unsupported range")?;
+    if mapping.normalized_uri != candidate.normalized_uri
+        || !mapping
+            .slices
+            .iter()
+            .any(|slice| slice_is_mapped(&candidate.cache_slice, &slice.kind))
+    {
+        bail!("candidate observation does not map to the stored logical slice");
+    }
+    Ok(())
+}
+
+fn load_and_validate_history_evidence(
+    evidence_path: &Path,
+    requested_scope: &str,
+) -> Result<ValidatedHistoryEvidence> {
+    let file = File::open(evidence_path)
+        .with_context(|| format!("failed to open evidence file {}", evidence_path.display()))?;
+    let envelope: RemovalEvidenceEnvelope =
+        serde_json::from_reader(file).context("failed to deserialize history-purge evidence")?;
+
+    if envelope.contract_version != CORRUPTION_CONTRACT_VERSION {
+        bail!(
+            "unsupported corruption evidence contract version {}",
+            envelope.contract_version
+        );
+    }
+    let scan_id = Uuid::parse_str(&envelope.scan_id).context("invalid evidence scan_id")?;
+    if scan_id.is_nil() {
+        bail!("evidence scan_id must not be nil");
+    }
+    if !matches!(envelope.threshold, 3 | 5 | 10) {
+        bail!("evidence threshold must be 3, 5, or 10");
+    }
+    if envelope.datasource.trim().is_empty() {
+        bail!("evidence datasource is required");
+    }
+    if envelope.candidates.is_empty() {
+        bail!("evidence file contains no review-only candidates");
+    }
+    let requested_scope = requested_scope.trim();
+    if requested_scope.is_empty() {
+        bail!("history-purge scope is required");
+    }
+    let all_services = requested_scope.eq_ignore_ascii_case("all");
+
+    let mut ids = HashSet::new();
+    let mut observations = Vec::new();
+    let candidate_count = envelope.candidates.len();
+
+    for wrapped in envelope.candidates {
+        if !wrapped
+            .datasource
+            .eq_ignore_ascii_case(&envelope.datasource)
+        {
+            bail!("candidate datasource does not match evidence envelope");
+        }
+        let candidate = wrapped.candidate;
+        if candidate.mode != envelope.mode || candidate.threshold != envelope.threshold {
+            bail!("candidate mode/threshold does not match evidence envelope");
+        }
+        if candidate.service.trim().is_empty()
+            || (!all_services && !candidate.service.eq_ignore_ascii_case(requested_scope))
+        {
+            bail!("candidate service is outside the requested history-purge scope");
+        }
+        if candidate.removal_allowed {
+            bail!("history purge accepts review-only evidence only");
+        }
+        if candidate.candidate_id.trim().is_empty() || !ids.insert(candidate.candidate_id.clone()) {
+            bail!("candidate IDs must be non-empty and unique");
+        }
+        if candidate.normalized_uri.trim().is_empty()
+            || candidate.raw_url.trim().is_empty()
+            || candidate.exact_paths.is_empty()
+            || candidate
+                .exact_paths
+                .iter()
+                .any(|path| path.trim().is_empty())
+            || candidate.exact_paths.iter().collect::<HashSet<_>>().len()
+                != candidate.exact_paths.len()
+        {
+            bail!("review-only candidate contains malformed logical/path evidence");
+        }
+        if candidate.observations.is_empty()
+            || candidate.evidence_count != candidate.observations.len()
+        {
+            bail!("candidate evidence count does not match its observations");
+        }
+
+        let expected_status = match (envelope.mode, candidate.reason, candidate.validation_state) {
+            (
+                DetectionMode::LogsOnly,
+                DetectionReason::RepeatedMissBurst,
+                ValidationState::LogSuspect,
+            ) if candidate.evidence_count == envelope.threshold
+                && candidate.retry_client.is_none()
+                && candidate.supporting_sibling.is_none() =>
+            {
+                "MISS"
+            }
+            (
+                DetectionMode::CacheAndLogs,
+                DetectionReason::MissingCachedSlice,
+                ValidationState::ExactPathMissing,
+            ) if candidate.evidence_count == 1
+                && candidate.retry_client.is_none()
+                && candidate.exact_paths.len() == 1 =>
+            {
+                let sibling = candidate
+                    .supporting_sibling
+                    .as_ref()
+                    .context("missing-slice candidate lacks supporting sibling evidence")?;
+                if !valid_ranged_slice(&candidate.cache_slice)
+                    || !valid_ranged_slice(&sibling.cache_slice)
+                    || sibling.cache_slice == candidate.cache_slice
+                    || sibling.exact_path.trim().is_empty()
+                    || sibling.exact_path == candidate.exact_paths[0]
+                {
+                    bail!("missing-slice candidate has invalid supporting sibling evidence");
+                }
+                "HIT"
+            }
+            (
+                DetectionMode::Redownload,
+                DetectionReason::SameClientHitRetryBurst,
+                ValidationState::ExactPathMissing,
+            ) if candidate.evidence_count == envelope.threshold
+                && candidate.supporting_sibling.is_none()
+                && candidate
+                    .retry_client
+                    .as_deref()
+                    .is_some_and(|client| !client.trim().is_empty()) =>
+            {
+                "HIT"
+            }
+            _ => bail!("candidate is not one of the closed review-only evidence shapes"),
+        };
+
+        let first_seen = parse_evidence_timestamp(&candidate.first_seen)?;
+        let last_seen = parse_evidence_timestamp(&candidate.last_seen)?;
+        if last_seen < first_seen || (last_seen - first_seen).num_seconds() > 60 {
+            bail!("candidate evidence window must be ordered and no longer than 60 seconds");
+        }
+
+        let mut candidate_observations = Vec::with_capacity(candidate.observations.len());
+        for observation in &candidate.observations {
+            let exact = validate_observation_identity(&candidate, observation, expected_status)?;
+            validate_history_observation_mapping(&candidate, observation)?;
+            if envelope.mode == DetectionMode::Redownload
+                && candidate.retry_client.as_deref() != Some(observation.client_ip.as_str())
+            {
+                bail!("redownload observations do not match retry_client");
+            }
+            candidate_observations.push(exact);
+        }
+        if candidate_observations
+            .windows(2)
+            .any(|window| window[1].timestamp < window[0].timestamp)
+            || candidate_observations.first().map(|item| item.timestamp) != Some(first_seen)
+            || candidate_observations.last().map(|item| item.timestamp) != Some(last_seen)
+        {
+            bail!("candidate first/last timestamps do not match ordered observations");
+        }
+        if candidate.raw_url != candidate.observations[0].raw_url
+            || candidate.observed_range
+                != cache_utils::parse_http_byte_range(
+                    candidate.observations[0].raw_range.as_deref().unwrap_or(""),
+                )
+                .context("candidate first observation has an invalid range")?
+        {
+            bail!("candidate identity/range does not match its first observation");
+        }
+        if candidate.reason == DetectionReason::MissingCachedSlice {
+            let observation = &candidate.observations[0];
+            let ObservedByteRange::Inclusive { start, end } = candidate.observed_range else {
+                bail!("missing-slice evidence must use an inclusive range");
+            };
+            let served_length = end
+                .checked_sub(start)
+                .and_then(|value| value.checked_add(1))
+                .and_then(|value| i64::try_from(value).ok());
+            if observation.http_status != 206
+                || observation.bytes_served <= 0
+                || served_length != Some(observation.bytes_served)
+            {
+                bail!("missing-slice proof is not one fully served ranged observation");
+            }
+        }
+
+        observations.extend(candidate_observations);
+    }
+
+    observations.sort_by(|left, right| {
+        (
+            left.timestamp,
+            &left.service,
+            &left.raw_url,
+            &left.client_ip,
+            &left.method,
+            left.http_status,
+            left.bytes_served,
+            &left.cache_status,
+            &left.raw_range,
+        )
+            .cmp(&(
+                right.timestamp,
+                &right.service,
+                &right.raw_url,
+                &right.client_ip,
+                &right.method,
+                right.http_status,
+                right.bytes_served,
+                &right.cache_status,
+                &right.raw_range,
+            ))
+    });
+    observations.dedup();
+
+    Ok(ValidatedHistoryEvidence {
+        scan_id,
+        mode: envelope.mode,
+        threshold: envelope.threshold,
+        datasource: envelope.datasource,
+        candidate_count,
+        observations,
+    })
+}
+
 fn delete_exact_paths_with<F>(
     cache_dir: &Path,
     paths: &[PathBuf],
@@ -702,6 +991,18 @@ fn database_http_range(observation: &ExactLogObservation) -> &str {
     observation.raw_range.as_deref().unwrap_or("")
 }
 
+fn affected_download_delete_sql(placeholders: &str) -> String {
+    format!(
+        "DELETE FROM \"Downloads\" WHERE \"Id\" IN ({placeholders}) AND NOT \"IsActive\" AND NOT EXISTS (SELECT 1 FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\")"
+    )
+}
+
+fn affected_survivor_recompute_sql(placeholders: &str) -> String {
+    format!(
+        "UPDATE \"Downloads\" SET \"CacheHitBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND \"CacheStatus\" = 'HIT'), 0), \"CacheMissBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND \"CacheStatus\" IN ('MISS', 'UNKNOWN')), 0) WHERE \"Id\" IN ({placeholders})"
+    )
+}
+
 async fn delete_database_observations(
     pool: &PgPool,
     datasource: &str,
@@ -726,6 +1027,7 @@ async fn delete_database_observations(
             .bind(&observation.cache_status)
             // New no-range rows persist ""; historical nullable rows never match this predicate.
             .bind(database_http_range(observation))
+            .bind(observation.bytes_served)
             .fetch_all(&mut *transaction)
             .await
             .context("failed to delete exact corruption LogEntries")?;
@@ -744,23 +1046,26 @@ async fn delete_database_observations(
             .map(|index| format!("${index}"))
             .collect::<Vec<_>>()
             .join(", ");
-        let delete_downloads = format!(
-            "DELETE FROM \"Downloads\" WHERE \"Id\" IN ({placeholders}) AND NOT EXISTS (SELECT 1 FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\")"
-        );
+        let delete_downloads = affected_download_delete_sql(&placeholders);
         let mut query = sqlx::query(&delete_downloads);
         for id in chunk {
             query = query.bind(*id);
         }
-        downloads_deleted += query.execute(&mut *transaction).await?.rows_affected() as usize;
+        downloads_deleted += query
+            .execute(&mut *transaction)
+            .await
+            .context("failed to delete affected inactive zero-row Downloads")?
+            .rows_affected() as usize;
 
-        let update_downloads = format!(
-            "UPDATE \"Downloads\" SET \"CacheHitBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND \"CacheStatus\" = 'HIT'), 0), \"CacheMissBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND \"CacheStatus\" IN ('MISS', 'UNKNOWN')), 0) WHERE \"Id\" IN ({placeholders})"
-        );
+        let update_downloads = affected_survivor_recompute_sql(&placeholders);
         let mut query = sqlx::query(&update_downloads);
         for id in chunk {
             query = query.bind(*id);
         }
-        query.execute(&mut *transaction).await?;
+        query
+            .execute(&mut *transaction)
+            .await
+            .context("failed to recompute affected survivor byte totals")?;
     }
 
     transaction
@@ -927,6 +1232,183 @@ async fn run_remove(
     Ok(())
 }
 
+fn complete_history_cancellation(
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+    scope: &str,
+    context: serde_json::Value,
+) -> Result<()> {
+    let mut terminal = json!({ "scope": scope });
+    if let (Some(target), Some(source)) = (terminal.as_object_mut(), context.as_object()) {
+        target.extend(source.clone());
+    }
+    write_progress(
+        progress_path,
+        reporter,
+        "cancelled",
+        "signalr.historicalEvidencePurge.cancelled",
+        terminal,
+        100.0,
+        0,
+        0,
+    )
+}
+
+fn require_complete_history_log_rewrite(outcome: &log_purge::LogRewriteOutcome) -> Result<()> {
+    if outcome.permission_errors > 0 || outcome.other_errors > 0 {
+        bail!(
+            "access-log cleanup was partial ({} permission errors, {} other errors); database evidence was retained",
+            outcome.permission_errors,
+            outcome.other_errors
+        );
+    }
+    Ok(())
+}
+
+async fn run_purge_history(
+    log_dir: &Path,
+    scope: &str,
+    progress_path: &Path,
+    evidence_path: &Path,
+    reporter: &ProgressReporter,
+) -> Result<()> {
+    write_progress(
+        progress_path,
+        reporter,
+        "starting",
+        "signalr.historicalEvidencePurge.starting",
+        json!({ "scope": scope }),
+        0.0,
+        0,
+        0,
+    )?;
+    if cancel::is_cancelled() {
+        return complete_history_cancellation(progress_path, reporter, scope, json!({}));
+    }
+
+    let evidence = load_and_validate_history_evidence(evidence_path, scope)?;
+    eprintln!(
+        "Validated scan {}: {} review-only {:?} candidates for datasource '{}' at threshold {}",
+        evidence.scan_id,
+        evidence.candidate_count,
+        evidence.mode,
+        evidence.datasource,
+        evidence.threshold
+    );
+
+    // Preflight log discovery, exact matcher construction, and the database connection before the
+    // first rewrite. The history command has no cache root and cannot reach cache deletion code.
+    crate::log_discovery::discover_log_files(log_dir, "access.log")
+        .context("failed to discover access logs before historical evidence purge")?;
+    let matcher = ExactLogMatcher::new(evidence.observations.clone());
+    let prefilter = matcher.prefilter()?;
+    let pool = db::create_pool()
+        .await
+        .context("failed to connect to the database before historical evidence purge")?;
+    if cancel::is_cancelled() {
+        return complete_history_cancellation(progress_path, reporter, scope, json!({}));
+    }
+
+    write_progress(
+        progress_path,
+        reporter,
+        "filtering",
+        "signalr.historicalEvidencePurge.filteringLogs",
+        json!({ "count": evidence.candidate_count, "scope": scope }),
+        15.0,
+        0,
+        0,
+    )?;
+    let filter_callback = |files_done: usize, total: usize| {
+        let percent = 15.0 + (files_done as f64 / total.max(1) as f64) * 60.0;
+        if let Err(error) = write_progress(
+            progress_path,
+            reporter,
+            "filtering",
+            "signalr.historicalEvidencePurge.filteringFile",
+            json!({ "fileIndex": files_done, "totalFiles": total, "scope": scope }),
+            percent,
+            files_done,
+            total,
+        ) {
+            eprintln!("Warning: failed to publish historical evidence purge progress: {error:#}");
+        }
+    };
+    let log_outcome = log_purge::rewrite_matching_log_entries_strict_cancellable(
+        log_dir,
+        "exact historical evidence",
+        &prefilter,
+        |entry| matcher.matches(entry),
+        Some(&filter_callback),
+        cancel::is_cancelled,
+    )?;
+    require_complete_history_log_rewrite(&log_outcome)?;
+    if log_outcome.cancelled || cancel::is_cancelled() {
+        return complete_history_cancellation(
+            progress_path,
+            reporter,
+            scope,
+            json!({ "logLines": log_outcome.lines_removed }),
+        );
+    }
+
+    write_progress(
+        progress_path,
+        reporter,
+        "removing_database",
+        "signalr.historicalEvidencePurge.deletingDb",
+        json!({ "count": evidence.candidate_count, "scope": scope }),
+        80.0,
+        0,
+        0,
+    )?;
+    if cancel::is_cancelled() {
+        return complete_history_cancellation(
+            progress_path,
+            reporter,
+            scope,
+            json!({ "logLines": log_outcome.lines_removed }),
+        );
+    }
+    let (downloads_deleted, log_entries_deleted) =
+        delete_database_observations(&pool, &evidence.datasource, &evidence.observations).await?;
+    if cancel::is_cancelled() {
+        // The transaction completed atomically. Retaining the server-side candidate makes a retry
+        // safe: exact log/DB deletion is idempotent and the next run can cross the success boundary.
+        return complete_history_cancellation(
+            progress_path,
+            reporter,
+            scope,
+            json!({
+                "logLines": log_outcome.lines_removed,
+                "downloads": downloads_deleted,
+                "logEntries": log_entries_deleted
+            }),
+        );
+    }
+
+    write_progress(
+        progress_path,
+        reporter,
+        "completed",
+        "signalr.historicalEvidencePurge.complete",
+        json!({
+            "count": evidence.candidate_count,
+            "scope": scope,
+            "files": 0,
+            "alreadyMissing": 0,
+            "bytesFreed": 0,
+            "logLines": log_outcome.lines_removed,
+            "downloads": downloads_deleted,
+            "logEntries": log_entries_deleted
+        }),
+        100.0,
+        0,
+        0,
+    )?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     cancel::install();
@@ -1061,6 +1543,28 @@ async fn main() -> Result<()> {
                 result,
             );
         }
+        Commands::PurgeHistory {
+            log_dir,
+            scope,
+            progress_json,
+            evidence_file,
+            progress,
+        } => {
+            let reporter = ProgressReporter::new(progress);
+            let result = run_purge_history(
+                Path::new(&log_dir),
+                &scope,
+                Path::new(&progress_json),
+                Path::new(&evidence_file),
+                &reporter,
+            )
+            .await;
+            progress_events::finish_or_exit(
+                &reporter,
+                "signalr.historicalEvidencePurge.error.fatal",
+                result,
+            );
+        }
     }
     Ok(())
 }
@@ -1070,6 +1574,13 @@ mod tests {
     use super::*;
     use cache_corruption_detector::{CandidateObservation, SupportingSiblingEvidence};
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone, Copy)]
+    enum HistoryFixtureShape {
+        LogsOnly,
+        MissingSlice,
+        RedownloadMissing,
+    }
 
     fn make_candidate(
         cache_dir: &Path,
@@ -1154,6 +1665,56 @@ mod tests {
         path
     }
 
+    fn make_history_candidate(
+        cache_dir: &Path,
+        datasource: &str,
+        threshold: usize,
+        shape: HistoryFixtureShape,
+    ) -> RemovalCandidate {
+        let mode = match shape {
+            HistoryFixtureShape::LogsOnly => DetectionMode::LogsOnly,
+            HistoryFixtureShape::MissingSlice => DetectionMode::CacheAndLogs,
+            HistoryFixtureShape::RedownloadMissing => DetectionMode::Redownload,
+        };
+        let mut wrapped = make_candidate(cache_dir, datasource, mode, threshold);
+        wrapped.candidate.removal_allowed = false;
+        match shape {
+            HistoryFixtureShape::LogsOnly => {
+                wrapped.candidate.validation_state = ValidationState::LogSuspect;
+            }
+            HistoryFixtureShape::RedownloadMissing => {
+                wrapped.candidate.validation_state = ValidationState::ExactPathMissing;
+            }
+            HistoryFixtureShape::MissingSlice => {
+                wrapped.candidate.reason = DetectionReason::MissingCachedSlice;
+                wrapped.candidate.validation_state = ValidationState::ExactPathMissing;
+                wrapped.candidate.evidence_count = 1;
+                wrapped.candidate.first_seen = "2024-01-01T00:00:00Z".to_string();
+                wrapped.candidate.last_seen = "2024-01-01T00:00:00Z".to_string();
+                wrapped.candidate.retry_client = None;
+                wrapped.candidate.observations.truncate(1);
+                wrapped.candidate.observations[0].cache_status = "HIT".to_string();
+                wrapped.candidate.observations[0].bytes_served = 101;
+                wrapped.candidate.supporting_sibling = Some(SupportingSiblingEvidence {
+                    cache_slice: CacheSliceKind::Ranged {
+                        start: 3_145_728,
+                        end: 4_194_303,
+                    },
+                    exact_path: cache_utils::calculate_cache_path(
+                        cache_dir,
+                        "steam",
+                        "/middle.bin",
+                        3_145_728,
+                        4_194_303,
+                    )
+                    .display()
+                    .to_string(),
+                });
+            }
+        }
+        wrapped
+    }
+
     fn observation_log_line(second: usize, raw_url: &str, raw_range: &str) -> String {
         format!(
             "[steam] 192.0.2.10 / - - - [01/Jan/2024:00:00:{second:02} +0000] \"GET {raw_url} HTTP/1.1\" 206 1024 \"-\" \"Test\" \"MISS\" \"cdn.test\" \"{raw_range}\""
@@ -1226,6 +1787,218 @@ mod tests {
             "--progress",
         ]);
         assert!(removal.is_ok());
+
+        let history = Args::try_parse_from([
+            "cache_corruption",
+            "purge-history",
+            "logs",
+            "all",
+            "progress.json",
+            "--evidence-file",
+            "evidence.json",
+            "--progress",
+        ])
+        .expect("history-purge CLI");
+        match history.command {
+            Commands::PurgeHistory {
+                log_dir,
+                scope,
+                progress_json,
+                evidence_file,
+                progress,
+            } => {
+                assert_eq!(log_dir, "logs");
+                assert_eq!(scope, "all");
+                assert_eq!(progress_json, "progress.json");
+                assert_eq!(evidence_file, "evidence.json");
+                assert!(progress);
+            }
+            _ => panic!("expected purge-history"),
+        }
+        assert!(Args::try_parse_from([
+            "cache_corruption",
+            "purge-history",
+            "logs",
+            "unexpected-cache-root",
+            "steam",
+            "progress.json",
+            "--evidence-file",
+            "evidence.json",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn history_validation_accepts_only_the_three_closed_review_shapes() {
+        for (shape, mode) in [
+            (HistoryFixtureShape::LogsOnly, DetectionMode::LogsOnly),
+            (
+                HistoryFixtureShape::MissingSlice,
+                DetectionMode::CacheAndLogs,
+            ),
+            (
+                HistoryFixtureShape::RedownloadMissing,
+                DetectionMode::Redownload,
+            ),
+        ] {
+            let fixture = tempfile::tempdir().unwrap();
+            let candidate = make_history_candidate(fixture.path(), "default", 10, shape);
+            let evidence_path =
+                write_evidence(fixture.path(), "default", mode, 10, vec![candidate]);
+            let evidence = load_and_validate_history_evidence(&evidence_path, "steam").unwrap();
+            assert_eq!(evidence.mode, mode);
+            assert_eq!(evidence.candidate_count, 1);
+            let expected_observations = if matches!(shape, HistoryFixtureShape::MissingSlice) {
+                1
+            } else {
+                10
+            };
+            assert_eq!(evidence.observations.len(), expected_observations);
+        }
+    }
+
+    #[test]
+    fn history_validation_rejects_removable_mixed_empty_and_wrong_scope_evidence() {
+        let fixture = tempfile::tempdir().unwrap();
+        let mut candidate =
+            make_history_candidate(fixture.path(), "default", 3, HistoryFixtureShape::LogsOnly);
+        candidate.candidate.removal_allowed = true;
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::LogsOnly,
+            3,
+            vec![candidate],
+        );
+        assert!(format!(
+            "{:#}",
+            load_and_validate_history_evidence(&path, "steam").unwrap_err()
+        )
+        .contains("review-only"));
+
+        let mut mixed = make_history_candidate(
+            fixture.path(),
+            "default",
+            3,
+            HistoryFixtureShape::RedownloadMissing,
+        );
+        mixed.candidate.validation_state = ValidationState::LogSuspect;
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::Redownload,
+            3,
+            vec![mixed],
+        );
+        assert!(load_and_validate_history_evidence(&path, "steam").is_err());
+
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::LogsOnly,
+            3,
+            Vec::new(),
+        );
+        assert!(load_and_validate_history_evidence(&path, "steam").is_err());
+
+        let candidate =
+            make_history_candidate(fixture.path(), "default", 3, HistoryFixtureShape::LogsOnly);
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::LogsOnly,
+            3,
+            vec![candidate],
+        );
+        assert!(load_and_validate_history_evidence(&path, "epic").is_err());
+        assert!(load_and_validate_history_evidence(&path, "").is_err());
+        assert!(load_and_validate_history_evidence(&path, "all").is_ok());
+    }
+
+    #[test]
+    fn missing_slice_history_count_is_one_independent_of_scan_threshold() {
+        for threshold in [3, 5, 10] {
+            let fixture = tempfile::tempdir().unwrap();
+            let candidate = make_history_candidate(
+                fixture.path(),
+                "default",
+                threshold,
+                HistoryFixtureShape::MissingSlice,
+            );
+            let path = write_evidence(
+                fixture.path(),
+                "default",
+                DetectionMode::CacheAndLogs,
+                threshold,
+                vec![candidate],
+            );
+            let evidence = load_and_validate_history_evidence(&path, "steam").unwrap();
+            assert_eq!(evidence.observations.len(), 1);
+        }
+    }
+
+    #[test]
+    fn history_validation_and_log_rewrite_never_mutate_cache_sentinels() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache-sentinel");
+        let log_dir = fixture.path().join("logs");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        std::fs::create_dir_all(&log_dir).unwrap();
+        let sentinel = cache_dir.join("nested").join("must-remain.bin");
+        std::fs::create_dir_all(sentinel.parent().unwrap()).unwrap();
+        std::fs::write(&sentinel, b"cache bytes must remain unchanged").unwrap();
+
+        let candidate =
+            make_history_candidate(&cache_dir, "default", 3, HistoryFixtureShape::LogsOnly);
+        std::fs::write(
+            log_dir.join("access.log"),
+            format!(
+                "{}\n",
+                observation_log_line(0, "/middle.bin", "bytes=2097200-2097300")
+            ),
+        )
+        .unwrap();
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::LogsOnly,
+            3,
+            vec![candidate],
+        );
+        let evidence = load_and_validate_history_evidence(&path, "steam").unwrap();
+        let matcher = ExactLogMatcher::new(evidence.observations);
+        let prefilter = matcher.prefilter().unwrap();
+        log_purge::rewrite_matching_log_entries_strict(
+            &log_dir,
+            "history cache non-mutation proof",
+            &prefilter,
+            |entry| matcher.matches(entry),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read(&sentinel).unwrap(),
+            b"cache bytes must remain unchanged"
+        );
+        assert!(cache_dir.join("nested").is_dir());
+
+        let source = include_str!("cache_corruption.rs");
+        let history_body = source
+            .split("async fn run_purge_history")
+            .nth(1)
+            .unwrap()
+            .split("#[tokio::main]")
+            .next()
+            .unwrap();
+        for forbidden in [
+            "delete_exact_paths(",
+            "delete_exact_paths_with(",
+            "remove_file(",
+            "cleanup_empty_directories(",
+        ] {
+            assert!(!history_body.contains(forbidden), "found {forbidden}");
+        }
     }
 
     #[test]
@@ -1736,6 +2509,7 @@ mod tests {
             "\"StatusCode\" = $7",
             "\"CacheStatus\" = $8",
             "\"HttpRange\" = $9",
+            "\"BytesServed\" = $10",
         ] {
             assert!(EXACT_DB_DELETE_SQL.contains(required), "missing {required}");
         }
@@ -1748,6 +2522,7 @@ mod tests {
             client_ip: "192.0.2.1".to_string(),
             method: "GET".to_string(),
             http_status: 200,
+            bytes_served: 1024,
             cache_status: "MISS".to_string(),
             raw_range: None,
         };
@@ -1755,6 +2530,34 @@ mod tests {
         observation.raw_range = Some("bytes=1-2".to_string());
         assert_eq!(database_http_range(&observation), "bytes=1-2");
         assert!(!EXACT_DB_DELETE_SQL.contains("IS NULL"));
+
+        let delete_sql = affected_download_delete_sql("$1, $2");
+        assert!(delete_sql.contains("\"Id\" IN ($1, $2)"));
+        assert!(delete_sql.contains("AND NOT \"IsActive\""));
+        assert!(delete_sql.contains("NOT EXISTS"));
+        let recompute_sql = affected_survivor_recompute_sql("$1, $2");
+        assert!(recompute_sql.contains("SUM(\"BytesServed\")"));
+        assert!(recompute_sql.contains("\"CacheHitBytes\""));
+        assert!(recompute_sql.contains("\"CacheMissBytes\""));
+        assert!(recompute_sql.contains("'MISS', 'UNKNOWN'"));
+
+        assert!(
+            require_complete_history_log_rewrite(&log_purge::LogRewriteOutcome {
+                lines_removed: 3,
+                permission_errors: 0,
+                other_errors: 0,
+                cancelled: false,
+            })
+            .is_ok()
+        );
+        let partial = require_complete_history_log_rewrite(&log_purge::LogRewriteOutcome {
+            lines_removed: 2,
+            permission_errors: 0,
+            other_errors: 1,
+            cancelled: false,
+        })
+        .unwrap_err();
+        assert!(format!("{partial:#}").contains("database evidence was retained"));
     }
 
     #[test]

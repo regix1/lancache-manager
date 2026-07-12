@@ -9,6 +9,65 @@ namespace LancacheManager.Tests;
 
 public class OperationConflictCheckerTests
 {
+    [Theory]
+    [InlineData(OperationType.LogProcessing)]
+    [InlineData(OperationType.LogRemoval)]
+    [InlineData(OperationType.GameRemoval)]
+    [InlineData(OperationType.ServiceRemoval)]
+    [InlineData(OperationType.CorruptionRemoval)]
+    [InlineData(OperationType.EvictionRemoval)]
+    [InlineData(OperationType.EvictionScan)]
+    [InlineData(OperationType.CacheClearing)]
+    [InlineData(OperationType.HistoricalEvidencePurge)]
+    public async Task HistoricalEvidencePurge_BlocksEveryPhysicalWriterAndEvictionOperationAsync(
+        OperationType activeType)
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, activeType, activeType.ToString());
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.HistoricalEvidencePurge,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(activeType.ToString(), response!.ActiveOperationType);
+        Assert.Equal(
+            activeType == OperationType.HistoricalEvidencePurge
+                ? "errors.conflict.duplicate"
+                : activeType == OperationType.CacheClearing
+                    ? "errors.conflict.globalOperationActive"
+                    : "errors.conflict.heavyOperationActive",
+            response!.StageKey);
+    }
+
+    [Theory]
+    [InlineData(OperationType.LogProcessing)]
+    [InlineData(OperationType.LogRemoval)]
+    [InlineData(OperationType.GameRemoval)]
+    [InlineData(OperationType.ServiceRemoval)]
+    [InlineData(OperationType.CorruptionRemoval)]
+    [InlineData(OperationType.EvictionRemoval)]
+    [InlineData(OperationType.EvictionScan)]
+    public async Task ActiveHistoricalEvidencePurge_SymmetricallyBlocksPhysicalWritersAsync(
+        OperationType newType)
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(
+            tracker.Tracker,
+            OperationType.HistoricalEvidencePurge,
+            "Purge historical evidence");
+
+        var response = await tracker.Checker.CheckAsync(
+            newType,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(nameof(OperationType.HistoricalEvidencePurge), response!.ActiveOperationType);
+        Assert.Equal("errors.conflict.heavyOperationActive", response.StageKey);
+    }
+
     [Fact]
     public async Task ExpectedConflict_IsLoggedAtDebug_NotInformationAsync()
     {

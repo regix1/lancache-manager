@@ -45,11 +45,20 @@ import type {
   CorruptedChunkDetail,
   CorruptionDetectionMode
 } from '@/types';
+import type {
+  HistoricalEvidencePurgeTarget,
+  IntegrityReviewSnapshot
+} from './integrityReviewSnapshot';
 
 interface CorruptionManagerProps {
+  isAdmin: boolean;
   authMode: AuthMode;
   mockMode: boolean;
   onError?: (message: string) => void;
+  onIntegritySnapshotChange: (snapshot: IntegrityReviewSnapshot) => void;
+  onRequestHistoricalEvidencePurge: (target: HistoricalEvidencePurgeTarget) => void;
+  historicalEvidencePurgeBusy: boolean;
+  snapshotReloadToken: number;
 }
 
 const isCountMap = (value: unknown): value is Record<string, number> =>
@@ -60,7 +69,16 @@ const isCountMap = (value: unknown): value is Record<string, number> =>
     (count) => typeof count === 'number' && Number.isInteger(count) && count >= 0
   );
 
-const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMode, onError }) => {
+const CorruptionManager: React.FC<CorruptionManagerProps> = ({
+  isAdmin,
+  authMode,
+  mockMode,
+  onError,
+  onIntegritySnapshotChange,
+  onRequestHistoricalEvidencePurge,
+  historicalEvidencePurgeBusy,
+  snapshotReloadToken
+}) => {
   const { t } = useTranslation();
   const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
   const { notifyError } = useErrorHandler();
@@ -334,6 +352,41 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     status: ['running', 'waiting']
   });
 
+  useEffect(() => {
+    onIntegritySnapshotChange({
+      scanId,
+      reviewOnlyServiceCounts,
+      reviewOnlyTotal: corruptionProjection.reviewOnlyTotal,
+      isLoading: isLoading || isRefreshing,
+      isBusy:
+        isLoading ||
+        isRefreshing ||
+        isScanning ||
+        isDismissalPending ||
+        isAnyRemovalRunning ||
+        anyCorruptionRemovalPending ||
+        startingRemoveAll ||
+        startingRemoveSelected ||
+        isCorruptionRemovalActive ||
+        historicalEvidencePurgeBusy
+    });
+  }, [
+    anyCorruptionRemovalPending,
+    corruptionProjection.reviewOnlyTotal,
+    historicalEvidencePurgeBusy,
+    isAnyRemovalRunning,
+    isCorruptionRemovalActive,
+    isDismissalPending,
+    isLoading,
+    isRefreshing,
+    isScanning,
+    onIntegritySnapshotChange,
+    reviewOnlyServiceCounts,
+    scanId,
+    startingRemoveAll,
+    startingRemoveSelected
+  ]);
+
   // Load cached data from database
   const loadCachedData = useCallback(
     async (showNotification = false) => {
@@ -406,7 +459,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   // Start a background scan
   const startScan = useCallback(async () => {
-    if (isScanning || isDismissalPending || mockMode) return;
+    if (isScanning || isDismissalPending || historicalEvidencePurgeBusy || mockMode) return;
 
     // Note: NotificationsContext automatically replaces notifications with the same ID
     // when a new operation starts, so manual dismissal is not needed
@@ -445,6 +498,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   }, [
     isScanning,
     isDismissalPending,
+    historicalEvidencePurgeBusy,
     mockMode,
     missThreshold,
     detectionMode,
@@ -611,6 +665,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     }
   }, [hasInitiallyLoaded, loadCachedData]);
 
+  const previousReloadTokenRef = useRef(snapshotReloadToken);
+  useEffect(() => {
+    if (snapshotReloadToken === previousReloadTokenRef.current) return;
+    previousReloadTokenRef.current = snapshotReloadToken;
+    void loadCachedData();
+  }, [loadCachedData, snapshotReloadToken]);
+
   const isServiceRemovable = useCallback(
     (service: string) => Boolean(scanId && (removableServiceCounts[service] ?? 0) > 0),
     [scanId, removableServiceCounts]
@@ -642,6 +703,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       anyCorruptionRemovalPending ||
       startingRemoveAll ||
       startingRemoveSelected ||
+      historicalEvidencePurgeBusy ||
       mockMode
     ) {
       return;
@@ -916,19 +978,24 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   // A whole service row toggles its own details when its header area is clicked, matching the
   // AccordionSection header. Clicks on the checkbox or the action buttons keep their own behavior.
   const rowToggleHandlers = (toggle: () => void) => {
-    const fromControl = (target: EventTarget | null) =>
-      target instanceof HTMLElement &&
-      target.closest(
+    const fromNestedControl = (target: EventTarget | null, currentTarget: EventTarget) => {
+      if (!(target instanceof HTMLElement) || !(currentTarget instanceof HTMLElement)) return false;
+      const control = target.closest(
         'button, input, a, label, [role="button"], [role="checkbox"], [role="listbox"], [role="combobox"]'
-      ) !== null;
+      );
+      return control !== null && control !== currentTarget;
+    };
     return {
       role: 'button' as const,
       tabIndex: 0,
       onClick: (event: React.MouseEvent) => {
-        if (!fromControl(event.target)) toggle();
+        if (!fromNestedControl(event.target, event.currentTarget)) toggle();
       },
       onKeyDown: (event: React.KeyboardEvent) => {
-        if ((event.key === 'Enter' || event.key === ' ') && !fromControl(event.target)) {
+        if (
+          (event.key === 'Enter' || event.key === ' ') &&
+          !fromNestedControl(event.target, event.currentTarget)
+        ) {
           event.preventDefault();
           toggle();
         }
@@ -964,6 +1031,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     isCorruptionRemovalActive ||
     startingRemoveAll ||
     startingRemoveSelected ||
+    historicalEvidencePurgeBusy ||
     isDismissalPending ||
     authMode !== 'authenticated' ||
     checkingPermissions ||
@@ -974,44 +1042,50 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const controlSelectors = (
     <div className="mgmt-toolbar">
       <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
-        <div className="w-full sm:w-auto">
+        <div className="w-full sm:w-56">
           <EnhancedDropdown
             variant="button"
             options={detectionModeOptions}
             value={detectionMode}
             onChange={handleDetectionModeChange}
-            disabled={isScanning || isAnyRemovalRunning || isDismissalPending}
-            dropdownWidth="w-72"
-            alignRight={true}
+            disabled={
+              isScanning || isAnyRemovalRunning || isDismissalPending || historicalEvidencePurgeBusy
+            }
             dropdownTitle={t('management.corruption.detectionModeTitle')}
             compactMode={true}
+            size="lg"
           />
         </div>
-        <div className="w-full sm:w-auto">
+        <div className="w-full sm:w-56">
           <EnhancedDropdown
             variant="button"
             options={thresholdOptions}
             value={String(missThreshold)}
             onChange={handleThresholdChange}
-            disabled={isScanning || isAnyRemovalRunning || isDismissalPending}
-            dropdownWidth="w-72"
-            alignRight={true}
+            disabled={
+              isScanning || isAnyRemovalRunning || isDismissalPending || historicalEvidencePurgeBusy
+            }
             dropdownTitle={t('management.corruption.sensitivityTitle')}
             compactMode={true}
+            size="lg"
           />
         </div>
         {detectionMode !== 'logs_only' && (
-          <div className="w-full sm:w-auto">
+          <div className="w-full sm:w-56">
             <EnhancedDropdown
               variant="button"
               options={lookbackOptions}
               value={String(lookbackDays)}
               onChange={handleLookbackChange}
-              disabled={isScanning || isAnyRemovalRunning || isDismissalPending}
-              dropdownWidth="w-72"
-              alignRight={true}
+              disabled={
+                isScanning ||
+                isAnyRemovalRunning ||
+                isDismissalPending ||
+                historicalEvidencePurgeBusy
+              }
               dropdownTitle={t('management.corruption.evidenceLookbackTitle')}
               compactMode={true}
+              size="lg"
             />
           </div>
         )}
@@ -1057,7 +1131,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           <>
             <ActionMenuItem
               icon={<RefreshCw className="w-3.5 h-3.5" />}
-              disabled={isRefreshing || isScanning || isAnyRemovalRunning || isDismissalPending}
+              disabled={
+                isRefreshing ||
+                isScanning ||
+                isAnyRemovalRunning ||
+                isDismissalPending ||
+                historicalEvidencePurgeBusy
+              }
               onClick={() => {
                 loadCachedData(true);
                 close();
@@ -1067,7 +1147,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             </ActionMenuItem>
             <ActionMenuItem
               icon={<Search className="w-3.5 h-3.5" />}
-              disabled={isLoading || isScanning || isAnyRemovalRunning || isDismissalPending}
+              disabled={
+                isLoading ||
+                isScanning ||
+                isAnyRemovalRunning ||
+                isDismissalPending ||
+                historicalEvidencePurgeBusy
+              }
               onClick={() => {
                 startScan();
                 close();
@@ -1388,11 +1474,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                       surface="well"
                       isExpanded={reviewSectionOpen}
                       onToggle={() => setReviewSectionOpen((open) => !open)}
-                      badge={
+                    >
+                      <p className="mgmt-review-note">
+                        {t('management.corruption.reviewSectionNote')}
+                      </p>
+                      <div className="mgmt-review-actions mgmt-review-actions--content">
                         <Button
                           variant="filled"
                           color="gray"
-                          size="md"
+                          size="sm"
                           stableWidth
                           loading={isDismissingAll}
                           disabled={
@@ -1405,6 +1495,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             anyCorruptionRemovalPending ||
                             startingRemoveAll ||
                             startingRemoveSelected ||
+                            historicalEvidencePurgeBusy ||
                             mockMode ||
                             authMode !== 'authenticated'
                           }
@@ -1414,11 +1505,38 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                         >
                           {t('management.corruption.dismissAll')}
                         </Button>
-                      }
-                    >
-                      <p className="mgmt-scanmeta mb-3">
-                        {t('management.corruption.reviewSectionNote')}
-                      </p>
+                        <Button
+                          variant="filled"
+                          color="red"
+                          size="sm"
+                          stableWidth
+                          disabled={
+                            !scanId ||
+                            corruptionProjection.reviewOnlyTotal === 0 ||
+                            isDismissalPending ||
+                            isLoading ||
+                            isRefreshing ||
+                            isScanning ||
+                            isAnyRemovalRunning ||
+                            anyCorruptionRemovalPending ||
+                            startingRemoveAll ||
+                            startingRemoveSelected ||
+                            historicalEvidencePurgeBusy ||
+                            checkingPermissions ||
+                            logsReadOnly ||
+                            !logsExist ||
+                            !isDockerAvailable ||
+                            !isAdmin ||
+                            mockMode ||
+                            authMode !== 'authenticated'
+                          }
+                          aria-busy={historicalEvidencePurgeBusy}
+                          aria-label={t('management.corruption.purgeAllAria')}
+                          onClick={() => onRequestHistoricalEvidencePurge({})}
+                        >
+                          {t('management.corruption.purgeHistoricalEvidence')}
+                        </Button>
+                      </div>
                       <div className="mgmt-list">
                         {reviewList.map((row) => {
                           const { service, reviewOnly } = row;
@@ -1426,7 +1544,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                           return (
                             <div key={`corruption-review-${service}`}>
                               <div
-                                className="mgmt-row mgmt-row--interactive flex-wrap cursor-pointer"
+                                className="mgmt-row mgmt-row--interactive mgmt-review-row flex-wrap cursor-pointer"
                                 {...rowToggleHandlers(() => toggleReviewDetails(service))}
                               >
                                 <div className="mgmt-row__body">
@@ -1456,6 +1574,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                       anyCorruptionRemovalPending ||
                                       startingRemoveAll ||
                                       startingRemoveSelected ||
+                                      historicalEvidencePurgeBusy ||
                                       mockMode ||
                                       authMode !== 'authenticated'
                                     }
@@ -1469,8 +1588,42 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                   </Button>
                                   <Button
                                     variant="filled"
+                                    color="red"
+                                    size="sm"
+                                    stableWidth
+                                    disabled={
+                                      !scanId ||
+                                      reviewOnly === 0 ||
+                                      isDismissalPending ||
+                                      isLoading ||
+                                      isRefreshing ||
+                                      isScanning ||
+                                      isAnyRemovalRunning ||
+                                      anyCorruptionRemovalPending ||
+                                      startingRemoveAll ||
+                                      startingRemoveSelected ||
+                                      historicalEvidencePurgeBusy ||
+                                      checkingPermissions ||
+                                      logsReadOnly ||
+                                      !logsExist ||
+                                      !isDockerAvailable ||
+                                      !isAdmin ||
+                                      mockMode ||
+                                      authMode !== 'authenticated'
+                                    }
+                                    aria-busy={historicalEvidencePurgeBusy}
+                                    aria-label={t('management.corruption.purgeServiceAria', {
+                                      service: getServiceDisplayName(service)
+                                    })}
+                                    onClick={() => onRequestHistoricalEvidencePurge({ service })}
+                                  >
+                                    {t('management.corruption.purgeEvidence')}
+                                  </Button>
+                                  <Button
+                                    variant="filled"
                                     color="gray"
                                     size="sm"
+                                    className="mgmt-row__toggle"
                                     onClick={() => toggleReviewDetails(service)}
                                     disabled={isDismissalPending}
                                     aria-expanded={isRowExpanded}
@@ -1570,6 +1723,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                 anyCorruptionRemovalPending ||
                 startingRemoveAll ||
                 startingRemoveSelected ||
+                historicalEvidencePurgeBusy ||
                 mockMode ||
                 authMode !== 'authenticated'
               }

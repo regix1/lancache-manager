@@ -13,6 +13,7 @@ interface ConfirmationModalProps {
   confirmLabel?: string;
   confirmColor?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange' | 'default';
   loading?: boolean;
+  confirmDisabled?: boolean;
 }
 
 export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
@@ -23,7 +24,8 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   children,
   confirmLabel,
   confirmColor = 'red',
-  loading = false
+  loading = false,
+  confirmDisabled = false
 }) => {
   const { t } = useTranslation();
 
@@ -50,7 +52,15 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           <Button variant="default" onClick={onClose} disabled={loading}>
             {t('common.cancel')}
           </Button>
-          <Button variant="filled" color={confirmColor} onClick={onConfirm} loading={loading}>
+          <Button
+            variant="filled"
+            color={confirmColor}
+            onClick={onConfirm}
+            loading={loading}
+            stableWidth
+            disabled={confirmDisabled}
+            aria-busy={loading}
+          >
             {confirmLabel || t('common.confirm')}
           </Button>
         </div>

@@ -37,12 +37,12 @@ export function SectionActionsMenu({
           variant="filled"
           color="gray"
           size="sm"
-          className="!px-0 w-8 h-8 justify-center"
+          className="!px-0 w-10 h-10 justify-center"
           onClick={() => setOpen((o) => !o)}
           disabled={disabled}
           aria-label={label}
         >
-          <MoreHorizontal className="w-4 h-4" />
+          <MoreHorizontal className="w-5 h-5" />
         </Button>
       }
     >

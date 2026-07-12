@@ -80,6 +80,9 @@ import type {
   CorruptionRemovalStartedEvent,
   CorruptionRemovalProgressEvent,
   CorruptionRemovalCompleteEvent,
+  HistoricalEvidencePurgeStartedEvent,
+  HistoricalEvidencePurgeProgressEvent,
+  HistoricalEvidencePurgeCompleteEvent,
   GameDetectionStartedEvent,
   GameDetectionProgressEvent,
   GameDetectionCompleteEvent,
@@ -331,6 +334,7 @@ const CANCEL_TOOLTIP = {
   gameRemoval: 'common.notifications.cancelGameRemoval',
   serviceRemoval: 'common.notifications.cancelServiceRemoval',
   corruptionRemoval: 'common.notifications.cancelCorruptionRemoval',
+  historicalEvidencePurge: 'common.notifications.cancelHistoricalEvidencePurge',
   gameDetection: 'common.notifications.cancelGameDetection',
   corruptionDetection: 'common.notifications.cancelCorruptionDetection',
   cacheClearing: 'common.notifications.cancelCacheClearing',
@@ -648,6 +652,98 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     onComplete: (removeNotification) => {
       removeNotification(NOTIFICATION_IDS.CORRUPTION_DETECTION);
       localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION);
+    }
+  },
+
+  // ========== Historical Evidence Purge ==========
+  {
+    type: 'historical_evidence_purge',
+    id: NOTIFICATION_IDS.HISTORICAL_EVIDENCE_PURGE,
+    storageKey: NOTIFICATION_STORAGE_KEYS.HISTORICAL_EVIDENCE_PURGE,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.historicalEvidencePurge,
+    recovery: { kind: 'cacheRemovalsBatch' },
+    events: {
+      started: 'HistoricalEvidencePurgeStarted',
+      progress: 'HistoricalEvidencePurgeProgress',
+      complete: 'HistoricalEvidencePurgeComplete'
+    },
+    started: {
+      defaultMessage: 'Starting historical evidence purge…',
+      getMessage: (event: HistoricalEvidencePurgeStartedEvent) =>
+        translateStageKeyMessage(
+          event.stageKey,
+          event.context,
+          'signalr.historicalEvidencePurge.starting'
+        ),
+      getDetails: (event: HistoricalEvidencePurgeStartedEvent) => ({
+        operationId: event.operationId,
+        scope: event.scope,
+        service: event.scope === 'all' ? undefined : event.scope,
+        candidateCount: event.candidateCount
+      })
+    },
+    progress: {
+      getMessage: (event: HistoricalEvidencePurgeProgressEvent) =>
+        translateStageKeyMessage(
+          event.stageKey,
+          event.context,
+          'signalr.historicalEvidencePurge.purging'
+        ),
+      getProgress: (event: HistoricalEvidencePurgeProgressEvent) => event.percentComplete ?? 0,
+      getStatus: (event: HistoricalEvidencePurgeProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: HistoricalEvidencePurgeProgressEvent) =>
+        translateStageKeyMessage(
+          event.stageKey,
+          event.context,
+          'signalr.historicalEvidencePurge.complete'
+        ),
+      getErrorMessage: (event: HistoricalEvidencePurgeProgressEvent) =>
+        translateStageKeyMessage(
+          event.stageKey,
+          event.context,
+          'signalr.historicalEvidencePurge.failed'
+        ),
+      getDetails: (event: HistoricalEvidencePurgeProgressEvent) => ({
+        operationId: event.operationId,
+        scope: event.scope,
+        service: event.scope === 'all' ? undefined : event.scope,
+        logLinesRemoved: event.logLinesRemoved,
+        logEntriesRemoved: event.logEntriesRemoved,
+        downloadsRemoved: event.downloadsDeleted
+      })
+    },
+    complete: {
+      getSuccessMessage: (event: HistoricalEvidencePurgeCompleteEvent) =>
+        translateStageKeyMessage(
+          event.stageKey,
+          event.context,
+          'signalr.historicalEvidencePurge.complete'
+        ),
+      getCancelledMessage: () => i18n.t('signalr.historicalEvidencePurge.cancelled'),
+      getFailureMessage: (event: HistoricalEvidencePurgeCompleteEvent) =>
+        event.error ??
+        translateStageKeyMessage(
+          event.stageKey,
+          event.context,
+          'signalr.historicalEvidencePurge.failed'
+        ),
+      getSuccessDetails: (event: HistoricalEvidencePurgeCompleteEvent) => ({
+        operationId: event.operationId ?? undefined,
+        scope: event.scope,
+        service: event.scope === 'all' ? undefined : event.scope,
+        candidateCount: event.candidateCount,
+        logLinesRemoved: event.logLinesRemoved,
+        logEntriesRemoved: event.logEntriesRemoved,
+        downloadsRemoved: event.downloadsDeleted
+      }),
+      getCancelledDetails: (event: HistoricalEvidencePurgeCompleteEvent) => ({
+        operationId: event.operationId ?? undefined,
+        scope: event.scope,
+        service: event.scope === 'all' ? undefined : event.scope,
+        candidateCount: event.candidateCount
+      })
     }
   },
 

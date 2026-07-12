@@ -32,7 +32,7 @@ const EvidenceObservedAt: React.FC<EvidenceObservedAtProps> = ({ firstSeen, last
   const formattedLast = useFormattedDateTime(lastSeen, true);
 
   return (
-    <div className="mgmt-kv__cell mgmt-kv__cell--wide">
+    <div className="mgmt-evidence__fact">
       <dt>{t('management.corruption.observedAt')}</dt>
       <dd className="tabular-nums">
         {firstSeen === lastSeen
@@ -127,91 +127,39 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks, varia
       <div key={chunk.candidate_id} className="mgmt-evidence">
         <div className="mgmt-evidence__head">
           <div className="mgmt-evidence__ident">
-            <code className="mgmt-evidence__exact-value text-themed-primary">{chunk.raw_url}</code>
-            {chunk.normalized_uri !== chunk.raw_url && (
-              <span className="mgmt-evidence__normalized">
-                <span>{t('management.corruption.normalizedUri')}</span>
-                <code className="mgmt-evidence__exact-value">{chunk.normalized_uri}</code>
-              </span>
-            )}
+            <code className="mgmt-evidence__exact-value mgmt-evidence__url text-themed-primary">
+              {chunk.raw_url}
+            </code>
           </div>
-          <span className="mgmt-evidence__count">
-            {chunk.reason === 'missing_cached_slice' ? (
-              <strong className="text-themed-secondary">
-                {t('management.corruption.priorCacheProof', {
-                  count: chunk.evidence_count
-                })}
-              </strong>
-            ) : (
-              <>
-                {t('management.corruption.evidenceCount')}{' '}
-                <strong className="text-themed-error">{chunk.evidence_count}</strong>
-              </>
-            )}
-          </span>
+          <div className="mgmt-evidence__status">
+            <Badge variant={chunk.validation_state === 'exact_path_present' ? 'success' : 'info'}>
+              {validation}
+            </Badge>
+            <span className="mgmt-evidence__count">
+              {chunk.reason === 'missing_cached_slice' ? (
+                <strong className="text-themed-secondary">
+                  {t('management.corruption.priorCacheProof', {
+                    count: chunk.evidence_count
+                  })}
+                </strong>
+              ) : (
+                <>
+                  {t('management.corruption.evidenceCount')}{' '}
+                  <strong className="text-themed-error">{chunk.evidence_count}</strong>
+                </>
+              )}
+            </span>
+          </div>
         </div>
 
-        <div className="mgmt-evidence__tags">
-          <Badge variant={chunk.validation_state === 'exact_path_present' ? 'success' : 'info'}>
-            {validation}
-          </Badge>
-        </div>
-
-        <dl className="mgmt-kv">
-          <div className="mgmt-kv__cell">
+        <dl className="mgmt-evidence__facts">
+          <div className="mgmt-evidence__fact">
             <dt>{t('management.corruption.datasource')}</dt>
             <dd>{chunk.datasource}</dd>
           </div>
-          <div className="mgmt-kv__cell">
-            <dt>{t('management.corruption.observedRange')}</dt>
-            <dd>
-              <code>{observedRange}</code>
-            </dd>
-          </div>
-          <div className="mgmt-kv__cell">
-            <dt>{t('management.corruption.physicalSlice')}</dt>
-            <dd>
-              <code>{physicalSlice}</code>
-            </dd>
-          </div>
-          <div className="mgmt-kv__cell">
-            <dt>{t('management.corruption.reason')}</dt>
-            <dd>{reason}</dd>
-          </div>
           <EvidenceObservedAt firstSeen={chunk.first_seen} lastSeen={chunk.last_seen} />
-          <div className="mgmt-kv__cell mgmt-kv__cell--wide">
-            <dt>
-              {t(
-                chunk.reason === 'missing_cached_slice'
-                  ? 'management.corruption.expectedMissingPath'
-                  : 'management.corruption.cache'
-              )}
-            </dt>
-            <dd>
-              {chunk.exact_paths.length > 0 ? (
-                chunk.exact_paths.map((path) => (
-                  <code key={path} className="mgmt-evidence__exact-value">
-                    {path}
-                  </code>
-                ))
-              ) : (
-                <span className="block">{t('management.corruption.noExactPath')}</span>
-              )}
-            </dd>
-          </div>
-          {chunk.supporting_sibling && (
-            <div className="mgmt-kv__cell mgmt-kv__cell--wide">
-              <dt>{t('management.corruption.supportingSibling')}</dt>
-              <dd>
-                {supportingSiblingSlice && <code>{supportingSiblingSlice}</code>}
-                <code className="mgmt-evidence__exact-value">
-                  {chunk.supporting_sibling.exact_path}
-                </code>
-              </dd>
-            </div>
-          )}
           {chunk.retry_client && (
-            <div className="mgmt-kv__cell mgmt-kv__cell--wide">
+            <div className="mgmt-evidence__fact">
               <dt>{t('management.corruption.retryEvidenceLabel')}</dt>
               <dd>
                 {t('management.corruption.retryEvidence', {
@@ -223,6 +171,68 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks, varia
             </div>
           )}
         </dl>
+
+        <div className="mgmt-evidence__reason">
+          <span>{t('management.corruption.reason')}</span>
+          <strong>{reason}</strong>
+        </div>
+
+        <details className="mgmt-evidence__technical">
+          <summary>{t('management.corruption.cacheMappingDetails')}</summary>
+          <dl className="mgmt-evidence__mapping">
+            {chunk.normalized_uri !== chunk.raw_url && (
+              <div className="mgmt-evidence__mapping-item mgmt-evidence__mapping-item--wide">
+                <dt>{t('management.corruption.normalizedUri')}</dt>
+                <dd>
+                  <code className="mgmt-evidence__exact-value">{chunk.normalized_uri}</code>
+                </dd>
+              </div>
+            )}
+            <div className="mgmt-evidence__mapping-item">
+              <dt>{t('management.corruption.observedRange')}</dt>
+              <dd>
+                <code>{observedRange}</code>
+              </dd>
+            </div>
+            <div className="mgmt-evidence__mapping-item">
+              <dt>{t('management.corruption.physicalSlice')}</dt>
+              <dd>
+                <code>{physicalSlice}</code>
+              </dd>
+            </div>
+            <div className="mgmt-evidence__mapping-item mgmt-evidence__mapping-item--wide">
+              <dt>
+                {t(
+                  chunk.reason === 'missing_cached_slice'
+                    ? 'management.corruption.expectedMissingPath'
+                    : 'management.corruption.cache'
+                )}
+              </dt>
+              <dd>
+                {chunk.exact_paths.length > 0 ? (
+                  chunk.exact_paths.map((path) => (
+                    <code key={path} className="mgmt-evidence__exact-value">
+                      {path}
+                    </code>
+                  ))
+                ) : (
+                  <span className="block">{t('management.corruption.noExactPath')}</span>
+                )}
+              </dd>
+            </div>
+            {chunk.supporting_sibling && (
+              <div className="mgmt-evidence__mapping-item mgmt-evidence__mapping-item--wide">
+                <dt>{t('management.corruption.supportingSibling')}</dt>
+                <dd>
+                  {supportingSiblingSlice && <code>{supportingSiblingSlice}</code>}
+                  <code className="mgmt-evidence__exact-value">
+                    {chunk.supporting_sibling.exact_path}
+                  </code>
+                </dd>
+              </div>
+            )}
+          </dl>
+        </details>
       </div>
     );
   };

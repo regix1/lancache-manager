@@ -420,6 +420,15 @@ export interface DismissCorruptionReviewResponse {
   result: CachedCorruptionDetectionResponse;
 }
 
+export interface HistoricalEvidencePurgeStartResponse {
+  operationId: string;
+  scope: string;
+  candidateCount: number;
+  status: string;
+  queued?: boolean;
+  alreadyRunning?: boolean;
+}
+
 export type CacheEntityVariant = 'active' | 'evicted';
 
 /**

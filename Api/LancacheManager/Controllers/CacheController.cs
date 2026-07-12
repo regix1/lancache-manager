@@ -42,6 +42,7 @@ public class CacheController : ControllerBase
     private readonly CacheReconciliationService _reconciliationService;
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
+    private readonly GameCacheDetectionService? _gameCacheDetectionService;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -57,7 +58,8 @@ public class CacheController : ControllerBase
         IDbContextFactory<AppDbContext> dbContextFactory,
         CacheReconciliationService reconciliationService,
         IOperationConflictChecker conflictChecker,
-        IOperationQueue operationQueue)
+        IOperationQueue operationQueue,
+        GameCacheDetectionService? gameCacheDetectionService = null)
     {
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
@@ -73,6 +75,7 @@ public class CacheController : ControllerBase
         _reconciliationService = reconciliationService;
         _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
+        _gameCacheDetectionService = gameCacheDetectionService;
     }
 
     /// <summary>
@@ -552,6 +555,103 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
+    /// DELETE /api/cache/evicted/services/{service}/historical-evidence - Permanently purge the
+    /// current scan's exact review-only log/database observations for one service. Cache files are
+    /// never passed to or modified by this operation.
+    /// </summary>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpDelete("evicted/services/{service}/historical-evidence")]
+    public async Task<IActionResult> PurgeServiceHistoricalEvidenceAsync(
+        string service,
+        CancellationToken cancellationToken,
+        [FromQuery] Guid scanId)
+    {
+        if (!_serviceNameRegex.IsMatch(service))
+        {
+            throw new ValidationException("Invalid service name");
+        }
+
+        return await PurgeHistoricalEvidenceAsync(scanId, service, cancellationToken);
+    }
+
+    /// <summary>
+    /// DELETE /api/cache/evicted/historical-evidence - Permanently purge every current review-only
+    /// exact log/database observation. This is intentionally distinct from cache removal.
+    /// </summary>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpDelete("evicted/historical-evidence")]
+    public Task<IActionResult> PurgeAllHistoricalEvidenceAsync(
+        CancellationToken cancellationToken,
+        [FromQuery] Guid scanId) =>
+        PurgeHistoricalEvidenceAsync(scanId, service: null, cancellationToken);
+
+    private async Task<IActionResult> PurgeHistoricalEvidenceAsync(
+        Guid scanId,
+        string? service,
+        CancellationToken cancellationToken)
+    {
+        if (scanId == Guid.Empty)
+        {
+            throw new ValidationException("A corruption scan ID is required");
+        }
+
+        var preview = await _corruptionDetectionService.GetHistoricalEvidencePurgeSelectionAsync(
+            scanId,
+            service,
+            cancellationToken);
+        var previewDatasources = ResolveDatasources(
+            preview.CandidatesByDatasource.Keys,
+            _datasourceService.GetDatasources());
+        var permissionError = CheckHistoricalEvidenceLogsWritable(previewDatasources);
+        if (permissionError != null)
+        {
+            throw new ValidationException(permissionError);
+        }
+
+        async Task<Guid?> StartHistoricalEvidencePurgeAsync()
+        {
+            // Queue promotion must re-resolve the current persisted scope. This rejects a stale
+            // scan and never carries client-provided candidate/path/observation identity forward.
+            var selection = await _corruptionDetectionService.GetHistoricalEvidencePurgeSelectionAsync(
+                scanId,
+                service);
+            var datasources = ResolveDatasources(
+                selection.CandidatesByDatasource.Keys,
+                _datasourceService.GetDatasources());
+            var currentPermissionError = CheckHistoricalEvidenceLogsWritable(datasources);
+            if (currentPermissionError != null)
+            {
+                throw new ValidationException(currentPermissionError);
+            }
+
+            return await StartHistoricalEvidencePurgeOperationAsync(selection, datasources);
+        }
+
+        // Always enter through the queue gate. Keep the logical service key only so a different
+        // service request queues instead of being deduplicated as the same request; the conflict
+        // checker deliberately treats every HistoricalEvidencePurge as a physical bulk log lock.
+        var queueScope = service == null ? ConflictScope.Bulk() : ConflictScope.Service(service);
+        var queued = await _operationQueue.EnqueueAsync(
+            OperationType.HistoricalEvidencePurge,
+            queueScope,
+            service == null
+                ? "Purge historical evidence (all services)"
+                : $"Purge historical evidence ({service})",
+            StartHistoricalEvidencePurgeAsync,
+            cancellationToken);
+
+        return Accepted(new HistoricalEvidencePurgeAcceptedResponse
+        {
+            OperationId = queued.OperationId,
+            Scope = preview.Scope,
+            CandidateCount = preview.CandidateIds.Count,
+            Queued = queued.Queued,
+            AlreadyRunning = queued.AlreadyRunning,
+            Status = queued.Status
+        });
+    }
+
+    /// <summary>
     /// DELETE /api/cache/services/{name}/corruption - Remove corrupted chunks for specific service
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
@@ -964,6 +1064,367 @@ public class CacheController : ControllerBase
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Historical evidence purge needs writable logs only. Cache writability is deliberately
+    /// excluded because no cache path is supplied to the Rust command.
+    /// </summary>
+    private string? CheckHistoricalEvidenceLogsWritable(IReadOnlyList<ResolvedDatasource> datasources)
+    {
+        foreach (var datasource in datasources)
+        {
+            if (datasource.LogsWritable)
+            {
+                continue;
+            }
+
+            var message = $"Cannot purge historical evidence for datasource '{datasource.Name}': "
+                + $"logs directory is read-only ({datasource.LogPath}). "
+                + "Check the PUID/PGID permissions for the lancache logs directory.";
+            _logger.LogWarning(
+                "[HistoricalEvidencePurge] Permission check failed on datasource {Datasource}: {Error}",
+                datasource.Name,
+                message);
+            return message;
+        }
+
+        return null;
+    }
+
+    private sealed class HistoricalEvidencePurgeReport
+    {
+        public required int CandidateCount { get; init; }
+        public long LogLinesRemoved { get; set; }
+        public long LogEntriesRemoved { get; set; }
+        public long DownloadsDeleted { get; set; }
+
+        public Dictionary<string, object?> ToContext(string scope) => new()
+        {
+            ["scope"] = scope,
+            ["count"] = CandidateCount,
+            ["logLines"] = LogLinesRemoved,
+            ["logEntries"] = LogEntriesRemoved,
+            ["downloads"] = DownloadsDeleted,
+            ["files"] = 0,
+            ["bytesFreed"] = 0
+        };
+    }
+
+    private async Task<Guid> StartHistoricalEvidencePurgeOperationAsync(
+        HistoricalEvidencePurgeSelection selection,
+        IReadOnlyList<ResolvedDatasource> datasources)
+    {
+        var scope = selection.Scope;
+        var candidateCount = selection.CandidateIds.Count;
+        var cts = new CancellationTokenSource();
+        HistoricalEvidencePurgeReport? capturedReport = null;
+        Exception? capturedException = null;
+        Guid operationId = Guid.Empty;
+        operationId = _operationTracker.RegisterOperation(
+            OperationType.HistoricalEvidencePurge,
+            scope == "all"
+                ? "Purge historical evidence (all services)"
+                : $"Purge historical evidence ({scope})",
+            cts,
+            new HistoricalEvidencePurgeMetadata
+            {
+                ScanId = selection.ScanId,
+                Scope = scope,
+                CandidateCount = candidateCount
+            },
+            onTerminalEmit: info =>
+            {
+                var terminalCancelled = info.Cancelled && !info.Success;
+                var status = terminalCancelled
+                    ? OperationStatus.Cancelled
+                    : info.Success ? OperationStatus.Completed : OperationStatus.Failed;
+                var report = capturedReport;
+                return _notifications.NotifyAllAsync(
+                    SignalREvents.HistoricalEvidencePurgeComplete,
+                    new HistoricalEvidencePurgeComplete(
+                        OperationId: operationId,
+                        Success: info.Success,
+                        Status: status,
+                        Scope: scope,
+                        StageKey: terminalCancelled
+                            ? "signalr.historicalEvidencePurge.cancelled"
+                            : info.Success
+                                ? "signalr.historicalEvidencePurge.complete"
+                                : "signalr.historicalEvidencePurge.failed",
+                        Cancelled: terminalCancelled,
+                        Error: info.Success ? null : capturedException?.Message ?? info.Error,
+                        CandidateCount: report?.CandidateCount ?? candidateCount,
+                        LogLinesRemoved: report?.LogLinesRemoved ?? 0,
+                        LogEntriesRemoved: report?.LogEntriesRemoved ?? 0,
+                        DownloadsDeleted: report?.DownloadsDeleted ?? 0,
+                        Context: report?.ToContext(scope)));
+            });
+
+        try
+        {
+            await _notifications.NotifyAllAsync(
+                SignalREvents.HistoricalEvidencePurgeStarted,
+                new HistoricalEvidencePurgeStarted(
+                    operationId,
+                    scope,
+                    candidateCount,
+                    "signalr.historicalEvidencePurge.starting",
+                    DateTime.UtcNow,
+                    new Dictionary<string, object?>
+                    {
+                        ["scope"] = scope,
+                        ["count"] = candidateCount
+                    }));
+        }
+        catch (Exception ex)
+        {
+            capturedException = ex;
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            throw;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            HistoricalEvidencePurgeReport? report = null;
+            Exception? failure = null;
+            var cancelled = false;
+            var paused = false;
+            try
+            {
+                await LiveLogMonitorService.PauseAsync();
+                paused = true;
+                _logger.LogInformation(
+                    "Paused LiveLogMonitorService for historical evidence purge {OperationId}",
+                    operationId);
+                report = await RunHistoricalEvidencePurgeCoreAsync(
+                    operationId,
+                    selection,
+                    datasources,
+                    cts.Token);
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+                cancelled = true;
+                _logger.LogInformation(
+                    "Historical evidence purge {OperationId} was cancelled",
+                    operationId);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+                _logger.LogError(
+                    ex,
+                    "Historical evidence purge {OperationId} failed for scope {Scope}",
+                    operationId,
+                    scope);
+            }
+            finally
+            {
+                if (paused)
+                {
+                    try
+                    {
+                        await LiveLogMonitorService.ResumeAsync();
+                        _logger.LogInformation(
+                            "Resumed LiveLogMonitorService after historical evidence purge {OperationId}",
+                            operationId);
+                    }
+                    catch (Exception ex)
+                    {
+                        failure ??= ex;
+                        cancelled = false;
+                        _logger.LogError(
+                            ex,
+                            "Failed to resume LiveLogMonitorService after historical evidence purge {OperationId}",
+                            operationId);
+                    }
+                }
+            }
+
+            if (!cancelled && failure == null)
+            {
+                try
+                {
+                    cts.Token.ThrowIfCancellationRequested();
+                    // Resume and every refresh/reopen step have already succeeded. Pruning is the
+                    // final fallible mutation; once it commits, the operation publishes success.
+                    await _corruptionDetectionService.ApplyHistoricalEvidencePurgeSuccessAsync(
+                        selection.ScanId,
+                        selection.CandidateIds,
+                        CancellationToken.None);
+                }
+                catch (OperationCanceledException) when (cts.IsCancellationRequested)
+                {
+                    cancelled = true;
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                    _logger.LogError(
+                        ex,
+                        "Failed to prune saved historical evidence candidates for operation {OperationId}",
+                        operationId);
+                }
+            }
+
+            if (cancelled)
+            {
+                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+                return;
+            }
+
+            if (failure != null)
+            {
+                capturedException = failure;
+                _operationTracker.CompleteOperation(operationId, success: false, error: failure.Message);
+                return;
+            }
+
+            capturedReport = report!;
+            _operationTracker.CompleteOperation(operationId, success: true);
+        }, CancellationToken.None);
+
+        return operationId;
+    }
+
+    private async Task<HistoricalEvidencePurgeReport> RunHistoricalEvidencePurgeCoreAsync(
+        Guid operationId,
+        HistoricalEvidencePurgeSelection selection,
+        IReadOnlyList<ResolvedDatasource> datasources,
+        CancellationToken cancellationToken)
+    {
+        var scope = selection.Scope;
+        var report = new HistoricalEvidencePurgeReport
+        {
+            CandidateCount = selection.CandidateIds.Count
+        };
+        var datasourceCount = datasources.Count;
+
+        for (var datasourceIndex = 0; datasourceIndex < datasourceCount; datasourceIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var currentIndex = datasourceIndex;
+            var datasource = datasources[datasourceIndex];
+            var progressFilePath = Path.Combine(
+                _pathResolver.GetOperationsDirectory(),
+                $"historical_evidence_purge_{operationId}_{datasource.Name}.json");
+            var evidenceFilePath = Path.Combine(
+                _pathResolver.GetOperationsDirectory(),
+                $"historical_evidence_{operationId}_{datasource.Name}.json");
+
+            try
+            {
+                var evidence = new HistoricalEvidencePurgeEvidence
+                {
+                    ContractVersion = selection.ContractVersion,
+                    ScanId = selection.ScanId,
+                    Mode = selection.Mode,
+                    Threshold = selection.Threshold,
+                    Datasource = datasource.Name,
+                    Candidates = selection.CandidatesByDatasource[datasource.Name].ToList()
+                };
+                Directory.CreateDirectory(_pathResolver.GetOperationsDirectory());
+                await System.IO.File.WriteAllTextAsync(
+                    evidenceFilePath,
+                    JsonSerializer.Serialize(evidence),
+                    cancellationToken);
+
+                var result = await _rustProcessHelper.RunHistoricalEvidencePurgeAsync(
+                    datasource.LogPath,
+                    scope,
+                    evidenceFilePath,
+                    progressFilePath,
+                    cancellationToken,
+                    operationId,
+                    async _ =>
+                    {
+                        var progress = await _rustProcessHelper
+                            .ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
+                        if (progress == null || progress.Status == "completed")
+                        {
+                            return;
+                        }
+
+                        var percent = (currentIndex * 100.0 + progress.PercentComplete) / datasourceCount;
+                        var context = progress.Context ?? new Dictionary<string, object?>();
+                        context["scope"] = scope;
+                        context["datasource"] = datasource.Name;
+                        await _notifications.NotifyAllAsync(
+                            SignalREvents.HistoricalEvidencePurgeProgress,
+                            new HistoricalEvidencePurgeProgress(
+                                operationId,
+                                scope,
+                                progress.Status,
+                                progress.StageKey ?? "signalr.historicalEvidencePurge.processing",
+                                percent,
+                                ReadContextCount(context, "logLines"),
+                                ReadContextCount(context, "logEntries"),
+                                ReadContextCount(context, "downloads"),
+                                context));
+                        _operationTracker.UpdateProgress(
+                            operationId,
+                            percent,
+                            progress.StageKey ?? "signalr.historicalEvidencePurge.processing");
+                    });
+
+                if (!result.Success)
+                {
+                    throw new RustProcessException(
+                        "corruption_manager",
+                        result.ExitCode,
+                        result.Error,
+                        $"historical evidence datasource '{datasource.Name}'");
+                }
+
+                var finalProgress = await _rustProcessHelper
+                    .ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
+                if (finalProgress is { Status: "completed", Context: not null })
+                {
+                    report.LogLinesRemoved += ReadContextCount(finalProgress.Context, "logLines");
+                    report.LogEntriesRemoved += ReadContextCount(finalProgress.Context, "logEntries");
+                    report.DownloadsDeleted += ReadContextCount(finalProgress.Context, "downloads");
+                }
+            }
+            finally
+            {
+                await _rustProcessHelper.DeleteTempFileAsync(progressFilePath);
+                await _rustProcessHelper.DeleteTempFileAsync(evidenceFilePath);
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var reopenResult = await _nginxLogRotationService.ReopenNginxLogsAsync();
+        if (!reopenResult.Success)
+        {
+            throw new InvalidOperationException(
+                reopenResult.ErrorMessage ?? "nginx failed to reopen access logs after historical evidence purge");
+        }
+
+        await _cacheService.InvalidateServiceCountsAsync();
+        _gameCacheDetectionService?.InvalidateDetectionCache();
+        await _notifications.NotifyAllAsync(
+            SignalREvents.DownloadsRefresh,
+            new { reason = "historical-evidence-purge", scope });
+
+        await _notifications.NotifyAllAsync(
+            SignalREvents.HistoricalEvidencePurgeProgress,
+            new HistoricalEvidencePurgeProgress(
+                operationId,
+                scope,
+                "running",
+                "signalr.historicalEvidencePurge.finalizing",
+                100,
+                report.LogLinesRemoved,
+                report.LogEntriesRemoved,
+                report.DownloadsDeleted,
+                report.ToContext(scope)));
+        _operationTracker.UpdateProgress(
+            operationId,
+            100,
+            "signalr.historicalEvidencePurge.finalizing");
+
+        return report;
     }
 
     /// <summary>
@@ -1668,6 +2129,7 @@ public class CacheController : ControllerBase
         var gameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
         var serviceOps = _operationTracker.GetActiveOperations(OperationType.ServiceRemoval);
         var corruptionOps = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
+        var historicalEvidenceOps = _operationTracker.GetActiveOperations(OperationType.HistoricalEvidencePurge);
         // Silent removals (automatic Remove-mode auto-cleanup) emit no SignalR events and must
         // stay invisible to recovery too - reporting them here would make recoverEvictionRemovals
         // create a notification card for a deliberately silent operation.
@@ -1677,7 +2139,8 @@ public class CacheController : ControllerBase
 
         return Ok(new AllActiveRemovalsResponse
         {
-            IsProcessing = gameOps.Any() || serviceOps.Any() || corruptionOps.Any() || evictionOps.Any(),
+            IsProcessing = gameOps.Any() || serviceOps.Any() || corruptionOps.Any()
+                || evictionOps.Any() || historicalEvidenceOps.Any(),
             GameRemovals = gameOps.Select(op =>
             {
                 var metrics = op.Metadata as RemovalMetrics;
@@ -1754,6 +2217,20 @@ public class CacheController : ControllerBase
                     Scope = meta?.Scope,
                     Key = meta?.Key,
                     GameName = meta?.GameName,
+                    OperationId = op.Id,
+                    Status = op.Status,
+                    Message = op.Message,
+                    StartedAt = op.StartedAt
+                };
+            }),
+            HistoricalEvidencePurges = historicalEvidenceOps.Select(op =>
+            {
+                var metadata = op.Metadata as HistoricalEvidencePurgeMetadata;
+                return new HistoricalEvidencePurgeInfo
+                {
+                    ScanId = metadata?.ScanId ?? Guid.Empty,
+                    Scope = metadata?.Scope ?? "all",
+                    CandidateCount = metadata?.CandidateCount ?? 0,
                     OperationId = op.Id,
                     Status = op.Status,
                     Message = op.Message,

@@ -242,3 +242,54 @@ public sealed class CorruptionRemovalSelection
         .Distinct(StringComparer.Ordinal)
         .ToList();
 }
+
+/// <summary>
+/// Exact stored review evidence sent to Rust for one datasource. This is deliberately
+/// separate from cache-removal evidence even though both use the same versioned JSON shape.
+/// The HTTP client never supplies this envelope or any candidate observation identity.
+/// </summary>
+public sealed class HistoricalEvidencePurgeEvidence
+{
+    [JsonPropertyName("contract_version")]
+    public int ContractVersion { get; set; }
+
+    [JsonPropertyName("scan_id")]
+    public Guid ScanId { get; set; }
+
+    [JsonPropertyName("mode")]
+    public CorruptionDetectionMode Mode { get; set; }
+
+    [JsonPropertyName("threshold")]
+    public int Threshold { get; set; }
+
+    [JsonPropertyName("datasource")]
+    public string Datasource { get; set; } = string.Empty;
+
+    [JsonPropertyName("candidates")]
+    public List<CorruptionCandidate> Candidates { get; set; } = [];
+}
+
+/// <summary>
+/// Current-scan, server-resolved review-only scope for historical evidence purge.
+/// A null <see cref="Service"/> represents all review findings in the current scan.
+/// </summary>
+public sealed class HistoricalEvidencePurgeSelection
+{
+    public Guid ScanId { get; init; }
+    public CorruptionDetectionMode Mode { get; init; }
+    public int Threshold { get; init; }
+    public int ContractVersion { get; init; }
+    public string? Service { get; init; }
+    public IReadOnlyDictionary<string, IReadOnlyList<CorruptionCandidate>> CandidatesByDatasource { get; init; } =
+        new Dictionary<string, IReadOnlyList<CorruptionCandidate>>(StringComparer.OrdinalIgnoreCase);
+
+    [JsonIgnore]
+    public string Scope => Service ?? "all";
+
+    [JsonIgnore]
+    public IReadOnlyList<string> CandidateIds => CandidatesByDatasource.Values
+        .SelectMany(candidates => candidates)
+        .Select(candidate => candidate.CandidateId)
+        .Distinct(StringComparer.Ordinal)
+        .ToList();
+}

@@ -59,6 +59,7 @@ pub(crate) struct ExactLogObservation {
     pub client_ip: String,
     pub method: String,
     pub http_status: i32,
+    pub bytes_served: i64,
     pub cache_status: String,
     pub raw_range: Option<String>,
 }
@@ -95,6 +96,7 @@ impl ExactLogMatcher {
             client_ip: entry.client_ip.clone(),
             method: entry.method.clone(),
             http_status: entry.status_code,
+            bytes_served: entry.bytes_served,
             cache_status: entry.cache_status.clone(),
             raw_range,
         })
@@ -111,6 +113,12 @@ pub(crate) struct LogRewriteOutcome {
     pub lines_removed: u64,
     pub permission_errors: usize,
     pub other_errors: usize,
+    pub cancelled: bool,
+}
+
+enum FileRewriteOutcome {
+    Removed(u64),
+    Cancelled,
 }
 
 /// Owns the concrete output encoder so compressed streams can be finalized before the
@@ -211,7 +219,8 @@ fn scan_file_for_matches<F>(
     prefilter: &RemovalPrefilter,
     parser: &LogParser,
     should_remove_entry: &F,
-) -> Result<(u64, u64)>
+    is_cancelled: &(dyn Fn() -> bool + Send + Sync),
+) -> Result<Option<(u64, u64)>>
 where
     F: Fn(&LogEntry) -> bool,
 {
@@ -221,6 +230,9 @@ where
     let mut lines_matched: u64 = 0;
 
     loop {
+        if is_cancelled() {
+            return Ok(None);
+        }
         line.clear();
         let bytes_read = reader.read_until_newline(&mut line)?;
         if bytes_read == 0 {
@@ -233,7 +245,7 @@ where
         }
     }
 
-    Ok((lines_total, lines_matched))
+    Ok(Some((lines_total, lines_matched)))
 }
 
 fn rewrite_matching_log_entries_outcome<F>(
@@ -242,6 +254,7 @@ fn rewrite_matching_log_entries_outcome<F>(
     prefilter: &RemovalPrefilter,
     should_remove_entry: F,
     on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+    is_cancelled: &(dyn Fn() -> bool + Send + Sync),
 ) -> Result<LogRewriteOutcome>
 where
     F: Fn(&LogEntry) -> bool + Send + Sync,
@@ -258,6 +271,7 @@ where
     let total_lines_removed = AtomicU64::new(0);
     let permission_errors = AtomicUsize::new(0);
     let other_errors = AtomicUsize::new(0);
+    let cancellation_observed = std::sync::atomic::AtomicBool::new(false);
     let files_done = AtomicUsize::new(0);
 
     log_files
@@ -271,18 +285,25 @@ where
                 log_file.path.display()
             );
 
-            let file_result = (|| -> Result<u64> {
+            let file_result = (|| -> Result<FileRewriteOutcome> {
+                if is_cancelled() {
+                    return Ok(FileRewriteOutcome::Cancelled);
+                }
                 // Pass 1: read-only scan. Files with zero confirmed matches are left
                 // completely untouched (no temp file, no recompression).
-                let (lines_total, lines_matched) = scan_file_for_matches(
+                let Some((lines_total, lines_matched)) = scan_file_for_matches(
                     &log_file.path,
                     prefilter,
                     &parser,
                     &should_remove_entry,
-                )?;
+                    is_cancelled,
+                )?
+                else {
+                    return Ok(FileRewriteOutcome::Cancelled);
+                };
 
                 if lines_matched == 0 {
-                    return Ok(0);
+                    return Ok(FileRewriteOutcome::Removed(0));
                 }
 
                 if lines_matched == lines_total {
@@ -292,6 +313,9 @@ where
                         "  INFO: All {} lines from this file matched, deleting file entirely",
                         lines_total
                     );
+                    if is_cancelled() {
+                        return Ok(FileRewriteOutcome::Cancelled);
+                    }
                     match cache_utils::safe_path_under_root(log_dir, &log_file.path) {
                         Ok(_) => {
                             std::fs::remove_file(&log_file.path)?;
@@ -302,7 +326,7 @@ where
                             });
                         }
                     }
-                    return Ok(lines_matched);
+                    return Ok(FileRewriteOutcome::Removed(lines_matched));
                 }
 
                 // Pass 2: rewrite the file without the matching lines.
@@ -351,6 +375,9 @@ where
                     let mut line: Vec<u8> = Vec::with_capacity(1024);
 
                     loop {
+                        if is_cancelled() {
+                            return Ok(FileRewriteOutcome::Cancelled);
+                        }
                         line.clear();
                         let bytes_read = log_reader.read_until_newline(&mut line)?;
                         if bytes_read == 0 {
@@ -369,6 +396,10 @@ where
 
                 let temp_path = temp_file.into_temp_path();
 
+                if is_cancelled() {
+                    return Ok(FileRewriteOutcome::Cancelled);
+                }
+
                 if let Err(persist_err) = temp_path.persist(&log_file.path) {
                     eprintln!(
                         "    persist() failed ({}), using copy fallback...",
@@ -385,13 +416,20 @@ where
                     }
                 }
 
-                Ok(lines_removed)
+                Ok(FileRewriteOutcome::Removed(lines_removed))
             })();
 
             match file_result {
-                Ok(lines_removed) => {
+                Ok(FileRewriteOutcome::Removed(lines_removed)) => {
                     eprintln!("    Removed {} log lines from this file", lines_removed);
                     total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
+                }
+                Ok(FileRewriteOutcome::Cancelled) => {
+                    cancellation_observed.store(true, Ordering::Relaxed);
+                    eprintln!(
+                        "  Cancellation observed before replacing {}",
+                        log_file.path.display()
+                    );
                 }
                 Err(e) => {
                     let error_str = e.to_string();
@@ -431,6 +469,7 @@ where
         lines_removed: final_removed,
         permission_errors: final_permission_errors,
         other_errors: final_other_errors,
+        cancelled: cancellation_observed.load(Ordering::Relaxed),
     })
 }
 
@@ -450,12 +489,13 @@ where
         prefilter,
         should_remove_entry,
         on_file_processed,
+        &|| false,
     )?;
     Ok((outcome.lines_removed, outcome.permission_errors))
 }
 
-/// Strict corruption-evidence variant: reports both permission and non-permission file failures so
-/// the caller can retain database/persisted evidence after any partial log rewrite.
+/// Strict exact-evidence variant: reports both permission and non-permission file failures so the
+/// caller can retain database/persisted evidence after any partial log rewrite.
 pub(crate) fn rewrite_matching_log_entries_strict<F>(
     log_dir: &Path,
     description: &str,
@@ -472,6 +512,32 @@ where
         prefilter,
         should_remove_entry,
         on_file_processed,
+        &|| false,
+    )
+}
+
+/// Strict exact-evidence rewrite with cooperative cancellation. Cancellation never persists the
+/// temporary rewrite for the in-flight file, reports `cancelled`, and leaves database cleanup to
+/// the caller so file-before-database ordering remains enforceable.
+pub(crate) fn rewrite_matching_log_entries_strict_cancellable<F, C>(
+    log_dir: &Path,
+    description: &str,
+    prefilter: &RemovalPrefilter,
+    should_remove_entry: F,
+    on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+    is_cancelled: C,
+) -> Result<LogRewriteOutcome>
+where
+    F: Fn(&LogEntry) -> bool + Send + Sync,
+    C: Fn() -> bool + Send + Sync,
+{
+    rewrite_matching_log_entries_outcome(
+        log_dir,
+        description,
+        prefilter,
+        should_remove_entry,
+        on_file_processed,
+        &is_cancelled,
     )
 }
 
@@ -579,8 +645,20 @@ mod tests {
         cache_status: &str,
         range: &str,
     ) -> String {
+        exact_log_line_with_bytes(client, method, status, url, 1024, cache_status, range)
+    }
+
+    fn exact_log_line_with_bytes(
+        client: &str,
+        method: &str,
+        status: i32,
+        url: &str,
+        bytes_served: i64,
+        cache_status: &str,
+        range: &str,
+    ) -> String {
         format!(
-            "[steam] {client} / - - - [01/Jan/2024:00:00:00 +0000] \"{method} {url} HTTP/1.1\" {status} 1024 \"-\" \"Valve/Steam\" \"{cache_status}\" \"cdn.test\" \"{range}\""
+            "[steam] {client} / - - - [01/Jan/2024:00:00:00 +0000] \"{method} {url} HTTP/1.1\" {status} {bytes_served} \"-\" \"Valve/Steam\" \"{cache_status}\" \"cdn.test\" \"{range}\""
         )
     }
 
@@ -594,6 +672,7 @@ mod tests {
             client_ip: "192.168.1.50".to_string(),
             method: "GET".to_string(),
             http_status: 206,
+            bytes_served: 1024,
             cache_status: "MISS".to_string(),
             raw_range: Some("bytes=1048576-2097151".to_string()),
         }
@@ -649,9 +728,18 @@ mod tests {
             "MISS",
             "bytes=1048576-2097151",
         );
+        let keep_bytes = exact_log_line_with_bytes(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            2048,
+            "MISS",
+            "bytes=1048576-2097151",
+        );
         fs::write(
             &log_path,
-            format!("{target}\n{keep_range}\n{keep_status}\n{keep_client}\n"),
+            format!("{target}\n{keep_range}\n{keep_status}\n{keep_client}\n{keep_bytes}\n"),
         )
         .unwrap();
 
@@ -675,6 +763,7 @@ mod tests {
         assert!(remaining.contains(&keep_range));
         assert!(remaining.contains(&keep_status));
         assert!(remaining.contains(&keep_client));
+        assert!(remaining.contains(&keep_bytes));
     }
 
     #[test]
@@ -696,7 +785,16 @@ mod tests {
             "MISS",
             "bytes=2097152-3145727",
         );
-        let contents = format!("{target}\n{keep}\n");
+        let keep_bytes = exact_log_line_with_bytes(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            2048,
+            "MISS",
+            "bytes=1048576-2097151",
+        );
+        let contents = format!("{target}\n{keep}\n{keep_bytes}\n");
         let gzip_path = dir.path().join("access.log.1.gz");
         let zstd_path = dir.path().join("access.log.2.zst");
 
@@ -725,8 +823,134 @@ mod tests {
         .unwrap();
 
         assert_eq!(outcome.lines_removed, 2);
-        assert_eq!(read_log_file(&gzip_path), format!("{keep}\n"));
-        assert_eq!(read_log_file(&zstd_path), format!("{keep}\n"));
+        assert_eq!(read_log_file(&gzip_path), format!("{keep}\n{keep_bytes}\n"));
+        assert_eq!(read_log_file(&zstd_path), format!("{keep}\n{keep_bytes}\n"));
+    }
+
+    #[test]
+    fn exact_rewrite_is_idempotent_and_preserves_neighboring_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("access.log");
+        let target = exact_log_line(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            "MISS",
+            "bytes=1048576-2097151",
+        );
+        let neighbor = exact_log_line_with_bytes(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            1025,
+            "MISS",
+            "bytes=1048576-2097151",
+        );
+        fs::write(&log_path, format!("{target}\n{neighbor}\n")).unwrap();
+        let matcher = ExactLogMatcher::new([target_observation()]);
+        let prefilter = matcher.prefilter().unwrap();
+
+        let first = rewrite_matching_log_entries_strict(
+            dir.path(),
+            "idempotent exact evidence",
+            &prefilter,
+            |entry| matcher.matches(entry),
+            None,
+        )
+        .unwrap();
+        let second = rewrite_matching_log_entries_strict(
+            dir.path(),
+            "idempotent exact evidence retry",
+            &prefilter,
+            |entry| matcher.matches(entry),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(first.lines_removed, 1);
+        assert_eq!(second.lines_removed, 0);
+        assert_eq!(
+            fs::read_to_string(log_path).unwrap(),
+            format!("{neighbor}\n")
+        );
+    }
+
+    #[test]
+    fn cancellable_strict_rewrite_does_not_replace_in_flight_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("access.log");
+        let target = exact_log_line(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            "MISS",
+            "bytes=1048576-2097151",
+        );
+        let contents = format!("{target}\n");
+        fs::write(&log_path, &contents).unwrap();
+        let matcher = ExactLogMatcher::new([target_observation()]);
+        let prefilter = matcher.prefilter().unwrap();
+
+        let outcome = rewrite_matching_log_entries_strict_cancellable(
+            dir.path(),
+            "cancelled exact evidence",
+            &prefilter,
+            |entry| matcher.matches(entry),
+            None,
+            || true,
+        )
+        .unwrap();
+
+        assert!(outcome.cancelled);
+        assert_eq!(outcome.lines_removed, 0);
+        assert_eq!(fs::read_to_string(log_path).unwrap(), contents);
+    }
+
+    #[test]
+    fn strict_rewrite_reports_compressed_file_failure_after_other_exact_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("access.log");
+        let target = exact_log_line(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            "MISS",
+            "bytes=1048576-2097151",
+        );
+        let neighbor = exact_log_line_with_bytes(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            2048,
+            "MISS",
+            "bytes=1048576-2097151",
+        );
+        fs::write(&log_path, format!("{target}\n{neighbor}\n")).unwrap();
+        fs::write(dir.path().join("access.log.1.zst"), b"not a zstd frame").unwrap();
+        let matcher = ExactLogMatcher::new([target_observation()]);
+        let prefilter = matcher.prefilter().unwrap();
+
+        let outcome = rewrite_matching_log_entries_strict(
+            dir.path(),
+            "partial exact evidence",
+            &prefilter,
+            |entry| matcher.matches(entry),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(outcome.lines_removed, 1);
+        assert_eq!(outcome.permission_errors, 0);
+        assert_eq!(outcome.other_errors, 1);
+        assert_eq!(
+            fs::read_to_string(log_path).unwrap(),
+            format!("{neighbor}\n")
+        );
     }
 
     #[test]

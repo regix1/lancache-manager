@@ -28,3 +28,15 @@ public class EvictionRemovalMetadata
     /// </summary>
     public string? GameName { get; set; }
 }
+
+/// <summary>
+/// Recovery metadata for an exact historical-evidence purge. The logical scope may be one
+/// service, but conflict registration is always bulk because every run can replace the same
+/// physical nginx access-log files.
+/// </summary>
+public sealed class HistoricalEvidencePurgeMetadata
+{
+    public Guid ScanId { get; set; }
+    public string Scope { get; set; } = "all";
+    public int CandidateCount { get; set; }
+}

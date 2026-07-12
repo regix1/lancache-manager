@@ -99,6 +99,29 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 });
         }
 
+        // Historical evidence purge atomically replaces shared access.log files even for a
+        // logical single-service scope. It therefore registers as Bulk and physically conflicts
+        // with every access-log writer, another history purge, and eviction scan/removal work.
+        // This rule is intentionally symmetric so either operation is queued regardless of which
+        // one reached the tracker first.
+        if ((newType == OperationType.HistoricalEvidencePurge
+                && ConflictsWithHistoricalEvidencePurge(activeOp.Type))
+            || (activeOp.Type == OperationType.HistoricalEvidencePurge
+                && ConflictsWithHistoricalEvidencePurge(newType)))
+        {
+            var duplicate = newType == OperationType.HistoricalEvidencePurge
+                && activeOp.Type == OperationType.HistoricalEvidencePurge;
+            return BuildResponse(activeOp, activeScope,
+                stageKey: duplicate ? "errors.conflict.duplicate" : "errors.conflict.heavyOperationActive",
+                englishError: duplicate
+                    ? "A historical evidence purge is already in progress."
+                    : $"Cannot start {newType}: an active {activeOp.Type} operation uses shared access-log evidence.",
+                context: new Dictionary<string, object?>
+                {
+                    ["activeType"] = activeOp.Type.ToString()
+                });
+        }
+
         // ---- 1a. Heavy data-pipeline ops run ONE at a time ----
         // The full-sweep data operations (log processing, log removal, game detection, the bulk
         // corruption scan, the cache file scan, and the eviction scan) each spawn a Rust worker
@@ -467,6 +490,11 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 return new ConflictScope(e.Scope!, e.Key!);
             }
 
+            // Logical service scope is retained in this metadata for recovery display only.
+            // Physically every history purge replaces shared access-log files.
+            case HistoricalEvidencePurgeMetadata:
+                return ConflictScope.Bulk();
+
             // Per-service "Corruption Details (service)" fetches carry ServiceName; the bulk
             // scan's metadata leaves it null, so it correctly falls through to Bulk() below.
             case CorruptionDetectionMetrics c when !string.IsNullOrEmpty(c.ServiceName):
@@ -531,7 +559,11 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         type is OperationType.GameRemoval
             or OperationType.ServiceRemoval
             or OperationType.CorruptionRemoval
-            or OperationType.EvictionRemoval;
+            or OperationType.EvictionRemoval
+            or OperationType.HistoricalEvidencePurge;
+
+    private static bool ConflictsWithHistoricalEvidencePurge(OperationType type) =>
+        RewritesAccessLog(type) || type == OperationType.EvictionScan;
 
     /// <summary>
     /// Full-sweep data operations that must run one at a time (section 1a). Each spawns a

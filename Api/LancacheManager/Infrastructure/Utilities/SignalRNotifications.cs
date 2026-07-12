@@ -162,6 +162,45 @@ public static class SignalRNotifications
         bool IOperationComplete.Cancelled => false;
     }
 
+    /// <summary>Notification when an exact historical-evidence purge starts.</summary>
+    public record HistoricalEvidencePurgeStarted(
+        Guid OperationId,
+        string Scope,
+        int CandidateCount,
+        string StageKey,
+        DateTime Timestamp,
+        Dictionary<string, object?>? Context = null
+    );
+
+    /// <summary>Progress for an exact historical-evidence purge. Cache-file counters are absent by design.</summary>
+    public record HistoricalEvidencePurgeProgress(
+        Guid OperationId,
+        string Scope,
+        string Status,
+        string StageKey,
+        double PercentComplete = 0,
+        long LogLinesRemoved = 0,
+        long LogEntriesRemoved = 0,
+        long DownloadsDeleted = 0,
+        Dictionary<string, object?>? Context = null
+    );
+
+    /// <summary>Single terminal payload for successful, failed, or cancelled evidence purges.</summary>
+    public record HistoricalEvidencePurgeComplete(
+        Guid? OperationId,
+        bool Success,
+        Models.OperationStatus Status,
+        string Scope,
+        string StageKey,
+        bool Cancelled = false,
+        string? Error = null,
+        int CandidateCount = 0,
+        long LogLinesRemoved = 0,
+        long LogEntriesRemoved = 0,
+        long DownloadsDeleted = 0,
+        Dictionary<string, object?>? Context = null
+    ) : ICompletionNotification, IOperationComplete;
+
     #endregion
 
     #region Log Processing Notifications

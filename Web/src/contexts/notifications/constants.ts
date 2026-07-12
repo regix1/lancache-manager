@@ -14,6 +14,7 @@ import type { NotificationType } from './types';
 export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, NotificationType> = {
   cacheClearing: 'cache_clearing',
   corruptionRemoval: 'corruption_removal',
+  historicalEvidencePurge: 'historical_evidence_purge',
   corruptionDetection: 'corruption_detection',
   gameDetection: 'game_detection',
   logProcessing: 'log_processing',
@@ -75,6 +76,8 @@ export const NOTIFICATION_STORAGE_KEYS = {
   SERVICE_REMOVAL: 'notification_service_removal',
   /** Key for corruption removal operation state */
   CORRUPTION_REMOVAL: 'notification_corruption_removal',
+  /** Key for historical evidence purge operation state */
+  HISTORICAL_EVIDENCE_PURGE: 'notification_historical_evidence_purge',
   /** Key for corruption detection operation state */
   CORRUPTION_DETECTION: 'notification_corruption_detection',
   /** Key for game detection operation state */
@@ -130,6 +133,8 @@ export const NOTIFICATION_IDS = {
   SERVICE_REMOVAL: 'service_removal',
   /** ID for corruption removal operations */
   CORRUPTION_REMOVAL: 'corruption_removal',
+  /** ID for historical evidence purge operations */
+  HISTORICAL_EVIDENCE_PURGE: 'historical_evidence_purge',
   /** ID for game detection operations */
   GAME_DETECTION: 'game_detection',
   /** ID for corruption detection operations */

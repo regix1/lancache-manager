@@ -167,7 +167,8 @@ function createSimpleRecoveryFunction<TData>(
 // ============================================================================
 // Cache Removals Recovery (handles multiple types via ONE endpoint)
 // ============================================================================
-// game_removal, service_removal, corruption_removal, and eviction_removal are
+// game_removal, service_removal, corruption_removal, eviction_removal, and
+// historical_evidence_purge are
 // all recovered by a SINGLE GET to /api/cache/removals/active. Their registry
 // entries carry `recovery: { kind: 'cacheRemovalsBatch' }` as a marker; the
 // runner issues this fetch exactly once for the whole group.
@@ -184,6 +185,10 @@ interface CacheRemovalOperation {
   startedAt?: string;
   filesDeleted?: number;
   bytesFreed?: number;
+  scanId?: string;
+  scope?: string;
+  candidateCount?: number;
+  status?: string;
 }
 
 // REST shape returned by /api/cache/removals/active for eviction_removal entries.
@@ -204,6 +209,7 @@ interface CacheRemovalsData {
   serviceRemovals?: CacheRemovalOperation[];
   corruptionRemovals?: CacheRemovalOperation[];
   evictionRemovals?: EvictionRemovalOperation[];
+  historicalEvidencePurges?: CacheRemovalOperation[];
 }
 
 function createCacheRemovalsRecoveryFunction(
@@ -326,6 +332,28 @@ function createCacheRemovalsRecoveryFunction(
       // REST payload uses camelCase (global JsonNamingPolicy.CamelCase on AllActiveRemovalsResponse).
       // SignalR events use camelCase too - but the field semantics differ slightly (see registry comment).
       recoverEvictionRemovals(data.evictionRemovals, setNotifications, scheduleAutoDismiss);
+
+      recoverOperations(
+        data.historicalEvidencePurges,
+        NOTIFICATION_STORAGE_KEYS.HISTORICAL_EVIDENCE_PURGE,
+        'historical_evidence_purge',
+        () => NOTIFICATION_IDS.HISTORICAL_EVIDENCE_PURGE,
+        (op) => ({
+          message: i18n.t('signalr.historicalEvidencePurge.starting', {
+            count: op.candidateCount ?? 0
+          }),
+          details: {
+            operationId: op.operationId,
+            scope: op.scope ?? 'all',
+            service: op.scope && op.scope !== 'all' ? op.scope : undefined,
+            candidateCount: op.candidateCount ?? 0
+          }
+        }),
+        () => NOTIFICATION_IDS.HISTORICAL_EVIDENCE_PURGE,
+        i18n.t('signalr.historicalEvidencePurge.recovered'),
+        setNotifications,
+        scheduleAutoDismiss
+      );
     } catch {
       // Silently fail
     }

@@ -736,13 +736,93 @@ public class CorruptionDetectionService
     }
 
     /// <summary>
+    /// Resolves review-only candidates from the current persisted scan. The caller supplies only
+    /// the scan token and optional service scope; all candidate and observation identity remains
+    /// server-owned. A null service selects every review-only candidate in the current scan.
+    /// </summary>
+    public async Task<HistoricalEvidencePurgeSelection> GetHistoricalEvidencePurgeSelectionAsync(
+        Guid scanId,
+        string? service = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var scan = await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
+        var rowsQuery = dbContext.CachedCorruptionDetections
+            .AsNoTracking()
+            .Where(row => row.ScanId == scanId);
+        if (service != null)
+        {
+            rowsQuery = rowsQuery.Where(row => row.ServiceName == service);
+        }
+
+        var rows = await rowsQuery.ToListAsync(cancellationToken);
+        var allCandidates = rows.SelectMany(DeserializeCandidates).ToList();
+        if (service != null && allCandidates.Count == 0)
+        {
+            throw new NotFoundException("Corruption candidates");
+        }
+
+        var selected = allCandidates
+            .Where(candidate => !candidate.RemovalAllowed)
+            .Where(candidate => service == null
+                || string.Equals(candidate.Service, service, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (selected.Count == 0)
+        {
+            throw new ForbiddenException("This stored corruption scope has no review-only historical evidence");
+        }
+
+        return new HistoricalEvidencePurgeSelection
+        {
+            ScanId = scan.ScanId,
+            Mode = scan.DetectionMode,
+            Threshold = scan.Threshold,
+            ContractVersion = scan.ContractVersion,
+            Service = service,
+            CandidatesByDatasource = selected
+                .GroupBy(candidate => candidate.Datasource, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlyList<CorruptionCandidate>)group
+                        .OrderBy(candidate => candidate.CandidateId, StringComparer.Ordinal)
+                        .ToList(),
+                    StringComparer.OrdinalIgnoreCase)
+        };
+    }
+
+    /// <summary>
     /// Prunes only candidates that Rust successfully processed. Failed/cancelled
     /// operations never call this method, preserving authoritative evidence.
     /// </summary>
     public async Task ApplyRemovalSuccessAsync(
         Guid scanId,
         IReadOnlyCollection<string> candidateIds,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        await ApplyCandidateCleanupSuccessAsync(
+            scanId,
+            candidateIds,
+            "The stored corruption scan changed before removal completed",
+            cancellationToken);
+
+    /// <summary>
+    /// Prunes only the exact review candidate IDs whose source observations were successfully
+    /// purged. Failure and cancellation paths never invoke this success boundary.
+    /// </summary>
+    public async Task ApplyHistoricalEvidencePurgeSuccessAsync(
+        Guid scanId,
+        IReadOnlyCollection<string> candidateIds,
+        CancellationToken cancellationToken = default) =>
+        await ApplyCandidateCleanupSuccessAsync(
+            scanId,
+            candidateIds,
+            "The stored corruption scan changed before historical evidence purge completed",
+            cancellationToken);
+
+    private async Task ApplyCandidateCleanupSuccessAsync(
+        Guid scanId,
+        IReadOnlyCollection<string> candidateIds,
+        string changedMessage,
+        CancellationToken cancellationToken)
     {
         if (candidateIds.Count == 0)
         {
@@ -794,7 +874,7 @@ public class CorruptionDetectionService
 
                 if (!matchedIds.SetEquals(removedIds))
                 {
-                    throw new ConflictException("The stored corruption scan changed before removal completed");
+                    throw new ConflictException(changedMessage);
                 }
 
                 await dbContext.SaveChangesAsync(cancellationToken);

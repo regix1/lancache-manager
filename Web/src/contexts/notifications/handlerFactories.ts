@@ -317,9 +317,9 @@ export function createCompletionHandler<
       return {
         id: fastId,
         type: config.type,
-        status: 'failed' as const,
+        status: isCancelled ? ('cancelled' as const) : ('failed' as const),
         message: failureMessage,
-        error: failureMessage,
+        ...(!isCancelled && { error: failureMessage }),
         detailMessage: config.getDetailMessage?.(event),
         startedAt: new Date(),
         progress: 100,
@@ -360,9 +360,10 @@ export function createCompletionHandler<
             return {
               ...n,
               progress: 100,
-              status: 'failed' as const,
+              status: isCancelled ? ('cancelled' as const) : ('failed' as const),
               message: failureMessage,
-              error: failureMessage,
+              ...(!isCancelled && { error: failureMessage }),
+              ...(isCancelled && { error: undefined }),
               ...(isCancelled && {
                 details: {
                   ...n.details,
@@ -407,9 +408,10 @@ export function createCompletionHandler<
             return {
               ...n,
               progress: 100,
-              status: 'failed' as const,
+              status: isCancelled ? ('cancelled' as const) : ('failed' as const),
               message: failureMessage,
-              error: failureMessage,
+              ...(!isCancelled && { error: failureMessage }),
+              ...(isCancelled && { error: undefined }),
               detailMessage: config.getDetailMessage?.(event) ?? n.detailMessage,
               ...(isCancelled && {
                 details: {

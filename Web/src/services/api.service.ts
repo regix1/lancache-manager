@@ -27,6 +27,7 @@ import type {
   CacheSnapshotResponse,
   CachedCorruptionDetectionResponse,
   DismissCorruptionReviewResponse,
+  HistoricalEvidencePurgeStartResponse,
   CorruptionDetectionMode,
   CorruptedChunkDetail,
   GameCacheInfo,
@@ -1368,6 +1369,26 @@ class ApiService {
       return await this.handleResponse<DismissCorruptionReviewResponse>(res);
     } catch (error: unknown) {
       console.error('dismissAllCorruptionReviewFindings error:', error);
+      throw error;
+    }
+  }
+
+  static async purgeHistoricalEvidence(
+    scanId: string,
+    service?: string
+  ): Promise<HistoricalEvidencePurgeStartResponse> {
+    try {
+      const params = new URLSearchParams({ scanId });
+      const scope = service
+        ? `/cache/evicted/services/${encodeURIComponent(service)}/historical-evidence`
+        : '/cache/evicted/historical-evidence';
+      const res = await fetch(
+        `${API_BASE}${scope}?${params.toString()}`,
+        this.getFetchOptions({ method: 'DELETE' })
+      );
+      return await this.handleResponse<HistoricalEvidencePurgeStartResponse>(res);
+    } catch (error: unknown) {
+      console.error('purgeHistoricalEvidence error:', error);
       throw error;
     }
   }

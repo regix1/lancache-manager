@@ -690,6 +690,7 @@ public partial class RustProcessHelper
                 return new RustExecutionResult
                 {
                     Success = true,
+                    ExitCode = 0,
                     Data = data,
                     Error = null
                 };
@@ -698,6 +699,7 @@ public partial class RustProcessHelper
             return new RustExecutionResult
             {
                 Success = false,
+                ExitCode = result.ExitCode,
                 Data = null,
                 Error = result.Error
             };
@@ -708,6 +710,7 @@ public partial class RustProcessHelper
             return new RustExecutionResult
             {
                 Success = false,
+                ExitCode = -1,
                 Data = null,
                 Error = ex.Message
             };
@@ -835,7 +838,7 @@ public partial class RustProcessHelper
     /// <summary>
     /// Runs the corruption_manager Rust executable for detecting or removing corrupted files
     /// </summary>
-    public async Task<RustExecutionResult> RunCorruptionManagerAsync(
+    public Task<RustExecutionResult> RunCorruptionManagerAsync(
         string command,
         string logsPath,
         string cachePath,
@@ -844,7 +847,51 @@ public partial class RustProcessHelper
         string? progressFile = null,
         CancellationToken cancellationToken = default,
         Guid? operationId = null,
-        Func<RustProgressEvent, Task>? onProgressEvent = null)
+        Func<RustProgressEvent, Task>? onProgressEvent = null) =>
+        RunCorruptionManagerCommandAsync(
+            command,
+            logsPath,
+            cachePath,
+            service,
+            evidenceFile,
+            progressFile,
+            cancellationToken,
+            operationId,
+            onProgressEvent);
+
+    /// <summary>
+    /// Runs the closed <c>purge-history</c> command. Its signature deliberately has no cache path,
+    /// making cache-file removal unreachable from the historical-evidence orchestration.
+    /// </summary>
+    public Task<RustExecutionResult> RunHistoricalEvidencePurgeAsync(
+        string logsPath,
+        string scope,
+        string evidenceFile,
+        string progressFile,
+        CancellationToken cancellationToken = default,
+        Guid? operationId = null,
+        Func<RustProgressEvent, Task>? onProgressEvent = null) =>
+        RunCorruptionManagerCommandAsync(
+            "purge-history",
+            logsPath,
+            null,
+            scope,
+            evidenceFile,
+            progressFile,
+            cancellationToken,
+            operationId,
+            onProgressEvent);
+
+    private async Task<RustExecutionResult> RunCorruptionManagerCommandAsync(
+        string command,
+        string logsPath,
+        string? cachePath,
+        string? service,
+        string? evidenceFile,
+        string? progressFile,
+        CancellationToken cancellationToken,
+        Guid? operationId,
+        Func<RustProgressEvent, Task>? onProgressEvent)
     {
         // D-rust-4: the Rust `remove` command's only data sink is its progress_json file, which the
         // CALLER monitors on a 500ms poll loop (CacheController). Previously that same caller path was
@@ -872,9 +919,14 @@ public partial class RustProcessHelper
             var arguments = command switch
             {
                 "remove" when !string.IsNullOrEmpty(service)
+                    && !string.IsNullOrEmpty(cachePath)
                     && !string.IsNullOrEmpty(evidenceFile)
                     && !string.IsNullOrEmpty(progressArg) =>
                     $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressArg}\" --evidence-file \"{evidenceFile}\" --progress",
+                "purge-history" when !string.IsNullOrEmpty(service)
+                    && !string.IsNullOrEmpty(evidenceFile)
+                    && !string.IsNullOrEmpty(progressArg) =>
+                    $"purge-history \"{logsPath}\" \"{service}\" \"{progressArg}\" --evidence-file \"{evidenceFile}\" --progress",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
             };
 
@@ -920,6 +972,7 @@ public partial class RustProcessHelper
                 return new RustExecutionResult
                 {
                     Success = true,
+                    ExitCode = result.ExitCode,
                     Data = data,
                     Error = null
                 };
@@ -928,9 +981,14 @@ public partial class RustProcessHelper
             return new RustExecutionResult
             {
                 Success = false,
+                ExitCode = result.ExitCode,
                 Data = null,
                 Error = result.Error
             };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -938,6 +996,7 @@ public partial class RustProcessHelper
             return new RustExecutionResult
             {
                 Success = false,
+                ExitCode = -1,
                 Data = null,
                 Error = ex.Message
             };
@@ -1131,6 +1190,7 @@ public class RustProgressEvent
 public class RustExecutionResult
 {
     public bool Success { get; set; }
+    public int ExitCode { get; set; }
     public object? Data { get; set; }
     public string? Error { get; set; }
 }

@@ -164,6 +164,7 @@
         "serviceRemoval": "服务缓存移除",
         "gameRemoval": "游戏缓存移除",
         "corruptionRemoval": "已验证切片移除",
+        "historicalEvidencePurge": "历史证据清除",
         "corruptionDetection": "缓存完整性扫描",
         "databaseReset": "数据库重置",
         "depotMapping": "仓库映射",
@@ -181,6 +182,7 @@
       "cacheFilesDeleted_other": "已删除 {{formattedCount}} 个缓存文件",
       "cancelCacheClearing": "取消缓存清理",
       "cancelCorruptionRemoval": "取消已验证切片移除",
+      "cancelHistoricalEvidencePurge": "取消历史证据清除",
       "cancelCorruptionDetection": "取消缓存完整性扫描",
       "cancelDepotMapping": "取消仓库映射",
       "cancelGameDetection": "取消游戏检测",
@@ -1872,8 +1874,35 @@
         "evictionScanStarted": "淘汰扫描已启动",
         "evictionScanError": "启动淘汰扫描失败",
         "evictionScanWaiting": "等待淘汰扫描完成...",
-        "pruneOrphanedDownloads": "扫描时清理孤立的下载记录",
-        "pruneOrphanedDownloadsDescription": "删除已不再有任何日志条目支持的下载记录。扫描无法将这些记录与缓存核对，因此它们会永远留在统计数据中。注意：清除某服务的日志也会使其真实的下载历史变为孤立记录，如需保留已清除服务的统计数据请勿启用。",
+        "pruneOrphanedDownloads": "清理没有日志历史的下载记录",
+        "pruneOrphanedDownloadsDescription": "淘汰扫描期间，仅删除已无任何日志条目的下载记录。此选项无法删除仍有依据的历史观察，也无法清除“缓存完整性”审核发现。请先使用“清除历史证据”删除那些精确观察；之后的扫描才能清理因此不再有历史的下载记录。如需保留日志已清除服务的统计信息，请关闭此选项。",
+        "historicalEvidence": {
+          "title": "历史证据清理",
+          "description": "针对“缓存完整性”发现的精确缓存缺失观察的高级清理",
+          "note": "这些计数来自当前“缓存完整性与缺失数据”快照。清除前请先在那里审核证据。“忽略”只会清理已保存的审核结果；“清除”会永久删除其精确历史观察。",
+          "loading": "正在加载当前完整性快照…",
+          "purgeAllAction": "清除全部历史证据…",
+          "purgeServiceAction": "清除证据…",
+          "purgeServiceAria": "清除 {{service}} 的历史证据",
+          "serviceEvidenceCount": "{{count}} 项有依据的审核观察",
+          "emptyTitle": "没有可清除的历史证据",
+          "emptyBody": "请运行“缓存完整性与缺失数据”扫描，或在扫描后在此查看其当前已保存发现。",
+          "modal": {
+            "allTitle": "清除全部历史证据？",
+            "serviceTitle": "清除 {{service}} 的历史证据？",
+            "scope": "从当前已保存扫描中清除 {{scope}} 的 {{count}} 项匹配观察。",
+            "allServices": "所有服务",
+            "permanent": "此操作仅永久删除精确匹配的 nginx 访问日志和数据库观察。",
+            "noCacheFiles": "此操作绝不会删除缓存文件。",
+            "statistics": "历史统计和下载关联可能发生变化；删除后没有任何日志历史的下载记录也可能被移除。",
+            "noRediscovery": "已清除的观察无法通过重新处理日志恢复，也不会在以后的缓存完整性扫描中再次出现。",
+            "confirm": "清除历史证据"
+          },
+          "errors": {
+            "start": "无法启动历史证据清除。已保存的发现仍可供重试。",
+            "staleScan": "缓存完整性快照已更改。当前发现已重新加载；请审核后重试。"
+          }
+        },
         "resetEvictions": "重置淘汰",
         "resetEvictionsSuccess": "已将 {{count}} 个已淘汰下载重置为正常",
         "resetEvictionsError": "重置淘汰失败",
@@ -2442,6 +2471,7 @@
       "physicalSlice": "物理切片：",
       "expectedMissingPath": "预期缺失路径：",
       "supportingSibling": "扫描时存在的同级切片：",
+      "cacheMappingDetails": "技术缓存映射",
       "noRange": "无范围",
       "noExactPath": "未验证精确缓存路径；此候选项仅供审核。",
       "reason": "原因：",
@@ -2459,7 +2489,7 @@
       "mixedReviewDescription": "其中 {{count}} 项发现没有已验证且当前存在的路径可供移除。它们通常来自部分淘汰、正常清理或历史缓存缺失证据，并非已确认的损坏。",
       "removableSectionTitle": "可移除",
       "reviewSectionTitle": "审核发现",
-      "reviewSectionNote": "只有当关联的缓存文件全部不再存在时，淘汰扫描才会把完整下载标记为已淘汰。这些切片级发现可能在同级切片仍然存在时出现，通常来自部分淘汰、正常清理或历史证据。没有已验证的文件可供移除；客户端会重新下载缺失内容。缺失缓存审核发现仅需一次精确的先前缓存 HIT 和一个仍存在的同级切片，不受“突发检测灵敏度”设置控制。忽略操作只会清理这份已保存扫描，不会更改缓存文件、日志或下载记录；未来扫描仍可能再次发现这些证据。",
+      "reviewSectionNote": "这些是仅供审核的发现，并非已确认的损坏。同级切片仍然存在时，某个切片也可能显示为缺失，这通常来自部分淘汰或正常清理；客户端只会重新下载它，因此这里没有要移除的文件。“忽略”只会清理这份已保存扫描，不会触碰缓存文件、日志或下载记录，之后的扫描仍可能再次显示这些证据。",
       "removableCount": "{{count}} 个可移除",
       "reviewCount": "{{count}} 个待审核",
       "dismiss": "忽略",
@@ -2467,6 +2497,10 @@
       "dismissing": "正在忽略…",
       "dismissServiceAria": "忽略 {{service}} 的审核发现",
       "dismissAllAria": "忽略这份已保存扫描中的所有审核发现",
+      "purgeHistoricalEvidence": "清除历史证据…",
+      "purgeEvidence": "清除证据…",
+      "purgeAllAria": "清除这份已保存扫描中的全部历史证据",
+      "purgeServiceAria": "清除 {{service}} 的历史证据",
       "sliceKinds": {
         "no_range": "无范围缓存键",
         "noslice": "非切片缓存键",
@@ -3493,6 +3527,7 @@
             "empty": "计划预填充配置不可用。",
             "label": "计划预填充",
             "authWarning": "{{services}} 需要登录后才能为这些服务运行计划预填充。",
+            "authWarning_other": "{{services}} 需要登录后才能为这些服务运行计划预填充。",
             "zeroEnabledWarning": "未启用任何服务。在至少启用一个服务之前，计划预填充不会下载任何内容。",
             "bulkToggle": {
               "label": "所有服务",
@@ -6406,6 +6441,22 @@
       },
       "failed": {
         "generic": "操作失败。请查看服务器日志了解详情。"
+      }
+    },
+    "historicalEvidencePurge": {
+      "starting": "正在为 {{count}} 项观察启动历史证据清除…",
+      "purging": "正在清除精确匹配的历史观察…",
+      "processing": "正在清除精确匹配的历史观察…",
+      "filteringLogs": "正在从 nginx 访问日志中移除精确匹配的观察…",
+      "filteringFile": "正在筛选访问日志 {{fileIndex}} / {{totalFiles}}…",
+      "deletingDb": "正在移除 {{count}} 项精确匹配的数据库观察…",
+      "finalizing": "正在刷新历史统计和已保存的完整性发现…",
+      "complete": "历史证据清除完成：已清除 {{count}} 项发现，移除 {{logLines}} 行日志、{{logEntries}} 项数据库观察和 {{downloads}} 条空下载记录。",
+      "cancelled": "历史证据清除已取消；已保存的发现仍可供重试。",
+      "failed": "历史证据清除失败；已保存的发现仍可供重试。",
+      "recovered": "历史证据清除已不再运行；当前发现已重新加载。",
+      "error": {
+        "fatal": "历史证据清除失败：{{errorDetail}}"
       }
     },
     "dbReset": {

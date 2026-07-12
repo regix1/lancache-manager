@@ -95,6 +95,22 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Intro/explanatory note above a review list. Same recessed material as
+   .mgmt-list, but comfortable reading padding and body-size text (not the tiny
+   scanmeta) so a long explanation gets breathing room instead of being crushed
+   between the section header and the first row. */
+.mgmt-review-note {
+  margin: 0 0 0.75rem;
+  padding: 0.875rem 1rem;
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-well);
+  background-clip: padding-box;
+  border-radius: var(--theme-border-radius);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  color: var(--theme-text-secondary);
+}
+
 /* Contained data list: ONE bordered tertiary surface with hairline dividers
    between items instead of per-item rounded boxes. Direct children are items -
    either a .mgmt-row, or a plain wrapper holding a row plus its expanded
@@ -164,6 +180,66 @@
   flex-shrink: 0;
 }
 
+.mgmt-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.mgmt-review-actions--content {
+  margin-bottom: 0.75rem;
+}
+
+.mgmt-review-row .badge-count {
+  min-height: 2rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--theme-border-radius-lg);
+  font-size: var(--font-size-md);
+}
+
+.mgmt-review-row .mgmt-row__toggle {
+  width: 2rem;
+  min-width: 2rem;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.mgmt-history-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 1rem;
+  color: var(--theme-text-secondary);
+}
+
+.mgmt-history-empty > svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  color: var(--theme-text-muted);
+}
+
+.mgmt-history-empty p,
+.mgmt-history-empty span {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.mgmt-history-empty p {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--theme-text-primary);
+}
+
+.mgmt-history-empty span {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: var(--font-size-sm);
+}
+
 /* Expanded detail well under a list row (corruption chunks, sample URLs,
    cache paths). A translucent step back toward the card surface reads as a
    recessed area on every theme without hard-coding a colour. */
@@ -213,6 +289,22 @@
   flex: 1 1 0%;
 }
 
+.mgmt-evidence__url {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.mgmt-evidence__status {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
 /* Exact evidence must remain readable without hover. URLs and cache paths are
    selectable and may break at any character so narrow panels never overflow. */
 .mgmt-evidence__exact-value {
@@ -248,6 +340,173 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.375rem;
+}
+
+.mgmt-evidence__facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+.mgmt-evidence__fact {
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.mgmt-evidence__fact dt {
+  color: var(--theme-text-muted);
+}
+
+.mgmt-evidence__fact dd {
+  margin: 0.125rem 0 0;
+  color: var(--theme-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.mgmt-evidence__reason {
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--theme-border-well);
+  border-radius: var(--theme-border-radius);
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.mgmt-evidence__reason span,
+.mgmt-evidence__reason strong {
+  display: block;
+}
+
+.mgmt-evidence__reason span {
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-muted);
+}
+
+.mgmt-evidence__reason strong {
+  margin-top: 0.125rem;
+  font-size: var(--font-size-md);
+  line-height: 1.45;
+  color: var(--theme-text-primary);
+}
+
+.mgmt-evidence__technical {
+  min-width: 0;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+.mgmt-evidence__technical summary {
+  min-height: 2.75rem;
+  padding: 0.625rem 0;
+  cursor: pointer;
+  color: var(--theme-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.mgmt-evidence__technical summary:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .mgmt-evidence__technical summary:hover {
+    color: var(--theme-text-primary);
+  }
+}
+
+.mgmt-evidence__technical summary:active {
+  opacity: 0.8;
+}
+
+.mgmt-evidence__mapping {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.625rem 1rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.25rem 0 0.625rem;
+}
+
+.mgmt-evidence__mapping-item {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mgmt-evidence__mapping-item dt {
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-muted);
+}
+
+.mgmt-evidence__mapping-item dd {
+  min-width: 0;
+  margin: 0.125rem 0 0;
+  color: var(--theme-text-secondary);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.mgmt-evidence__mapping code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 640px) {
+  .mgmt-evidence__facts,
+  .mgmt-evidence__mapping {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mgmt-evidence__mapping-item--wide {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 639px) {
+  .mgmt-evidence__head {
+    flex-direction: column;
+  }
+
+  .mgmt-evidence__status {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .mgmt-evidence__count {
+    max-width: 100%;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .mgmt-review-actions {
+    width: 100%;
+  }
+
+  .mgmt-review-actions > button {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .mgmt-review-actions--content > button {
+    width: 100%;
+  }
+
+  .mgmt-review-row .mgmt-row__actions,
+  .mgmt-history-row .mgmt-row__actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .mgmt-history-row .mgmt-row__actions > button {
+    width: 100%;
+  }
 }
 
 /* Two-column labelled facts (single column below 640px). Short pairs render
@@ -301,4 +560,3 @@
 .mgmt-kv__cell code {
   font-size: var(--font-size-sm);
 }
-

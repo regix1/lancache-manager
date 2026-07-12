@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Reflection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Controllers;
@@ -6,6 +7,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Data.Migrations;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Hubs;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.Data.Sqlite;
@@ -512,6 +514,145 @@ public sealed class CorruptionDetectionPersistenceTests
     }
 
     [Fact]
+    public async Task HistoricalEvidenceSelection_IsCurrentServerOwnedAndReviewOnlyAcrossScopesAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var scanId = Guid.NewGuid();
+        var removable = Candidate("default:steam-removable");
+        removable.Observations = NormalizationEquivalentObservations("MISS");
+        var steamReview = MissingCandidate("default:steam-review");
+        var epicReview = MissingCandidate("secondary:epic-review");
+        epicReview.Service = "epicgames";
+        await service.PersistCompletedScanAsync(
+            scanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [Report("default", removable, steamReview), Report("secondary", epicReview)]);
+
+        var steam = await service.GetHistoricalEvidencePurgeSelectionAsync(scanId, "steam");
+        Assert.Equal("steam", steam.Scope);
+        Assert.Equal(["default:steam-review"], steam.CandidateIds);
+        Assert.DoesNotContain("default:steam-removable", steam.CandidateIds);
+
+        var all = await service.GetHistoricalEvidencePurgeSelectionAsync(scanId);
+        Assert.Equal("all", all.Scope);
+        Assert.Equal(
+            ["default:steam-review", "secondary:epic-review"],
+            all.CandidateIds.OrderBy(id => id));
+        Assert.Equal(["default", "secondary"], all.CandidatesByDatasource.Keys.OrderBy(name => name));
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            service.GetHistoricalEvidencePurgeSelectionAsync(Guid.NewGuid()));
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            service.GetHistoricalEvidencePurgeSelectionAsync(scanId, "unknown"));
+    }
+
+    [Fact]
+    public async Task HistoricalEvidenceSuccess_PrunesExactReviewIdsAndKeepsHeaderAndUnrelatedEvidenceAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var scanId = Guid.NewGuid();
+        var removable = Candidate("default:removable");
+        var purged = MissingCandidate("default:purged");
+        var retained = MissingCandidate("default:retained");
+        await service.PersistCompletedScanAsync(
+            scanId,
+            CorruptionDetectionMode.CacheAndLogs,
+            3,
+            LookbackDays,
+            ScanStartedUtc,
+            ScanStartedUtc.AddSeconds(1),
+            [Report("default", removable, purged, retained)]);
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            service.ApplyHistoricalEvidencePurgeSuccessAsync(scanId, ["default:missing"]));
+        Assert.Equal(3, (await service.GetDetectionAsync())!.TotalCorruptedChunks);
+
+        await service.ApplyHistoricalEvidencePurgeSuccessAsync(scanId, ["default:purged"]);
+        var remaining = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync());
+        Assert.Equal(scanId, remaining.ScanId);
+        Assert.Equal(2, remaining.TotalCorruptedChunks);
+        Assert.Equal(1, remaining.RemovableTotal);
+        Assert.Equal(1, remaining.ReviewOnlyTotal);
+        Assert.Equal(
+            ["default:removable", "default:retained"],
+            (await service.GetDetailsAsync(scanId, "steam")).Select(candidate => candidate.CandidateId));
+
+        await service.ApplyHistoricalEvidencePurgeSuccessAsync(scanId, ["default:retained"]);
+        await service.ApplyRemovalSuccessAsync(scanId, ["default:removable"]);
+        Assert.Equal(0, (await service.GetDetectionAsync())!.TotalCorruptedChunks);
+        await using var assertContext = database.Factory.CreateDbContext();
+        Assert.Equal(1, await assertContext.CachedCorruptionScans.CountAsync());
+        Assert.Equal(0, await assertContext.CachedCorruptionDetections.CountAsync());
+    }
+
+    [Fact]
+    public async Task GlobalOrphanPrune_DoesNotSelectDownloadsBackedByReviewObservationRowsAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = database.Factory.CreateDbContext();
+        var ended = DateTime.UtcNow.AddHours(-1);
+        var backed = new Download
+        {
+            Service = "steam",
+            ClientIp = "192.0.2.10",
+            StartTimeUtc = ended.AddMinutes(-1),
+            StartTimeLocal = ended.AddMinutes(-1),
+            EndTimeUtc = ended,
+            EndTimeLocal = ended,
+            IsActive = false,
+            IsEvicted = false
+        };
+        var orphan = new Download
+        {
+            Service = "steam",
+            ClientIp = "192.0.2.11",
+            StartTimeUtc = ended.AddMinutes(-1),
+            StartTimeLocal = ended.AddMinutes(-1),
+            EndTimeUtc = ended,
+            EndTimeLocal = ended,
+            IsActive = false,
+            IsEvicted = false
+        };
+        context.Downloads.AddRange(backed, orphan);
+        await context.SaveChangesAsync();
+        context.LogEntries.Add(new LogEntryRecord
+        {
+            DownloadId = backed.Id,
+            Download = backed,
+            Timestamp = ended,
+            ClientIp = backed.ClientIp,
+            Service = backed.Service,
+            Method = "GET",
+            Url = "/depot/chunk",
+            StatusCode = 206,
+            CacheStatus = "HIT",
+            BytesServed = 1_024,
+            HttpRange = "bytes=1048576-1049599"
+        });
+        await context.SaveChangesAsync();
+
+        // Mirrors the deliberately unchanged CacheReconciliationService predicate. A review
+        // observation is still a backing LogEntries row, so this setting cannot purge it.
+        var pruneCutoffUtc = DateTime.UtcNow.AddMinutes(-5);
+        var selectedIds = await context.Downloads
+            .Where(download => !download.IsActive
+                && !download.IsEvicted
+                && download.EndTimeUtc < pruneCutoffUtc
+                && !context.LogEntries.Any(entry => entry.DownloadId == download.Id))
+            .Select(download => download.Id)
+            .ToListAsync();
+
+        Assert.DoesNotContain(backed.Id, selectedIds);
+        Assert.Contains(orphan.Id, selectedIds);
+    }
+
+    [Fact]
     public async Task DismissReviewOnly_PerServiceRetainsRemovableAndOtherServiceEvidenceAsync()
     {
         await using var database = await TestDatabase.CreateAsync();
@@ -955,6 +1096,14 @@ public sealed class CorruptionDetectionPersistenceTests
             nameof(CacheController.DismissAllCorruptionReviewFindingsAsync),
             "corruption/review-findings",
             expectedParameters: ["cancellationToken", "scanId"]);
+        AssertDismissEndpoint(
+            nameof(CacheController.PurgeServiceHistoricalEvidenceAsync),
+            "evicted/services/{service}/historical-evidence",
+            expectedParameters: ["service", "cancellationToken", "scanId"]);
+        AssertDismissEndpoint(
+            nameof(CacheController.PurgeAllHistoricalEvidenceAsync),
+            "evicted/historical-evidence",
+            expectedParameters: ["cancellationToken", "scanId"]);
     }
 
     [Fact]
@@ -1016,6 +1165,72 @@ public sealed class CorruptionDetectionPersistenceTests
         Assert.Equal(
             cached.ScanId,
             dismissalJson.RootElement.GetProperty("result").GetProperty("scanId").GetGuid());
+
+        Assert.Equal(
+            "\"historicalEvidencePurge\"",
+            JsonSerializer.Serialize(
+                OperationType.HistoricalEvidencePurge,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        Assert.Equal("HistoricalEvidencePurgeStarted", SignalREvents.HistoricalEvidencePurgeStarted);
+        Assert.Equal("HistoricalEvidencePurgeProgress", SignalREvents.HistoricalEvidencePurgeProgress);
+        Assert.Equal("HistoricalEvidencePurgeComplete", SignalREvents.HistoricalEvidencePurgeComplete);
+
+        var purgeComplete = new SignalRNotifications.HistoricalEvidencePurgeComplete(
+            OperationId: Guid.NewGuid(),
+            Success: false,
+            Status: OperationStatus.Cancelled,
+            Scope: "steam",
+            StageKey: "signalr.historicalEvidencePurge.cancelled",
+            Cancelled: true,
+            CandidateCount: 2);
+        using var purgeJson = JsonDocument.Parse(JsonSerializer.Serialize(
+            purgeComplete,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        Assert.Equal("steam", purgeJson.RootElement.GetProperty("scope").GetString());
+        Assert.Equal("cancelled", purgeJson.RootElement.GetProperty("status").GetString());
+        Assert.True(purgeJson.RootElement.GetProperty("cancelled").GetBoolean());
+    }
+
+    [Fact]
+    public void HistoricalEvidenceRustHelper_HasNoCachePathParameter()
+    {
+        var parameters = typeof(RustProcessHelper)
+            .GetMethod(nameof(RustProcessHelper.RunHistoricalEvidencePurgeAsync))!
+            .GetParameters()
+            .Select(parameter => parameter.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains("logsPath", parameters);
+        Assert.Contains("scope", parameters);
+        Assert.Contains("evidenceFile", parameters);
+        Assert.Contains("progressFile", parameters);
+        Assert.DoesNotContain("cachePath", parameters);
+    }
+
+    [Fact]
+    public void HistoricalEvidencePermissionGate_RequiresLogsButNotCacheWritability()
+    {
+        var controller = NewController(NewService(factory: null!));
+        var gate = typeof(CacheController).GetMethod(
+            "CheckHistoricalEvidenceLogsWritable",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var cacheReadonly = new List<ResolvedDatasource>
+        {
+            new()
+            {
+                Name = "default",
+                CachePath = "C:/cache",
+                LogPath = "C:/logs",
+                CacheWritable = false,
+                LogsWritable = true
+            }
+        };
+
+        Assert.Null(gate.Invoke(controller, [cacheReadonly]));
+        cacheReadonly[0].LogsWritable = false;
+        Assert.Contains(
+            "logs directory is read-only",
+            Assert.IsType<string>(gate.Invoke(controller, [cacheReadonly])));
     }
 
     private static void AssertDismissEndpoint(

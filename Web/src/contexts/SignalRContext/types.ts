@@ -74,6 +74,9 @@ export const SIGNALR_EVENTS = [
   'CorruptionRemovalStarted',
   'CorruptionRemovalProgress',
   'CorruptionRemovalComplete',
+  'HistoricalEvidencePurgeStarted',
+  'HistoricalEvidencePurgeProgress',
+  'HistoricalEvidencePurgeComplete',
   'EvictionRemovalComplete',
 
   // Games
@@ -263,6 +266,7 @@ export const SIGNALR_REFRESH_EVENTS = [
   'DepotMappingComplete',
   'LogRemovalComplete',
   'CorruptionRemovalComplete',
+  'HistoricalEvidencePurgeComplete',
   'ServiceRemovalComplete',
   'GameDetectionComplete',
   'GameRemovalComplete',
@@ -468,6 +472,41 @@ export interface CorruptionRemovalCompleteEvent {
   service: string;
   error?: string;
   timestamp?: string;
+}
+
+export interface HistoricalEvidencePurgeStartedEvent {
+  operationId: string;
+  scope: string;
+  candidateCount: number;
+  stageKey?: string;
+  context?: Record<string, string | number | boolean>;
+}
+
+export interface HistoricalEvidencePurgeProgressEvent {
+  operationId: string;
+  scope: string;
+  percentComplete: number;
+  status?: OperationStatus;
+  stageKey?: string;
+  context?: Record<string, string | number | boolean>;
+  logLinesRemoved?: number;
+  logEntriesRemoved?: number;
+  downloadsDeleted?: number;
+}
+
+export interface HistoricalEvidencePurgeCompleteEvent {
+  operationId?: string | null;
+  success: boolean;
+  status: OperationStatus;
+  cancelled?: boolean;
+  scope: string;
+  candidateCount?: number;
+  stageKey?: string;
+  context?: Record<string, string | number | boolean>;
+  logLinesRemoved?: number;
+  logEntriesRemoved?: number;
+  downloadsDeleted?: number;
+  error?: string;
 }
 
 export interface CorruptionDetectionStartedEvent {
