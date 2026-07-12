@@ -81,6 +81,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const [corruptionSummary, setCorruptionSummary] = useState<Record<string, number>>({});
   const [pendingCorruptionRemoval, setPendingCorruptionRemoval] = useState<string | null>(null);
   const [expandedCorruptionService, setExpandedCorruptionService] = useState<string | null>(null);
+  // The review-only findings live in their own top-level accordion with its own expand state.
+  const [expandedReviewService, setExpandedReviewService] = useState<string | null>(null);
+  const [reviewSectionOpen, setReviewSectionOpen] = useState(false);
   const [corruptionDetails, setCorruptionDetails] = useState<
     Record<string, CorruptedChunkDetail[]>
   >({});
@@ -727,49 +730,71 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     }
   };
 
+  // Shared lazy fetch for a service's chunk details, used by both the removable list and the
+  // review-only accordion (a service can appear in both). Returns false only on a real error
+  // for the current scan epoch, so the caller can collapse the row it just opened.
+  const loadCorruptionDetails = async (service: string): Promise<boolean> => {
+    if (!scanId || corruptionDetails[service] || loadingDetailsServices.has(service)) {
+      return true;
+    }
+    const requestEpoch = resultEpochRef.current;
+    setLoadingDetailsServices((prev) => new Set(prev).add(service));
+    try {
+      const details = await ApiService.getCorruptionDetails(service, scanId);
+      if (requestEpoch !== resultEpochRef.current) return true;
+      setCorruptionDetails((prev) => ({ ...prev, [service]: details }));
+      return true;
+    } catch (err: unknown) {
+      if (requestEpoch !== resultEpochRef.current) return true;
+      onError?.(
+        getErrorMessage(err) ||
+          t('management.corruption.errors.loadDetails', {
+            service: getServiceDisplayName(service)
+          })
+      );
+      return false;
+    } finally {
+      if (requestEpoch === resultEpochRef.current) {
+        setLoadingDetailsServices((prev) => {
+          const next = new Set(prev);
+          next.delete(service);
+          return next;
+        });
+        setDetailsProgress((prev) => {
+          if (!(service in prev)) return prev;
+          const next = { ...prev };
+          delete next[service];
+          return next;
+        });
+      }
+    }
+  };
+
   const toggleCorruptionDetails = async (service: string) => {
     if (expandedCorruptionService === service) {
       setExpandedCorruptionService(null);
       return;
     }
-
     setExpandedCorruptionService(service);
+    const loaded = await loadCorruptionDetails(service);
+    if (!loaded) setExpandedCorruptionService((prev) => (prev === service ? null : prev));
+  };
 
-    if (scanId && !corruptionDetails[service] && !loadingDetailsServices.has(service)) {
-      const requestEpoch = resultEpochRef.current;
-      setLoadingDetailsServices((prev) => new Set(prev).add(service));
-      try {
-        const details = await ApiService.getCorruptionDetails(service, scanId);
-        if (requestEpoch !== resultEpochRef.current) return;
-        setCorruptionDetails((prev) => ({ ...prev, [service]: details }));
-      } catch (err: unknown) {
-        if (requestEpoch !== resultEpochRef.current) return;
-        onError?.(
-          getErrorMessage(err) ||
-            t('management.corruption.errors.loadDetails', {
-              service: getServiceDisplayName(service)
-            })
-        );
-        setExpandedCorruptionService((prev) => (prev === service ? null : prev));
-      } finally {
-        if (requestEpoch === resultEpochRef.current) {
-          setLoadingDetailsServices((prev) => {
-            const next = new Set(prev);
-            next.delete(service);
-            return next;
-          });
-          setDetailsProgress((prev) => {
-            if (!(service in prev)) return prev;
-            const next = { ...prev };
-            delete next[service];
-            return next;
-          });
-        }
-      }
+  const toggleReviewDetails = async (service: string) => {
+    if (expandedReviewService === service) {
+      setExpandedReviewService(null);
+      return;
     }
+    setExpandedReviewService(service);
+    const loaded = await loadCorruptionDetails(service);
+    if (!loaded) setExpandedReviewService((prev) => (prev === service ? null : prev));
   };
 
   const corruptionList = corruptionProjection.rows;
+  // The main list only shows services you can act on; everything review-only is pulled into a
+  // single top-level "Review only" accordion below. A service with both appears in both.
+  const removableList = corruptionList.filter((row) => row.removable > 0);
+  const reviewList = corruptionList.filter((row) => row.reviewOnly > 0);
 
   // Batch selection derives from the CURRENTLY VISIBLE list, matching Remove All semantics.
   const visibleServiceKeys = corruptionList.map((row) => row.service);
@@ -1070,135 +1095,213 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                 <LoadingState message={t('management.corruption.loadingCachedData')} />
               ) : hasCachedResults && corruptionList.length > 0 ? (
                 <div className="space-y-3">
-                  {/* Batch multi-select toolbar: select-all (visible). The selected
-                          count shows once in the section header badge; Remove Selected lives
-                          in the header cluster (with Remove All). Wraps at 390px. */}
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Checkbox
-                      checked={allVisibleSelected}
-                      onChange={() => selection.setMany(removableServiceKeys, !allVisibleSelected)}
-                      disabled={batchGateActive || removableServiceKeys.length === 0}
-                      label={
-                        allVisibleSelected
-                          ? t('management.batchSelect.deselectAll')
-                          : t('management.batchSelect.selectAll')
-                      }
-                    />
-                  </div>
-                  <div className="mgmt-list">
-                    {corruptionList.map((row) => {
-                      const { service, removable, reviewOnly } = row;
-                      const isRowExpanded = expandedCorruptionService === service;
-                      const isRowRemoving =
-                        removingCorruption === service || isCorruptionRemovalPending(service);
-                      const serviceCanRemove = isServiceRemovable(service);
-                      return (
-                        <div key={`corruption-${service}`}>
-                          <div className="mgmt-row mgmt-row--interactive flex-wrap">
-                            <Checkbox
-                              checked={selection.isSelected(service)}
-                              onChange={() => selection.toggle(service)}
-                              disabled={batchGateActive || isRowRemoving || !serviceCanRemove}
-                              aria-label={t('management.batchSelect.selectItem', {
-                                name: getServiceDisplayName(service)
-                              })}
-                              className="flex-shrink-0"
-                            />
-                            <div className="mgmt-row__body">
-                              <p className="mgmt-row__title truncate">
-                                {getServiceDisplayName(service)}
-                              </p>
-                            </div>
-                            <div className="mgmt-row__actions flex-wrap justify-end">
-                              {removable > 0 && (
-                                <Badge
-                                  variant="neutral"
-                                  className="badge-count badge-count-warning"
-                                >
-                                  {t('management.corruption.removableCount', {
-                                    count: formatCount(removable)
+                  {removableList.length > 0 && (
+                    <>
+                      {/* Batch multi-select toolbar: select-all over the removable services.
+                          The selected count shows once in the section header badge; Remove
+                          Selected lives in the header cluster (with Remove All). */}
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Checkbox
+                          checked={allVisibleSelected}
+                          onChange={() =>
+                            selection.setMany(removableServiceKeys, !allVisibleSelected)
+                          }
+                          disabled={batchGateActive || removableServiceKeys.length === 0}
+                          label={
+                            allVisibleSelected
+                              ? t('management.batchSelect.deselectAll')
+                              : t('management.batchSelect.selectAll')
+                          }
+                        />
+                      </div>
+                      <div className="mgmt-list">
+                        {removableList.map((row) => {
+                          const { service, removable } = row;
+                          const isRowExpanded = expandedCorruptionService === service;
+                          const isRowRemoving =
+                            removingCorruption === service || isCorruptionRemovalPending(service);
+                          const serviceCanRemove = isServiceRemovable(service);
+                          return (
+                            <div key={`corruption-${service}`}>
+                              <div className="mgmt-row mgmt-row--interactive flex-wrap">
+                                <Checkbox
+                                  checked={selection.isSelected(service)}
+                                  onChange={() => selection.toggle(service)}
+                                  disabled={batchGateActive || isRowRemoving || !serviceCanRemove}
+                                  aria-label={t('management.batchSelect.selectItem', {
+                                    name: getServiceDisplayName(service)
                                   })}
-                                </Badge>
-                              )}
-                              {reviewOnly > 0 && (
-                                <Badge variant="neutral" className="badge-count">
-                                  {t('management.corruption.reviewCount', {
-                                    count: formatCount(reviewOnly)
-                                  })}
-                                </Badge>
-                              )}
-                              <Button
-                                variant="filled"
-                                color="gray"
-                                size="sm"
-                                onClick={() => toggleCorruptionDetails(service)}
-                                aria-expanded={isRowExpanded}
+                                  className="flex-shrink-0"
+                                />
+                                <div className="mgmt-row__body">
+                                  <p className="mgmt-row__title truncate">
+                                    {getServiceDisplayName(service)}
+                                  </p>
+                                </div>
+                                <div className="mgmt-row__actions flex-wrap justify-end">
+                                  {removable > 0 && (
+                                    <Badge
+                                      variant="neutral"
+                                      className="badge-count badge-count-warning"
+                                    >
+                                      {t('management.corruption.removableCount', {
+                                        count: formatCount(removable)
+                                      })}
+                                    </Badge>
+                                  )}
+                                  <Button
+                                    variant="filled"
+                                    color="gray"
+                                    size="sm"
+                                    onClick={() => toggleCorruptionDetails(service)}
+                                    aria-expanded={isRowExpanded}
+                                  >
+                                    {isRowExpanded ? (
+                                      <ChevronUp className="w-4 h-4" />
+                                    ) : (
+                                      <ChevronDown className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                  <Tooltip
+                                    content={
+                                      serviceCanRemove
+                                        ? t('management.corruption.deleteCorrupted')
+                                        : t('management.corruption.reviewOnlyAction')
+                                    }
+                                  >
+                                    <Button
+                                      onClick={() => handleRemoveCorruption(service)}
+                                      awaitPermissions
+                                      loading={isRowRemoving}
+                                      disabled={
+                                        mockMode ||
+                                        anyCorruptionRemovalPending ||
+                                        isCorruptionRemovalActive ||
+                                        loadingDetailsServices.has(service) ||
+                                        authMode !== 'authenticated' ||
+                                        logsReadOnly ||
+                                        cacheReadOnly ||
+                                        !isDockerAvailable ||
+                                        !serviceCanRemove
+                                      }
+                                      variant="filled"
+                                      color="red"
+                                      size="sm"
+                                    >
+                                      {isRowRemoving
+                                        ? t('management.corruption.removing')
+                                        : t('common.remove')}
+                                    </Button>
+                                  </Tooltip>
+                                </div>
+                              </div>
+                              <CollapsibleRegion
+                                open={isRowExpanded}
+                                contentClassName="mgmt-row-detail"
                               >
-                                {isRowExpanded ? (
-                                  <ChevronUp className="w-4 h-4" />
+                                {loadingDetailsServices.has(service) ? (
+                                  <LoadingState
+                                    message={t('management.corruption.loadingDetails')}
+                                    submessage={
+                                      detailsProgress[service] != null
+                                        ? `${Math.round(detailsProgress[service])}%`
+                                        : undefined
+                                    }
+                                  />
+                                ) : corruptionDetails[service] &&
+                                  corruptionDetails[service].length > 0 ? (
+                                  <CorruptionChunkList
+                                    chunks={corruptionDetails[service]}
+                                    variant="removable"
+                                  />
                                 ) : (
-                                  <ChevronDown className="w-4 h-4" />
+                                  <p className="py-4 text-center text-sm text-themed-muted">
+                                    {t('management.corruption.noDetailsAvailable')}
+                                  </p>
                                 )}
-                              </Button>
-                              <Tooltip
-                                content={
-                                  serviceCanRemove
-                                    ? t('management.corruption.deleteCorrupted')
-                                    : t('management.corruption.reviewOnlyAction')
-                                }
-                              >
-                                <Button
-                                  onClick={() => handleRemoveCorruption(service)}
-                                  awaitPermissions
-                                  loading={isRowRemoving}
-                                  disabled={
-                                    mockMode ||
-                                    anyCorruptionRemovalPending ||
-                                    isCorruptionRemovalActive ||
-                                    loadingDetailsServices.has(service) ||
-                                    authMode !== 'authenticated' ||
-                                    logsReadOnly ||
-                                    cacheReadOnly ||
-                                    !isDockerAvailable ||
-                                    !serviceCanRemove
-                                  }
-                                  variant="filled"
-                                  color="red"
-                                  size="sm"
-                                >
-                                  {isRowRemoving
-                                    ? t('management.corruption.removing')
-                                    : t('common.remove')}
-                                </Button>
-                              </Tooltip>
+                              </CollapsibleRegion>
                             </div>
-                          </div>
-                          <CollapsibleRegion
-                            open={isRowExpanded}
-                            contentClassName="mgmt-row-detail"
-                          >
-                            {loadingDetailsServices.has(service) ? (
-                              <LoadingState
-                                message={t('management.corruption.loadingDetails')}
-                                submessage={
-                                  detailsProgress[service] != null
-                                    ? `${Math.round(detailsProgress[service])}%`
-                                    : undefined
-                                }
-                              />
-                            ) : corruptionDetails[service] &&
-                              corruptionDetails[service].length > 0 ? (
-                              <CorruptionChunkList chunks={corruptionDetails[service]} />
-                            ) : (
-                              <p className="py-4 text-center text-sm text-themed-muted">
-                                {t('management.corruption.noDetailsAvailable')}
-                              </p>
-                            )}
-                          </CollapsibleRegion>
-                        </div>
-                      );
-                    })}
-                  </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+
+                  {reviewList.length > 0 && (
+                    <AccordionSection
+                      title={t('management.corruption.reviewSectionTitle')}
+                      count={corruptionProjection.reviewOnlyTotal}
+                      surface="well"
+                      isExpanded={reviewSectionOpen}
+                      onToggle={() => setReviewSectionOpen((open) => !open)}
+                    >
+                      <p className="mgmt-scanmeta mb-3">
+                        {t('management.corruption.reviewSectionNote')}
+                      </p>
+                      <div className="mgmt-list">
+                        {reviewList.map((row) => {
+                          const { service, reviewOnly } = row;
+                          const isRowExpanded = expandedReviewService === service;
+                          return (
+                            <div key={`corruption-review-${service}`}>
+                              <div className="mgmt-row mgmt-row--interactive flex-wrap">
+                                <div className="mgmt-row__body">
+                                  <p className="mgmt-row__title truncate">
+                                    {getServiceDisplayName(service)}
+                                  </p>
+                                </div>
+                                <div className="mgmt-row__actions flex-wrap justify-end">
+                                  <Badge variant="neutral" className="badge-count">
+                                    {t('management.corruption.reviewCount', {
+                                      count: formatCount(reviewOnly)
+                                    })}
+                                  </Badge>
+                                  <Button
+                                    variant="filled"
+                                    color="gray"
+                                    size="sm"
+                                    onClick={() => toggleReviewDetails(service)}
+                                    aria-expanded={isRowExpanded}
+                                  >
+                                    {isRowExpanded ? (
+                                      <ChevronUp className="w-4 h-4" />
+                                    ) : (
+                                      <ChevronDown className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                              <CollapsibleRegion
+                                open={isRowExpanded}
+                                contentClassName="mgmt-row-detail"
+                              >
+                                {loadingDetailsServices.has(service) ? (
+                                  <LoadingState
+                                    message={t('management.corruption.loadingDetails')}
+                                    submessage={
+                                      detailsProgress[service] != null
+                                        ? `${Math.round(detailsProgress[service])}%`
+                                        : undefined
+                                    }
+                                  />
+                                ) : corruptionDetails[service] &&
+                                  corruptionDetails[service].length > 0 ? (
+                                  <CorruptionChunkList
+                                    chunks={corruptionDetails[service]}
+                                    variant="review"
+                                  />
+                                ) : (
+                                  <p className="py-4 text-center text-sm text-themed-muted">
+                                    {t('management.corruption.noDetailsAvailable')}
+                                  </p>
+                                )}
+                              </CollapsibleRegion>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </AccordionSection>
+                  )}
                 </div>
               ) : hasCachedResults && corruptionList.length === 0 ? (
                 <div className="text-center py-6">
