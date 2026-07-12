@@ -1182,14 +1182,9 @@ const DownloadsTab: React.FC = () => {
       // Pure chronological (recent) and non-time sorts skip multi/single/individual bucketing.
       // Time/size sorts only bucket when "Group by frequency" is on (Frequent first / oldest / size).
       const skipFrequencyGrouping =
-        [
-          'recent',
-          'service',
-          'alphabetical',
-          'efficiency',
-          'efficiency-low',
-          'sessions'
-        ].includes(settings.sortOrder) || !settings.groupByFrequency;
+        ['recent', 'service', 'alphabetical', 'efficiency', 'efficiency-low', 'sessions'].includes(
+          settings.sortOrder
+        ) || !settings.groupByFrequency;
       if (skipFrequencyGrouping) {
         mixedItems.sort(sortFn);
         items = mixedItems;
