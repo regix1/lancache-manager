@@ -20,7 +20,7 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 pub const MAX_PREFIX_BYTES: u64 = u16::MAX as u64;
@@ -193,19 +193,36 @@ struct ScanProgress {
 #[derive(Clone, Copy)]
 struct StructuralScanConfig {
     inspection_parallelism: usize,
+    initial_parallelism: usize,
+    adaptive_concurrency: bool,
     task_queue_capacity: usize,
     result_queue_capacity: usize,
     progress_interval: Duration,
     layout: Option<Layout>,
 }
 
+/// Upper bound on inspection threads. Not a tuning knob: the controller only climbs this high
+/// if the storage keeps paying for more requests in flight, which in practice only NVMe and
+/// wide SAS arrays do. It exists so a pathological device cannot spawn threads without end.
+const MAX_INSPECTION_PARALLELISM: usize = 64;
+
+/// Where the climb starts. Deliberately low, so a single spinning disk is never hammered with
+/// a deep queue before the controller has measured anything.
+const INITIAL_INSPECTION_PARALLELISM: usize = 4;
+
 impl StructuralScanConfig {
-    fn production(root: &Path) -> Self {
-        let inspection_parallelism = cache_utils::detect_filesystem_type(root)
-            .recommended_parallelism()
-            .max(1);
+    fn production(_root: &Path) -> Self {
+        // Concurrency is measured, never guessed from the filesystem type. A fixed number is
+        // wrong for every backend at once: a single spinning disk saturates around a queue
+        // depth of a handful, a NAS is bound by its own spindles, and NVMe or a wide SAS array
+        // wants dozens of requests in flight. The controller climbs while throughput improves
+        // and settles where the device stops rewarding more concurrency, so the same build
+        // adapts to whatever the cache actually lives on.
+        let inspection_parallelism = MAX_INSPECTION_PARALLELISM;
         Self {
             inspection_parallelism,
+            initial_parallelism: INITIAL_INSPECTION_PARALLELISM,
+            adaptive_concurrency: true,
             task_queue_capacity: inspection_parallelism,
             result_queue_capacity: inspection_parallelism,
             progress_interval: Duration::from_secs(1),
@@ -215,6 +232,9 @@ impl StructuralScanConfig {
 
     fn normalized(mut self) -> Self {
         self.inspection_parallelism = self.inspection_parallelism.max(1);
+        self.initial_parallelism = self
+            .initial_parallelism
+            .clamp(1, self.inspection_parallelism);
         self.task_queue_capacity = self.task_queue_capacity.max(1);
         self.result_queue_capacity = self.result_queue_capacity.max(1);
         if self.progress_interval.is_zero() {
@@ -272,6 +292,10 @@ trait InspectionObserver: Sync {
 #[allow(dead_code)]
 struct PipelineTelemetry {
     worker_count: usize,
+    /// Highest concurrency the controller ever ran at. `worker_count` is where it ended up;
+    /// this is how far it explored, which is the only way to tell a scan that adapted from one
+    /// that sat at its starting value the whole time.
+    peak_worker_count: usize,
     task_queue_high_water: usize,
     result_queue_high_water: usize,
     outstanding_high_water: usize,
@@ -287,6 +311,7 @@ struct PipelineCounters {
     task_queue_high_water: AtomicUsize,
     result_queue_high_water: AtomicUsize,
     outstanding_high_water: AtomicUsize,
+    concurrency_high_water: AtomicUsize,
     completed: AtomicUsize,
 }
 
@@ -297,6 +322,269 @@ fn record_high_water(counter: &AtomicUsize, value: usize) {
             Ok(_) => break,
             Err(actual) => current = actual,
         }
+    }
+}
+
+/// Caps how many inspections may be in flight at once. Worker threads are cheap and mostly
+/// parked on I/O, so the pool is sized once at the maximum and the *permitted* concurrency is
+/// what moves. Growing the limit wakes parked workers; shrinking it simply stops handing out
+/// permits until enough in-flight work drains, so a shrink never interrupts a read midway.
+struct ConcurrencyLimiter {
+    state: Mutex<LimiterState>,
+    available: Condvar,
+    current_limit: AtomicUsize,
+}
+
+struct LimiterState {
+    limit: usize,
+    in_flight: usize,
+}
+
+impl ConcurrencyLimiter {
+    fn new(limit: usize) -> Self {
+        let limit = limit.max(1);
+        Self {
+            state: Mutex::new(LimiterState {
+                limit,
+                in_flight: 0,
+            }),
+            available: Condvar::new(),
+            current_limit: AtomicUsize::new(limit),
+        }
+    }
+
+    fn limit(&self) -> usize {
+        self.current_limit.load(Ordering::Relaxed)
+    }
+
+    fn set_limit(&self, limit: usize) {
+        let limit = limit.max(1);
+        if let Ok(mut state) = self.state.lock() {
+            state.limit = limit;
+            self.current_limit.store(limit, Ordering::Relaxed);
+        }
+        self.available.notify_all();
+    }
+
+    /// Blocks until a slot frees up. Returns `None` once the pipeline is stopping, so a worker
+    /// parked here during cancellation wakes and exits instead of stranding the scan.
+    fn acquire(&self, stop: &AtomicBool) -> Option<ConcurrencyPermit<'_>> {
+        let mut state = self.state.lock().ok()?;
+        loop {
+            if stop.load(Ordering::Acquire) || cancel::is_cancelled() {
+                return None;
+            }
+            if state.in_flight < state.limit {
+                state.in_flight += 1;
+                return Some(ConcurrencyPermit { limiter: self });
+            }
+            let (next, _) = self
+                .available
+                .wait_timeout(state, Duration::from_millis(50))
+                .ok()?;
+            state = next;
+        }
+    }
+}
+
+struct ConcurrencyPermit<'a> {
+    limiter: &'a ConcurrencyLimiter,
+}
+
+impl Drop for ConcurrencyPermit<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.limiter.state.lock() {
+            state.in_flight = state.in_flight.saturating_sub(1);
+        }
+        self.limiter.available.notify_one();
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ConcurrencyPhase {
+    Climbing,
+    Settled,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ProbeDirection {
+    Up,
+    Down,
+}
+
+/// Finds the concurrency the storage actually wants, by trying a step and keeping what pays.
+///
+/// Each window it measures completed-files-per-second. While stepping in the current direction
+/// keeps buying throughput it steps again; when the gain stops it falls back to the best limit,
+/// reverses direction, and settles. A single spinning disk settles at a shallow queue, a NAS at
+/// whatever its spindles sustain, NVMe near the ceiling.
+///
+/// Two things matter for a scan that runs for hours. The baseline it compares against is the
+/// rate re-measured at the settled limit, never an all-time high: a high-water mark taken when
+/// the NAS was idle could never be beaten again once the NAS got busy, and the limit would be
+/// frozen for the rest of the scan. And because direction reverses on a failed step, a settled
+/// scan probes *down* as readily as up, so storage that gets busier mid-scan is met by backing
+/// off rather than by hammering it with a queue depth it can no longer absorb.
+struct ConcurrencyController {
+    max: usize,
+    limit: usize,
+    phase: ConcurrencyPhase,
+    /// Throughput at `best_limit`, re-measured under current conditions while settled.
+    baseline_rate: f64,
+    best_limit: usize,
+    direction: ProbeDirection,
+    window_started_at: Duration,
+    window_start_completed: usize,
+    next_probe_at: Duration,
+}
+
+/// A window must cover at least this much wall-clock before its rate means anything.
+const CONCURRENCY_WINDOW: Duration = Duration::from_secs(5);
+/// ...and this many files, unless the storage is so slow that waiting longer is pointless.
+const CONCURRENCY_WINDOW_MIN_FILES: usize = 64;
+/// Never wait longer than this for a window, or a very slow device would never adapt at all.
+const CONCURRENCY_WINDOW_MAX: Duration = Duration::from_secs(30);
+/// A step must buy more than this to be worth keeping. Below it, the extra queue depth is noise.
+const CONCURRENCY_IMPROVEMENT: f64 = 1.05;
+/// How often a settled scan re-checks whether the device has freed up.
+const CONCURRENCY_REPROBE: Duration = Duration::from_secs(120);
+
+impl ConcurrencyController {
+    fn new(initial: usize, max: usize, now: Duration) -> Self {
+        let max = max.max(1);
+        let limit = initial.clamp(1, max);
+        Self {
+            max,
+            limit,
+            phase: ConcurrencyPhase::Climbing,
+            baseline_rate: 0.0,
+            best_limit: limit,
+            direction: ProbeDirection::Up,
+            window_started_at: now,
+            window_start_completed: 0,
+            next_probe_at: now.saturating_add(CONCURRENCY_REPROBE),
+        }
+    }
+
+    /// Moves the limit one step in the current direction. `false` when the ladder has no more
+    /// rungs that way (already at the ceiling, or already down to a single request in flight).
+    fn step(&mut self) -> bool {
+        let next = match self.direction {
+            ProbeDirection::Up => self.limit.saturating_mul(2).min(self.max),
+            ProbeDirection::Down => (self.limit / 2).max(1),
+        };
+        if next == self.limit {
+            return false;
+        }
+        self.limit = next;
+        true
+    }
+
+    fn reverse(&mut self) {
+        self.direction = match self.direction {
+            ProbeDirection::Up => ProbeDirection::Down,
+            ProbeDirection::Down => ProbeDirection::Up,
+        };
+    }
+
+    /// Keeps the step that just paid off, then immediately tries another one the same way. This
+    /// is what makes a re-probe resume a full climb instead of inching one rung every probe
+    /// interval.
+    fn keep_and_continue(&mut self, rate: f64, now: Duration) {
+        self.baseline_rate = rate;
+        self.best_limit = self.limit;
+        if !self.step() {
+            self.settle(now);
+        }
+    }
+
+    /// The step did not pay. Fall back to the best limit and reverse, so the next probe explores
+    /// the other direction rather than retrying the one that just failed.
+    fn revert_and_settle(&mut self, now: Duration) {
+        self.limit = self.best_limit;
+        self.reverse();
+        self.settle(now);
+    }
+
+    fn window_ready(&self, now: Duration, completed: usize) -> bool {
+        let elapsed = now.saturating_sub(self.window_started_at);
+        if elapsed < CONCURRENCY_WINDOW {
+            return false;
+        }
+        let files = completed.saturating_sub(self.window_start_completed);
+        if files == 0 {
+            return false;
+        }
+        files >= CONCURRENCY_WINDOW_MIN_FILES || elapsed >= CONCURRENCY_WINDOW_MAX
+    }
+
+    /// Feeds one observation in. Returns the new limit when it changed, so the caller can push
+    /// it to the limiter.
+    fn observe(&mut self, now: Duration, completed: usize) -> Option<usize> {
+        if !self.window_ready(now, completed) {
+            return None;
+        }
+        let elapsed = now
+            .saturating_sub(self.window_started_at)
+            .as_secs_f64()
+            .max(f64::MIN_POSITIVE);
+        let files = completed.saturating_sub(self.window_start_completed) as f64;
+        let rate = files / elapsed;
+        let previous = self.limit;
+
+        match self.phase {
+            // A probe is just a climb step, so both are the same rule: keep what pays and push
+            // further the same way, otherwise fall back and turn around.
+            ConcurrencyPhase::Climbing => {
+                if rate > self.baseline_rate * CONCURRENCY_IMPROVEMENT {
+                    self.keep_and_continue(rate, now);
+                } else {
+                    self.revert_and_settle(now);
+                }
+            }
+            ConcurrencyPhase::Settled => {
+                // Re-measure the yardstick at the limit we settled on. Comparing a probe
+                // against a stale high-water rate from a quieter moment would make every probe
+                // look like a failure, and the limit would never move again.
+                self.baseline_rate = rate;
+                if now >= self.next_probe_at {
+                    if self.step() {
+                        self.phase = ConcurrencyPhase::Climbing;
+                    } else {
+                        // No rung available this way. Turn around and wait for the next probe.
+                        self.reverse();
+                        self.next_probe_at = now.saturating_add(CONCURRENCY_REPROBE);
+                    }
+                }
+            }
+        }
+
+        self.window_started_at = now;
+        self.window_start_completed = completed;
+        (self.limit != previous).then_some(self.limit)
+    }
+
+    fn settle(&mut self, now: Duration) {
+        self.phase = ConcurrencyPhase::Settled;
+        self.next_probe_at = now.saturating_add(CONCURRENCY_REPROBE);
+    }
+}
+
+/// Feeds the completed-file count to the controller and applies any new limit. A no-op when
+/// adaptation is off, which keeps the fixed-parallelism tests and the serial reference exact.
+fn retune_concurrency(
+    controller: &mut Option<ConcurrencyController>,
+    limiter: &ConcurrencyLimiter,
+    counters: &PipelineCounters,
+    now: Duration,
+) {
+    let Some(controller) = controller.as_mut() else {
+        return;
+    };
+    let completed = counters.completed.load(Ordering::Relaxed);
+    if let Some(limit) = controller.observe(now, completed) {
+        limiter.set_limit(limit);
+        record_high_water(&counters.concurrency_high_water, limit);
     }
 }
 
@@ -1555,6 +1843,7 @@ fn progress_details(
     processed: usize,
     total: usize,
     config: StructuralScanConfig,
+    worker_count: usize,
     include_eta: bool,
 ) -> ProgressDetails {
     let rate = telemetry.sample(now, processed);
@@ -1563,7 +1852,9 @@ fn progress_details(
         eta_seconds: include_eta
             .then(|| eta_seconds(total, processed, rate))
             .flatten(),
-        worker_count: config.inspection_parallelism,
+        // The concurrency the controller has settled on right now, not the size of the pool.
+        // This is what surfaces in the progress file, so a scan can be watched converging.
+        worker_count,
         task_queue_capacity: config.task_queue_capacity,
         result_queue_capacity: config.result_queue_capacity,
     }
@@ -1644,13 +1935,31 @@ fn inspection_worker(
     stop: &AtomicBool,
     start_gate: &RwLock<()>,
     counters: &PipelineCounters,
+    limiter: &ConcurrencyLimiter,
     observer: Option<&dyn InspectionObserver>,
 ) -> Result<()> {
     // Linux workers keep the current two-level cache directory open while consuming its files.
     // jwalk emits siblings together, so this replaces millions of repeated root canonicalizations
     // and parent-component stats with descriptor-relative leaf opens.
     let mut path_access = WorkerPathAccess::new(root)?;
-    while let Ok(task) = task_receiver.recv() {
+    loop {
+        // Take the permit BEFORE pulling a task, not after. Dequeuing first would let every
+        // thread in the pool hoard a task while parked, spreading each hash directory's files
+        // across the whole pool: a worker's cached parent handle would then point at whatever
+        // directory it saw a pool-size ago, and the descriptor reuse this scanner depends on
+        // would miss on nearly every file. Gating first keeps only `limit` workers pulling, so
+        // each one walks a run of siblings and its cached handle keeps hitting.
+        //
+        // It also has to come before the task is announced as started and before the start
+        // gate: announcing first lets a worker cancelled while parked exit with the task still
+        // counted active, and taking the gate first lets a parked worker hold a read lock that
+        // `request_pipeline_stop` needs for writing.
+        let Some(permit) = limiter.acquire(stop) else {
+            break;
+        };
+        let Ok(task) = task_receiver.recv() else {
+            break;
+        };
         let start_guard = start_gate
             .read()
             .map_err(|_| anyhow::anyhow!("structural inspection start gate was poisoned"))?;
@@ -1686,6 +1995,7 @@ fn inspection_worker(
                 sparse: false,
             }),
         };
+        drop(permit);
         if let Some(observer) = observer {
             observer.inspection_completed(&task.path, &inspection);
         }
@@ -1733,6 +2043,7 @@ fn emit_inspection_checkpoint(
     telemetry: &mut InspectionTelemetry,
     clock: &dyn ScanClock,
     config: StructuralScanConfig,
+    worker_count: usize,
 ) -> Result<ProgressRate> {
     let now = clock.elapsed();
     let mut details = progress_details(
@@ -1741,6 +2052,7 @@ fn emit_inspection_checkpoint(
         coverage.files_seen,
         total,
         config,
+        worker_count,
         status != "cancelled",
     );
     if status == "completed" {
@@ -1792,7 +2104,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                 files_per_second: Some(0.0),
             },
             eta_seconds: None,
-            worker_count: config.inspection_parallelism,
+            worker_count: config.initial_parallelism,
             task_queue_capacity: config.task_queue_capacity,
             result_queue_capacity: config.result_queue_capacity,
         },
@@ -1800,6 +2112,21 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
     let stop = Arc::new(AtomicBool::new(false));
     let start_gate = Arc::new(RwLock::new(()));
     let counters = Arc::new(PipelineCounters::default());
+    // With adaptation off (tests, and the serial reference) the limiter is pinned wide open at
+    // the pool size, so every worker runs unthrottled exactly as it did before.
+    let limiter = Arc::new(ConcurrencyLimiter::new(if config.adaptive_concurrency {
+        config.initial_parallelism
+    } else {
+        config.inspection_parallelism
+    }));
+    let mut controller = config.adaptive_concurrency.then(|| {
+        ConcurrencyController::new(
+            config.initial_parallelism,
+            config.inspection_parallelism,
+            phase_started_at,
+        )
+    });
+    record_high_water(&counters.concurrency_high_water, limiter.limit());
     let (task_sender, task_receiver) = bounded(config.task_queue_capacity);
     let (result_sender, result_receiver) = bounded(config.result_queue_capacity);
     let mut scheduled = 0usize;
@@ -1816,8 +2143,12 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
             let worker_stop = Arc::clone(&stop);
             let worker_start_gate = Arc::clone(&start_gate);
             let worker_counters = Arc::clone(&counters);
-            let builder =
-                std::thread::Builder::new().name(format!("structural-inspector-{worker_index}"));
+            let worker_limiter = Arc::clone(&limiter);
+            // The pool is sized at the ceiling and most of it is parked, so keep the stacks
+            // small: these threads block on I/O, they do not recurse.
+            let builder = std::thread::Builder::new()
+                .name(format!("structural-inspector-{worker_index}"))
+                .stack_size(256 * 1024);
             match builder.spawn_scoped(scope, move || {
                 inspection_worker(
                     root,
@@ -1829,6 +2160,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                     &worker_stop,
                     &worker_start_gate,
                     &worker_counters,
+                    &worker_limiter,
                     observer,
                 )
             }) {
@@ -1875,6 +2207,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
             }
 
             let clock_now = clock.elapsed();
+            retune_concurrency(&mut controller, &limiter, &counters, clock_now);
             if progress_telemetry.progress_due(clock_now, config.progress_interval) {
                 if let Err(error) = emit_inspection_checkpoint(
                     progress_path,
@@ -1885,6 +2218,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                     &mut progress_telemetry,
                     clock,
                     config,
+                    limiter.limit(),
                 ) {
                     fatal_error = Some(error);
                     request_pipeline_stop(&stop, &start_gate, observer)?;
@@ -1993,6 +2327,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                 Err(RecvTimeoutError::Disconnected) => break,
             }
             let clock_now = clock.elapsed();
+            retune_concurrency(&mut controller, &limiter, &counters, clock_now);
             if progress_telemetry.progress_due(clock_now, config.progress_interval) {
                 if let Err(error) = emit_inspection_checkpoint(
                     progress_path,
@@ -2003,6 +2338,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                     &mut progress_telemetry,
                     clock,
                     config,
+                    limiter.limit(),
                 ) {
                     fatal_error.get_or_insert(error);
                     request_pipeline_stop(&stop, &start_gate, observer)?;
@@ -2063,7 +2399,12 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
         progress_telemetry.ewma_files_per_second
     };
     let telemetry = PipelineTelemetry {
-        worker_count: config.inspection_parallelism,
+        // The concurrency the scan converged on, not the size of the (mostly parked) pool.
+        // Reporting the ceiling here would claim 64 workers on a NAS that only ever sustained
+        // eight. Stays >= 1 for any pipeline that ran, so the "never started" check that keys
+        // off a zero worker count still holds.
+        worker_count: limiter.limit(),
+        peak_worker_count: counters.concurrency_high_water.load(Ordering::Relaxed),
         task_queue_high_water: counters.task_queue_high_water.load(Ordering::Relaxed),
         result_queue_high_water: counters.result_queue_high_water.load(Ordering::Relaxed),
         outstanding_high_water: counters.outstanding_high_water.load(Ordering::Relaxed),
@@ -2210,7 +2551,8 @@ fn scan_with_runtime<F: FnMut() -> bool>(
         }
         let now = clock.elapsed();
         if count_telemetry.progress_due(now, config.progress_interval) {
-            let details = progress_details(&mut count_telemetry, now, total, 0, config, false);
+            // Enumeration runs before any inspector exists, so no concurrency to report yet.
+            let details = progress_details(&mut count_telemetry, now, total, 0, config, 0, false);
             update_progress(
                 progress_path,
                 "scanning",
@@ -2232,6 +2574,7 @@ fn scan_with_runtime<F: FnMut() -> bool>(
         total,
         0,
         config,
+        0,
         false,
     );
     update_progress(
@@ -2269,6 +2612,7 @@ fn scan_with_runtime<F: FnMut() -> bool>(
             total,
             0,
             config,
+            0,
             false,
         );
         update_progress(
@@ -2480,14 +2824,329 @@ mod tests {
         SystemTime::now() + Duration::from_secs(MIN_STABLE_AGE_SECONDS + 5)
     }
 
+    /// Pins concurrency: the pipeline tests assert exact worker counts and queue high-water
+    /// marks, which only hold if the limiter stays wide open. The controller is exercised
+    /// separately, against synthetic throughput, where it can be checked deterministically.
     fn test_config(parallelism: usize, capacity: usize) -> StructuralScanConfig {
         StructuralScanConfig {
             inspection_parallelism: parallelism,
+            initial_parallelism: parallelism,
+            adaptive_concurrency: false,
             task_queue_capacity: capacity,
             result_queue_capacity: capacity,
             progress_interval: Duration::from_secs(1),
             layout: Some(Layout::linux_x86_64()),
         }
+    }
+
+    fn adaptive_test_config(initial: usize, max: usize, capacity: usize) -> StructuralScanConfig {
+        StructuralScanConfig {
+            inspection_parallelism: max,
+            initial_parallelism: initial,
+            adaptive_concurrency: true,
+            task_queue_capacity: capacity,
+            result_queue_capacity: capacity,
+            progress_interval: Duration::from_secs(1),
+            layout: Some(Layout::linux_x86_64()),
+        }
+    }
+
+    /// Drives the controller with a synthetic device: `rate_for` decides how many files a
+    /// given concurrency sustains, so a spinning disk that saturates at 8 and an NVMe that
+    /// keeps scaling can both be modelled exactly.
+    fn drive_controller(
+        controller: &mut ConcurrencyController,
+        limiter: &ConcurrencyLimiter,
+        windows: usize,
+        rate_for: impl Fn(usize) -> f64,
+    ) -> Vec<usize> {
+        let mut now = Duration::ZERO;
+        let mut completed = 0usize;
+        let mut seen = Vec::new();
+        for _ in 0..windows {
+            let window = CONCURRENCY_WINDOW;
+            now = now.saturating_add(window);
+            completed += (rate_for(limiter.limit()) * window.as_secs_f64()) as usize;
+            if let Some(limit) = controller.observe(now, completed) {
+                limiter.set_limit(limit);
+            }
+            seen.push(limiter.limit());
+        }
+        seen
+    }
+
+    #[test]
+    fn concurrency_controller_settles_where_the_device_stops_paying() {
+        // A device that saturates hard at 8 in flight: more queue depth buys nothing.
+        let limiter = ConcurrencyLimiter::new(4);
+        let mut controller = ConcurrencyController::new(4, 64, Duration::ZERO);
+        drive_controller(&mut controller, &limiter, 12, |limit| {
+            (limit.min(8) * 50) as f64
+        });
+        assert_eq!(limiter.limit(), 8);
+        assert_eq!(controller.best_limit, 8);
+    }
+
+    #[test]
+    fn concurrency_controller_climbs_for_storage_that_keeps_scaling() {
+        // NVMe-shaped: throughput keeps rising with queue depth, so it should reach the cap.
+        let limiter = ConcurrencyLimiter::new(4);
+        let mut controller = ConcurrencyController::new(4, 64, Duration::ZERO);
+        drive_controller(&mut controller, &limiter, 12, |limit| (limit * 500) as f64);
+        assert_eq!(limiter.limit(), 64);
+    }
+
+    #[test]
+    fn concurrency_controller_backs_off_when_more_queue_depth_hurts() {
+        // A single spinning disk: past a shallow queue, seek thrashing makes it worse.
+        let limiter = ConcurrencyLimiter::new(4);
+        let mut controller = ConcurrencyController::new(4, 64, Duration::ZERO);
+        drive_controller(&mut controller, &limiter, 12, |limit| {
+            if limit <= 4 {
+                400.0
+            } else {
+                400.0 / (limit as f64 / 4.0)
+            }
+        });
+        assert_eq!(limiter.limit(), 4);
+    }
+
+    #[test]
+    fn concurrency_controller_ignores_windows_that_are_too_short_to_mean_anything() {
+        let mut controller = ConcurrencyController::new(4, 64, Duration::ZERO);
+        // Plenty of files, but well under the window: no signal, no change.
+        assert_eq!(controller.observe(Duration::from_secs(1), 10_000), None);
+        // A full window with nothing completed is equally meaningless.
+        assert_eq!(controller.observe(CONCURRENCY_WINDOW, 0), None);
+    }
+
+    #[test]
+    fn concurrency_controller_reprobes_after_settling() {
+        let limiter = ConcurrencyLimiter::new(4);
+        let mut controller = ConcurrencyController::new(4, 64, Duration::ZERO);
+        drive_controller(&mut controller, &limiter, 6, |limit| {
+            (limit.min(8) * 50) as f64
+        });
+        assert_eq!(limiter.limit(), 8);
+        assert_eq!(controller.phase, ConcurrencyPhase::Settled);
+
+        // The device frees up: a later probe must find the new headroom and resume climbing.
+        let mut now = controller.window_started_at;
+        let mut completed = controller.window_start_completed;
+        let mut reached = limiter.limit();
+        for _ in 0..12 {
+            now = now.saturating_add(CONCURRENCY_WINDOW.max(Duration::from_secs(30)));
+            completed += (limiter.limit() * 200) as usize;
+            if let Some(limit) = controller.observe(now, completed) {
+                limiter.set_limit(limit);
+            }
+            reached = reached.max(limiter.limit());
+        }
+        assert!(
+            reached > 8,
+            "a settled controller never re-probed for freed-up headroom (reached {reached})"
+        );
+    }
+
+    /// A probe that pays off must resume a full climb. The earlier version flipped to Climbing
+    /// but left the limit where it was, so the next window compared a limit against itself,
+    /// settled again, and the scan crept up exactly one rung per probe interval.
+    #[test]
+    fn a_successful_probe_resumes_a_full_climb() {
+        let limiter = ConcurrencyLimiter::new(4);
+        let mut controller = ConcurrencyController::new(4, 64, Duration::ZERO);
+        let mut now = Duration::ZERO;
+        let mut completed = 0usize;
+        let mut limits = Vec::new();
+
+        for window in 0..80 {
+            // The device saturates at 8 to begin with, so the controller settles there. Then
+            // the competing load goes away and it scales freely.
+            let limit = limiter.limit();
+            let rate = if window < 12 {
+                (limit.min(8) * 50) as f64
+            } else {
+                (limit * 50) as f64
+            };
+            now = now.saturating_add(CONCURRENCY_WINDOW);
+            completed += (rate * CONCURRENCY_WINDOW.as_secs_f64()) as usize;
+            if let Some(next) = controller.observe(now, completed) {
+                limiter.set_limit(next);
+            }
+            limits.push(limiter.limit());
+        }
+
+        assert_eq!(limiter.limit(), 64);
+        let mut longest = 1;
+        let mut run = 1;
+        for pair in limits.windows(2) {
+            if pair[1] > pair[0] {
+                run += 1;
+                longest = longest.max(run);
+            } else {
+                run = 1;
+            }
+        }
+        assert!(
+            longest >= 3,
+            "the climb advanced one rung per probe interval instead of resuming (longest back-to-back climb was {longest})"
+        );
+    }
+
+    /// Storage that gets busier mid-scan must be met by backing off. This is the case a
+    /// high-water baseline gets wrong: a rate recorded while the NAS was idle can never be
+    /// beaten once it is loaded, so every probe "fails" and the limit freezes at the top.
+    #[test]
+    fn controller_backs_down_when_storage_gets_busier_after_settling() {
+        let limiter = ConcurrencyLimiter::new(4);
+        let mut controller = ConcurrencyController::new(4, 32, Duration::ZERO);
+        let mut now = Duration::ZERO;
+        let mut completed = 0usize;
+
+        for _ in 0..12 {
+            let rate = (limiter.limit() * 100) as f64;
+            now = now.saturating_add(CONCURRENCY_WINDOW);
+            completed += (rate * CONCURRENCY_WINDOW.as_secs_f64()) as usize;
+            if let Some(next) = controller.observe(now, completed) {
+                limiter.set_limit(next);
+            }
+        }
+        assert_eq!(
+            limiter.limit(),
+            32,
+            "should have climbed while it had headroom"
+        );
+
+        // The NAS is now busy: a deep queue thrashes it, a shallow one is faster.
+        for _ in 0..120 {
+            let limit = limiter.limit();
+            let rate = if limit <= 4 {
+                200.0
+            } else {
+                200.0 * 4.0 / limit as f64
+            };
+            now = now.saturating_add(CONCURRENCY_WINDOW);
+            completed += (rate * CONCURRENCY_WINDOW.as_secs_f64()) as usize;
+            if let Some(next) = controller.observe(now, completed) {
+                limiter.set_limit(next);
+            }
+        }
+        assert!(
+            limiter.limit() < 32,
+            "the controller stayed pinned at the ceiling while the device degraded (limit {})",
+            limiter.limit()
+        );
+        assert_eq!(limiter.limit(), 4);
+    }
+
+    #[test]
+    fn concurrency_limiter_never_exceeds_its_limit() {
+        let limiter = Arc::new(ConcurrencyLimiter::new(3));
+        let stop = Arc::new(AtomicBool::new(false));
+        let in_flight = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+
+        std::thread::scope(|scope| {
+            for _ in 0..16 {
+                let limiter = Arc::clone(&limiter);
+                let stop = Arc::clone(&stop);
+                let in_flight = Arc::clone(&in_flight);
+                let peak = Arc::clone(&peak);
+                scope.spawn(move || {
+                    for _ in 0..40 {
+                        let Some(permit) = limiter.acquire(&stop) else {
+                            return;
+                        };
+                        let active = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                        record_high_water(&peak, active);
+                        std::thread::yield_now();
+                        in_flight.fetch_sub(1, Ordering::SeqCst);
+                        drop(permit);
+                    }
+                });
+            }
+        });
+
+        assert_eq!(in_flight.load(Ordering::SeqCst), 0);
+        assert!(
+            peak.load(Ordering::SeqCst) <= 3,
+            "limiter allowed {} concurrent inspections past a limit of 3",
+            peak.load(Ordering::SeqCst)
+        );
+    }
+
+    #[test]
+    fn concurrency_limiter_releases_workers_parked_during_cancellation() {
+        let limiter = Arc::new(ConcurrencyLimiter::new(1));
+        let stop = Arc::new(AtomicBool::new(false));
+        // Take the only permit, so the spawned worker must park.
+        let held = limiter.acquire(&stop).expect("first permit");
+
+        std::thread::scope(|scope| {
+            let worker_limiter = Arc::clone(&limiter);
+            let worker_stop = Arc::clone(&stop);
+            let parked = scope.spawn(move || worker_limiter.acquire(&worker_stop).is_none());
+            stop.store(true, Ordering::Release);
+            assert!(
+                parked.join().expect("parked worker panicked"),
+                "a worker parked on the limiter did not wake when the pipeline stopped"
+            );
+        });
+        drop(held);
+    }
+
+    /// The limiter is resized underneath live workers, so this has to prove two things at once:
+    /// that a real transition happens mid-scan, and that resizing does not cost or duplicate a
+    /// single file. A never-advancing clock would silently skip the first half.
+    #[test]
+    fn adaptive_scan_retunes_mid_scan_and_still_matches_the_serial_reference() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        for index in 0..256u32 {
+            materialize(
+                &root,
+                format!("steam/adaptive-{index}").as_bytes(),
+                b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+                b"1234",
+            );
+        }
+        let started = fixed_scan_started();
+        let serial = serial_reference(&root, started, Layout::linux_x86_64());
+
+        let clock = TickingClock::new(Duration::from_secs(1));
+        let mut never_cancel = || false;
+        let mut coverage = StructuralCoverage::default();
+        let mut candidates = Vec::new();
+        let (cancelled, telemetry) = run_parallel_inspection(
+            &root,
+            started,
+            None,
+            256,
+            &mut coverage,
+            &mut candidates,
+            adaptive_test_config(1, 8, 8),
+            &clock,
+            None,
+            &mut never_cancel,
+        )
+        .unwrap();
+
+        assert!(!cancelled);
+        assert_eq!(coverage.files_seen, 256);
+        // The limiter must actually have been resized under the running workers. Assert on the
+        // peak, not the final limit: throughput here is bounded by the harness rather than by
+        // any device, so the controller explores upward and then correctly backs all the way
+        // down again, and the value it ends on proves nothing.
+        assert!(
+            telemetry.peak_worker_count > 1,
+            "the limiter was never resized mid-scan (peak {})",
+            telemetry.peak_worker_count
+        );
+        assert!(telemetry.peak_worker_count <= 8);
+        assert!(telemetry.worker_count >= 1);
+        // ...and resizing it under live workers must not lose, duplicate, or corrupt a file.
+        let adaptive = build_report(started, candidates, coverage);
+        assert_eq!(serial, adaptive);
     }
 
     struct ManualClock {
@@ -2510,6 +3169,31 @@ mod tests {
     impl ScanClock for ManualClock {
         fn elapsed(&self) -> Duration {
             Duration::from_millis(self.millis.load(Ordering::Relaxed))
+        }
+    }
+
+    /// A clock that moves on its own, one tick per reading. `ManualClock` never advances unless
+    /// a test advances it, which means the controller's windows never elapse and it never
+    /// retunes: a scan driven by it proves nothing about adaptation. This one guarantees the
+    /// windows close, so the pipeline really does resize its limiter mid-scan.
+    struct TickingClock {
+        millis: AtomicU64,
+        tick_millis: u64,
+    }
+
+    impl TickingClock {
+        fn new(tick: Duration) -> Self {
+            Self {
+                millis: AtomicU64::new(0),
+                tick_millis: u64::try_from(tick.as_millis()).unwrap_or(u64::MAX),
+            }
+        }
+    }
+
+    impl ScanClock for TickingClock {
+        fn elapsed(&self) -> Duration {
+            let millis = self.millis.fetch_add(self.tick_millis, Ordering::Relaxed);
+            Duration::from_millis(millis)
         }
     }
 
@@ -3106,6 +3790,7 @@ mod tests {
             coverage.files_seen,
             10_000,
             config,
+            config.inspection_parallelism,
             true,
         );
         update_progress(
@@ -3135,6 +3820,7 @@ mod tests {
             coverage.files_seen,
             10_000,
             config,
+            config.inspection_parallelism,
             true,
         );
         assert!(details.rate.files_per_second.unwrap().is_finite());
