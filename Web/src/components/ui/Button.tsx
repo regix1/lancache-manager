@@ -78,11 +78,14 @@ export const Button: React.FC<ButtonProps> = ({
     return 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary';
   };
 
+  // min-height per size = the text-button height, so an icon-only button (a shorter glyph)
+  // still matches a text button of the same size in a control cluster instead of rendering
+  // a few px shorter.
   const sizes = {
-    xs: 'px-2 py-1 text-xs',
-    sm: 'px-3 py-1.5 text-sm',
-    md: 'px-4 py-2',
-    lg: 'px-6 py-3 text-lg'
+    xs: 'min-h-6 px-2 py-1 text-xs',
+    sm: 'min-h-8 px-3 py-1.5 text-sm',
+    md: 'min-h-10 px-4 py-2',
+    lg: 'min-h-[3.25rem] px-6 py-3 text-lg'
   };
 
   const permissionsContext = useOptionalDirectoryPermissionsContext();
