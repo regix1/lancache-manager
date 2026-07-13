@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
 import { useTranslation } from 'react-i18next';
+import { useAnchorFollow, type AnchorMoveHandler } from '@hooks/useAnchorFollow';
 
 interface IconComponentProps {
   size?: number;
@@ -123,15 +124,16 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
+  // `top`/`left` are DOCUMENT coordinates: the menu is absolutely positioned in a
+  // body portal so that a scroll carries it and its trigger together natively
+  // rather than having JavaScript chase the trigger every frame (see useAnchorFollow).
   const [dropdownStyle, setDropdownStyle] = useState<{
-    top?: number;
-    bottom?: number;
+    top: number;
     left: number;
     animation: string;
-  }>({ left: 0, animation: '' });
+  }>({ top: 0, left: 0, animation: '' });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const rafRef = useRef<number | null>(null);
 
   const valuesSet = useMemo(() => new Set(values), [values]);
   const selectedCount = valuesSet.size;
@@ -151,11 +153,16 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     if (!buttonRef.current) return;
 
     const rect = buttonRef.current.getBoundingClientRect();
-    const dropdownHeight = 300;
+    // offsetWidth/offsetHeight, NOT getBoundingClientRect: the entrance keyframes
+    // scale the menu (`scale(0.97)`), so a bounding rect measured mid-animation
+    // reports that scaled size - and an upward menu, placed by subtracting its
+    // height from the trigger's top, would land on top of the button.
+    const menuEl = dropdownRef.current;
+    const dropdownHeight = menuEl?.offsetHeight || 300;
     const spaceBelow = window.innerHeight - rect.bottom;
     const openUpward = spaceBelow < dropdownHeight && rect.top > spaceBelow;
 
-    const dropdownWidthPx = dropdownRef.current?.getBoundingClientRect().width || 200;
+    const dropdownWidthPx = menuEl?.offsetWidth || 200;
     let left = rect.left;
 
     if (alignRight) {
@@ -168,21 +175,17 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
           : rect.left + (rect.width - dropdownWidthPx) / 2;
     }
 
-    setDropdownStyle(
-      openUpward
-        ? {
-            top: undefined,
-            bottom: window.innerHeight - rect.top + 4,
-            left,
-            animation: 'msdFadeInUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards'
-          }
-        : {
-            top: rect.bottom + 4,
-            bottom: undefined,
-            left,
-            animation: 'msdFadeInDown 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards'
-          }
-    );
+    // Both directions anchor by `top`: `bottom` would be measured from the bottom of
+    // the document once the menu is absolutely positioned, not the viewport.
+    const top = openUpward ? rect.top - 4 - dropdownHeight : rect.bottom + 4;
+
+    setDropdownStyle({
+      top: top + window.scrollY,
+      left: left + window.scrollX,
+      animation: openUpward
+        ? 'msdFadeInUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+        : 'msdFadeInDown 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+    });
   }, [alignRight]);
 
   // Calculate position before paint and when opening
@@ -220,37 +223,24 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     };
   }, [isOpen]);
 
-  // Keep dropdown anchored during scroll/resize
-  useEffect(() => {
-    if (!isOpen) return;
+  // No scroll listener: the menu is positioned on the page, so a scroll moves it and
+  // its trigger together with no JavaScript at all. Reflows (and window resizes) are
+  // what actually move the trigger, and useAnchorFollow reports those.
+  const handleAnchorMove: AnchorMoveHandler = useCallback((): void => {
+    updatePosition();
+  }, [updatePosition]);
 
-    const handleScrollOrResize = (event?: Event) => {
-      if (event && event.type === 'scroll') {
-        const target = event.target as Node | null;
-        if (target && dropdownRef.current?.contains(target)) {
-          return; // Don't reposition when scrolling inside the dropdown
-        }
-      }
+  /** Nothing left to anchor to once the trigger is scrolled off screen. */
+  const handleAnchorLost = useCallback((): void => {
+    setIsOpen(false);
+  }, []);
 
-      if (rafRef.current !== null) return;
-      rafRef.current = window.requestAnimationFrame(() => {
-        rafRef.current = null;
-        updatePosition();
-      });
-    };
-
-    window.addEventListener('scroll', handleScrollOrResize, true);
-    window.addEventListener('resize', handleScrollOrResize);
-
-    return () => {
-      window.removeEventListener('scroll', handleScrollOrResize, true);
-      window.removeEventListener('resize', handleScrollOrResize);
-      if (rafRef.current !== null) {
-        window.cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-    };
-  }, [isOpen, updatePosition]);
+  useAnchorFollow({
+    enabled: isOpen,
+    anchorRef: buttonRef,
+    onAnchorMove: handleAnchorMove,
+    onAnchorLost: handleAnchorLost
+  });
 
   const handleToggle = useCallback(
     (optionValue: string) => {
@@ -297,10 +287,9 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`msd-dropdown fixed z-[250] ${dropdownWidth || ''} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_10px_20px_-5px_rgba(0,0,0,0.2),0_20px_40px_-10px_rgba(0,0,0,0.15),inset_0_1px_0_0_var(--theme-glint-white)]`}
+            className={`msd-dropdown absolute z-[250] ${dropdownWidth || ''} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_10px_20px_-5px_rgba(0,0,0,0.2),0_20px_40px_-10px_rgba(0,0,0,0.15),inset_0_1px_0_0_var(--theme-glint-white)]`}
             style={{
               top: dropdownStyle.top,
-              bottom: dropdownStyle.bottom,
               left: dropdownStyle.left,
               animation: dropdownStyle.animation,
               ...(!dropdownWidth ? { width: buttonRef.current?.getBoundingClientRect().width } : {})

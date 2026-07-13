@@ -6,16 +6,114 @@ import { CustomScrollbar } from './CustomScrollbar';
 import { Tooltip } from './Tooltip';
 import { getEventColorVar } from '@utils/eventColors';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
+import { useAnchorFollow, readAnchorRect, type AnchorRect } from '@hooks/useAnchorFollow';
 
+/**
+ * Menu placement in DOCUMENT coordinates (the menu is `position: absolute` in a
+ * body portal, so `top`/`left` are page offsets, not viewport offsets). Positioning
+ * the menu on the page rather than in the viewport is what lets an ordinary scroll
+ * carry the menu and its trigger together natively - see useAnchorFollow. `width` is
+ * the trigger's width, used as the menu's minimum width.
+ */
 interface DropdownPosition {
-  top?: number;
-  bottom?: number;
+  top: number;
   left: number;
   width: number;
 }
 
+/** Menu placement resolved from a trigger rect: `upward` records which side it opened on. */
+interface MenuGeometry extends DropdownPosition {
+  upward: boolean;
+}
+
+interface SubmenuGeometry {
+  top: number;
+  left: number;
+  openLeft: boolean;
+}
+
 const VIEWPORT_PADDING_PX = 8;
 const DROPDOWN_MAX_WIDTH_MARGIN_PX = 32; // Matches `max-w-[calc(100vw-32px)]`
+const MENU_GAP_PX = 4;
+const SUBMENU_WIDTH_PX = 256;
+const SUBMENU_GAP_PX = 4;
+/** Position deltas at or below this are rounding noise, not movement. */
+const POSITION_EPSILON_PX = 0.5;
+/**
+ * Extra room the losing side must offer before the menu flips direction. Without
+ * it, a trigger sitting exactly at the fits/doesn't-fit boundary would flip
+ * up/down every frame the page reflows by a pixel.
+ */
+const DIRECTION_FLIP_HYSTERESIS_PX = 8;
+
+/**
+ * Picks the side to open on, biased toward staying put.
+ *
+ * Downward is the preferred side. On first open the menu goes down unless it
+ * would overflow and up is less cramped. Once it is open the side is sticky: it
+ * only changes when the other side is materially better (see
+ * DIRECTION_FLIP_HYSTERESIS_PX), so a menu being carried around by a reflow
+ * never oscillates. Sides are ranked by how far the menu overflows each one,
+ * rather than a bare fits/doesn't-fit test, so a menu too tall for either side
+ * still lands on the roomier one.
+ */
+function chooseUpward(
+  current: boolean | null,
+  spaceAbove: number,
+  spaceBelow: number,
+  menuHeight: number
+): boolean {
+  const overflowBelow = Math.max(0, menuHeight - spaceBelow);
+  const overflowAbove = Math.max(0, menuHeight - spaceAbove);
+
+  if (current === null) {
+    return overflowBelow > 0 && overflowAbove < overflowBelow;
+  }
+
+  if (current) {
+    // Upward: fall back to the preferred side as soon as it has clear room. The
+    // margin is what stops a menu resting on the boundary from flipping back and
+    // forth as the page reflows by a pixel.
+    return !(spaceBelow >= menuHeight + DIRECTION_FLIP_HYSTERESIS_PX);
+  }
+
+  // Downward: give up the preferred side only when upward is materially roomier.
+  return overflowAbove + DIRECTION_FLIP_HYSTERESIS_PX < overflowBelow;
+}
+
+function isSameDropdownPosition(a: DropdownPosition, b: DropdownPosition): boolean {
+  return (
+    Math.abs(a.top - b.top) <= POSITION_EPSILON_PX &&
+    Math.abs(a.left - b.left) <= POSITION_EPSILON_PX &&
+    Math.abs(a.width - b.width) <= POSITION_EPSILON_PX
+  );
+}
+
+function isSameSubmenuPosition(a: SubmenuGeometry, b: SubmenuGeometry): boolean {
+  return (
+    Math.abs(a.top - b.top) <= POSITION_EPSILON_PX &&
+    Math.abs(a.left - b.left) <= POSITION_EPSILON_PX &&
+    a.openLeft === b.openLeft
+  );
+}
+
+/**
+ * Places the submenu beside its option row, flipping left when the right edge is
+ * tight. Returned in document coordinates, like the menu itself.
+ */
+function computeSubmenuGeometry(triggerRect: DOMRect): SubmenuGeometry {
+  const spaceOnRight = window.innerWidth - triggerRect.right;
+  const openLeft = spaceOnRight < SUBMENU_WIDTH_PX && triggerRect.left > SUBMENU_WIDTH_PX;
+  const left = openLeft
+    ? triggerRect.left - SUBMENU_WIDTH_PX - SUBMENU_GAP_PX
+    : triggerRect.right + SUBMENU_GAP_PX;
+
+  return {
+    top: triggerRect.top + window.scrollY,
+    left: left + window.scrollX,
+    openLeft
+  };
+}
 
 function getRootFontSizePx(): number {
   const fontSize = window.getComputedStyle(document.documentElement).fontSize;
@@ -174,14 +272,14 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   const [dropdownStyle, setDropdownStyle] = useState<{ animation: string }>({ animation: '' });
   const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition | null>(null);
   const [expandedSubmenu, setExpandedSubmenu] = useState<string | null>(null);
-  const [submenuPosition, setSubmenuPosition] = useState<{
-    top: number;
-    left: number;
-    openLeft: boolean;
-  } | null>(null);
+  const [submenuPosition, setSubmenuPosition] = useState<SubmenuGeometry | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
+  /** The option row the open submenu hangs off, so it can be re-measured as the menu moves. */
+  const submenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  /** Side the menu is currently opened on (null while closed). Feeds the flip hysteresis. */
+  const upwardRef = useRef<boolean | null>(null);
 
   const selectedOption =
     options.find((opt) => opt.value === value) ||
@@ -194,6 +292,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       // Submenu closes immediately; the main menu keeps its position through the
       // exit animation and is cleared once fully unmounted (see the effect below).
       setExpandedSubmenu(null);
+      setSubmenuPosition(null);
+      submenuTriggerRef.current = null;
     }
   }, [isOpen]);
 
@@ -202,108 +302,135 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   useEffect(() => {
     if (!present) {
       setDropdownPosition(null);
+      upwardRef.current = null;
     }
   }, [present]);
 
-  const computeInitialDropdownPosition = useCallback(() => {
-    if (!buttonRef.current) return null;
+  /**
+   * Resolves where the menu sits for a given trigger rect. Before the menu is in
+   * the DOM this runs off an estimated height/width; once it is mounted the
+   * measured box is used, which is what makes the direction and the horizontal
+   * clamp exact.
+   */
+  const computeMenuGeometry = useCallback(
+    (anchor: AnchorRect): MenuGeometry => {
+      // offsetWidth/offsetHeight, NOT getBoundingClientRect: the entrance keyframes
+      // scale the menu (`scale(0.98)`), and a bounding rect measured mid-animation
+      // reports that scaled size. An upward menu is placed by subtracting its height
+      // from the trigger's top, so a height ~2% short parks it right on top of the
+      // button. The offset box is the layout size and ignores transforms.
+      const menuEl = dropdownRef.current;
+      const measuredHeight = menuEl?.offsetHeight ?? 0;
+      const measuredWidth = menuEl?.offsetWidth ?? 0;
 
-    const rect = buttonRef.current.getBoundingClientRect();
-    const parsedMaxHeight = maxHeight && maxHeight.endsWith('px') ? parseInt(maxHeight, 10) : 300;
-    const estimatedContentHeight = compactMode
-      ? Math.min(parsedMaxHeight, options.length * 24 + 8)
-      : parsedMaxHeight;
-    const dropdownHeight = estimatedContentHeight + 50;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-    const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
-    const dropdownWidthPx = resolveDropdownWidthToPx(dropdownWidth, rect.width);
+      const parsedMaxHeight = maxHeight && maxHeight.endsWith('px') ? parseInt(maxHeight, 10) : 300;
+      const estimatedContentHeight = compactMode
+        ? Math.min(parsedMaxHeight, options.length * 24 + 8)
+        : parsedMaxHeight;
+      const menuHeight = measuredHeight > 0 ? measuredHeight : estimatedContentHeight + 50;
+      const menuWidth =
+        measuredWidth > 0 ? measuredWidth : resolveDropdownWidthToPx(dropdownWidth, anchor.width);
 
-    const desiredLeft = alignRight ? rect.right - dropdownWidthPx : rect.left;
-    const maxLeft = Math.max(
-      VIEWPORT_PADDING_PX,
-      window.innerWidth - dropdownWidthPx - VIEWPORT_PADDING_PX
-    );
-    const left = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
+      // Collisions are decided in viewport space (that is what the menu has to fit
+      // inside), then translated to the page so the result scrolls with the trigger.
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const spaceBelow = viewportHeight - anchor.bottom - MENU_GAP_PX;
+      const spaceAbove = anchor.top - MENU_GAP_PX;
+      const upward = chooseUpward(upwardRef.current, spaceAbove, spaceBelow, menuHeight);
 
-    const gap = 4;
-    const top = shouldOpenUpward ? undefined : rect.bottom + gap;
-    const bottom = shouldOpenUpward ? window.innerHeight - rect.top + gap : undefined;
+      const desiredLeft = alignRight ? anchor.right - menuWidth : anchor.left;
+      const maxLeft = Math.max(
+        VIEWPORT_PADDING_PX,
+        viewportWidth - menuWidth - VIEWPORT_PADDING_PX
+      );
+      const left = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
 
-    return { top, bottom, left, width: rect.width, shouldOpenUpward };
-  }, [alignRight, dropdownWidth, maxHeight, compactMode, options.length]);
+      // A single top edge for both directions: an upward menu hangs its bottom edge
+      // off the trigger's top. Anchoring by `bottom` instead would be measured from
+      // the bottom of the *document* once the menu is absolutely positioned.
+      const top = upward ? anchor.top - MENU_GAP_PX - menuHeight : anchor.bottom + MENU_GAP_PX;
 
-  // Refine position after paint when trigger/layout changes while open
-  useLayoutEffect(() => {
-    if (!isOpen || !buttonRef.current) return;
+      return {
+        top: top + window.scrollY,
+        left: left + window.scrollX,
+        width: anchor.width,
+        upward
+      };
+    },
+    [alignRight, dropdownWidth, maxHeight, compactMode, options.length]
+  );
 
-    const pos = computeInitialDropdownPosition();
-    if (pos) {
-      setDropdownPosition({
-        top: pos.top,
-        bottom: pos.bottom,
-        left: pos.left,
-        width: pos.width
-      });
-      setDropdownStyle({
-        animation: `${pos.shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
-      });
-    }
-  }, [isOpen, computeInitialDropdownPosition]);
+  /** Re-measures the open submenu against its (possibly moved) option row. */
+  const syncSubmenuPosition = useCallback((): void => {
+    const trigger = submenuTriggerRef.current;
+    if (!trigger) return;
 
-  // After the dropdown is rendered, clamp its position using the *actual* measured dimensions.
-  // This corrects both horizontal overflow and vertical direction using real rendered height.
-  useLayoutEffect(() => {
-    if (!isOpen || !dropdownPosition || !buttonRef.current || !dropdownRef.current) return;
+    const next = computeSubmenuGeometry(trigger.getBoundingClientRect());
+    setSubmenuPosition((prev) => (prev && isSameSubmenuPosition(prev, next) ? prev : next));
+  }, []);
 
-    const dropdownRect = dropdownRef.current.getBoundingClientRect();
-    const buttonRect = buttonRef.current.getBoundingClientRect();
-    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+  /**
+   * Writes a freshly computed placement to state. `allowAnimationUpdate` is only
+   * set while the menu is entering - a direction flip mid-follow must not replay
+   * the entrance keyframe under the user's cursor.
+   */
+  const applyMenuGeometry = useCallback(
+    (anchor: AnchorRect, allowAnimationUpdate: boolean): void => {
+      const geometry = computeMenuGeometry(anchor);
+      const directionChanged = upwardRef.current !== null && upwardRef.current !== geometry.upward;
+      upwardRef.current = geometry.upward;
 
-    // Horizontal clamping
-    const desiredLeft = alignRight ? buttonRect.right - dropdownRect.width : buttonRect.left;
-    const maxLeft = Math.max(
-      VIEWPORT_PADDING_PX,
-      viewportWidth - dropdownRect.width - VIEWPORT_PADDING_PX
-    );
-    const clampedLeft = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
+      const next: DropdownPosition = {
+        top: geometry.top,
+        left: geometry.left,
+        width: geometry.width
+      };
+      setDropdownPosition((prev) => (prev && isSameDropdownPosition(prev, next) ? prev : next));
 
-    // Vertical correction: use actual rendered height to re-evaluate direction.
-    // If we opened upward but the actual height fits below, switch to downward.
-    const gap = 4;
-    const actualHeight = dropdownRect.height;
-    const spaceBelow = window.innerHeight - buttonRect.bottom;
-    const isCurrentlyUpward = dropdownPosition.bottom !== undefined;
-    const fitsBelow = spaceBelow >= actualHeight + gap;
-
-    let newTop = dropdownPosition.top;
-    let newBottom = dropdownPosition.bottom;
-    let directionChanged = false;
-
-    if (isCurrentlyUpward && fitsBelow) {
-      // Switch from upward to downward - actual height fits below
-      newTop = buttonRect.bottom + gap;
-      newBottom = undefined;
-      directionChanged = true;
-    }
-
-    const leftChanged = Math.abs(clampedLeft - dropdownPosition.left) > 0.5;
-
-    if (leftChanged || directionChanged) {
-      const newLeft = leftChanged || directionChanged ? clampedLeft : dropdownPosition.left;
-      setDropdownPosition({
-        top: newTop,
-        bottom: newBottom,
-        left: newLeft,
-        width: dropdownPosition.width
-      });
-      if (directionChanged) {
+      if (allowAnimationUpdate && directionChanged) {
         setDropdownStyle({
-          animation: 'dropdownSlideDown 0.15s cubic-bezier(0.16, 1, 0.3, 1)'
+          animation: `${geometry.upward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
         });
       }
-    }
-  }, [isOpen, alignRight, dropdownPosition]);
+    },
+    [computeMenuGeometry]
+  );
+
+  // Correct the open-time estimate with the menu's real measured box before the
+  // browser paints it, so the menu never visibly jumps into place.
+  useLayoutEffect(() => {
+    if (!isOpen || !buttonRef.current) return;
+    applyMenuGeometry(readAnchorRect(buttonRef.current), true);
+  }, [isOpen, applyMenuGeometry]);
+
+  /**
+   * Keeps the portalled menu glued to its trigger while it is on screen. The page
+   * reflows underneath it whenever UniversalNotificationBar (an in-flow sticky
+   * bar) shows or finishes an operation, which moves the trigger without firing
+   * a scroll or resize event - so the menu follows the trigger's rect instead of
+   * listening for events. The submenu hangs off a row inside the menu, so it is
+   * re-measured in the same pass.
+   */
+  const handleAnchorMove = useCallback(
+    (anchor: AnchorRect): void => {
+      applyMenuGeometry(anchor, false);
+      syncSubmenuPosition();
+    },
+    [applyMenuGeometry, syncSubmenuPosition]
+  );
+
+  /** Nothing left to anchor to once the trigger is scrolled off screen. */
+  const handleAnchorLost = useCallback((): void => {
+    setIsOpen(false);
+  }, []);
+
+  useAnchorFollow({
+    enabled: present,
+    anchorRef: buttonRef,
+    onAnchorMove: handleAnchorMove,
+    onAnchorLost: handleAnchorLost
+  });
 
   // Event listeners
   useEffect(() => {
@@ -324,25 +451,17 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       if (e.key === 'Escape') setIsOpen(false);
     };
 
-    // Close on scroll to prevent dropdown from being mispositioned
-    const handleScroll = (e: Event) => {
-      // Ignore scroll events originating from inside the dropdown or submenu
-      if (dropdownRef.current && dropdownRef.current.contains(e.target as Node)) {
-        return;
-      }
-      if (submenuRef.current && submenuRef.current.contains(e.target as Node)) {
-        return;
-      }
-      setIsOpen(false);
-    };
-
+    // No scroll handler: the menu follows its trigger (see useAnchorFollow), so
+    // scrolling no longer mispositions it, and it dismisses itself if the trigger
+    // leaves the viewport. Closing on `scroll` was also actively harmful here -
+    // inserting the notification bar above the viewport makes the browser's scroll
+    // anchoring adjust scrollTop, which fires a scroll event and used to close an
+    // open menu even though nothing had visibly moved.
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
-    window.addEventListener('scroll', handleScroll, true);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
-      window.removeEventListener('scroll', handleScroll, true);
     };
   }, [isOpen]);
 
@@ -359,18 +478,12 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       if (expandedSubmenu === optionValue) {
         setExpandedSubmenu(null);
         setSubmenuPosition(null);
+        submenuTriggerRef.current = null;
       } else {
-        const rect = triggerElement.getBoundingClientRect();
-        const submenuWidth = 256;
-        const viewportWidth = window.innerWidth;
-        const spaceOnRight = viewportWidth - rect.right;
-        const openLeft = spaceOnRight < submenuWidth && rect.left > submenuWidth;
-
-        setSubmenuPosition({
-          top: rect.top,
-          left: openLeft ? rect.left - submenuWidth - 4 : rect.right + 4,
-          openLeft
-        });
+        // Remember the row itself, not just its rect: the menu moves whenever the
+        // page reflows, and the submenu is re-measured off this element.
+        submenuTriggerRef.current = triggerElement;
+        setSubmenuPosition(computeSubmenuGeometry(triggerElement.getBoundingClientRect()));
         setExpandedSubmenu(optionValue);
       }
     },
@@ -393,8 +506,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   const triggerSizeClass = size === 'sm' ? 'py-1.5' : size === 'lg' ? 'py-2.5' : 'py-[9px]';
 
   // While closing, swap the entrance keyframe for its exit mirror in the same
-  // direction (upward menus store a `bottom`, downward menus store a `top`).
-  const isUpwardMenu = dropdownPosition?.bottom !== undefined;
+  // direction. Both directions are anchored by `top`, so the side the menu opened
+  // on is carried by upwardRef rather than inferred from the coordinates.
+  const isUpwardMenu = upwardRef.current === true;
   const menuAnimation = closing
     ? `${isUpwardMenu ? 'dropdownSlideOutUp' : 'dropdownSlideOutDown'} 0.14s ease-in forwards`
     : dropdownStyle.animation;
@@ -408,16 +522,19 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
           e.stopPropagation();
           if (disabled) return;
           if (!isOpen) {
-            const pos = computeInitialDropdownPosition();
-            if (pos) {
+            if (buttonRef.current) {
+              // Seed the menu from an estimated size so it has coordinates to
+              // render at; the layout effect corrects it from the measured box
+              // before paint.
+              const geometry = computeMenuGeometry(readAnchorRect(buttonRef.current));
+              upwardRef.current = geometry.upward;
               setDropdownPosition({
-                top: pos.top,
-                bottom: pos.bottom,
-                left: pos.left,
-                width: pos.width
+                top: geometry.top,
+                left: geometry.left,
+                width: geometry.width
               });
               setDropdownStyle({
-                animation: `${pos.shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
+                animation: `${geometry.upward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
               });
             }
             setIsOpen(true);
@@ -465,10 +582,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`ed-dropdown ed-dropdown--menu fixed themed-border-radius border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[250] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
+            className={`ed-dropdown ed-dropdown--menu absolute themed-border-radius border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[250] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
             style={{
               top: dropdownPosition.top,
-              bottom: dropdownPosition.bottom,
               left: dropdownPosition.left,
               ...(dropdownWidth && !dropdownWidth.trim().startsWith('w-')
                 ? { width: dropdownWidth }
@@ -554,7 +670,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                         createPortal(
                           <div
                             ref={submenuRef}
-                            className="ed-dropdown fixed w-64 themed-border-radius border border-themed-primary overflow-hidden z-[251] bg-themed-secondary shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]"
+                            className="ed-dropdown absolute w-64 themed-border-radius border border-themed-primary overflow-hidden z-[251] bg-themed-secondary shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]"
                             style={{
                               top: submenuPosition.top,
                               left: submenuPosition.left

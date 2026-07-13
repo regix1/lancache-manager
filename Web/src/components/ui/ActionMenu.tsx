@@ -1,6 +1,31 @@
-import React, { useEffect, useRef, useState, useLayoutEffect, type ReactNode } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useLayoutEffect,
+  type ReactNode
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
+import { useAnchorFollow, readAnchorRect, type AnchorRect } from '@hooks/useAnchorFollow';
+
+interface MenuPosition {
+  top: number;
+  left: number;
+}
+
+const MENU_GAP_PX = 4;
+const VIEWPORT_PADDING_PX = 8;
+/** Position deltas at or below this are rounding noise, not movement. */
+const POSITION_EPSILON_PX = 0.5;
+
+function isSamePosition(a: MenuPosition, b: MenuPosition): boolean {
+  return (
+    Math.abs(a.top - b.top) <= POSITION_EPSILON_PX &&
+    Math.abs(a.left - b.left) <= POSITION_EPSILON_PX
+  );
+}
 
 interface ActionMenuProps {
   isOpen: boolean;
@@ -45,81 +70,60 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
 }) => {
   const triggerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [position, setPosition] = useState<MenuPosition>({ top: 0, left: 0 });
   const { present, closing } = useExitPresence(isOpen, DROPDOWN_EXIT_MS);
 
-  // Calculate position and track trigger movement
-  useLayoutEffect(() => {
-    if (!isOpen || !triggerRef.current) return;
-
-    const calculatePosition = () => {
-      if (!triggerRef.current) return null;
-
-      const rect = triggerRef.current.getBoundingClientRect();
+  const calculatePosition = useCallback(
+    (anchor: AnchorRect): MenuPosition => {
       const menuWidth = parseMenuWidthPx(width);
 
-      let left: number;
-      if (align === 'right') {
-        // Align right edge of menu with right edge of trigger
-        left = rect.right - menuWidth;
-      } else {
-        // Align left edge of menu with left edge of trigger
-        left = rect.left;
-      }
-
-      // Ensure menu doesn't go off-screen
+      // Align the menu's matching edge with the trigger's, then keep it on screen.
+      let left = align === 'right' ? anchor.right - menuWidth : anchor.left;
       const viewportWidth = window.innerWidth;
-      if (left + menuWidth > viewportWidth - 8) {
-        left = viewportWidth - menuWidth - 8;
+      if (left + menuWidth > viewportWidth - VIEWPORT_PADDING_PX) {
+        left = viewportWidth - menuWidth - VIEWPORT_PADDING_PX;
       }
-      if (left < 8) {
-        left = 8;
+      if (left < VIEWPORT_PADDING_PX) {
+        left = VIEWPORT_PADDING_PX;
       }
 
+      // Clamped against the viewport, returned in document coordinates: the menu is
+      // absolutely positioned in a body portal so that scrolling carries it and its
+      // trigger together (see useAnchorFollow).
       return {
-        top: rect.bottom + 4, // 4px gap below trigger
-        left,
-        triggerTop: rect.top
+        top: anchor.bottom + MENU_GAP_PX + window.scrollY,
+        left: left + window.scrollX
       };
-    };
+    },
+    [align, width]
+  );
 
-    // Initial position
-    const initialPos = calculatePosition();
-    if (initialPos) {
-      setPosition({ top: initialPos.top, left: initialPos.left });
-    }
+  /**
+   * Carries the menu with its trigger. The page reflows under the portalled menu
+   * whenever UniversalNotificationBar (an in-flow sticky bar) shows or finishes an
+   * operation; this used to close the menu on any trigger movement, which yanked the
+   * menu out from under the user mid-click.
+   */
+  const handleAnchorMove = useCallback(
+    (anchor: AnchorRect): void => {
+      const next = calculatePosition(anchor);
+      setPosition((prev) => (isSamePosition(prev, next) ? prev : next));
+    },
+    [calculatePosition]
+  );
 
-    // Track position changes (e.g., from notification dismissal causing layout shift)
-    const lastTriggerTop = initialPos?.triggerTop ?? 0;
-    let animationFrameId: number;
+  useLayoutEffect(() => {
+    if (!isOpen || !triggerRef.current) return;
+    handleAnchorMove(readAnchorRect(triggerRef.current));
+  }, [isOpen, handleAnchorMove]);
 
-    const checkPosition = () => {
-      const newPos = calculatePosition();
-      if (newPos) {
-        // If trigger moved significantly (more than 2px), close the menu
-        // This handles layout shifts from notifications disappearing
-        if (Math.abs(newPos.triggerTop - lastTriggerTop) > 2) {
-          onClose();
-          return;
-        }
-
-        // Update position if it changed slightly
-        setPosition((prev) => {
-          if (prev.top !== newPos.top || prev.left !== newPos.left) {
-            return { top: newPos.top, left: newPos.left };
-          }
-          return prev;
-        });
-      }
-      animationFrameId = requestAnimationFrame(checkPosition);
-    };
-
-    animationFrameId = requestAnimationFrame(checkPosition);
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, [isOpen, align, width, onClose]);
+  useAnchorFollow({
+    enabled: present,
+    anchorRef: triggerRef,
+    onAnchorMove: handleAnchorMove,
+    // Nothing left to anchor to once the trigger is scrolled off screen.
+    onAnchorLost: onClose
+  });
 
   // Handle click outside and escape key
   useEffect(() => {
@@ -144,25 +148,15 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
       }
     };
 
-    // Close on scroll to prevent menu from being mispositioned
-    const handleScroll = (e: Event) => {
-      if (isOpen) {
-        // Ignore scroll events originating from inside the dropdown
-        if (dropdownRef.current && dropdownRef.current.contains(e.target as Node)) {
-          return;
-        }
-        onClose();
-      }
-    };
-
+    // No scroll handler: the menu follows its trigger (see useAnchorFollow) and
+    // dismisses itself once the trigger leaves the viewport, so scrolling can no
+    // longer misposition it.
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
       document.addEventListener('keydown', handleEscape);
-      window.addEventListener('scroll', handleScroll, true);
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
         document.removeEventListener('keydown', handleEscape);
-        window.removeEventListener('scroll', handleScroll, true);
       };
     }
   }, [isOpen, onClose]);
@@ -180,7 +174,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`am-dropdown fixed ${width} bg-themed-secondary themed-border-radius shadow-xl overflow-hidden border border-themed-primary z-[85] ${
+            className={`am-dropdown absolute ${width} bg-themed-secondary themed-border-radius shadow-xl overflow-hidden border border-themed-primary z-[85] ${
               closing
                 ? 'animate-[dropdownSlideOut_0.14s_ease-in_forwards]'
                 : 'animate-[dropdownSlide_0.15s_ease-out]'
