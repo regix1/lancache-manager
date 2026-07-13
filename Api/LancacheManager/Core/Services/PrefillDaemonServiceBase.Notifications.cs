@@ -378,6 +378,12 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     protected async Task NotifyPrefillProgressAsync(DaemonSession session, PrefillProgress progress)
     {
+        // Stamp the tick's order BEFORE the first await. Socket events are dispatched
+        // fire-and-forget, so this handler can be re-entered while an earlier app-transition tick is
+        // still awaiting its history write - the sequence lets an in-process consumer discard a tick
+        // that has been overtaken instead of rendering progress backwards.
+        var sequence = Interlocked.Increment(ref session.ProgressSequence);
+
         // Update session's current app info for admin visibility
         var appInfoChanged = session.CurrentAppId != progress.CurrentAppId ||
                              session.CurrentAppName != progress.CurrentAppName;
@@ -566,6 +572,12 @@ public abstract partial class PrefillDaemonServiceBase
 
                 await BroadcastToSubscribersAsync(session, EventPrefillProgress,
                     new { sessionId = session.Id, progress = frontendProgress });
+
+                // Same push, in-process. Carries frontendProgress (NOT the raw tick) because only the
+                // normalized object has the three completion counters a consumer needs to keep its
+                // "game X of N" monotonic across cached games. Raised after the client fan-out so a
+                // slow subscriber cannot delay the clients.
+                await RaisePrefillProgressAsync(session, frontendProgress, sequence);
             }
             catch (Exception ex)
             {
@@ -718,6 +730,10 @@ public abstract partial class PrefillDaemonServiceBase
         // Send detailed progress to subscribed connections (the user doing the prefill)
         await BroadcastToSubscribersAsync(session, EventPrefillProgress,
             new { sessionId = session.Id, progress });
+
+        // Same push, in-process, after the client fan-out. This is what drives the scheduled-prefill
+        // universal notification, which used to sample session.LastProgress every ten seconds.
+        await RaisePrefillProgressAsync(session, progress, sequence);
     }
 
     private async Task BroadcastHistoryUpdatedAsync(string sessionId, string appId, string status)

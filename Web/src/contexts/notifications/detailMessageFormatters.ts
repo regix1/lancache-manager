@@ -1061,8 +1061,8 @@ export const formatXboxGameMappingsUpdatedMessage = (
  *
  * This is what actually shows the run is alive. The bar tracks the RUN percent, which divides the
  * active game's fraction by the number of games in the batch, so on a multi-game run it can crawl
- * for minutes on a large download and read as frozen. These bytes advance on every poll tick of a
- * live download.
+ * for minutes on a large download and read as frozen. These bytes advance on every pushed tick of
+ * a live download.
  */
 export const formatScheduledPrefillDetailMessage = (
   event: ScheduledPrefillProgressEvent

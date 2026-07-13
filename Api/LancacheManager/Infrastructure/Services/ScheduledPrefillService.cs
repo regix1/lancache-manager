@@ -19,22 +19,16 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     // OUTER schedule poll cadence: the base loop wakes once a minute and runs only the services that
     // are DUE per their own IntervalHours + persisted last-run. This is NOT the user-facing schedule.
     private static readonly TimeSpan _pollCadence = TimeSpan.FromMinutes(1);
-    // INNER prefill-status poll: how often a running prefill's IsPrefilling flag is checked.
-    private static readonly TimeSpan _pollInterval = TimeSpan.FromSeconds(10);
+    // INNER guard cadence: how often a running prefill's deadline and stall state are checked.
+    // Live progress is pushed independently and never waits for this interval.
+    private static readonly TimeSpan _guardCheckInterval = TimeSpan.FromSeconds(10);
 
     // The poll interval is waited out in slices THIS small. A user who stops a prefill (from the
     // modal, which cancels the daemon session) expects the card to react at once; sleeping the whole
     // poll interval meant the run only noticed the stop up to ten seconds later, so the card sat
     // there looking alive and the user hammered the button. The slice only affects how fast a STOP
-    // is noticed - progress is still emitted on the poll cadence, not per slice.
+    // is noticed; progress is pushed independently by the daemon relay.
     private static readonly TimeSpan _stopDetectionSlice = TimeSpan.FromMilliseconds(250);
-
-    // Smallest percent move that re-emits a progress event. A FULL point was too coarse: across a
-    // multi-game run one point can be half a game, so a large download left the card motionless for
-    // tens of minutes and looked frozen even though it was working. A tenth of a point means the
-    // bar advances on essentially every poll while a download is live, and the gate still silences
-    // a genuinely idle stretch.
-    private const double ProgressEmitMinPercentDelta = 0.1d;
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IStateService _stateService;
@@ -383,17 +377,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     {
         var serviceId = serviceConfig.ServiceId;
 
-        // Percent for the run's universal notification: tracks THIS service's completion fraction
-        // (games done + byte fraction of the game currently downloading). See ComputeRunPercent for
-        // why the bar follows the active service instead of slicing across every due service.
-        static double Percent(double serviceFraction) =>
-            ScheduledPrefillRunGates.ComputeRunPercent(serviceFraction);
-
         // 1. Resolve the concrete daemon service for this platform.
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(serviceProvider, serviceId);
         if (daemon is null)
         {
-            await EmitProgressAsync(notifications, operationId, serviceConfig, "skipped", "No daemon registered for this service", percent: Percent(1));
+            await EmitProgressAsync(notifications, operationId, serviceConfig, "skipped", "No daemon registered for this service", percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
             return ScheduledPrefillServiceRunResult.Skipped;
         }
 
@@ -410,7 +398,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 "needs-login",
                 ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: false),
                 needsLoginReason,
-                percent: Percent(1));
+                percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
             return ScheduledPrefillServiceRunResult.NeedsLogin;
         }
 
@@ -447,7 +435,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 "needs-login",
                 ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: true),
                 ScheduledPrefillRunGates.LoggedOutNeedsLoginReason,
-                percent: Percent(1));
+                percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
             return ScheduledPrefillServiceRunResult.NeedsLogin;
         }
 
@@ -459,7 +447,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 _systemUserId,
                 out var skipMessage))
         {
-            await EmitProgressAsync(notifications, operationId, serviceConfig, "skipped", skipMessage, percent: Percent(1));
+            await EmitProgressAsync(notifications, operationId, serviceConfig, "skipped", skipMessage, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
             return ScheduledPrefillServiceRunResult.Skipped;
         }
 
@@ -470,7 +458,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             "starting",
             "Reusing persistent container",
             downloadSessionId: sessionId,
-            percent: Percent(0));
+            percent: ScheduledPrefillRunGates.ComputeRunPercent(0));
 
         // 4. Kick off the prefill. Map preset + OS list to the real daemon signature.
         // When specific apps are selected, prefill exactly those and ignore the All/Recent/Top
@@ -526,7 +514,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         }
         catch (PrefillAlreadyRunningException)
         {
-            await EmitProgressAsync(notifications, operationId, serviceConfig, "skipped", "A prefill is already in progress", percent: Percent(1));
+            await EmitProgressAsync(notifications, operationId, serviceConfig, "skipped", "A prefill is already in progress", percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
             return ScheduledPrefillServiceRunResult.Skipped;
         }
 
@@ -537,7 +525,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             var failureMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
                 ? "Prefill failed to start"
                 : result.ErrorMessage;
-            await EmitProgressAsync(notifications, operationId, serviceConfig, "failed", failureMessage, percent: Percent(1));
+            await EmitProgressAsync(notifications, operationId, serviceConfig, "failed", failureMessage, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
             return ScheduledPrefillServiceRunResult.Failed;
         }
 
@@ -548,153 +536,370 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             "running",
             "Prefill in progress",
             downloadSessionId: sessionId,
-            percent: Percent(0));
+            percent: ScheduledPrefillRunGates.ComputeRunPercent(0));
 
-        // Poll until the daemon clears IsPrefilling, or a guard trips. The persistent container is
-        // never terminated here; on cancellation we only cancel the in-flight prefill.
-        var runDeadline = DateTime.UtcNow + config.MaxServiceRuntime;
-        // Live progress for the universal notification. PrefillAsync nulls LastProgress before the
-        // daemon starts, so the snapshot only ever reflects THIS run. The running updated/cached/
-        // failed counters (same source as the Prefill tab's "Game X of N") only advance when a game
-        // FINISHES, so a multi-gigabyte download would otherwise sit at the bar's start for hours:
-        // downloading ticks also contribute the current game's byte fraction and its name. The
-        // completed-count is kept monotonic locally because downloading ticks omit the counters.
-        var selectedAppCount = serviceConfig.SelectedAppIds.Count;
-        var appsCompleted = 0;
-        var lastEmittedMessage = (string?)null;
-        var lastEmittedPercent = double.NaN;
-        var lastEmittedBytes = -1L;
-        while (session.IsPrefilling)
+        // Live progress is PUSHED, never sampled. The daemon already raises a tick for every chunk it
+        // finishes (it has to - the prefill page renders from those very ticks); the scheduler used to
+        // ignore that and re-read session.LastProgress on a ten-second timer, which is why the card
+        // lagged by up to ten seconds and moved in coarse steps. The relay below subscribes to that
+        // push instead. The loop that follows never touches LastProgress again: it is purely a guard
+        // for the run deadline, the stall detector, cancellation, and stop detection - none of which a
+        // progress push can do, because all four are about the ABSENCE of progress or an external stop.
+        var relay = new ScheduledPrefillProgressRelay(
+            this,
+            notifications,
+            session,
+            serviceConfig,
+            operationId,
+            sessionId);
+
+        Func<DaemonSession, PrefillProgress, long, Task> onDaemonProgress = relay.OnProgressAsync;
+        daemon.PrefillProgressUpdated += onDaemonProgress;
+        var relayStopped = false;
+
+        // Silences the relay and waits for any send already inside its gate to finish. MUST run before
+        // this service emits any terminal event, or a live tick still in flight could land on the card
+        // after "completed"/"cancelled". Idempotent: the finally calls it again on the exception paths.
+        async Task StopRelayAsync()
         {
-            ct.ThrowIfCancellationRequested();
-
-            if (DateTime.UtcNow >= runDeadline)
+            if (relayStopped)
             {
-                await EmitProgressAsync(notifications, operationId, serviceConfig, "failed", "Exceeded maximum service runtime", percent: Percent(1));
-                return ScheduledPrefillServiceRunResult.Failed;
+                return;
             }
 
-            if (PrefillDaemonServiceBase.IsPrefillStalled(session, DateTime.UtcNow, config.StallTimeout))
-            {
-                await EmitProgressAsync(notifications, operationId, serviceConfig, "failed", "Prefill stalled (no progress)", percent: Percent(1));
-                return ScheduledPrefillServiceRunResult.Failed;
-            }
-
-            var snapshot = session.LastProgress;
-            if (snapshot is not null)
-            {
-                appsCompleted = Math.Max(
-                    appsCompleted,
-                    snapshot.UpdatedApps + snapshot.AlreadyUpToDate + snapshot.FailedApps);
-                var totalApps = selectedAppCount > 0 ? selectedAppCount : snapshot.TotalApps;
-
-                // Byte-level fraction of the game currently downloading. Only live "downloading"
-                // ticks count: an app_completed snapshot's bytes belong to a game that is already
-                // inside appsCompleted, so treating them as in-flight would double-count it.
-                var currentAppFraction = 0d;
-                string? currentAppName = null;
-                long? currentAppBytes = null;
-                long? currentAppTotalBytes = null;
-                if (PrefillProgressStateExtensions.ParseOrUnknown(snapshot.State) == PrefillProgressState.Downloading
-                    && snapshot.TotalBytes > 0)
-                {
-                    currentAppFraction = Math.Clamp((double)snapshot.BytesDownloaded / snapshot.TotalBytes, 0d, 1d);
-                    currentAppName = snapshot.CurrentAppName;
-                    currentAppBytes = snapshot.BytesDownloaded;
-                    currentAppTotalBytes = snapshot.TotalBytes;
-                }
-
-                if (totalApps > 0)
-                {
-                    var fraction = ScheduledPrefillRunGates.ComputeServiceFraction(appsCompleted, totalApps, currentAppFraction);
-                    var percent = Percent(fraction);
-                    var cappedCompleted = Math.Min(appsCompleted, totalApps);
-                    var message = string.IsNullOrEmpty(currentAppName)
-                        ? $"Prefill in progress ({cappedCompleted} of {totalApps} games)"
-                        : $"Downloading {currentAppName} ({Math.Min(appsCompleted + 1, totalApps)} of {totalApps} games)";
-
-                    // Re-emit when anything the card shows actually moved; keeps the 10s poll quiet
-                    // through genuinely idle stretches.
-                    //
-                    // The BYTES are what make this feel alive. The run percent alone is not enough:
-                    // it divides the current game's fraction by the number of games, so on a 20-game
-                    // run the bar only creeps a tenth of a point once the active download has moved
-                    // 2% - minutes on a large game, during which a working prefill looked frozen.
-                    // Downloaded bytes advance on every tick of a live download, so the card's byte
-                    // readout (and the bar, whenever it does move) keeps proving the run is working.
-                    var bytesMoved = currentAppBytes.HasValue && currentAppBytes.Value != lastEmittedBytes;
-                    if (message != lastEmittedMessage
-                        || bytesMoved
-                        || Math.Abs(percent - lastEmittedPercent) >= ProgressEmitMinPercentDelta)
-                    {
-                        lastEmittedMessage = message;
-                        lastEmittedPercent = percent;
-                        lastEmittedBytes = currentAppBytes ?? -1L;
-                        await EmitProgressAsync(
-                            notifications,
-                            operationId,
-                            serviceConfig,
-                            "running",
-                            message,
-                            downloadSessionId: sessionId,
-                            percent: percent,
-                            bytesDownloaded: currentAppBytes,
-                            totalBytes: currentAppTotalBytes);
-                    }
-                }
-            }
-
-            try
-            {
-                // Wait out the poll interval in slices, breaking the moment the prefill stops, so a
-                // cancel is acted on in ~250ms instead of up to a full ten seconds. The emission
-                // cadence is unchanged: a still-running prefill waits the whole interval as before.
-                //
-                // Counted slices, NOT a wall-clock deadline: DateTime.UtcNow is not monotonic, so an
-                // NTP correction, a VM resume or an admin moving the clock backwards would otherwise
-                // suspend the poll (and with it the stall detector and the run deadline) for the
-                // length of the jump.
-                var slices = (int)Math.Ceiling(_pollInterval / _stopDetectionSlice);
-                for (var slice = 0; slice < slices && session.IsPrefilling; slice++)
-                {
-                    await Task.Delay(_stopDetectionSlice, ct);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                await daemon.CancelPrefillAsync(sessionId, CancellationToken.None);
-                throw;
-            }
+            relayStopped = true;
+            daemon.PrefillProgressUpdated -= onDaemonProgress;
+            await relay.DeactivateAndDrainAsync();
         }
 
-        // A prefill the user STOPPED leaves the poll loop above exactly like a natural finish: the
-        // modal's stop cancels the DAEMON session (not this run's token), and the terminal funnel is
-        // the sole writer of IsPrefilling=false, stamping the reason on the session as it goes.
-        // Without this check a stopped prefill was reported as a completed run - it stamped the
-        // genuine "Last run" and told the user their cancelled prefill had succeeded.
-        if (session.PrefillState == PrefillState.Cancelled)
+        try
         {
+            // Arm only now, so the explicit "running / 0%" event above is always the card's first
+            // live line. Then replay whatever the daemon has already pushed while we were wiring up -
+            // a one-shot catch-up for the dispatch-to-subscribe window, not a poll.
+            relay.Arm();
+            await relay.ReplayLatestAsync();
+
+            var runDeadline = DateTime.UtcNow + config.MaxServiceRuntime;
+            while (session.IsPrefilling)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                if (DateTime.UtcNow >= runDeadline)
+                {
+                    await StopRelayAsync();
+                    await EmitProgressAsync(notifications, operationId, serviceConfig, "failed", "Exceeded maximum service runtime", percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                    return ScheduledPrefillServiceRunResult.Failed;
+                }
+
+                if (PrefillDaemonServiceBase.IsPrefillStalled(session, DateTime.UtcNow, config.StallTimeout))
+                {
+                    await StopRelayAsync();
+                    await EmitProgressAsync(notifications, operationId, serviceConfig, "failed", "Prefill stalled (no progress)", percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                    return ScheduledPrefillServiceRunResult.Failed;
+                }
+
+                try
+                {
+                    // Wait out the guard cadence in slices, breaking the moment the prefill stops, so a
+                    // stop is acted on in ~250ms instead of up to a full ten seconds.
+                    //
+                    // Counted slices, NOT a wall-clock deadline: DateTime.UtcNow is not monotonic, so an
+                    // NTP correction, a VM resume or an admin moving the clock backwards would otherwise
+                    // suspend the guard checks for the length of the jump.
+                    var slices = (int)Math.Ceiling(_guardCheckInterval / _stopDetectionSlice);
+                    for (var slice = 0; slice < slices && session.IsPrefilling; slice++)
+                    {
+                        await Task.Delay(_stopDetectionSlice, ct);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    await daemon.CancelPrefillAsync(sessionId, CancellationToken.None);
+                    throw;
+                }
+            }
+
+            await StopRelayAsync();
+
+            // A prefill the user STOPPED leaves the loop above exactly like a natural finish: the
+            // modal's stop cancels the DAEMON session (not this run's token), and the terminal funnel is
+            // the sole writer of IsPrefilling=false, stamping the reason on the session as it goes.
+            // Without this check a stopped prefill was reported as a completed run - it stamped the
+            // genuine "Last run" and told the user their cancelled prefill had succeeded.
+            if (session.PrefillState == PrefillState.Cancelled)
+            {
+                await EmitProgressAsync(
+                    notifications,
+                    operationId,
+                    serviceConfig,
+                    "cancelled",
+                    "Prefill stopped",
+                    downloadSessionId: sessionId,
+                    percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                return ScheduledPrefillServiceRunResult.Cancelled;
+            }
+
             await EmitProgressAsync(
                 notifications,
                 operationId,
                 serviceConfig,
-                "cancelled",
-                "Prefill stopped",
+                "completed",
+                BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force),
+                bytesDownloaded: session.TotalBytesTransferred,
                 downloadSessionId: sessionId,
-                percent: Percent(1));
-            return ScheduledPrefillServiceRunResult.Cancelled;
+                percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+            return ScheduledPrefillServiceRunResult.Ran;
+        }
+        finally
+        {
+            // The handler must never outlive the service that owns it: a leaked closure would keep
+            // emitting this service's card from the NEXT service's daemon ticks.
+            await StopRelayAsync();
+        }
+    }
+
+    /// <summary>
+    /// Turns the daemon's live progress PUSH into this run's universal-notification events.
+    /// Replaces the ten-second sampler that used to re-read <see cref="DaemonSession.LastProgress"/>.
+    ///
+    /// It is deliberately more than an event handler, because the push is not as tame as it looks:
+    /// socket events are dispatched fire-and-forget, so two ticks can be in flight at once and an
+    /// app-transition tick (which awaits a history write) can be OVERTAKEN by a later downloading
+    /// tick. Hence the semaphore held across the awaited send, the sequence check, and the monotonic
+    /// counters - without them the card could render progress backwards or interleave two sends.
+    /// </summary>
+    private sealed class ScheduledPrefillProgressRelay
+    {
+        /// <summary>
+        /// Floor on how often the SAME message re-emits. Every daemon already throttles its own ticks
+        /// to ~250ms (2-4/s), and this event fans out to EVERY connected client, so relaying each tick
+        /// would be pointless load. One hertz reads as live and still drops up to 75% of the stream.
+        /// A message change (new game, new count) bypasses the interval and emits immediately.
+        /// </summary>
+        private const long LiveEmitMinIntervalMs = 1_000;
+
+        /// <summary>
+        /// How long the teardown will wait for an in-flight send before abandoning it. Bounded on
+        /// purpose: the run's terminal event must never be held hostage by the notification hub.
+        /// </summary>
+        private static readonly TimeSpan _drainTimeout = TimeSpan.FromSeconds(5);
+
+        private readonly ScheduledPrefillService _owner;
+        private readonly ISignalRNotificationService _notifications;
+        private readonly DaemonSession _session;
+        private readonly ScheduledPrefillServiceConfigDto _serviceConfig;
+        private readonly string _operationId;
+        private readonly string _sessionId;
+        private readonly int _selectedAppCount;
+
+        /// <summary>
+        /// Serializes decide-and-send. A plain lock cannot span the awaited SignalR send, so two
+        /// accepted ticks could otherwise overtake each other on the wire.
+        /// </summary>
+        private readonly SemaphoreSlim _gate = new(1, 1);
+        private readonly ProgressEmitGate _emitGate = new(LiveEmitMinIntervalMs);
+
+        private volatile bool _armed;
+        private volatile bool _active = true;
+
+        private long _highestSequence = -1L;
+        private long _revision;
+        private int _appsCompleted;
+        private double _highestPercent;
+        private string? _lastEmittedMessage;
+        private long _lastEmittedBytes = -1L;
+
+        internal ScheduledPrefillProgressRelay(
+            ScheduledPrefillService owner,
+            ISignalRNotificationService notifications,
+            DaemonSession session,
+            ScheduledPrefillServiceConfigDto serviceConfig,
+            string operationId,
+            string sessionId)
+        {
+            _owner = owner;
+            _notifications = notifications;
+            _session = session;
+            _serviceConfig = serviceConfig;
+            _operationId = operationId;
+            _sessionId = sessionId;
+            _selectedAppCount = serviceConfig.SelectedAppIds.Count;
         }
 
-        await EmitProgressAsync(
-            notifications,
-            operationId,
-            serviceConfig,
-            "completed",
-            BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force),
-            bytesDownloaded: session.TotalBytesTransferred,
-            downloadSessionId: sessionId,
-            percent: Percent(1));
-        return ScheduledPrefillServiceRunResult.Ran;
+        internal void Arm() => _armed = true;
+
+        /// <summary>
+        /// Feeds the daemon's latest snapshot through the relay exactly once, closing the window
+        /// between dispatching the prefill and subscribing to its pushes. One shot, not a poll.
+        ///
+        /// The sequence is read BEFORE the snapshot, deliberately. The two reads are not atomic, so
+        /// reading it after could stamp an OLD snapshot with a NEWER tick's number and make the relay
+        /// discard the genuine push that number belonged to. Reading first can only UNDER-state the
+        /// snapshot's age, which costs at most one duplicate emit - and the emit gate swallows that.
+        /// </summary>
+        internal Task ReplayLatestAsync()
+        {
+            var sequence = Interlocked.Read(ref _session.ProgressSequence);
+            var snapshot = _session.LastProgress;
+            return snapshot is null
+                ? Task.CompletedTask
+                : OnProgressAsync(_session, snapshot, sequence);
+        }
+
+        internal async Task OnProgressAsync(DaemonSession pushedSession, PrefillProgress progress, long sequence)
+        {
+            if (!_armed || !_active || !ReferenceEquals(pushedSession, _session))
+            {
+                return;
+            }
+
+            // TRY-enter, never queue. If a send is already in flight this tick is DROPPED - the next
+            // push (the daemons tick at 2-4Hz) carries fresher numbers anyway, so a dropped tick costs
+            // nothing. Queueing here would be actively dangerous: the daemon AWAITS this handler, so a
+            // slow hub would back up an unbounded queue of callbacks behind the gate, stalling the
+            // daemon's own progress path, and a HUNG send would leave the gate held forever - the
+            // drain below would then wait on it and the run would never emit its terminal at all.
+            if (!await _gate.WaitAsync(0, CancellationToken.None))
+            {
+                return;
+            }
+
+            try
+            {
+                // Re-check inside the gate: the run's terminal path may have won the race while this
+                // tick was queued. A live line must never land on a card that is already terminal.
+                if (!_active
+                    || !_session.IsPrefilling
+                    || Volatile.Read(ref _session.TerminalCompletedFlag) != 0)
+                {
+                    return;
+                }
+
+                // Completion counters advance even for an OVERTAKEN tick: dropping a stale
+                // app-completed payload must not lose the knowledge that the game actually finished,
+                // or "game X of N" would count backwards. Downloading ticks omit these counters, which
+                // is exactly why this is a running Math.Max and not a plain assignment.
+                _appsCompleted = Math.Max(
+                    _appsCompleted,
+                    progress.UpdatedApps + progress.AlreadyUpToDate + progress.FailedApps);
+
+                if (sequence <= _highestSequence)
+                {
+                    return;
+                }
+
+                _highestSequence = sequence;
+
+                var totalApps = _selectedAppCount > 0 ? _selectedAppCount : progress.TotalApps;
+                if (totalApps <= 0)
+                {
+                    return;
+                }
+
+                // Byte fraction of the game downloading RIGHT NOW. Only live "downloading" ticks count:
+                // an app_completed tick's bytes belong to a game already inside _appsCompleted, so
+                // treating them as in-flight would double-count it.
+                var currentAppFraction = 0d;
+                string? currentAppName = null;
+                long? currentAppBytes = null;
+                long? currentAppTotalBytes = null;
+                if (PrefillProgressStateExtensions.ParseOrUnknown(progress.State) == PrefillProgressState.Downloading
+                    && progress.TotalBytes > 0)
+                {
+                    currentAppFraction = Math.Clamp((double)progress.BytesDownloaded / progress.TotalBytes, 0d, 1d);
+                    currentAppName = progress.CurrentAppName;
+                    currentAppBytes = progress.BytesDownloaded;
+                    currentAppTotalBytes = progress.TotalBytes;
+                }
+
+                var fraction = ScheduledPrefillRunGates.ComputeServiceFraction(_appsCompleted, totalApps, currentAppFraction);
+                var percent = ScheduledPrefillRunGates.ComputeRunPercent(fraction);
+
+                // The bar never goes backwards, even if an out-of-order tick reports a lower fraction.
+                percent = Math.Max(percent, _highestPercent);
+                _highestPercent = percent;
+
+                var cappedCompleted = Math.Min(_appsCompleted, totalApps);
+                var message = string.IsNullOrEmpty(currentAppName)
+                    ? $"Prefill in progress ({cappedCompleted} of {totalApps} games)"
+                    : $"Downloading {currentAppName} ({Math.Min(_appsCompleted + 1, totalApps)} of {totalApps} games)";
+
+                var bytesMoved = currentAppBytes.HasValue && currentAppBytes.Value != _lastEmittedBytes;
+                // Percent is derived exclusively from the completed-count/message and the current
+                // downloaded bytes. Those two source values are the real change detector; the old
+                // percent-delta threshold only compensated for the former ten-second sampler and is
+                // redundant now that every daemon tick reaches this relay.
+                var somethingMoved = message != _lastEmittedMessage || bytesMoved;
+                if (!somethingMoved)
+                {
+                    return;
+                }
+
+                // Stage = the displayed message, so a new game emits AT ONCE; same-message byte/percent
+                // revisions are held to LiveEmitMinIntervalMs. Suppressing a tick costs nothing - the
+                // next push carries the newer bytes anyway.
+                if (!_emitGate.ShouldEmit(message, Interlocked.Increment(ref _revision)))
+                {
+                    return;
+                }
+
+                _lastEmittedMessage = message;
+                _lastEmittedBytes = currentAppBytes ?? -1L;
+
+                await _owner.EmitProgressAsync(
+                    _notifications,
+                    _operationId,
+                    _serviceConfig,
+                    "running",
+                    message,
+                    downloadSessionId: _sessionId,
+                    percent: percent,
+                    bytesDownloaded: currentAppBytes,
+                    totalBytes: currentAppTotalBytes);
+            }
+            catch (Exception ex)
+            {
+                // A notification failure must never break the daemon's progress path, which awaits us.
+                _owner._logger.LogWarning(
+                    ex,
+                    "[ScheduledPrefill] Failed to relay progress for session {SessionId}",
+                    _sessionId);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+
+        /// <summary>
+        /// Stops accepting pushes and waits for a send already inside the gate to finish. Deactivate
+        /// THEN drain: unsubscribing alone is not enough, because a tick can already have snapshotted
+        /// the delegate list, and one can already be awaiting SignalR.
+        ///
+        /// The wait is BOUNDED. An unbounded one would hand a hung hub send the power to wedge the
+        /// whole run: the gate would never be released, so this would never return, and the service
+        /// would never emit its completed/cancelled/failed terminal nor complete its tracked
+        /// operation. Giving up after the timeout is strictly better than that - the relay is already
+        /// deactivated, and if the stuck send ever does land, it is a "running" line on a card the
+        /// client has already seen go terminal, which the notification handlers ignore.
+        /// </summary>
+        internal async Task DeactivateAndDrainAsync()
+        {
+            _active = false;
+
+            if (await _gate.WaitAsync(_drainTimeout, CancellationToken.None))
+            {
+                _gate.Release();
+                return;
+            }
+
+            _owner._logger.LogWarning(
+                "[ScheduledPrefill] Progress relay for session {SessionId} did not drain within {Timeout}s; "
+                    + "continuing to the terminal event without it",
+                _sessionId,
+                _drainTimeout.TotalSeconds);
+        }
     }
 
     private static void MapPreset(ScheduledPrefillServiceConfigDto serviceConfig, out bool all, out bool recent, out int? top)

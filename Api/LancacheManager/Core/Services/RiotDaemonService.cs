@@ -1,4 +1,3 @@
-using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
@@ -84,42 +83,9 @@ public class RiotDaemonService : PrefillDaemonServiceBase
     /// league_of_legends / valorant), not uint depot/manifest pairs. Sends app IDs directly to the
     /// Riot daemon which checks prefilled versions against the latest available for each product.
     /// </summary>
-    public override async Task<CacheStatusResult> GetCacheStatusAsync(
+    public override Task<CacheStatusResult> GetCacheStatusAsync(
         string sessionId,
         List<string> appIds,
         CancellationToken cancellationToken = default)
-    {
-        if (!_sessions.TryGetValue(sessionId, out var session))
-        {
-            throw new KeyNotFoundException($"Session not found: {sessionId}");
-        }
-
-        if (appIds == null || appIds.Count == 0)
-        {
-            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No app IDs provided" };
-        }
-
-        // Send app IDs as strings directly to the Riot daemon (bypassing depot-based lookup)
-        var parameters = new Dictionary<string, string>
-        {
-            ["appIds"] = JsonSerializer.Serialize(appIds)
-        };
-
-        var response = await session.Client.SendCommandAsync("check-cache-status", parameters,
-            timeout: TimeSpan.FromMinutes(5),
-            cancellationToken: cancellationToken);
-
-        if (!response.Success)
-        {
-            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = response.Error ?? "Failed to check cache status" };
-        }
-
-        if (response.Data is JsonElement element)
-        {
-            var result = JsonSerializer.Deserialize<CacheStatusResult>(element.GetRawText());
-            return result ?? new CacheStatusResult { Message = "Failed to parse result" };
-        }
-
-        return new CacheStatusResult { Message = response.Message };
-    }
+        => GetStringAppCacheStatusAsync(sessionId, appIds, cancellationToken);
 }

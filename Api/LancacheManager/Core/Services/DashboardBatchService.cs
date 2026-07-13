@@ -798,14 +798,7 @@ public class DashboardBatchService : IDashboardBatchService
             var olderAvg = olderHalf.Count > 0 ? olderHalf.Average() : 0;
             var recentAvg = recentHalf.Count > 0 ? recentHalf.Average() : 0;
 
-            if (olderAvg == 0 && recentAvg == 0)
-                percentChange = 0;
-            else if (olderAvg == 0)
-                percentChange = recentAvg > 0 ? 100 : 0;
-            else
-                percentChange = ((recentAvg - olderAvg) / olderAvg) * 100;
-
-            percentChange = Math.Max(-999, Math.Min(999, percentChange));
+            percentChange = PercentageUtils.CalculateBoundedChange(olderAvg, recentAvg);
             percentChange = Math.Round(percentChange, 1);
 
             if (percentChange > 5) trend = "up";

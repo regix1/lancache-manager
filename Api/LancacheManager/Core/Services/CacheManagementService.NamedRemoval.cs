@@ -70,10 +70,10 @@ public partial class CacheManagementService
                     {
                         if (onProgress != null)
                         {
-                            var totalDatasources = Math.Max(1, execution.TotalConfiguredDatasources);
-                            var scaledProgress =
-                                (execution.ExecutionIndex * 100.0 / totalDatasources) +
-                                (progressData.PercentComplete / totalDatasources);
+                            var scaledProgress = ScaleRemovalProgress(
+                                execution.ExecutionIndex,
+                                execution.TotalConfiguredDatasources,
+                                progressData.PercentComplete);
                             await onProgress(
                                 scaledProgress,
                                 progressData.StageKey,
@@ -88,8 +88,9 @@ public partial class CacheManagementService
 
                 if (onProgress != null)
                 {
-                    var totalDatasources = Math.Max(1, execution.TotalConfiguredDatasources);
-                    var scaledProgress = ((execution.ExecutionIndex + 1) * 100.0 / totalDatasources);
+                    var scaledProgress = ScaleRemovalProgress(
+                        execution.ExecutionIndex + 1,
+                        execution.TotalConfiguredDatasources);
                     // Synthetic per-datasource completion tick; empty stageKey → registry default.
                     await onProgress(
                         scaledProgress,

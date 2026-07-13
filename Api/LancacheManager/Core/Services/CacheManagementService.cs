@@ -789,6 +789,21 @@ public partial class CacheManagementService
         IReadOnlyList<RemovalDatasourceContext> RunnableDatasources,
         int DatasourcesSkipped);
 
+    /// <summary>
+    /// Maps one datasource's local 0-100 progress into the full multi-datasource operation.
+    /// Steam, Epic, and named-game removal all use the same execution-plan indexing, so keeping the
+    /// scaling here prevents the three removal paths from drifting apart.
+    /// </summary>
+    private static double ScaleRemovalProgress(
+        int completedDatasources,
+        int totalConfiguredDatasources,
+        double datasourcePercent = 0d)
+    {
+        var totalDatasources = Math.Max(1, totalConfiguredDatasources);
+        return (completedDatasources * 100.0 / totalDatasources)
+            + (datasourcePercent / totalDatasources);
+    }
+
     private sealed record RustRemovalProcessResult(
         ResolvedDatasource Datasource,
         string OutputJsonPath,

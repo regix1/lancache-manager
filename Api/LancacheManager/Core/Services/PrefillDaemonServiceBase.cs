@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Models;
@@ -163,6 +164,50 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// External services subscribe to this to react to daemon auth state changes.
     /// </summary>
     public event Func<Task>? OnAllDaemonsLoggedOut;
+
+    /// <summary>
+    /// Raised IN-PROCESS on every LIVE prefill progress tick, after the session snapshot has been
+    /// updated and the existing SignalR fan-out has run. It carries the same normalized progress the
+    /// clients receive, plus the session's monotonic <see cref="DaemonSession.ProgressSequence"/>.
+    ///
+    /// This exists so a server-side consumer - the scheduled prefill run - can react to the daemon's
+    /// PUSH instead of sampling <see cref="DaemonSession.LastProgress"/> on a timer. The push path
+    /// already existed for clients; the scheduler was the one consumer polling in the middle of it.
+    ///
+    /// TERMINAL states are deliberately NOT raised here: they flow through TransitionToTerminalAsync.
+    /// Handlers must be cheap; they are awaited before the next progress tick is processed and their
+    /// exceptions are caught so a bad subscriber can never break the daemon's own progress handling.
+    /// </summary>
+    public event Func<DaemonSession, PrefillProgress, long, Task>? PrefillProgressUpdated;
+
+    /// <summary>
+    /// Invokes each <see cref="PrefillProgressUpdated"/> subscriber in isolation.
+    ///
+    /// The invocation list is snapshotted first, so a concurrent unsubscribe cannot mutate it
+    /// mid-iteration, and each handler is awaited and caught individually - awaiting a multicast
+    /// Func&lt;...,Task&gt; directly would only observe the LAST handler's task and let one failure
+    /// swallow the rest.
+    /// </summary>
+    private async Task RaisePrefillProgressAsync(DaemonSession session, PrefillProgress progress, long sequence)
+    {
+        var handlers = PrefillProgressUpdated;
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                await ((Func<DaemonSession, PrefillProgress, long, Task>)handler)(session, progress, sequence);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in PrefillProgressUpdated handler for session {SessionId}", session.Id);
+            }
+        }
+    }
 
     /// <summary>
     /// Called when a session becomes authenticated.
@@ -2581,6 +2626,54 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         }).ToList();
 
         return await session.Client.CheckCacheStatusAsync(cachedDepots, cancellationToken);
+    }
+
+    /// <summary>
+    /// Shared cache-status path for daemons whose app identifiers are strings rather than Steam
+    /// depot/manifest ids. Epic, Xbox, Battle.net, and Riot speak the same daemon command contract.
+    /// </summary>
+    protected async Task<CacheStatusResult> GetStringAppCacheStatusAsync(
+        string sessionId,
+        List<string> appIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+        {
+            throw new KeyNotFoundException($"Session not found: {sessionId}");
+        }
+
+        if (appIds == null || appIds.Count == 0)
+        {
+            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No app IDs provided" };
+        }
+
+        var parameters = new Dictionary<string, string>
+        {
+            ["appIds"] = JsonSerializer.Serialize(appIds)
+        };
+
+        var response = await session.Client.SendCommandAsync(
+            "check-cache-status",
+            parameters,
+            timeout: TimeSpan.FromMinutes(5),
+            cancellationToken: cancellationToken);
+
+        if (!response.Success)
+        {
+            return new CacheStatusResult
+            {
+                Apps = new List<AppCacheStatus>(),
+                Message = response.Error ?? "Failed to check cache status"
+            };
+        }
+
+        if (response.Data is JsonElement element)
+        {
+            var result = JsonSerializer.Deserialize<CacheStatusResult>(element.GetRawText());
+            return result ?? new CacheStatusResult { Message = "Failed to parse result" };
+        }
+
+        return new CacheStatusResult { Message = response.Message };
     }
 
     /// <summary>

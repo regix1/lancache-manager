@@ -106,6 +106,17 @@ public class DaemonSession
     /// </summary>
     public int TerminalCompletedFlag;
 
+    /// <summary>
+    /// Monotonic tick counter, stamped via <see cref="System.Threading.Interlocked.Increment(ref long)"/>
+    /// on entry to NotifyPrefillProgressAsync and carried on the in-process progress push.
+    ///
+    /// Socket events are dispatched fire-and-forget, so two progress handlers can be in flight at
+    /// once and an app-transition tick (which awaits history/database work) can be overtaken by a
+    /// later downloading tick. A consumer that must not render progress backwards compares this
+    /// sequence and discards anything older than what it has already applied.
+    /// </summary>
+    public long ProgressSequence;
+
     public DateTime? PrefillStartedAt { get; set; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime? EndedAt { get; set; }

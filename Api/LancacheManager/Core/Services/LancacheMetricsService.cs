@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 using System.Reflection;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -766,22 +767,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             var olderAvg = olderHalf.Count > 0 ? olderHalf.Average(d => d.GrowthBytes) : 0;
             var recentAvg = recentHalf.Count > 0 ? recentHalf.Average(d => d.GrowthBytes) : 0;
 
-            double percentChange;
-            if (olderAvg == 0 && recentAvg == 0)
-            {
-                percentChange = 0;
-            }
-            else if (olderAvg == 0)
-            {
-                percentChange = recentAvg > 0 ? 100 : 0;
-            }
-            else
-            {
-                percentChange = ((recentAvg - olderAvg) / olderAvg) * 100;
-            }
-
-            // Cap percentage at reasonable bounds
-            percentChange = Math.Max(-999, Math.Min(999, percentChange));
+            var percentChange = PercentageUtils.CalculateBoundedChange(olderAvg, recentAvg);
             _cacheGrowthPercentChange = Math.Round(percentChange, 1);
 
             // Determine trend

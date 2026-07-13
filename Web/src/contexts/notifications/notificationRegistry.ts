@@ -1379,15 +1379,15 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         });
       },
       // Backend-computed run percent. It tracks the ACTIVE service only (games completed plus the
-      // byte fraction of the game downloading right now), clamped 1-99 server-side; 100 comes from
-      // the terminal Completed event.
+      // byte fraction of the game downloading right now), clamped 1-99 by ComputeRunPercent; 100
+      // comes from the terminal Completed event. Keep only the null fallback here instead of
+      // duplicating the backend's clamp.
       //
       // Deliberately NOT rounded: the percent divides the active game's fraction by the number of
       // games, so a big download moves it a fraction of a point at a time. Rounding to a whole
       // number pinned the bar in place and made a working prefill look frozen. The bar and its
       // "x.x%" label both read the fractional value, and getDetailMessage below carries the bytes.
-      getProgress: (event: ScheduledPrefillProgressEvent) =>
-        Math.max(1, event.percentComplete ?? 1),
+      getProgress: (event: ScheduledPrefillProgressEvent) => event.percentComplete ?? 1,
       // Bytes of the game currently downloading. The bar alone is not enough on a multi-game run
       // (the run percent divides by the game count, so it crawls); this line moves on every tick of
       // a live download, which is what tells the user it is actually working.
