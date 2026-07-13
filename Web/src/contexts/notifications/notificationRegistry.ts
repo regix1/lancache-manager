@@ -1370,8 +1370,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       // Backend-computed run percent: each due service owns an equal slice of the bar and the
       // active service fills its slice per game completed (clamped 1-99 server-side, 100 comes
       // from the terminal Completed event).
+      //
+      // Deliberately NOT rounded: a big game download moves the run percent by a fraction of a
+      // point at a time, so rounding to a whole number pinned the bar in place and made a working
+      // prefill look frozen. The bar and its "x.x%" label both read the fractional value.
       getProgress: (event: ScheduledPrefillProgressEvent) =>
-        Math.max(1, Math.round(event.percentComplete ?? 1)),
+        Math.max(1, event.percentComplete ?? 1),
       getStatus: () => undefined,
       getDetails: (event: ScheduledPrefillProgressEvent) => ({ operationId: event.operationId })
     },
@@ -1379,6 +1383,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       shouldDisplay: (event: ScheduledPrefillCompletedEvent) => event.showNotification !== false,
       getSuccessMessage: () =>
         i18n.t('management.schedules.services.scheduledPrefill.events.completed'),
+      // A stopped run is its own terminal, not a failure: the user caused it, so it must not read
+      // as an error (and must not show the last service's progress line as the result).
+      getCancelledMessage: () =>
+        i18n.t('management.schedules.services.scheduledPrefill.events.cancelled'),
       getFailureMessage: (event: ScheduledPrefillCompletedEvent) =>
         event.error ?? i18n.t('management.schedules.services.scheduledPrefill.events.failed')
     },

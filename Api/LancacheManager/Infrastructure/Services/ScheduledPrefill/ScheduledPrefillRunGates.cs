@@ -244,7 +244,15 @@ public enum ScheduledPrefillServiceRunResult
     Ran,
     NeedsLogin,
     Skipped,
-    Failed
+    Failed,
+
+    /// <summary>
+    /// The user stopped this service's prefill while it was running (from the prefill modal, which
+    /// cancels the DAEMON session rather than this run's cancellation token). Distinct from
+    /// <see cref="Ran"/>: a stopped prefill did not finish, so it must not stamp the genuine
+    /// "Last run", and distinct from <see cref="Failed"/>: nothing went wrong.
+    /// </summary>
+    Cancelled
 }
 
 /// <summary>

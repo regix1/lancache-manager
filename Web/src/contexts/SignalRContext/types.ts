@@ -979,6 +979,8 @@ export interface ScheduledPrefillCompletedEvent {
   operationId: string | null;
   success: boolean;
   error?: string | null;
+  /** The run was stopped (the user stopped the active prefill, or cancelled the run itself). */
+  cancelled?: boolean;
   showNotification?: boolean;
 }
 

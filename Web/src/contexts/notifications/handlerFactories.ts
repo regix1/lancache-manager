@@ -455,6 +455,12 @@ export function createCompletionHandler<
                 ...n,
                 progress: FULL_PROGRESS_PERCENT,
                 status: 'completed' as const,
+                // Apply the type's success message, exactly like the useAnimationDelay branch
+                // above. Without this an entry that configures getSuccessMessage still finished on
+                // whatever its LAST PROGRESS event said - which is how a completed scheduled
+                // prefill ended up presenting "Riot needs login..." (the last service's progress
+                // line) as the outcome of the run the user had just stopped.
+                message: config.getSuccessMessage?.(event, n) ?? n.message,
                 detailMessage: config.getDetailMessage?.(event) ?? n.detailMessage,
                 details: {
                   ...n.details,

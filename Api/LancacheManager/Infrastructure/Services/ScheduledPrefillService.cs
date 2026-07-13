@@ -22,6 +22,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     // INNER prefill-status poll: how often a running prefill's IsPrefilling flag is checked.
     private static readonly TimeSpan _pollInterval = TimeSpan.FromSeconds(10);
 
+    // Smallest percent move that re-emits a progress event. A FULL point was too coarse: across a
+    // multi-game run one point can be half a game, so a large download left the card motionless for
+    // tens of minutes and looked frozen even though it was working. A tenth of a point means the
+    // bar advances on essentially every poll while a download is live, and the gate still silences
+    // a genuinely idle stretch.
+    private const double ProgressEmitMinPercentDelta = 0.1d;
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IStateService _stateService;
 
@@ -162,6 +169,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
         bool success = true;
         string? error = null;
+        bool cancelled = false;
 
         try
         {
@@ -177,8 +185,10 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             var servicesSkipped = 0;
             var servicesFailed = 0;
 
-            foreach (var serviceConfig in dueServices)
+            for (var i = 0; i < dueServices.Count; i++)
             {
+                var serviceConfig = dueServices[i];
+
                 // One tracker operation covers all due platforms. Keep recovery aligned with the
                 // platform currently running so a reconnect neither resurrects a silent card nor
                 // hides a visible one.
@@ -240,15 +250,54 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     case ScheduledPrefillServiceRunResult.Failed:
                         servicesFailed++;
                         break;
+                    case ScheduledPrefillServiceRunResult.Cancelled:
+                        // The user stopped the prefill this run was driving. Honour that and end the
+                        // run instead of marching on through the remaining due services: continuing
+                        // is what made a stopped STEAM prefill finish by reporting the LAST service's
+                        // status ("Riot needs login...") as though it were the stop's result.
+                        cancelled = true;
+                        break;
                     default:
                         servicesSkipped++;
                         break;
                 }
+
+                if (cancelled)
+                {
+                    // Advance the SCHEDULE BASIS of the services this stopped batch never reached, so
+                    // the one-minute poll does not relaunch the very batch the user just stopped (and
+                    // re-raise the same needs-login cards a minute later). They resume on their own
+                    // next interval. The genuine "last run" is untouched: none of them prefilled.
+                    for (var skipped = i + 1; skipped < dueServices.Count; skipped++)
+                    {
+                        var pending = dueServices[skipped];
+                        _ranThisProcess.Add(pending.ServiceId);
+                        _stateService.SetScheduledPrefillServiceLastRun(
+                            pending.ServiceId.ToString(),
+                            DateTime.UtcNow);
+                    }
+
+                    break;
+                }
             }
 
-            var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(servicesRan, servicesNeedingLogin, servicesSkipped, servicesFailed);
-            success = outcome.Success;
-            error = outcome.Error;
+            if (cancelled)
+            {
+                success = false;
+                error = "Scheduled prefill stopped";
+
+                // Record the tracked operation as CANCELLED rather than Failed. CompleteOperation in
+                // the finally maps success:false to Failed unless the operation carries the cancelled
+                // flag, and a run the user stopped is not an error. Cancelling the (already-drained)
+                // token here is harmless: the service loop has been broken out of.
+                tracker.CancelOperation(operationId);
+            }
+            else
+            {
+                var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(servicesRan, servicesNeedingLogin, servicesSkipped, servicesFailed);
+                success = outcome.Success;
+                error = outcome.Error;
+            }
         }
         catch (OperationCanceledException) when (runToken.IsCancellationRequested)
         {
@@ -261,6 +310,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             // which would otherwise mis-log a user cancel as a hard "error in scheduled work".
             // Returning lets the base loop treat this tick as a normal completion and keep ticking.
             success = false;
+            cancelled = true;
             error = "Scheduled prefill run cancelled";
             _logger.LogInformation("[ScheduledPrefill] Scheduled run was cancelled");
             return;
@@ -273,11 +323,14 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         }
         finally
         {
+            // `cancelled` is a distinct terminal from a failure: the card renders a stop in red with
+            // the cancel icon rather than reporting an error the user did not cause.
             await notifications.NotifyAllAsync(SignalREvents.ScheduledPrefillCompleted, new
             {
                 operationId = operationIdString,
                 success,
                 error,
+                cancelled,
                 showNotification = notificationMetadata.ShowNotification
             });
 
@@ -533,7 +586,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
                     // Re-emit only when something the card shows actually moved; keeps the 10s poll
                     // quiet through long unchanged stretches.
-                    if (message != lastEmittedMessage || Math.Abs(percent - lastEmittedPercent) >= 1d)
+                    if (message != lastEmittedMessage
+                        || Math.Abs(percent - lastEmittedPercent) >= ProgressEmitMinPercentDelta)
                     {
                         lastEmittedMessage = message;
                         lastEmittedPercent = percent;
@@ -558,6 +612,24 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 await daemon.CancelPrefillAsync(sessionId, CancellationToken.None);
                 throw;
             }
+        }
+
+        // A prefill the user STOPPED leaves the poll loop above exactly like a natural finish: the
+        // modal's stop cancels the DAEMON session (not this run's token), and the terminal funnel is
+        // the sole writer of IsPrefilling=false, stamping the reason on the session as it goes.
+        // Without this check a stopped prefill was reported as a completed run - it stamped the
+        // genuine "Last run" and told the user their cancelled prefill had succeeded.
+        if (session.PrefillState == PrefillState.Cancelled)
+        {
+            await EmitProgressAsync(
+                notifications,
+                operationId,
+                serviceConfig,
+                "cancelled",
+                "Prefill stopped",
+                downloadSessionId: sessionId,
+                percent: Percent(1));
+            return ScheduledPrefillServiceRunResult.Cancelled;
         }
 
         await EmitProgressAsync(
