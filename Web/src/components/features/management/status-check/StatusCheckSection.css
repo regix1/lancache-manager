@@ -59,24 +59,30 @@
 
 /* Verdict readout tiles ride the shared .mgmt-stat family; these modifiers only
    color the value by bucket. A zero count is muted so the buckets that actually
-   hold services carry the eye. */
-.status-check-value--success {
+   hold services carry the eye.
+
+   Each modifier is compounded with .mgmt-stat__value on purpose. That base class
+   sets color: var(--theme-text-primary) and lives in a DIFFERENT css chunk
+   (managementSectionContent.css), so at equal specificity the winner came down to
+   which chunk's <link> loaded last, and the plain-white base was winning: every
+   tile rendered white. The compound selector settles it by specificity instead. */
+.mgmt-stat__value.status-check-value--success {
   color: var(--theme-success);
 }
 
-.status-check-value--warning {
+.mgmt-stat__value.status-check-value--warning {
   color: var(--theme-warning);
 }
 
-.status-check-value--error {
+.mgmt-stat__value.status-check-value--error {
   color: var(--theme-error);
 }
 
-.status-check-value--info {
+.mgmt-stat__value.status-check-value--info {
   color: var(--theme-info);
 }
 
-.status-check-value--zero {
+.mgmt-stat__value.status-check-value--zero {
   color: var(--theme-text-muted);
 }
 

@@ -181,6 +181,13 @@
     font-weight: 500;
   }
 
+  /* The cache-hit percentage carries .cache-hit for its green, but that class (badges.css)
+     only ties .dl-stat-value on specificity and loses the source-order race, so the number
+     rendered plain white. Compound it, the same way clients.css does with .clients-cell.cache-hit. */
+  .dl-stat-value.cache-hit {
+    color: var(--theme-success-text);
+  }
+
   .dl-stat-label {
     font-size: var(--font-size-2xs);
     font-weight: 600;
