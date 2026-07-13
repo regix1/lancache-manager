@@ -20,18 +20,43 @@ import i18n from '@/i18n';
 /**
  * Statuses a live event promotes back to 'running'.
  *
- * A progress or completion event is proof the operation is alive, so a card parked in a
- * pre-run status must not ignore it. Previously every handler below gated on
- * `status !== 'running'` and returned early, which turned any card that was not EXACTLY running
- * - a queued 'waiting' card whose promotion event was missed, or one a recovery poll had
- * stale-completed - into a black hole: it swallowed every later progress AND completion event
- * and stayed frozen on screen forever. 'cancelling' is deliberately NOT promotable: those cards
- * still take progress updates, but must keep showing that a cancel is in flight.
+ * A progress event is proof the operation is alive, so a card parked in a pre-run status must not
+ * ignore its OWN operation's events: a queued card whose promotion (Started) event was missed
+ * would otherwise swallow every later progress and completion event and sit frozen forever.
+ * 'cancelling' is deliberately NOT promotable: those cards still take progress updates, but must
+ * keep showing that a cancel is in flight.
  */
 const PROMOTABLE_TO_RUNNING: readonly NotificationStatus[] = ['waiting', 'pending'];
 
 const promoteStatus = (status: NotificationStatus): NotificationStatus =>
   PROMOTABLE_TO_RUNNING.includes(status) ? 'running' : status;
+
+/** operationId carried by any lifecycle event on the wire. */
+function eventOperationId(event: unknown): string | undefined {
+  const operationId = (event as { operationId?: unknown } | null | undefined)?.operationId;
+  return typeof operationId === 'string' ? operationId : undefined;
+}
+
+/**
+ * Whether a lifecycle event is allowed to touch the card currently in its type's singleton slot.
+ *
+ * CRITICAL: a non-running card in that slot is NOT necessarily the same operation. Two operations
+ * of one type can be live at once - the backend queues the second, and the wait-queue parks the
+ * QUEUED op's 'waiting' card in the shared slot while the FIRST op is still running and still
+ * emitting progress. Letting those events through would promote the queued card to running,
+ * overwrite its operationId (so the X button cancels the WRONG operation), and let the running
+ * op's completion auto-dismiss a card whose operation never even started.
+ *
+ * So a running card keeps the historical behavior of accepting its type's events, while any other
+ * card is touched ONLY when the event provably belongs to it (matching operationId). Unprovable
+ * means no: that is the pre-existing, safe behavior.
+ */
+function eventTargetsCard(existing: UnifiedNotification, event: unknown): boolean {
+  if (existing.status === 'running') return true;
+  const cardOperationId = existing.details?.operationId;
+  const incomingOperationId = eventOperationId(event);
+  return Boolean(cardOperationId && incomingOperationId && cardOperationId === incomingOperationId);
+}
 
 /**
  * Merges incoming event details over existing card details. Stale per-operation cancel
@@ -358,6 +383,13 @@ export function createCompletionHandler<
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
+        // A card in this slot that belongs to a DIFFERENT operation (the wait-queue parks a queued
+        // op's waiting card here while this op runs) must be left alone entirely: neither
+        // transitioned nor replaced by a fast-completion card.
+        if (existing && !eventTargetsCard(existing, event)) {
+          return prev;
+        }
+
         // Fast completion - no live slot to transition (missing or already terminal);
         // materialize a terminal card instead of dropping the event
         if (!existing || isTerminalNotificationStatus(existing.status)) {
@@ -410,8 +442,11 @@ export function createCompletionHandler<
           return [...prev, buildFastCompletionNotification()];
         }
 
-        // Only complete notifications that have not already reached a terminal state
-        if (isTerminalNotificationStatus(existing.status)) return prev;
+        // Never touch a card belonging to a DIFFERENT operation of this type (a queued op's
+        // waiting card parked in the shared slot), and never re-terminate a terminal card.
+        if (!eventTargetsCard(existing, event) || isTerminalNotificationStatus(existing.status)) {
+          return prev;
+        }
 
         return prev.map((n) => {
           if (n.id === notificationId) {
@@ -572,8 +607,10 @@ export function createStatusAwareProgressHandler<T>(
           return prev;
         }
 
-        // Only complete if the notification has not already reached a terminal state
-        if (isTerminalNotificationStatus(existing.status)) {
+        // Only complete if the notification has not already reached a terminal state, and only
+        // when this event actually belongs to the card in the slot - a queued op's waiting card
+        // must not be completed (and auto-dismissed) by a DIFFERENT op of the same type finishing.
+        if (isTerminalNotificationStatus(existing.status) || !eventTargetsCard(existing, event)) {
           return prev;
         }
 
@@ -609,8 +646,9 @@ export function createStatusAwareProgressHandler<T>(
           return prev;
         }
 
-        // If already terminal, just ensure it gets dismissed
-        if (isTerminalNotificationStatus(existing.status)) {
+        // If already terminal, just ensure it gets dismissed. A failure from a DIFFERENT op of
+        // this type must not fail a queued op's waiting card either.
+        if (isTerminalNotificationStatus(existing.status) || !eventTargetsCard(existing, event)) {
           return prev;
         }
 
@@ -637,9 +675,14 @@ export function createStatusAwareProgressHandler<T>(
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
-        // If notification exists but is terminal, ignore late progress events
-        // This prevents duplicates when progress events arrive after completion
-        if (existing && isTerminalNotificationStatus(existing.status)) {
+        // Ignore late progress events on a terminal card (prevents duplicates after completion),
+        // and progress from a DIFFERENT operation of this type: while one op runs, the wait-queue
+        // can park a SECOND op's waiting card in this same slot, and promoting it here would
+        // overwrite its operationId so the X button would cancel the wrong operation.
+        if (
+          existing &&
+          (isTerminalNotificationStatus(existing.status) || !eventTargetsCard(existing, event))
+        ) {
           return prev;
         }
 
