@@ -1164,9 +1164,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             />
           )}
 
+          {/*
+            While a scan runs, the scan's own progress is the whole story: nothing below it.
+            Reloading the page mid-scan reloads the last completed scan, which also snaps the
+            method selector to that scan's method, so leaving these mounted put a finished
+            repeated-MISS verdict directly under a running structural scan's spinner.
+          */}
           {isLoading && !isScanning ? (
             <LoadingState message={t('management.corruption.loadingCachedData')} />
-          ) : hasCachedResults && projection.rows.length > 0 ? (
+          ) : isScanning ? null : hasCachedResults && projection.rows.length > 0 ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
                 <Checkbox
