@@ -560,6 +560,13 @@ public class CacheClearingService : ScheduledBackgroundService
                 reconciliation.CorruptionCandidates,
                 reconciliation.CorruptionScans);
 
+            // The filesystem mutation is now complete and the PostgreSQL projections are no
+            // longer authoritative. Quarantine each affected local baseline before publishing
+            // success so a later Incremental can only build/reuse post-clear state.
+            InvalidateStructuralCorruptionState(
+                _pathResolver,
+                validCachePaths.Select(path => (path.Name, path.Path)).ToArray());
+
             // Recreate zero-byte detection projections for the newly evicted entities so the
             // existing Evicted Items UI can display them immediately. Recovery is best-effort:
             // the authoritative Downloads.IsEvicted flags are already committed and startup/full
@@ -767,6 +774,51 @@ public class CacheClearingService : ScheduledBackgroundService
             .ExecuteDeleteAsync(cancellationToken);
 
         return (games, services, corruptionCandidates, corruptionScans);
+    }
+
+    internal static void InvalidateStructuralCorruptionState(
+        IPathResolver pathResolver,
+        IReadOnlyCollection<(string DatasourceName, string CachePath)> clearedDatasources)
+    {
+        ArgumentNullException.ThrowIfNull(pathResolver);
+
+        foreach (var databasePath in clearedDatasources
+                     .Select(item => pathResolver.GetStructuralCorruptionStateDatabasePath(
+                         item.DatasourceName,
+                         item.CachePath))
+                     .Distinct(StringComparer.Ordinal))
+        {
+            if (File.Exists(databasePath))
+            {
+                // Renaming the main database first is the fail-closed boundary: even if cleanup
+                // of the quarantined file or detached WAL sidecars later fails, the canonical
+                // state path cannot be reopened as a valid pre-clear baseline.
+                var quarantinePath = $"{databasePath}.invalidated-{Guid.NewGuid():N}";
+                File.Move(databasePath, quarantinePath);
+                TryDeleteNonAuthoritativeStateFile(quarantinePath);
+            }
+
+            TryDeleteNonAuthoritativeStateFile($"{databasePath}-wal");
+            TryDeleteNonAuthoritativeStateFile($"{databasePath}-shm");
+        }
+    }
+
+    private static void TryDeleteNonAuthoritativeStateFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+            // The canonical main database has already been removed, so a quarantined file or
+            // detached sidecar cannot be selected by a future scan and is safe to reap later.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Same safety argument as IOException above; do not turn safe quarantine cleanup
+            // into a false claim that the old canonical baseline is still usable.
+        }
     }
 
     /// <summary>

@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 mod cache_corruption_detector;
 mod cache_structural_scanner;
+mod cache_structural_state;
 mod cache_utils;
 mod cancel;
 mod db;
@@ -111,6 +112,15 @@ enum Commands {
         /// Shared UTC scan anchor. Standalone callers may omit it to capture UTC now once.
         #[arg(long)]
         scan_started_utc: Option<String>,
+        /// Durable scan mode. Omitted preserves the historical stateless full scan.
+        #[arg(long, value_enum, requires_all = ["state_db", "state_scope"])]
+        scan_mode: Option<cache_structural_state::StructuralScanMode>,
+        /// Absolute SQLite state path. Required whenever --scan-mode is supplied.
+        #[arg(long, requires = "scan_mode")]
+        state_db: Option<PathBuf>,
+        /// Stable datasource identity. Required whenever --scan-mode is supplied.
+        #[arg(long, requires = "scan_mode")]
+        state_scope: Option<String>,
         #[arg(short, long)]
         progress: bool,
     },
@@ -1267,51 +1277,83 @@ async fn main() -> Result<()> {
             cache_dir,
             progress_json,
             scan_started_utc,
+            scan_mode,
+            state_db,
+            state_scope,
             progress,
         } => {
             let reporter = ProgressReporter::new(progress);
-            let result: Result<()> = (|| {
+            let result: Result<()> = async {
                 let scan_started_utc = parse_scan_started_utc(scan_started_utc.as_deref())?;
                 let progress_path = (progress_json != "none" && !progress_json.is_empty())
-                    .then(|| Path::new(&progress_json));
+                    .then(|| PathBuf::from(&progress_json));
                 seed_scan_progress(
-                    progress_path,
+                    progress_path.as_deref(),
                     "signalr.corruptionDetect.scanningHeaders",
                     DetectionMethod::Structural,
                 );
                 reporter.emit_started(
                     "signalr.corruptionDetect.scanningHeaders",
-                    json!({ "detectionMethod": "structural" }),
+                    json!({
+                        "detectionMethod": "structural",
+                        "scanMode": scan_mode.unwrap_or(cache_structural_state::StructuralScanMode::Full).as_str(),
+                    }),
                 );
-                let result = cache_structural_scanner::scan(
-                    Path::new(&cache_dir),
-                    scan_started_utc,
-                    progress_path,
-                )?;
+                if scan_mode.is_none() && (state_db.is_some() || state_scope.is_some()) {
+                    bail!("--state-db and --state-scope require --scan-mode");
+                }
+                let result = tokio::task::spawn_blocking(move || match scan_mode {
+                    None => cache_structural_scanner::scan(
+                        Path::new(&cache_dir),
+                        scan_started_utc,
+                        progress_path.as_deref(),
+                    ),
+                    Some(mode) => {
+                        let state_db = state_db
+                            .as_deref()
+                            .context("--state-db is required when --scan-mode is supplied")?;
+                        let state_scope = state_scope
+                            .as_deref()
+                            .context("--state-scope is required when --scan-mode is supplied")?;
+                        cache_structural_scanner::scan_with_state(
+                            Path::new(&cache_dir),
+                            scan_started_utc,
+                            progress_path.as_deref(),
+                            mode,
+                            state_db,
+                            state_scope,
+                        )
+                    }
+                })
+                .await
+                .context("structural scanner blocking task failed")??;
                 if result.cancelled {
                     reporter.emit_cancelled(
-                        "signalr.corruptionRemove.complete",
+                        "signalr.corruptionDetect.complete",
                         json!({
                             "detectionMethod": "structural",
                             "totalCorrupted": result.report.total,
                             "serviceCounts": result.report.service_counts,
                             "coverage": result.report.coverage,
+                            "scanSummary": result.scan_summary,
                         }),
                     );
                 } else {
                     reporter.emit_complete(
-                        "signalr.corruptionRemove.complete",
+                        "signalr.corruptionDetect.complete",
                         json!({
                             "detectionMethod": "structural",
                             "totalCorrupted": result.report.total,
                             "serviceCounts": result.report.service_counts,
                             "coverage": result.report.coverage,
+                            "scanSummary": result.scan_summary,
                         }),
                     );
                 }
                 println!("{}", serde_json::to_string(&result.report)?);
                 Ok(())
-            })();
+            }
+            .await;
             progress_events::finish_or_exit(
                 &reporter,
                 "signalr.corruptionRemove.error.fatal",
@@ -1632,6 +1674,37 @@ mod tests {
             "--progress",
         ])
         .is_ok());
+        assert!(Args::try_parse_from([
+            "cache_corruption",
+            "structural-summary",
+            "/cache",
+            "none",
+            "--scan-mode",
+            "incremental",
+            "--state-db",
+            "/state/structural.sqlite3",
+            "--state-scope",
+            "default",
+        ])
+        .is_ok());
+        assert!(Args::try_parse_from([
+            "cache_corruption",
+            "structural-summary",
+            "/cache",
+            "none",
+            "--scan-mode",
+            "incremental",
+        ])
+        .is_err());
+        assert!(Args::try_parse_from([
+            "cache_corruption",
+            "structural-summary",
+            "/cache",
+            "none",
+            "--state-db",
+            "/state/structural.sqlite3",
+        ])
+        .is_err());
         assert!(Args::try_parse_from([
             "cache_corruption",
             "remove-structural",

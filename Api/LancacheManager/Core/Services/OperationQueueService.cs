@@ -73,7 +73,10 @@ public sealed class OperationQueueService : IOperationQueue
             // as-is (never two queued copies of the same destructive work).
             lock (_sync)
             {
-                var duplicateWaiter = _waiters.FirstOrDefault(w => w.Type == type && w.Scope.Matches(scope));
+                var duplicateWaiter = _waiters.FirstOrDefault(w =>
+                    w.Type == type
+                    && w.Scope.Matches(scope)
+                    && string.Equals(w.Name, displayName, StringComparison.Ordinal));
                 if (duplicateWaiter != null)
                 {
                     return new QueuedOperationResponse
@@ -115,7 +118,11 @@ public sealed class OperationQueueService : IOperationQueue
 
             // Identical op already ACTIVE -> idempotent accept (never rejected, never doubled).
             if (conflict.StageKey == "errors.conflict.duplicate"
-                && conflict.ActiveOperationId is { } activeId && activeId != Guid.Empty)
+                && conflict.ActiveOperationId is { } activeId && activeId != Guid.Empty
+                && string.Equals(
+                    _tracker.GetOperation(activeId)?.Name,
+                    displayName,
+                    StringComparison.Ordinal))
             {
                 return new QueuedOperationResponse
                 {

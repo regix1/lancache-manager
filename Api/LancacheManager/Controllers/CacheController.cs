@@ -419,6 +419,7 @@ public class CacheController : ControllerBase
         [FromQuery] int threshold = 3,
         [FromQuery] int lookbackDays = CorruptionDetectionService.DefaultLookbackDays,
         [FromQuery] string? detectionMethod = null,
+        [FromQuery] string? scanMode = null,
         CancellationToken cancellationToken = default)
     {
         var method = detectionMethod == null
@@ -427,7 +428,12 @@ public class CacheController : ControllerBase
                 ? parsed
                 : throw new ValidationException(
                     "Detection method must be 'repeated_miss' or 'structural'");
-        CorruptionDetectionService.ValidateScanInput(threshold, lookbackDays, method);
+        var structuralScanMode = CorruptionDetectionService.ResolveStructuralScanMode(method, scanMode);
+        CorruptionDetectionService.ValidateScanInput(
+            threshold,
+            lookbackDays,
+            method,
+            structuralScanMode);
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         // The bulk corruption scan is a heavy data op (OperationConflictChecker section 1a), so
@@ -438,7 +444,8 @@ public class CacheController : ControllerBase
             await _corruptionDetectionService.StartDetectionAsync(
                 threshold,
                 lookbackDays,
-                method);
+                method,
+                structuralScanMode);
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.CorruptionDetection,
@@ -447,17 +454,21 @@ public class CacheController : ControllerBase
         if (conflict != null)
         {
             return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.CorruptionDetection, ConflictScope.Bulk(), "Corruption Detection",
+                OperationType.CorruptionDetection,
+                ConflictScope.Bulk(),
+                CorruptionDetectionService.DetectionOperationName(method, structuralScanMode),
                 StartDetectionAsync, cancellationToken));
         }
 
         var operationId = await StartDetectionAsync();
-        return Accepted(new
+        return Accepted(new CorruptionDetectionStartResponse
         {
-            operationId,
-            message = "Corruption detection started",
-            status = OperationStatus.Running,
-            detectionMethod = method.ToWireString()
+            OperationId = operationId
+                ?? throw new InvalidOperationException("Corruption detection did not return an operation ID"),
+            Message = "Corruption detection started",
+            Status = OperationStatus.Running,
+            DetectionMethod = method.ToWireString(),
+            ScanMode = structuralScanMode?.ToWireString()
         });
     }
 
@@ -481,6 +492,10 @@ public class CacheController : ControllerBase
             ? new Dictionary<string, object?>()
             : new Dictionary<string, object?>(snapshot.Context);
         context["detectionMethod"] = detectionMethod;
+        if (metrics?.ScanMode is { } scanMode)
+        {
+            context["scanMode"] = scanMode.ToWireString();
+        }
 
         return Ok(new CorruptionDetectionStatusResponse
         {
@@ -492,7 +507,14 @@ public class CacheController : ControllerBase
             Context = context,
             PercentComplete = snapshot?.PercentComplete ?? activeOp.PercentComplete,
             StartTime = activeOp.StartedAt.ToString("o"),
-            DetectionMethod = detectionMethod
+            DetectionMethod = detectionMethod,
+            ScanMode = metrics?.ScanMode?.ToWireString(),
+            EffectiveScanMode = metrics?.EffectiveScanMode?.ToWireString(),
+            BaselineStatus = metrics?.BaselineStatus?.ToWireString(),
+            Resumed = metrics?.ScanMode.HasValue == true ? metrics.Resumed : null,
+            ScanSummary = metrics == null
+                ? null
+                : CorruptionDetectionService.SnapshotStructuralSummary(metrics)
         });
     }
 

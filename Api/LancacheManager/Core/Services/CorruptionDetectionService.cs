@@ -40,8 +40,6 @@ public class CorruptionDetectionService
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
-    private static readonly string _operationStateKey = OperationType.CorruptionDetection.ToWireString();
-
     public CorruptionDetectionService(
         ILogger<CorruptionDetectionService> logger,
         IPathResolver pathResolver,
@@ -67,9 +65,11 @@ public class CorruptionDetectionService
         int threshold = 3,
         int lookbackDays = DefaultLookbackDays,
         CorruptionDetectionMethod detectionMethod = CorruptionDetectionMethod.RepeatedMiss,
+        StructuralScanMode? scanMode = null,
         CancellationToken cancellationToken = default)
     {
-        ValidateScanInput(threshold, lookbackDays, detectionMethod);
+        scanMode = NormalizeStructuralScanMode(detectionMethod, scanMode);
+        ValidateScanInput(threshold, lookbackDays, detectionMethod, scanMode);
 
         await _startLock.WaitAsync(cancellationToken);
         try
@@ -77,6 +77,14 @@ public class CorruptionDetectionService
             var activeOp = _operationTracker.GetActiveOperations(OperationType.CorruptionDetection).FirstOrDefault();
             if (activeOp != null)
             {
+                if (activeOp.Metadata is not CorruptionDetectionMetrics activeMetrics
+                    || activeMetrics.DetectionMethod != detectionMethod
+                    || activeMetrics.ScanMode != scanMode
+                    || activeMetrics.Threshold != threshold
+                    || activeMetrics.LookbackDays != lookbackDays)
+                {
+                    throw new ConflictException("A different corruption detection scan is already in progress");
+                }
                 _logger.LogWarning("[CorruptionDetection] Detection already in progress: {OperationId}", activeOp.Id);
                 return activeOp.Id;
             }
@@ -86,35 +94,41 @@ public class CorruptionDetectionService
             {
                 Threshold = threshold,
                 LookbackDays = lookbackDays,
-                DetectionMethod = detectionMethod
+                DetectionMethod = detectionMethod,
+                ScanMode = scanMode
             };
             var startingStageKey = detectionMethod == CorruptionDetectionMethod.Structural
                 ? "signalr.corruptionDetect.startingStructural"
                 : "signalr.corruptionDetect.startingRepeatedMiss";
+            var startingContext = BuildStructuralContext(detectionMethod, scanMode);
             metadata.CaptureProgress(
                 startingStageKey,
                 0,
                 context: null,
-                authoritativeContext: new Dictionary<string, object?>
-                {
-                    ["detectionMethod"] = detectionMethod.ToWireString()
-                });
+                authoritativeContext: startingContext);
             Guid operationId = Guid.Empty;
             operationId = _operationTracker.RegisterOperation(
                 OperationType.CorruptionDetection,
-                "Corruption Detection",
+                DetectionOperationName(detectionMethod, scanMode),
                 cts,
                 metadata,
                 onTerminalCleanup: metadata.ClearProgress,
                 onTerminalEmit: info => EmitTerminalAsync(info, operationId, metadata));
             _operationTracker.UpdateProgress(operationId, 0, startingStageKey);
 
-            _operationStateService.SaveState($"{_operationStateKey}_{operationId}", new OperationState
+            var operationStateKey = operationId.ToString();
+            _operationStateService.SaveState(operationStateKey, new OperationState
             {
-                Key = $"{_operationStateKey}_{operationId}",
+                Key = operationStateKey,
                 Type = OperationType.CorruptionDetection.ToWireString(),
                 Status = OperationStatus.Running.ToWireString(),
-                Message = "Starting corruption detection..."
+                Message = "Starting corruption detection...",
+                Data = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+                {
+                    ["operationId"] = operationId,
+                    ["detectionMethod"] = detectionMethod.ToWireString(),
+                    ["scanMode"] = scanMode?.ToWireString()
+                })
             });
 
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
@@ -122,10 +136,8 @@ public class CorruptionDetectionService
                 OperationId = operationId,
                 StageKey = startingStageKey,
                 DetectionMethod = detectionMethod.ToWireString(),
-                Context = new Dictionary<string, object?>
-                {
-                    ["detectionMethod"] = detectionMethod.ToWireString()
-                }
+                ScanMode = scanMode?.ToWireString(),
+                Context = startingContext
             });
 
             var startedAtUtc = CaptureScanStartedUtc();
@@ -136,6 +148,7 @@ public class CorruptionDetectionService
                     threshold,
                     lookbackDays,
                     detectionMethod,
+                    scanMode,
                     metadata,
                     startedAtUtc,
                     workerToken),
@@ -158,6 +171,35 @@ public class CorruptionDetectionService
         CancellationToken cancellationToken) =>
         Task.Run(() => worker(cancellationToken));
 
+    internal static IReadOnlyList<string> BuildStructuralProcessArguments(
+        string cacheDir,
+        string progressFile,
+        string scanStartedUtc,
+        StructuralScanMode scanMode,
+        string stateDatabasePath,
+        string stateScope) =>
+        [
+            "structural-summary",
+            cacheDir,
+            progressFile,
+            "--scan-started-utc",
+            scanStartedUtc,
+            "--scan-mode",
+            scanMode.ToWireString(),
+            "--state-db",
+            stateDatabasePath,
+            "--state-scope",
+            stateScope,
+            "--progress"
+        ];
+
+    internal static string DetectionOperationName(
+        CorruptionDetectionMethod detectionMethod,
+        StructuralScanMode? scanMode) =>
+        detectionMethod == CorruptionDetectionMethod.Structural
+            ? $"Structural Corruption Detection ({(scanMode ?? StructuralScanMode.Full).ToWireString()})"
+            : "Corruption Detection";
+
     private Task EmitTerminalAsync(
         OperationTerminalInfo info,
         Guid operationId,
@@ -167,6 +209,12 @@ public class CorruptionDetectionService
         var totalServicesWithCorruption = counts?.Count ?? 0;
         var totalCorruptedChunks = counts != null ? (int)Math.Min(counts.Values.Sum(), int.MaxValue) : 0;
         var detectionMethod = metadata.DetectionMethod.ToWireString();
+        var scanMode = metadata.ScanMode?.ToWireString();
+        var effectiveScanMode = metadata.EffectiveScanMode?.ToWireString();
+        var baselineStatus = metadata.BaselineStatus?.ToWireString();
+        var structural = metadata.ScanMode.HasValue;
+        var structuralContext = BuildStructuralContext(metadata.DetectionMethod, metadata.ScanMode);
+        AddStructuralMetrics(structuralContext, metadata);
 
         if (info.Cancelled)
         {
@@ -181,7 +229,22 @@ public class CorruptionDetectionService
                     DetectionMethod: detectionMethod,
                     DetectionCounts: metadata.DetectionCounts,
                     Coverage: CorruptionScanCoverageResponse.From(metadata.Coverage),
-                    Context: new Dictionary<string, object?> { ["detectionMethod"] = detectionMethod }));
+                    Context: structuralContext,
+                    ScanMode: scanMode,
+                    EffectiveScanMode: effectiveScanMode,
+                    BaselineStatus: baselineStatus,
+                    StateCommitted: structural ? metadata.StateCommitted : null,
+                    Resumed: structural ? metadata.Resumed : null,
+                    FilesDiscovered: structural ? metadata.FilesDiscovered : null,
+                    FilesProcessed: structural ? metadata.FilesProcessed : null,
+                    FilesInspected: structural ? metadata.FilesInspected : null,
+                    FilesReused: structural ? metadata.FilesReused : null,
+                    FilesRevalidated: structural ? metadata.FilesRevalidated : null,
+                    InvalidFiles: structural ? metadata.InvalidFiles : null,
+                    FilesPruned: structural ? metadata.FilesPruned : null,
+                    FilesPendingRetry: structural ? metadata.FilesPendingRetry : null,
+                    StateEntries: structural ? metadata.StateEntries : null,
+                    ScanSummary: SnapshotStructuralSummary(metadata)));
         }
 
         if (info.Success)
@@ -200,12 +263,26 @@ public class CorruptionDetectionService
                     DetectionMethod: detectionMethod,
                     DetectionCounts: metadata.DetectionCounts,
                     Coverage: CorruptionScanCoverageResponse.From(metadata.Coverage),
-                    Context: new Dictionary<string, object?>
+                    Context: new Dictionary<string, object?>(structuralContext)
                     {
                         ["count"] = totalServicesWithCorruption,
-                        ["scanId"] = metadata.ScanId,
-                        ["detectionMethod"] = detectionMethod
-                    }));
+                        ["scanId"] = metadata.ScanId
+                    },
+                    ScanMode: scanMode,
+                    EffectiveScanMode: effectiveScanMode,
+                    BaselineStatus: baselineStatus,
+                    StateCommitted: structural ? metadata.StateCommitted : null,
+                    Resumed: structural ? metadata.Resumed : null,
+                    FilesDiscovered: structural ? metadata.FilesDiscovered : null,
+                    FilesProcessed: structural ? metadata.FilesProcessed : null,
+                    FilesInspected: structural ? metadata.FilesInspected : null,
+                    FilesReused: structural ? metadata.FilesReused : null,
+                    FilesRevalidated: structural ? metadata.FilesRevalidated : null,
+                    InvalidFiles: structural ? metadata.InvalidFiles : null,
+                    FilesPruned: structural ? metadata.FilesPruned : null,
+                    FilesPendingRetry: structural ? metadata.FilesPendingRetry : null,
+                    StateEntries: structural ? metadata.StateEntries : null,
+                    ScanSummary: SnapshotStructuralSummary(metadata)));
         }
 
         return _notifications.NotifyAllAsync(
@@ -220,11 +297,25 @@ public class CorruptionDetectionService
                 DetectionMethod: detectionMethod,
                 DetectionCounts: metadata.DetectionCounts,
                 Coverage: CorruptionScanCoverageResponse.From(metadata.Coverage),
-                Context: new Dictionary<string, object?>
+                Context: new Dictionary<string, object?>(structuralContext)
                 {
-                    ["errorDetail"] = info.Error,
-                    ["detectionMethod"] = detectionMethod
-                }));
+                    ["errorDetail"] = info.Error
+                },
+                ScanMode: scanMode,
+                EffectiveScanMode: effectiveScanMode,
+                BaselineStatus: baselineStatus,
+                StateCommitted: structural ? metadata.StateCommitted : null,
+                Resumed: structural ? metadata.Resumed : null,
+                FilesDiscovered: structural ? metadata.FilesDiscovered : null,
+                FilesProcessed: structural ? metadata.FilesProcessed : null,
+                FilesInspected: structural ? metadata.FilesInspected : null,
+                FilesReused: structural ? metadata.FilesReused : null,
+                FilesRevalidated: structural ? metadata.FilesRevalidated : null,
+                InvalidFiles: structural ? metadata.InvalidFiles : null,
+                FilesPruned: structural ? metadata.FilesPruned : null,
+                FilesPendingRetry: structural ? metadata.FilesPendingRetry : null,
+                StateEntries: structural ? metadata.StateEntries : null,
+                ScanSummary: SnapshotStructuralSummary(metadata)));
     }
 
     private async Task RunDetectionAsync(
@@ -232,6 +323,7 @@ public class CorruptionDetectionService
         int threshold,
         int lookbackDays,
         CorruptionDetectionMethod detectionMethod,
+        StructuralScanMode? scanMode,
         CorruptionDetectionMetrics metadata,
         DateTime startedAtUtc,
         CancellationToken cancellationToken)
@@ -260,7 +352,7 @@ public class CorruptionDetectionService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var datasource = datasources[datasourceIndex];
-                var report = await GetReportForDatasourceAsync(
+                var datasourceReport = await GetReportForDatasourceAsync(
                     datasource.LogPath,
                     datasource.CachePath,
                     timezone,
@@ -270,14 +362,16 @@ public class CorruptionDetectionService
                     threshold,
                     lookbackDays,
                     detectionMethod,
+                    scanMode,
                     metadata,
                     scanStartedUtc,
                     datasourceIndex,
                     datasources.Count,
                     cancellationToken);
-                datasourceReports.Add(new DatasourceCorruptionReport(datasource.Name, report));
+                datasourceReports.Add(datasourceReport);
             }
 
+            var structuralSummary = AggregateStructuralSummary(datasourceReports, scanMode);
             var completedAtUtc = DateTime.UtcNow;
             var scanId = Guid.NewGuid();
             await PersistCompletedScanAsync(
@@ -303,13 +397,14 @@ public class CorruptionDetectionService
                 metrics.Threshold = threshold;
                 metrics.LookbackDays = lookbackDays;
                 metrics.DetectionMethod = detectionMethod;
+                ApplyStructuralSummary(metrics, structuralSummary);
                 metrics.CorruptionCounts = counts;
                 metrics.DetectionCounts = detectionCounts;
                 metrics.Coverage = coverage;
                 metrics.LastDetectionTime = completedAtUtc;
             });
 
-            _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
+            _operationStateService.RemoveState(operationId.ToString());
             _operationTracker.CompleteOperation(operationId, success: true);
             _logger.LogInformation(
                 "[CorruptionDetection] Scan {ScanId} complete: {Services}",
@@ -319,18 +414,18 @@ public class CorruptionDetectionService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("[CorruptionDetection] Operation {OperationId} was cancelled", operationId);
-            _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
+            _operationStateService.RemoveState(operationId.ToString());
             _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[CorruptionDetection] Detection failed for operation {OperationId}", operationId);
-            _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
+            _operationStateService.RemoveState(operationId.ToString());
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
         }
     }
 
-    private async Task<CorruptionReport> GetReportForDatasourceAsync(
+    private async Task<DatasourceCorruptionReport> GetReportForDatasourceAsync(
         string logDir,
         string cacheDir,
         string timezone,
@@ -340,6 +435,7 @@ public class CorruptionDetectionService
         int threshold,
         int lookbackDays,
         CorruptionDetectionMethod detectionMethod,
+        StructuralScanMode? scanMode,
         CorruptionDetectionMetrics metadata,
         string scanStartedUtc,
         int datasourceIndex,
@@ -348,26 +444,53 @@ public class CorruptionDetectionService
     {
         var operationsDir = _pathResolver.GetOperationsDirectory();
         Directory.CreateDirectory(operationsDir);
-        var progressFile = Path.Combine(operationsDir, $"corruption_detection_{operationId}_{datasourceName}.json");
+        var stateScope = _pathResolver.GetStructuralCorruptionStateScope(datasourceName, cacheDir);
+        var progressFile = Path.Combine(operationsDir, $"corruption_detection_{operationId}_{stateScope}.json");
 
         try
         {
-            var arguments = detectionMethod switch
+            if (detectionMethod == CorruptionDetectionMethod.Structural)
+            {
+                ResetStructuralProgressMetrics(metadata);
+            }
+
+            var startInfo = detectionMethod switch
             {
                 CorruptionDetectionMethod.RepeatedMiss =>
-                    $"summary \"{logDir}\" \"{cacheDir}\" \"{progressFile}\" \"{timezone}\" {threshold} --lookback-days {lookbackDays} --scan-started-utc \"{scanStartedUtc}\"",
+                    _rustProcessHelper.CreateProcessStartInfo(
+                        rustBinaryPath,
+                        [
+                            "summary",
+                            logDir,
+                            cacheDir,
+                            progressFile,
+                            timezone,
+                            threshold.ToString(CultureInfo.InvariantCulture),
+                            "--lookback-days",
+                            lookbackDays.ToString(CultureInfo.InvariantCulture),
+                            "--scan-started-utc",
+                            scanStartedUtc
+                        ]),
                 CorruptionDetectionMethod.Structural =>
-                    $"structural-summary \"{cacheDir}\" \"{progressFile}\" --scan-started-utc \"{scanStartedUtc}\" --progress",
+                    _rustProcessHelper.CreateProcessStartInfo(
+                        rustBinaryPath,
+                        BuildStructuralProcessArguments(
+                            cacheDir,
+                            progressFile,
+                            scanStartedUtc,
+                            scanMode ?? throw new ValidationException("Structural scan mode is required"),
+                            _pathResolver.GetStructuralCorruptionStateDatabasePath(datasourceName, cacheDir),
+                            stateScope)),
                 _ => throw new ValidationException("Unsupported corruption detection method")
             };
-            var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
             var relay = new CorruptionProgressRelay(
                 metadata,
                 detectionMethod,
                 datasourceName,
                 datasourceIndex,
-                datasourceCount);
+                datasourceCount,
+                scanMode);
             var startingStageKey = detectionMethod == CorruptionDetectionMethod.Structural
                 ? "signalr.corruptionDetect.startingStructural"
                 : "signalr.corruptionDetect.startingRepeatedMiss";
@@ -390,6 +513,7 @@ public class CorruptionDetectionService
                         var stageKey = string.IsNullOrWhiteSpace(progressData.StageKey)
                             ? "signalr.corruptionDetect.scanning"
                             : progressData.StageKey;
+                        UpdateStructuralProgressMetrics(metadata, progressData.Context);
                         await RelayProgressAsync(relay.Capture(
                             stageKey,
                             progressData.PercentComplete,
@@ -418,14 +542,20 @@ public class CorruptionDetectionService
             var report = JsonSerializer.Deserialize<CorruptionReport>(result.Output, _candidateJsonOptions)
                 ?? throw new InvalidDataException(
                     $"corruption_manager returned an empty report for datasource '{datasourceName}'");
+            var scanSummary = SnapshotStructuralSummary(metadata);
             ValidateAndAttachDatasource(
                 report,
                 datasourceName,
                 threshold,
                 lookbackDays,
                 detectionMethod,
-                scanStartedUtc);
-            return report;
+                scanMode,
+                scanStartedUtc,
+                scanSummary);
+            return new DatasourceCorruptionReport(
+                datasourceName,
+                report,
+                scanSummary);
 
             async Task RelayProgressAsync(CorruptionRelayDecision decision)
             {
@@ -449,8 +579,21 @@ public class CorruptionDetectionService
                     Status = OperationStatus.Running,
                     decision.Snapshot.StageKey,
                     DetectionMethod = detectionMethod.ToWireString(),
+                    ScanMode = scanMode?.ToWireString(),
+                    EffectiveScanMode = GetContextValue(decision.Snapshot.Context, "effectiveScanMode"),
+                    BaselineStatus = GetContextValue(decision.Snapshot.Context, "baselineStatus"),
+                    Resumed = GetContextValue(decision.Snapshot.Context, "resumed"),
+                    FilesDiscovered = GetContextValue(decision.Snapshot.Context, "filesDiscovered"),
                     decision.Snapshot.Context,
                     FilesProcessed = decision.Snapshot.Context["filesProcessed"],
+                    FilesReused = GetContextValue(decision.Snapshot.Context, "filesReused"),
+                    FilesInspected = GetContextValue(decision.Snapshot.Context, "filesInspected"),
+                    FilesRevalidated = GetContextValue(decision.Snapshot.Context, "filesRevalidated"),
+                    InvalidFiles = GetContextValue(decision.Snapshot.Context, "invalidFiles"),
+                    FilesPendingRetry = GetContextValue(decision.Snapshot.Context, "filesPendingRetry"),
+                    FilesPruned = GetContextValue(decision.Snapshot.Context, "filesPruned"),
+                    StateEntries = GetContextValue(decision.Snapshot.Context, "stateEntries"),
+                    StateCommitted = GetContextValue(decision.Snapshot.Context, "stateCommitted"),
                     TotalFiles = decision.Snapshot.Context["totalFiles"],
                     DatasourceName = datasourceName
                 });
@@ -468,7 +611,27 @@ public class CorruptionDetectionService
         int expectedThreshold,
         int expectedLookbackDays,
         CorruptionDetectionMethod expectedDetectionMethod,
-        string expectedScanStartedUtc)
+        string expectedScanStartedUtc) =>
+        ValidateAndAttachDatasource(
+            report,
+            datasourceName,
+            expectedThreshold,
+            expectedLookbackDays,
+            expectedDetectionMethod,
+            expectedDetectionMethod == CorruptionDetectionMethod.Structural
+                ? StructuralScanMode.Full
+                : null,
+            expectedScanStartedUtc);
+
+    internal static void ValidateAndAttachDatasource(
+        CorruptionReport report,
+        string datasourceName,
+        int expectedThreshold,
+        int expectedLookbackDays,
+        CorruptionDetectionMethod expectedDetectionMethod,
+        StructuralScanMode? expectedScanMode,
+        string expectedScanStartedUtc,
+        StructuralScanStatusResponse? scanSummary = null)
     {
         if (report.ContractVersion != CorruptionReport.SupportedContractVersion)
         {
@@ -481,12 +644,17 @@ public class CorruptionDetectionService
             throw new InvalidDataException("Corruption report method did not match the requested scan");
         }
 
+        if ((expectedDetectionMethod == CorruptionDetectionMethod.Structural) != expectedScanMode.HasValue)
+        {
+            throw new InvalidDataException("Corruption report validation omitted or forged structural scan mode");
+        }
+
         if (report.Candidates is null
             || report.ServiceCounts is null
             || report.DetectionCounts is null
             || report.Settings is null)
         {
-            throw new InvalidDataException("Corruption report omitted required v4 fields");
+            throw new InvalidDataException("Corruption report omitted required fields");
         }
 
         if (expectedDetectionMethod == CorruptionDetectionMethod.RepeatedMiss
@@ -523,9 +691,13 @@ public class CorruptionDetectionService
 
         if (expectedDetectionMethod == CorruptionDetectionMethod.Structural)
         {
-            ValidateCoverage(report.Coverage
-                ?? throw new InvalidDataException("Structural report omitted scan coverage"),
-                report.Candidates.Count);
+            var coverage = report.Coverage
+                ?? throw new InvalidDataException("Structural report omitted scan coverage");
+            if (scanSummary != null)
+            {
+                ValidateStructuralProgressSummary(scanSummary, expectedScanMode!.Value, coverage, report.Candidates.Count);
+            }
+            ValidateCoverage(coverage, report.Candidates.Count, scanSummary?.FilesReused ?? 0);
         }
 
         var candidateIds = new HashSet<string>(StringComparer.Ordinal);
@@ -1430,7 +1602,10 @@ public class CorruptionDetectionService
         or StructuralCorruptionIssue.InvalidPayloadOffset
         or StructuralCorruptionIssue.TruncatedBeforePayload;
 
-    private static void ValidateCoverage(CorruptionScanCoverage coverage, int? candidateCount = null)
+    private static void ValidateCoverage(
+        CorruptionScanCoverage coverage,
+        int? candidateCount = null,
+        long reusedConsistent = 0)
     {
         if (coverage.FilesSeen < 0
             || coverage.FilesChecked < 0
@@ -1440,6 +1615,8 @@ public class CorruptionDetectionService
             || coverage.SparseFiles < 0
             || coverage.SparseFiles > coverage.FilesSeen
             || coverage.IoErrors < 0
+            || reusedConsistent < 0
+            || reusedConsistent > coverage.Consistent
             || coverage.SkippedByReason is null
             || coverage.SkippedByReason.Any(pair =>
                 string.IsNullOrWhiteSpace(pair.Key) || pair.Value < 0))
@@ -1449,10 +1626,44 @@ public class CorruptionDetectionService
 
 
         if (candidateCount.HasValue
-            && coverage.FilesChecked != checked(coverage.Consistent + candidateCount.Value))
+            && checked(coverage.FilesChecked + reusedConsistent)
+                != checked(coverage.Consistent + candidateCount.Value))
         {
             throw new InvalidDataException(
                 "Structural scan coverage did not match its actionable candidate count");
+        }
+    }
+
+    private static void ValidateStructuralProgressSummary(
+        StructuralScanStatusResponse summary,
+        StructuralScanMode expectedMode,
+        CorruptionScanCoverage coverage,
+        int candidateCount)
+    {
+        if (!string.Equals(summary.ScanMode, expectedMode.ToWireString(), StringComparison.Ordinal)
+            || !StructuralEffectiveScanModeExtensions.TryParseWire(summary.EffectiveScanMode, out var effectiveMode)
+            || !StructuralBaselineStatusExtensions.TryParseWire(summary.BaselineStatus, out var baselineStatus)
+            || summary.FilesDiscovered != coverage.FilesSeen
+            || summary.FilesProcessed != summary.FilesDiscovered
+            || summary.FilesReused > summary.FilesDiscovered
+            || summary.FilesInspected > summary.FilesDiscovered
+            || checked(summary.FilesReused + summary.FilesInspected) != summary.FilesDiscovered
+            || summary.FilesRevalidated > summary.FilesInspected
+            || summary.InvalidFiles != candidateCount
+            || summary.FilesPendingRetry > summary.FilesInspected
+            // This validator runs only after the Rust child exited successfully and immediately
+            // before the report can replace the authoritative cached result. An incomplete
+            // baseline means traversal or cancellation prevented publication; accepting that
+            // partial report would erase the last complete result while the prior baseline stayed
+            // active. Fail closed and let the normal operation failure path preserve both.
+            || baselineStatus != StructuralBaselineStatus.Ready
+            || !summary.StateCommitted
+            || (expectedMode == StructuralScanMode.Full && effectiveMode != StructuralEffectiveScanMode.Full)
+            || (expectedMode == StructuralScanMode.Incremental
+                && effectiveMode is not (StructuralEffectiveScanMode.Incremental
+                    or StructuralEffectiveScanMode.Baseline)))
+        {
+            throw new InvalidDataException("Structural progress summary was inconsistent with the completed report");
         }
     }
 
@@ -1510,6 +1721,294 @@ public class CorruptionDetectionService
         return parsed && value.EndsWith('Z');
     }
 
+    private static Dictionary<string, object?> BuildStructuralContext(
+        CorruptionDetectionMethod detectionMethod,
+        StructuralScanMode? scanMode)
+    {
+        var context = new Dictionary<string, object?>
+        {
+            ["detectionMethod"] = detectionMethod.ToWireString()
+        };
+        if (scanMode.HasValue)
+        {
+            context["scanMode"] = scanMode.Value.ToWireString();
+        }
+        return context;
+    }
+
+    private static object? GetContextValue(
+        IReadOnlyDictionary<string, object?> context,
+        string key) =>
+        context.TryGetValue(key, out var value) ? value : null;
+
+    private static void AddStructuralMetrics(
+        Dictionary<string, object?> context,
+        CorruptionDetectionMetrics metrics)
+    {
+        if (!metrics.ScanMode.HasValue)
+        {
+            return;
+        }
+
+        context["scanMode"] = metrics.ScanMode.Value.ToWireString();
+        context["effectiveScanMode"] = metrics.EffectiveScanMode?.ToWireString();
+        context["baselineStatus"] = metrics.BaselineStatus?.ToWireString();
+        context["resumed"] = metrics.Resumed;
+        context["filesDiscovered"] = metrics.FilesDiscovered;
+        context["filesProcessed"] = metrics.FilesProcessed;
+        context["filesReused"] = metrics.FilesReused;
+        context["filesInspected"] = metrics.FilesInspected;
+        context["filesRevalidated"] = metrics.FilesRevalidated;
+        context["invalidFiles"] = metrics.InvalidFiles;
+        context["filesPendingRetry"] = metrics.FilesPendingRetry;
+        context["filesPruned"] = metrics.FilesPruned;
+        context["stateEntries"] = metrics.StateEntries;
+        context["stateCommitted"] = metrics.StateCommitted;
+    }
+
+    internal static void UpdateStructuralProgressMetrics(
+        CorruptionDetectionMetrics metrics,
+        IReadOnlyDictionary<string, object?>? context)
+    {
+        if (!metrics.ScanMode.HasValue || context is null)
+        {
+            return;
+        }
+
+        if (TryReadString(context, "scanMode", out var scanModeWire))
+        {
+            if (!StructuralScanModeExtensions.TryParseWire(scanModeWire, out var scanMode)
+                || scanMode != metrics.ScanMode.Value)
+            {
+                throw new InvalidDataException("Structural progress scan mode did not match the request");
+            }
+        }
+
+        if (TryReadString(context, "effectiveScanMode", out var effectiveWire))
+        {
+            if (!StructuralEffectiveScanModeExtensions.TryParseWire(effectiveWire, out var effectiveMode))
+            {
+                throw new InvalidDataException("Structural progress contained an unknown effective scan mode");
+            }
+            metrics.EffectiveScanMode = effectiveMode;
+        }
+
+        if (TryReadString(context, "baselineStatus", out var baselineWire))
+        {
+            if (!StructuralBaselineStatusExtensions.TryParseWire(baselineWire, out var baselineStatus))
+            {
+                throw new InvalidDataException("Structural progress contained an unknown baseline status");
+            }
+            metrics.BaselineStatus = baselineStatus;
+        }
+
+        if (TryReadBoolean(context, "resumed", out var resumed)) metrics.Resumed = resumed;
+        if (TryReadBoolean(context, "stateCommitted", out var committed)) metrics.StateCommitted = committed;
+        if (TryReadNonnegativeInt64(context, "filesDiscovered", out var discovered)) metrics.FilesDiscovered = discovered;
+        if (TryReadNonnegativeInt64(context, "filesProcessed", out var processed)) metrics.FilesProcessed = processed;
+        if (TryReadNonnegativeInt64(context, "filesReused", out var reused)) metrics.FilesReused = reused;
+        if (TryReadNonnegativeInt64(context, "filesInspected", out var inspected)) metrics.FilesInspected = inspected;
+        if (TryReadNonnegativeInt64(context, "filesRevalidated", out var revalidated)) metrics.FilesRevalidated = revalidated;
+        if (TryReadNonnegativeInt64(context, "invalidFiles", out var invalid)) metrics.InvalidFiles = invalid;
+        if (TryReadNonnegativeInt64(context, "filesPendingRetry", out var retry)) metrics.FilesPendingRetry = retry;
+        if (TryReadNonnegativeInt64(context, "filesPruned", out var pruned)) metrics.FilesPruned = pruned;
+        if (TryReadNonnegativeInt64(context, "stateEntries", out var entries)) metrics.StateEntries = entries;
+    }
+
+    private static void ResetStructuralProgressMetrics(CorruptionDetectionMetrics metrics)
+    {
+        metrics.EffectiveScanMode = null;
+        metrics.BaselineStatus = null;
+        metrics.StateCommitted = false;
+        metrics.Resumed = false;
+        metrics.FilesDiscovered = 0;
+        metrics.FilesProcessed = 0;
+        metrics.FilesReused = 0;
+        metrics.FilesInspected = 0;
+        metrics.FilesRevalidated = 0;
+        metrics.InvalidFiles = 0;
+        metrics.FilesPendingRetry = 0;
+        metrics.FilesPruned = 0;
+        metrics.StateEntries = 0;
+    }
+
+    internal static StructuralScanStatusResponse? SnapshotStructuralSummary(
+        CorruptionDetectionMetrics metrics)
+    {
+        if (metrics.ScanMode is not { } scanMode
+            || metrics.EffectiveScanMode is not { } effectiveMode
+            || metrics.BaselineStatus is not { } baselineStatus)
+        {
+            return null;
+        }
+
+        return new StructuralScanStatusResponse
+        {
+            ScanMode = scanMode.ToWireString(),
+            EffectiveScanMode = effectiveMode.ToWireString(),
+            BaselineStatus = baselineStatus.ToWireString(),
+            Resumed = metrics.Resumed,
+            FilesDiscovered = metrics.FilesDiscovered,
+            FilesProcessed = metrics.FilesProcessed,
+            FilesReused = metrics.FilesReused,
+            FilesInspected = metrics.FilesInspected,
+            FilesRevalidated = metrics.FilesRevalidated,
+            InvalidFiles = metrics.InvalidFiles,
+            FilesPendingRetry = metrics.FilesPendingRetry,
+            FilesPruned = metrics.FilesPruned,
+            StateEntries = metrics.StateEntries,
+            StateCommitted = metrics.StateCommitted
+        };
+    }
+
+    private static StructuralScanStatusResponse? AggregateStructuralSummary(
+        IReadOnlyList<DatasourceCorruptionReport> datasourceReports,
+        StructuralScanMode? scanMode)
+    {
+        if (!scanMode.HasValue)
+        {
+            return null;
+        }
+
+        var summaries = datasourceReports
+            .Select(report => report.ScanSummary
+                ?? throw new InvalidDataException(
+                    $"Structural scan for datasource '{report.DatasourceName}' omitted terminal state progress"))
+            .ToList();
+        if (summaries.Count == 0)
+        {
+            throw new InvalidDataException("Structural scan did not process any datasource state");
+        }
+        if (summaries.Any(summary =>
+                !string.Equals(summary.ScanMode, scanMode.Value.ToWireString(), StringComparison.Ordinal)))
+        {
+            throw new InvalidDataException("Structural datasource state did not match the requested scan mode");
+        }
+
+        var aggregate = new StructuralScanStatusResponse
+        {
+            ScanMode = scanMode.Value.ToWireString(),
+            EffectiveScanMode = summaries.Any(summary => summary.EffectiveScanMode == "baseline")
+                ? "baseline"
+                : scanMode.Value.ToWireString(),
+            BaselineStatus = summaries.All(summary => summary.BaselineStatus == "ready")
+                ? "ready"
+                : "incomplete",
+            Resumed = summaries.Any(summary => summary.Resumed),
+            StateCommitted = summaries.All(summary => summary.StateCommitted)
+        };
+
+        foreach (var summary in summaries)
+        {
+            aggregate.FilesDiscovered = checked(aggregate.FilesDiscovered + summary.FilesDiscovered);
+            aggregate.FilesProcessed = checked(aggregate.FilesProcessed + summary.FilesProcessed);
+            aggregate.FilesReused = checked(aggregate.FilesReused + summary.FilesReused);
+            aggregate.FilesInspected = checked(aggregate.FilesInspected + summary.FilesInspected);
+            aggregate.FilesRevalidated = checked(aggregate.FilesRevalidated + summary.FilesRevalidated);
+            aggregate.InvalidFiles = checked(aggregate.InvalidFiles + summary.InvalidFiles);
+            aggregate.FilesPendingRetry = checked(aggregate.FilesPendingRetry + summary.FilesPendingRetry);
+            aggregate.FilesPruned = checked(aggregate.FilesPruned + summary.FilesPruned);
+            aggregate.StateEntries = checked(aggregate.StateEntries + summary.StateEntries);
+        }
+
+        return aggregate;
+    }
+
+    private static void ApplyStructuralSummary(
+        CorruptionDetectionMetrics metrics,
+        StructuralScanStatusResponse? summary)
+    {
+        if (summary is null)
+        {
+            return;
+        }
+
+        if (!StructuralEffectiveScanModeExtensions.TryParseWire(summary.EffectiveScanMode, out var effectiveMode)
+            || !StructuralBaselineStatusExtensions.TryParseWire(summary.BaselineStatus, out var baselineStatus))
+        {
+            throw new InvalidDataException("Structural terminal state used an unknown wire value");
+        }
+
+        metrics.EffectiveScanMode = effectiveMode;
+        metrics.BaselineStatus = baselineStatus;
+        metrics.Resumed = summary.Resumed;
+        metrics.FilesDiscovered = summary.FilesDiscovered;
+        metrics.FilesProcessed = summary.FilesProcessed;
+        metrics.FilesReused = summary.FilesReused;
+        metrics.FilesInspected = summary.FilesInspected;
+        metrics.FilesRevalidated = summary.FilesRevalidated;
+        metrics.InvalidFiles = summary.InvalidFiles;
+        metrics.FilesPendingRetry = summary.FilesPendingRetry;
+        metrics.FilesPruned = summary.FilesPruned;
+        metrics.StateEntries = summary.StateEntries;
+        metrics.StateCommitted = summary.StateCommitted;
+    }
+
+    private static bool TryReadString(
+        IReadOnlyDictionary<string, object?> context,
+        string key,
+        out string value)
+    {
+        value = string.Empty;
+        if (!context.TryGetValue(key, out var raw)) return false;
+        if (raw is string text)
+        {
+            value = text;
+            return true;
+        }
+        if (raw is JsonElement { ValueKind: JsonValueKind.String } json)
+        {
+            value = json.GetString() ?? string.Empty;
+            return true;
+        }
+        throw new InvalidDataException($"Structural progress field '{key}' was not a string");
+    }
+
+    private static bool TryReadBoolean(
+        IReadOnlyDictionary<string, object?> context,
+        string key,
+        out bool value)
+    {
+        value = false;
+        if (!context.TryGetValue(key, out var raw)) return false;
+        if (raw is bool boolean)
+        {
+            value = boolean;
+            return true;
+        }
+        if (raw is JsonElement { ValueKind: JsonValueKind.True or JsonValueKind.False } json)
+        {
+            value = json.GetBoolean();
+            return true;
+        }
+        throw new InvalidDataException($"Structural progress field '{key}' was not a boolean");
+    }
+
+    private static bool TryReadNonnegativeInt64(
+        IReadOnlyDictionary<string, object?> context,
+        string key,
+        out long value)
+    {
+        value = 0;
+        if (!context.TryGetValue(key, out var raw)) return false;
+        value = raw switch
+        {
+            byte number => number,
+            short number => number,
+            int number => number,
+            long number => number,
+            uint number => number,
+            ulong number when number <= long.MaxValue => (long)number,
+            JsonElement { ValueKind: JsonValueKind.Number } json when json.TryGetInt64(out var number) => number,
+            _ => throw new InvalidDataException($"Structural progress field '{key}' was not an integer")
+        };
+        if (value < 0)
+        {
+            throw new InvalidDataException($"Structural progress field '{key}' was negative");
+        }
+        return true;
+    }
+
     internal static double CalculateOverallProgress(
         int datasourceIndex,
         int datasourceCount,
@@ -1527,10 +2026,50 @@ public class CorruptionDetectionService
         return (datasourceIndex * 100.0 + datasourcePercent) / datasourceCount;
     }
 
+    internal static StructuralScanMode? ResolveStructuralScanMode(
+        CorruptionDetectionMethod detectionMethod,
+        string? scanMode)
+    {
+        if (scanMode is null)
+        {
+            return NormalizeStructuralScanMode(detectionMethod, null);
+        }
+
+        if (!StructuralScanModeExtensions.TryParseWire(scanMode, out var parsed))
+        {
+            throw new ValidationException("Structural scan mode must be 'full' or 'incremental'");
+        }
+
+        return NormalizeStructuralScanMode(detectionMethod, parsed);
+    }
+
+    private static StructuralScanMode? NormalizeStructuralScanMode(
+        CorruptionDetectionMethod detectionMethod,
+        StructuralScanMode? scanMode)
+    {
+        if (detectionMethod == CorruptionDetectionMethod.RepeatedMiss)
+        {
+            if (scanMode.HasValue)
+            {
+                throw new ValidationException("Structural scan mode is only valid for structural detection");
+            }
+
+            return null;
+        }
+
+        if (detectionMethod == CorruptionDetectionMethod.Structural)
+        {
+            return scanMode ?? StructuralScanMode.Full;
+        }
+
+        throw new ValidationException("Unsupported corruption detection method");
+    }
+
     internal static void ValidateScanInput(
         int threshold,
         int lookbackDays = DefaultLookbackDays,
-        CorruptionDetectionMethod detectionMethod = CorruptionDetectionMethod.RepeatedMiss)
+        CorruptionDetectionMethod detectionMethod = CorruptionDetectionMethod.RepeatedMiss,
+        StructuralScanMode? scanMode = null)
     {
         if (!_allowedThresholds.Contains(threshold))
         {
@@ -1547,6 +2086,13 @@ public class CorruptionDetectionService
         {
             throw new ValidationException("Unsupported corruption detection method");
         }
+
+        if (scanMode.HasValue && !Enum.IsDefined(scanMode.Value))
+        {
+            throw new ValidationException("Unsupported structural scan mode");
+        }
+
+        _ = NormalizeStructuralScanMode(detectionMethod, scanMode);
     }
 
     private static bool IsSupportedScan(CachedCorruptionScan scan) =>
@@ -1581,7 +2127,10 @@ public class CorruptionDetectionService
     }
 }
 
-internal sealed record DatasourceCorruptionReport(string DatasourceName, CorruptionReport Report);
+internal sealed record DatasourceCorruptionReport(
+    string DatasourceName,
+    CorruptionReport Report,
+    StructuralScanStatusResponse? ScanSummary = null);
 
 /// <summary>JSON model for Rust corruption detection progress.</summary>
 public class CorruptionDetectionProgressData

@@ -294,7 +294,22 @@ public static class SignalRNotifications
         string? DetectionMethod = null,
         Dictionary<string, long>? DetectionCounts = null,
         CorruptionScanCoverageResponse? Coverage = null,
-        Dictionary<string, object?>? Context = null
+        Dictionary<string, object?>? Context = null,
+        string? ScanMode = null,
+        string? EffectiveScanMode = null,
+        string? BaselineStatus = null,
+        bool? StateCommitted = null,
+        bool? Resumed = null,
+        long? FilesDiscovered = null,
+        long? FilesProcessed = null,
+        long? FilesInspected = null,
+        long? FilesReused = null,
+        long? FilesRevalidated = null,
+        long? InvalidFiles = null,
+        long? FilesPruned = null,
+        long? FilesPendingRetry = null,
+        long? StateEntries = null,
+        StructuralScanStatusResponse? ScanSummary = null
     ) : ICompletionNotification, IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;

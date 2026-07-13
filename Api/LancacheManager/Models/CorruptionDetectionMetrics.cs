@@ -17,6 +17,34 @@ public class CorruptionDetectionMetrics
 
     public CorruptionDetectionMethod DetectionMethod { get; set; } = CorruptionDetectionMethod.RepeatedMiss;
 
+    public StructuralScanMode? ScanMode { get; set; }
+
+    public StructuralEffectiveScanMode? EffectiveScanMode { get; set; }
+
+    public StructuralBaselineStatus? BaselineStatus { get; set; }
+
+    public bool StateCommitted { get; set; }
+
+    public bool Resumed { get; set; }
+
+    public long FilesInspected { get; set; }
+
+    public long FilesDiscovered { get; set; }
+
+    public long FilesProcessed { get; set; }
+
+    public long FilesReused { get; set; }
+
+    public long FilesRevalidated { get; set; }
+
+    public long InvalidFiles { get; set; }
+
+    public long FilesPruned { get; set; }
+
+    public long FilesPendingRetry { get; set; }
+
+    public long StateEntries { get; set; }
+
     /// <summary>
     /// Corruption counts keyed by category or URL.
     /// </summary>

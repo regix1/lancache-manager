@@ -52,6 +52,7 @@ import type {
   XboxMappingAuthStatus,
   PicsStatus
 } from '../types';
+import type { StructuralScanMode } from '../types/corruptionScan';
 import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
 import type { ServiceScheduleInfo } from '../components/features/management/schedules/types';
 import type {
@@ -1336,11 +1337,13 @@ class ApiService {
   static async startCorruptionDetection(
     detectionMethod: CorruptionDetectionMethod = 'repeated_miss',
     threshold = 3,
-    lookbackDays = 30
+    lookbackDays = 30,
+    scanMode?: StructuralScanMode
   ): Promise<{
     operationId: string;
     message: string;
     status: string;
+    scanMode?: StructuralScanMode;
     queued?: boolean;
     alreadyRunning?: boolean;
   }> {
@@ -1350,6 +1353,8 @@ class ApiService {
       if (detectionMethod === 'repeated_miss') {
         params.set('threshold', String(threshold));
         params.set('lookbackDays', String(lookbackDays));
+      } else if (scanMode) {
+        params.set('scanMode', scanMode);
       }
       const res = await fetch(
         `${API_BASE}/cache/corruption/detect?${params.toString()}`,
@@ -1362,6 +1367,7 @@ class ApiService {
         operationId: string;
         message: string;
         status: string;
+        scanMode?: StructuralScanMode;
         queued?: boolean;
         alreadyRunning?: boolean;
       }>(res);

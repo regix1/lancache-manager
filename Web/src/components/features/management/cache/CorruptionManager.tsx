@@ -7,7 +7,8 @@ import {
   CircleCheck,
   RefreshCw,
   Search,
-  Trash2
+  Trash2,
+  Zap
 } from 'lucide-react';
 import '../managementSectionContent.css';
 import ApiService from '@services/api.service';
@@ -56,6 +57,7 @@ import type {
   CorruptionDetectionMethod,
   CorruptionScanCoverage
 } from '@/types';
+import type { StructuralScanMode } from '@/types/corruptionScan';
 
 interface CorruptionManagerProps {
   authMode: AuthMode;
@@ -116,9 +118,21 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
     useDirectoryPermissionsContext();
 
-  const isScanningFromNotification = useOperationBusy({ types: ['corruption_detection'] });
-  const [isStartingScan, setIsStartingScan] = useState(false);
+  const isScanningFromNotification = useOperationBusy({
+    types: ['corruption_detection'],
+    status: 'running'
+  });
+  const isScanWaitingFromNotification = useOperationBusy({
+    types: ['corruption_detection'],
+    status: 'waiting'
+  });
+  const [startingScanAction, setStartingScanAction] = useState<
+    'repeated_miss' | StructuralScanMode | null
+  >(null);
+  const scanRequestInFlightRef = useRef(false);
+  const isStartingScan = startingScanAction !== null;
   const isScanning = isScanningFromNotification || isStartingScan;
+  const isScanBusy = isScanning || isScanWaitingFromNotification;
   const isCorruptionRemovalActive = useOperationBusy({
     types: ['corruption_removal'],
     status: ['running', 'waiting']
@@ -141,16 +155,38 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const [lookbackDays, setLookbackDays] = useState(30);
   const [cachedLoadFailed, setCachedLoadFailed] = useState(false);
   const resultEpochRef = useRef(0);
-  const activeNotificationMethod = notifications.find(
+  const activeDetectionNotification = notifications.find(
     (notification) =>
       notification.type === 'corruption_detection' &&
-      (notification.status === 'running' || notification.status === 'waiting') &&
-      isCorruptionDetectionMethod(notification.details?.detectionMethod)
-  )?.details?.detectionMethod;
+      (notification.status === 'running' || notification.status === 'waiting')
+  );
+  const activeNotificationMethod = activeDetectionNotification?.details?.detectionMethod;
+  const activeNotificationScanMode = activeDetectionNotification?.details?.scanMode;
   const displayedDetectionMethod =
-    isScanning && isCorruptionDetectionMethod(activeNotificationMethod)
+    isScanBusy && isCorruptionDetectionMethod(activeNotificationMethod)
       ? activeNotificationMethod
       : detectionMethod;
+  const activeRunningScanAction: 'repeated_miss' | StructuralScanMode | null = startingScanAction
+    ? startingScanAction
+    : activeDetectionNotification?.status === 'running'
+      ? activeNotificationMethod === 'repeated_miss'
+        ? 'repeated_miss'
+        : activeNotificationMethod === 'structural' && activeNotificationScanMode
+          ? activeNotificationScanMode
+          : null
+      : null;
+  const activeBaselineStatus = activeDetectionNotification?.details?.baselineStatus;
+  const activeEffectiveScanMode = activeDetectionNotification?.details?.effectiveScanMode;
+  const activeScanResumed = activeDetectionNotification?.details?.resumed === true;
+  const isInitialBaselineBuild =
+    activeRunningScanAction === 'incremental' &&
+    (activeBaselineStatus === 'building' || activeEffectiveScanMode === 'baseline');
+
+  useEffect(() => {
+    if (!startingScanAction || !activeDetectionNotification) return;
+    setStartingScanAction(null);
+    scanRequestInFlightRef.current = false;
+  }, [activeDetectionNotification, startingScanAction]);
 
   const [sectionExpanded, setSectionExpanded] = useState(() => {
     const saved = localStorage.getItem('management-corruption-expanded');
@@ -480,7 +516,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     startingRemoveSelected ||
     isCorruptionRemovalActive;
   const scanBlocked =
-    isScanning ||
+    isScanBusy ||
     isAnyRemovalRunning ||
     corruptionRemovalBusy ||
     checkingPermissions ||
@@ -488,53 +524,81 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     mockMode ||
     authMode !== 'authenticated';
 
-  const startScan = useCallback(async () => {
-    if (scanBlocked) return;
-    setIsStartingScan(true);
-    clearLoadedResults();
-    setCachedLoadFailed(false);
-    try {
-      const result = await ApiService.startCorruptionDetection(
-        detectionMethod,
-        missThreshold,
-        lookbackDays
-      );
-      if (result.operationId && !result.queued && !result.alreadyRunning) {
-        addNotification(
-          buildSeededRunningNotification(
-            'corruption_detection',
-            result.operationId,
-            t(
-              detectionMethod === 'structural'
-                ? 'signalr.corruptionDetect.startingStructural'
-                : 'signalr.corruptionDetect.startingRepeatedMiss'
-            ),
-            { detectionMethod }
-          )
-        );
+  const startScan = useCallback(
+    async (scanMode?: StructuralScanMode) => {
+      const action: 'repeated_miss' | StructuralScanMode =
+        detectionMethod === 'repeated_miss' ? 'repeated_miss' : (scanMode ?? 'full');
+      if (
+        scanBlocked ||
+        scanRequestInFlightRef.current ||
+        (detectionMethod === 'structural' && !scanMode)
+      ) {
+        return;
       }
-    } catch (error: unknown) {
-      notifyError(t('management.corruption.errors.startScan'), error, {
-        logLabel: '[CorruptionManager] Failed to start scan'
-      });
-      setIsStartingScan(false);
-    }
-  }, [
-    addNotification,
-    clearLoadedResults,
-    detectionMethod,
-    lookbackDays,
-    missThreshold,
-    notifyError,
-    scanBlocked,
-    t
-  ]);
+
+      scanRequestInFlightRef.current = true;
+      setStartingScanAction(action);
+      clearLoadedResults();
+      setCachedLoadFailed(false);
+      try {
+        const result = await ApiService.startCorruptionDetection(
+          detectionMethod,
+          missThreshold,
+          lookbackDays,
+          detectionMethod === 'structural' ? scanMode : undefined
+        );
+        if (result.operationId && !result.queued && !result.alreadyRunning) {
+          const confirmedScanMode =
+            detectionMethod === 'structural' ? (result.scanMode ?? scanMode) : undefined;
+          addNotification(
+            buildSeededRunningNotification(
+              'corruption_detection',
+              result.operationId,
+              t(
+                detectionMethod !== 'structural'
+                  ? 'signalr.corruptionDetect.startingRepeatedMiss'
+                  : confirmedScanMode === 'incremental'
+                    ? 'signalr.corruptionDetect.startingStructuralIncremental'
+                    : 'signalr.corruptionDetect.startingStructuralFull'
+              ),
+              {
+                detectionMethod,
+                ...(confirmedScanMode ? { scanMode: confirmedScanMode } : {})
+              }
+            )
+          );
+        } else {
+          setStartingScanAction(null);
+          scanRequestInFlightRef.current = false;
+        }
+      } catch (error: unknown) {
+        notifyError(t('management.corruption.errors.startScan'), error, {
+          logLabel: '[CorruptionManager] Failed to start scan'
+        });
+        setStartingScanAction(null);
+        scanRequestInFlightRef.current = false;
+      }
+    },
+    [
+      addNotification,
+      clearLoadedResults,
+      detectionMethod,
+      lookbackDays,
+      missThreshold,
+      notifyError,
+      scanBlocked,
+      t
+    ]
+  );
 
   useEffect(() => {
-    const handleDetectionComplete = (event: CorruptionDetectionCompleteEvent) => {
-      setIsStartingScan(false);
-      if (!event.success) return;
+    const handleDetectionComplete = (_event: CorruptionDetectionCompleteEvent) => {
+      setStartingScanAction(null);
+      scanRequestInFlightRef.current = false;
 
+      // The backend preserves the prior authoritative result when a scan fails or is cancelled.
+      // Reload on every terminal event so clearing the local view at start never hides that result
+      // until a manual Load or page refresh.
       beginLoad(true);
       const requestEpoch = resultEpochRef.current;
       void (async () => {
@@ -811,7 +875,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             options={methodOptions}
             value={displayedDetectionMethod}
             onChange={handleMethodChange}
-            disabled={isScanning || isAnyRemovalRunning || corruptionRemovalBusy}
+            disabled={isScanBusy || isAnyRemovalRunning || corruptionRemovalBusy}
             dropdownTitle={t('management.corruption.methodTitle')}
             triggerAriaLabel={t('management.corruption.methodAriaLabel')}
             compactMode={true}
@@ -825,7 +889,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               options={thresholdOptions}
               value={String(missThreshold)}
               onChange={handleThresholdChange}
-              disabled={isScanning || isAnyRemovalRunning || corruptionRemovalBusy}
+              disabled={isScanBusy || isAnyRemovalRunning || corruptionRemovalBusy}
               dropdownTitle={t('management.corruption.sensitivityTitle')}
               triggerAriaLabel={t('management.corruption.sensitivityAriaLabel')}
               compactMode={true}
@@ -840,7 +904,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               options={lookbackOptions}
               value={String(lookbackDays)}
               onChange={handleLookbackChange}
-              disabled={isScanning || isAnyRemovalRunning || corruptionRemovalBusy}
+              disabled={isScanBusy || isAnyRemovalRunning || corruptionRemovalBusy}
               dropdownTitle={t('management.corruption.evidenceLookbackTitle')}
               triggerAriaLabel={t('management.corruption.evidenceLookbackAriaLabel')}
               compactMode={true}
@@ -849,7 +913,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           </div>
         )}
       </div>
-      {hasCachedResults && lastDetectionTime && !isScanning && !isLoading && (
+      {displayedDetectionMethod === 'structural' && (
+        <p className="mgmt-scanmeta">{t('management.corruption.structuralScanHelp')}</p>
+      )}
+      {hasCachedResults && lastDetectionTime && !isScanBusy && !isLoading && (
         <p className="mgmt-scanmeta">
           {t('common.resultsFromPreviousScan')} · {formattedLastDetection} ·{' '}
           {t(
@@ -894,25 +961,50 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
         {(close) => (
           <>
+            {displayedDetectionMethod === 'structural' ? (
+              <>
+                <ActionMenuItem
+                  icon={<Search className="w-3.5 h-3.5" />}
+                  disabled={scanBlocked}
+                  onClick={() => {
+                    void startScan('full');
+                    close();
+                  }}
+                >
+                  {t('management.corruption.fullScan')}
+                </ActionMenuItem>
+                <ActionMenuItem
+                  icon={<Zap className="w-3.5 h-3.5" />}
+                  disabled={scanBlocked}
+                  onClick={() => {
+                    void startScan('incremental');
+                    close();
+                  }}
+                >
+                  {t('management.corruption.incrementalScan')}
+                </ActionMenuItem>
+              </>
+            ) : (
+              <ActionMenuItem
+                icon={<Search className="w-3.5 h-3.5" />}
+                disabled={scanBlocked}
+                onClick={() => {
+                  void startScan();
+                  close();
+                }}
+              >
+                {t('common.scan')}
+              </ActionMenuItem>
+            )}
             <ActionMenuItem
               icon={<RefreshCw className="w-3.5 h-3.5" />}
-              disabled={isRefreshing || isScanning || isAnyRemovalRunning || corruptionRemovalBusy}
+              disabled={isRefreshing || isScanBusy || isAnyRemovalRunning || corruptionRemovalBusy}
               onClick={() => {
                 void loadCachedData(true);
                 close();
               }}
             >
               {t('common.load')}
-            </ActionMenuItem>
-            <ActionMenuItem
-              icon={<Search className="w-3.5 h-3.5" />}
-              disabled={scanBlocked}
-              onClick={() => {
-                void startScan();
-                close();
-              }}
-            >
-              {t('common.scan')}
             </ActionMenuItem>
             <ActionMenuDivider />
             <ActionMenuDangerItem
@@ -968,9 +1060,17 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           {isScanning && (
             <LoadingState
               message={t(
-                displayedDetectionMethod === 'structural'
-                  ? 'management.corruption.scanningStructuralMessage'
-                  : 'management.corruption.scanningRepeatedMissMessage'
+                displayedDetectionMethod !== 'structural'
+                  ? 'management.corruption.scanningRepeatedMissMessage'
+                  : isInitialBaselineBuild
+                    ? 'management.corruption.buildingStructuralBaselineMessage'
+                    : activeScanResumed && activeRunningScanAction === 'incremental'
+                      ? 'management.corruption.resumingStructuralIncrementalMessage'
+                      : activeRunningScanAction === 'incremental'
+                        ? 'management.corruption.scanningStructuralIncrementalMessage'
+                        : activeRunningScanAction === 'full'
+                          ? 'management.corruption.scanningStructuralFullMessage'
+                          : 'management.corruption.scanningStructuralMessage'
               )}
             />
           )}
@@ -1198,7 +1298,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                   : 'management.corruption.emptyStates.noCorrupted.repeatedMissSubtitle'
               )}
             />
-          ) : !isScanning && !cachedLoadFailed ? (
+          ) : !isScanBusy && !cachedLoadFailed ? (
             <EmptyState
               icon={Search}
               title={t('management.corruption.emptyStates.noCachedData.title')}

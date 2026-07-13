@@ -33,10 +33,18 @@ public sealed class CorruptionDetectionPersistenceTests
         Assert.True(CorruptionDetectionMethodExtensions.TryParseWire(
             "structural", out var structural));
         Assert.Equal(CorruptionDetectionMethod.Structural, structural);
+        Assert.True(StructuralScanModeExtensions.TryParseWire("full", out var full));
+        Assert.Equal(StructuralScanMode.Full, full);
+        Assert.True(StructuralScanModeExtensions.TryParseWire("incremental", out var incremental));
+        Assert.Equal(StructuralScanMode.Incremental, incremental);
 
         foreach (var invalid in new[] { "", "behavior", "combined", "cache_and_logs", "Structural", "1" })
         {
             Assert.False(CorruptionDetectionMethodExtensions.TryParseWire(invalid, out _));
+        }
+        foreach (var invalid in new[] { "", "Full", "INCREMENTAL", "baseline", "1" })
+        {
+            Assert.False(StructuralScanModeExtensions.TryParseWire(invalid, out _));
         }
 
         Assert.Equal(
@@ -62,13 +70,44 @@ public sealed class CorruptionDetectionPersistenceTests
         Assert.Throws<ValidationException>(() =>
             CorruptionDetectionService.ValidateScanInput(
                 3, LookbackDays, (CorruptionDetectionMethod)99));
+        Assert.Null(CorruptionDetectionService.ResolveStructuralScanMode(
+            CorruptionDetectionMethod.RepeatedMiss, null));
+        Assert.Equal(
+            StructuralScanMode.Full,
+            CorruptionDetectionService.ResolveStructuralScanMode(
+                CorruptionDetectionMethod.Structural, null));
+        Assert.Equal(
+            StructuralScanMode.Incremental,
+            CorruptionDetectionService.ResolveStructuralScanMode(
+                CorruptionDetectionMethod.Structural, "incremental"));
+        Assert.Throws<ValidationException>(() =>
+            CorruptionDetectionService.ResolveStructuralScanMode(
+                CorruptionDetectionMethod.RepeatedMiss, "full"));
+        Assert.Throws<ValidationException>(() =>
+            CorruptionDetectionService.ResolveStructuralScanMode(
+                CorruptionDetectionMethod.Structural, "Full"));
+        Assert.Equal(
+            "Corruption Detection",
+            CorruptionDetectionService.DetectionOperationName(
+                CorruptionDetectionMethod.RepeatedMiss,
+                null));
+        Assert.Equal(
+            "Structural Corruption Detection (full)",
+            CorruptionDetectionService.DetectionOperationName(
+                CorruptionDetectionMethod.Structural,
+                StructuralScanMode.Full));
+        Assert.Equal(
+            "Structural Corruption Detection (incremental)",
+            CorruptionDetectionService.DetectionOperationName(
+                CorruptionDetectionMethod.Structural,
+                StructuralScanMode.Incremental));
 
         var parameters = typeof(CacheController)
             .GetMethod(nameof(CacheController.StartCorruptionDetectionAsync))!
             .GetParameters()
             .Select(parameter => parameter.Name)
             .ToList();
-        Assert.Equal(["threshold", "lookbackDays", "detectionMethod", "cancellationToken"], parameters);
+        Assert.Equal(["threshold", "lookbackDays", "detectionMethod", "scanMode", "cancellationToken"], parameters);
         Assert.DoesNotContain(parameters, name => name is "path" or "reason" or "evidence" or "datasource");
     }
 
@@ -132,6 +171,79 @@ public sealed class CorruptionDetectionPersistenceTests
         var candidate = Assert.Single(structural.Report.Candidates);
         Assert.Equal("secondary:structural", candidate.CandidateId);
         Assert.IsType<StructuralCorruptionEvidence>(candidate.Evidence);
+    }
+
+    [Fact]
+    public void IncrementalCoverageCountsReusedConsistentFilesWithoutClaimingHeaderReads()
+    {
+        var report = StructuralReport("default", StructuralCandidate("structural"));
+        report.Report.Coverage = new CorruptionScanCoverage
+        {
+            FilesSeen = 4,
+            FilesChecked = 1,
+            Consistent = 1,
+            BytesRead = 128,
+            SparseFiles = 0,
+            SkippedByReason = new Dictionary<string, long> { ["recent"] = 2 },
+            IoErrors = 0
+        };
+
+        CorruptionDetectionService.ValidateAndAttachDatasource(
+            report.Report,
+            "default",
+            3,
+            LookbackDays,
+            CorruptionDetectionMethod.Structural,
+            StructuralScanMode.Incremental,
+            ScanStartedWire,
+            new StructuralScanStatusResponse
+            {
+                ScanMode = "incremental",
+                EffectiveScanMode = "incremental",
+                BaselineStatus = "ready",
+                FilesDiscovered = 4,
+                FilesProcessed = 4,
+                FilesReused = 1,
+                FilesInspected = 3,
+                InvalidFiles = 1,
+                FilesPendingRetry = 2,
+                StateEntries = 2,
+                StateCommitted = true
+            });
+
+        Assert.Equal(1, report.Report.Coverage.FilesChecked);
+        Assert.Equal(1, report.Report.Coverage.Consistent);
+    }
+
+    [Fact]
+    public void StructuralReportValidation_RejectsIncompleteTerminalState()
+    {
+        var report = StructuralReport("default", StructuralCandidate("structural"));
+
+        var error = Assert.Throws<InvalidDataException>(() =>
+            CorruptionDetectionService.ValidateAndAttachDatasource(
+                report.Report,
+                "default",
+                3,
+                LookbackDays,
+                CorruptionDetectionMethod.Structural,
+                StructuralScanMode.Incremental,
+                ScanStartedWire,
+                new StructuralScanStatusResponse
+                {
+                    ScanMode = "incremental",
+                    EffectiveScanMode = "incremental",
+                    BaselineStatus = "incomplete",
+                    FilesDiscovered = 4,
+                    FilesProcessed = 4,
+                    FilesInspected = 4,
+                    InvalidFiles = 1,
+                    FilesPendingRetry = 1,
+                    StateEntries = 2,
+                    StateCommitted = false
+                }));
+
+        Assert.Contains("progress summary", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -428,13 +540,44 @@ public sealed class CorruptionDetectionPersistenceTests
             StageKey: "signalr.corruptionDetect.complete",
             DetectionMethod: "structural",
             DetectionCounts: new Dictionary<string, long> { ["structural"] = 1 },
-            Coverage: CorruptionScanCoverageResponse.From(StructuralCoverage()));
+            Coverage: CorruptionScanCoverageResponse.From(StructuralCoverage()),
+            ScanMode: "incremental",
+            EffectiveScanMode: "baseline",
+            BaselineStatus: "ready",
+            StateCommitted: true,
+            Resumed: true,
+            FilesDiscovered: 4,
+            FilesProcessed: 4,
+            InvalidFiles: 1,
+            ScanSummary: new StructuralScanStatusResponse
+            {
+                ScanMode = "incremental",
+                EffectiveScanMode = "baseline",
+                BaselineStatus = "ready",
+                StateCommitted = true,
+                Resumed = true,
+                FilesInspected = 4
+            });
         var completionJson = JsonSerializer.Serialize(
             completion,
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Contains("\"detectionMethod\":\"structural\"", completionJson);
         Assert.Contains("\"detectionCounts\"", completionJson);
         Assert.Contains("\"filesSeen\"", completionJson);
+        Assert.Contains("\"scanMode\":\"incremental\"", completionJson);
+        Assert.Contains("\"scanSummary\"", completionJson);
+        Assert.Contains("\"filesDiscovered\":4", completionJson);
+
+        var repeatedMissJson = JsonSerializer.SerializeToElement(
+            new SignalRNotifications.CorruptionDetectionComplete(
+                Success: true,
+                OperationId: Guid.NewGuid(),
+                StageKey: "signalr.corruptionDetect.completeRepeatedMiss",
+                DetectionMethod: "repeated_miss"),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal(JsonValueKind.Null, repeatedMissJson.GetProperty("scanMode").ValueKind);
+        Assert.Equal(JsonValueKind.Null, repeatedMissJson.GetProperty("stateCommitted").ValueKind);
+        Assert.Equal(JsonValueKind.Null, repeatedMissJson.GetProperty("scanSummary").ValueKind);
     }
 
     [Fact]

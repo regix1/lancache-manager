@@ -5,6 +5,11 @@
 
 import type { OperationStatus, NotificationVariant } from '../../types/operations';
 import type { CorruptionDetectionMethod, CorruptionScanCoverage } from '../../types';
+import type {
+  StructuralBaselineStatus,
+  StructuralEffectiveScanMode,
+  StructuralScanMode
+} from '../../types/corruptionScan';
 
 /**
  * All possible notification types in the system.
@@ -123,6 +128,19 @@ export interface UnifiedNotification {
 
     // For corruption detection
     detectionMethod?: CorruptionDetectionMethod;
+    scanMode?: StructuralScanMode;
+    effectiveScanMode?: StructuralEffectiveScanMode;
+    baselineStatus?: StructuralBaselineStatus;
+    resumed?: boolean;
+    filesDiscovered?: number;
+    filesReused?: number;
+    filesInspected?: number;
+    filesRevalidated?: number;
+    invalidFiles?: number;
+    filesPendingRetry?: number;
+    filesPruned?: number;
+    stateEntries?: number;
+    stateCommitted?: boolean;
     detectionCounts?: Record<string, number>;
     coverage?: CorruptionScanCoverage | null;
 

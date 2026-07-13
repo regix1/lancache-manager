@@ -2,6 +2,12 @@ import type { ReactNode } from 'react';
 import type { OperationStatus, NotificationVariant } from '../../types/operations';
 import type { SessionType } from '../../services/auth.service';
 import type { CorruptionDetectionMethod, CorruptionScanCoverage } from '../../types';
+import type {
+  StructuralBaselineStatus,
+  StructuralEffectiveScanMode,
+  StructuralScanMode,
+  StructuralScanSummary
+} from '../../types/corruptionScan';
 
 // Event handler type for SignalR events
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -476,6 +482,10 @@ export interface CorruptionRemovalCompleteEvent {
 export interface CorruptionDetectionStartedEvent {
   operationId: string;
   detectionMethod: CorruptionDetectionMethod;
+  scanMode?: StructuralScanMode;
+  effectiveScanMode?: StructuralEffectiveScanMode;
+  baselineStatus?: StructuralBaselineStatus;
+  resumed?: boolean;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -485,6 +495,19 @@ export interface CorruptionDetectionStartedEvent {
 export interface CorruptionDetectionProgressEvent {
   operationId: string;
   detectionMethod: CorruptionDetectionMethod;
+  scanMode?: StructuralScanMode;
+  effectiveScanMode?: StructuralEffectiveScanMode;
+  baselineStatus?: StructuralBaselineStatus;
+  resumed?: boolean;
+  filesDiscovered?: number;
+  filesReused?: number;
+  filesInspected?: number;
+  filesRevalidated?: number;
+  invalidFiles?: number;
+  filesPendingRetry?: number;
+  filesPruned?: number;
+  stateEntries?: number;
+  stateCommitted?: boolean;
   percentComplete: number;
   status: OperationStatus;
   stageKey?: string;
@@ -501,11 +524,26 @@ export interface CorruptionDetectionProgressEvent {
 export interface CorruptionDetectionCompleteEvent {
   operationId: string;
   detectionMethod: CorruptionDetectionMethod;
+  scanMode?: StructuralScanMode;
+  effectiveScanMode?: StructuralEffectiveScanMode;
+  baselineStatus?: StructuralBaselineStatus;
+  resumed?: boolean;
+  filesDiscovered?: number;
+  filesProcessed?: number;
+  filesReused?: number;
+  filesInspected?: number;
+  filesRevalidated?: number;
+  invalidFiles?: number;
+  filesPendingRetry?: number;
+  filesPruned?: number;
+  stateEntries?: number;
+  stateCommitted?: boolean;
+  scanSummary?: StructuralScanSummary;
   success: boolean;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
-  message: string;
+  message?: string;
   cancelled?: boolean;
   error?: string;
   status?: OperationStatus;

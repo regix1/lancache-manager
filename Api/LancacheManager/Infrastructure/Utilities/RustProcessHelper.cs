@@ -85,6 +85,25 @@ public partial class RustProcessHelper
     }
 
     /// <summary>
+    /// Creates a standard Rust process without shell-style argument parsing. Each value is added
+    /// as one operating-system argument, preserving spaces and special characters verbatim.
+    /// </summary>
+    public ProcessStartInfo CreateProcessStartInfo(
+        string executablePath,
+        IReadOnlyList<string> arguments,
+        string? workingDirectory = null)
+    {
+        var startInfo = CreateProcessStartInfo(executablePath, string.Empty, workingDirectory);
+        foreach (var argument in arguments)
+        {
+            ArgumentNullException.ThrowIfNull(argument);
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        return startInfo;
+    }
+
+    /// <summary>
     /// Reads a JSON progress file with proper file sharing settings
     /// </summary>
     public async Task<T?> ReadProgressFileAsync<T>(string progressPath) where T : class
@@ -294,6 +313,18 @@ public partial class RustProcessHelper
         try
         {
             await _processManager.WaitForExitAsync(process, cancellationToken);
+
+            // The child atomically writes its terminal checkpoint immediately before exit. A
+            // periodic poll can lose that last update when process exit wins the race, so read it
+            // once synchronously before stopping the monitor.
+            if (!string.IsNullOrEmpty(progressFilePath) && onProgress != null)
+            {
+                var terminalProgress = await ReadProgressFileAsync<TProgress>(progressFilePath);
+                if (terminalProgress != null)
+                {
+                    await onProgress(terminalProgress);
+                }
+            }
 
             pollCts.Cancel();
             if (pollTask != null)

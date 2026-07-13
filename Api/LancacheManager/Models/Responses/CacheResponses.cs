@@ -12,6 +12,16 @@ public class CacheOperationResponse
     public OperationStatus Status { get; set; } = OperationStatus.Running;
 }
 
+/// <summary>Accepted response for a corruption detection operation.</summary>
+public sealed class CorruptionDetectionStartResponse
+{
+    public Guid OperationId { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public OperationStatus Status { get; set; } = OperationStatus.Running;
+    public string DetectionMethod { get; set; } = string.Empty;
+    public string? ScanMode { get; set; }
+}
+
 /// <summary>
 /// Generic response wrapper for active operations with IsProcessing flag.
 /// Use typed variants (ActiveGameRemovalsResponse, etc.) for strongly-typed Operations.
@@ -60,6 +70,30 @@ public sealed class CorruptionDetectionStatusResponse
     public double? PercentComplete { get; set; }
     public string? StartTime { get; set; }
     public string? DetectionMethod { get; set; }
+    public string? ScanMode { get; set; }
+    public string? EffectiveScanMode { get; set; }
+    public string? BaselineStatus { get; set; }
+    public bool? Resumed { get; set; }
+    public StructuralScanStatusResponse? ScanSummary { get; set; }
+}
+
+/// <summary>Durable structural state and work counters for active/terminal recovery.</summary>
+public sealed class StructuralScanStatusResponse
+{
+    public string ScanMode { get; set; } = string.Empty;
+    public string EffectiveScanMode { get; set; } = string.Empty;
+    public string BaselineStatus { get; set; } = string.Empty;
+    public bool Resumed { get; set; }
+    public long FilesDiscovered { get; set; }
+    public long FilesProcessed { get; set; }
+    public long FilesReused { get; set; }
+    public long FilesInspected { get; set; }
+    public long FilesRevalidated { get; set; }
+    public long InvalidFiles { get; set; }
+    public long FilesPendingRetry { get; set; }
+    public long FilesPruned { get; set; }
+    public long StateEntries { get; set; }
+    public bool StateCommitted { get; set; }
 }
 
 /// <summary>

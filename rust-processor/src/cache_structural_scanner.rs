@@ -3,20 +3,24 @@ use crate::cache_corruption_detector::{
     FileFingerprint, StructuralCoverage, StructuralEvidence, StructuralIssue,
     CORRUPTION_CONTRACT_VERSION,
 };
+use crate::cache_structural_state::{
+    LookupInput, ReuseDecision, StateNamespace, StructuralScanMode, StructuralScanSummary,
+    StructuralState, SuccessfulOutcome,
+};
 use crate::{cache_utils, cancel, progress_utils};
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
 use crossbeam_channel::{bounded, Receiver, RecvTimeoutError, Sender, TrySendError};
 use jwalk::WalkDir;
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 #[cfg(target_os = "linux")]
 use std::ffi::{CString, OsString};
 use std::fs::{File, Metadata, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 #[cfg(target_os = "linux")]
 use std::os::fd::{AsRawFd, FromRawFd};
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -25,6 +29,8 @@ use std::time::{Duration, Instant, SystemTime};
 
 pub const MAX_PREFIX_BYTES: u64 = u16::MAX as u64;
 pub const MIN_STABLE_AGE_SECONDS: u64 = 600;
+pub const STRUCTURAL_SCANNER_POLICY_VERSION: u32 = 1;
+const STATE_CLASSIFICATION_BATCH: usize = 500;
 const KEY_MARKER: &[u8] = b"\nKEY: ";
 
 #[allow(dead_code)]
@@ -78,6 +84,22 @@ impl Layout {
         {
             None
         }
+    }
+
+    fn signature(self) -> String {
+        format!(
+            "nginx-v5;levels=2:2;size={};version={};crc32={};header_start={};body_start={};etag_len={};vary_len={};variant={};max_prefix={};stable_age={}",
+            self.size,
+            self.version,
+            self.crc32,
+            self.header_start,
+            self.body_start,
+            self.etag_len,
+            self.vary_len,
+            self.variant,
+            MAX_PREFIX_BYTES,
+            MIN_STABLE_AGE_SECONDS,
+        )
     }
 
     #[cfg(test)]
@@ -161,6 +183,7 @@ pub struct Inspection {
     pub outcome: InspectionOutcome,
     pub bytes_read: u64,
     pub sparse: bool,
+    verified_fingerprint: Option<FileFingerprint>,
 }
 
 #[derive(Debug, Clone)]
@@ -174,6 +197,7 @@ pub enum InspectionOutcome {
 pub struct StructuralScanResult {
     pub report: CorruptionReport,
     pub cancelled: bool,
+    pub scan_summary: StructuralScanSummary,
     #[allow(dead_code)]
     pipeline: PipelineTelemetry,
 }
@@ -248,11 +272,14 @@ impl StructuralScanConfig {
 struct InspectionTask {
     path: PathBuf,
     path_digest: u128,
+    revalidation: bool,
 }
 
 #[derive(Debug)]
 struct InspectionResult {
     path: PathBuf,
+    path_digest: u128,
+    revalidation: bool,
     inspection: Result<Inspection>,
 }
 
@@ -1050,6 +1077,61 @@ fn fingerprint(metadata: &Metadata) -> FileFingerprint {
     }
 }
 
+#[cfg(unix)]
+fn canonical_root_identity(path: &Path) -> String {
+    hex_bytes(path.as_os_str().as_bytes())
+}
+
+fn root_namespace_fingerprint(metadata: &Metadata) -> FileFingerprint {
+    let identity = fingerprint(metadata);
+    FileFingerprint {
+        dev: identity.dev,
+        ino: identity.ino,
+        len: 0,
+        mtime_ns: 0,
+        ctime_ns: 0,
+    }
+}
+
+#[cfg(unix)]
+fn strong_verified_fingerprint(metadata: &Metadata) -> Option<FileFingerprint> {
+    Some(fingerprint(metadata))
+}
+
+#[cfg(not(unix))]
+fn strong_verified_fingerprint(_metadata: &Metadata) -> Option<FileFingerprint> {
+    None
+}
+
+#[cfg(not(unix))]
+fn canonical_root_identity(path: &Path) -> String {
+    path.to_string_lossy().to_lowercase()
+}
+
+#[cfg(unix)]
+fn reusable_path_fingerprint(root: &Path, path: &Path, now: SystemTime) -> Option<FileFingerprint> {
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    if metadata.file_type().is_symlink()
+        || !metadata.file_type().is_file()
+        || !stable_age(&metadata, now)
+        || has_symlink_component(root, path).ok()?
+    {
+        return None;
+    }
+    Some(fingerprint(&metadata))
+}
+
+#[cfg(not(unix))]
+fn reusable_path_fingerprint(
+    _root: &Path,
+    _path: &Path,
+    _now: SystemTime,
+) -> Option<FileFingerprint> {
+    // The current non-Unix fingerprint lacks volume/file identity. Inspect rather than
+    // trusting length+mtime, which can collide after replacement.
+    None
+}
+
 pub fn path_fingerprint_matches(path: &Path, expected: &FileFingerprint) -> Result<bool> {
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
@@ -1536,6 +1618,7 @@ pub fn inspect_path(
             outcome: InspectionOutcome::Skip(SkipReason::ForeignPath.as_str()),
             bytes_read: 0,
             sparse: false,
+            verified_fingerprint: None,
         });
     };
     let Some(layout) = Layout::native() else {
@@ -1543,6 +1626,7 @@ pub fn inspect_path(
             outcome: InspectionOutcome::Skip(SkipReason::UnsupportedPlatform.as_str()),
             bytes_read: 0,
             sparse: false,
+            verified_fingerprint: None,
         });
     };
     inspect_path_with_layout(root, path, path_digest, now, detected_at, layout)
@@ -1599,6 +1683,7 @@ fn inspect_path_with_layout_and_access<F: FnOnce()>(
                 outcome: InspectionOutcome::Skip(reason.as_str()),
                 bytes_read: 0,
                 sparse,
+                verified_fingerprint: None,
             });
         }
     };
@@ -1611,6 +1696,7 @@ fn inspect_path_with_layout_and_access<F: FnOnce()>(
                     outcome: InspectionOutcome::Skip(SkipReason::Changed.as_str()),
                     bytes_read: 0,
                     sparse: sparse(&after),
+                    verified_fingerprint: None,
                 });
             }
             return Err(error)
@@ -1623,6 +1709,7 @@ fn inspect_path_with_layout_and_access<F: FnOnce()>(
             outcome: InspectionOutcome::Skip(SkipReason::Cancelled.as_str()),
             bytes_read,
             sparse: sparse(&before),
+            verified_fingerprint: None,
         });
     }
     let after = file.metadata()?;
@@ -1631,6 +1718,7 @@ fn inspect_path_with_layout_and_access<F: FnOnce()>(
             outcome: InspectionOutcome::Skip(SkipReason::Changed.as_str()),
             bytes_read,
             sparse: sparse(&after),
+            verified_fingerprint: None,
         });
     }
 
@@ -1644,6 +1732,7 @@ fn inspect_path_with_layout_and_access<F: FnOnce()>(
             outcome: InspectionOutcome::Skip(SkipReason::Changed.as_str()),
             bytes_read,
             sparse: sparse(&after),
+            verified_fingerprint: None,
         });
     }
     let outcome = match parse_prefix(&prefix, before.len(), path_digest, layout) {
@@ -1657,6 +1746,7 @@ fn inspect_path_with_layout_and_access<F: FnOnce()>(
                     outcome: InspectionOutcome::Skip(SkipReason::Changed.as_str()),
                     bytes_read,
                     sparse: sparse(&after),
+                    verified_fingerprint: None,
                 });
             }
             let key_md5 = format!(
@@ -1686,6 +1776,7 @@ fn inspect_path_with_layout_and_access<F: FnOnce()>(
         outcome,
         bytes_read,
         sparse: sparse(&before),
+        verified_fingerprint: strong_verified_fingerprint(&before),
     })
 }
 
@@ -1734,6 +1825,35 @@ fn structural_candidate(path: &Path, evidence: StructuralEvidence) -> Corruption
     }
 }
 
+fn validate_cached_candidate(
+    root: &Path,
+    current_path: &Path,
+    expected_digest: u128,
+    candidate: &CorruptionCandidate,
+) -> Result<()> {
+    if candidate.exact_paths.len() != 1 {
+        bail!("persisted structural candidate must contain exactly one path");
+    }
+    let persisted_path = Path::new(&candidate.exact_paths[0]);
+    let persisted_digest = persisted_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(cache_utils::parse_cache_file_digest);
+    if cache_utils::strict_cache_file_digest(root, current_path) != Some(expected_digest)
+        || persisted_digest != Some(expected_digest)
+    {
+        bail!("persisted structural candidate path did not match current cache entry");
+    }
+    let CorruptionEvidence::Structural { structural } = &candidate.evidence else {
+        bail!("persisted structural state contained non-structural evidence");
+    };
+    if structural.issues.is_empty() {
+        bail!("persisted structural candidate contained no issues");
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn update_progress(
     progress_path: Option<&Path>,
     status: &str,
@@ -1743,6 +1863,7 @@ fn update_progress(
     candidates: usize,
     coverage: &StructuralCoverage,
     details: ProgressDetails,
+    scan_summary: &StructuralScanSummary,
 ) -> Result<()> {
     let Some(path) = progress_path else {
         return Ok(());
@@ -1776,6 +1897,19 @@ fn update_progress(
         "workerCount": details.worker_count,
         "taskQueueCapacity": details.task_queue_capacity,
         "resultQueueCapacity": details.result_queue_capacity,
+        "scanMode": scan_summary.scan_mode,
+        "effectiveScanMode": scan_summary.effective_scan_mode,
+        "baselineStatus": scan_summary.baseline_status,
+        "resumed": scan_summary.resumed,
+        "filesDiscovered": scan_summary.files_discovered,
+        "filesReused": scan_summary.files_reused,
+        "filesInspected": scan_summary.files_inspected,
+        "filesRevalidated": scan_summary.files_revalidated,
+        "invalidFiles": scan_summary.invalid_files,
+        "filesPendingRetry": scan_summary.files_pending_retry,
+        "filesPruned": scan_summary.files_pruned,
+        "stateEntries": scan_summary.state_entries,
+        "stateCommitted": scan_summary.state_committed,
     });
     if counting {
         // `processed` carries the running eligible-file count during the counting pass.
@@ -1993,6 +2127,7 @@ fn inspection_worker(
                 outcome: InspectionOutcome::Skip(SkipReason::UnsupportedPlatform.as_str()),
                 bytes_read: 0,
                 sparse: false,
+                verified_fingerprint: None,
             }),
         };
         drop(permit);
@@ -2003,6 +2138,8 @@ fn inspection_worker(
         result_sender
             .send(InspectionResult {
                 path: task.path,
+                path_digest: task.path_digest,
+                revalidation: task.revalidation,
                 inspection,
             })
             .context("structural inspection result channel disconnected")?;
@@ -2014,15 +2151,74 @@ fn inspection_worker(
 #[allow(clippy::too_many_arguments)]
 fn merge_pipeline_result(
     result: InspectionResult,
+    _root: &Path,
+    _scan_now: SystemTime,
     coverage: &mut StructuralCoverage,
     candidates: &mut Vec<CorruptionCandidate>,
+    mut state: Option<&mut StructuralState>,
+    scan_summary: &mut StructuralScanSummary,
     warning_count: &mut usize,
     merged: &mut usize,
     scheduled: usize,
     counters: &PipelineCounters,
     observer: Option<&dyn InspectionObserver>,
-) {
+) -> Result<()> {
+    scan_summary.files_inspected = scan_summary.files_inspected.saturating_add(1);
+    if result.revalidation {
+        scan_summary.files_revalidated = scan_summary.files_revalidated.saturating_add(1);
+    }
+    match &result.inspection {
+        Ok(Inspection {
+            outcome: InspectionOutcome::Consistent,
+            verified_fingerprint,
+            ..
+        }) => {
+            if let Some(state) = state.as_mut() {
+                if let Some(current) = verified_fingerprint.clone() {
+                    state.record_success(
+                        result.path_digest,
+                        current,
+                        SuccessfulOutcome::Consistent,
+                    )?;
+                } else {
+                    scan_summary.files_pending_retry =
+                        scan_summary.files_pending_retry.saturating_add(1);
+                }
+            }
+        }
+        Ok(Inspection {
+            outcome: InspectionOutcome::Proven(evidence),
+            verified_fingerprint,
+            ..
+        }) => {
+            if let Some(state) = state.as_mut() {
+                if let Some(current) = verified_fingerprint
+                    .clone()
+                    .filter(|current| current == &evidence.fingerprint)
+                {
+                    let candidate = structural_candidate(&result.path, evidence.clone());
+                    state.record_success(
+                        result.path_digest,
+                        current,
+                        SuccessfulOutcome::Proven(&candidate),
+                    )?;
+                } else {
+                    scan_summary.files_pending_retry =
+                        scan_summary.files_pending_retry.saturating_add(1);
+                }
+            }
+        }
+        Ok(Inspection {
+            outcome: InspectionOutcome::Skip(_),
+            ..
+        })
+        | Err(_) => {
+            scan_summary.files_pending_retry = scan_summary.files_pending_retry.saturating_add(1);
+        }
+    }
     merge_inspection_result(result, coverage, candidates, warning_count);
+    scan_summary.files_processed = coverage.files_seen;
+    scan_summary.invalid_files = candidates.len();
     *merged = merged.saturating_add(1);
     record_high_water(
         &counters.outstanding_high_water,
@@ -2031,6 +2227,7 @@ fn merge_pipeline_result(
     if let Some(observer) = observer {
         observer.result_merged();
     }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2044,13 +2241,15 @@ fn emit_inspection_checkpoint(
     clock: &dyn ScanClock,
     config: StructuralScanConfig,
     worker_count: usize,
+    scan_summary: &StructuralScanSummary,
 ) -> Result<ProgressRate> {
     let now = clock.elapsed();
+    let inspected_total = total.saturating_sub(scan_summary.files_reused);
     let mut details = progress_details(
         telemetry,
         now,
-        coverage.files_seen,
-        total,
+        scan_summary.files_inspected,
+        inspected_total,
         config,
         worker_count,
         status != "cancelled",
@@ -2069,6 +2268,7 @@ fn emit_inspection_checkpoint(
         candidates,
         coverage,
         details,
+        scan_summary,
     )?;
     Ok(details.rate)
 }
@@ -2084,6 +2284,9 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
     config: StructuralScanConfig,
     clock: &dyn ScanClock,
     observer: Option<&dyn InspectionObserver>,
+    mut state: Option<&mut StructuralState>,
+    scan_summary: &mut StructuralScanSummary,
+    traversal_errors: &mut usize,
     cancellation_requested: &mut F,
 ) -> Result<(bool, PipelineTelemetry)> {
     let config = config.normalized();
@@ -2108,6 +2311,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
             task_queue_capacity: config.task_queue_capacity,
             result_queue_capacity: config.result_queue_capacity,
         },
+        scan_summary,
     )?;
     let stop = Arc::new(AtomicBool::new(false));
     let start_gate = Arc::new(RwLock::new(()));
@@ -2183,27 +2387,34 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
         }
 
         let mut walk = inspection_walk(root);
-        let mut pending_task = None;
+        let mut pending_tasks = VecDeque::<InspectionTask>::new();
         let mut traversal_complete = fatal_error.is_some();
-        while !traversal_complete || pending_task.is_some() {
+        while !traversal_complete || !pending_tasks.is_empty() {
+            if let Some(state) = state.as_deref_mut() {
+                state.maintain_lease()?;
+            }
             if fatal_error.is_none() && cancellation_requested() {
                 cancelled = true;
                 request_pipeline_stop(&stop, &start_gate, observer)?;
-                pending_task = None;
+                pending_tasks.clear();
                 traversal_complete = true;
             }
 
             while let Ok(result) = result_receiver.try_recv() {
                 merge_pipeline_result(
                     result,
+                    root,
+                    now,
                     coverage,
                     candidates,
+                    state.as_deref_mut(),
+                    scan_summary,
                     &mut warning_count,
                     &mut merged,
                     scheduled,
                     &counters,
                     observer,
-                );
+                )?;
             }
 
             let clock_now = clock.elapsed();
@@ -2219,10 +2430,11 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                     clock,
                     config,
                     limiter.limit(),
+                    scan_summary,
                 ) {
                     fatal_error = Some(error);
                     request_pipeline_stop(&stop, &start_gate, observer)?;
-                    pending_task = None;
+                    pending_tasks.clear();
                     traversal_complete = true;
                 }
             }
@@ -2230,38 +2442,88 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                 break;
             }
 
-            if pending_task.is_none() && !traversal_complete {
-                match walk.next() {
-                    Some(Ok(entry)) => {
-                        let path = entry.path();
-                        if let Some(path_digest) =
-                            cache_utils::strict_cache_file_digest(root, &path)
-                        {
-                            pending_task = Some(InspectionTask { path, path_digest });
+            if pending_tasks.is_empty() && !traversal_complete {
+                let mut discovered = Vec::with_capacity(STATE_CLASSIFICATION_BATCH);
+                while discovered.len() < STATE_CLASSIFICATION_BATCH && !traversal_complete {
+                    let next_entry = walk.next();
+                    if let Some(state) = state.as_deref_mut() {
+                        state.maintain_lease()?;
+                    }
+                    match next_entry {
+                        Some(Ok(entry)) => {
+                            let path = entry.path();
+                            if let Some(path_digest) =
+                                cache_utils::strict_cache_file_digest(root, &path)
+                            {
+                                discovered.push((path, path_digest));
+                            }
+                        }
+                        Some(Err(error)) => {
+                            if error.depth() == 0 {
+                                fatal_error = Some(
+                                    anyhow::Error::new(error)
+                                        .context("failed to enumerate structural cache root"),
+                                );
+                                request_pipeline_stop(&stop, &start_gate, observer)?;
+                                traversal_complete = true;
+                            } else {
+                                *traversal_errors = (*traversal_errors).saturating_add(1);
+                                coverage.io_errors = coverage.io_errors.saturating_add(1);
+                                let count = coverage
+                                    .skipped_by_reason
+                                    .entry(SkipReason::IoError.as_str().to_string())
+                                    .or_default();
+                                *count = count.saturating_add(1);
+                            }
+                        }
+                        None => traversal_complete = true,
+                    }
+                }
+                let decisions = if let Some(state) = state.as_deref_mut() {
+                    state.maintain_lease()?;
+                    if state.can_reuse_existing() {
+                        let inputs = discovered
+                            .iter()
+                            .map(|(path, digest)| LookupInput {
+                                digest: *digest,
+                                fingerprint: reusable_path_fingerprint(root, path, now),
+                            })
+                            .collect::<Vec<_>>();
+                        state.lookup_batch(&inputs)?
+                    } else {
+                        discovered.iter().map(|_| ReuseDecision::Inspect).collect()
+                    }
+                } else {
+                    discovered.iter().map(|_| ReuseDecision::Inspect).collect()
+                };
+                for ((path, path_digest), decision) in
+                    discovered.into_iter().zip(decisions.into_iter())
+                {
+                    match decision {
+                        ReuseDecision::Inspect => pending_tasks.push_back(InspectionTask {
+                            path,
+                            path_digest,
+                            revalidation: false,
+                        }),
+                        ReuseDecision::ReuseConsistent => {
+                            coverage.files_seen = coverage.files_seen.saturating_add(1);
+                            coverage.consistent = coverage.consistent.saturating_add(1);
+                            scan_summary.files_reused = scan_summary.files_reused.saturating_add(1);
+                            scan_summary.files_processed = coverage.files_seen;
+                        }
+                        ReuseDecision::Revalidate(candidate) => {
+                            validate_cached_candidate(root, &path, path_digest, &candidate)?;
+                            pending_tasks.push_back(InspectionTask {
+                                path,
+                                path_digest,
+                                revalidation: true,
+                            });
                         }
                     }
-                    Some(Err(error)) => {
-                        if error.depth() == 0 {
-                            fatal_error = Some(
-                                anyhow::Error::new(error)
-                                    .context("failed to enumerate structural cache root"),
-                            );
-                            request_pipeline_stop(&stop, &start_gate, observer)?;
-                            traversal_complete = true;
-                        } else {
-                            coverage.io_errors = coverage.io_errors.saturating_add(1);
-                            let count = coverage
-                                .skipped_by_reason
-                                .entry(SkipReason::IoError.as_str().to_string())
-                                .or_default();
-                            *count = count.saturating_add(1);
-                        }
-                    }
-                    None => traversal_complete = true,
                 }
             }
 
-            if let Some(task) = pending_task.take() {
+            if let Some(task) = pending_tasks.pop_front() {
                 let scheduled_path = task.path.clone();
                 match task_sender.try_send(task) {
                     Ok(()) => {
@@ -2276,25 +2538,29 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                         }
                     }
                     Err(TrySendError::Full(task)) => {
-                        pending_task = Some(task);
+                        pending_tasks.push_front(task);
                         match result_receiver.recv_timeout(Duration::from_millis(25)) {
                             Ok(result) => merge_pipeline_result(
                                 result,
+                                root,
+                                now,
                                 coverage,
                                 candidates,
+                                state.as_deref_mut(),
+                                scan_summary,
                                 &mut warning_count,
                                 &mut merged,
                                 scheduled,
                                 &counters,
                                 observer,
-                            ),
+                            )?,
                             Err(RecvTimeoutError::Timeout) => {}
                             Err(RecvTimeoutError::Disconnected) => {
                                 fatal_error = Some(anyhow::anyhow!(
                                     "structural inspection result channel disconnected while scheduling"
                                 ));
                                 request_pipeline_stop(&stop, &start_gate, observer)?;
-                                pending_task = None;
+                                pending_tasks.clear();
                                 traversal_complete = true;
                             }
                         }
@@ -2312,17 +2578,24 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
 
         drop(task_sender);
         loop {
+            if let Some(state) = state.as_deref_mut() {
+                state.maintain_lease()?;
+            }
             match result_receiver.recv_timeout(Duration::from_millis(100)) {
                 Ok(result) => merge_pipeline_result(
                     result,
+                    root,
+                    now,
                     coverage,
                     candidates,
+                    state.as_deref_mut(),
+                    scan_summary,
                     &mut warning_count,
                     &mut merged,
                     scheduled,
                     &counters,
                     observer,
-                ),
+                )?,
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
@@ -2339,6 +2612,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                     clock,
                     config,
                     limiter.limit(),
+                    scan_summary,
                 ) {
                     fatal_error.get_or_insert(error);
                     request_pipeline_stop(&stop, &start_gate, observer)?;
@@ -2445,12 +2719,42 @@ fn build_report(
     }
 }
 
+fn require_complete_traversal(traversal_errors: usize, cancelled: bool) -> Result<()> {
+    if traversal_errors > 0 && !cancelled {
+        bail!("structural cache traversal was incomplete ({traversal_errors} enumeration errors)");
+    }
+    Ok(())
+}
+
 pub fn scan(
     root: &Path,
     scan_started_utc: DateTime<Utc>,
     progress_path: Option<&Path>,
 ) -> Result<StructuralScanResult> {
     scan_with_cancellation(root, scan_started_utc, progress_path, cancel::is_cancelled)
+}
+
+pub fn scan_with_state(
+    root: &Path,
+    scan_started_utc: DateTime<Utc>,
+    progress_path: Option<&Path>,
+    mode: StructuralScanMode,
+    state_db: &Path,
+    state_scope: &str,
+) -> Result<StructuralScanResult> {
+    let config = StructuralScanConfig::production(root);
+    let clock = RealScanClock::new();
+    let mut cancellation_requested = cancel::is_cancelled;
+    scan_with_runtime_options(
+        root,
+        scan_started_utc,
+        progress_path,
+        config,
+        &clock,
+        None,
+        Some((mode, state_db, state_scope)),
+        &mut cancellation_requested,
+    )
 }
 
 fn scan_with_cancellation<F: FnMut() -> bool>(
@@ -2482,6 +2786,29 @@ fn scan_with_runtime<F: FnMut() -> bool>(
     observer: Option<&dyn InspectionObserver>,
     cancellation_requested: &mut F,
 ) -> Result<StructuralScanResult> {
+    scan_with_runtime_options(
+        root,
+        scan_started_utc,
+        progress_path,
+        config,
+        clock,
+        observer,
+        None,
+        cancellation_requested,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scan_with_runtime_options<F: FnMut() -> bool>(
+    root: &Path,
+    scan_started_utc: DateTime<Utc>,
+    progress_path: Option<&Path>,
+    config: StructuralScanConfig,
+    clock: &dyn ScanClock,
+    observer: Option<&dyn InspectionObserver>,
+    state_options: Option<(StructuralScanMode, &Path, &str)>,
+    cancellation_requested: &mut F,
+) -> Result<StructuralScanResult> {
     let config = config.normalized();
     let root_link_metadata = std::fs::symlink_metadata(root)
         .with_context(|| format!("failed to inspect structural cache root {}", root.display()))?;
@@ -2501,8 +2828,48 @@ fn scan_with_runtime<F: FnMut() -> bool>(
         bail!("structural cache root changed during setup");
     }
 
+    let (mut state, mut scan_summary) = if let Some((mode, state_db, state_scope)) = state_options {
+        if state_scope.trim().is_empty() {
+            bail!("structural state scope must not be empty");
+        }
+        let state = StructuralState::open(
+            state_db,
+            StateNamespace {
+                canonical_root_identity: canonical_root_identity(&canonical_root),
+                root_fingerprint: root_namespace_fingerprint(&root_link_metadata),
+                scope: state_scope.to_string(),
+                layout_signature: config
+                    .layout
+                    .map(Layout::signature)
+                    .unwrap_or_else(|| "unsupported-native-layout".to_string()),
+                scanner_policy_version: STRUCTURAL_SCANNER_POLICY_VERSION,
+            },
+            mode,
+        )?;
+        let summary = StructuralScanSummary {
+            scan_mode: mode.as_str().to_string(),
+            effective_scan_mode: state.effective_mode().as_str().to_string(),
+            baseline_status: "building".to_string(),
+            resumed: state.resumed(),
+            files_discovered: 0,
+            files_processed: 0,
+            files_reused: 0,
+            files_inspected: 0,
+            files_revalidated: 0,
+            invalid_files: 0,
+            files_pending_retry: 0,
+            files_pruned: 0,
+            state_entries: 0,
+            state_committed: false,
+        };
+        (Some(state), summary)
+    } else {
+        (None, StructuralScanSummary::stateless_full())
+    };
+
     let mut total = 0usize;
     let mut cancelled = false;
+    let mut traversal_errors = 0usize;
     let mut coverage = StructuralCoverage::default();
     // Emit the enumerating stage immediately so the UI leaves any prior scanningHeaders/0%
     // state instead of sitting on a frozen 0% for the whole (potentially multi-minute) count.
@@ -2525,11 +2892,15 @@ fn scan_with_runtime<F: FnMut() -> bool>(
             task_queue_capacity: 0,
             result_queue_capacity: 0,
         },
+        &scan_summary,
     )?;
     for entry in count_walk(root) {
         if cancellation_requested() {
             cancelled = true;
             break;
+        }
+        if let Some(state) = state.as_mut() {
+            state.maintain_lease()?;
         }
         let entry = match entry {
             Ok(entry) => entry,
@@ -2538,6 +2909,7 @@ fn scan_with_runtime<F: FnMut() -> bool>(
                     return Err(error).context("failed to enumerate structural cache root");
                 }
                 coverage.io_errors = coverage.io_errors.saturating_add(1);
+                traversal_errors = traversal_errors.saturating_add(1);
                 let count = coverage
                     .skipped_by_reason
                     .entry("count_enumeration_io_error".to_string())
@@ -2548,6 +2920,7 @@ fn scan_with_runtime<F: FnMut() -> bool>(
         };
         if cache_utils::strict_cache_file_digest(root, &entry.path()).is_some() {
             total = total.saturating_add(1);
+            scan_summary.files_discovered = total;
         }
         let now = clock.elapsed();
         if count_telemetry.progress_due(now, config.progress_interval) {
@@ -2562,6 +2935,7 @@ fn scan_with_runtime<F: FnMut() -> bool>(
                 0,
                 &coverage,
                 details,
+                &scan_summary,
             )?;
         }
     }
@@ -2586,6 +2960,7 @@ fn scan_with_runtime<F: FnMut() -> bool>(
         0,
         &coverage,
         counting_details,
+        &scan_summary,
     )?;
     let mut pipeline = PipelineTelemetry::default();
     if !cancelled {
@@ -2599,11 +2974,32 @@ fn scan_with_runtime<F: FnMut() -> bool>(
             config,
             clock,
             observer,
+            state.as_mut(),
+            &mut scan_summary,
+            &mut traversal_errors,
             cancellation_requested,
         )?;
         cancelled = result.0;
         pipeline = result.1;
     }
+    // The count pass is an estimate on a live cache. Terminal discovery is the exact set the
+    // inspection walk classified, which is also the report coverage denominator.
+    scan_summary.files_discovered = coverage.files_seen;
+    scan_summary.files_processed = coverage.files_seen;
+    scan_summary.invalid_files = candidates.len();
+    if let Some(state) = state.as_mut() {
+        if cancelled || traversal_errors > 0 {
+            state.interrupt()?;
+            scan_summary.baseline_status = "incomplete".to_string();
+        } else {
+            let (pruned, entries) = state.publish()?;
+            scan_summary.files_pruned = pruned;
+            scan_summary.state_entries = entries;
+            scan_summary.state_committed = true;
+            scan_summary.baseline_status = "ready".to_string();
+        }
+    }
+    require_complete_traversal(traversal_errors, cancelled)?;
     let report = build_report(scan_started_utc, candidates, coverage.clone());
     if cancelled && pipeline.worker_count == 0 {
         let details = progress_details(
@@ -2624,6 +3020,7 @@ fn scan_with_runtime<F: FnMut() -> bool>(
             report.total,
             &coverage,
             details,
+            &scan_summary,
         )?;
     } else {
         let details = ProgressDetails {
@@ -2645,11 +3042,13 @@ fn scan_with_runtime<F: FnMut() -> bool>(
             report.total,
             &coverage,
             details,
+            &scan_summary,
         )?;
     }
     Ok(StructuralScanResult {
         report,
         cancelled,
+        scan_summary,
         pipeline,
     })
 }
@@ -2849,6 +3248,146 @@ mod tests {
             progress_interval: Duration::from_secs(1),
             layout: Some(Layout::linux_x86_64()),
         }
+    }
+
+    #[cfg(unix)]
+    fn durable_scan(
+        root: &Path,
+        state_db: &Path,
+        mode: StructuralScanMode,
+        scan_started: DateTime<Utc>,
+    ) -> StructuralScanResult {
+        let clock = RealScanClock::new();
+        let mut never_cancel = || false;
+        scan_with_runtime_options(
+            root,
+            scan_started,
+            None,
+            test_config(2, 2),
+            &clock,
+            None,
+            Some((mode, state_db, "default")),
+            &mut never_cancel,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn incomplete_traversal_fails_instead_of_publishing_a_partial_success() {
+        assert!(require_complete_traversal(1, false).is_err());
+        assert!(require_complete_traversal(0, false).is_ok());
+        assert!(require_complete_traversal(1, true).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn durable_modes_build_reuse_refresh_change_and_prune() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let state_db = temp.path().join("structural.sqlite3");
+        let (path, _) = materialize(
+            &root,
+            b"steam/durable",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+            b"1234",
+        );
+        let started = fixed_scan_started();
+
+        let baseline = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        assert_eq!(baseline.scan_summary.effective_scan_mode, "baseline");
+        assert_eq!(baseline.scan_summary.files_inspected, 1);
+        assert_eq!(baseline.scan_summary.files_reused, 0);
+        assert!(baseline.scan_summary.state_committed);
+
+        let unchanged = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        assert_eq!(unchanged.scan_summary.effective_scan_mode, "incremental");
+        assert_eq!(unchanged.scan_summary.files_inspected, 0);
+        assert_eq!(unchanged.scan_summary.files_reused, 1);
+        assert_eq!(unchanged.report.coverage.unwrap().files_checked, 0);
+
+        let full = durable_scan(&root, &state_db, StructuralScanMode::Full, started);
+        assert_eq!(full.scan_summary.effective_scan_mode, "full");
+        assert_eq!(full.scan_summary.files_inspected, 1);
+        assert_eq!(full.scan_summary.files_reused, 0);
+
+        let replacement = path.with_extension("replacement");
+        std::fs::write(&replacement, std::fs::read(&path).unwrap()).unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        let changed = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        assert_eq!(changed.scan_summary.files_inspected, 1);
+        assert_eq!(changed.scan_summary.files_reused, 0);
+
+        std::fs::remove_file(path).unwrap();
+        let deleted = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        assert_eq!(deleted.scan_summary.files_pruned, 1);
+        assert_eq!(deleted.scan_summary.state_entries, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn durable_incremental_revalidates_known_invalid_candidates() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let state_db = temp.path().join("structural.sqlite3");
+        materialize(
+            &root,
+            b"steam/invalid-durable",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n",
+            b"1234",
+        );
+        let started = fixed_scan_started();
+        let first = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        assert_eq!(first.report.total, 1);
+        let second = durable_scan(&root, &state_db, StructuralScanMode::Incremental, started);
+        assert_eq!(second.report.total, 1);
+        assert_eq!(second.scan_summary.files_revalidated, 1);
+        assert_eq!(second.scan_summary.files_inspected, 1);
+        assert_eq!(second.scan_summary.files_reused, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recent_skip_is_not_reused_as_success() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let state_db = temp.path().join("structural.sqlite3");
+        materialize(
+            &root,
+            b"steam/recent-durable",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+            b"1234",
+        );
+        let recent = durable_scan(
+            &root,
+            &state_db,
+            StructuralScanMode::Incremental,
+            Utc::now(),
+        );
+        assert_eq!(recent.scan_summary.files_pending_retry, 1);
+        assert_eq!(recent.scan_summary.state_entries, 0);
+        let retry = durable_scan(
+            &root,
+            &state_db,
+            StructuralScanMode::Incremental,
+            fixed_scan_started(),
+        );
+        assert_eq!(retry.scan_summary.files_inspected, 1);
+        assert_eq!(retry.scan_summary.files_reused, 0);
+        assert_eq!(retry.scan_summary.state_entries, 1);
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn weak_platform_identity_never_reuses_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let (path, _) = materialize(
+            &root,
+            b"steam/weak-identity",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+            b"1234",
+        );
+        assert!(reusable_path_fingerprint(&root, &path, old_now()).is_none());
     }
 
     /// Drives the controller with a synthetic device: `rate_for` decides how many files a
@@ -3117,6 +3656,8 @@ mod tests {
         let mut never_cancel = || false;
         let mut coverage = StructuralCoverage::default();
         let mut candidates = Vec::new();
+        let mut scan_summary = StructuralScanSummary::stateless_full();
+        let mut traversal_errors = 0;
         let (cancelled, telemetry) = run_parallel_inspection(
             &root,
             started,
@@ -3127,6 +3668,9 @@ mod tests {
             adaptive_test_config(1, 8, 8),
             &clock,
             None,
+            None,
+            &mut scan_summary,
+            &mut traversal_errors,
             &mut never_cancel,
         )
         .unwrap();
@@ -3259,7 +3803,12 @@ mod tests {
                         || {},
                     );
                     merge_inspection_result(
-                        InspectionResult { path, inspection },
+                        InspectionResult {
+                            path,
+                            path_digest,
+                            revalidation: false,
+                            inspection,
+                        },
                         &mut coverage,
                         &mut candidates,
                         &mut warning_count,
@@ -3589,6 +4138,56 @@ mod tests {
         assert!(progress["context"].get("etaSeconds").is_none());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn cancelled_incremental_flushes_staging_and_resumes_without_promotion() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let state_db = temp.path().join("structural.sqlite3");
+        let parallelism = 4;
+        for index in 0..64 {
+            let key = format!("steam/durable-cancel-{index}");
+            materialize(
+                &root,
+                key.as_bytes(),
+                b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+                b"data",
+            );
+        }
+        let observer = CancellationObserver::new();
+        let clock = ManualClock::new();
+        let mut cancel_when_workers_are_held = || {
+            observer.active.load(Ordering::SeqCst) == parallelism
+                && !observer.cancellation_seen.load(Ordering::SeqCst)
+        };
+        let cancelled = scan_with_runtime_options(
+            &root,
+            fixed_scan_started(),
+            None,
+            test_config(parallelism, parallelism),
+            &clock,
+            Some(&observer),
+            Some((StructuralScanMode::Incremental, &state_db, "default")),
+            &mut cancel_when_workers_are_held,
+        )
+        .unwrap();
+        assert!(cancelled.cancelled);
+        assert!(!cancelled.scan_summary.state_committed);
+        assert_eq!(cancelled.scan_summary.baseline_status, "incomplete");
+        assert_eq!(cancelled.scan_summary.files_inspected, parallelism);
+
+        let resumed = durable_scan(
+            &root,
+            &state_db,
+            StructuralScanMode::Incremental,
+            fixed_scan_started(),
+        );
+        assert!(resumed.scan_summary.resumed);
+        assert_eq!(resumed.scan_summary.files_reused, parallelism);
+        assert_eq!(resumed.scan_summary.files_inspected, 64 - parallelism);
+        assert!(resumed.scan_summary.state_committed);
+    }
+
     struct PathologicalObserver {
         mutate_after_read: PathBuf,
         disappear_before_open: PathBuf,
@@ -3749,6 +4348,7 @@ mod tests {
         let config = test_config(4, 4);
         let mut telemetry = InspectionTelemetry::new(clock.elapsed());
         let mut coverage = StructuralCoverage::default();
+        let scan_summary = StructuralScanSummary::stateless_full();
 
         update_progress(
             Some(&progress_path),
@@ -3768,6 +4368,7 @@ mod tests {
                 task_queue_capacity: 4,
                 result_queue_capacity: 4,
             },
+            &scan_summary,
         )
         .unwrap();
         let immediate = std::fs::read_to_string(&progress_path).unwrap();
@@ -3775,6 +4376,16 @@ mod tests {
         assert_eq!(immediate_value["filesProcessed"], 0);
         assert_eq!(immediate_value["totalFiles"], 10_000);
         assert_eq!(immediate_value["percentComplete"], 0.0);
+        assert_eq!(immediate_value["context"]["scanMode"], "full");
+        assert_eq!(immediate_value["context"]["effectiveScanMode"], "full");
+        assert_eq!(immediate_value["context"]["baselineStatus"], "stateless");
+        assert_eq!(immediate_value["context"]["filesDiscovered"], 0);
+        assert_eq!(immediate_value["context"]["filesReused"], 0);
+        assert_eq!(immediate_value["context"]["filesInspected"], 0);
+        assert_eq!(immediate_value["context"]["filesRevalidated"], 0);
+        assert_eq!(immediate_value["context"]["invalidFiles"], 0);
+        assert_eq!(immediate_value["context"]["filesPendingRetry"], 0);
+        assert_eq!(immediate_value["context"]["stateCommitted"], false);
         assert!(immediate_value["context"].get("etaSeconds").is_none());
 
         clock.advance(Duration::from_millis(500));
@@ -3802,6 +4413,7 @@ mod tests {
             0,
             &coverage,
             details,
+            &scan_summary,
         )
         .unwrap();
         let below_one_percent: serde_json::Value =
@@ -3838,6 +4450,7 @@ mod tests {
                 eta_seconds: Some(0),
                 ..details
             },
+            &scan_summary,
         )
         .unwrap();
         let terminal: serde_json::Value =
@@ -3858,6 +4471,7 @@ mod tests {
                 eta_seconds: Some(999),
                 ..details
             },
+            &scan_summary,
         )
         .unwrap();
         let enumeration: serde_json::Value =
@@ -4048,7 +4662,12 @@ mod tests {
                 || {},
             );
             merge_inspection_result(
-                InspectionResult { path, inspection },
+                InspectionResult {
+                    path,
+                    path_digest,
+                    revalidation: false,
+                    inspection,
+                },
                 &mut legacy_coverage,
                 &mut legacy_candidates,
                 &mut legacy_warning_count,
@@ -4081,7 +4700,12 @@ mod tests {
                 || {},
             );
             merge_inspection_result(
-                InspectionResult { path, inspection },
+                InspectionResult {
+                    path,
+                    path_digest,
+                    revalidation: false,
+                    inspection,
+                },
                 &mut serial_coverage,
                 &mut serial_candidates,
                 &mut warning_count,
@@ -4100,6 +4724,8 @@ mod tests {
         let mut parallel_coverage = StructuralCoverage::default();
         let mut parallel_candidates = Vec::new();
         let mut never_cancel = || false;
+        let mut scan_summary = StructuralScanSummary::stateless_full();
+        let mut traversal_errors = 0;
         let parallel_started = Instant::now();
         let (parallel_result, rss_baseline, rss_peak, rss_high_water) = with_rss_monitor(|| {
             run_parallel_inspection(
@@ -4112,6 +4738,9 @@ mod tests {
                 config,
                 &clock,
                 Some(&observer),
+                None,
+                &mut scan_summary,
+                &mut traversal_errors,
                 &mut never_cancel,
             )
         });

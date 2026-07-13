@@ -87,6 +87,12 @@
   gap: 0.5rem 0.75rem;
 }
 
+/* Helper and readout lines belong on their own row. Without this the toolbar's space-between
+   flings them opposite the selectors, where they squeeze into the leftover gap and clip. */
+.mgmt-toolbar > .mgmt-scanmeta {
+  flex-basis: 100%;
+}
+
 /* Quiet scan-metadata readout ("Results from previous scan · Jul 9, 07:10"). */
 .mgmt-scanmeta {
   margin: 0;

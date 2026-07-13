@@ -28,6 +28,13 @@ import type {
   StageContext
 } from './types';
 import type { OperationStatus } from '@/types/operations';
+import type { CorruptionDetectionMethod } from '@/types';
+import type {
+  StructuralBaselineStatus,
+  StructuralEffectiveScanMode,
+  StructuralScanMode,
+  StructuralScanSummary
+} from '@/types/corruptionScan';
 import {
   NOTIFICATION_IDS,
   NOTIFICATION_STORAGE_KEYS,
@@ -263,14 +270,131 @@ interface GameDetectionStatusResponse {
 interface CorruptionDetectionStatusResponse {
   isRunning: boolean;
   operationId?: string | null;
-  detectionMethod?: 'repeated_miss' | 'structural';
+  detectionMethod?: CorruptionDetectionMethod;
+  scanMode?: StructuralScanMode;
+  effectiveScanMode?: StructuralEffectiveScanMode;
+  baselineStatus?: StructuralBaselineStatus;
+  resumed?: boolean;
   status?: OperationStatus | null;
   message?: string | null;
   startTime?: string | null;
   stageKey?: string;
   context?: StageContext;
   percentComplete?: number;
+  scanSummary?: StructuralScanSummary;
 }
+
+interface CorruptionNotificationSource {
+  operationId?: string | null;
+  detectionMethod?: CorruptionDetectionMethod;
+  scanMode?: StructuralScanMode;
+  effectiveScanMode?: StructuralEffectiveScanMode;
+  baselineStatus?: StructuralBaselineStatus;
+  resumed?: boolean;
+  filesDiscovered?: number;
+  filesProcessed?: number;
+  filesReused?: number;
+  filesInspected?: number;
+  filesRevalidated?: number;
+  invalidFiles?: number;
+  filesPendingRetry?: number;
+  filesPruned?: number;
+  stateEntries?: number;
+  stateCommitted?: boolean;
+  scanSummary?: StructuralScanSummary;
+  context?: StageContext;
+}
+
+const corruptionScanMode = (
+  source: CorruptionNotificationSource
+): StructuralScanMode | undefined => {
+  const contextMode = source.context?.scanMode;
+  return (
+    source.scanMode ??
+    source.scanSummary?.scanMode ??
+    (contextMode === 'full' || contextMode === 'incremental' ? contextMode : undefined)
+  );
+};
+
+const corruptionEffectiveScanMode = (
+  source: CorruptionNotificationSource
+): StructuralEffectiveScanMode | undefined => {
+  const value =
+    source.effectiveScanMode ??
+    source.scanSummary?.effectiveScanMode ??
+    source.context?.effectiveScanMode;
+  return value === 'full' || value === 'incremental' || value === 'baseline' ? value : undefined;
+};
+
+const corruptionBaselineStatus = (
+  source: CorruptionNotificationSource
+): StructuralBaselineStatus | undefined => {
+  const value =
+    source.baselineStatus ?? source.scanSummary?.baselineStatus ?? source.context?.baselineStatus;
+  return value === 'stateless' ||
+    value === 'building' ||
+    value === 'ready' ||
+    value === 'incomplete'
+    ? value
+    : undefined;
+};
+
+const finiteContextCount = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+
+const corruptionNotificationDetails = (source: CorruptionNotificationSource) => ({
+  operationId: source.operationId ?? undefined,
+  detectionMethod: source.detectionMethod,
+  scanMode: corruptionScanMode(source),
+  effectiveScanMode: corruptionEffectiveScanMode(source),
+  baselineStatus: corruptionBaselineStatus(source),
+  resumed:
+    source.resumed ??
+    source.scanSummary?.resumed ??
+    (typeof source.context?.resumed === 'boolean' ? source.context.resumed : undefined),
+  filesDiscovered:
+    finiteContextCount(source.filesDiscovered) ??
+    finiteContextCount(source.scanSummary?.filesDiscovered) ??
+    finiteContextCount(source.context?.filesDiscovered),
+  filesProcessed:
+    finiteContextCount(source.filesProcessed) ??
+    finiteContextCount(source.scanSummary?.filesProcessed) ??
+    finiteContextCount(source.context?.filesProcessed),
+  filesReused:
+    finiteContextCount(source.filesReused) ??
+    finiteContextCount(source.scanSummary?.filesReused) ??
+    finiteContextCount(source.context?.filesReused),
+  filesInspected:
+    finiteContextCount(source.filesInspected) ??
+    finiteContextCount(source.scanSummary?.filesInspected) ??
+    finiteContextCount(source.context?.filesInspected),
+  filesRevalidated:
+    finiteContextCount(source.filesRevalidated) ??
+    finiteContextCount(source.scanSummary?.filesRevalidated) ??
+    finiteContextCount(source.context?.filesRevalidated),
+  invalidFiles:
+    finiteContextCount(source.invalidFiles) ??
+    finiteContextCount(source.scanSummary?.invalidFiles) ??
+    finiteContextCount(source.context?.invalidFiles),
+  filesPendingRetry:
+    finiteContextCount(source.filesPendingRetry) ??
+    finiteContextCount(source.scanSummary?.filesPendingRetry) ??
+    finiteContextCount(source.context?.filesPendingRetry),
+  filesPruned:
+    finiteContextCount(source.filesPruned) ??
+    finiteContextCount(source.scanSummary?.filesPruned) ??
+    finiteContextCount(source.context?.filesPruned),
+  stateEntries:
+    finiteContextCount(source.stateEntries) ??
+    finiteContextCount(source.scanSummary?.stateEntries) ??
+    finiteContextCount(source.context?.stateEntries),
+  stateCommitted:
+    source.stateCommitted ??
+    source.scanSummary?.stateCommitted ??
+    (typeof source.context?.stateCommitted === 'boolean'
+      ? source.context.stateCommitted
+      : undefined)
+});
 
 /** GET /api/migration/import/status - DataImportStatusResponse */
 interface DataImportStatusResponse {
@@ -789,9 +913,15 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       translationValidation: {
         kind: 'stageKey',
         cases: [
+          { stageKey: 'signalr.corruptionDetect.startingStructuralFull', context: {} },
+          { stageKey: 'signalr.corruptionDetect.startingStructuralIncremental', context: {} },
           { stageKey: 'signalr.corruptionDetect.startingStructural', context: {} },
           { stageKey: 'signalr.corruptionDetect.startingRepeatedMiss', context: {} },
           { stageKey: 'signalr.corruptionDetect.enumerating', context: { count: 0 } },
+          { stageKey: 'signalr.corruptionDetect.buildingBaseline', context: {} },
+          { stageKey: 'signalr.corruptionDetect.resumingIncremental', context: {} },
+          { stageKey: 'signalr.corruptionDetect.scanningFull', context: {} },
+          { stageKey: 'signalr.corruptionDetect.scanningIncremental', context: {} },
           { stageKey: 'signalr.corruptionDetect.scanningHeaders', context: {} },
           { stageKey: 'signalr.corruptionDetect.scanningLogs', context: {} }
         ]
@@ -806,10 +936,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           progress: data.percentComplete ?? 0,
           progressMode: presentation.progressMode,
           progressAriaValueText: presentation.progressAriaValueText,
-          details: {
-            operationId: data.operationId ?? undefined,
-            detectionMethod: data.detectionMethod
-          }
+          details: corruptionNotificationDetails(data)
         };
       },
       staleMessage: 'Corruption detection completed'
@@ -823,10 +950,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       defaultMessage: 'Scanning for corrupted cache chunks...',
       getMessage: (event: CorruptionDetectionStartedEvent) =>
         formatCorruptionDetectionStartedMessage(event),
-      getDetails: (event: CorruptionDetectionStartedEvent) => ({
-        operationId: event.operationId,
-        detectionMethod: event.detectionMethod
-      })
+      getDetails: (event: CorruptionDetectionStartedEvent) => corruptionNotificationDetails(event)
     },
     progress: {
       getMessage: (event: CorruptionDetectionProgressEvent) =>
@@ -843,15 +967,13 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         i18n.t(event.stageKey ?? 'signalr.corruptionDetect.complete', event.context ?? {}),
       getErrorMessage: (event: CorruptionDetectionProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.corruptionDetect.failed', event.context ?? {}),
-      getDetails: (event: CorruptionDetectionProgressEvent) => ({
-        operationId: event.operationId,
-        detectionMethod: event.detectionMethod
-      })
+      getDetails: (event: CorruptionDetectionProgressEvent) => corruptionNotificationDetails(event)
     },
     complete: {
       getSuccessMessage: (event: CorruptionDetectionCompleteEvent) =>
         formatCorruptionDetectionCompleteMessage(event),
       getSuccessDetails: (event: CorruptionDetectionCompleteEvent) => ({
+        ...corruptionNotificationDetails(event),
         detectionMethod: event.detectionMethod,
         detectionCounts: event.detectionCounts,
         coverage: event.coverage

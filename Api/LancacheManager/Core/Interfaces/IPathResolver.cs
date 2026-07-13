@@ -36,6 +36,18 @@ public interface IPathResolver
     string GetStateDirectory();
 
     /// <summary>
+    /// Gets the durable directory for structural corruption baselines.
+    /// This directory is not subject to temporary operation-file cleanup.
+    /// </summary>
+    string GetStructuralCorruptionStateDirectory();
+
+    /// <summary>Gets the stable, filesystem-safe state scope for a datasource/cache root.</summary>
+    string GetStructuralCorruptionStateScope(string datasourceName, string cachePath);
+
+    /// <summary>Gets the durable SQLite baseline path for a datasource/cache root.</summary>
+    string GetStructuralCorruptionStateDatabasePath(string datasourceName, string cachePath);
+
+    /// <summary>
     /// Gets the security directory path
     /// </summary>
     string GetSecurityDirectory();

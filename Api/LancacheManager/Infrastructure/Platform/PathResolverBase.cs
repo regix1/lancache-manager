@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using LancacheManager.Core.Interfaces;
 
 namespace LancacheManager.Infrastructure.Platform;
@@ -36,6 +38,36 @@ public abstract class PathResolverBase : IPathResolver
     public string GetConfigDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "config"));
 
     public string GetStateDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "state"));
+
+    public string GetStructuralCorruptionStateDirectory()
+    {
+        var path = Path.GetFullPath(Path.Combine(GetStateDirectory(), "corruption-structural"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    public string GetStructuralCorruptionStateScope(string datasourceName, string cachePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(datasourceName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cachePath);
+
+        var normalizedName = datasourceName.Trim().ToLowerInvariant();
+        var normalizedRoot = Path.GetFullPath(cachePath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (OperatingSystem.IsWindows())
+        {
+            normalizedRoot = normalizedRoot.ToUpperInvariant();
+        }
+
+        var identity = $"structural-state-v1\n{normalizedName}\n{normalizedRoot}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))
+            .ToLowerInvariant();
+    }
+
+    public string GetStructuralCorruptionStateDatabasePath(string datasourceName, string cachePath) =>
+        Path.Combine(
+            GetStructuralCorruptionStateDirectory(),
+            $"{GetStructuralCorruptionStateScope(datasourceName, cachePath)}.sqlite3");
 
     public string GetSecurityDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "security"));
 

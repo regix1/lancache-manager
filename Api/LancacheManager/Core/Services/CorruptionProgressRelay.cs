@@ -19,7 +19,8 @@ internal sealed class CorruptionProgressRelay
         CorruptionDetectionMethod detectionMethod,
         string datasourceName,
         int datasourceIndex,
-        int datasourceCount)
+        int datasourceCount,
+        StructuralScanMode? scanMode = null)
     {
         _metrics = metrics;
         _datasourceIndex = datasourceIndex;
@@ -28,13 +29,18 @@ internal sealed class CorruptionProgressRelay
             datasourceIndex,
             datasourceCount,
             0);
-        _hostContext = new Dictionary<string, object?>
+        var hostContext = new Dictionary<string, object?>
         {
             ["detectionMethod"] = detectionMethod.ToWireString(),
             ["datasourceName"] = datasourceName,
             ["datasourceIndex"] = datasourceIndex + 1,
             ["datasourceCount"] = datasourceCount
         };
+        if (scanMode.HasValue)
+        {
+            hostContext["scanMode"] = scanMode.Value.ToWireString();
+        }
+        _hostContext = hostContext;
     }
 
     internal CorruptionRelayDecision Capture(

@@ -101,7 +101,7 @@ path = "src/db_reset.rs"
 
 
 [dependencies]
-sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "macros", "chrono"] }
+sqlx = { version = "0.8", features = ["postgres", "sqlite", "runtime-tokio", "macros", "chrono"] }
 # Already in the tree via sqlx; direct dependency only for TryStreamExt on sqlx's fetch() streams.
 futures-util = { version = "0.3", default-features = false }
 tokio = { version = "1", features = ["full"] }
