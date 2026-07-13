@@ -87,6 +87,7 @@ public class CachedCorruptionResponse
     public int? LookbackDays { get; set; }
     public int? ContractVersion { get; set; }
     public string? DetectionMethod { get; set; }
+    public string? ScanMode { get; set; }
     public CorruptionScanSettingsResponse? Settings { get; set; }
     public Dictionary<string, long>? CorruptionCounts { get; set; }
     public Dictionary<string, long>? DetectionCounts { get; set; }
@@ -126,6 +127,34 @@ public sealed class CorruptionScanCoverageResponse
             SkippedByReason = new Dictionary<string, long>(coverage.SkippedByReason, StringComparer.Ordinal),
             IoErrors = coverage.IoErrors
         };
+}
+
+/// <summary>
+/// Wrapper for the bounded retained corruption scan history.
+/// </summary>
+public sealed class CorruptionScanHistoryResponse
+{
+    public IReadOnlyList<CorruptionScanHistoryEntryResponse> Scans { get; set; } = [];
+}
+
+/// <summary>
+/// Summary for one retained corruption scan. Read-only behavior is enforced by
+/// the dedicated history routes rather than a candidate-removal capability flag.
+/// </summary>
+public sealed class CorruptionScanHistoryEntryResponse
+{
+    public Guid ScanId { get; set; }
+    public int ContractVersion { get; set; }
+    public string DetectionMethod { get; set; } = string.Empty;
+    public string? ScanMode { get; set; }
+    public bool IsCurrent { get; set; }
+    public string CompletedAtUtc { get; set; } = string.Empty;
+    public CorruptionScanSettingsResponse Settings { get; set; } = new();
+    public Dictionary<string, long> CorruptionCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, long> DetectionCounts { get; set; } = new(StringComparer.Ordinal);
+    public CorruptionScanCoverageResponse? Coverage { get; set; }
+    public int TotalServicesWithCorruption { get; set; }
+    public long TotalCorruptedChunks { get; set; }
 }
 
 public sealed class CorruptionCandidateResponse

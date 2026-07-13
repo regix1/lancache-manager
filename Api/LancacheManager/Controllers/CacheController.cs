@@ -27,6 +27,7 @@ public class CacheController : ControllerBase
     // Mirrors DatasourceService's datasource-name validation: only safe service identifiers,
     // so a malicious {service} route value can't traverse paths via Path.Combine downstream.
     private static readonly Regex _serviceNameRegex = new("^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
+    private static readonly SemaphoreSlim _corruptionSnapshotMutationGate = new(1, 1);
 
     private readonly CacheManagementService _cacheService;
     private readonly CacheClearingService _cacheClearingService;
@@ -368,9 +369,19 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("corruption/cached")]
-    public async Task<IActionResult> GetCachedCorruptionAsync()
+    public async Task<IActionResult> GetCachedCorruptionAsync(
+        [FromQuery] string? detectionMethod = null,
+        CancellationToken cancellationToken = default)
     {
-        var cachedResults = await _corruptionDetectionService.GetDetectionAsync();
+        var method = detectionMethod == null
+            ? CorruptionDetectionMethod.RepeatedMiss
+            : CorruptionDetectionMethodExtensions.TryParseWire(detectionMethod, out var parsed)
+                ? parsed
+                : throw new ValidationException(
+                    "Detection method must be 'repeated_miss' or 'structural'");
+        var cachedResults = await _corruptionDetectionService.GetDetectionAsync(
+            method,
+            cancellationToken);
 
         if (cachedResults == null)
         {
@@ -393,6 +404,7 @@ public class CacheController : ControllerBase
             LookbackDays = cachedResults.LookbackDays,
             ContractVersion = cachedResults.ContractVersion,
             DetectionMethod = cachedResults.DetectionMethod.ToWireString(),
+            ScanMode = cachedResults.ScanMode?.ToWireString(),
             Settings = new CorruptionScanSettingsResponse
             {
                 Threshold = cachedResults.Settings.Threshold,
@@ -408,6 +420,109 @@ public class CacheController : ControllerBase
             LastDetectionTime = lastDetectionTimeUtc.ToString("o")
         };
     }
+
+    /// <summary>
+    /// GET /api/cache/corruption/history - List retained current and historical scans.
+    /// History responses are explicitly read-only and never feed removal endpoints.
+    /// </summary>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpGet("corruption/history")]
+    public async Task<IActionResult> GetCorruptionHistoryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var history = await _corruptionDetectionService.GetHistoryAsync(cancellationToken);
+        return Ok(new CorruptionScanHistoryResponse
+        {
+            Scans = history.Select(BuildCorruptionHistoryEntryResponse).ToList()
+        });
+    }
+
+    /// <summary>
+    /// GET /api/cache/corruption/history/{scanId}/services/{service} - Load validated,
+    /// read-only evidence for one retained snapshot and service.
+    /// </summary>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpGet("corruption/history/{scanId:guid}/services/{service}")]
+    public async Task<IActionResult> GetCorruptionHistoryDetailsAsync(
+        Guid scanId,
+        string service,
+        CancellationToken cancellationToken = default)
+    {
+        if (scanId == Guid.Empty)
+        {
+            throw new ValidationException("A corruption scan ID is required");
+        }
+
+        if (!_serviceNameRegex.IsMatch(service))
+        {
+            throw new ValidationException("Invalid service name");
+        }
+
+        var details = await _corruptionDetectionService.GetSnapshotDetailsAsync(
+            scanId,
+            service,
+            cancellationToken);
+        return Ok(details.Select(CorruptionCandidateResponse.From).ToList());
+    }
+
+    /// <summary>
+    /// DELETE /api/cache/corruption/history/{scanId} - Delete only the saved scan and
+    /// its stored evidence. This never removes cache files or promotes older history.
+    /// </summary>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpDelete("corruption/history/{scanId:guid}")]
+    public async Task<IActionResult> DeleteCorruptionHistoryAsync(
+        Guid scanId,
+        CancellationToken cancellationToken = default)
+    {
+        if (scanId == Guid.Empty)
+        {
+            throw new ValidationException("A corruption scan ID is required");
+        }
+
+        await _corruptionSnapshotMutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            var activeRemovals = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
+            if (HasActiveCorruptionRemovalForScan(activeRemovals, scanId))
+            {
+                throw new ConflictException(
+                    "The corruption scan cannot be deleted while its cache removal is active");
+            }
+
+            await _corruptionDetectionService.DeleteSnapshotAsync(scanId, cancellationToken);
+        }
+        finally
+        {
+            _corruptionSnapshotMutationGate.Release();
+        }
+
+        return NoContent();
+    }
+
+    private static CorruptionScanHistoryEntryResponse BuildCorruptionHistoryEntryResponse(
+        CorruptionScanHistorySummary summary) =>
+        new()
+        {
+            ScanId = summary.ScanId,
+            ContractVersion = summary.ContractVersion,
+            DetectionMethod = summary.DetectionMethod.ToWireString(),
+            ScanMode = summary.ScanMode?.ToWireString(),
+            IsCurrent = summary.IsCurrent,
+            CompletedAtUtc = summary.CompletedAtUtc.AsUtc().ToString("o"),
+            Settings = new CorruptionScanSettingsResponse
+            {
+                Threshold = summary.Settings.Threshold,
+                LookbackDays = summary.Settings.LookbackDays,
+                MinStableAgeSeconds = summary.Settings.MinimumStableAgeSeconds,
+                MaxPrefixBytes = summary.Settings.MaximumPrefixBytes
+            },
+            CorruptionCounts = summary.CorruptionCounts,
+            DetectionCounts = summary.DetectionCounts,
+            Coverage = CorruptionScanCoverageResponse.From(summary.Coverage),
+            TotalServicesWithCorruption = summary.TotalServicesWithCorruption,
+            TotalCorruptedChunks = summary.TotalCorruptedChunks
+        };
 
     /// <summary>
     /// POST /api/cache/corruption/detect - Start a background corruption detection scan
@@ -690,16 +805,9 @@ public class CacheController : ControllerBase
             throw new ValidationException("A corruption scan ID is required");
         }
 
-        var cachedDetection = await _corruptionDetectionService.GetDetectionAsync(cancellationToken);
-        if (cachedDetection == null)
-        {
-            throw new NotFoundException("Corruption scan");
-        }
-
-        if (cachedDetection.ScanId != scanId)
-        {
-            throw new ConflictException("The corruption scan is stale. Reload results and try again");
-        }
+        var cachedDetection = await _corruptionDetectionService.GetCurrentDetectionByScanIdAsync(
+            scanId,
+            cancellationToken);
 
         if (cachedDetection.CorruptionCounts.Count == 0)
         {
@@ -908,6 +1016,41 @@ public class CacheController : ControllerBase
             .Where(item => !string.IsNullOrWhiteSpace(item))
             .ToHashSet(comparer);
         return values.Count == 0 ? null : values;
+    }
+
+    internal static bool HasActiveCorruptionRemovalForScan(
+        IEnumerable<OperationInfo> operations,
+        Guid scanId) =>
+        operations.Any(operation =>
+            operation.Type == OperationType.CorruptionRemoval
+            && operation.Metadata is RemovalMetrics { CorruptionScanId: { } activeScanId }
+            && activeScanId == scanId);
+
+    internal static RemovalMetrics CreateCorruptionRemovalMetadata(
+        CorruptionRemovalSelection selection) =>
+        new()
+        {
+            EntityKey = selection.Service.ToLowerInvariant(),
+            EntityName = selection.Service,
+            DetectionMethod = selection.DetectionMethod,
+            CorruptionScanId = selection.ScanId
+        };
+
+    internal static async Task<Guid> RevalidateAndRegisterCorruptionRemovalAsync(
+        SemaphoreSlim mutationGate,
+        Func<Task> revalidateCurrentAsync,
+        Func<Guid> registerOperation)
+    {
+        await mutationGate.WaitAsync();
+        try
+        {
+            await revalidateCurrentAsync();
+            return registerOperation();
+        }
+        finally
+        {
+            mutationGate.Release();
+        }
     }
 
     private static List<ResolvedDatasource> ResolveDatasourcesForSelection(
@@ -1187,22 +1330,23 @@ public class CacheController : ControllerBase
         var service = selection.Service;
         // Create CancellationTokenSource and register with unified operation tracker for cancel support
         var cts = new CancellationTokenSource();
-        var metadata = new RemovalMetrics
-        {
-            EntityKey = service.ToLowerInvariant(),
-            EntityName = service,
-            DetectionMethod = selection.DetectionMethod
-        };
+        var metadata = CreateCorruptionRemovalMetadata(selection);
         var serviceName = service;
         var totals = new CorruptionRemovalTotals();
         Guid operationId = Guid.Empty;
-        operationId = _operationTracker.RegisterOperation(
-            OperationType.CorruptionRemoval,
-            $"Corruption removal: {service}",
-            cts,
-            metadata,
-            onTerminalEmit: info =>
+        operationId = await RevalidateAndRegisterCorruptionRemovalAsync(
+            _corruptionSnapshotMutationGate,
+            async () =>
             {
+                await _corruptionDetectionService.GetCurrentDetectionByScanIdAsync(selection.ScanId);
+            },
+            () => _operationTracker.RegisterOperation(
+                OperationType.CorruptionRemoval,
+                $"Corruption removal: {service}",
+                cts,
+                metadata,
+                onTerminalEmit: info =>
+                {
                 // In an all-services run the terminal emit belongs to the bulk loop (one
                 // aggregated completion after the last service). Emitting per service here is
                 // what made completions race each other on the singleton notification card.
@@ -1247,7 +1391,7 @@ public class CacheController : ControllerBase
                             OperationId: operationId,
                             Context: new Dictionary<string, object?> { ["service"] = serviceName },
                             DetectionMethod: selection.DetectionMethod.ToWireString()));
-            });
+                }));
 
         onRegistered?.Invoke(operationId);
 

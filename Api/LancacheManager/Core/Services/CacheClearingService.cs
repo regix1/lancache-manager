@@ -655,7 +655,7 @@ public class CacheClearingService : ScheduledBackgroundService
     /// <summary>
     /// Invalidates all cache-derived detection projections after a successful filesystem clear.
     /// Candidate rows are deleted before scan headers, and the caller sees either the complete
-    /// invalidation or the original snapshot because every delete shares one transaction.
+    /// invalidation or the original current/history snapshots because every delete shares one transaction.
     /// </summary>
     internal static async Task<(
         int Games,

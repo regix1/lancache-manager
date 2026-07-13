@@ -74,6 +74,36 @@ public sealed class CorruptionScanInvalidationTests
         await AssertScanCountsAsync(database.Options, scans: 0, candidates: 0);
     }
 
+    [Fact]
+    public async Task DatabaseReset_InvalidatesEveryRetainedCurrentAndHistoricalSnapshotAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedRetainedScansAsync(database.Options);
+
+        await using (var context = new AppDbContext(database.Options))
+        {
+            Assert.Equal(5, await DatabaseService.CountResetTableRowsAsync(
+                context,
+                "CachedCorruptionDetections",
+                CancellationToken.None));
+            Assert.Equal(4, await DatabaseService.CountResetTableRowsAsync(
+                context,
+                "CachedCorruptionScans",
+                CancellationToken.None));
+
+            await using var transaction = await context.Database.BeginTransactionAsync();
+            var deleted = await DatabaseService.DeleteCachedCorruptionEvidenceAsync(
+                context,
+                CancellationToken.None);
+            await transaction.CommitAsync();
+
+            Assert.Equal(5, deleted.Candidates);
+            Assert.Equal(4, deleted.Scans);
+        }
+
+        await AssertScanCountsAsync(database.Options, scans: 0, candidates: 0);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(2)]
@@ -91,6 +121,25 @@ public sealed class CorruptionScanInvalidationTests
 
             Assert.Equal(candidateCount, deleted.CorruptionCandidates);
             Assert.Equal(1, deleted.CorruptionScans);
+        }
+
+        await AssertScanCountsAsync(database.Options, scans: 0, candidates: 0);
+    }
+
+    [Fact]
+    public async Task CacheClearing_InvalidatesAllMethodsAndRetainedHistoryAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedRetainedScansAsync(database.Options);
+
+        await using (var context = new AppDbContext(database.Options))
+        {
+            var deleted = await CacheClearingService.InvalidateCachedDetectionResultsAsync(
+                context,
+                CancellationToken.None);
+
+            Assert.Equal(5, deleted.CorruptionCandidates);
+            Assert.Equal(4, deleted.CorruptionScans);
         }
 
         await AssertScanCountsAsync(database.Options, scans: 0, candidates: 0);
@@ -279,6 +328,25 @@ public sealed class CorruptionScanInvalidationTests
     }
 
     [Fact]
+    public async Task EvictionSuccessBoundary_InvalidatesAllMethodsAndRetainedHistoryAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedRetainedScansAsync(database.Options);
+
+        await using (var context = new AppDbContext(database.Options))
+        {
+            var deleted = await DatabaseService.InvalidateCachedCorruptionEvidenceAsync(
+                context,
+                CancellationToken.None);
+
+            Assert.Equal(5, deleted.Candidates);
+            Assert.Equal(4, deleted.Scans);
+        }
+
+        await AssertScanCountsAsync(database.Options, scans: 0, candidates: 0);
+    }
+
+    [Fact]
     public async Task EvictionSuccessBoundary_RollsBackCandidatesWhenHeaderDeletionFailsAsync()
     {
         await using var database = await TestDatabase.CreateAsync();
@@ -336,6 +404,7 @@ public sealed class CorruptionScanInvalidationTests
         {
             ScanId = scanId,
             DetectionMode = CorruptionDetectionMode.RepeatedMiss,
+            IsCurrent = true,
             Threshold = 3,
             LookbackDays = 30,
             ContractVersion = CorruptionReport.SupportedContractVersion,
@@ -359,6 +428,78 @@ public sealed class CorruptionScanInvalidationTests
         }
 
         await context.SaveChangesAsync();
+    }
+
+    private static async Task SeedRetainedScansAsync(DbContextOptions<AppDbContext> options)
+    {
+        await using var context = new AppDbContext(options);
+        var completedAtUtc = DateTime.UtcNow;
+        AddScan(
+            context,
+            CorruptionDetectionMode.RepeatedMiss,
+            isCurrent: true,
+            candidateCount: 2,
+            completedAtUtc);
+        AddScan(
+            context,
+            CorruptionDetectionMode.RepeatedMiss,
+            isCurrent: false,
+            candidateCount: 1,
+            completedAtUtc.AddMinutes(-1));
+        AddScan(
+            context,
+            CorruptionDetectionMode.Structural,
+            isCurrent: true,
+            candidateCount: 0,
+            completedAtUtc.AddMinutes(-2));
+        AddScan(
+            context,
+            CorruptionDetectionMode.Structural,
+            isCurrent: false,
+            candidateCount: 2,
+            completedAtUtc.AddMinutes(-3));
+        await context.SaveChangesAsync();
+    }
+
+    private static void AddScan(
+        AppDbContext context,
+        CorruptionDetectionMode detectionMode,
+        bool isCurrent,
+        int candidateCount,
+        DateTime completedAtUtc)
+    {
+        var scanId = Guid.NewGuid();
+        context.CachedCorruptionScans.Add(new CachedCorruptionScan
+        {
+            ScanId = scanId,
+            DetectionMode = detectionMode,
+            ScanMode = detectionMode == CorruptionDetectionMode.Structural
+                ? StructuralScanMode.Full
+                : null,
+            IsCurrent = isCurrent,
+            Threshold = 3,
+            LookbackDays = 30,
+            ContractVersion = CorruptionReport.SupportedContractVersion,
+            Status = OperationStatus.Completed.ToWireString(),
+            StartedAtUtc = completedAtUtc.AddSeconds(-1),
+            CompletedAtUtc = completedAtUtc,
+            CreatedAtUtc = completedAtUtc
+        });
+
+        for (var index = 0; index < candidateCount; index++)
+        {
+            context.CachedCorruptionDetections.Add(new CachedCorruptionDetection
+            {
+                ScanId = scanId,
+                ServiceName = $"service-{index}",
+                DatasourceName = "default",
+                CorruptedChunkCount = 1,
+                CandidatesJson = "[]",
+                RemovalAllowed = true,
+                LastDetectedUtc = completedAtUtc,
+                CreatedAtUtc = completedAtUtc
+            });
+        }
     }
 
     private static Download CreateDownload(

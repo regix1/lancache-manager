@@ -3,6 +3,8 @@ using LancacheManager.Controllers;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Routing;
 
 namespace LancacheManager.Tests;
 
@@ -165,6 +167,167 @@ public sealed class CorruptionRemovalContractTests
         Assert.Null(typeof(SignalRNotifications).GetNestedType("StructuralCorruptionRemovalComplete"));
     }
 
+    [Fact]
+    public void CorruptionCurrentAndHistoryRoutes_AreMethodAwareAndDedicated()
+    {
+        var cachedMethod = typeof(CacheController)
+            .GetMethod(nameof(CacheController.GetCachedCorruptionAsync))!;
+        Assert.Equal(
+            ["detectionMethod", "cancellationToken"],
+            cachedMethod.GetParameters().Select(parameter => parameter.Name));
+        Assert.Equal(
+            "corruption/cached",
+            cachedMethod.GetCustomAttributes(typeof(HttpGetAttribute), inherit: true)
+                .Cast<HttpGetAttribute>()
+                .Single()
+                .Template);
+
+        Assert.Equal(
+            "corruption/history",
+            RouteTemplate<HttpGetAttribute>(nameof(CacheController.GetCorruptionHistoryAsync)));
+        Assert.Equal(
+            "corruption/history/{scanId:guid}/services/{service}",
+            RouteTemplate<HttpGetAttribute>(nameof(CacheController.GetCorruptionHistoryDetailsAsync)));
+        Assert.Equal(
+            "corruption/history/{scanId:guid}",
+            RouteTemplate<HttpDeleteAttribute>(nameof(CacheController.DeleteCorruptionHistoryAsync)));
+    }
+
+    [Fact]
+    public void CorruptionHistoryWireContract_IsClosedAndTruthfulAboutScanMode()
+    {
+        var entry = new CorruptionScanHistoryEntryResponse
+        {
+            ScanId = Guid.NewGuid(),
+            ContractVersion = CorruptionReport.SupportedContractVersion,
+            DetectionMethod = "structural",
+            ScanMode = null,
+            IsCurrent = false,
+            CompletedAtUtc = "2026-07-12T00:01:00.0000000Z",
+            Settings = new CorruptionScanSettingsResponse
+            {
+                MinStableAgeSeconds = 60,
+                MaxPrefixBytes = 4096
+            },
+            CorruptionCounts = new Dictionary<string, long> { ["steam"] = 2 },
+            DetectionCounts = new Dictionary<string, long> { ["structural"] = 2 },
+            Coverage = new CorruptionScanCoverageResponse { FilesChecked = 2 },
+            TotalServicesWithCorruption = 1,
+            TotalCorruptedChunks = 2
+        };
+
+        var json = JsonSerializer.SerializeToElement(
+            new CorruptionScanHistoryResponse { Scans = [entry] },
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var scan = json.GetProperty("scans").EnumerateArray().Single();
+
+        Assert.Equal("structural", scan.GetProperty("detectionMethod").GetString());
+        Assert.Equal(JsonValueKind.Null, scan.GetProperty("scanMode").ValueKind);
+        Assert.False(scan.GetProperty("isCurrent").GetBoolean());
+        Assert.Equal(2, scan.GetProperty("corruptionCounts").GetProperty("steam").GetInt64());
+        Assert.False(scan.TryGetProperty("removalAllowed", out _));
+        Assert.False(scan.TryGetProperty("isReadOnly", out _));
+    }
+
+    [Fact]
+    public void CachedCorruptionWireContract_IncludesPersistedStructuralScanMode()
+    {
+        var json = JsonSerializer.SerializeToElement(
+            new CachedCorruptionResponse
+            {
+                HasCachedResults = true,
+                ScanId = Guid.NewGuid(),
+                DetectionMethod = "structural",
+                ScanMode = "incremental"
+            },
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        Assert.Equal("structural", json.GetProperty("detectionMethod").GetString());
+        Assert.Equal("incremental", json.GetProperty("scanMode").GetString());
+    }
+
+    [Fact]
+    public void CorruptionRemovalMetadata_CarriesTheExactScanIdentity()
+    {
+        var scanId = Guid.NewGuid();
+        var metadata = new RemovalMetrics
+        {
+            EntityKey = "steam",
+            EntityName = "steam",
+            DetectionMethod = CorruptionDetectionMethod.Structural,
+            CorruptionScanId = scanId
+        };
+
+        Assert.Equal(scanId, metadata.CorruptionScanId);
+        Assert.Equal(CorruptionDetectionMethod.Structural, metadata.DetectionMethod);
+    }
+
+    [Fact]
+    public void SnapshotDeletionGuard_MatchesOnlyTheExactCorruptionRemovalScan()
+    {
+        var activeScanId = Guid.NewGuid();
+        var otherScanId = Guid.NewGuid();
+        var operations = new[]
+        {
+            Operation(
+                OperationType.CorruptionRemoval,
+                new RemovalMetrics
+                {
+                    EntityKey = "steam",
+                    CorruptionScanId = activeScanId
+                }),
+            Operation(
+                OperationType.CorruptionRemoval,
+                new RemovalMetrics
+                {
+                    EntityKey = "wsus",
+                    CorruptionScanId = otherScanId
+                }),
+            Operation(
+                OperationType.ServiceRemoval,
+                new RemovalMetrics
+                {
+                    EntityKey = "steam",
+                    CorruptionScanId = activeScanId
+                })
+        };
+
+        Assert.True(CacheController.HasActiveCorruptionRemovalForScan(operations, activeScanId));
+        Assert.True(CacheController.HasActiveCorruptionRemovalForScan(operations, otherScanId));
+        Assert.False(CacheController.HasActiveCorruptionRemovalForScan(operations, Guid.NewGuid()));
+        Assert.False(CacheController.HasActiveCorruptionRemovalForScan(
+            [Operation(OperationType.CorruptionRemoval, new RemovalMetrics { EntityKey = "steam" })],
+            activeScanId));
+    }
+
+    [Fact]
+    public async Task CorruptionRemovalRegistration_FinalRevalidationPrecedesRegistrationUnderSameGate()
+    {
+        using var mutationGate = new SemaphoreSlim(1, 1);
+        var expectedOperationId = Guid.NewGuid();
+        var calls = new List<string>();
+
+        var operationId = await CacheController.RevalidateAndRegisterCorruptionRemovalAsync(
+            mutationGate,
+            () =>
+            {
+                Assert.False(mutationGate.Wait(0));
+                calls.Add("revalidate");
+                return Task.CompletedTask;
+            },
+            () =>
+            {
+                Assert.False(mutationGate.Wait(0));
+                calls.Add("register");
+                return expectedOperationId;
+            });
+
+        Assert.Equal(expectedOperationId, operationId);
+        Assert.Equal(["revalidate", "register"], calls);
+        Assert.True(mutationGate.Wait(0));
+        mutationGate.Release();
+    }
+
     private static CorruptionRemovalSelection Selection(
         CorruptionDetectionMethod method,
         CorruptionEvidence evidence)
@@ -190,4 +353,22 @@ public sealed class CorruptionRemovalContractTests
             }
         };
     }
+
+    private static OperationInfo Operation(OperationType type, RemovalMetrics metadata) => new()
+    {
+        Id = Guid.NewGuid(),
+        Type = type,
+        Name = "Removal",
+        Status = OperationStatus.Running,
+        Metadata = metadata
+    };
+
+    private static string? RouteTemplate<TAttribute>(string methodName)
+        where TAttribute : HttpMethodAttribute =>
+        typeof(CacheController)
+            .GetMethod(methodName)!
+            .GetCustomAttributes(typeof(TAttribute), inherit: true)
+            .Cast<TAttribute>()
+            .Single()
+            .Template;
 }

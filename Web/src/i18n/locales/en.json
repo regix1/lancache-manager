@@ -2644,6 +2644,33 @@
         "removeAllRepeatedMissConfirm": "Remove All Suspects",
         "removeSelectedStructuralConfirm": "Remove invalid files ({{count}} services)",
         "removeSelectedRepeatedMissConfirm": "Remove suspects ({{count}} services)"
+      },
+      "history": {
+        "title": "Scan history",
+        "description": "Keeps the last three completed scans for each method. History is view-only and cannot remove cache files.",
+        "loading": "Loading scan history…",
+        "empty": "No saved scans yet. Completed scans are kept here for reference.",
+        "methodEmpty": "No saved scans for this method yet.",
+        "loadError": "Failed to load scan history",
+        "loadErrorRetry": "The saved scans are unaffected. Retry to load the list again.",
+        "currentBadge": "Current",
+        "historicalBadge": "Historical",
+        "viewOnlyBadge": "View only",
+        "view": "View",
+        "deleteSavedScan": "Delete saved scan",
+        "thresholdMeta": "Threshold {{threshold}}",
+        "serviceCount": "{{count}} service",
+        "serviceCount_other": "{{count}} services",
+        "detailTitle": "Saved scan details",
+        "viewOnlyNotice": "This saved scan is view-only. It cannot select or remove cache files. Run a new scan to act on current corruption.",
+        "zeroResultTitle": "No flagged files in this scan",
+        "zeroResultSubtitle": "The scan completed and recorded no flagged files.",
+        "deleteTitle": "Delete saved scan",
+        "deleteConfirmBody": "Delete this saved {{method}} scan?",
+        "deleteScope": "This deletes only the saved corruption scan and its stored evidence. It does not remove cache files, access-log entries, or download history.",
+        "deleteCurrentNote": "This is the current scan for its method. Deleting it leaves that method with no current actionable scan until a new scan completes. Older saved scans are not promoted.",
+        "deleteSuccess": "Deleted the saved scan",
+        "deleteError": "Failed to delete the saved scan"
       }
     },
     "gameDetection": {

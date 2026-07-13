@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Services;
@@ -7,7 +6,6 @@ using LancacheManager.Infrastructure.Data.Migrations;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
-using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -408,7 +406,11 @@ public sealed class CorruptionDetectionPersistenceTests
         await using var database = await TestDatabase.CreateAsync();
         var service = NewService(database.Factory);
         var report = StructuralReport("default", StructuralCandidate("candidate"));
-        Validate(report, CorruptionDetectionMethod.Structural, "default");
+        Validate(
+            report,
+            CorruptionDetectionMethod.Structural,
+            "default",
+            StructuralScanMode.Incremental);
         var scanId = Guid.NewGuid();
         await service.PersistCompletedScanAsync(
             scanId,
@@ -417,10 +419,13 @@ public sealed class CorruptionDetectionPersistenceTests
             CorruptionDetectionMethod.Structural,
             ScanStartedUtc,
             ScanStartedUtc.AddSeconds(1),
-            [report]);
+            [report],
+            StructuralScanMode.Incremental);
 
-        var result = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync());
+        var result = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync(
+            CorruptionDetectionMethod.Structural));
         Assert.Equal(CorruptionDetectionMethod.Structural, result.DetectionMethod);
+        Assert.Equal(StructuralScanMode.Incremental, result.ScanMode);
         Assert.Equal(1, result.DetectionCounts["structural"]);
         Assert.Equal(4, result.Coverage?.FilesSeen);
         Assert.Equal(1, result.TotalCorruptedChunks);
@@ -428,6 +433,9 @@ public sealed class CorruptionDetectionPersistenceTests
         await using var context = database.Factory.CreateDbContext();
         Assert.Equal(CorruptionDetectionMode.Structural,
             (await context.CachedCorruptionScans.SingleAsync()).DetectionMode);
+        Assert.Equal(
+            StructuralScanMode.Incremental,
+            (await context.CachedCorruptionScans.SingleAsync()).ScanMode);
         Assert.Equal(2, await context.CachedCorruptionDetections.CountAsync());
         Assert.DoesNotContain(
             context.Model.GetEntityTypes().SelectMany(entity => entity.GetProperties()),
@@ -443,7 +451,7 @@ public sealed class CorruptionDetectionPersistenceTests
             database.Factory,
             "{ deliberately invalid candidate JSON }");
 
-        Assert.Null(await service.GetDetectionAsync());
+        Assert.Null(await service.GetDetectionAsync(CorruptionDetectionMethod.RepeatedMiss));
         await Assert.ThrowsAsync<ConflictException>(() => service.GetDetailsAsync(legacyScanId, "steam"));
         await Assert.ThrowsAsync<ConflictException>(() =>
             service.GetRemovalSelectionAsync(legacyScanId, "steam"));
@@ -460,7 +468,8 @@ public sealed class CorruptionDetectionPersistenceTests
             ScanStartedUtc.AddSeconds(2),
             [emptyReport]);
 
-        var result = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync());
+        var result = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync(
+            CorruptionDetectionMethod.RepeatedMiss));
         Assert.Equal(scanId, result.ScanId);
         Assert.Equal(0, result.DetectionCounts["repeated_miss"]);
         Assert.Empty(result.CorruptionCounts);
@@ -484,7 +493,7 @@ public sealed class CorruptionDetectionPersistenceTests
             ScanStartedUtc,
             ScanStartedUtc.AddSeconds(1),
             [first, second]));
-        Assert.Null(await service.GetDetectionAsync());
+        Assert.Null(await service.GetDetectionAsync(CorruptionDetectionMethod.Structural));
     }
 
     [Fact]
@@ -519,9 +528,405 @@ public sealed class CorruptionDetectionPersistenceTests
 
         await service.ApplyRemovalSuccessAsync(scanId, selection.CandidateIds);
         Assert.Equal("default:second", Assert.Single(await service.GetDetailsAsync(scanId, "steam")).CandidateId);
-        var cached = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync());
+        var cached = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync(
+            CorruptionDetectionMethod.Structural));
         Assert.Equal(1, cached.TotalCorruptedChunks);
         Assert.Equal(1, cached.DetectionCounts["structural"]);
+    }
+
+    [Fact]
+    public async Task CompletedScans_CoexistPerMethodAndPersistRequestedStructuralModeAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var repeatedMissScanId = Guid.Parse("00000000-0000-0000-0000-000000000011");
+        var structuralScanId = Guid.Parse("00000000-0000-0000-0000-000000000012");
+
+        await PersistScanAsync(
+            service,
+            repeatedMissScanId,
+            CorruptionDetectionMethod.RepeatedMiss,
+            sequence: 11,
+            ScanStartedUtc.AddSeconds(1));
+        await PersistScanAsync(
+            service,
+            structuralScanId,
+            CorruptionDetectionMethod.Structural,
+            sequence: 12,
+            ScanStartedUtc.AddSeconds(2),
+            StructuralScanMode.Incremental);
+
+        var repeatedMiss = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync(
+            CorruptionDetectionMethod.RepeatedMiss));
+        var structural = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync(
+            CorruptionDetectionMethod.Structural));
+        Assert.Equal(repeatedMissScanId, repeatedMiss.ScanId);
+        Assert.Null(repeatedMiss.ScanMode);
+        Assert.Equal(structuralScanId, structural.ScanId);
+        Assert.Equal(StructuralScanMode.Incremental, structural.ScanMode);
+        Assert.Equal(
+            repeatedMissScanId,
+            (await service.GetCurrentDetectionByScanIdAsync(repeatedMissScanId)).ScanId);
+        Assert.Equal(
+            structuralScanId,
+            (await service.GetCurrentDetectionByScanIdAsync(structuralScanId)).ScanId);
+
+        await using var context = database.Factory.CreateDbContext();
+        var scans = await context.CachedCorruptionScans.AsNoTracking().ToListAsync();
+        Assert.Equal(2, scans.Count);
+        Assert.All(scans, scan => Assert.True(scan.IsCurrent));
+        Assert.Single(scans, scan => scan.DetectionMode == CorruptionDetectionMode.RepeatedMiss);
+        Assert.Single(scans, scan => scan.DetectionMode == CorruptionDetectionMode.Structural);
+    }
+
+    [Fact]
+    public async Task Retention_IsDeterministicPerMethodAndIncludesZeroResultScansAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var structuralScanId = Guid.Parse("00000000-0000-0000-0000-000000000100");
+        await PersistScanAsync(
+            service,
+            structuralScanId,
+            CorruptionDetectionMethod.Structural,
+            sequence: 100,
+            ScanStartedUtc.AddSeconds(1));
+
+        var repeatedMissScanIds = Enumerable.Range(1, 4)
+            .Select(sequence => Guid.Parse($"00000000-0000-0000-0000-{sequence:D12}"))
+            .ToList();
+        foreach (var (scanId, index) in repeatedMissScanIds.Select((scanId, index) => (scanId, index)))
+        {
+            await PersistScanAsync(
+                service,
+                scanId,
+                CorruptionDetectionMethod.RepeatedMiss,
+                sequence: index + 1,
+                index == 3 ? ScanStartedUtc.AddSeconds(1) : ScanStartedUtc.AddSeconds(5),
+                empty: index == 3);
+        }
+
+        var current = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync(
+            CorruptionDetectionMethod.RepeatedMiss));
+        Assert.Equal(repeatedMissScanIds[3], current.ScanId);
+        Assert.Equal(0, current.TotalCorruptedChunks);
+        Assert.Empty(current.CorruptionCounts);
+
+        var history = await service.GetHistoryAsync();
+        var repeatedMissHistory = history
+            .Where(item => item.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss)
+            .ToList();
+        Assert.Equal(
+            [repeatedMissScanIds[2], repeatedMissScanIds[1], repeatedMissScanIds[3]],
+            repeatedMissHistory.Select(item => item.ScanId));
+        Assert.Equal(
+            repeatedMissScanIds[3],
+            Assert.Single(repeatedMissHistory, item => item.IsCurrent).ScanId);
+        Assert.Equal(0, repeatedMissHistory[2].TotalCorruptedChunks);
+        Assert.Empty(repeatedMissHistory[2].CorruptionCounts);
+        Assert.Contains(history, item =>
+            item.ScanId == structuralScanId
+            && item.IsCurrent
+            && item.DetectionMethod == CorruptionDetectionMethod.Structural);
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Equal(3, await context.CachedCorruptionScans.CountAsync(scan =>
+            scan.DetectionMode == CorruptionDetectionMode.RepeatedMiss));
+        Assert.Equal(1, await context.CachedCorruptionScans.CountAsync(scan =>
+            scan.DetectionMode == CorruptionDetectionMode.Structural));
+        Assert.False(await context.CachedCorruptionScans.AnyAsync(scan =>
+            scan.ScanId == repeatedMissScanIds[0]));
+        Assert.False(await context.CachedCorruptionDetections.AnyAsync(row =>
+            row.ScanId == repeatedMissScanIds[0]));
+        Assert.Equal(1, await context.CachedCorruptionScans.CountAsync(scan =>
+            scan.DetectionMode == CorruptionDetectionMode.RepeatedMiss && scan.IsCurrent));
+        Assert.Equal(1, await context.CachedCorruptionScans.CountAsync(scan =>
+            scan.DetectionMode == CorruptionDetectionMode.Structural && scan.IsCurrent));
+        Assert.Single(await context.CachedCorruptionDetections
+            .Where(row => row.ScanId == repeatedMissScanIds[3])
+            .ToListAsync());
+    }
+
+    [Fact]
+    public async Task FilteredUniqueIndex_RejectsTwoCurrentRowsForOneMethodAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        await PersistScanAsync(
+            service,
+            Guid.Parse("00000000-0000-0000-0000-000000000201"),
+            CorruptionDetectionMethod.RepeatedMiss,
+            sequence: 201,
+            ScanStartedUtc.AddSeconds(1));
+
+        await using var context = database.Factory.CreateDbContext();
+        context.CachedCorruptionScans.Add(new CachedCorruptionScan
+        {
+            ScanId = Guid.Parse("00000000-0000-0000-0000-000000000202"),
+            DetectionMode = CorruptionDetectionMode.RepeatedMiss,
+            IsCurrent = true,
+            Threshold = 3,
+            LookbackDays = LookbackDays,
+            ContractVersion = CorruptionReport.SupportedContractVersion,
+            Status = OperationStatus.Completed.ToWireString(),
+            StartedAtUtc = ScanStartedUtc,
+            CompletedAtUtc = ScanStartedUtc.AddSeconds(2),
+            CreatedAtUtc = ScanStartedUtc.AddSeconds(2)
+        });
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task RetentionFailure_RollsBackDemotionInsertionTrimAndOtherMethodAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var repeatedMissScanIds = Enumerable.Range(1, 4)
+            .Select(sequence => Guid.Parse($"00000000-0000-0000-0001-{sequence:D12}"))
+            .ToList();
+        var structuralScanId = Guid.Parse("00000000-0000-0000-0002-000000000001");
+        for (var index = 0; index < 3; index++)
+        {
+            await PersistScanAsync(
+                service,
+                repeatedMissScanIds[index],
+                CorruptionDetectionMethod.RepeatedMiss,
+                sequence: 300 + index,
+                ScanStartedUtc.AddSeconds(index + 1));
+        }
+        await PersistScanAsync(
+            service,
+            structuralScanId,
+            CorruptionDetectionMethod.Structural,
+            sequence: 400,
+            ScanStartedUtc.AddSeconds(1));
+
+        await using (var triggerContext = database.Factory.CreateDbContext())
+        {
+            await triggerContext.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TRIGGER fail_corruption_scan_trim
+                BEFORE DELETE ON "CachedCorruptionScans"
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced retention failure');
+                END;
+                """);
+        }
+
+        await Assert.ThrowsAnyAsync<Exception>(() => PersistScanAsync(
+            service,
+            repeatedMissScanIds[3],
+            CorruptionDetectionMethod.RepeatedMiss,
+            sequence: 303,
+            ScanStartedUtc.AddSeconds(4)));
+
+        await using var context = database.Factory.CreateDbContext();
+        var repeatedMissScans = await context.CachedCorruptionScans
+            .AsNoTracking()
+            .Where(scan => scan.DetectionMode == CorruptionDetectionMode.RepeatedMiss)
+            .ToListAsync();
+        Assert.Equal(3, repeatedMissScans.Count);
+        Assert.DoesNotContain(repeatedMissScans, scan => scan.ScanId == repeatedMissScanIds[3]);
+        Assert.Equal(
+            repeatedMissScanIds[2],
+            Assert.Single(repeatedMissScans, scan => scan.IsCurrent).ScanId);
+        Assert.True(await context.CachedCorruptionDetections.AnyAsync(row =>
+            row.ScanId == repeatedMissScanIds[0]));
+        Assert.Equal(
+            structuralScanId,
+            (await context.CachedCorruptionScans.SingleAsync(scan =>
+                scan.DetectionMode == CorruptionDetectionMode.Structural && scan.IsCurrent)).ScanId);
+    }
+
+    [Fact]
+    public async Task HistoryDeletion_IsExactAndCurrentDeletionNeverPromotesHistoricalEvidenceAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var historicalToDelete = Guid.Parse("00000000-0000-0000-0003-000000000001");
+        var historicalToKeep = Guid.Parse("00000000-0000-0000-0003-000000000002");
+        var currentScanId = Guid.Parse("00000000-0000-0000-0003-000000000003");
+        var structuralScanId = Guid.Parse("00000000-0000-0000-0004-000000000001");
+        await PersistScanAsync(
+            service,
+            historicalToDelete,
+            CorruptionDetectionMethod.RepeatedMiss,
+            sequence: 501,
+            ScanStartedUtc.AddSeconds(1));
+        await PersistScanAsync(
+            service,
+            historicalToKeep,
+            CorruptionDetectionMethod.RepeatedMiss,
+            sequence: 502,
+            ScanStartedUtc.AddSeconds(2));
+        await PersistScanAsync(
+            service,
+            currentScanId,
+            CorruptionDetectionMethod.RepeatedMiss,
+            sequence: 503,
+            ScanStartedUtc.AddSeconds(3));
+        await PersistScanAsync(
+            service,
+            structuralScanId,
+            CorruptionDetectionMethod.Structural,
+            sequence: 504,
+            ScanStartedUtc.AddSeconds(4));
+
+        var historyBeforeDelete = await service.GetHistoryAsync();
+        var historicalSummary = Assert.Single(historyBeforeDelete, item =>
+            item.ScanId == historicalToKeep);
+        Assert.False(historicalSummary.IsCurrent);
+        Assert.Equal(1, historicalSummary.TotalServicesWithCorruption);
+        Assert.Equal(1, historicalSummary.TotalCorruptedChunks);
+        Assert.Equal(1, historicalSummary.CorruptionCounts["steam"]);
+        Assert.Equal(3, historicalSummary.Settings.Threshold);
+        Assert.Equal(LookbackDays, historicalSummary.Settings.LookbackDays);
+        Assert.Equal(
+            "default:scan-502",
+            Assert.Single(await service.GetSnapshotDetailsAsync(historicalToKeep, "steam")).CandidateId);
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            service.GetCurrentDetectionByScanIdAsync(historicalToKeep));
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            service.GetDetailsAsync(historicalToKeep, "steam"));
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            service.GetRemovalSelectionAsync(historicalToKeep, "steam"));
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            service.ApplyRemovalSuccessAsync(historicalToKeep, ["default:scan-502"]));
+
+        await service.DeleteSnapshotAsync(historicalToDelete);
+        await using (var afterHistoricalDelete = database.Factory.CreateDbContext())
+        {
+            Assert.False(await afterHistoricalDelete.CachedCorruptionScans.AnyAsync(scan =>
+                scan.ScanId == historicalToDelete));
+            Assert.False(await afterHistoricalDelete.CachedCorruptionDetections.AnyAsync(row =>
+                row.ScanId == historicalToDelete));
+            Assert.True(await afterHistoricalDelete.CachedCorruptionScans.AnyAsync(scan =>
+                scan.ScanId == currentScanId && scan.IsCurrent));
+            Assert.True(await afterHistoricalDelete.CachedCorruptionScans.AnyAsync(scan =>
+                scan.ScanId == structuralScanId && scan.IsCurrent));
+        }
+
+        await service.DeleteSnapshotAsync(currentScanId);
+        Assert.Null(await service.GetDetectionAsync(CorruptionDetectionMethod.RepeatedMiss));
+        Assert.Equal(
+            structuralScanId,
+            Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync(
+                CorruptionDetectionMethod.Structural)).ScanId);
+        var historyAfterCurrentDelete = await service.GetHistoryAsync();
+        Assert.Contains(historyAfterCurrentDelete, item =>
+            item.ScanId == historicalToKeep && !item.IsCurrent);
+        Assert.Equal(
+            "default:scan-502",
+            Assert.Single(await service.GetSnapshotDetailsAsync(historicalToKeep, "steam")).CandidateId);
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            service.GetRemovalSelectionAsync(historicalToKeep, "steam"));
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            service.ApplyRemovalSuccessAsync(historicalToKeep, ["default:scan-502"]));
+    }
+
+    [Fact]
+    public async Task DeleteSnapshotFailure_RollsBackChildAndHeaderDeletionAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var scanId = Guid.Parse("00000000-0000-0000-0005-000000000001");
+        await PersistScanAsync(
+            service,
+            scanId,
+            CorruptionDetectionMethod.RepeatedMiss,
+            sequence: 601,
+            ScanStartedUtc.AddSeconds(1));
+
+        await using (var triggerContext = database.Factory.CreateDbContext())
+        {
+            await triggerContext.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TRIGGER fail_corruption_scan_delete
+                BEFORE DELETE ON "CachedCorruptionScans"
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced snapshot delete failure');
+                END;
+                """);
+        }
+
+        await Assert.ThrowsAnyAsync<Exception>(() => service.DeleteSnapshotAsync(scanId));
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.True(await context.CachedCorruptionScans.AnyAsync(scan =>
+            scan.ScanId == scanId && scan.IsCurrent));
+        Assert.Equal(2, await context.CachedCorruptionDetections.CountAsync(row =>
+            row.ScanId == scanId));
+        Assert.Equal(
+            scanId,
+            Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync(
+                CorruptionDetectionMethod.RepeatedMiss)).ScanId);
+    }
+
+    [Fact]
+    public async Task LegacyStructuralMode_RemainsUnknownAndUnsupportedSnapshotsStayHiddenAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var structuralScanId = Guid.Parse("00000000-0000-0000-0006-000000000001");
+        await PersistScanAsync(
+            service,
+            structuralScanId,
+            CorruptionDetectionMethod.Structural,
+            sequence: 701,
+            ScanStartedUtc.AddSeconds(1),
+            StructuralScanMode.Full);
+        await using (var context = database.Factory.CreateDbContext())
+        {
+            await context.CachedCorruptionScans
+                .Where(scan => scan.ScanId == structuralScanId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(scan => scan.ScanMode, (StructuralScanMode?)null));
+        }
+        var unsupportedScanId = await SeedV3ScanAsync(
+            database.Factory,
+            "{ deliberately invalid candidate JSON }");
+
+        var current = Assert.IsType<CachedCorruptionResult>(await service.GetDetectionAsync(
+            CorruptionDetectionMethod.Structural));
+        Assert.Equal(structuralScanId, current.ScanId);
+        Assert.Null(current.ScanMode);
+        var history = await service.GetHistoryAsync();
+        Assert.Null(Assert.Single(history, item => item.ScanId == structuralScanId).ScanMode);
+        Assert.DoesNotContain(history, item => item.ScanId == unsupportedScanId);
+        await Assert.ThrowsAsync<NotFoundException>(() => service.GetSnapshotDetailsAsync(
+            unsupportedScanId,
+            "steam"));
+        await Assert.ThrowsAsync<NotFoundException>(() => service.DeleteSnapshotAsync(unsupportedScanId));
+        await Assert.ThrowsAsync<NotFoundException>(() => service.DeleteSnapshotAsync(Guid.NewGuid()));
+    }
+
+    [Fact]
+    public async Task GlobalInvalidation_RemovesAllCurrentAndHistoricalSnapshotsAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        for (var sequence = 1; sequence <= 2; sequence++)
+        {
+            await PersistScanAsync(
+                service,
+                Guid.Parse($"00000000-0000-0000-0007-{sequence:D12}"),
+                CorruptionDetectionMethod.RepeatedMiss,
+                sequence: 800 + sequence,
+                ScanStartedUtc.AddSeconds(sequence));
+            await PersistScanAsync(
+                service,
+                Guid.Parse($"00000000-0000-0000-0008-{sequence:D12}"),
+                CorruptionDetectionMethod.Structural,
+                sequence: 900 + sequence,
+                ScanStartedUtc.AddSeconds(sequence));
+        }
+
+        await service.InvalidateCacheAsync();
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Equal(0, await context.CachedCorruptionDetections.CountAsync());
+        Assert.Equal(0, await context.CachedCorruptionScans.CountAsync());
     }
 
     [Fact]
@@ -581,29 +986,106 @@ public sealed class CorruptionDetectionPersistenceTests
     }
 
     [Fact]
-    public void PersistenceModelAndMigrationSnapshotRemainUnchanged()
+    public void PersistenceModelAndMigration_AreExplicitCurrentAndTruthfullyNullable()
     {
         Assert.NotNull(typeof(AppDbContext).GetProperty(nameof(AppDbContext.CachedCorruptionScans)));
         Assert.NotNull(typeof(AppDbContext).GetProperty(nameof(AppDbContext.CachedCorruptionDetections)));
         Assert.NotNull(typeof(CachedCorruptionScan).GetProperty(nameof(CachedCorruptionScan.DetectionMode)));
+        Assert.NotNull(typeof(CachedCorruptionScan).GetProperty(nameof(CachedCorruptionScan.IsCurrent)));
+        Assert.NotNull(typeof(CachedCorruptionScan).GetProperty(nameof(CachedCorruptionScan.ScanMode)));
         Assert.Null(typeof(CachedCorruptionScan).GetProperty("Coverage"));
 
-        var operations = new TestableV2LookbackMigration().BuildUpOperations();
-        Assert.Contains(operations, operation =>
-            operation is AddColumnOperation column && column.Name == "LookbackDays");
+        var migration = new TestableCorruptionScanHistoryMigration();
+        var operations = migration.BuildUpOperations();
+        var isCurrent = Assert.Single(operations.OfType<AddColumnOperation>(),
+            column => column.Name == "IsCurrent");
+        Assert.False(isCurrent.IsNullable);
+        Assert.Equal(false, isCurrent.DefaultValue);
+        var scanMode = Assert.Single(operations.OfType<AddColumnOperation>(),
+            column => column.Name == "ScanMode");
+        Assert.True(scanMode.IsNullable);
+        Assert.Null(scanMode.DefaultValue);
+
+        var backfill = Assert.Single(operations.OfType<SqlOperation>()).Sql;
+        Assert.Contains("PARTITION BY \"DetectionMode\"", backfill, StringComparison.Ordinal);
+        Assert.Contains(
+            "ORDER BY \"CompletedAtUtc\" DESC, \"ScanId\" DESC",
+            backfill,
+            StringComparison.Ordinal);
+        Assert.Contains("\"ContractVersion\" = 4", backfill, StringComparison.Ordinal);
+        Assert.Contains("\"Status\" = 'completed'", backfill, StringComparison.Ordinal);
+        Assert.DoesNotContain("ScanMode\" =", backfill, StringComparison.Ordinal);
+
+        var index = Assert.Single(operations.OfType<CreateIndexOperation>(),
+            operation => operation.Name == "IX_CachedCorruptionScans_Current_DetectionMode");
+        Assert.True(index.IsUnique);
+        Assert.Equal("\"IsCurrent\"", index.Filter);
+        Assert.Equal(["DetectionMode"], index.Columns);
+
+        var downOperations = migration.BuildDownOperations();
+        Assert.Contains(downOperations.OfType<DropIndexOperation>(),
+            operation => operation.Name == index.Name);
+        Assert.Contains(downOperations.OfType<DropColumnOperation>(),
+            operation => operation.Name == "IsCurrent");
+        Assert.Contains(downOperations.OfType<DropColumnOperation>(),
+            operation => operation.Name == "ScanMode");
+
+        var snapshotModel = new AppDbContextModelSnapshot().Model;
+        var snapshotEntity = snapshotModel.FindEntityType(typeof(CachedCorruptionScan));
+        Assert.NotNull(snapshotEntity);
+        Assert.NotNull(snapshotEntity.FindProperty(nameof(CachedCorruptionScan.IsCurrent)));
+        Assert.True(snapshotEntity.FindProperty(nameof(CachedCorruptionScan.ScanMode))!.IsNullable);
+        var snapshotIndex = Assert.Single(snapshotEntity.GetIndexes(), modelIndex =>
+            modelIndex.GetDatabaseName() == index.Name);
+        Assert.True(snapshotIndex.IsUnique);
+        Assert.Equal("\"IsCurrent\"", snapshotIndex.GetFilter());
     }
 
     private static void Validate(
         DatasourceCorruptionReport report,
         CorruptionDetectionMethod method,
-        string datasource) =>
+        string datasource,
+        StructuralScanMode? scanMode = null) =>
         CorruptionDetectionService.ValidateAndAttachDatasource(
             report.Report,
             datasource,
             3,
             LookbackDays,
             method,
+            method == CorruptionDetectionMethod.Structural
+                ? scanMode ?? StructuralScanMode.Full
+                : null,
             ScanStartedWire);
+
+    private static async Task PersistScanAsync(
+        CorruptionDetectionService service,
+        Guid scanId,
+        CorruptionDetectionMethod method,
+        int sequence,
+        DateTime completedAtUtc,
+        StructuralScanMode? scanMode = null,
+        bool empty = false)
+    {
+        var report = method == CorruptionDetectionMethod.RepeatedMiss
+            ? RepeatedMissReport(
+                "default",
+                empty ? [] : [RepeatedMissCandidate($"scan-{sequence}")])
+            : StructuralReport(
+                "default",
+                empty ? [] : [StructuralCandidate($"scan-{sequence}", sequence)]);
+        Validate(report, method, "default", scanMode);
+        await service.PersistCompletedScanAsync(
+            scanId,
+            3,
+            LookbackDays,
+            method,
+            ScanStartedUtc,
+            completedAtUtc,
+            [report],
+            method == CorruptionDetectionMethod.Structural
+                ? scanMode ?? StructuralScanMode.Full
+                : null);
+    }
 
     private static DatasourceCorruptionReport RepeatedMissReport(
         string datasource,
@@ -781,12 +1263,19 @@ public sealed class CorruptionDetectionPersistenceTests
         public async ValueTask DisposeAsync() => await _connection.DisposeAsync();
     }
 
-    private sealed class TestableV2LookbackMigration : AddCorruptionReportV2Lookback
+    private sealed class TestableCorruptionScanHistoryMigration : AddCorruptionScanHistory
     {
         public IReadOnlyList<MigrationOperation> BuildUpOperations()
         {
             var builder = new MigrationBuilder("Npgsql.EntityFrameworkCore.PostgreSQL");
             Up(builder);
+            return builder.Operations;
+        }
+
+        public IReadOnlyList<MigrationOperation> BuildDownOperations()
+        {
+            var builder = new MigrationBuilder("Npgsql.EntityFrameworkCore.PostgreSQL");
+            Down(builder);
             return builder.Operations;
         }
     }

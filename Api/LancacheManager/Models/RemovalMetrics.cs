@@ -51,4 +51,11 @@ public class RemovalMetrics
 
     /// <summary>Corruption method for method-aware removal restore; null for other removal types.</summary>
     public CorruptionDetectionMethod? DetectionMethod { get; set; }
+
+    /// <summary>
+    /// Exact persisted corruption scan used by a corruption-removal operation.
+    /// Null for game/service removals. Snapshot deletion uses this identity to avoid
+    /// deleting evidence while the matching removal can still mutate cache files.
+    /// </summary>
+    public Guid? CorruptionScanId { get; set; }
 }

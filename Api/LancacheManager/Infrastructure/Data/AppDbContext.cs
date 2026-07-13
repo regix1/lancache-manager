@@ -161,15 +161,28 @@ public class AppDbContext : DbContext
             .HasIndex(c => c.LastDetectedUtc)
             .HasDatabaseName("IX_CachedServiceDetection_LastDetectedUtc");
 
-        // Corruption results are one immutable completed scan header plus
-        // per-service/datasource candidate evidence rows. Deleting/replacing a
-        // header cascades to its evidence inside the scan transaction.
+        // Corruption results retain completed scan headers per method plus
+        // per-service/datasource candidate evidence rows. Deleting a header
+        // cascades to its evidence inside the scan transaction.
         modelBuilder.Entity<CachedCorruptionScan>()
             .Property(s => s.DetectionMode)
             .HasConversion(
                 mode => mode.ToWireString(),
                 value => CorruptionDetectionModeExtensions.Parse(value))
             .HasMaxLength(32);
+
+        modelBuilder.Entity<CachedCorruptionScan>()
+            .Property(s => s.ScanMode)
+            .HasConversion(
+                mode => mode.HasValue ? mode.Value.ToWireString() : null,
+                value => ParseStructuralScanMode(value))
+            .HasMaxLength(16);
+
+        modelBuilder.Entity<CachedCorruptionScan>()
+            .HasIndex(s => s.DetectionMode)
+            .HasDatabaseName("IX_CachedCorruptionScans_Current_DetectionMode")
+            .HasFilter("\"IsCurrent\"")
+            .IsUnique();
 
         modelBuilder.Entity<CachedCorruptionScan>()
             .HasIndex(s => s.CompletedAtUtc)
@@ -453,4 +466,16 @@ public class AppDbContext : DbContext
     /// </summary>
     private static Guid GuidOrEmpty(string s)
         => Guid.TryParse(s, out var parsed) ? parsed : Guid.Empty;
+
+    private static StructuralScanMode? ParseStructuralScanMode(string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        return StructuralScanModeExtensions.TryParseWire(value, out var mode)
+            ? mode
+            : throw new InvalidOperationException($"Unknown persisted structural scan mode '{value}'");
+    }
 }

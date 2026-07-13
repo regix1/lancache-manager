@@ -27,6 +27,7 @@ import type {
   CacheSnapshotResponse,
   CachedCorruptionDetectionResponse,
   CorruptionDetectionMethod,
+  CorruptionScanHistoryResponse,
   CorruptedChunkDetail,
   GameCacheInfo,
   ServiceCacheInfo,
@@ -1317,11 +1318,16 @@ class ApiService {
     }
   }
 
-  // Get cached corruption detection results (returns immediately without running a scan)
-  static async getCachedCorruptionDetection(): Promise<CachedCorruptionDetectionResponse> {
+  // Get the cached corruption scan for one detection method (returns immediately without
+  // running a scan). The method is required so a load can never adopt the other method's scan.
+  static async getCachedCorruptionDetection(
+    detectionMethod: CorruptionDetectionMethod
+  ): Promise<CachedCorruptionDetectionResponse> {
     try {
+      const params = new URLSearchParams();
+      params.set('detectionMethod', detectionMethod);
       const res = await fetch(
-        `${API_BASE}/cache/corruption/cached`,
+        `${API_BASE}/cache/corruption/cached?${params.toString()}`,
         this.getFetchOptions({
           signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
         })
@@ -1460,6 +1466,63 @@ class ApiService {
       return await this.handleResponse<CorruptedChunkDetail[]>(res);
     } catch (error: unknown) {
       console.error('getCorruptionDetails error:', error);
+      throw error;
+    }
+  }
+
+  // List retained corruption scan snapshots (at most three per detection method,
+  // newest first, including zero-result scans)
+  static async getCorruptionScanHistory(): Promise<CorruptionScanHistoryResponse> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/corruption/history`,
+        this.getFetchOptions({
+          signal: AbortSignal.timeout(30000)
+        })
+      );
+      return await this.handleResponse<CorruptionScanHistoryResponse>(res);
+    } catch (error: unknown) {
+      console.error('getCorruptionScanHistory error:', error);
+      throw error;
+    }
+  }
+
+  // Read-only stored evidence for one service of a saved history snapshot. This dedicated
+  // route never requires the snapshot to be current and cannot be used for removal.
+  static async getCorruptionHistoryDetails(
+    scanId: string,
+    service: string
+  ): Promise<CorruptedChunkDetail[]> {
+    try {
+      const url = `${API_BASE}/cache/corruption/history/${encodeURIComponent(scanId)}/services/${encodeURIComponent(service)}`;
+      const res = await fetch(
+        url,
+        this.getFetchOptions({
+          signal: AbortSignal.timeout(30000)
+        })
+      );
+      return await this.handleResponse<CorruptedChunkDetail[]>(res);
+    } catch (error: unknown) {
+      console.error('getCorruptionHistoryDetails error:', error);
+      throw error;
+    }
+  }
+
+  // Delete one saved corruption scan snapshot (database record and stored evidence only,
+  // never cache files, access-log entries, or download history)
+  static async deleteCorruptionScanHistory(scanId: string): Promise<{ message?: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/corruption/history/${encodeURIComponent(scanId)}`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          signal: AbortSignal.timeout(30000)
+        })
+      );
+      const body = await this.handleResponse<{ message?: string }>(res);
+      return body ?? {};
+    } catch (error: unknown) {
+      console.error('deleteCorruptionScanHistory error:', error);
       throw error;
     }
   }

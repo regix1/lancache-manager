@@ -2644,6 +2644,33 @@
         "removeAllRepeatedMissConfirm": "移除所有嫌疑项",
         "removeSelectedStructuralConfirm": "移除无效文件（{{count}} 个服务）",
         "removeSelectedRepeatedMissConfirm": "移除嫌疑项（{{count}} 个服务）"
+      },
+      "history": {
+        "title": "扫描历史",
+        "description": "为每种方法保留最近三次已完成的扫描。历史仅供查看，无法移除缓存文件。",
+        "loading": "正在加载扫描历史…",
+        "empty": "尚无已保存的扫描。已完成的扫描会保留在这里供参考。",
+        "methodEmpty": "此方法尚无已保存的扫描。",
+        "loadError": "加载扫描历史失败",
+        "loadErrorRetry": "已保存的扫描不受影响。请重试以再次加载列表。",
+        "currentBadge": "当前",
+        "historicalBadge": "历史",
+        "viewOnlyBadge": "仅查看",
+        "view": "查看",
+        "deleteSavedScan": "删除已保存的扫描",
+        "thresholdMeta": "阈值 {{threshold}}",
+        "serviceCount": "{{count}} 个服务",
+        "serviceCount_other": "{{count}} 个服务",
+        "detailTitle": "已保存扫描详情",
+        "viewOnlyNotice": "此已保存扫描仅供查看，无法选择或移除缓存文件。要处理当前损坏，请运行新扫描。",
+        "zeroResultTitle": "此扫描没有已标记文件",
+        "zeroResultSubtitle": "该扫描已完成，未记录任何已标记文件。",
+        "deleteTitle": "删除已保存的扫描",
+        "deleteConfirmBody": "删除此已保存的{{method}}扫描？",
+        "deleteScope": "这只会删除已保存的损坏扫描及其存储的证据，不会移除缓存文件、访问日志条目或下载历史。",
+        "deleteCurrentNote": "这是该方法的当前扫描。删除后，在新扫描完成之前该方法将没有当前可操作扫描。较早的已保存扫描不会被提升。",
+        "deleteSuccess": "已删除该已保存的扫描",
+        "deleteError": "删除已保存的扫描失败"
       }
     },
     "gameDetection": {

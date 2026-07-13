@@ -44,12 +44,17 @@ import { EmptyState, LoadingState, ReadOnlyBadge } from '@components/ui/ManagerC
 import Badge from '@components/ui/Badge';
 import CorruptionChunkList from './CorruptionChunkList';
 import CorruptionRemovalWarning from './CorruptionRemovalWarning';
+import CorruptionScanHistory from './CorruptionScanHistory';
 import { projectCorruptionCounts } from './corruptionCountProjection';
 import {
   hasOnlyKeys,
+  isCorruptionDetectionMethod,
+  isCountMap,
+  isCoverage,
   isIsoDate,
   isOptionalNonNegativeInteger,
-  isPlainRecord
+  isPlainRecord,
+  isScanId
 } from './corruptionContractValidation';
 import type {
   CachedCorruptionDetectionResponse,
@@ -64,50 +69,6 @@ interface CorruptionManagerProps {
   mockMode: boolean;
   onError?: (message: string) => void;
 }
-
-const isCountMap = (value: unknown): value is Record<string, number> =>
-  value !== null &&
-  typeof value === 'object' &&
-  !Array.isArray(value) &&
-  Object.entries(value).every(
-    ([key, count]) =>
-      key.trim().length > 0 && typeof count === 'number' && Number.isInteger(count) && count >= 0
-  );
-
-const isCoverage = (value: unknown): value is CorruptionScanCoverage => {
-  if (!isPlainRecord(value)) return false;
-  const allowedKeys = [
-    'filesSeen',
-    'filesChecked',
-    'consistent',
-    'bytesRead',
-    'sparseFiles',
-    'skippedByReason',
-    'ioErrors'
-  ] as const;
-  if (!hasOnlyKeys(value, allowedKeys) || !isCountMap(value.skippedByReason)) return false;
-  const counts = [
-    value.filesSeen,
-    value.filesChecked,
-    value.consistent,
-    value.bytesRead,
-    value.sparseFiles,
-    value.ioErrors
-  ];
-  return (
-    counts.every((count) => typeof count === 'number' && Number.isInteger(count) && count >= 0) &&
-    (value.filesChecked as number) <= (value.filesSeen as number) &&
-    (value.consistent as number) <= (value.filesChecked as number) &&
-    (value.sparseFiles as number) <= (value.filesSeen as number)
-  );
-};
-
-const isCorruptionDetectionMethod = (value: unknown): value is CorruptionDetectionMethod =>
-  value === 'repeated_miss' || value === 'structural';
-
-const isScanId = (value: unknown): value is string =>
-  typeof value === 'string' &&
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
@@ -154,6 +115,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const [missThreshold, setMissThreshold] = useState(3);
   const [lookbackDays, setLookbackDays] = useState(30);
   const [cachedLoadFailed, setCachedLoadFailed] = useState(false);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const resultEpochRef = useRef(0);
   const activeDetectionNotification = notifications.find(
     (notification) =>
@@ -304,9 +266,17 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   }, [clearSelection]);
 
   const applyCachedScan = useCallback(
-    (cached: CachedCorruptionDetectionResponse) => {
+    (cached: CachedCorruptionDetectionResponse, expectedMethod: CorruptionDetectionMethod) => {
       if (!cached.hasCachedResults) {
         clearLoadedResults();
+        return false;
+      }
+
+      // The selector is the authority: a populated response for another method is a
+      // contract failure. Fail closed without ever moving the selector.
+      if (cached.detectionMethod !== expectedMethod) {
+        clearLoadedResults();
+        setCachedLoadFailed(true);
         return false;
       }
 
@@ -397,7 +367,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       setLastDetectionTime(cached.lastDetectionTime ?? null);
       setHasCachedResults(true);
       setScanId(cached.scanId);
-      setDetectionMethod(cachedMethod as CorruptionDetectionMethod);
       setScanCoverage(cached.coverage ?? null);
       if (cached.detectionMethod === 'repeated_miss') {
         setMissThreshold(cached.settings!.threshold as number);
@@ -411,20 +380,23 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   const loadCachedData = useCallback(
     async (showNotification = false) => {
+      // Capture the selection now; the response is validated against it and a
+      // method switch bumps the epoch so a late response can never repaint.
+      const method = detectionMethod;
       beginLoad(showNotification);
       setCachedLoadFailed(false);
       const requestEpoch = resultEpochRef.current;
       try {
-        const cached = await ApiService.getCachedCorruptionDetection();
+        const cached = await ApiService.getCachedCorruptionDetection(method);
         if (requestEpoch !== resultEpochRef.current) {
           markLoaded();
           return;
         }
 
-        const loaded = applyCachedScan(cached);
+        const loaded = applyCachedScan(cached, method);
         if (loaded) {
           const loadedProjection = projectCorruptionCounts(cached.corruptionCounts ?? {});
-          const sessionKey = 'corruptionManager_loadedNotificationShown';
+          const sessionKey = `corruptionManager_loadedNotificationShown_${method}`;
           const alreadyShown = sessionStorage.getItem(sessionKey) === 'true';
           if (showNotification || !alreadyShown) {
             if (loadedProjection.total > 0) {
@@ -466,7 +438,16 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         markFailed();
       }
     },
-    [addNotification, applyCachedScan, beginLoad, markFailed, markLoaded, notifyError, t]
+    [
+      addNotification,
+      applyCachedScan,
+      beginLoad,
+      detectionMethod,
+      markFailed,
+      markLoaded,
+      notifyError,
+      t
+    ]
   );
 
   useEffect(() => {
@@ -500,6 +481,16 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       setLookbackDays(days);
     },
     [clearLoadedResults, lookbackDays]
+  );
+
+  const handleCurrentSnapshotDeleted = useCallback(
+    (deletedScanId: string) => {
+      // Clear the loaded actionable panel only on an exact scan-ID match. Deleting
+      // the other method's current snapshot leaves this panel (and the selector)
+      // untouched; clearLoadedResults also bumps the epoch so late loads discard.
+      if (scanId === deletedScanId) clearLoadedResults();
+    },
+    [clearLoadedResults, scanId]
   );
 
   const requiresRepeatedMissResources = displayedDetectionMethod === 'repeated_miss';
@@ -592,20 +583,27 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   );
 
   useEffect(() => {
-    const handleDetectionComplete = (_event: CorruptionDetectionCompleteEvent) => {
+    const handleDetectionComplete = (event: CorruptionDetectionCompleteEvent) => {
       setStartingScanAction(null);
       scanRequestInFlightRef.current = false;
 
+      // Every terminal event changes what history holds; refresh it independently.
+      setHistoryRefreshKey((key) => key + 1);
+
+      // A terminal event for another method (another client/reconnect) must never
+      // repaint the selected actionable panel; the selector stays the authority.
+      if (event.detectionMethod !== detectionMethod) return;
+
       // The backend preserves the prior authoritative result when a scan fails or is cancelled.
-      // Reload on every terminal event so clearing the local view at start never hides that result
-      // until a manual Load or page refresh.
+      // Reload on every same-method terminal event so clearing the local view at start never
+      // hides that result until a manual Load or page refresh.
       beginLoad(true);
       const requestEpoch = resultEpochRef.current;
       void (async () => {
         try {
-          const result = await ApiService.getCachedCorruptionDetection();
+          const result = await ApiService.getCachedCorruptionDetection(detectionMethod);
           if (requestEpoch !== resultEpochRef.current) return;
-          applyCachedScan(result);
+          applyCachedScan(result, detectionMethod);
         } catch (error: unknown) {
           if (requestEpoch !== resultEpochRef.current) return;
           setCachedLoadFailed(true);
@@ -621,17 +619,24 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
     on('CorruptionDetectionComplete', handleDetectionComplete);
     return () => off('CorruptionDetectionComplete', handleDetectionComplete);
-  }, [applyCachedScan, beginLoad, markLoaded, notifyError, off, on, t]);
+  }, [applyCachedScan, beginLoad, detectionMethod, markLoaded, notifyError, off, on, t]);
 
   useEffect(() => {
     const handleRemovalComplete = (event: CorruptionRemovalCompleteEvent) => {
       if (!event.success || !event.service) return;
+
+      // A successful removal mutates the saved snapshot; history counts must follow.
+      setHistoryRefreshKey((key) => key + 1);
+
+      // Only refresh the actionable panel for the selected method. An event method
+      // that differs (removal started elsewhere) updates history alone.
+      if (event.detectionMethod && event.detectionMethod !== detectionMethod) return;
       const requestEpoch = resultEpochRef.current;
       void (async () => {
         try {
-          const result = await ApiService.getCachedCorruptionDetection();
+          const result = await ApiService.getCachedCorruptionDetection(detectionMethod);
           if (requestEpoch !== resultEpochRef.current) return;
-          applyCachedScan(result);
+          applyCachedScan(result, detectionMethod);
         } catch (error: unknown) {
           if (requestEpoch !== resultEpochRef.current) return;
           setCachedLoadFailed(true);
@@ -645,7 +650,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
     on('CorruptionRemovalComplete', handleRemovalComplete);
     return () => off('CorruptionRemovalComplete', handleRemovalComplete);
-  }, [applyCachedScan, notifyError, off, on, t]);
+  }, [applyCachedScan, detectionMethod, notifyError, off, on, t]);
 
   useEffect(() => {
     if (anyServiceRemovalPending) {
@@ -1166,9 +1171,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
           {/*
             While a scan runs, the scan's own progress is the whole story: nothing below it.
-            Reloading the page mid-scan reloads the last completed scan, which also snaps the
-            method selector to that scan's method, so leaving these mounted put a finished
-            repeated-MISS verdict directly under a running structural scan's spinner.
+            Leaving these mounted would put a finished verdict directly under a running
+            scan's spinner, so the actionable result stays hidden until the terminal event.
           */}
           {isLoading && !isScanning ? (
             <LoadingState message={t('management.corruption.loadingCachedData')} />
@@ -1315,6 +1319,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               )}
             />
           ) : null}
+
+          <CorruptionScanHistory
+            authMode={authMode}
+            mockMode={mockMode}
+            refreshKey={historyRefreshKey}
+            deletionLocked={isScanBusy || isAnyRemovalRunning || corruptionRemovalBusy}
+            onCurrentSnapshotDeleted={handleCurrentSnapshotDeleted}
+          />
         </div>
       </AccordionSection>
 

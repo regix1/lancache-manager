@@ -13,8 +13,9 @@ using Microsoft.EntityFrameworkCore;
 namespace LancacheManager.Core.Services;
 
 /// <summary>
-/// Runs corruption scans and owns the one authoritative persisted scan snapshot.
-/// Summary, details, and removal scopes are projections of that immutable evidence.
+/// Runs corruption scans and owns retained per-method persisted scan snapshots.
+/// Current identity is explicit; summary, details, and removal scopes are
+/// projections of the saved evidence.
 /// </summary>
 public class CorruptionDetectionService
 {
@@ -27,6 +28,7 @@ public class CorruptionDetectionService
     private const string CanonicalUtcFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
     private const string ProjectionServiceName = "__scan_projection__";
     private const string ProjectionDatasourceName = "__aggregate__";
+    private const int MaxRetainedScansPerMethod = 3;
     private static readonly HashSet<int> _allowedThresholds = [3, 5, 10];
     private static readonly JsonSerializerOptions _candidateJsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -382,6 +384,7 @@ public class CorruptionDetectionService
                 startedAtUtc,
                 completedAtUtc,
                 datasourceReports,
+                scanMode,
                 cancellationToken);
 
             var counts = ProjectCounts(datasourceReports.SelectMany(report => report.Report.Candidates));
@@ -784,9 +787,11 @@ public class CorruptionDetectionService
         DateTime startedAtUtc,
         DateTime completedAtUtc,
         IReadOnlyList<DatasourceCorruptionReport> datasourceReports,
+        StructuralScanMode? scanMode = null,
         CancellationToken cancellationToken = default)
     {
-        ValidateScanInput(threshold, lookbackDays, detectionMethod);
+        scanMode = NormalizeStructuralScanMode(detectionMethod, scanMode);
+        ValidateScanInput(threshold, lookbackDays, detectionMethod, scanMode);
         if (startedAtUtc.Kind != DateTimeKind.Utc
             || startedAtUtc.Ticks % TimeSpan.TicksPerSecond != 0)
         {
@@ -795,6 +800,21 @@ public class CorruptionDetectionService
         }
 
         ValidateCrossDatasourceIdentity(datasourceReports);
+        var expectedScanStartedUtc = FormatScanStartedUtc(startedAtUtc);
+        if (datasourceReports.Any(item =>
+                item.Report.ContractVersion != CorruptionReport.SupportedContractVersion
+                || item.Report.DetectionMethod != detectionMethod
+                || (detectionMethod == CorruptionDetectionMethod.RepeatedMiss
+                    && (item.Report.Settings.Threshold != threshold
+                        || item.Report.Settings.LookbackDays != lookbackDays))
+                || !string.Equals(
+                    item.Report.ScanStartedUtc,
+                    expectedScanStartedUtc,
+                    StringComparison.Ordinal)))
+        {
+            throw new InvalidDataException(
+                "Datasource corruption report metadata did not match the completed scan");
+        }
 
         await using var strategyContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var strategy = strategyContext.Database.CreateExecutionStrategy();
@@ -806,29 +826,19 @@ public class CorruptionDetectionService
                 cancellationToken);
             try
             {
-                await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync(cancellationToken);
-                await dbContext.CachedCorruptionScans.ExecuteDeleteAsync(cancellationToken);
-
-                var expectedScanStartedUtc = FormatScanStartedUtc(startedAtUtc);
-                if (datasourceReports.Any(item =>
-                        item.Report.ContractVersion != CorruptionReport.SupportedContractVersion
-                        || item.Report.DetectionMethod != detectionMethod
-                        || (detectionMethod == CorruptionDetectionMethod.RepeatedMiss
-                            && (item.Report.Settings.Threshold != threshold
-                                || item.Report.Settings.LookbackDays != lookbackDays))
-                        || !string.Equals(
-                            item.Report.ScanStartedUtc,
-                            expectedScanStartedUtc,
-                            StringComparison.Ordinal)))
-                {
-                    throw new InvalidDataException(
-                        "Datasource corruption report metadata did not match the completed scan");
-                }
+                var persistenceMode = detectionMethod.ToPersistenceMode();
+                await dbContext.CachedCorruptionScans
+                    .Where(scan => scan.DetectionMode == persistenceMode && scan.IsCurrent)
+                    .ExecuteUpdateAsync(
+                        setters => setters.SetProperty(scan => scan.IsCurrent, false),
+                        cancellationToken);
 
                 dbContext.CachedCorruptionScans.Add(new CachedCorruptionScan
                 {
                     ScanId = scanId,
-                    DetectionMode = detectionMethod.ToPersistenceMode(),
+                    DetectionMode = persistenceMode,
+                    ScanMode = scanMode,
+                    IsCurrent = true,
                     Threshold = threshold,
                     LookbackDays = lookbackDays,
                     ContractVersion = CorruptionReport.SupportedContractVersion,
@@ -888,6 +898,35 @@ public class CorruptionDetectionService
                 });
 
                 await dbContext.SaveChangesAsync(cancellationToken);
+
+                var completedStatus = OperationStatus.Completed.ToWireString();
+                var retainedScanCandidates = await dbContext.CachedCorruptionScans
+                    .AsNoTracking()
+                    .Where(scan =>
+                        scan.DetectionMode == persistenceMode
+                        && scan.ContractVersion == CorruptionReport.SupportedContractVersion
+                        && scan.Status == completedStatus)
+                    .Select(scan => new { scan.ScanId, scan.IsCurrent, scan.CompletedAtUtc })
+                    .ToListAsync(cancellationToken);
+                var staleScanIds = retainedScanCandidates
+                    .OrderByDescending(scan => scan.IsCurrent)
+                    .ThenByDescending(scan => scan.CompletedAtUtc)
+                    .ThenByDescending(
+                        scan => scan.ScanId.ToString("D"),
+                        StringComparer.Ordinal)
+                    .Skip(MaxRetainedScansPerMethod)
+                    .Select(scan => scan.ScanId)
+                    .ToList();
+                if (staleScanIds.Count > 0)
+                {
+                    await dbContext.CachedCorruptionDetections
+                        .Where(row => staleScanIds.Contains(row.ScanId))
+                        .ExecuteDeleteAsync(cancellationToken);
+                    await dbContext.CachedCorruptionScans
+                        .Where(scan => staleScanIds.Contains(scan.ScanId))
+                        .ExecuteDeleteAsync(cancellationToken);
+                }
+
                 await transaction.CommitAsync(cancellationToken);
             }
             catch (Exception ex)
@@ -899,14 +938,23 @@ public class CorruptionDetectionService
         });
     }
 
-    /// <summary>Returns the authoritative completed scan, including an empty scan.</summary>
-    public async Task<CachedCorruptionResult?> GetDetectionAsync(CancellationToken cancellationToken = default)
+    /// <summary>Returns the explicit current scan for one method, including an empty scan.</summary>
+    public async Task<CachedCorruptionResult?> GetDetectionAsync(
+        CorruptionDetectionMethod detectionMethod,
+        CancellationToken cancellationToken = default)
     {
+        if (!Enum.IsDefined(detectionMethod))
+        {
+            throw new ValidationException("Unsupported corruption detection method");
+        }
+
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var persistenceMode = detectionMethod.ToPersistenceMode();
         var scan = await dbContext.CachedCorruptionScans
             .AsNoTracking()
-            .OrderByDescending(item => item.CompletedAtUtc)
-            .FirstOrDefaultAsync(cancellationToken);
+            .SingleOrDefaultAsync(
+                item => item.DetectionMode == persistenceMode && item.IsCurrent,
+                cancellationToken);
         if (scan == null)
         {
             return null;
@@ -922,6 +970,27 @@ public class CorruptionDetectionService
             return null;
         }
 
+        return await LoadCachedResultAsync(dbContext, scan, cancellationToken);
+    }
+
+    /// <summary>
+    /// Loads an exact explicitly-current scan. This is the scan-bound lookup for
+    /// all-services removal preflight and never elects a row by ordering.
+    /// </summary>
+    public async Task<CachedCorruptionResult> GetCurrentDetectionByScanIdAsync(
+        Guid scanId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var scan = await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
+        return await LoadCachedResultAsync(dbContext, scan, cancellationToken);
+    }
+
+    private static async Task<CachedCorruptionResult> LoadCachedResultAsync(
+        AppDbContext dbContext,
+        CachedCorruptionScan scan,
+        CancellationToken cancellationToken)
+    {
         var rows = await dbContext.CachedCorruptionDetections
             .AsNoTracking()
             .Where(row => row.ScanId == scan.ScanId)
@@ -932,10 +1001,7 @@ public class CorruptionDetectionService
             throw new InvalidDataException("Stored v4 corruption scan omitted its projection row");
         }
 
-        var projection = JsonSerializer.Deserialize<CachedCorruptionProjection>(
-                projectionRow.CandidatesJson,
-                _candidateJsonOptions)
-            ?? throw new InvalidDataException("Stored v4 corruption scan projection was null");
+        var projection = DeserializeProjection(projectionRow);
         var candidates = rows
             .Where(row => row.ServiceName != ProjectionServiceName)
             .SelectMany(DeserializeCandidates)
@@ -943,6 +1009,13 @@ public class CorruptionDetectionService
         ValidateStoredCandidates(scan, candidates);
         return BuildCachedResult(scan, candidates, projection);
     }
+
+    private static CachedCorruptionProjection DeserializeProjection(
+        CachedCorruptionDetection projectionRow) =>
+        JsonSerializer.Deserialize<CachedCorruptionProjection>(
+            projectionRow.CandidatesJson,
+            _candidateJsonOptions)
+        ?? throw new InvalidDataException("Stored v4 corruption scan projection was null");
 
     private static CachedCorruptionResult BuildCachedResult(
         CachedCorruptionScan scan,
@@ -965,6 +1038,7 @@ public class CorruptionDetectionService
             LookbackDays = scan.LookbackDays,
             ContractVersion = scan.ContractVersion,
             DetectionMethod = scan.DetectionMode.ToDetectionMethod(),
+            ScanMode = scan.ScanMode,
             Settings = projection.Settings,
             CorruptionCounts = counts,
             DetectionCounts = detectionCounts,
@@ -973,6 +1047,188 @@ public class CorruptionDetectionService
             TotalServicesWithCorruption = counts.Count,
             TotalCorruptedChunks = counts.Values.Sum()
         };
+    }
+
+    /// <summary>
+    /// Returns retained supported snapshots, newest first, with at most three
+    /// entries per method. Currentness is reported from explicit database state.
+    /// </summary>
+    public async Task<IReadOnlyList<CorruptionScanHistorySummary>> GetHistoryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var completedStatus = OperationStatus.Completed.ToWireString();
+        var scans = await dbContext.CachedCorruptionScans
+            .AsNoTracking()
+            .Where(scan =>
+                scan.ContractVersion == CorruptionReport.SupportedContractVersion
+                && scan.Status == completedStatus
+                && (scan.DetectionMode == CorruptionDetectionMode.RepeatedMiss
+                    || scan.DetectionMode == CorruptionDetectionMode.Structural))
+            .ToListAsync(cancellationToken);
+        var retainedScans = scans
+            .Where(IsSupportedScan)
+            .GroupBy(scan => scan.DetectionMode)
+            .SelectMany(group => group
+                .OrderByDescending(scan => scan.CompletedAtUtc)
+                .ThenByDescending(
+                    scan => scan.ScanId.ToString("D"),
+                    StringComparer.Ordinal)
+                .Take(MaxRetainedScansPerMethod))
+            .OrderByDescending(scan => scan.CompletedAtUtc)
+            .ThenByDescending(
+                scan => scan.ScanId.ToString("D"),
+                StringComparer.Ordinal)
+            .ToList();
+        if (retainedScans.Count == 0)
+        {
+            return [];
+        }
+
+        var scanIds = retainedScans.Select(scan => scan.ScanId).ToList();
+        var rows = await dbContext.CachedCorruptionDetections
+            .AsNoTracking()
+            .Where(row => scanIds.Contains(row.ScanId))
+            .ToListAsync(cancellationToken);
+        var rowsByScan = rows.ToLookup(row => row.ScanId);
+        var summaries = new List<CorruptionScanHistorySummary>(retainedScans.Count);
+        foreach (var scan in retainedScans)
+        {
+            var scanRows = rowsByScan[scan.ScanId].ToList();
+            var projectionRow = scanRows.SingleOrDefault(row => row.ServiceName == ProjectionServiceName)
+                ?? throw new InvalidDataException("Stored v4 corruption scan omitted its projection row");
+            var projection = DeserializeProjection(projectionRow);
+            ValidateStoredProjection(scan, projection);
+
+            var counts = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in scanRows.Where(row => row.ServiceName != ProjectionServiceName))
+            {
+                if (string.IsNullOrWhiteSpace(row.ServiceName) || row.CorruptedChunkCount < 0)
+                {
+                    throw new InvalidDataException("Stored corruption history counts were malformed");
+                }
+
+                counts[row.ServiceName] = checked(
+                    counts.GetValueOrDefault(row.ServiceName) + row.CorruptedChunkCount);
+            }
+
+            counts = SortCounts(counts);
+            var totalCorruptedChunks = counts.Values.Sum();
+            var expectedDetectionCounts = new Dictionary<string, long>(StringComparer.Ordinal)
+            {
+                [scan.DetectionMode.ToDetectionMethod().ToWireString()] = totalCorruptedChunks
+            };
+            if (!CountMapsEqual(
+                    projection.DetectionCounts,
+                    expectedDetectionCounts,
+                    allowZero: true))
+            {
+                throw new InvalidDataException(
+                    "Stored corruption history counts did not match its projection");
+            }
+
+            summaries.Add(new CorruptionScanHistorySummary
+            {
+                ScanId = scan.ScanId,
+                ContractVersion = scan.ContractVersion,
+                DetectionMethod = scan.DetectionMode.ToDetectionMethod(),
+                ScanMode = scan.ScanMode,
+                IsCurrent = scan.IsCurrent,
+                StartedAtUtc = scan.StartedAtUtc,
+                CompletedAtUtc = scan.CompletedAtUtc,
+                Settings = projection.Settings,
+                CorruptionCounts = counts,
+                DetectionCounts = expectedDetectionCounts,
+                Coverage = projection.Coverage,
+                TotalServicesWithCorruption = counts.Count,
+                TotalCorruptedChunks = totalCorruptedChunks
+            });
+        }
+
+        return summaries;
+    }
+
+    /// <summary>
+    /// Loads validated evidence from an exact retained snapshot. This read-only
+    /// path deliberately does not call the actionable current-scan gate.
+    /// </summary>
+    public async Task<IReadOnlyList<CorruptionCandidate>> GetSnapshotDetailsAsync(
+        Guid scanId,
+        string service,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var scan = await RequireSupportedSnapshotAsync(dbContext, scanId, cancellationToken);
+        var rows = await dbContext.CachedCorruptionDetections
+            .AsNoTracking()
+            .Where(row =>
+                row.ScanId == scanId
+                && row.ServiceName != ProjectionServiceName
+                && row.ServiceName == service)
+            .OrderBy(row => row.DatasourceName)
+            .ToListAsync(cancellationToken);
+        var candidates = rows
+            .SelectMany(DeserializeCandidates)
+            .OrderBy(candidate => candidate.Datasource, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(candidate => candidate.CandidateId, StringComparer.Ordinal)
+            .ToList();
+        ValidateStoredCandidates(scan, candidates, service);
+        return candidates;
+    }
+
+    /// <summary>
+    /// Deletes one exact supported snapshot and its evidence transactionally.
+    /// Deleting a current row never promotes an older historical row.
+    /// </summary>
+    public async Task DeleteSnapshotAsync(
+        Guid scanId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var strategyContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var strategy = strategyContext.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
+            try
+            {
+                var scan = await dbContext.CachedCorruptionScans
+                    .AsNoTracking()
+                    .SingleOrDefaultAsync(item => item.ScanId == scanId, cancellationToken);
+                if (scan == null || !IsSupportedScan(scan))
+                {
+                    throw new NotFoundException("Corruption scan");
+                }
+
+                await dbContext.CachedCorruptionDetections
+                    .Where(row => row.ScanId == scanId)
+                    .ExecuteDeleteAsync(cancellationToken);
+                var deletedHeaders = await dbContext.CachedCorruptionScans
+                    .Where(item => item.ScanId == scanId)
+                    .ExecuteDeleteAsync(cancellationToken);
+                if (deletedHeaders != 1)
+                {
+                    throw new ConflictException(
+                        "The corruption scan changed before it could be deleted");
+                }
+
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                if (ex is not NotFoundException)
+                {
+                    _logger.LogError(
+                        ex,
+                        "[CorruptionDetection] Failed to delete saved scan {ScanId}; rolling back",
+                        scanId);
+                }
+                throw;
+            }
+        });
     }
 
     /// <summary>Loads stored candidates for one service without rerunning detection.</summary>
@@ -2109,7 +2365,29 @@ public class CorruptionDetectionService
 
     private static bool IsSupportedScan(CachedCorruptionScan scan) =>
         scan.ContractVersion == CorruptionReport.SupportedContractVersion
-        && scan.DetectionMode is CorruptionDetectionMode.RepeatedMiss or CorruptionDetectionMode.Structural;
+        && string.Equals(
+            scan.Status,
+            OperationStatus.Completed.ToWireString(),
+            StringComparison.Ordinal)
+        && scan.DetectionMode is CorruptionDetectionMode.RepeatedMiss or CorruptionDetectionMode.Structural
+        && (scan.DetectionMode == CorruptionDetectionMode.Structural
+            || scan.ScanMode is null);
+
+    private static async Task<CachedCorruptionScan> RequireSupportedSnapshotAsync(
+        AppDbContext dbContext,
+        Guid scanId,
+        CancellationToken cancellationToken)
+    {
+        var scan = await dbContext.CachedCorruptionScans
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.ScanId == scanId, cancellationToken);
+        if (scan == null || !IsSupportedScan(scan))
+        {
+            throw new NotFoundException("Corruption scan");
+        }
+
+        return scan;
+    }
 
     private static async Task<CachedCorruptionScan> RequireCurrentScanAsync(
         AppDbContext dbContext,
@@ -2117,14 +2395,13 @@ public class CorruptionDetectionService
         CancellationToken cancellationToken)
     {
         var current = await dbContext.CachedCorruptionScans
-            .OrderByDescending(scan => scan.CompletedAtUtc)
-            .FirstOrDefaultAsync(cancellationToken);
+            .SingleOrDefaultAsync(scan => scan.ScanId == scanId, cancellationToken);
         if (current == null)
         {
             throw new NotFoundException("Corruption scan");
         }
 
-        if (current.ScanId != scanId)
+        if (!current.IsCurrent)
         {
             throw new ConflictException("The corruption scan is stale. Reload results and try again");
         }
@@ -2196,11 +2473,30 @@ public class CachedCorruptionResult
     public int LookbackDays { get; set; }
     public int ContractVersion { get; set; }
     public CorruptionDetectionMethod DetectionMethod { get; set; }
+    public StructuralScanMode? ScanMode { get; set; }
     public CorruptionScanSettings Settings { get; set; } = new();
     public Dictionary<string, long> CorruptionCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, long> DetectionCounts { get; set; } = new(StringComparer.Ordinal);
     public CorruptionScanCoverage? Coverage { get; set; }
     public DateTime LastDetectionTime { get; set; }
+    public int TotalServicesWithCorruption { get; set; }
+    public long TotalCorruptedChunks { get; set; }
+}
+
+/// <summary>Read-only summary of one retained completed corruption scan.</summary>
+public sealed class CorruptionScanHistorySummary
+{
+    public Guid ScanId { get; set; }
+    public int ContractVersion { get; set; }
+    public CorruptionDetectionMethod DetectionMethod { get; set; }
+    public StructuralScanMode? ScanMode { get; set; }
+    public bool IsCurrent { get; set; }
+    public DateTime StartedAtUtc { get; set; }
+    public DateTime CompletedAtUtc { get; set; }
+    public CorruptionScanSettings Settings { get; set; } = new();
+    public Dictionary<string, long> CorruptionCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, long> DetectionCounts { get; set; } = new(StringComparer.Ordinal);
+    public CorruptionScanCoverage? Coverage { get; set; }
     public int TotalServicesWithCorruption { get; set; }
     public long TotalCorruptedChunks { get; set; }
 }

@@ -1,6 +1,7 @@
 // types.ts
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import type { StructuralScanMode } from './types/corruptionScan';
 
 export interface CacheInfo {
   totalCacheSize: number;
@@ -408,7 +409,12 @@ export interface StructuralCorruptionEvidence {
   detectedAtUtc: string;
 }
 
-/** One actionable physical-file candidate from a strict contract-v4 saved scan. */
+/**
+ * One physical-file candidate from a strict contract-v4 saved scan. Whether it is
+ * actionable is decided by the scan-level server gate (only the explicit current
+ * scan can remove files), not by this evidence DTO — history detail views render
+ * the same shape read-only.
+ */
 export interface CorruptedChunkDetail {
   candidateId: string;
   datasource: string;
@@ -448,6 +454,31 @@ export interface CachedCorruptionDetectionResponse {
   totalServicesWithCorruption?: number;
   totalCorruptedChunks?: number;
   lastDetectionTime?: string;
+}
+
+/**
+ * One retained saved-scan snapshot summary from the corruption scan history.
+ * `isCurrent` is explicit backend state; never infer currentness from array
+ * order or timestamps. `scanMode` is only present when the Structural scan
+ * truthfully persisted it — legacy snapshots have an unknown (null) mode.
+ */
+export interface CorruptionScanHistoryEntry {
+  scanId: string;
+  detectionMethod: CorruptionDetectionMethod;
+  isCurrent: boolean;
+  completedAtUtc: string;
+  settings: CorruptionDetectionSettings;
+  contractVersion: number;
+  corruptionCounts: Record<string, number>;
+  detectionCounts: Record<string, number>;
+  coverage?: CorruptionScanCoverage | null;
+  totalServicesWithCorruption: number;
+  totalCorruptedChunks: number;
+  scanMode?: StructuralScanMode | null;
+}
+
+export interface CorruptionScanHistoryResponse {
+  scans: CorruptionScanHistoryEntry[];
 }
 
 export type CacheEntityVariant = 'active' | 'evicted';

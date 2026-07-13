@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
 import { Pagination } from '@components/ui/Pagination';
@@ -265,6 +265,9 @@ const StructuralDetectedAt: React.FC<{ detectedAt: string }> = ({ detectedAt }) 
 const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
+  // Unique per instance: the current actionable list and a history view modal can
+  // render simultaneously, so a fixed DOM id would duplicate the label/input pair.
+  const searchInputId = useId();
 
   const items = useMemo(() => chunks.filter(isCorruptedChunkDetail), [chunks]);
   const hasInvalidEvidence = items.length !== chunks.length;
@@ -546,13 +549,13 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
     <div className="space-y-3">
       {enableControls && (
         <div className="space-y-1">
-          <label htmlFor="corruption-file-search" className="block text-xs text-themed-secondary">
+          <label htmlFor={searchInputId} className="block text-xs text-themed-secondary">
             {t('management.corruption.searchLabel')}
           </label>
           <div className="relative">
             <Search className="input-icon absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
             <input
-              id="corruption-file-search"
+              id={searchInputId}
               type="text"
               placeholder={t('management.corruption.searchPlaceholder')}
               value={searchQuery}

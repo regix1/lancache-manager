@@ -966,7 +966,7 @@ public class DatabaseService : IDatabaseService
     /// <summary>
     /// Validates reset-table input and expands every corruption-evidence invalidation to the
     /// candidate/header pair. Log entries are qualifying scan evidence, so clearing them also
-    /// invalidates the stored corruption snapshot.
+    /// invalidates every stored current and historical corruption snapshot.
     /// </summary>
     internal static List<string> ResolveResetTables(IEnumerable<string> tableNames)
     {
@@ -1031,7 +1031,7 @@ public class DatabaseService : IDatabaseService
     }
 
     /// <summary>
-    /// Invalidates the authoritative corruption snapshot in its own transaction. Callers use
+    /// Invalidates all current and historical corruption snapshots in its own transaction. Callers use
     /// this at a successful evidence-changing operation boundary so a failed or cancelled
     /// invalidation retains both the scan header and all candidate rows.
     /// </summary>
@@ -1060,7 +1060,7 @@ public class DatabaseService : IDatabaseService
     }
 
     /// <summary>
-    /// Deletes one authoritative corruption snapshot in FK-safe order. The caller owns the
+    /// Deletes all current and historical corruption snapshots in FK-safe order. The caller owns the
     /// transaction so this composes with selective reset and cache-clearing invalidation.
     /// </summary>
     internal static async Task<(int Candidates, int Scans)> DeleteCachedCorruptionEvidenceAsync(
