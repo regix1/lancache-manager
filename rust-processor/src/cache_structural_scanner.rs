@@ -3223,6 +3223,31 @@ mod tests {
         SystemTime::now() + Duration::from_secs(MIN_STABLE_AGE_SECONDS + 5)
     }
 
+    /// Writes a real cache tree for end-to-end runs of the built binary (Full then Incremental,
+    /// kill-and-resume). Ignored by default; the scan itself is covered by the tests above.
+    /// `STRUCTURAL_FIXTURE_DIR=/tmp/cache STRUCTURAL_FIXTURE_N=2000 cargo test emit_fixture_cache -- --ignored`
+    #[test]
+    #[ignore]
+    fn emit_fixture_cache() {
+        let Ok(dir) = std::env::var("STRUCTURAL_FIXTURE_DIR") else {
+            panic!("set STRUCTURAL_FIXTURE_DIR to the cache root to populate");
+        };
+        let count: u32 = std::env::var("STRUCTURAL_FIXTURE_N")
+            .unwrap_or_else(|_| "2000".to_string())
+            .parse()
+            .expect("STRUCTURAL_FIXTURE_N must be a number");
+        let root = PathBuf::from(dir);
+        for index in 0..count {
+            materialize(
+                &root,
+                format!("steam/fixture-{index}").as_bytes(),
+                b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n",
+                b"1234",
+            );
+        }
+        eprintln!("wrote {count} fixtures to {}", root.display());
+    }
+
     /// Pins concurrency: the pipeline tests assert exact worker counts and queue high-water
     /// marks, which only hold if the limiter stays wide open. The controller is exercised
     /// separately, against synthetic throughput, where it can be checked deterministically.

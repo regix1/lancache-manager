@@ -419,6 +419,18 @@ public class CorruptionDetectionService
         }
         catch (Exception ex)
         {
+            // RustProcessException keeps stderr out of Message so it never reaches the client, which
+            // also means it never reached the log: a failing scan reported nothing but an exit code.
+            // Log it here, where it is server-side only and is the only thing that says why.
+            if (ex is RustProcessException rustFailure && !string.IsNullOrWhiteSpace(rustFailure.Stderr))
+            {
+                _logger.LogError(
+                    "[CorruptionDetection] {Tool} exited {ExitCode} for operation {OperationId}: {Stderr}",
+                    rustFailure.Tool,
+                    rustFailure.ExitCode,
+                    operationId,
+                    rustFailure.Stderr!.Trim());
+            }
             _logger.LogError(ex, "[CorruptionDetection] Detection failed for operation {OperationId}", operationId);
             _operationStateService.RemoveState(operationId.ToString());
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);

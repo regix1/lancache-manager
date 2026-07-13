@@ -8,7 +8,8 @@ use sha2::{Digest, Sha256};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
 use sqlx::{Connection, QueryBuilder, Row, Sqlite, SqliteConnection};
 use std::collections::HashMap;
-use std::path::Path;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::runtime::{Builder, Runtime};
 use uuid::Uuid;
@@ -151,7 +152,102 @@ struct PendingWrite {
     candidate_json: Option<String>,
 }
 
+/// Whether a live scanner process already owns this state database.
+///
+/// A heartbeat column cannot answer that question. It records when a scan was last *seen* alive,
+/// so a scan killed with SIGKILL (a redeploy, `docker stop`, the OOM killer) leaves a row that
+/// still looks fresh, and every later scan is refused until the lease times out. An advisory lock
+/// is held by the kernel on behalf of the process and is dropped the instant that process dies,
+/// however it dies, so it answers "is anyone actually scanning right now" exactly.
+enum StateLock {
+    /// We own the lock. No other scanner process is alive, whatever the database rows claim.
+    Acquired(File),
+    /// Another process holds it and is genuinely running.
+    Busy,
+    /// No advisory locking on this platform, so fall back to the heartbeat lease. Unreachable on
+    /// Linux and Windows; kept so an exotic target degrades to the old behaviour instead of
+    /// failing to build.
+    #[allow(dead_code)]
+    Unsupported,
+}
+
+fn lock_path_for(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".lock");
+    path.with_file_name(name)
+}
+
+#[cfg(unix)]
+fn acquire_state_lock(path: &Path) -> Result<StateLock> {
+    use std::fs::OpenOptions;
+    use std::os::fd::AsRawFd;
+
+    let lock_path = lock_path_for(path);
+    let file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)
+        .with_context(|| {
+            format!(
+                "failed to open structural state lock {}",
+                lock_path.display()
+            )
+        })?;
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        return Ok(StateLock::Acquired(file));
+    }
+    let error = std::io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(code) if code == libc::EWOULDBLOCK || code == libc::EINTR => Ok(StateLock::Busy),
+        _ => Err(error)
+            .with_context(|| format!("failed to lock structural state {}", lock_path.display())),
+    }
+}
+
+/// Windows has no `flock`, but opening with a share mode of zero is the same bargain: the handle
+/// is exclusive, and the kernel closes it when the process dies.
+#[cfg(windows)]
+fn acquire_state_lock(path: &Path) -> Result<StateLock> {
+    use std::fs::OpenOptions;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    /// ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION: someone else holds it.
+    const SHARING_VIOLATION: i32 = 32;
+    const LOCK_VIOLATION: i32 = 33;
+
+    let lock_path = lock_path_for(path);
+    match OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .share_mode(0)
+        .open(&lock_path)
+    {
+        Ok(file) => Ok(StateLock::Acquired(file)),
+        Err(error)
+            if matches!(
+                error.raw_os_error(),
+                Some(SHARING_VIOLATION) | Some(LOCK_VIOLATION)
+            ) =>
+        {
+            Ok(StateLock::Busy)
+        }
+        Err(error) => Err(error)
+            .with_context(|| format!("failed to lock structural state {}", lock_path.display())),
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn acquire_state_lock(_path: &Path) -> Result<StateLock> {
+    Ok(StateLock::Unsupported)
+}
+
 pub struct StructuralState {
+    /// Held for the whole scan. Dropping it (including by dying) releases the lock.
+    _lock: Option<File>,
     runtime: Runtime,
     connection: SqliteConnection,
     namespace_hash: String,
@@ -171,6 +267,15 @@ pub struct StructuralState {
 impl StructuralState {
     pub fn open(path: &Path, namespace: StateNamespace, mode: StructuralScanMode) -> Result<Self> {
         validate_state_path(path)?;
+        // Ask the kernel who is actually running, before trusting anything the database says
+        // about it. A scan killed mid-flight leaves a `running` row with a fresh heartbeat, and
+        // reading that row as "someone else is scanning" is what locked users out for five
+        // minutes after every restart.
+        let (lock, lock_proves_no_other_scanner) = match acquire_state_lock(path)? {
+            StateLock::Acquired(file) => (Some(file), true),
+            StateLock::Busy => bail!("another structural cache scan is already running"),
+            StateLock::Unsupported => (None, false),
+        };
         let namespace_json = serde_json::to_string(&NamespaceDocument {
             state_format_version: STRUCTURAL_STATE_FORMAT_VERSION,
             report_contract_version: CORRUPTION_CONTRACT_VERSION,
@@ -241,16 +346,21 @@ impl StructuralState {
             )?
             .try_get::<Option<String>, _>("active_generation")?;
 
-        let fresh_lease = runtime.block_on(
-            sqlx::query(
-                "SELECT generation FROM structural_runs \
-                 WHERE status = 'running' AND heartbeat_at >= ? LIMIT 1",
-            )
-            .bind(now.saturating_sub(LEASE_TIMEOUT_SECONDS))
-            .fetch_optional(&mut *transaction),
-        )?;
-        if fresh_lease.is_some() {
-            bail!("another structural state scan holds a live lease for this namespace");
+        // Only consult the heartbeat where we could not take an advisory lock. Where we could,
+        // holding it already proves no other scanner is alive, and a stale `running` row from a
+        // killed process must not be mistaken for one.
+        if !lock_proves_no_other_scanner {
+            let fresh_lease = runtime.block_on(
+                sqlx::query(
+                    "SELECT generation FROM structural_runs \
+                     WHERE status = 'running' AND heartbeat_at >= ? LIMIT 1",
+                )
+                .bind(now.saturating_sub(LEASE_TIMEOUT_SECONDS))
+                .fetch_optional(&mut *transaction),
+            )?;
+            if fresh_lease.is_some() {
+                bail!("another structural cache scan is already running");
+            }
         }
         runtime.block_on(
             sqlx::query(
@@ -318,6 +428,7 @@ impl StructuralState {
         runtime.block_on(transaction.commit())?;
 
         let mut state = Self {
+            _lock: lock,
             runtime,
             connection,
             namespace_hash,
@@ -1158,8 +1269,8 @@ mod tests {
         let error =
             StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
                 .err()
-                .expect("a live lease must reject a second writer");
-        assert!(format!("{error:#}").contains("live lease"));
+                .expect("a live scan must reject a second writer");
+        assert!(format!("{error:#}").contains("already running"));
         first.interrupt().unwrap();
     }
 
@@ -1278,6 +1389,57 @@ mod tests {
             )
             .unwrap();
         assert!(refreshed > stale);
+    }
+
+    /// The failure users actually hit: restart the container mid-scan (SIGKILL, so nothing gets
+    /// to tidy up), press Scan, and the run row still says `running` with a heartbeat that looks
+    /// fresh. Reading that as "another scan is live" refused every scan for the next five
+    /// minutes. No process owns the lock, so the next scan must simply start.
+    #[test]
+    fn a_hard_killed_scan_does_not_lock_out_the_next_one() {
+        let temp = TempDir::new().unwrap();
+        let path = database(&temp);
+
+        let state = StructuralState::open(
+            &path,
+            namespace("hard-kill"),
+            StructuralScanMode::Incremental,
+        )
+        .unwrap();
+        let generation = state.staging_generation.clone();
+        drop(state);
+
+        // Forge exactly what a SIGKILL leaves behind: still `running`, heartbeat still fresh.
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        let mut connection = runtime
+            .block_on(SqliteConnection::connect_with(
+                &SqliteConnectOptions::new().filename(&path),
+            ))
+            .unwrap();
+        runtime
+            .block_on(
+                sqlx::query(
+                    "UPDATE structural_runs SET status = 'running', heartbeat_at = ? \
+                     WHERE generation = ?",
+                )
+                .bind(unix_timestamp().unwrap())
+                .bind(&generation)
+                .execute(&mut connection),
+            )
+            .unwrap();
+        drop(connection);
+        drop(runtime);
+
+        let next = StructuralState::open(
+            &path,
+            namespace("hard-kill"),
+            StructuralScanMode::Incremental,
+        );
+        assert!(
+            next.is_ok(),
+            "a hard-killed scan locked out the next one: {:?}",
+            next.err()
+        );
     }
 
     #[test]
