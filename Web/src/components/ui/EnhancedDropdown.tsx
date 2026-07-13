@@ -404,20 +404,27 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     applyMenuGeometry(readAnchorRect(buttonRef.current), true);
   }, [isOpen, applyMenuGeometry]);
 
+  // The parent menu's coordinates are state-driven. Measure the submenu row only
+  // after React has committed those coordinates, while still correcting the
+  // separately portalled submenu before the browser paints.
+  useLayoutEffect(() => {
+    if (!expandedSubmenu || !dropdownPosition) return;
+    syncSubmenuPosition();
+  }, [expandedSubmenu, dropdownPosition, syncSubmenuPosition]);
+
   /**
    * Keeps the portalled menu glued to its trigger while it is on screen. The page
    * reflows underneath it whenever UniversalNotificationBar (an in-flow sticky
    * bar) shows or finishes an operation, which moves the trigger without firing
    * a scroll or resize event - so the menu follows the trigger's rect instead of
-   * listening for events. The submenu hangs off a row inside the menu, so it is
-   * re-measured in the same pass.
+   * listening for events. The submenu hangs off a row inside the menu and is
+   * re-measured by the layout effect after the parent's new position is committed.
    */
   const handleAnchorMove = useCallback(
     (anchor: AnchorRect): void => {
       applyMenuGeometry(anchor, false);
-      syncSubmenuPosition();
     },
-    [applyMenuGeometry, syncSubmenuPosition]
+    [applyMenuGeometry]
   );
 
   /** Nothing left to anchor to once the trigger is scrolled off screen. */

@@ -258,8 +258,11 @@ interface CompletionHandlerConfig<T> {
     event: T,
     existing?: UnifiedNotification
   ) => UnifiedNotification['details'];
-  /** Optional function to get detail message (shown below main message) */
-  getDetailMessage?: (event: T) => string;
+  /**
+   * Optional function to get detail message (shown below main message). Returning undefined leaves
+   * the card's existing detail line in place (see the `?? n.detailMessage` fallbacks below).
+   */
+  getDetailMessage?: (event: T) => string | undefined;
   /** Optional function to get the failure message */
   getFailureMessage?: (event: T) => string;
   /** If true, show a brief animation delay before marking complete */

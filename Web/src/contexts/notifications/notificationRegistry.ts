@@ -46,6 +46,8 @@ import {
 } from './constants';
 import i18n from '@/i18n';
 import {
+  formatScheduledPrefillDetailMessage,
+  formatDataImportCompleteDetailMessage,
   formatLogProcessingMessage,
   formatLogProcessingCompletionMessage,
   formatLogProcessingDetailMessage,
@@ -534,7 +536,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getDetails: (event: ProcessingProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
-      getSuccessMessage: () => 'Log processing completed',
+      // Translated, not a hardcoded English literal: this now actually reaches the card (the
+      // completion handler never applied getSuccessMessage to an existing card before), so a
+      // literal here would switch a localized card to English at the moment it finishes.
+      getSuccessMessage: (event: LogProcessingCompleteEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.logProcessing.complete', event.context ?? {}),
       getDetailMessage: (event: LogProcessingCompleteEvent) =>
         formatLogProcessingDetailMessage(
           event.entriesProcessed,
@@ -1131,6 +1137,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     complete: {
       getSuccessMessage: (event: DataImportCompleteEvent) => formatDataImportCompleteMessage(event),
+      // The summary line carries imported/skipped but never the ERROR count, and no renderer reads
+      // the details for this type - so a failed record count was invisible. Put the breakdown on the
+      // card's detail line.
+      getDetailMessage: (event: DataImportCompleteEvent) =>
+        formatDataImportCompleteDetailMessage(event),
       getSuccessDetails: (event: DataImportCompleteEvent, existing) => ({
         ...existing?.details,
         recordsImported: event.recordsImported,
@@ -1367,15 +1378,21 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           message: event.message
         });
       },
-      // Backend-computed run percent: each due service owns an equal slice of the bar and the
-      // active service fills its slice per game completed (clamped 1-99 server-side, 100 comes
-      // from the terminal Completed event).
+      // Backend-computed run percent. It tracks the ACTIVE service only (games completed plus the
+      // byte fraction of the game downloading right now), clamped 1-99 server-side; 100 comes from
+      // the terminal Completed event.
       //
-      // Deliberately NOT rounded: a big game download moves the run percent by a fraction of a
-      // point at a time, so rounding to a whole number pinned the bar in place and made a working
-      // prefill look frozen. The bar and its "x.x%" label both read the fractional value.
+      // Deliberately NOT rounded: the percent divides the active game's fraction by the number of
+      // games, so a big download moves it a fraction of a point at a time. Rounding to a whole
+      // number pinned the bar in place and made a working prefill look frozen. The bar and its
+      // "x.x%" label both read the fractional value, and getDetailMessage below carries the bytes.
       getProgress: (event: ScheduledPrefillProgressEvent) =>
         Math.max(1, event.percentComplete ?? 1),
+      // Bytes of the game currently downloading. The bar alone is not enough on a multi-game run
+      // (the run percent divides by the game count, so it crawls); this line moves on every tick of
+      // a live download, which is what tells the user it is actually working.
+      getDetailMessage: (event: ScheduledPrefillProgressEvent) =>
+        formatScheduledPrefillDetailMessage(event),
       getStatus: () => undefined,
       getDetails: (event: ScheduledPrefillProgressEvent) => ({ operationId: event.operationId })
     },

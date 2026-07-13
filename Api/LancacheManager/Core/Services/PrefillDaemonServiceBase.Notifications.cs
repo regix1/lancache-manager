@@ -387,30 +387,35 @@ public abstract partial class PrefillDaemonServiceBase
         {
             // If there was an app being prefilled, complete its history entry
             // Use the STORED bytes (from before the transition), not progress bytes (which are for the new app)
-            if (!string.IsNullOrEmpty(session.CurrentAppId))
+            var previousAppId = session.CurrentAppId;
+            if (!string.IsNullOrEmpty(previousAppId))
             {
+                var previousAppName = session.CurrentAppName;
+                var previousBytesDownloaded = session.CurrentBytesDownloaded;
+                var previousTotalBytes = session.CurrentTotalBytes;
+
                 try
                 {
                     // If no bytes were downloaded, mark as Cached
-                    var status = session.CurrentBytesDownloaded == 0 ? "Cached" : "Completed";
+                    var status = previousBytesDownloaded == 0 ? "Cached" : "Completed";
 
                     await _sessionService.CompleteEntryAsync(
                         session.Id,
-                        session.CurrentAppId,
+                        previousAppId,
                         status,
-                        session.CurrentBytesDownloaded,
-                        session.CurrentTotalBytes);
+                        previousBytesDownloaded,
+                        previousTotalBytes);
 
                     _logger.LogInformation("App {Status} in session {SessionId}: {AppId} ({AppName}) - {Bytes}/{Total} bytes",
-                        status, session.Id, session.CurrentAppId, session.CurrentAppName,
-                        session.CurrentBytesDownloaded, session.CurrentTotalBytes);
+                        status, session.Id, previousAppId, previousAppName,
+                        previousBytesDownloaded, previousTotalBytes);
 
                     // Broadcast history update
-                    await BroadcastHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
+                    await BroadcastHistoryUpdatedAsync(session.Id, previousAppId, status);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", session.CurrentAppId);
+                    _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", previousAppId);
                 }
             }
 

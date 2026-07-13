@@ -969,7 +969,10 @@ export interface ScheduledPrefillProgressEvent {
   stage: string;
   message: string;
   needsLoginReason?: string | null;
+  /** Bytes downloaded of the game currently downloading (not the whole run). */
   bytesDownloaded?: number | null;
+  /** Size of the game currently downloading, so the card can show "x of y". */
+  totalBytes?: number | null;
   downloadSessionId?: string | null;
   percentComplete?: number | null;
   showNotification?: boolean;

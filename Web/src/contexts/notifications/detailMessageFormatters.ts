@@ -17,6 +17,7 @@ import type {
   CacheClearProgressEvent,
   CacheClearCompleteEvent,
   DepotMappingStartedEvent,
+  ScheduledPrefillProgressEvent,
   DataImportStartedEvent,
   DataImportProgressEvent,
   DataImportCompleteEvent,
@@ -27,7 +28,7 @@ import type {
 } from '../SignalRContext/types';
 import i18n from '@/i18n';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
-import { formatCount } from '@/utils/formatters';
+import { formatBytes, formatCount } from '@/utils/formatters';
 import { hasUnresolvedInterpolation, translateRecoveryStage } from '@/utils/stageKeyMessage';
 import type { NotificationProgressMode, StageContext } from './types';
 import { GENERIC_COMPLETION_I18N_KEY, GENERIC_FAILURE_I18N_KEY } from './constants';
@@ -812,9 +813,15 @@ export const formatCacheClearProgressMessage = (event: CacheClearProgressEvent):
  * @returns Formatted success message string
  */
 export const formatCacheClearCompleteMessage = (event: CacheClearCompleteEvent): string => {
-  return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t(GENERIC_COMPLETION_I18N_KEY);
+  // The backend sends NO stageKey for this terminal - only `message`, which carries the real result
+  // ("Successfully cleared 32 cache directories across 2 datasources..."). Falling straight through
+  // to the generic string would throw that away, and the directory/datasource counts appear nowhere
+  // else on the card. `message` is deprecated in favour of stageKey, so it is used only as the
+  // fallback: the day the backend sends a stageKey, the translated text wins automatically.
+  if (event.stageKey) {
+    return i18n.t(event.stageKey, event.context ?? {});
+  }
+  return event.message || i18n.t(GENERIC_COMPLETION_I18N_KEY);
 };
 
 /**
@@ -910,10 +917,41 @@ export const formatDataImportProgressMessage = (event: DataImportProgressEvent):
  * @param event - The data import complete event from SignalR
  * @returns Formatted success message string
  */
+/**
+ * Result breakdown for a finished data import.
+ *
+ * The counts ride on the completion event and are stored into details, but NOTHING rendered them:
+ * the card showed only the summary line, which carries imported/skipped and omits the ERROR count
+ * entirely. A silent error count on an import is exactly the thing a user needs to see.
+ */
+export const formatDataImportCompleteDetailMessage = (
+  event: DataImportCompleteEvent
+): string | undefined => {
+  const { recordsImported, recordsSkipped, recordsErrors } = event;
+
+  if (
+    recordsImported === undefined &&
+    recordsSkipped === undefined &&
+    recordsErrors === undefined
+  ) {
+    return undefined;
+  }
+
+  return i18n.t('signalr.dataImport.completedDetail', {
+    imported: formatCount(recordsImported ?? 0),
+    skipped: formatCount(recordsSkipped ?? 0),
+    errors: formatCount(recordsErrors ?? 0)
+  });
+};
+
 export const formatDataImportCompleteMessage = (event: DataImportCompleteEvent): string => {
-  return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t(GENERIC_COMPLETION_I18N_KEY);
+  // Same shape as cache clear: no stageKey on this terminal, and `message` is the only place the
+  // imported/skipped/error breakdown is visible (the counts land in details, which no renderer
+  // shows for this type). Prefer a translated stageKey the moment the backend supplies one.
+  if (event.stageKey) {
+    return i18n.t(event.stageKey, event.context ?? {});
+  }
+  return event.message || i18n.t(GENERIC_COMPLETION_I18N_KEY);
 };
 
 /**
@@ -1012,4 +1050,41 @@ export const formatXboxGameMappingsUpdatedMessage = (
     parts.push(`${event.newPatterns} new CDN pattern${event.newPatterns !== 1 ? 's' : ''}`);
   }
   return parts.join(', ');
+};
+
+// ============================================================================
+// Scheduled Prefill
+// ============================================================================
+
+/**
+ * Byte readout for the game a scheduled prefill is currently downloading.
+ *
+ * This is what actually shows the run is alive. The bar tracks the RUN percent, which divides the
+ * active game's fraction by the number of games in the batch, so on a multi-game run it can crawl
+ * for minutes on a large download and read as frozen. These bytes advance on every poll tick of a
+ * live download.
+ */
+export const formatScheduledPrefillDetailMessage = (
+  event: ScheduledPrefillProgressEvent
+): string | undefined => {
+  const downloaded = event.bytesDownloaded;
+  const total = event.totalBytes;
+
+  // BOTH values are required. Only a live downloading tick carries them as a pair; the
+  // service-completed tick reports the whole SERVICE's byte total in bytesDownloaded with no total,
+  // and rendering that bare would read as the current game's progress when it is nothing of the
+  // sort. No pair, no line.
+  if (
+    typeof downloaded !== 'number' ||
+    downloaded <= 0 ||
+    typeof total !== 'number' ||
+    total <= 0
+  ) {
+    return undefined;
+  }
+
+  return i18n.t('management.schedules.services.scheduledPrefill.events.downloadedOfTotal', {
+    downloaded: formatBytes(downloaded),
+    total: formatBytes(total)
+  });
 };

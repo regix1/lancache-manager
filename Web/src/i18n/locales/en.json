@@ -3711,7 +3711,8 @@
             "skipped": "{{service}} skipped: {{reason}}",
             "needsLogin": "{{service}} needs login before scheduled prefill can continue",
             "needsLoginWithReason": "{{service}} needs login: {{reason}}",
-            "serviceProgress": "{{service}}: {{message}}"
+            "serviceProgress": "{{service}}: {{message}}",
+            "downloadedOfTotal": "{{downloaded}} of {{total}}"
           }
         },
         "epicMapping": {
@@ -6550,7 +6551,8 @@
     },
     "dataImport": {
       "starting": "Starting data import…",
-      "progress": "Importing: {{processed}} of {{total}} records"
+      "progress": "Importing: {{processed}} of {{total}} records",
+      "completedDetail": "{{imported}} imported, {{skipped}} skipped, {{errors}} errors"
     },
     "depotMapping": {
       "batchProgress": "{{processedBatches}} / {{totalBatches}} batches",

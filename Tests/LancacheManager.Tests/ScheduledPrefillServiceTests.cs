@@ -610,6 +610,16 @@ public class ScheduledPrefillServiceTests
 
             var returnType = targetMethod?.ReturnType;
 
+            // void is a VALUE TYPE, so it must be handled before the IsValueType branch below:
+            // Activator.CreateInstance(typeof(void)) throws "Cannot dynamically create an instance of
+            // System.Void". Any void member on the stub (e.g. SetScheduledPrefillServiceLastRun, which
+            // the cancellation path now calls) would otherwise blow up the test rather than no-op.
+            // NullReturningProxy already guards this; this proxy did not.
+            if (returnType == typeof(void))
+            {
+                return null;
+            }
+
             if (returnType == typeof(Task))
             {
                 return Task.CompletedTask;

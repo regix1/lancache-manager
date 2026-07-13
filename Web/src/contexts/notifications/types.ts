@@ -329,9 +329,13 @@ export interface RegistryCompleteConfig {
     event: any, // eslint-disable-line @typescript-eslint/no-explicit-any
     existing?: UnifiedNotification
   ) => UnifiedNotification['details'];
-  /** Optional function to get detail message (shown below main message) */
+  /**
+   * Optional function to get detail message (shown below main message). May return undefined, in
+   * which case the card KEEPS its existing detail line - the completion handler falls back with
+   * `?? n.detailMessage` - so a formatter with nothing to say cannot blank a useful line.
+   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getDetailMessage?: (event: any) => string;
+  getDetailMessage?: (event: any) => string | undefined;
   /** Optional function to get the failure message */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getFailureMessage?: (event: any) => string;

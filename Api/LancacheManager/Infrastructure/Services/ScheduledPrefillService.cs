@@ -22,6 +22,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     // INNER prefill-status poll: how often a running prefill's IsPrefilling flag is checked.
     private static readonly TimeSpan _pollInterval = TimeSpan.FromSeconds(10);
 
+    // The poll interval is waited out in slices THIS small. A user who stops a prefill (from the
+    // modal, which cancels the daemon session) expects the card to react at once; sleeping the whole
+    // poll interval meant the run only noticed the stop up to ten seconds later, so the card sat
+    // there looking alive and the user hammered the button. The slice only affects how fast a STOP
+    // is noticed - progress is still emitted on the poll cadence, not per slice.
+    private static readonly TimeSpan _stopDetectionSlice = TimeSpan.FromMilliseconds(250);
+
     // Smallest percent move that re-emits a progress event. A FULL point was too coarse: across a
     // multi-game run one point can be half a game, so a large download left the card motionless for
     // tens of minutes and looked frozen even though it was working. A tenth of a point means the
@@ -312,6 +319,23 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             success = false;
             cancelled = true;
             error = "Scheduled prefill run cancelled";
+
+            // Make the cancel STICK. Every due service that was not reached is still due, so without
+            // advancing the schedule basis the one-minute poll relaunches the very batch the user
+            // just cancelled - a cancel that lasts 60 seconds. Services already attempted were
+            // stamped in the loop; re-stamping them is harmless. APP SHUTDOWN is deliberately exempt:
+            // there we want the batch to run on the next start, so nothing is stamped.
+            if (!stoppingToken.IsCancellationRequested)
+            {
+                foreach (var pending in dueServices)
+                {
+                    _ranThisProcess.Add(pending.ServiceId);
+                    _stateService.SetScheduledPrefillServiceLastRun(
+                        pending.ServiceId.ToString(),
+                        DateTime.UtcNow);
+                }
+            }
+
             _logger.LogInformation("[ScheduledPrefill] Scheduled run was cancelled");
             return;
         }
@@ -539,6 +563,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         var appsCompleted = 0;
         var lastEmittedMessage = (string?)null;
         var lastEmittedPercent = double.NaN;
+        var lastEmittedBytes = -1L;
         while (session.IsPrefilling)
         {
             ct.ThrowIfCancellationRequested();
@@ -568,11 +593,15 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 // inside appsCompleted, so treating them as in-flight would double-count it.
                 var currentAppFraction = 0d;
                 string? currentAppName = null;
+                long? currentAppBytes = null;
+                long? currentAppTotalBytes = null;
                 if (PrefillProgressStateExtensions.ParseOrUnknown(snapshot.State) == PrefillProgressState.Downloading
                     && snapshot.TotalBytes > 0)
                 {
                     currentAppFraction = Math.Clamp((double)snapshot.BytesDownloaded / snapshot.TotalBytes, 0d, 1d);
                     currentAppName = snapshot.CurrentAppName;
+                    currentAppBytes = snapshot.BytesDownloaded;
+                    currentAppTotalBytes = snapshot.TotalBytes;
                 }
 
                 if (totalApps > 0)
@@ -584,13 +613,23 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                         ? $"Prefill in progress ({cappedCompleted} of {totalApps} games)"
                         : $"Downloading {currentAppName} ({Math.Min(appsCompleted + 1, totalApps)} of {totalApps} games)";
 
-                    // Re-emit only when something the card shows actually moved; keeps the 10s poll
-                    // quiet through long unchanged stretches.
+                    // Re-emit when anything the card shows actually moved; keeps the 10s poll quiet
+                    // through genuinely idle stretches.
+                    //
+                    // The BYTES are what make this feel alive. The run percent alone is not enough:
+                    // it divides the current game's fraction by the number of games, so on a 20-game
+                    // run the bar only creeps a tenth of a point once the active download has moved
+                    // 2% - minutes on a large game, during which a working prefill looked frozen.
+                    // Downloaded bytes advance on every tick of a live download, so the card's byte
+                    // readout (and the bar, whenever it does move) keeps proving the run is working.
+                    var bytesMoved = currentAppBytes.HasValue && currentAppBytes.Value != lastEmittedBytes;
                     if (message != lastEmittedMessage
+                        || bytesMoved
                         || Math.Abs(percent - lastEmittedPercent) >= ProgressEmitMinPercentDelta)
                     {
                         lastEmittedMessage = message;
                         lastEmittedPercent = percent;
+                        lastEmittedBytes = currentAppBytes ?? -1L;
                         await EmitProgressAsync(
                             notifications,
                             operationId,
@@ -598,14 +637,28 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                             "running",
                             message,
                             downloadSessionId: sessionId,
-                            percent: percent);
+                            percent: percent,
+                            bytesDownloaded: currentAppBytes,
+                            totalBytes: currentAppTotalBytes);
                     }
                 }
             }
 
             try
             {
-                await Task.Delay(_pollInterval, ct);
+                // Wait out the poll interval in slices, breaking the moment the prefill stops, so a
+                // cancel is acted on in ~250ms instead of up to a full ten seconds. The emission
+                // cadence is unchanged: a still-running prefill waits the whole interval as before.
+                //
+                // Counted slices, NOT a wall-clock deadline: DateTime.UtcNow is not monotonic, so an
+                // NTP correction, a VM resume or an admin moving the clock backwards would otherwise
+                // suspend the poll (and with it the stall detector and the run deadline) for the
+                // length of the jump.
+                var slices = (int)Math.Ceiling(_pollInterval / _stopDetectionSlice);
+                for (var slice = 0; slice < slices && session.IsPrefilling; slice++)
+                {
+                    await Task.Delay(_stopDetectionSlice, ct);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -711,7 +764,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         string? needsLoginReason = null,
         long? bytesDownloaded = null,
         string? downloadSessionId = null,
-        double? percent = null)
+        double? percent = null,
+        long? totalBytes = null)
     {
         var serviceId = serviceConfig.ServiceId;
 
@@ -736,6 +790,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             message,
             needsLoginReason,
             bytesDownloaded,
+            totalBytes,
             downloadSessionId,
             percentComplete = percent,
             showNotification = serviceConfig.ShowNotification
