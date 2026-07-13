@@ -7,6 +7,11 @@ import {
 } from 'react';
 import ApiService from '@services/api.service';
 import { NOTIFICATION_IDS } from '@contexts/notifications';
+import {
+  FAILED_TO_REMOVE_GAME_I18N_KEY,
+  FULL_PROGRESS_PERCENT,
+  REMOVING_GAME_I18N_KEY
+} from '@contexts/notifications/constants';
 import { getErrorMessage } from '@utils/error';
 import type { TFunction } from 'i18next';
 import type { NotificationsContextType, UnifiedNotification } from '@contexts/notifications/types';
@@ -138,7 +143,7 @@ export async function runTrackedGameRemoval({
       addNotification({
         type: 'game_removal',
         status: 'running',
-        message: t('management.gameDetection.removingGame', { name: gameName }),
+        message: t(REMOVING_GAME_I18N_KEY, { name: gameName }),
         details: {
           operationId: response.operationId,
           gameName,
@@ -155,7 +160,7 @@ export async function runTrackedGameRemoval({
 
     scheduleRemovalRefresh(onDataRefresh);
   } catch (err: unknown) {
-    const errorMsg = getErrorMessage(err) || t('management.gameDetection.failedToRemoveGame');
+    const errorMsg = getErrorMessage(err) || t(FAILED_TO_REMOVE_GAME_I18N_KEY);
 
     updateNotification(NOTIFICATION_IDS.GAME_REMOVAL, {
       status: 'failed',
@@ -240,7 +245,7 @@ export const finalizeBulkRemovalNotification = ({
   if (failed > 0) {
     updateNotification(id, {
       status: 'failed',
-      progress: 100,
+      progress: FULL_PROGRESS_PERCENT,
       message: t(text.partialFailureKey, {
         count: succeeded,
         failed,
@@ -253,7 +258,7 @@ export const finalizeBulkRemovalNotification = ({
 
   updateNotification(id, {
     status: 'completed',
-    progress: 100,
+    progress: FULL_PROGRESS_PERCENT,
     message: t(text.completeKey, {
       count: succeeded,
       total,

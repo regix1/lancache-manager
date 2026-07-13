@@ -16,7 +16,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
-import { API_BASE } from '@utils/constants';
+import { API_BASE, STORAGE_KEYS } from '@utils/constants';
 import { getErrorMessage } from '@utils/error';
 
 import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -667,7 +667,7 @@ function ServicePrefillPanel({
           signalR.setIsPrefillActive(false);
           signalR.setPrefillProgress(null);
           try {
-            sessionStorage.removeItem('prefill_in_progress');
+            sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
           } catch {
             /* ignore */
           }

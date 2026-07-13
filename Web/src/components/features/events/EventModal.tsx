@@ -11,6 +11,7 @@ import { getEventColorVar } from '@utils/eventColors';
 import DateTimePicker from '@components/common/DateTimePicker';
 import { getErrorMessage } from '@utils/error';
 import type { Event, CreateEventRequest, UpdateEventRequest } from '../../../types';
+import { APP_EVENTS } from '@utils/constants';
 
 interface EventModalProps {
   event: Event | null; // null for create, Event for edit
@@ -183,7 +184,9 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
     // Close modal and navigate to dashboard via custom event
     onClose();
-    window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: { tab: 'dashboard' } }));
+    window.dispatchEvent(
+      new CustomEvent(APP_EVENTS.NAVIGATE_TO_TAB, { detail: { tab: 'dashboard' } })
+    );
   }, [event, setSelectedEventIds, setTimeRange, onClose]);
 
   return (

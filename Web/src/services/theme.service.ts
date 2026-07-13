@@ -5,6 +5,7 @@ import * as TOML from 'toml';
 import { storage } from '@utils/storage';
 import { parseThemeColors, hexToRgba as schemaHexToRgba } from './themeSchema';
 import { assertOk } from './apiError';
+import { APP_EVENTS } from '@utils/constants';
 
 interface ThemeMeta {
   id: string;
@@ -54,7 +55,7 @@ class ThemeService {
 
     // console.log('[ThemeService] Setting up preference change listeners');
 
-    window.addEventListener('preference-changed', (event: Event) => {
+    window.addEventListener(APP_EVENTS.PREFERENCE_CHANGED, (event: Event) => {
       const { key, value } = (event as CustomEvent<{ key: string; value: unknown }>).detail;
 
       // Apply preference changes without showing notifications
@@ -112,18 +113,18 @@ class ThemeService {
             if (value !== null && value !== undefined) {
               this._disableTooltips = value as boolean;
               document.documentElement.setAttribute('data-disable-tooltips', value.toString());
-              window.dispatchEvent(new Event('tooltipschange'));
+              window.dispatchEvent(new Event(APP_EVENTS.TOOLTIPS_CHANGE));
             }
             break;
 
           case 'picsAlwaysVisible':
             this._picsAlwaysVisible = value as boolean;
-            window.dispatchEvent(new Event('notificationvisibilitychange'));
+            window.dispatchEvent(new Event(APP_EVENTS.NOTIFICATION_VISIBILITY_CHANGE));
             break;
 
           case 'disableStickyNotifications':
             this._disableStickyNotifications = value as boolean;
-            window.dispatchEvent(new Event('stickynotificationschange'));
+            window.dispatchEvent(new Event(APP_EVENTS.STICKY_NOTIFICATIONS_CHANGE));
             break;
         }
       } catch (err) {
@@ -132,7 +133,7 @@ class ThemeService {
     });
 
     // Listen for preferences reset event
-    window.addEventListener('preferences-reset', async () => {
+    window.addEventListener(APP_EVENTS.PREFERENCES_RESET, async () => {
       // Prevent duplicate processing
       if (this.isProcessingReset) {
         return;
@@ -160,7 +161,7 @@ class ThemeService {
           : 'Preferences reset to defaults';
 
         window.dispatchEvent(
-          new CustomEvent('show-toast', {
+          new CustomEvent(APP_EVENTS.SHOW_TOAST, {
             detail: {
               type: 'info',
               message,
@@ -1197,7 +1198,7 @@ class ThemeService {
     storage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
 
     // Force re-render
-    window.dispatchEvent(new Event('themechange'));
+    window.dispatchEvent(new Event(APP_EVENTS.THEME_CHANGE));
   }
 
   async loadSavedTheme(
@@ -1402,7 +1403,7 @@ class ThemeService {
     document.documentElement.setAttribute('data-disable-tooltips', enabled.toString());
 
     // Dispatch event for any components that need to react
-    window.dispatchEvent(new Event('tooltipschange'));
+    window.dispatchEvent(new Event(APP_EVENTS.TOOLTIPS_CHANGE));
   }
 
   getDisableTooltipsSync(): boolean {
@@ -1417,7 +1418,7 @@ class ThemeService {
     await preferencesService.setPreference('picsAlwaysVisible', enabled);
 
     // Apply immediately for current user
-    window.dispatchEvent(new Event('notificationvisibilitychange'));
+    window.dispatchEvent(new Event(APP_EVENTS.NOTIFICATION_VISIBILITY_CHANGE));
   }
 
   getPicsAlwaysVisibleSync(): boolean {
@@ -1432,7 +1433,7 @@ class ThemeService {
     await preferencesService.setPreference('disableStickyNotifications', enabled);
 
     // Apply immediately for current user
-    window.dispatchEvent(new Event('stickynotificationschange'));
+    window.dispatchEvent(new Event(APP_EVENTS.STICKY_NOTIFICATIONS_CHANGE));
   }
 
   getDisableStickyNotificationsSync(): boolean {

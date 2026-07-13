@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bar } from 'react-chartjs-2';
 import {
@@ -16,6 +16,7 @@ import {
 import { formatBytes, formatPercent } from '@utils/formatters';
 import type { ServiceStat } from '@/types';
 import { useServiceColors } from './useServiceColors';
+import { getThemeColor, useThemeRevision } from './chartTheme';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -80,22 +81,6 @@ const INLINE_LABEL_MIN_BAR_PX = 44;
 const INLINE_LABEL_GAP = 6;
 const VALUE_LABEL_FONT =
   '600 11px "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif';
-
-function getThemeColor(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-function useThemeRevision(): number {
-  const [revision, setRevision] = useState(0);
-
-  useEffect(() => {
-    const updateRevision = () => setRevision((current) => current + 1);
-    window.addEventListener('themechange', updateRevision);
-    return () => window.removeEventListener('themechange', updateRevision);
-  }, []);
-
-  return revision;
-}
 
 /**
  * Canvas plugin that paints, beneath the bars, a faint full-width highlight

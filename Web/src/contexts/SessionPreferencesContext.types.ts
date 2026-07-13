@@ -1,20 +1,5 @@
 import { createContext } from 'react';
-
-interface UserPreferences {
-  selectedTheme: string | null;
-  sharpCorners: boolean;
-  disableFocusOutlines: boolean;
-  disableTooltips: boolean;
-  picsAlwaysVisible: boolean;
-  disableStickyNotifications: boolean;
-  useLocalTimezone: boolean;
-  use24HourFormat: boolean;
-  showDatasourceLabels: boolean;
-  showYearInDates: boolean;
-  refreshRate?: string | null;
-  refreshRateLocked?: boolean | null;
-  allowedTimeFormats?: string[] | null;
-}
+import type { UserPreferences } from '@/types/userPreferences';
 
 interface SessionPreferencesContextType {
   getSessionPreferences: (sessionId: string) => UserPreferences | null;

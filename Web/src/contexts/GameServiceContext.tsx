@@ -2,6 +2,7 @@ import React, { useState, useCallback, type ReactNode } from 'react';
 import { GAME_SERVICES, type GameServiceConfig, type GameServiceId } from '@/types/gameService';
 import type { ShowToastEvent } from '@contexts/SignalRContext/types';
 import { GameServiceContext } from './GameServiceContext.types';
+import { APP_EVENTS } from '@utils/constants';
 
 const STORAGE_KEY = 'lancache-selected-service';
 
@@ -43,7 +44,7 @@ export const GameServiceProvider: React.FC<GameServiceProviderProps> = ({ childr
       // NotificationsContext.tsx:332-356).
       console.error('[GameService] Failed to persist selected service:', error);
       window.dispatchEvent(
-        new CustomEvent<ShowToastEvent>('show-toast', {
+        new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
           detail: {
             type: 'error',
             message: 'Could not save your service selection for next time.',

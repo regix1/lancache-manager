@@ -30,6 +30,7 @@ import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './rem
 import { formatCount } from '@/utils/formatters';
 import { hasUnresolvedInterpolation, translateRecoveryStage } from '@/utils/stageKeyMessage';
 import type { NotificationProgressMode, StageContext } from './types';
+import { GENERIC_COMPLETION_I18N_KEY, GENERIC_FAILURE_I18N_KEY } from './constants';
 
 type GameDetectionInterpolation = Record<string, string | number | boolean>;
 
@@ -207,7 +208,7 @@ export const formatLogRemovalProgressMessage = (event: LogRemovalProgressEvent):
 export const formatLogRemovalCompleteMessage = (event: LogRemovalCompleteEvent): string => {
   return event.stageKey
     ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.generic.complete');
+    : i18n.t(GENERIC_COMPLETION_I18N_KEY);
 };
 
 // ============================================================================
@@ -352,7 +353,7 @@ export const formatGameDetectionFailureMessage = (event: GameDetectionCompleteEv
           newGamesCount: event.newGamesCount
         })
       )
-    : i18n.t('signalr.generic.failed');
+    : i18n.t(GENERIC_FAILURE_I18N_KEY);
 };
 
 // ============================================================================
@@ -813,7 +814,7 @@ export const formatCacheClearProgressMessage = (event: CacheClearProgressEvent):
 export const formatCacheClearCompleteMessage = (event: CacheClearCompleteEvent): string => {
   return event.stageKey
     ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.generic.complete');
+    : i18n.t(GENERIC_COMPLETION_I18N_KEY);
 };
 
 /**
@@ -825,7 +826,7 @@ export const formatCacheClearFailureMessage = (event: CacheClearCompleteEvent): 
   return (
     event.error ??
     (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-    i18n.t('signalr.generic.failed')
+    i18n.t(GENERIC_FAILURE_I18N_KEY)
   );
 };
 
@@ -912,7 +913,7 @@ export const formatDataImportProgressMessage = (event: DataImportProgressEvent):
 export const formatDataImportCompleteMessage = (event: DataImportCompleteEvent): string => {
   return event.stageKey
     ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.generic.complete');
+    : i18n.t(GENERIC_COMPLETION_I18N_KEY);
 };
 
 /**
@@ -923,7 +924,7 @@ export const formatDataImportCompleteMessage = (event: DataImportCompleteEvent):
 export const formatDataImportFailureMessage = (event: DataImportCompleteEvent): string => {
   return event.stageKey
     ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.generic.failed');
+    : i18n.t(GENERIC_FAILURE_I18N_KEY);
 };
 
 // ============================================================================

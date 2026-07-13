@@ -6,6 +6,7 @@ import {
 } from '@components/features/prefill/ActivityLog.utils';
 import type { BackgroundCompletion } from '@components/features/prefill/hooks/prefillTypes';
 import { PrefillContext } from './PrefillContext.types';
+import { STORAGE_KEYS } from '@utils/constants';
 
 const STORAGE_KEY = 'prefill_activity_log';
 const BACKGROUND_COMPLETION_KEY = 'prefill_background_completion';
@@ -188,8 +189,8 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
       sessionStorage.removeItem(STORAGE_KEY); // prefill_activity_log
       sessionStorage.removeItem(BACKGROUND_COMPLETION_KEY); // prefill_background_completion
       sessionStorage.removeItem(DISMISSED_COMPLETION_KEY); // prefill_dismissed_completion_at
-      sessionStorage.removeItem('prefill_session_id');
-      sessionStorage.removeItem('prefill_in_progress');
+      sessionStorage.removeItem(STORAGE_KEYS.PREFILL_SESSION_ID);
+      sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
 
       // Reset local state
       setLogEntries([]);

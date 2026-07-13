@@ -13,7 +13,7 @@ export interface SteamWebApiStatus {
   lastChecked: string;
 }
 
-export const useSteamWebApiStatus = () => {
+export const useSteamWebApiStatusState = () => {
   const [status, setStatus] = useState<SteamWebApiStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

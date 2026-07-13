@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { APP_EVENTS } from '@utils/constants';
 
 type TooltipPosition = 'top' | 'bottom' | 'left' | 'right';
 type TooltipStrategy = 'edge' | 'overlay';
@@ -49,8 +50,8 @@ export const Tooltip: React.FC<TooltipProps> = ({
         setShow(false);
       }
     };
-    window.addEventListener('tooltipschange', handleTooltipsChange);
-    return () => window.removeEventListener('tooltipschange', handleTooltipsChange);
+    window.addEventListener(APP_EVENTS.TOOLTIPS_CHANGE, handleTooltipsChange);
+    return () => window.removeEventListener(APP_EVENTS.TOOLTIPS_CHANGE, handleTooltipsChange);
   }, []);
 
   // Detect mobile viewport - use touch behavior instead of hover
@@ -375,8 +376,8 @@ export const CacheInfoTooltip: React.FC = () => {
       const disabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
       setGloballyDisabled(disabled);
     };
-    window.addEventListener('tooltipschange', handleTooltipsChange);
-    return () => window.removeEventListener('tooltipschange', handleTooltipsChange);
+    window.addEventListener(APP_EVENTS.TOOLTIPS_CHANGE, handleTooltipsChange);
+    return () => window.removeEventListener(APP_EVENTS.TOOLTIPS_CHANGE, handleTooltipsChange);
   }, []);
 
   useEffect(() => {

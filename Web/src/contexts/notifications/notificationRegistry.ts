@@ -36,8 +36,12 @@ import type {
   StructuralScanSummary
 } from '@/types/corruptionScan';
 import {
+  ACTIVE_PROGRESS_PERCENT_CAP,
+  GENERIC_COMPLETION_I18N_KEY,
+  GENERIC_FAILURE_I18N_KEY,
   NOTIFICATION_IDS,
   NOTIFICATION_STORAGE_KEYS,
+  REMOVING_GAME_I18N_KEY,
   SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID
 } from './constants';
 import i18n from '@/i18n';
@@ -498,7 +502,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       createNotification: (data: LogProcessingStatusResponse) => ({
         message: formatLogProcessingRecoveryMessage(data.mbProcessed, data.mbTotal),
         detailMessage: formatLogProcessingRecoveryDetailMessage(data.entriesProcessed),
-        progress: Math.min(99.9, data.percentComplete),
+        progress: Math.min(ACTIVE_PROGRESS_PERCENT_CAP, data.percentComplete),
         details: {
           operationId: data.operationId,
           mbProcessed: data.mbProcessed,
@@ -521,7 +525,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     progress: {
       getMessage: (event: ProcessingProgressEvent) => formatLogProcessingMessage(event),
-      getProgress: (event: ProcessingProgressEvent) => Math.min(99.9, event.percentComplete),
+      getProgress: (event: ProcessingProgressEvent) =>
+        Math.min(ACTIVE_PROGRESS_PERCENT_CAP, event.percentComplete),
       getStatus: (event: ProcessingProgressEvent) =>
         event.status?.toLowerCase() === 'completed' ? 'completed' : undefined,
       getCompletedMessage: (event: ProcessingProgressEvent) =>
@@ -620,9 +625,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
             ? 'failed'
             : undefined,
       getCompletedMessage: (event: LogRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.generic.complete', event.context ?? {}),
+        i18n.t(event.stageKey ?? GENERIC_COMPLETION_I18N_KEY, event.context ?? {}),
       getErrorMessage: (event: LogRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.generic.failed', event.context ?? {}),
+        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
       getDetails: (event: LogRemovalProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
@@ -884,7 +889,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           })
         ),
       getErrorMessage: (event: GameDetectionProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.generic.failed', event.context ?? {}),
+        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
       getDetails: (event: GameDetectionProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
@@ -1046,12 +1051,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getCompletedMessage: (event: CacheClearProgressEvent) =>
         event.stageKey
           ? i18n.t(event.stageKey, event.context ?? {})
-          : (event.statusMessage ?? i18n.t('signalr.generic.complete')),
+          : (event.statusMessage ?? i18n.t(GENERIC_COMPLETION_I18N_KEY)),
       getErrorMessage: (event: CacheClearProgressEvent) =>
         event.error ??
         (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
         event.statusMessage ??
-        i18n.t('signalr.generic.failed'),
+        i18n.t(GENERIC_FAILURE_I18N_KEY),
       getDetails: (event: CacheClearProgressEvent) => ({
         operationId: event.operationId,
         filesDeleted: event.filesDeleted,
@@ -1119,9 +1124,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getProgress: (event: DataImportProgressEvent) => event.percentComplete,
       getStatus: (event: DataImportProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: DataImportProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.generic.complete', event.context ?? {}),
+        i18n.t(event.stageKey ?? GENERIC_COMPLETION_I18N_KEY, event.context ?? {}),
       getErrorMessage: (event: DataImportProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.generic.failed', event.context ?? {}),
+        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
       getDetails: (event: DataImportProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
@@ -1195,12 +1200,13 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     progress: {
       getMessage: (event: EvictionScanProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionScan.progress', event.context ?? {}),
-      getProgress: (event: EvictionScanProgressEvent) => Math.min(99.9, event.percentComplete),
+      getProgress: (event: EvictionScanProgressEvent) =>
+        Math.min(ACTIVE_PROGRESS_PERCENT_CAP, event.percentComplete),
       getStatus: (event: EvictionScanProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: EvictionScanProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionScan.complete', event.context ?? {}),
       getErrorMessage: (event: EvictionScanProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.generic.failed', event.context ?? {}),
+        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
       getDetails: (event: EvictionScanProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
@@ -1209,7 +1215,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getFailureMessage: (event: EvictionScanCompleteEvent) =>
         event.error ??
         (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-        i18n.t('signalr.generic.failed')
+        i18n.t(GENERIC_FAILURE_I18N_KEY)
     }
   },
 
@@ -1270,12 +1276,13 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     progress: {
       getMessage: (event: CacheSizeScanProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.scanning', event.context ?? {}),
-      getProgress: (event: CacheSizeScanProgressEvent) => Math.min(99.9, event.percentComplete),
+      getProgress: (event: CacheSizeScanProgressEvent) =>
+        Math.min(ACTIVE_PROGRESS_PERCENT_CAP, event.percentComplete),
       getStatus: (event: CacheSizeScanProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CacheSizeScanProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.complete', event.context ?? {}),
       getErrorMessage: (event: CacheSizeScanProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.generic.failed', event.context ?? {}),
+        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
       getDetails: (event: CacheSizeScanProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
@@ -1284,7 +1291,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getFailureMessage: (event: CacheSizeScanCompleteEvent) =>
         event.error ??
         (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-        i18n.t('signalr.generic.failed')
+        i18n.t(GENERIC_FAILURE_I18N_KEY)
     }
   },
 
@@ -1400,7 +1407,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       defaultMessage: 'Removing evicted game data...',
       getMessage: (event: EvictionRemovalStartedEvent) =>
         event.gameName
-          ? i18n.t('management.gameDetection.removingGame', { name: event.gameName })
+          ? i18n.t(REMOVING_GAME_I18N_KEY, { name: event.gameName })
           : i18n.t(event.stageKey ?? 'signalr.evictionRemove.starting.bulk', event.context ?? {}),
       // Scope → identifier-field mapping for eviction_removal (T8.3 load-bearing comment):
       //

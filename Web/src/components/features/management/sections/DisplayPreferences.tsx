@@ -7,6 +7,7 @@ import themeService from '@services/theme.service';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useTimezone } from '@contexts/useTimezone';
 import { setGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
+import { APP_EVENTS } from '@utils/constants';
 
 interface PreferenceRowProps {
   label: string;
@@ -125,8 +126,8 @@ const DisplayPreferences: React.FC = () => {
       }
     };
 
-    window.addEventListener('preference-changed', handlePreferenceChange);
-    return () => window.removeEventListener('preference-changed', handlePreferenceChange);
+    window.addEventListener(APP_EVENTS.PREFERENCE_CHANGED, handlePreferenceChange);
+    return () => window.removeEventListener(APP_EVENTS.PREFERENCE_CHANGED, handlePreferenceChange);
   }, []);
 
   // Handlers for each preference

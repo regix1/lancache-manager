@@ -20,7 +20,7 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
 import { storage } from '@utils/storage';
-import { STORAGE_KEYS } from '@utils/constants';
+import { APP_EVENTS, STORAGE_KEYS } from '@utils/constants';
 import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
 import type {
   Download,
@@ -209,7 +209,9 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
     // Service buckets use a synthesized display name ("Wsus Downloads") that the
     // downloads search can't match — search by the raw service instead.
     storage.setItem('lancache_downloads_search', isServiceBucket ? display.service : display.name);
-    window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: { tab: 'downloads' } }));
+    window.dispatchEvent(
+      new CustomEvent(APP_EVENTS.NAVIGATE_TO_TAB, { detail: { tab: 'downloads' } })
+    );
   }, [isServiceBucket, display.service, display.name]);
 
   return (

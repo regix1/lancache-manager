@@ -16,7 +16,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import themeService from '@services/theme.service';
 import ApiService from '@services/api.service';
-import { API_BASE } from '@utils/constants';
+import { APP_EVENTS, API_BASE } from '@utils/constants';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 
 interface ColorPreview {
@@ -96,7 +96,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   // Helper to show toast notifications
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
     window.dispatchEvent(
-      new CustomEvent('show-toast', {
+      new CustomEvent(APP_EVENTS.SHOW_TOAST, {
         detail: { type, message, duration: 4000 }
       })
     );

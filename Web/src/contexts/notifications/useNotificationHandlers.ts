@@ -20,7 +20,11 @@ import {
 } from './handlerFactories';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import type { OperationWaitingEvent, OperationWaitingCompleteEvent } from '../SignalRContext/types';
-import { OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE } from './constants';
+import {
+  GENERIC_FAILURE_I18N_KEY,
+  OPERATION_WAITING_I18N_KEYS,
+  OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE
+} from './constants';
 import i18n from '@/i18n';
 
 /**
@@ -229,8 +233,8 @@ export function useNotificationHandlers(
           status: 'waiting',
           // Prefix the op's display name so several FIFO-queued cards stay distinguishable.
           message: event.name
-            ? i18n.t('common.notifications.operationWaitingNamed', { name: event.name })
-            : i18n.t('common.notifications.operationWaiting'),
+            ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: event.name })
+            : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT),
           startedAt: new Date(),
           details: { operationId: event.operationId }
         };
@@ -256,7 +260,7 @@ export function useNotificationHandlers(
             : {
                 ...n,
                 status: 'failed' as const,
-                message: event.error ?? i18n.t('signalr.generic.failed'),
+                message: event.error ?? i18n.t(GENERIC_FAILURE_I18N_KEY),
                 error: event.error
               };
         })

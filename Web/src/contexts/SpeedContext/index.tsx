@@ -7,6 +7,7 @@ import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../.
 import type { SpeedContextType, SpeedProviderProps } from './types';
 import { SpeedContext } from './SpeedContext.types';
 import type { ShowToastEvent } from '@contexts/SignalRContext/types';
+import { APP_EVENTS } from '@utils/constants';
 
 export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedProviderProps) => {
   const signalR = useSignalR();
@@ -103,7 +104,7 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
       // useErrorHandler (useNotifications) is not reachable here. Use the existing show-toast
       // bridge instead (mirrors NotificationsContext.tsx:332-356).
       window.dispatchEvent(
-        new CustomEvent<ShowToastEvent>('show-toast', {
+        new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
           detail: { type: 'error', message: 'Failed to refresh download speeds.', duration: 4000 }
         })
       );

@@ -5,6 +5,7 @@ import type {
   PersistentSessionNotFoundState
 } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
+import { isRecord } from './typeGuards';
 
 /**
  * Login-flow state for the persistent-container auth flows (Steam/Epic/Xbox), keyed by service
@@ -80,10 +81,6 @@ const INITIAL_PERSISTENT_LOGIN_STATE: PersistentLoginStoreState = {
   sessionUnavailableState: null,
   sessionId: null
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
 
 /**
  * Reads the `sessionId` field a persistent-login REST response now carries (RC3 fix, session

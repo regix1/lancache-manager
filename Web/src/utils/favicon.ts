@@ -1,3 +1,4 @@
+import { APP_EVENTS } from '@utils/constants';
 /**
  * Utility for managing dynamic favicon that updates based on theme colors
  */
@@ -100,7 +101,7 @@ export function initializeFavicon(): void {
   updateFavicon();
 
   // Listen for theme changes
-  window.addEventListener('themechange', updateFavicon);
+  window.addEventListener(APP_EVENTS.THEME_CHANGE, updateFavicon);
 
   // Also listen for manual CSS variable changes (in case theme is updated without triggering themechange)
   const observer = new MutationObserver((mutations) => {

@@ -26,6 +26,8 @@ import type {
   CancelAutoDismissTimer
 } from './types';
 import {
+  FULL_PROGRESS_PERCENT,
+  GENERIC_FAILURE_I18N_KEY,
   STEAM_ERROR_DISMISS_DELAY_MS,
   NOTIFICATION_STORAGE_KEYS,
   NOTIFICATION_IDS
@@ -125,7 +127,7 @@ export function createSpecialCaseHandlers(
       },
       getCompletedMessage: (e) =>
         i18n.t(e.stageKey ?? 'signalr.depotMapping.finalized', e.context ?? {}),
-      getErrorMessage: (e) => i18n.t(e.stageKey ?? 'signalr.generic.failed', e.context ?? {}),
+      getErrorMessage: (e) => i18n.t(e.stageKey ?? GENERIC_FAILURE_I18N_KEY, e.context ?? {}),
       getDetails: (e) => ({ operationId: e.operationId })
     },
     setNotifications,
@@ -167,7 +169,7 @@ export function createSpecialCaseHandlers(
             : undefined,
       getCompletedMessage: formatDatabaseResetCompleteMessage,
       getErrorMessage: (e) =>
-        e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t('signalr.generic.failed'),
+        e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t(GENERIC_FAILURE_I18N_KEY),
       supportFastCompletion: true,
       getDetails: (e) => ({ operationId: e.operationId })
     },
@@ -193,7 +195,7 @@ export function createSpecialCaseHandlers(
         e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t('signalr.dbReset.complete'),
       getSuccessDetails: (e) => ({ operationId: e.operationId }),
       getFailureMessage: (e) =>
-        e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t('signalr.generic.failed'),
+        e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t(GENERIC_FAILURE_I18N_KEY),
       getCancelledMessage: (e) =>
         e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t('signalr.dbReset.cancelled'),
       getCancelledDetails: (e) => ({ operationId: e.operationId })
@@ -240,7 +242,7 @@ export function createSpecialCaseHandlers(
         message: 'Epic Games Updated',
         detailMessage,
         startedAt: new Date(),
-        progress: 100,
+        progress: FULL_PROGRESS_PERCENT,
         details: {
           totalEpicGames: event.totalGames,
           newEpicGames: event.newGames,
@@ -292,7 +294,7 @@ export function createSpecialCaseHandlers(
         message: 'Xbox Games Updated',
         detailMessage,
         startedAt: new Date(),
-        progress: 100,
+        progress: FULL_PROGRESS_PERCENT,
         details: {
           newXboxGames: event.newMappings,
           newXboxPatterns: event.newPatterns

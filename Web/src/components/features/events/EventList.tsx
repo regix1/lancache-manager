@@ -20,6 +20,7 @@ import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
 import ApiService from '@services/api.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import type { Event, Download } from '../../../types';
+import { APP_EVENTS } from '@utils/constants';
 
 type EventDownloadsCache = Record<
   number,
@@ -403,7 +404,9 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
       setTimeRange('live');
 
       // Navigate to dashboard via custom event
-      window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: { tab: 'dashboard' } }));
+      window.dispatchEvent(
+        new CustomEvent(APP_EVENTS.NAVIGATE_TO_TAB, { detail: { tab: 'dashboard' } })
+      );
     },
     [setSelectedEventIds, setTimeRange]
   );

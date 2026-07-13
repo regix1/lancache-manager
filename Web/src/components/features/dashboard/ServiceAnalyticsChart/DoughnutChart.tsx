@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Doughnut } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -11,25 +11,10 @@ import {
 } from 'chart.js';
 import { formatBytes, formatCount } from '@utils/formatters';
 import type { DoughnutChartProps, GameSliceExtra } from './types';
+import { getThemeColor, useThemeRevision } from './chartTheme';
 
 // Register only what we need (tree shaking)
 ChartJS.register(ArcElement, Tooltip, Legend);
-
-function getThemeColor(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-function useThemeRevision(): number {
-  const [revision, setRevision] = useState(0);
-
-  useEffect(() => {
-    const updateRevision = () => setRevision((current) => current + 1);
-    window.addEventListener('themechange', updateRevision);
-    return () => window.removeEventListener('themechange', updateRevision);
-  }, []);
-
-  return revision;
-}
 
 const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
   ({ labels, datasets, total, centerLabel, gameSliceExtras, ariaLabel }) => {

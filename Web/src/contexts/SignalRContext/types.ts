@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { OperationStatus, NotificationVariant } from '../../types/operations';
 import type { SessionType } from '../../services/auth.service';
 import type { CorruptionDetectionMethod, CorruptionScanCoverage } from '../../types';
+import type { UserPreferences } from '@/types/userPreferences';
 import type {
   StructuralBaselineStatus,
   StructuralEffectiveScanMode,
@@ -815,20 +816,7 @@ export interface PrefillHistoryUpdatedEvent {
 // User Preferences Events
 export interface UserPreferencesUpdatedEvent {
   sessionId: string;
-  preferences: {
-    selectedTheme: string | null;
-    sharpCorners: boolean;
-    disableFocusOutlines: boolean;
-    disableTooltips: boolean;
-    picsAlwaysVisible: boolean;
-    disableStickyNotifications: boolean;
-    useLocalTimezone: boolean;
-    use24HourFormat: boolean;
-    showDatasourceLabels: boolean;
-    showYearInDates: boolean;
-    refreshRate?: string | null;
-    refreshRateLocked?: boolean | null;
-    allowedTimeFormats?: string[] | null;
+  preferences: UserPreferences & {
     maxThreadCount?: number | null;
   };
 }

@@ -7,13 +7,31 @@
 import type {
   NotificationType,
   NotificationProgressMode,
+  NotificationStatus,
   UnifiedNotification,
   SetNotifications,
   ScheduleAutoDismiss,
   CancelAutoDismissTimer
 } from './types';
 import type { DepotMappingCompleteEvent } from '../SignalRContext/types';
+import { isTerminalNotificationStatus } from './notificationStatus';
 import i18n from '@/i18n';
+
+/**
+ * Statuses a live event promotes back to 'running'.
+ *
+ * A progress or completion event is proof the operation is alive, so a card parked in a
+ * pre-run status must not ignore it. Previously every handler below gated on
+ * `status !== 'running'` and returned early, which turned any card that was not EXACTLY running
+ * - a queued 'waiting' card whose promotion event was missed, or one a recovery poll had
+ * stale-completed - into a black hole: it swallowed every later progress AND completion event
+ * and stayed frozen on screen forever. 'cancelling' is deliberately NOT promotable: those cards
+ * still take progress updates, but must keep showing that a cancel is in flight.
+ */
+const PROMOTABLE_TO_RUNNING: readonly NotificationStatus[] = ['waiting', 'pending'];
+
+const promoteStatus = (status: NotificationStatus): NotificationStatus =>
+  PROMOTABLE_TO_RUNNING.includes(status) ? 'running' : status;
 
 /**
  * Merges incoming event details over existing card details. Stale per-operation cancel
@@ -50,9 +68,9 @@ function mergeEventDetails(
       typeof base.operationId === 'string' &&
       incoming.operationId !== base.operationId;
   if (shouldStripStaleCancelFlags) {
-    delete base.cancelRequested;
-    delete base.cancelSent;
-    delete base.cancelling;
+    for (const key of LIVE_ONLY_CANCEL_DETAIL_KEYS) {
+      delete base[key];
+    }
   }
   return { ...base, ...incoming };
 }
@@ -62,8 +80,13 @@ import {
   INCREMENTAL_SCAN_ANIMATION_STEPS,
   INCREMENTAL_SCAN_ANIMATION_DURATION_MS,
   NOTIFICATION_ANIMATION_DURATION_MS,
-  CANCELLED_NOTIFICATION_DELAY_MS
+  CANCELLED_NOTIFICATION_DELAY_MS,
+  FULL_PROGRESS_PERCENT,
+  GENERIC_COMPLETION_I18N_KEY,
+  GENERIC_FAILURE_I18N_KEY,
+  LIVE_ONLY_CANCEL_DETAIL_KEYS
 } from './constants';
+import { APP_EVENTS } from '@utils/constants';
 
 // ============================================================================
 // Started Handler Factory
@@ -283,7 +306,7 @@ export function createCompletionHandler<
       return (
         config.getFailureMessage?.(event) ??
         (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-        i18n.t('signalr.generic.failed')
+        i18n.t(GENERIC_FAILURE_I18N_KEY)
       );
     };
 
@@ -307,10 +330,10 @@ export function createCompletionHandler<
           message:
             config.getSuccessMessage?.(event) ??
             (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-            i18n.t('signalr.generic.complete'),
+            i18n.t(GENERIC_COMPLETION_I18N_KEY),
           detailMessage: config.getDetailMessage?.(event),
           startedAt: new Date(),
-          progress: 100,
+          progress: FULL_PROGRESS_PERCENT,
           details: config.getSuccessDetails?.(event)
         };
       }
@@ -323,7 +346,7 @@ export function createCompletionHandler<
         ...(!isCancelled && { error: failureMessage }),
         detailMessage: config.getDetailMessage?.(event),
         startedAt: new Date(),
-        progress: 100,
+        progress: FULL_PROGRESS_PERCENT,
         details: isCancelled
           ? { ...config.getCancelledDetails?.(event), cancelled: true }
           : config.getSuccessDetails?.(event)
@@ -335,9 +358,9 @@ export function createCompletionHandler<
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
-        // Fast completion - no live running slot to transition (missing or already
-        // terminal); materialize a terminal card instead of dropping the event
-        if (!existing || existing.status !== 'running') {
+        // Fast completion - no live slot to transition (missing or already terminal);
+        // materialize a terminal card instead of dropping the event
+        if (!existing || isTerminalNotificationStatus(existing.status)) {
           const newNotification = buildFastCompletionNotification();
           return [...prev.filter((n) => n.id !== newNotification.id), newNotification];
         }
@@ -347,7 +370,7 @@ export function createCompletionHandler<
             if (event.success && !isCancelled) {
               return {
                 ...n,
-                progress: 100,
+                progress: FULL_PROGRESS_PERCENT,
                 status: 'completed' as const,
                 message: config.getSuccessMessage?.(event, n) ?? n.message,
                 details: {
@@ -360,7 +383,7 @@ export function createCompletionHandler<
             const failureMessage = resolveFailureMessage(n);
             return {
               ...n,
-              progress: 100,
+              progress: FULL_PROGRESS_PERCENT,
               status: isCancelled ? ('cancelled' as const) : ('failed' as const),
               message: failureMessage,
               ...(!isCancelled && { error: failureMessage }),
@@ -387,15 +410,15 @@ export function createCompletionHandler<
           return [...prev, buildFastCompletionNotification()];
         }
 
-        // Only complete notifications that are still 'running'
-        if (existing.status !== 'running') return prev;
+        // Only complete notifications that have not already reached a terminal state
+        if (isTerminalNotificationStatus(existing.status)) return prev;
 
         return prev.map((n) => {
           if (n.id === notificationId) {
             if (event.success && !isCancelled) {
               return {
                 ...n,
-                progress: 100,
+                progress: FULL_PROGRESS_PERCENT,
                 status: 'completed' as const,
                 detailMessage: config.getDetailMessage?.(event) ?? n.detailMessage,
                 details: {
@@ -408,7 +431,7 @@ export function createCompletionHandler<
             const failureMessage = resolveFailureMessage(n);
             return {
               ...n,
-              progress: 100,
+              progress: FULL_PROGRESS_PERCENT,
               status: isCancelled ? ('cancelled' as const) : ('failed' as const),
               message: failureMessage,
               ...(!isCancelled && { error: failureMessage }),
@@ -539,7 +562,7 @@ export function createStatusAwareProgressHandler<T>(
               type: config.type,
               status: 'completed' as const,
               message: config.getCompletedMessage?.(event) ?? 'Operation completed',
-              progress: 100,
+              progress: FULL_PROGRESS_PERCENT,
               startedAt: new Date(),
               details: config.getDetails?.(event)
             };
@@ -549,8 +572,8 @@ export function createStatusAwareProgressHandler<T>(
           return prev;
         }
 
-        // Only complete if notification is running
-        if (existing.status !== 'running') {
+        // Only complete if the notification has not already reached a terminal state
+        if (isTerminalNotificationStatus(existing.status)) {
           return prev;
         }
 
@@ -560,7 +583,7 @@ export function createStatusAwareProgressHandler<T>(
               ...n,
               status: 'completed' as const,
               message: config.getCompletedMessage?.(event) ?? 'Operation completed',
-              progress: 100,
+              progress: FULL_PROGRESS_PERCENT,
               details: { ...n.details, ...config.getDetails?.(event) }
             };
           }
@@ -586,8 +609,8 @@ export function createStatusAwareProgressHandler<T>(
           return prev;
         }
 
-        // If already failed/completed, just ensure it gets dismissed
-        if (existing.status === 'failed' || existing.status === 'completed') {
+        // If already terminal, just ensure it gets dismissed
+        if (isTerminalNotificationStatus(existing.status)) {
           return prev;
         }
 
@@ -614,9 +637,9 @@ export function createStatusAwareProgressHandler<T>(
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
-        // If notification exists but is completed/failed, ignore late progress events
+        // If notification exists but is terminal, ignore late progress events
         // This prevents duplicates when progress events arrive after completion
-        if (existing && existing.status !== 'running') {
+        if (existing && isTerminalNotificationStatus(existing.status)) {
           return prev;
         }
 
@@ -626,6 +649,7 @@ export function createStatusAwareProgressHandler<T>(
             if (n.id === notificationId) {
               return {
                 ...n,
+                status: promoteStatus(n.status),
                 message: config.getMessage(event),
                 progress: config.getProgress(event),
                 ...(config.getDetailMessage && {
@@ -771,7 +795,7 @@ export function createDepotMappingCompletionHandler(
           status: 'completed',
           message: i18n.t('signalr.depotMapping.cancelled'),
           startedAt: newStartedAt,
-          progress: 100,
+          progress: FULL_PROGRESS_PERCENT,
           details: { cancelled: true }
         };
         return [...prev, newNotification];
@@ -784,7 +808,7 @@ export function createDepotMappingCompletionHandler(
               ...n,
               status: 'completed' as const,
               message: i18n.t('signalr.depotMapping.cancelled'),
-              progress: 100,
+              progress: FULL_PROGRESS_PERCENT,
               details: { ...n.details, cancelled: true }
             }
           : n
@@ -820,7 +844,7 @@ export function createDepotMappingCompletionHandler(
             status: 'completed',
             message: successMessage,
             startedAt: new Date(),
-            progress: 100,
+            progress: FULL_PROGRESS_PERCENT,
             details: successDetails
           };
           return [...prev, newNotification];
@@ -851,7 +875,7 @@ export function createDepotMappingCompletionHandler(
             status: 'completed',
             message: successMessage,
             startedAt: new Date(),
-            progress: 100,
+            progress: FULL_PROGRESS_PERCENT,
             details: successDetails
           };
           return [...prev, newNotification];
@@ -864,7 +888,7 @@ export function createDepotMappingCompletionHandler(
                 ...n,
                 status: 'completed' as const,
                 message: successMessage,
-                progress: 100,
+                progress: FULL_PROGRESS_PERCENT,
                 details: { ...n.details, ...successDetails }
               }
             : n
@@ -880,7 +904,7 @@ export function createDepotMappingCompletionHandler(
     const errorMessage =
       event.error ??
       (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-      i18n.t('signalr.generic.failed');
+      i18n.t(GENERIC_FAILURE_I18N_KEY);
     const requiresFullScan =
       errorMessage.includes('change gap is too large') ||
       errorMessage.includes('requires full scan') ||
@@ -888,7 +912,7 @@ export function createDepotMappingCompletionHandler(
 
     if (requiresFullScan) {
       window.dispatchEvent(
-        new CustomEvent('show-full-scan-modal', { detail: { error: errorMessage } })
+        new CustomEvent(APP_EVENTS.SHOW_FULL_SCAN_MODAL, { detail: { error: errorMessage } })
       );
     }
 
@@ -906,7 +930,7 @@ export function createDepotMappingCompletionHandler(
           message: 'Depot mapping failed',
           error: errorMessage,
           startedAt: new Date(),
-          progress: 100
+          progress: FULL_PROGRESS_PERCENT
         };
         return [...prev, newNotification];
       }
@@ -914,7 +938,12 @@ export function createDepotMappingCompletionHandler(
       // Update existing notification
       return prev.map((n) =>
         n.id === notificationId
-          ? { ...n, status: 'failed' as const, error: errorMessage, progress: 100 }
+          ? {
+              ...n,
+              status: 'failed' as const,
+              error: errorMessage,
+              progress: FULL_PROGRESS_PERCENT
+            }
           : n
       );
     });

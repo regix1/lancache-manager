@@ -1,6 +1,7 @@
 import React, { Component, type ReactNode } from 'react';
 import i18n from '../../i18n';
 import { getErrorMessage } from '@utils/error';
+import { APP_EVENTS } from '@utils/constants';
 
 interface Props {
   children: ReactNode;
@@ -28,7 +29,7 @@ class ErrorBoundary extends Component<Props, State> {
     // non-hook code (NotificationsContext.tsx bridges it into the same generic notification).
     console.error('Error caught by boundary:', getErrorMessage(error), errorInfo);
     window.dispatchEvent(
-      new CustomEvent('show-toast', {
+      new CustomEvent(APP_EVENTS.SHOW_TOAST, {
         detail: { type: 'error', message: i18n.t('common.errorBoundary.title') }
       })
     );

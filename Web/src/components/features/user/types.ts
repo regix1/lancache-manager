@@ -1,4 +1,5 @@
 import type { SessionType } from '@services/auth.service';
+import { APP_EVENTS } from '@utils/constants';
 
 export type SessionFilter = 'all' | SessionType;
 
@@ -195,7 +196,7 @@ export const cleanIpAddress = (ip: string): string => {
 
 export const showToast = (type: 'success' | 'error' | 'info', message: string) => {
   window.dispatchEvent(
-    new CustomEvent('show-toast', {
+    new CustomEvent(APP_EVENTS.SHOW_TOAST, {
       detail: { type, message, duration: 4000 }
     })
   );

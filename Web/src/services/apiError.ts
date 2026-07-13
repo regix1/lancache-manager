@@ -1,3 +1,4 @@
+import { APP_EVENTS } from '@utils/constants';
 /**
  * The frontend error taxonomy and single typed API error.
  *
@@ -113,7 +114,7 @@ export async function buildApiError(response: Response): Promise<ApiError> {
   if (status === 401) {
     // Trigger an auth refresh so the app re-evaluates the session (moved verbatim from the old
     // per-status branch in handleResponse).
-    window.dispatchEvent(new Event('auth-state-changed'));
+    window.dispatchEvent(new Event(APP_EVENTS.AUTH_STATE_CHANGED));
   } else if (status === 403) {
     console.warn('403 Forbidden: Access denied. User may lack required permissions.');
   }

@@ -11,7 +11,8 @@ import {
   TOAST_DEFAULT_DURATION_MS,
   NOTIFICATION_STORAGE_KEYS,
   NOTIFICATION_IDS,
-  SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID
+  SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID,
+  LIVE_ONLY_CANCEL_DETAIL_KEYS
 } from './constants';
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { createRecoveryRunner, type FetchWithAuth } from './recoveryFactory';
@@ -21,6 +22,7 @@ import { createSpecialCaseHandlers } from './specialCaseHandlers';
 import { SPECIAL_NOTIFICATION_CONTRACTS } from './specialNotificationContracts';
 
 import { NotificationsContext } from './NotificationsContext.types';
+import { APP_EVENTS } from '@utils/constants';
 
 interface NotificationsProviderProps {
   children: ReactNode;
@@ -78,9 +80,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             // removals / cache clears / cache size scans dying instantly after registration.
             const details = parsed.details ? { ...parsed.details } : undefined;
             if (details) {
-              delete details.cancelRequested;
-              delete details.cancelSent;
-              delete details.cancelling;
+              for (const key of LIVE_ONLY_CANCEL_DETAIL_KEYS) {
+                delete details[key];
+              }
             }
             restoredNotifications.push({
               ...parsed,
@@ -225,7 +227,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
   const removeNotificationAnimated = useCallback((id: string) => {
     window.dispatchEvent(
-      new CustomEvent('notification-removing', {
+      new CustomEvent(APP_EVENTS.NOTIFICATION_REMOVING, {
         detail: { notificationId: id }
       })
     );
@@ -349,8 +351,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
-    window.addEventListener('show-toast', handleShowToast);
-    return () => window.removeEventListener('show-toast', handleShowToast);
+    window.addEventListener(APP_EVENTS.SHOW_TOAST, handleShowToast);
+    return () => window.removeEventListener(APP_EVENTS.SHOW_TOAST, handleShowToast);
   }, [addNotification, removeNotificationAnimated]);
 
   // Listen for "Keep Notifications Visible" preference changes
@@ -376,10 +378,13 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
-    window.addEventListener('notificationvisibilitychange', handleNotificationVisibilityChange);
+    window.addEventListener(
+      APP_EVENTS.NOTIFICATION_VISIBILITY_CHANGE,
+      handleNotificationVisibilityChange
+    );
     return () =>
       window.removeEventListener(
-        'notificationvisibilitychange',
+        APP_EVENTS.NOTIFICATION_VISIBILITY_CHANGE,
         handleNotificationVisibilityChange
       );
   }, [scheduleAutoDismiss]);

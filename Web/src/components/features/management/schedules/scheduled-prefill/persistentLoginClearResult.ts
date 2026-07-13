@@ -6,16 +6,14 @@
  * since this crosses the network boundary.
  */
 
+import { isRecord } from './typeGuards';
+
 type PersistentLoginClearOutcome = 'loggedOut' | 'volumeRemoved' | 'failed';
 
 interface PersistentLoginClearResult {
   service: string;
   outcome: PersistentLoginClearOutcome;
   detail?: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }
 
 function toResult(item: Record<string, unknown>): PersistentLoginClearResult | null {

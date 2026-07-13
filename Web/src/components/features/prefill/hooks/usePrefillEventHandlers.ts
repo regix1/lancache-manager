@@ -6,6 +6,7 @@ import type { LogEntryType } from '../ActivityLog.utils';
 import i18n from '../../../../i18n';
 import { COMPLETION_NOTIFICATION_WINDOW_MS, getEventName } from './prefillConstants';
 import type { PrefillProgress, BackgroundCompletion, CachedAnimationItem } from './prefillTypes';
+import { STORAGE_KEYS } from '@utils/constants';
 
 interface UsePrefillEventHandlersOptions {
   addLog: (type: LogEntryType, message: string, details?: string) => void;
@@ -348,7 +349,7 @@ export function registerPrefillEventHandlers(
         expectedAppCountRef.current = 0;
         try {
           sessionStorage.setItem(
-            'prefill_in_progress',
+            STORAGE_KEYS.PREFILL_IN_PROGRESS,
             JSON.stringify({
               startedAt: new Date().toISOString(),
               sessionId: stateSessionId
@@ -398,7 +399,7 @@ export function registerPrefillEventHandlers(
           duration: duration
         });
         try {
-          sessionStorage.removeItem('prefill_in_progress');
+          sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
         } catch {
           /* ignore */
         }
@@ -412,7 +413,7 @@ export function registerPrefillEventHandlers(
         setPrefillProgress(null);
         resetAnimationState();
         try {
-          sessionStorage.removeItem('prefill_in_progress');
+          sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
         } catch {
           /* ignore */
         }
@@ -426,7 +427,7 @@ export function registerPrefillEventHandlers(
         setPrefillProgress(null);
         resetAnimationState();
         try {
-          sessionStorage.removeItem('prefill_in_progress');
+          sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
         } catch {
           /* ignore */
         }
@@ -503,7 +504,7 @@ export function registerPrefillEventHandlers(
           }
         }
         try {
-          sessionStorage.removeItem('prefill_in_progress');
+          sessionStorage.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
         } catch {
           /* ignore */
         }

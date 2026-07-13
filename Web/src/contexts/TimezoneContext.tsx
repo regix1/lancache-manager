@@ -12,6 +12,7 @@ import {
   getPendingValue
 } from '@utils/pendingPreferences';
 import { TimezoneContext, type TimeSettingValue } from './TimezoneContext.types';
+import { APP_EVENTS } from '@utils/constants';
 
 export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentPreferences } = useSessionPreferences();
@@ -79,8 +80,8 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     };
 
-    window.addEventListener('preference-changed', handleChange);
-    return () => window.removeEventListener('preference-changed', handleChange);
+    window.addEventListener(APP_EVENTS.PREFERENCE_CHANGED, handleChange);
+    return () => window.removeEventListener(APP_EVENTS.PREFERENCE_CHANGED, handleChange);
   }, [pendingUseLocal, pendingUse24Hour]);
 
   const setPendingTimeSetting = useCallback((value: TimeSettingValue | null) => {

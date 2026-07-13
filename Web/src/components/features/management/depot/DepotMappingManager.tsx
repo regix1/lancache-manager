@@ -15,6 +15,7 @@ import { storage } from '@utils/storage';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import { ManagerCardHeader } from '@components/ui/ManagerCard';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { APP_EVENTS } from '@utils/constants';
 
 interface DepotMappingManagerProps {
   isAdmin: boolean;
@@ -441,8 +442,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       });
     };
 
-    window.addEventListener('show-full-scan-modal', handleShowFullScanModal);
-    return () => window.removeEventListener('show-full-scan-modal', handleShowFullScanModal);
+    window.addEventListener(APP_EVENTS.SHOW_FULL_SCAN_MODAL, handleShowFullScanModal);
+    return () =>
+      window.removeEventListener(APP_EVENTS.SHOW_FULL_SCAN_MODAL, handleShowFullScanModal);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

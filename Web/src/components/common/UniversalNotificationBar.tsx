@@ -30,6 +30,7 @@ import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegis
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import type { CancelKind } from '@contexts/notifications/types';
 import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
+import { APP_EVENTS } from '@utils/constants';
 
 // ============================================================================
 // Cancellable Operation Types (derived from the registry — single source)
@@ -72,7 +73,9 @@ const FORCE_KILL_TOOLTIP_KEY = 'common.notifications.forceKillOperation';
  */
 const notifyToastError = (i18nKey: string): void => {
   window.dispatchEvent(
-    new CustomEvent('show-toast', { detail: { type: 'error', message: i18n.t(i18nKey) } })
+    new CustomEvent(APP_EVENTS.SHOW_TOAST, {
+      detail: { type: 'error', message: i18n.t(i18nKey) }
+    })
   );
 };
 
@@ -682,8 +685,9 @@ const UniversalNotificationBar: React.FC = () => {
       setStickyDisabled(themeService.getDisableStickyNotificationsSync());
     };
 
-    window.addEventListener('stickynotificationschange', handleStickyChange);
-    return () => window.removeEventListener('stickynotificationschange', handleStickyChange);
+    window.addEventListener(APP_EVENTS.STICKY_NOTIFICATIONS_CHANGE, handleStickyChange);
+    return () =>
+      window.removeEventListener(APP_EVENTS.STICKY_NOTIFICATIONS_CHANGE, handleStickyChange);
   }, []);
 
   // Listen for notification removal events (for auto-dismiss animation)
@@ -702,10 +706,13 @@ const UniversalNotificationBar: React.FC = () => {
       }, NOTIFICATION_ANIMATION_DURATION_MS);
     };
 
-    window.addEventListener('notification-removing', handleNotificationRemoving as EventListener);
+    window.addEventListener(
+      APP_EVENTS.NOTIFICATION_REMOVING,
+      handleNotificationRemoving as EventListener
+    );
     return () =>
       window.removeEventListener(
-        'notification-removing',
+        APP_EVENTS.NOTIFICATION_REMOVING,
         handleNotificationRemoving as EventListener
       );
   }, []);

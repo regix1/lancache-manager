@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as signalR from '@microsoft/signalr';
-import { SIGNALR_BASE } from '@utils/constants';
+import { SIGNALR_BASE, APP_EVENTS } from '@utils/constants';
 import type { SignalRContextType, SignalRProviderProps, EventHandler } from './types';
 // eslint-disable-next-line no-duplicate-imports
 import { SIGNALR_EVENTS } from './types';
@@ -157,7 +157,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
           // (e.g. DashboardDataContext) can refetch authoritative state that
           // may have drifted during the disconnect window.
           window.dispatchEvent(
-            new CustomEvent('signalr-reconnected', { detail: { connectionId } })
+            new CustomEvent(APP_EVENTS.SIGNALR_RECONNECTED, { detail: { connectionId } })
           );
         }
       });
@@ -273,9 +273,9 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       }
     };
 
-    window.addEventListener('auth-session-updated', handleAuthSessionUpdated);
+    window.addEventListener(APP_EVENTS.AUTH_SESSION_UPDATED, handleAuthSessionUpdated);
     return () => {
-      window.removeEventListener('auth-session-updated', handleAuthSessionUpdated);
+      window.removeEventListener(APP_EVENTS.AUTH_SESSION_UPDATED, handleAuthSessionUpdated);
     };
   }, [mockMode, setupConnection]);
 

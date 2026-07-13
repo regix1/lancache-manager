@@ -17,6 +17,7 @@ import { useChartData } from './useChartData';
 import { getInsightCards, getLegendColorClass, type FooterStats } from './serviceLegendClasses';
 import { formatBytes } from '@utils/formatters';
 import type { ServiceAnalyticsChartProps, TabId, LegendItem } from './types';
+import { APP_EVENTS } from '@utils/constants';
 
 interface TabOption {
   value: TabId;
@@ -337,7 +338,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                   size="sm"
                   onClick={() =>
                     window.dispatchEvent(
-                      new CustomEvent('navigate-to-tab', { detail: { tab: 'downloads' } })
+                      new CustomEvent(APP_EVENTS.NAVIGATE_TO_TAB, { detail: { tab: 'downloads' } })
                     )
                   }
                 >

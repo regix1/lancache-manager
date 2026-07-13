@@ -1,5 +1,7 @@
 import { API_BASE } from '../utils/constants';
 import type { UserSessionRevokedEvent } from '../contexts/SignalRContext/types';
+import { APP_EVENTS } from '@utils/constants';
+import type { UserPreferences as SessionUserPreferences } from '@/types/userPreferences';
 
 // SignalR connection interface - handler needs to accept any args for compatibility
 interface SignalRConnection {
@@ -7,20 +9,7 @@ interface SignalRConnection {
   on: (eventName: string, handler: (...args: any[]) => void) => void;
 }
 
-interface UserPreferences {
-  selectedTheme: string | null;
-  sharpCorners: boolean;
-  disableFocusOutlines: boolean;
-  disableTooltips: boolean;
-  picsAlwaysVisible: boolean;
-  disableStickyNotifications: boolean;
-  useLocalTimezone: boolean;
-  use24HourFormat: boolean;
-  showDatasourceLabels: boolean;
-  showYearInDates: boolean;
-  refreshRate?: string | null;
-  allowedTimeFormats?: string[] | null;
-}
+type UserPreferences = Omit<SessionUserPreferences, 'refreshRateLocked'>;
 
 /**
  * Default preferences used when API calls fail
@@ -159,7 +148,7 @@ class PreferencesService {
       try {
         isProcessingReset = true;
         // Dispatch a custom event for themeService to handle
-        window.dispatchEvent(new CustomEvent('preferences-reset'));
+        window.dispatchEvent(new CustomEvent(APP_EVENTS.PREFERENCES_RESET));
       } finally {
         setTimeout(() => {
           isProcessingReset = false;

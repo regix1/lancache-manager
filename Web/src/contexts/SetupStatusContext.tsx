@@ -1,7 +1,7 @@
 import React, { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
-import { API_BASE } from '@utils/constants';
+import { APP_EVENTS, API_BASE } from '@utils/constants';
 import type { ShowToastEvent } from '@contexts/SignalRContext/types';
 import { SetupStatusContext, type SetupStatus } from './SetupStatusContext.types';
 
@@ -75,7 +75,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         // reachable here; use the existing show-toast bridge instead (mirrors
         // NotificationsContext.tsx:332-356).
         window.dispatchEvent(
-          new CustomEvent<ShowToastEvent>('show-toast', {
+          new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
             detail: {
               type: 'error',
               message: 'Failed to check setup status. Please refresh the page.',

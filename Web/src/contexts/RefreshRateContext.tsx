@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
-import { REFRESH_RATES, type RefreshRate } from '@utils/constants';
+import { APP_EVENTS, REFRESH_RATES, type RefreshRate } from '@utils/constants';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
@@ -16,7 +16,7 @@ import { RefreshRateContext } from './RefreshRateContext.types';
 // show-toast bridge instead (mirrors NotificationsContext.tsx:332-356).
 const notifyRefreshRateSaveFailed = (): void => {
   window.dispatchEvent(
-    new CustomEvent<ShowToastEvent>('show-toast', {
+    new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
       detail: {
         type: 'error',
         message: 'Failed to save your refresh rate setting.',

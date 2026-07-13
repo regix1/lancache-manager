@@ -4,6 +4,7 @@ import { useSignalR } from './SignalRContext/useSignalR';
 import type { ShowToastEvent } from './SignalRContext/types';
 import { isAbortError } from '@utils/error';
 import { AuthContext } from './AuthContext.types';
+import { APP_EVENTS } from '@utils/constants';
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -44,7 +45,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     sessionTypeRef.current = sessionType;
   }, [sessionType]);
   const notifyAuthSessionUpdated = useCallback(() => {
-    window.dispatchEvent(new Event('auth-session-updated'));
+    window.dispatchEvent(new Event(APP_EVENTS.AUTH_SESSION_UPDATED));
   }, []);
 
   const fetchAuth = useCallback(async () => {
@@ -90,7 +91,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // a failure worth surfacing.
       if (!isAbortError(error)) {
         window.dispatchEvent(
-          new CustomEvent<ShowToastEvent>('show-toast', {
+          new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
             detail: {
               type: 'error',
               message: 'Failed to verify your session. Please refresh the page.',
@@ -180,8 +181,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       });
     };
 
-    window.addEventListener('auth-state-changed', handleAuthStateChanged);
-    return () => window.removeEventListener('auth-state-changed', handleAuthStateChanged);
+    window.addEventListener(APP_EVENTS.AUTH_STATE_CHANGED, handleAuthStateChanged);
+    return () => window.removeEventListener(APP_EVENTS.AUTH_STATE_CHANGED, handleAuthStateChanged);
   }, [fetchAuth]);
 
   // Listen for session revocation/deletion via SignalR.

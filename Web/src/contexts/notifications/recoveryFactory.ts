@@ -10,7 +10,11 @@ import type {
 import {
   NOTIFICATION_STORAGE_KEYS,
   NOTIFICATION_IDS,
-  OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE
+  OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE,
+  LIVE_ONLY_CANCEL_DETAIL_KEYS,
+  FULL_PROGRESS_PERCENT,
+  OPERATION_WAITING_I18N_KEYS,
+  REMOVING_GAME_I18N_KEY
 } from './constants';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
@@ -18,6 +22,95 @@ import i18n from '@/i18n';
 import type { CorruptionDetectionMethod } from '@/types';
 
 export type FetchWithAuth = (url: string) => Promise<Response>;
+
+// ============================================================================
+// Recovered-card reconciliation
+// ============================================================================
+// Recovery does NOT only run on page load: it also runs on every SignalR transition to
+// 'connected' AND every time the tab becomes visible again after >2s hidden. At those moments
+// the operation is usually still running and its card is LIVE, carrying state that only SignalR
+// ever delivers - progress, detailMessage, progressMode, progressAriaValueText.
+//
+// Rebuilding that card from the REST snapshot destroyed every field the snapshot does not carry,
+// which is why the progress bar vanished whenever the user switched tabs: renderProgressBar
+// draws nothing once progress is undefined. It stayed gone because nothing repairs the card until
+// the NEXT progress event, and some operations are deliberately quiet for long stretches (the
+// scheduled-prefill poll only re-emits when its message changes or the percent moves a full
+// point, which during one large game download can be tens of minutes).
+//
+// The rule below is: recovery may only overwrite what it actually knows.
+
+/**
+ * True when a snapshot and a live card describe the same operation. A snapshot that omits the
+ * operationId cannot prove the card is a DIFFERENT run - and each of these types owns a single
+ * card slot - so an unknown id is treated as the same operation rather than as grounds to
+ * destroy live state.
+ */
+function isSameOperation(
+  existing: UnifiedNotification,
+  recoveredOperationId: string | undefined
+): boolean {
+  const existingOperationId = existing.details?.operationId;
+  if (!existingOperationId || !recoveredOperationId) return true;
+  return existingOperationId === recoveredOperationId;
+}
+
+/**
+ * Recovered details that may be merged onto a live card: undefined values are dropped (a snapshot
+ * that omits a field must not erase it - notably `operationId: undefined` would break cancel), and
+ * live-only cancel flags are stripped.
+ */
+function mergeableDetails(
+  details: UnifiedNotification['details']
+): NonNullable<UnifiedNotification['details']> {
+  if (!details) return {};
+  const liveOnly = LIVE_ONLY_CANCEL_DETAIL_KEYS as readonly string[];
+  return Object.fromEntries(
+    Object.entries(details).filter(([key, value]) => value !== undefined && !liveOnly.includes(key))
+  ) as NonNullable<UnifiedNotification['details']>;
+}
+
+/**
+ * Reconciles a REST recovery snapshot against the card already on screen.
+ *
+ *  - No live running card, or a DIFFERENT operationId (a genuine re-run) -> the snapshot is the
+ *    card, seeded fresh exactly as before.
+ *  - Same operation, snapshot carries NO progress -> the endpoint reports identity only
+ *    (scheduled-prefill run-status and /api/cache/removals/active both do). Keep the live card and
+ *    only fill in details it lacks, so its bar and stage text survive.
+ *  - Same operation, snapshot carries progress -> the snapshot is authoritative for the fields it
+ *    supplies; every field it omits stays on the live card.
+ */
+function reconcileRecoveredCard(
+  existing: UnifiedNotification | undefined,
+  recovered: UnifiedNotification
+): UnifiedNotification {
+  if (
+    !existing ||
+    existing.status !== 'running' ||
+    !isSameOperation(existing, recovered.details?.operationId)
+  ) {
+    return recovered;
+  }
+
+  const merged: UnifiedNotification = {
+    ...existing,
+    details: { ...existing.details, ...mergeableDetails(recovered.details) }
+  };
+
+  if (recovered.progress === undefined) {
+    return merged;
+  }
+
+  return {
+    ...merged,
+    message: recovered.message,
+    progress: recovered.progress,
+    detailMessage: recovered.detailMessage ?? existing.detailMessage,
+    progressMode: recovered.progressMode ?? existing.progressMode,
+    progressAriaValueText: recovered.progressAriaValueText ?? existing.progressAriaValueText
+  };
+}
 
 /** Row shape of GET /api/operations/waiting (wait-queue recovery endpoint). */
 interface WaitingOperationRow {
@@ -62,8 +155,8 @@ function createWaitingOperationsRecoveryFunction(
             type: entry.type,
             status: 'waiting' as NotificationStatus,
             message: row.name
-              ? i18n.t('common.notifications.operationWaitingNamed', { name: row.name })
-              : i18n.t('common.notifications.operationWaiting'),
+              ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: row.name })
+              : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT),
             startedAt: new Date(),
             details: { operationId: row.operationId }
           });
@@ -115,17 +208,16 @@ function createSimpleRecoveryFunction<TData>(
       if (config.isProcessing(data)) {
         const notificationData = config.createNotification(data);
         setNotifications((prev: UnifiedNotification[]) => {
+          const existing = prev.find((n) => n.type === type);
+          const recovered: UnifiedNotification = {
+            id: notificationId,
+            type,
+            status: 'running' as NotificationStatus,
+            startedAt: new Date(),
+            ...notificationData
+          };
           const filtered = prev.filter((n) => n.type !== type);
-          return [
-            ...filtered,
-            {
-              id: notificationId,
-              type,
-              status: 'running' as NotificationStatus,
-              startedAt: new Date(),
-              ...notificationData
-            }
-          ];
+          return [...filtered, reconcileRecoveredCard(existing, recovered)];
         });
       } else {
         // Clear stale localStorage entry if present
@@ -150,7 +242,7 @@ function createSimpleRecoveryFunction<TData>(
                 id: notificationId,
                 status: 'completed' as NotificationStatus,
                 message: config.staleMessage,
-                progress: 100
+                progress: FULL_PROGRESS_PERCENT
               };
             }
             return n;
@@ -378,7 +470,7 @@ function recoverEvictionRemovals(
 
       const message =
         op.gameName !== undefined
-          ? i18n.t('management.gameDetection.removingGame', { name: op.gameName })
+          ? i18n.t(REMOVING_GAME_I18N_KEY, { name: op.gameName })
           : scope !== undefined && key !== undefined
             ? i18n.t('signalr.evictionRemove.starting.entity', { scope, key })
             : i18n.t('signalr.evictionRemove.starting.bulk', {});
@@ -387,30 +479,20 @@ function recoverEvictionRemovals(
 
       setNotifications((prev: UnifiedNotification[]) => {
         // A live card for this same operation may already exist (SignalR stayed connected, or
-        // localStorage restored it with its last progress). Keep it - replacing it here would
-        // throw away the current progress/stage and regress the card to the progress-less
-        // "Removing evicted records..." starting state mid-run.
+        // localStorage restored it with its last progress). reconcileRecoveredCard keeps it -
+        // replacing it here would throw away the current progress/stage and regress the card to
+        // the progress-less "Removing evicted records..." starting state mid-run.
         const existing = prev.find((n) => n.id === notificationId);
-        if (
-          existing &&
-          existing.status === 'running' &&
-          existing.details?.operationId === op.operationId
-        ) {
-          return prev;
-        }
-
+        const recovered: UnifiedNotification = {
+          id: notificationId,
+          type: 'eviction_removal' as const,
+          status: 'running' as NotificationStatus,
+          message,
+          startedAt: op.startedAt ? new Date(op.startedAt) : new Date(),
+          details: scopeDetails
+        };
         const filtered = prev.filter((n) => n.id !== notificationId);
-        return [
-          ...filtered,
-          {
-            id: notificationId,
-            type: 'eviction_removal' as const,
-            status: 'running' as NotificationStatus,
-            message,
-            startedAt: op.startedAt ? new Date(op.startedAt) : new Date(),
-            details: scopeDetails
-          }
-        ];
+        return [...filtered, reconcileRecoveredCard(existing, recovered)];
       });
     }
   } else {
@@ -431,7 +513,7 @@ function recoverEvictionRemovals(
             ...n,
             status: 'completed' as NotificationStatus,
             message: i18n.t('signalr.evictionRemove.complete', {}),
-            progress: 100
+            progress: FULL_PROGRESS_PERCENT
           };
         }
         return n;
@@ -463,18 +545,20 @@ function recoverOperations(
       const data = createData(op);
 
       setNotifications((prev: UnifiedNotification[]) => {
+        const existing = prev.find((n) => n.id === notificationId);
+        // /api/cache/removals/active reports identity only - no progress - so for a live card of
+        // the same operation this keeps the current bar and stage text instead of regressing it to
+        // the progress-less "starting" state.
+        const recovered: UnifiedNotification = {
+          id: notificationId,
+          type,
+          status: 'running' as NotificationStatus,
+          message: data.message,
+          startedAt: op.startedAt ? new Date(op.startedAt) : new Date(),
+          details: data.details
+        };
         const filtered = prev.filter((n) => n.id !== notificationId);
-        return [
-          ...filtered,
-          {
-            id: notificationId,
-            type,
-            status: 'running' as NotificationStatus,
-            message: data.message,
-            startedAt: op.startedAt ? new Date(op.startedAt) : new Date(),
-            details: data.details
-          }
-        ];
+        return [...filtered, reconcileRecoveredCard(existing, recovered)];
       });
     }
   } else {
@@ -511,7 +595,7 @@ function recoverOperations(
             id: recoveryId,
             status: 'completed' as NotificationStatus,
             message: staleMessage,
-            progress: 100
+            progress: FULL_PROGRESS_PERCENT
           };
         }
         return n;

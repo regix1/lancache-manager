@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { APP_EVENTS } from '@utils/constants';
 
 const GAME_COLOR_VARS = Array.from({ length: 20 }, (_, i) => `--theme-game-${i + 1}`);
 const GAME_OTHER_VAR = '--theme-game-other';
@@ -29,8 +30,8 @@ export function useGameColors(): GameColors {
     };
 
     resolveColors();
-    window.addEventListener('themechange', resolveColors);
-    return () => window.removeEventListener('themechange', resolveColors);
+    window.addEventListener(APP_EVENTS.THEME_CHANGE, resolveColors);
+    return () => window.removeEventListener(APP_EVENTS.THEME_CHANGE, resolveColors);
   }, []);
 
   const getGameColors = useCallback(

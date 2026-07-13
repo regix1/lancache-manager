@@ -1,4 +1,5 @@
 import type { ApiErrorData } from './apiError';
+import { getApiUrl } from './apiUrl';
 
 export type AuthMode = 'authenticated' | 'guest' | 'unauthenticated';
 export type SessionType = 'admin' | 'guest';
@@ -36,13 +37,6 @@ interface LoginResponse {
   token?: string;
   error?: string;
 }
-
-const getApiUrl = (): string => {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  return '';
-};
 
 const API_URL = getApiUrl();
 const AUTH_CHECK_TIMEOUT_MS = 10000;

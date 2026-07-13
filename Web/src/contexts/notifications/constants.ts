@@ -31,6 +31,59 @@ export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, Notificati
   scheduledPrefill: 'scheduled_prefill'
 };
 
+/**
+ * Cancel state that lives ONLY in this browser session and that no server payload can know:
+ * the X button's two-stage soft-cancel -> force-kill intent (`cancelRequested`/`cancelSent`,
+ * read by UniversalNotificationBar's cancel handler and deferred-cancel watchdog) and the
+ * bulk queue's cancel signal (`cancelling`, the only flag useCancellableQueue's cascade honours).
+ *
+ * These are NOT `details.cancelled`, which is the TERMINAL outcome the server reports and which
+ * renders the card red - see cacheRemovalHelpers, which sets both at once as
+ * `{ cancelled: true, cancelling: false }`.
+ *
+ * Because a persisted card and a REST recovery snapshot both predate (or simply cannot see) the
+ * live intent, these keys are stripped wherever card state is rehydrated or merged: the
+ * localStorage restore in NotificationsContext, mergeEventDetails in handlerFactories, and
+ * reconcileRecoveredCard in recoveryFactory.
+ */
+export const LIVE_ONLY_CANCEL_DETAIL_KEYS = [
+  'cancelRequested',
+  'cancelSent',
+  'cancelling'
+] as const;
+
+// ============================================================================
+// Shared lifecycle values
+// ============================================================================
+
+/** Full progress shared by terminal notification cards and bulk-progress calculations. */
+export const FULL_PROGRESS_PERCENT = 100;
+
+/** Highest displayed progress for operations that have not emitted completion yet. */
+export const ACTIVE_PROGRESS_PERCENT_CAP = 99.9;
+
+/** Generic completion fallback shared by lifecycle handlers and message formatters. */
+export const GENERIC_COMPLETION_I18N_KEY = 'signalr.generic.complete';
+
+/** Generic failure fallback shared by lifecycle handlers and message formatters. */
+export const GENERIC_FAILURE_I18N_KEY = 'signalr.generic.failed';
+
+/** Waiting-card message keys shared by live SignalR creation and REST recovery. */
+export const OPERATION_WAITING_I18N_KEYS = {
+  DEFAULT: 'common.notifications.operationWaiting',
+  NAMED: 'common.notifications.operationWaitingNamed'
+} as const;
+
+/** Game-removal progress key shared by direct, bulk, and recovered removal cards. */
+export const REMOVING_GAME_I18N_KEY = 'management.gameDetection.removingGame';
+
+/** Game-removal failure fallback shared by direct and bulk removal flows. */
+export const FAILED_TO_REMOVE_GAME_I18N_KEY = 'management.gameDetection.failedToRemoveGame';
+
+// Window event names (including the notification system's own) live in one registry:
+// APP_EVENTS in @utils/constants. A window event name is a contract between modules that never
+// import each other, so keeping them all in one place is what makes a rename safe.
+
 // ============================================================================
 // Timing Constants
 // ============================================================================

@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
+import { FAILED_TO_REMOVE_GAME_I18N_KEY } from '@contexts/notifications/constants';
 import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useCancellableQueue } from '@/hooks/useCancellableQueue';
@@ -477,7 +478,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               !isEpic && game.game_app_id === 0 && !!game.service && game.service !== 'steam';
             if (isEpic) {
               if (!game.epic_app_id) {
-                throw new Error(t('management.gameDetection.failedToRemoveGame'));
+                throw new Error(t(FAILED_TO_REMOVE_GAME_I18N_KEY));
               }
               const response = await ApiService.removeEvictedForEpicGame(game.epic_app_id);
               operationId = response.operationId;

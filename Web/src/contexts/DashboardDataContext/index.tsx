@@ -26,6 +26,7 @@ import {
   type CachedDetectionResponse,
   type DashboardBatchResponse
 } from './types';
+import { APP_EVENTS } from '@utils/constants';
 
 export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   children,
@@ -511,9 +512,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       });
     };
 
-    window.addEventListener('signalr-reconnected', handleSignalRReconnected);
+    window.addEventListener(APP_EVENTS.SIGNALR_RECONNECTED, handleSignalRReconnected);
     return () => {
-      window.removeEventListener('signalr-reconnected', handleSignalRReconnected);
+      window.removeEventListener(APP_EVENTS.SIGNALR_RECONNECTED, handleSignalRReconnected);
     };
   }, [fetchAllData, mockMode, hasAccess]);
 

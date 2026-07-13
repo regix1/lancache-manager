@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useMemo, memo, useState } from 'react';
 import { Chart, type ChartConfiguration, registerables } from 'chart.js';
+import { APP_EVENTS } from '@utils/constants';
 
 // Register Chart.js components
 Chart.register(...registerables);
@@ -45,8 +46,8 @@ const Sparkline: React.FC<SparklineProps> = memo(
         setThemeVersion((v) => v + 1);
       };
 
-      window.addEventListener('themechange', handleThemeChange);
-      return () => window.removeEventListener('themechange', handleThemeChange);
+      window.addEventListener(APP_EVENTS.THEME_CHANGE, handleThemeChange);
+      return () => window.removeEventListener(APP_EVENTS.THEME_CHANGE, handleThemeChange);
     }, []);
 
     // Helper to resolve CSS variable

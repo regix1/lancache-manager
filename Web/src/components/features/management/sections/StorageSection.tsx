@@ -67,6 +67,7 @@ import {
   useScheduledRemovalRefresh
 } from '../game-detection/cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
+import { FAILED_TO_REMOVE_GAME_I18N_KEY } from '@contexts/notifications/constants';
 
 // Adapts the combined evicted selection set (prefixed keyspace) into the raw-keyed
 // SelectionAdapter each list expects, translating keys through the given prefix.
@@ -370,7 +371,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         if (isEpic) {
           if (!game.epic_app_id) {
             partialRemovalTargetRef.current = null;
-            onError(t('management.gameDetection.failedToRemoveGame'));
+            onError(t(FAILED_TO_REMOVE_GAME_I18N_KEY));
             return;
           }
           await ApiService.removeEvictedForEpicGame(game.epic_app_id);
@@ -381,7 +382,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         }
         scheduleRemovalRefresh(onDataRefresh);
       } catch (err: unknown) {
-        const errorMsg = getErrorMessage(err) || t('management.gameDetection.failedToRemoveGame');
+        const errorMsg = getErrorMessage(err) || t(FAILED_TO_REMOVE_GAME_I18N_KEY);
         console.error('Partial evicted game removal error:', errorMsg);
         onError(errorMsg);
       }

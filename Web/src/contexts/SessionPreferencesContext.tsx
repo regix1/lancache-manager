@@ -17,22 +17,8 @@ import {
 } from '@utils/guestDefaultPreferenceGate';
 import { getCachedDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { SessionPreferencesContext } from './SessionPreferencesContext.types';
-
-interface UserPreferences {
-  selectedTheme: string | null;
-  sharpCorners: boolean;
-  disableFocusOutlines: boolean;
-  disableTooltips: boolean;
-  picsAlwaysVisible: boolean;
-  disableStickyNotifications: boolean;
-  useLocalTimezone: boolean;
-  use24HourFormat: boolean;
-  showDatasourceLabels: boolean;
-  showYearInDates: boolean;
-  refreshRate?: string | null;
-  refreshRateLocked?: boolean | null;
-  allowedTimeFormats?: string[] | null;
-}
+import { APP_EVENTS } from '@utils/constants';
+import type { UserPreferences } from '@/types/userPreferences';
 
 const DEFAULT_PREFERENCES: UserPreferences = {
   selectedTheme: null,
@@ -238,7 +224,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
 
           if (baseline[key] !== normalizedPrefs[key]) {
             window.dispatchEvent(
-              new CustomEvent('preference-changed', {
+              new CustomEvent(APP_EVENTS.PREFERENCE_CHANGED, {
                 detail: { key, value: normalizedPrefs[key] }
               })
             );
@@ -333,7 +319,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
 
   const dispatchPreferenceChanged = useCallback((key: string, value: unknown) => {
     window.dispatchEvent(
-      new CustomEvent('preference-changed', {
+      new CustomEvent(APP_EVENTS.PREFERENCE_CHANGED, {
         detail: { key, value }
       })
     );

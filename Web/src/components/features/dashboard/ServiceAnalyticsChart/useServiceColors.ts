@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { APP_EVENTS } from '@utils/constants';
 
 const SERVICE_COLOR_MAP: Record<string, string> = {
   steam: '--theme-steam',
@@ -89,10 +90,10 @@ export function useServiceColors(): ServiceColors {
     resolveColors();
 
     // Listen for theme changes
-    window.addEventListener('themechange', resolveColors);
+    window.addEventListener(APP_EVENTS.THEME_CHANGE, resolveColors);
 
     return () => {
-      window.removeEventListener('themechange', resolveColors);
+      window.removeEventListener(APP_EVENTS.THEME_CHANGE, resolveColors);
     };
   }, []);
 

@@ -1,5 +1,6 @@
 import { storage } from '@utils/storage';
 import { assertOk, buildApiError } from './apiError';
+import { getApiUrl } from './apiUrl';
 
 // Operation state data can be various shapes depending on the operation type
 type OperationStateData = Record<string, unknown>;
@@ -18,13 +19,6 @@ interface QueuedRequest<T = unknown> {
   resolve: (value: T) => void;
   reject: (reason?: unknown) => void;
 }
-
-const getApiUrl = (): string => {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  return '';
-};
 
 const API_URL = getApiUrl();
 

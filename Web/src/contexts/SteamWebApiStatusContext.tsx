@@ -1,5 +1,5 @@
 import React, { type ReactNode } from 'react';
-import { useSteamWebApiStatus as useHook } from '@hooks/useSteamWebApiStatus';
+import { useSteamWebApiStatusState } from '@hooks/useSteamWebApiStatus';
 import { SteamWebApiStatusContext } from './SteamWebApiStatusContext.types';
 
 interface SteamWebApiStatusProviderProps {
@@ -9,7 +9,7 @@ interface SteamWebApiStatusProviderProps {
 export const SteamWebApiStatusProvider: React.FC<SteamWebApiStatusProviderProps> = ({
   children
 }) => {
-  const steamWebApiStatus = useHook();
+  const steamWebApiStatus = useSteamWebApiStatusState();
 
   return (
     <SteamWebApiStatusContext.Provider value={steamWebApiStatus}>

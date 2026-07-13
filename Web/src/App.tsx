@@ -36,6 +36,7 @@ const PrefillPanel = lazy(() =>
   import('@components/features/prefill/PrefillPanel').then((m) => ({ default: m.PrefillPanel }))
 );
 import ActiveEventBorder from '@components/common/ActiveEventBorder';
+import { APP_EVENTS } from '@utils/constants';
 
 const preloadMap: Record<string, () => void> = {
   dashboard: () => import('@components/features/dashboard/Dashboard'),
@@ -122,8 +123,8 @@ const AppContent: React.FC = () => {
       }
     };
 
-    window.addEventListener('navigate-to-tab', handleNavigateToTab);
-    return () => window.removeEventListener('navigate-to-tab', handleNavigateToTab);
+    window.addEventListener(APP_EVENTS.NAVIGATE_TO_TAB, handleNavigateToTab);
+    return () => window.removeEventListener(APP_EVENTS.NAVIGATE_TO_TAB, handleNavigateToTab);
   }, [handleTabChange]);
 
   // Redirect banned users away from prefill tab (but keep them there to see the error message)
