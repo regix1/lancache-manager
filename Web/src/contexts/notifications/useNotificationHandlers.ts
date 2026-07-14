@@ -219,8 +219,9 @@ export function useNotificationHandlers(
     // ───── Operation wait-queue (purple waiting cards) ─────
     // A queued op is a REAL tracker registration (status Waiting) so this card is never a
     // ghost: cancel works via details.operationId, and /api/operations/waiting recovers it
-    // on refresh. On promotion the promoted op's own Started event replaces this card
-    // (same per-type singleton id) - no handler needed for the promotion case.
+    // on refresh. On promotion the promoted op's own Started event normally replaces this
+    // card (same per-type singleton id); the completion handoff removes it when that operation
+    // is intentionally notification-silent.
     const waitingHandler = (event: OperationWaitingEvent): void => {
       const entry = findEntryForWireType(registry, event.operationType);
       if (!entry) return;
@@ -245,11 +246,29 @@ export function useNotificationHandlers(
     const waitingCompleteHandler = (event: OperationWaitingCompleteEvent): void => {
       const entry = findEntryForWireType(registry, event.operationType);
       if (!entry) return;
+
+      if (event.promoted) {
+        setNotifications((prev: UnifiedNotification[]) =>
+          prev.filter(
+            (n) =>
+              n.id !== entry.id ||
+              n.status !== 'waiting' ||
+              n.details?.operationId !== event.operationId
+          )
+        );
+        return;
+      }
+
       setNotifications((prev: UnifiedNotification[]) =>
         prev.map((n) => {
           // Guard: only terminate cards STILL waiting - if promotion already replaced the
           // card with a running one, a late cancel/failure event must not clobber it.
-          if (n.id !== entry.id || n.status !== 'waiting') return n;
+          if (
+            n.id !== entry.id ||
+            n.status !== 'waiting' ||
+            n.details?.operationId !== event.operationId
+          )
+            return n;
           return event.cancelled
             ? {
                 ...n,

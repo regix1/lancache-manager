@@ -21,7 +21,7 @@ namespace LancacheManager.Core.Services;
 public class CacheReconciliationService : ScopedScheduledBackgroundService
 {
     private readonly DatasourceService _datasourceService;
-    private readonly StateService _stateService;
+    private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly RustProcessHelper _rustProcessHelper;
@@ -29,7 +29,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly GameCacheDetectionDataService _gameCacheDetectionDataService;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly EvictedDetectionPreservationService _evictedDetectionPreservationService;
-    private readonly IOperationConflictChecker _conflictChecker;
+    private readonly IOperationQueue _operationQueue;
+    private readonly IHostApplicationLifetime _applicationLifetime;
     private int _isRunning;
     private bool _currentScanIsSilent = true;
     // Broadcast gate shared by the rust stdout-tick callback and NotifyScanProgressAsync.
@@ -92,34 +93,72 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// Returns the operationId immediately, or null if already running.
     /// Manual scans always show notifications.
     /// </summary>
-    public Guid? RunManualAsync()
-    {
-        if (!TryBeginRun()) return null;
+    public Guid? RunManualAsync() => StartScanInBackground("Eviction Scan", silent: false);
 
+    /// <summary>
+    /// Starts a scan whose lifetime belongs to this singleton rather than to the scheduler
+    /// invocation that requested it. This is required for wait-queue promotion, which may happen
+    /// long after the original scheduled tick and its scoped DbContext have ended.
+    /// </summary>
+    private Guid? StartScanInBackground(string name, bool silent, Action? onCompleted = null)
+    {
+        if (!TryBeginRun())
+        {
+            return null;
+        }
+
+        CancellationTokenSource? cts = null;
+        Guid operationId = default;
+        var operationRegistered = false;
         try
         {
-            var cts = new CancellationTokenSource();
-            var operationId = RegisterEvictionScanOperation("Eviction Scan", cts);
+            // The operation is detached from the scheduler/HTTP request that launched it, but it
+            // must still stop with the host so its Rust child cannot outlive application shutdown.
+            cts = CancellationTokenSource.CreateLinkedTokenSource(
+                _applicationLifetime.ApplicationStopping);
+            operationId = RegisterEvictionScanOperation(name, cts, silent);
+            operationRegistered = true;
 
             _ = Task.Run(async () =>
             {
+                var outcome = new EvictionScanRunOutcome(
+                    Success: false,
+                    Error: "Eviction scan worker failed before it started");
                 try
                 {
                     using var scope = _serviceProvider.CreateScope();
                     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                    await ReconcileCacheFilesAsync(context, operationId, cts.Token, silent: false);
+                    outcome = await ReconcileCacheFilesAsync(context, operationId, cts.Token, silent);
+                }
+                catch (Exception ex)
+                {
+                    outcome = new EvictionScanRunOutcome(Success: false, Error: ex.Message);
+                    _logger.LogError(ex, "[EvictionScan] Background scan worker failed unexpectedly");
                 }
                 finally
                 {
+                    // Single owner and strict ordering: release the service-local gate exactly once,
+                    // then complete the tracker operation so queue promotion can safely acquire it.
                     EndRun();
+                    _operationTracker.CompleteOperation(operationId, outcome.Success, outcome.Error);
+                    onCompleted?.Invoke();
                 }
-            }, cts.Token);
+            }, CancellationToken.None);
 
             return operationId;
         }
-        catch
+        catch (Exception ex)
         {
             EndRun();
+            if (operationRegistered)
+            {
+                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            }
+            else
+            {
+                cts?.Dispose();
+            }
+            onCompleted?.Invoke();
             throw;
         }
     }
@@ -129,7 +168,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         ILogger<CacheReconciliationService> logger,
         IConfiguration configuration,
         DatasourceService datasourceService,
-        StateService stateService,
+        IStateService stateService,
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
         RustProcessHelper rustProcessHelper,
@@ -137,7 +176,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         GameCacheDetectionDataService gameCacheDetectionDataService,
         GameCacheDetectionService gameCacheDetectionService,
         EvictedDetectionPreservationService evictedDetectionPreservationService,
-        IOperationConflictChecker conflictChecker)
+        IOperationQueue operationQueue,
+        IHostApplicationLifetime applicationLifetime)
         : base(serviceProvider, logger, configuration)
     {
         _datasourceService = datasourceService;
@@ -149,7 +189,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         _gameCacheDetectionDataService = gameCacheDetectionDataService;
         _gameCacheDetectionService = gameCacheDetectionService;
         _evictedDetectionPreservationService = evictedDetectionPreservationService;
-        _conflictChecker = conflictChecker;
+        _operationQueue = operationQueue;
+        _applicationLifetime = applicationLifetime;
 
         LoadStateOverrides(stateService);
     }
@@ -171,6 +212,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     ///   - The evicted-data mode is "Remove" (the user has opted into invisible automatic cleanup), OR
     ///   - The "Show scheduled scan notifications" toggle is off.
     /// Manual scans always notify and ignore this helper (per the UI's documented behavior).
+    /// This controls the running scan's Started/Progress/Complete lifecycle. A blocked scan still
+    /// gets the universal queue's purple waiting card by design, then the promoted handoff removes
+    /// that card if the running lifecycle remains silent.
     /// </summary>
     private bool IsSilentAutomaticScan()
     {
@@ -183,27 +227,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         return !_stateService.GetEvictionScanNotifications();
     }
 
-    /// <summary>
-    /// Automatic (startup/scheduled) scans defer to any active heavy operation: heavy data ops
-    /// run one at a time (OperationConflictChecker section 1a), and an automatic scan must not
-    /// jump ahead of a user-started operation the way a queued controller request never could.
-    /// Skip-if-busy (the next scheduled tick retries) mirrors CacheSizeScanScheduledService;
-    /// manual scans keep going through the controller's conflict-check + queue path instead.
-    /// </summary>
-    private async Task<bool> IsBlockedByActiveOperationAsync(string runKind, CancellationToken ct)
-    {
-        var conflict = await _conflictChecker.CheckAsync(OperationType.EvictionScan, ConflictScope.Bulk(), ct);
-        if (conflict == null)
-        {
-            return false;
-        }
-
-        _logger.LogInformation(
-            "[EvictionScan] {RunKind} scan skipped: active {ActiveType} operation ({ActiveId}) holds the heavy-op slot",
-            runKind, conflict.ActiveOperationType, conflict.ActiveOperationId);
-        return true;
-    }
-
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
         // Wait for setup to complete so datasources and database are configured
@@ -211,40 +234,51 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         var silent = IsSilentAutomaticScan();
 
-        if (await IsBlockedByActiveOperationAsync("Startup", stoppingToken))
-        {
-            _firstStartupScanComplete.TrySetResult(true);
-            return;
-        }
-
-        if (!TryBeginRun())
-        {
-            _logger.LogWarning("[EvictionScan] Startup scan skipped because another scan is already running");
-            _firstStartupScanComplete.TrySetResult(true);
-            return;
-        }
-
         try
         {
-            using var scope = _serviceProvider.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            bool hasDownloads;
+            using (var scope = _serviceProvider.CreateScope())
+            {
+                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                hasDownloads = await context.Downloads.AnyAsync(stoppingToken);
+            }
 
             // Skip scan entirely if there are no downloads in the database
-            if (!await context.Downloads.AnyAsync(stoppingToken))
+            if (!hasDownloads)
             {
                 _logger.LogInformation("[EvictionScan] No downloads in database, skipping startup scan");
                 return;
             }
 
-            var cts = new CancellationTokenSource();
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, cts.Token);
-            var operationId = RegisterEvictionScanOperation("Eviction Scan (Startup)", cts);
+            var scanCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task<Guid?> StartStartupScanAsync() => Task.FromResult(StartScanInBackground(
+                "Eviction Scan",
+                silent,
+                () => scanCompleted.TrySetResult()));
 
-            await ReconcileCacheFilesAsync(context, operationId, linked.Token, silent);
+            var outcome = await _operationQueue.EnqueueAsync(
+                OperationType.EvictionScan,
+                ConflictScope.Bulk(),
+                "Eviction Scan",
+                StartStartupScanAsync,
+                stoppingToken);
+
+            if (outcome.Queued || outcome.AlreadyRunning)
+            {
+                // Preserve the old startup dependency behavior when another heavy operation is
+                // already active: let GameDetectionService continue while this scan remains queued
+                // or an identical scan is already represented by the queue/tracker.
+                _logger.LogInformation(
+                    "[EvictionScan] Startup scan {Disposition} (operation: {OperationId})",
+                    outcome.Queued ? "queued" : "already requested",
+                    outcome.OperationId);
+                return;
+            }
+
+            await scanCompleted.Task.WaitAsync(stoppingToken);
         }
         finally
         {
-            EndRun();
             // Signal GameDetectionService that the first startup scan (and any removal cleanup) is done.
             // TrySetResult is safe to call multiple times - only the first call has effect.
             _firstStartupScanComplete.TrySetResult(true);
@@ -258,39 +292,48 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         var silent = IsSilentAutomaticScan();
         var context = scopedServices.GetRequiredService<AppDbContext>();
 
-        if (await IsBlockedByActiveOperationAsync("Scheduled", stoppingToken))
-        {
-            return;
-        }
-
-        if (!TryBeginRun())
-        {
-            _logger.LogDebug("[EvictionScan] Scheduled scan skipped because another scan is already running");
-            return;
-        }
-
         // Skip scan if there are no downloads in the database
-        try
+        if (!await context.Downloads.AnyAsync(stoppingToken))
         {
-            if (!await context.Downloads.AnyAsync(stoppingToken))
-            {
-                _logger.LogDebug("[EvictionScan] No downloads in database, skipping scheduled scan");
-                return;
-            }
-
-            var cts = new CancellationTokenSource();
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, cts.Token);
-            var operationId = RegisterEvictionScanOperation("Eviction Scan", cts);
-
-            await ReconcileCacheFilesAsync(context, operationId, linked.Token, silent);
+            _logger.LogDebug("[EvictionScan] No downloads in database, skipping scheduled scan");
+            return;
         }
-        finally
+
+        Task<Guid?> StartScheduledScanAsync() => Task.FromResult(
+            StartScanInBackground("Eviction Scan", silent));
+
+        var outcome = await _operationQueue.EnqueueAsync(
+            OperationType.EvictionScan,
+            ConflictScope.Bulk(),
+            "Eviction Scan",
+            StartScheduledScanAsync,
+            stoppingToken);
+
+        if (outcome.Queued)
         {
-            EndRun();
+            _logger.LogInformation(
+                "[EvictionScan] Scheduled scan queued (waiting operation: {OperationId})",
+                outcome.OperationId);
+        }
+        else if (outcome.AlreadyRunning)
+        {
+            _logger.LogInformation(
+                "[EvictionScan] Scheduled scan already requested (operation: {OperationId})",
+                outcome.OperationId);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "[EvictionScan] Scheduled scan started (operation: {OperationId})",
+                outcome.OperationId);
         }
     }
 
-    private async Task ReconcileCacheFilesAsync(AppDbContext context, Guid operationId, CancellationToken stoppingToken, bool silent = false)
+    private async Task<EvictionScanRunOutcome> ReconcileCacheFilesAsync(
+        AppDbContext context,
+        Guid operationId,
+        CancellationToken stoppingToken,
+        bool silent = false)
     {
         // In Remove mode the scan phase is ALWAYS notification-silent (manual or automatic): the
         // user-visible feedback for a Remove-mode run is the removal bar, not the scan bar. A manual
@@ -310,6 +353,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
         string? datasourceConfigPath = null;
         string? progressFilePath = null;
+        var operationSucceeded = false;
+        string? operationError = null;
 
         try
         {
@@ -573,14 +618,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 stoppingToken.ThrowIfCancellationRequested();
 
-                // Capture the success metrics BY VALUE and COMPLETE the scan op BEFORE the removal
-                // phase runs. Two reasons:
-                //   1. Metrics honesty - the scan's terminal EvictionScanComplete carries the real
-                //      Processed/Evicted/UnEvicted counts (previously these were set after the removal
-                //      had already completed the op, leaving the terminal event with zeroed metrics).
-                //   2. Single active bulk op - the scan op (ConflictScope.Bulk) must be completed
-                //      before the removal self-registers its own ConflictScope.Bulk op, otherwise the
-                //      registration would collide with the still-active scan op.
+                // Capture the success metrics BY VALUE before the optional removal phase. The scan
+                // operation deliberately remains active through that tail so queue promotion cannot
+                // start another full-disk scan while remove-mode cleanup is still mutating cache/log
+                // state. Internal removal registration does not run a controller conflict check.
                 if (scanTerminalState != null)
                 {
                     scanTerminalState.Processed = scanResult.Processed;
@@ -588,7 +629,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     scanTerminalState.UnEvicted = scanResult.UnEvicted;
                     scanTerminalState.PrunedOrphans = prunedOrphans;
                 }
-                _operationTracker.CompleteOperation(operationId, success: true);
 
                 // Handle evicted data "remove" mode. The removal self-registers its OWN
                 // OperationType.EvictionRemoval operation (operationId: null) so it is cancellable,
@@ -611,37 +651,39 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         reason = "eviction-scan-complete"
                     });
                 }
+
+                operationSucceeded = true;
             }
             else
             {
                 var errorMsg = scanResult.Error ?? "Rust eviction scan binary returned failure";
                 _logger.LogError("[EvictionScan] Rust binary failed: {Error}", errorMsg);
-                // Terminal EvictionScanComplete(error) is emitted by the registered onTerminalEmit closure.
-                _operationTracker.CompleteOperation(operationId, success: false, error: errorMsg);
+                operationError = errorMsg;
             }
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("[EvictionScan] Operation {OperationId} was cancelled", operationId);
-            // Terminal EvictionScanComplete(cancelled) is emitted by the registered onTerminalEmit closure.
-            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+            operationError = "Cancelled by user";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error during eviction scan");
-            // Terminal EvictionScanComplete(error) is emitted by the registered onTerminalEmit closure.
-            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            operationError = ex.Message;
         }
         finally
         {
             _currentScanProgressContext = null;
 
-            // Clean up temp files
+            // Clean up temp files before returning the outcome to the single owner in
+            // StartScanInBackground. That owner releases the local gate and completes the tracker.
             if (datasourceConfigPath != null)
                 await _rustProcessHelper.DeleteTempFileAsync(datasourceConfigPath);
             if (progressFilePath != null)
                 await _rustProcessHelper.DeleteTempFileAsync(progressFilePath);
         }
+
+        return new EvictionScanRunOutcome(operationSucceeded, operationError);
     }
 
     private static Dictionary<string, object?> BuildScanProgressContext(EvictionScanProgressData progress)
@@ -664,9 +706,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// front and captured by value; ReconcileCacheFilesAsync fills it just before CompleteOperation.
     /// Silent scans suppress the terminal emit (parity with the old inline `if (!silent)` guards).
     /// </summary>
-    private Guid RegisterEvictionScanOperation(string name, CancellationTokenSource cts)
+    private Guid RegisterEvictionScanOperation(string name, CancellationTokenSource cts, bool silent = false)
     {
-        var terminalState = new EvictionScanTerminalState();
+        var terminalState = new EvictionScanTerminalState { Silent = silent };
         Guid operationId = default;
         operationId = _operationTracker.RegisterOperation(
             OperationType.EvictionScan,
@@ -831,6 +873,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         public int UnEvicted;
         public int PrunedOrphans;
     }
+
+    private sealed record EvictionScanRunOutcome(bool Success, string? Error);
 
     /// <summary>
     /// Mutable terminal-metrics holder for an in-flight EvictionRemoval. Populated BY VALUE in

@@ -1073,15 +1073,16 @@ export interface OperationWaitingEvent {
 }
 
 /**
- * Emitted when a WAITING operation terminates without being promoted (cancelled from
- * the card, or its start failed at promotion). Promotion itself emits nothing - the
- * promoted operation's own Started event replaces the waiting card.
+ * Emitted when a WAITING operation terminates. A promoted operation normally replaces
+ * the waiting card through its own Started event; promoted also closes the card when
+ * the running operation is intentionally notification-silent.
  */
 export interface OperationWaitingCompleteEvent {
   operationId: string;
   operationType: string;
   cancelled: boolean;
   error?: string;
+  promoted?: boolean;
 }
 
 export interface EvictionRemovalStartedEvent {

@@ -20,7 +20,7 @@ public class GameDetectionService : ScheduledBackgroundService
     private readonly IPathResolver _pathResolver;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly CacheReconciliationService _cacheReconciliationService;
-    private readonly IOperationConflictChecker _conflictChecker;
+    private readonly IOperationQueue _operationQueue;
 
     public GameDetectionService(
         GameCacheDetectionService detectionService,
@@ -28,7 +28,7 @@ public class GameDetectionService : ScheduledBackgroundService
         IPathResolver pathResolver,
         IServiceScopeFactory scopeFactory,
         CacheReconciliationService cacheReconciliationService,
-        IOperationConflictChecker conflictChecker,
+        IOperationQueue operationQueue,
         ILogger<GameDetectionService> logger,
         IConfiguration configuration)
         : base(logger, configuration)
@@ -38,30 +38,52 @@ public class GameDetectionService : ScheduledBackgroundService
         _pathResolver = pathResolver;
         _scopeFactory = scopeFactory;
         _cacheReconciliationService = cacheReconciliationService;
-        _conflictChecker = conflictChecker;
+        _operationQueue = operationQueue;
 
         LoadStateOverrides(stateService);
     }
 
     /// <summary>
-    /// Automatic (startup/scheduled) detection defers to any active heavy operation: heavy data
-    /// ops run one at a time (OperationConflictChecker section 1a), and an automatic scan must
-    /// not jump ahead of a user-started operation. Skip-if-busy (the next scheduled tick
-    /// retries) mirrors the other scheduled heavy-op services; the manual detection button goes
-    /// through GamesController's conflict-check + queue path instead.
+    /// Route automatic detection through the same heavy-operation queue as manual requests.
+    /// This closes the conflict-check/start race and gives a blocked scheduled run a cancellable
+    /// purple waiting card in the universal notification menu instead of silently skipping it.
     /// </summary>
-    private async Task<bool> IsBlockedByActiveOperationAsync(string runKind, CancellationToken ct)
+    private async Task QueueDetectionAsync(string runKind, CancellationToken ct)
     {
-        var conflict = await _conflictChecker.CheckAsync(OperationType.GameDetection, ConflictScope.Bulk(), ct);
-        if (conflict == null)
+        async Task<Guid?> StartDetectionAsync()
         {
-            return false;
+            try
+            {
+                return await _detectionService.StartDetectionAsync(incremental: true);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "[GameDetection] {RunKind} detection start was refused: {Reason}",
+                    runKind,
+                    ex.Message);
+                return null;
+            }
         }
 
+        var outcome = await _operationQueue.EnqueueAsync(
+            OperationType.GameDetection,
+            ConflictScope.Bulk(),
+            "Game Detection",
+            StartDetectionAsync,
+            ct);
+
+        var disposition = outcome.Queued
+            ? "queued"
+            : outcome.AlreadyRunning
+                ? "already requested"
+                : "started";
         _logger.LogInformation(
-            "[GameDetection] {RunKind} detection skipped: active {ActiveType} operation ({ActiveId}) holds the heavy-op slot",
-            runKind, conflict.ActiveOperationType, conflict.ActiveOperationId);
-        return true;
+            "[GameDetection] {RunKind} detection {Disposition} (operation: {OperationId})",
+            runKind,
+            disposition,
+            outcome.OperationId);
     }
 
     protected override string ServiceName => "GameDetection";
@@ -133,13 +155,8 @@ public class GameDetectionService : ScheduledBackgroundService
                 return;
             }
 
-            if (await IsBlockedByActiveOperationAsync("Startup", stoppingToken))
-            {
-                return;
-            }
-
-            _logger.LogInformation("[GameDetection] No cached game detection data found, starting incremental detection scan");
-            await _detectionService.StartDetectionAsync(incremental: true);
+            _logger.LogInformation("[GameDetection] No cached game detection data found, requesting incremental detection scan");
+            await QueueDetectionAsync("Startup", stoppingToken);
         }
         catch (OperationCanceledException)
         {
@@ -155,13 +172,8 @@ public class GameDetectionService : ScheduledBackgroundService
     {
         try
         {
-            if (await IsBlockedByActiveOperationAsync("Scheduled", stoppingToken))
-            {
-                return;
-            }
-
-            _logger.LogInformation("[GameDetection] Running scheduled game detection scan");
-            await _detectionService.StartDetectionAsync(incremental: true);
+            _logger.LogInformation("[GameDetection] Requesting scheduled game detection scan");
+            await QueueDetectionAsync("Scheduled", stoppingToken);
         }
         catch (Exception ex)
         {

@@ -32,7 +32,12 @@ public sealed class OperationQueueService : IOperationQueue
         public required ConflictScope Scope { get; init; }
         public required string Name { get; init; }
         public required Func<Task<Guid?>> Start { get; init; }
+        public required long Sequence { get; init; }
+        public int PromotionRefusals { get; set; }
     }
+
+    private const int MaxPromotionRefusals = 300;
+    private static readonly TimeSpan _promotionRetryDelay = TimeSpan.FromMilliseconds(100);
 
     private readonly IUnifiedOperationTracker _tracker;
     private readonly IOperationConflictChecker _conflictChecker;
@@ -42,6 +47,7 @@ public sealed class OperationQueueService : IOperationQueue
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _sync = new();
     private readonly List<Waiter> _waiters = new();
+    private long _nextSequence;
 
     public OperationQueueService(
         IUnifiedOperationTracker tracker,
@@ -93,6 +99,7 @@ public sealed class OperationQueueService : IOperationQueue
             // committed - in that case start immediately instead of parking forever.
             var conflict = await _conflictChecker.CheckAsync(type, scope, ct);
 
+            var retryAfterParking = false;
             if (conflict == null)
             {
                 var startedId = await start();
@@ -106,18 +113,13 @@ public sealed class OperationQueueService : IOperationQueue
                     };
                 }
 
-                // The start path internally refused (its own state says something is running).
-                return new QueuedOperationResponse
-                {
-                    OperationId = Guid.Empty,
-                    Queued = false,
-                    AlreadyRunning = true,
-                    Status = "alreadyRunning"
-                };
+                // A local service gate can briefly outlive the tracker operation that owned it.
+                // Preserve this request as a real waiter and let the bounded promotion retry
+                // acquire that gate after the previous worker finishes unwinding.
+                retryAfterParking = true;
             }
-
             // Identical op already ACTIVE -> idempotent accept (never rejected, never doubled).
-            if (conflict.StageKey == "errors.conflict.duplicate"
+            else if (conflict.StageKey == "errors.conflict.duplicate"
                 && conflict.ActiveOperationId is { } activeId && activeId != Guid.Empty
                 && string.Equals(
                     _tracker.GetOperation(activeId)?.Name,
@@ -143,15 +145,17 @@ public sealed class OperationQueueService : IOperationQueue
                 displayName,
                 cts,
                 onTerminalCleanup: () => RemoveWaiter(waitingId),
-                onTerminalEmit: info => info.Success
-                    // Promotion: silent handover - the promoted op's own Started event
-                    // replaces the waiting card.
-                    ? Task.CompletedTask
-                    // Cancelled from the card / failed to start at promotion: tell the
-                    // frontend so the purple card terminates instead of lingering.
-                    : _notifications.NotifyAllAsync(
-                        SignalREvents.OperationWaitingComplete,
-                        new OperationWaitingCompleteNotification(waitingId, typeWire, info.Cancelled, info.Error)),
+                // Always close the waiting-card lifecycle. Usually the promoted op's Started
+                // event has already replaced the card; Promoted also handles intentionally
+                // silent scheduled operations by removing their purple card at handoff.
+                onTerminalEmit: info => _notifications.NotifyAllAsync(
+                    SignalREvents.OperationWaitingComplete,
+                    new OperationWaitingCompleteNotification(
+                        waitingId,
+                        typeWire,
+                        info.Cancelled,
+                        info.Error,
+                        Promoted: info.Success)),
                 initialStatus: OperationStatus.Waiting);
 
             // A waiting op has no worker, so the queue is its worker: when the universal
@@ -169,17 +173,34 @@ public sealed class OperationQueueService : IOperationQueue
                     Type = type,
                     Scope = scope,
                     Name = displayName,
-                    Start = start
+                    Start = start,
+                    Sequence = Interlocked.Increment(ref _nextSequence)
                 });
             }
 
-            _logger.LogInformation(
-                "Queued {Type} '{Name}' ({Id}) behind active {ActiveType} ({ActiveId})",
-                type, displayName, waitingId, conflict.ActiveOperationType, conflict.ActiveOperationId);
+            if (conflict == null)
+            {
+                _logger.LogInformation(
+                    "Queued {Type} '{Name}' ({Id}) after its local start gate temporarily refused",
+                    type,
+                    displayName,
+                    waitingId);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Queued {Type} '{Name}' ({Id}) behind active {ActiveType} ({ActiveId})",
+                    type, displayName, waitingId, conflict.ActiveOperationType, conflict.ActiveOperationId);
+            }
 
             await _notifications.NotifyAllAsync(
                 SignalREvents.OperationWaiting,
                 new OperationWaitingNotification(waitingId, typeWire, displayName));
+
+            if (retryAfterParking)
+            {
+                _ = PromoteAfterRetryDelayAsync();
+            }
 
             return new QueuedOperationResponse
             {
@@ -208,6 +229,12 @@ public sealed class OperationQueueService : IOperationQueue
         }
     }
 
+    private async Task PromoteAfterRetryDelayAsync()
+    {
+        await Task.Delay(_promotionRetryDelay);
+        await PromoteEligibleAsync();
+    }
+
     /// <summary>
     /// Promote every waiter whose conflicts have cleared, in FIFO order. Each promoted start
     /// is AWAITED before evaluating the next waiter so the newly-registered operation is
@@ -219,6 +246,7 @@ public sealed class OperationQueueService : IOperationQueue
     {
         try
         {
+            var retryRequested = false;
             await _gate.WaitAsync();
             try
             {
@@ -268,22 +296,76 @@ public sealed class OperationQueueService : IOperationQueue
                         _logger.LogInformation(
                             "Promoted queued {Type} '{Name}': waiting op {WaitingId} -> running op {NewId}",
                             waiter.Type, waiter.Name, waiter.WaitingId, startedId.Value);
-                        // Silent success handover (onTerminalEmit emits nothing for Success).
+                        // Successful handoff emits Promoted=true; the frontend keeps a running
+                        // replacement card or removes the waiting card for a silent operation.
                         _tracker.CompleteOperation(waiter.WaitingId, success: true);
+                    }
+                    else if (startError == null)
+                    {
+                        // A start path may have a short-lived local gate that outlives its tracker
+                        // operation while the old worker unwinds. Keep the real waiting operation
+                        // parked and retry outside the global queue mutex instead of dropping the
+                        // scheduled request or blocking every enqueue call inside waiter.Start().
+                        var requeued = false;
+                        var retryLimitReached = false;
+                        lock (_sync)
+                        {
+                            if (_tracker.GetOperation(waiter.WaitingId)?.Status == OperationStatus.Waiting)
+                            {
+                                waiter.PromotionRefusals++;
+                                if (waiter.PromotionRefusals <= MaxPromotionRefusals)
+                                {
+                                    _waiters.Add(waiter);
+                                    _waiters.Sort(static (left, right) => left.Sequence.CompareTo(right.Sequence));
+                                    requeued = true;
+                                }
+                                else
+                                {
+                                    retryLimitReached = true;
+                                }
+                            }
+                        }
+
+                        if (requeued)
+                        {
+                            retryRequested = true;
+                            _logger.LogDebug(
+                                "Queued {Type} '{Name}' temporarily refused promotion; retry {Attempt}/{MaxAttempts}",
+                                waiter.Type,
+                                waiter.Name,
+                                waiter.PromotionRefusals,
+                                MaxPromotionRefusals);
+                            break;
+                        }
+
+                        if (retryLimitReached)
+                        {
+                            _tracker.CompleteOperation(
+                                waiter.WaitingId,
+                                success: false,
+                                error: "Queued operation could not acquire its local start gate");
+                        }
+                        // Otherwise the waiting operation was cancelled while promotion was in
+                        // flight; its cancellation path already completed the card.
                     }
                     else
                     {
-                        // Failed start -> terminal emit notifies the frontend card (failed state).
+                        // An actual start exception is terminal; notify the frontend card.
                         _tracker.CompleteOperation(
                             waiter.WaitingId,
                             success: false,
-                            error: startError ?? "Queued operation failed to start");
+                            error: startError);
                     }
                 }
             }
             finally
             {
                 _gate.Release();
+            }
+
+            if (retryRequested)
+            {
+                _ = PromoteAfterRetryDelayAsync();
             }
         }
         catch (Exception ex)

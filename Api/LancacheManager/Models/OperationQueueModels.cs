@@ -8,13 +8,14 @@ namespace LancacheManager.Models;
 public record OperationWaitingNotification(Guid OperationId, string OperationType, string Name);
 
 /// <summary>
-/// SignalR payload emitted when a WAITING operation terminates WITHOUT being promoted
-/// (cancelled from the card, or its start delegate failed at promotion time).
-/// Promotion itself emits nothing here - the promoted operation's own Started event
-/// replaces the waiting card.
+/// SignalR payload emitted when a WAITING operation terminates. A promoted operation normally
+/// replaces the waiting card with its own Started event; the explicit <see cref="Promoted"/>
+/// flag also lets the frontend remove the waiting card when the promoted operation is intentionally
+/// notification-silent.
 /// </summary>
 public record OperationWaitingCompleteNotification(
     Guid OperationId,
     string OperationType,
     bool Cancelled,
-    string? Error = null);
+    string? Error = null,
+    bool Promoted = false);

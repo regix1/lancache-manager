@@ -1,8 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
-using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
-using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -15,8 +13,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
 {
     private readonly CacheManagementService _cacheService;
     private readonly IPathResolver _pathResolver;
-    private readonly ISignalRNotificationService _notifications;
-    private readonly IOperationConflictChecker _conflictChecker;
+    private readonly IOperationQueue _operationQueue;
     private readonly TimeSpan _defaultInterval;
 
     protected override string ServiceName => "CacheSizeScan";
@@ -29,8 +26,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
     public CacheSizeScanScheduledService(
         CacheManagementService cacheService,
         IPathResolver pathResolver,
-        ISignalRNotificationService notifications,
-        IOperationConflictChecker conflictChecker,
+        IOperationQueue operationQueue,
         IStateService stateService,
         ILogger<CacheSizeScanScheduledService> logger,
         IConfiguration configuration)
@@ -38,8 +34,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
     {
         _cacheService = cacheService;
         _pathResolver = pathResolver;
-        _notifications = notifications;
-        _conflictChecker = conflictChecker;
+        _operationQueue = operationQueue;
         _defaultInterval = TimeSpan.FromHours(configuration.GetValue("CacheSizeScan:IntervalHours", 24));
         LoadStateOverrides(stateService);
     }
@@ -67,50 +62,42 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
             return;
         }
 
-        // Defer to heavy cache operations already in flight (removals, eviction scan, cache
-        // clear): scanning while they mutate the cache would skew the result and thrash the
-        // disk. The reverse direction (new heavy ops blocked while the scan runs) is enforced
-        // by OperationConflictChecker at the controllers.
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.CacheSizeScan,
-            ConflictScope.Bulk(),
-            stoppingToken);
-        if (conflict != null)
-        {
-            _logger.LogInformation(
-                "[CacheSizeScan] Skipping cache file scan (trigger: {Trigger}) - blocked by active {ActiveType}",
-                trigger,
-                conflict.ActiveOperationType);
-            return;
-        }
-
         try
         {
-            _logger.LogInformation("[CacheSizeScan] Starting cache file scan (trigger: {Trigger})", trigger);
-            var result = await _cacheService.GetCacheSizeAsync(force: true, datasource: null, cancellationToken: stoppingToken);
-            if (result == null || result.IsCached)
-            {
-                // GetCacheSizeAsync preserves the last good value when a forced scan fails. A
-                // cached fallback is therefore not a successful scheduled refresh and must not
-                // emit CacheScanComplete; the normal scheduling loop will try again next time.
-                _logger.LogWarning(
-                    "[CacheSizeScan] Cache file scan did not produce a fresh result (trigger: {Trigger}); will retry at the next scheduled time",
-                    trigger);
-                return;
-            }
+            Task<Guid?> StartScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync();
 
-            _logger.LogInformation(
-                "[CacheSizeScan] Completed: {FileCount} files, {TotalGb:F2} GB (trigger: {Trigger})",
-                result.TotalFiles,
-                result.TotalBytes / 1_073_741_824.0,
-                trigger);
-            await _notifications.NotifyAllAsync(
-                SignalREvents.CacheScanComplete,
-                new SignalRNotifications.CacheScanComplete(Success: true));
+            var outcome = await _operationQueue.EnqueueAsync(
+                OperationType.CacheSizeScan,
+                ConflictScope.Bulk(),
+                "Cache File Scan",
+                StartScanAsync,
+                stoppingToken);
+
+            if (outcome.Queued)
+            {
+                _logger.LogInformation(
+                    "[CacheSizeScan] Cache file scan queued (trigger: {Trigger}, waiting operation: {OperationId})",
+                    trigger,
+                    outcome.OperationId);
+            }
+            else if (outcome.AlreadyRunning)
+            {
+                _logger.LogInformation(
+                    "[CacheSizeScan] Cache file scan already requested (trigger: {Trigger}, operation: {OperationId})",
+                    trigger,
+                    outcome.OperationId);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "[CacheSizeScan] Cache file scan started (trigger: {Trigger}, operation: {OperationId})",
+                    trigger,
+                    outcome.OperationId);
+            }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            _logger.LogInformation("[CacheSizeScan] Scan cancelled (trigger: {Trigger})", trigger);
+            _logger.LogInformation("[CacheSizeScan] Scan request cancelled (trigger: {Trigger})", trigger);
         }
         catch (Exception ex)
         {

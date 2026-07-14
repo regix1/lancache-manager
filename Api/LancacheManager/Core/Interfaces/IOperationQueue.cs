@@ -5,10 +5,10 @@ namespace LancacheManager.Core.Interfaces;
 /// <summary>
 /// Thin wait-queue gate in front of the existing operation start paths.
 ///
-/// Controllers keep their own <see cref="Services.IOperationConflictChecker"/> pre-check; when it
-/// reports a conflict they call <see cref="EnqueueAsync"/> instead of returning 409. The
-/// queue re-checks under its promotion mutex (the blocker may have finished before the
-/// enqueue committed), deduplicates identical requests, or parks the operation as a
+/// Callers may enter the queue directly to atomically check-and-start, or after their own
+/// <see cref="Services.IOperationConflictChecker"/> pre-check. The queue re-checks under its
+/// promotion mutex (the blocker may have finished before the enqueue committed), deduplicates
+/// identical requests, or parks the operation as a
 /// tracker-registered <see cref="OperationStatus.Waiting"/> op. When any operation reaches
 /// a terminal state (tracker's OperationTerminal hook - fires for success, failure, cancel
 /// AND force-kill alike) the queue promotes eligible waiters FIFO by invoking the stored
@@ -20,7 +20,7 @@ namespace LancacheManager.Core.Interfaces;
 public interface IOperationQueue
 {
     /// <summary>
-    /// Park (or deduplicate, or immediately start) an operation that hit a conflict.
+    /// Atomically start, park, or deduplicate an operation according to the current conflicts.
     /// </summary>
     /// <param name="type">Operation type (conflict-matrix identity).</param>
     /// <param name="scope">Conflict scope (bulk / service / entity).</param>
