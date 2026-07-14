@@ -5944,6 +5944,61 @@
           "label": "错误图标（关键状态）",
           "description": "错误/关键状态图标背景",
           "affects": ["错误指示", "关键状态图标"]
+        },
+        "iconBlueMuted": {
+          "label": "蓝色图标光晕",
+          "description": "展开时蓝色区块图标背后的阴影光晕",
+          "affects": ["展开手风琴图标光晕（蓝色）"]
+        },
+        "iconGreenMuted": {
+          "label": "绿色图标光晕",
+          "description": "展开时绿色区块图标背后的阴影光晕",
+          "affects": ["展开手风琴图标光晕（绿色）"]
+        },
+        "iconEmeraldMuted": {
+          "label": "祖母绿图标光晕",
+          "description": "展开时祖母绿区块图标背后的阴影光晕",
+          "affects": ["展开手风琴图标光晕（祖母绿）"]
+        },
+        "iconPurpleMuted": {
+          "label": "紫色图标光晕",
+          "description": "展开时紫色区块图标背后的阴影光晕",
+          "affects": ["展开手风琴图标光晕（紫色）"]
+        },
+        "iconIndigoMuted": {
+          "label": "靛蓝图标光晕",
+          "description": "展开时靛蓝区块图标背后的阴影光晕",
+          "affects": ["展开手风琴图标光晕（靛蓝）"]
+        },
+        "iconOrangeMuted": {
+          "label": "橙色图标光晕",
+          "description": "展开时橙色区块图标背后的阴影光晕",
+          "affects": ["展开手风琴图标光晕（橙色）"]
+        },
+        "iconYellowMuted": {
+          "label": "黄色图标光晕",
+          "description": "展开时黄色区块图标背后的阴影光晕",
+          "affects": ["展开手风琴图标光晕（黄色）"]
+        },
+        "iconCyanMuted": {
+          "label": "青色图标光晕",
+          "description": "展开时青色区块图标背后的阴影光晕",
+          "affects": ["展开手风琴图标光晕（青色）"]
+        },
+        "iconTealMuted": {
+          "label": "蓝绿色图标光晕",
+          "description": "展开时蓝绿色区块图标背后的阴影光晕",
+          "affects": ["展开手风琴图标光晕（蓝绿色）"]
+        },
+        "iconRedMuted": {
+          "label": "红色图标光晕",
+          "description": "展开时红色区块图标背后的阴影光晕",
+          "affects": ["展开手风琴图标光晕（红色）"]
+        },
+        "iconGrayMuted": {
+          "label": "灰色图标光晕",
+          "description": "展开时灰色区块图标背后的阴影光晕",
+          "affects": ["展开手风琴图标光晕（灰色）"]
         }
       }
     }

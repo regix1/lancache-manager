@@ -5975,6 +5975,61 @@
           "label": "Error Icon (Critical States)",
           "description": "Background for error/critical icons",
           "affects": ["Error indicators", "Critical state icons"]
+        },
+        "iconBlueMuted": {
+          "label": "Blue Icon Glow",
+          "description": "Shadow glow behind blue section icons when expanded",
+          "affects": ["Expanded accordion icon glow (blue)"]
+        },
+        "iconGreenMuted": {
+          "label": "Green Icon Glow",
+          "description": "Shadow glow behind green section icons when expanded",
+          "affects": ["Expanded accordion icon glow (green)"]
+        },
+        "iconEmeraldMuted": {
+          "label": "Emerald Icon Glow",
+          "description": "Shadow glow behind emerald section icons when expanded",
+          "affects": ["Expanded accordion icon glow (emerald)"]
+        },
+        "iconPurpleMuted": {
+          "label": "Purple Icon Glow",
+          "description": "Shadow glow behind purple section icons when expanded",
+          "affects": ["Expanded accordion icon glow (purple)"]
+        },
+        "iconIndigoMuted": {
+          "label": "Indigo Icon Glow",
+          "description": "Shadow glow behind indigo section icons when expanded",
+          "affects": ["Expanded accordion icon glow (indigo)"]
+        },
+        "iconOrangeMuted": {
+          "label": "Orange Icon Glow",
+          "description": "Shadow glow behind orange section icons when expanded",
+          "affects": ["Expanded accordion icon glow (orange)"]
+        },
+        "iconYellowMuted": {
+          "label": "Yellow Icon Glow",
+          "description": "Shadow glow behind yellow section icons when expanded",
+          "affects": ["Expanded accordion icon glow (yellow)"]
+        },
+        "iconCyanMuted": {
+          "label": "Cyan Icon Glow",
+          "description": "Shadow glow behind cyan section icons when expanded",
+          "affects": ["Expanded accordion icon glow (cyan)"]
+        },
+        "iconTealMuted": {
+          "label": "Teal Icon Glow",
+          "description": "Shadow glow behind teal section icons when expanded",
+          "affects": ["Expanded accordion icon glow (teal)"]
+        },
+        "iconRedMuted": {
+          "label": "Red Icon Glow",
+          "description": "Shadow glow behind red section icons when expanded",
+          "affects": ["Expanded accordion icon glow (red)"]
+        },
+        "iconGrayMuted": {
+          "label": "Gray Icon Glow",
+          "description": "Shadow glow behind gray section icons when expanded",
+          "affects": ["Expanded accordion icon glow (gray)"]
         }
       }
     }

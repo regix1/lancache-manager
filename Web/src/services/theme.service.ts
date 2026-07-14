@@ -777,7 +777,17 @@ class ThemeService {
       --theme-icon-teal-subtle: ${v('iconTealSubtle', rgba(iconTeal, 0.15))};
       --theme-icon-red-subtle: ${v('iconRedSubtle', rgba(iconRed, 0.15))};
       --theme-icon-gray-subtle: ${v('iconGraySubtle', rgba(iconGray, 0.15))};
+      --theme-icon-blue-muted: ${v('iconBlueMuted', rgba(iconBlue, 0.2))};
+      --theme-icon-green-muted: ${v('iconGreenMuted', rgba(iconGreen, 0.2))};
+      --theme-icon-emerald-muted: ${v('iconEmeraldMuted', rgba(iconEmerald, 0.2))};
+      --theme-icon-purple-muted: ${v('iconPurpleMuted', rgba(iconPurple, 0.2))};
+      --theme-icon-indigo-muted: ${v('iconIndigoMuted', rgba(iconIndigo, 0.2))};
+      --theme-icon-orange-muted: ${v('iconOrangeMuted', rgba(iconOrange, 0.2))};
+      --theme-icon-yellow-muted: ${v('iconYellowMuted', rgba(iconYellow, 0.2))};
+      --theme-icon-cyan-muted: ${v('iconCyanMuted', rgba(iconCyan, 0.2))};
+      --theme-icon-teal-muted: ${v('iconTealMuted', rgba(iconTeal, 0.2))};
       --theme-icon-red-muted: ${v('iconRedMuted', rgba(iconRed, 0.2))};
+      --theme-icon-gray-muted: ${v('iconGrayMuted', rgba(iconGray, 0.2))};
       --theme-icon-purple-faint: ${v('iconPurpleFaint', rgba(iconPurple, 0.1))};
 
       /* Button/Action */

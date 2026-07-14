@@ -887,7 +887,18 @@ export const colorGroups: ColorGroup[] = [
         supportsAlpha: true,
         pages: ['dashboard', 'events', 'management']
       },
-      { key: 'iconBgRed', supportsAlpha: true, pages: ['dashboard', 'events'] }
+      { key: 'iconBgRed', supportsAlpha: true, pages: ['dashboard', 'events'] },
+      { key: 'iconBlueMuted', supportsAlpha: true, pages: ['management'] },
+      { key: 'iconGreenMuted', supportsAlpha: true, pages: ['management'] },
+      { key: 'iconEmeraldMuted', supportsAlpha: true, pages: ['management'] },
+      { key: 'iconPurpleMuted', supportsAlpha: true, pages: ['management'] },
+      { key: 'iconIndigoMuted', supportsAlpha: true, pages: ['management'] },
+      { key: 'iconOrangeMuted', supportsAlpha: true, pages: ['management'] },
+      { key: 'iconYellowMuted', supportsAlpha: true, pages: ['management'] },
+      { key: 'iconCyanMuted', supportsAlpha: true, pages: ['management'] },
+      { key: 'iconTealMuted', supportsAlpha: true, pages: ['management'] },
+      { key: 'iconRedMuted', supportsAlpha: true, pages: ['management'] },
+      { key: 'iconGrayMuted', supportsAlpha: true, pages: ['management'] }
     ]
   }
 ];
