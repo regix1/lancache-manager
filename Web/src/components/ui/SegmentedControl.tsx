@@ -31,18 +31,21 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
 }) => {
   const sizeClasses = {
     sm: {
-      container: 'p-[3px]',
-      // min-h-6 (24px) + the container's own border+padding (8px) = 32px, holding steady even
-      // when showLabels="responsive" drops to icon-only and there's no text line-height left
-      // to fill the button out.
-      button: 'px-2 py-1 min-h-6',
+      // Explicit container height (32px) that the buttons fill via flex stretch, instead of
+      // sizing the container off a button min-height built from stacked line-height + padding
+      // + border layers. That composed height happened to equal 32px too, but each layer
+      // rounds to the nearest device pixel independently, so at non-100% OS/browser zoom the
+      // container and an adjacent fixed-height control (e.g. the toggle button next to it)
+      // could round to different pixel heights and appear misaligned by a hair. A single
+      // explicit height has nothing left to round differently.
+      container: 'p-[3px] h-8',
+      button: 'px-2 py-1',
       icon: 14,
       text: 'text-xs'
     },
     md: {
-      container: 'p-[3px]',
-      // min-h-8 (32px) + the container's own border+padding (8px) = 40px, same reasoning as sm.
-      button: 'px-3 py-[6px] min-h-8',
+      container: 'p-[3px] h-10',
+      button: 'px-3 py-[6px]',
       icon: 14,
       text: 'text-sm'
     }
