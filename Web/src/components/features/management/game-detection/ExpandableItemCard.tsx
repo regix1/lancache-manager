@@ -6,7 +6,6 @@ import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Tooltip } from '@components/ui/Tooltip';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { GameImage } from '../../../common/GameImage';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
@@ -31,7 +30,6 @@ interface ExpandableItemCardProps {
   stats: ExpandableItemStat[];
   datasources?: string[];
   isExpanded: boolean;
-  isExpanding: boolean;
   isRemoving: boolean;
   isAdmin: boolean;
   dockerSocketAvailable: boolean;
@@ -58,7 +56,6 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   stats,
   datasources,
   isExpanded,
-  isExpanding,
   isRemoving,
   isAdmin,
   dockerSocketAvailable,
@@ -110,15 +107,8 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
               color="gray"
               size="sm"
               className="flex-shrink-0 min-h-[44px] sm:min-h-0"
-              disabled={isExpanding}
             >
-              {isExpanding ? (
-                <LoadingSpinner inline size="sm" />
-              ) : isExpanded ? (
-                <ChevronUp className="w-4 h-4" />
-              ) : (
-                <ChevronDown className="w-4 h-4" />
-              )}
+              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </Button>
           )}
           {showImage && (
@@ -205,19 +195,9 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
         </Tooltip>
       </div>
 
-      {/* Loading State for Expansion */}
-      {isExpanding && (
-        <div className="mgmt-row-detail flex items-center justify-center">
-          <div className="flex items-center gap-2 text-themed-muted">
-            <LoadingSpinner inline size="sm" />
-            <span className="text-sm">{t('management.gameDetection.loadingDetails')}</span>
-          </div>
-        </div>
-      )}
-
       {/* Expandable Details Section */}
       <CollapsibleRegion
-        open={hasExpandableContent && isExpanded && !isExpanding}
+        open={hasExpandableContent && isExpanded}
         contentClassName="mgmt-row-detail space-y-3"
       >
         {children}

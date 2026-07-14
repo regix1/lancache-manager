@@ -14,7 +14,6 @@ import { useIsEntityBusy } from '@hooks/useIsEntityBusy';
 interface GameCardProps {
   game: GameCacheInfo;
   isExpanded: boolean;
-  isExpanding: boolean;
   isAdmin: boolean;
   dockerSocketAvailable: boolean;
   onToggleDetails: (gameId: string) => void;
@@ -31,7 +30,6 @@ const MAX_INITIAL_URLS = 20;
 const GameCard: React.FC<GameCardProps> = ({
   game,
   isExpanded,
-  isExpanding,
   isAdmin,
   dockerSocketAvailable,
   onToggleDetails,
@@ -159,7 +157,6 @@ const GameCard: React.FC<GameCardProps> = ({
         stats={stats}
         datasources={game.datasources}
         isExpanded={isExpanded}
-        isExpanding={isExpanding}
         isRemoving={isRemoving}
         isAdmin={isAdmin}
         dockerSocketAvailable={dockerSocketAvailable}

@@ -52,7 +52,6 @@ const ServicesList: React.FC<ServicesListProps> = ({
         <ServiceCard
           service={service}
           isExpanded={state.isExpanded}
-          isExpanding={state.isExpanding}
           isAdmin={isAdmin}
           dockerSocketAvailable={dockerSocketAvailable}
           onToggleDetails={state.onToggleDetails}

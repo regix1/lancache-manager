@@ -12,7 +12,6 @@ import { useIsEntityBusy } from '@hooks/useIsEntityBusy';
 interface ServiceCardProps {
   service: ServiceCacheInfo;
   isExpanded: boolean;
-  isExpanding: boolean;
   isAdmin: boolean;
   dockerSocketAvailable: boolean;
   onToggleDetails: (serviceName: string) => void;
@@ -29,7 +28,6 @@ const MAX_INITIAL_URLS = 20;
 const ServiceCard: React.FC<ServiceCardProps> = ({
   service,
   isExpanded,
-  isExpanding,
   isAdmin,
   dockerSocketAvailable,
   onToggleDetails,
@@ -89,7 +87,6 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
       stats={stats}
       datasources={service.datasources}
       isExpanded={isExpanded}
-      isExpanding={isExpanding}
       isRemoving={isRemoving}
       isAdmin={isAdmin}
       dockerSocketAvailable={dockerSocketAvailable}

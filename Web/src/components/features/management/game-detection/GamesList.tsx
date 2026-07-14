@@ -58,7 +58,6 @@ const GamesList: React.FC<GamesListProps> = ({
         <GameCard
           game={game}
           isExpanded={state.isExpanded}
-          isExpanding={state.isExpanding}
           isAdmin={isAdmin}
           dockerSocketAvailable={dockerSocketAvailable}
           onToggleDetails={state.onToggleDetails}

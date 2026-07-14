@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
 import '../managementSectionContent.css';
@@ -12,7 +12,6 @@ import type { SelectionAdapter } from '@hooks/useSelectionSet';
 interface CacheEntityListRenderState {
   itemId: string;
   isExpanded: boolean;
-  isExpanding: boolean;
   onToggleDetails: (itemId: string) => void;
   selectable: boolean;
   selected: boolean;
@@ -32,7 +31,6 @@ interface CacheEntityListProps<TItem> {
 
 const ITEMS_PER_PAGE = 20;
 const PAGINATION_TOP_THRESHOLD = 100;
-const EXPAND_SPINNER_DELAY_MS = 50;
 
 function CacheEntityList<TItem>({
   items,
@@ -50,17 +48,6 @@ function CacheEntityList<TItem>({
   const isCacheRemovalActive = useCacheRemovalActive();
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
-  const [expandingItemId, setExpandingItemId] = useState<string | null>(null);
-  const expandTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (expandTimeoutRef.current !== null) {
-        clearTimeout(expandTimeoutRef.current);
-      }
-    },
-    []
-  );
 
   const filteredAndSortedItems = useMemo(
     () => filterAndSortItems(items, searchQuery),
@@ -90,28 +77,9 @@ function CacheEntityList<TItem>({
     resetKey: searchQuery
   });
 
-  const toggleItemDetails = useCallback(
-    (itemId: string) => {
-      if (expandTimeoutRef.current !== null) {
-        clearTimeout(expandTimeoutRef.current);
-        expandTimeoutRef.current = null;
-      }
-
-      if (expandedItemId === itemId) {
-        setExpandedItemId(null);
-        setExpandingItemId(null);
-        return;
-      }
-
-      setExpandingItemId(itemId);
-      expandTimeoutRef.current = setTimeout(() => {
-        setExpandedItemId(itemId);
-        setExpandingItemId(null);
-        expandTimeoutRef.current = null;
-      }, EXPAND_SPINNER_DELAY_MS);
-    },
-    [expandedItemId]
-  );
+  const toggleItemDetails = useCallback((itemId: string) => {
+    setExpandedItemId((prev) => (prev === itemId ? null : itemId));
+  }, []);
 
   if (items.length === 0) {
     return null;
@@ -186,7 +154,6 @@ function CacheEntityList<TItem>({
                   {renderItem(item, {
                     itemId,
                     isExpanded: expandedItemId === itemId,
-                    isExpanding: expandingItemId === itemId,
                     onToggleDetails: toggleItemDetails,
                     selectable: !!selection,
                     selected: selection ? selection.isSelected(itemId) : false,
