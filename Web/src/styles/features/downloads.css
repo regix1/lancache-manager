@@ -1256,9 +1256,12 @@
     gap: 0.2rem;
   }
 
-  /* Make dropdown triggers match pill button sizing */
+  /* Make dropdown triggers match pill button sizing. `height: auto` reclaims the box from
+     EnhancedDropdown's desktop size-prop h-* utility (min-height:0 alone no longer shrinks
+     it now that the trigger has an explicit height rather than an emergent one). */
   .session-filter-bar .msd-trigger,
   .session-filter-bar .ed-trigger {
+    height: auto;
     padding: 0.2rem 0.5rem;
     font-size: var(--font-size-xs);
     font-weight: 500;

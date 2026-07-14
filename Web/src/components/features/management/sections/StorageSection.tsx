@@ -719,7 +719,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
             <Button
               variant="filled"
               color="gray"
-              size="sm"
+              size="md"
               onClick={handleRecheckPermissions}
               disabled={isRechecking}
             >

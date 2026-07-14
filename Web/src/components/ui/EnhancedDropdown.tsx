@@ -229,16 +229,17 @@ interface EnhancedDropdownProps {
   /** Trigger button style variant. 'card' = dark card bg (default, for headers/nav). 'button' = matches Button component (lighter, for toolbars). */
   variant?: 'card' | 'button';
   /**
-   * Trigger height. Canonical control-height matrix, measured via getBoundingClientRect
-   * (not CSS math - a prior version of this comment claimed 'lg' ≈ 40px when it actually
-   * measured 42px, which is exactly the kind of drift this prop exists to prevent):
-   *   Button md (`px-4 py-2`) = 40px · Button sm (`px-3 py-1.5 text-sm`) = 32px ·
-   *   EnhancedDropdown 'md' (`px-3 py-[9px] border`) = 40px, height-matched to Button md ·
-   *   EnhancedDropdown 'sm' (`px-3 py-1.5 border`) = 34px · EnhancedDropdown 'lg' (`px-3 py-2.5 border`) = 42px.
-   * 'md' (default) is now height-matched to Button md/SegmentedControl md (all = 40px) - this
-   * used to be the historical ~38px trigger; that value still exists at 'sm'-adjacent but is no
-   * longer the default. 'lg' is kept as-is (42px) for any call site that was relying on the
-   * taller trigger; re-measure before assuming it matches anything else.
+   * Trigger height (desktop). Explicit per size - these used to be padding-only classes
+   * (`py-1.5`/`py-[9px]`/`py-2.5`) whose actual height was an emergent sum of padding +
+   * border + line-height, verified to equal the values below via getBoundingClientRect but
+   * with nothing stopping it drifting a device-pixel from an adjacent explicit-height
+   * control (the same flaw fixed in SegmentedControl/ToggleSwitch). Now a fixed `h-*`:
+   *   sm = 34px · md (default) = 40px, height-matched to Button md/SegmentedControl md ·
+   *   lg = 42px (kept for any call site relying on the taller trigger; not matched to
+   *   anything else in the app's size scale).
+   * Below the 640px/400px breakpoints, dropdowns.css overrides `.ed-trigger` back to
+   * `height: auto` and shrinks the padding instead - mobile intentionally renders shorter
+   * than any of these three values, so it isn't pinned to them.
    */
   size?: 'sm' | 'md' | 'lg';
 }
@@ -507,10 +508,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       : placeholder || t('ui.dropdown.selectOption');
   const TriggerIcon = TriggerIconOverride ?? selectedOption?.icon;
   const resolvedAriaLabel = triggerAriaLabel || displayLabel;
-  // Size → trigger vertical padding (height matrix in the `size` prop doc above).
-  // 'md' resolves to 40px, height-matched to Button md / SegmentedControl md (2026-06-30 global
-  // control-height unification - every existing call site without an explicit size shifts ~2px).
-  const triggerSizeClass = size === 'sm' ? 'py-1.5' : size === 'lg' ? 'py-2.5' : 'py-[9px]';
+  // Size → explicit trigger height (height matrix in the `size` prop doc above). `items-center`
+  // on the button centers the icon/label/chevron within it, same as Button/SegmentedControl.
+  const triggerSizeClass = size === 'sm' ? 'h-[34px]' : size === 'lg' ? 'h-[42px]' : 'h-10';
 
   // While closing, swap the entrance keyframe for its exit mirror in the same
   // direction. Both directions are anchored by `top`, so the side the menu opened

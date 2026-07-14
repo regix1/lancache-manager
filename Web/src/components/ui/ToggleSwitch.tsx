@@ -61,9 +61,19 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
     return colorMap[option.activeColor || 'default'];
   };
 
+  // Explicit height (matches Button's same-named size: sm=32px/h-8, md=40px/h-10) that the
+  // option spans fill via flex stretch, instead of sizing the button off each span's own
+  // padding + line-height. A composed height can round to a different device pixel than an
+  // adjacent fixed-height Button of the "same" size at non-100% OS/browser zoom - see the
+  // identical fix on SegmentedControl.
   const sizeClasses = {
-    sm: 'px-3 py-1.5 text-xs',
-    md: 'px-4 py-2 text-sm'
+    sm: 'h-8',
+    md: 'h-10'
+  };
+
+  const textClasses = {
+    sm: 'px-3 text-xs',
+    md: 'px-4 text-sm'
   };
 
   const iconSizes = {
@@ -79,7 +89,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
         onChange(options[nextIndex].value);
       }}
       disabled={disabled || loading}
-      className={`flex items-center rounded-full font-medium transition bg-themed-secondary ${
+      className={`flex items-center rounded-full font-medium transition bg-themed-secondary ${sizeClasses[size]} ${
         disabled || loading ? 'opacity-60 cursor-wait' : 'cursor-pointer'
       }`}
     >
@@ -88,7 +98,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
         return (
           <span
             key={option.value}
-            className={`flex items-center gap-1.5 ${sizeClasses[size]} rounded-full transition ${
+            className={`flex items-center justify-center gap-1.5 ${textClasses[size]} h-full rounded-full transition ${
               isActive ? 'shadow-sm' : 'text-themed-muted'
             }`}
             style={getActiveStyles(option, isActive)}

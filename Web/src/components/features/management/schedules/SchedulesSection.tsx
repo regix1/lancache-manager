@@ -757,7 +757,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         <div className="schedules-section-actions">
           <Button
             variant="filled"
-            size="sm"
+            size="md"
             onClick={handleRunAll}
             disabled={!isAdmin || runningAll || resetting}
             loading={runningAll}
@@ -767,7 +767,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           <Button
             variant="filled"
             color="yellow"
-            size="sm"
+            size="md"
             onClick={handleResetDefaults}
             disabled={!isAdmin || resetting || runningAll}
             loading={resetting}

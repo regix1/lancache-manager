@@ -385,7 +385,7 @@ const GrafanaEndpoints: React.FC = () => {
                 <Button
                   variant="filled"
                   color="gray"
-                  size="xs"
+                  size="sm"
                   disabled={metricsSecurity.source !== 'ui' || isToggling}
                   onClick={handleResetToDefault}
                   className="metrics-reset-button"

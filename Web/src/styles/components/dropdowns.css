@@ -104,12 +104,17 @@
     margin-top: 0.25rem;
   }
 
-  /* Mobile: Compact triggers with reduced padding and font size */
+  /* Mobile: Compact triggers with reduced padding and font size. `height: auto` reclaims
+     the box from the desktop size prop's explicit h-* utility (EnhancedDropdown.tsx) so
+     this padding/line-height combination drives the trigger's height again instead of
+     being pinned to the (taller) desktop value - !important matches this selector's own
+     convention above for reliably beating a Tailwind utility class. */
   @media (max-width: 640px) {
     .ed-trigger {
       flex-shrink: 1;
       min-width: 0;
       max-width: 100%;
+      height: auto !important;
       padding: 0.375rem 0.5rem;
       font-size: var(--font-size-sm);
       line-height: 1.25;
