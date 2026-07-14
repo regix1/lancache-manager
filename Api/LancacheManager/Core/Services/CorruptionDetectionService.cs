@@ -191,8 +191,7 @@ public class CorruptionDetectionService
             "--state-db",
             stateDatabasePath,
             "--state-scope",
-            stateScope,
-            "--progress"
+            stateScope
         ];
 
     internal static string DetectionOperationName(
@@ -515,6 +514,7 @@ public class CorruptionDetectionService
                 ? new StructuralStderrObserver(_logger, datasourceName)
                 : null;
             Action<string>? stderrLineObserver = stderrObserver == null ? null : stderrObserver.Observe;
+            var rustCancellationReported = 0;
             ProcessExecutionResult result;
             try
             {
@@ -525,6 +525,10 @@ public class CorruptionDetectionService
                     progressFile,
                     async progressData =>
                     {
+                        if (IsCancelledProgress(progressData))
+                        {
+                            Interlocked.Exchange(ref rustCancellationReported, 1);
+                        }
                         var stageKey = string.IsNullOrWhiteSpace(progressData.StageKey)
                             ? "signalr.corruptionDetect.scanning"
                             : progressData.StageKey;
@@ -554,6 +558,17 @@ public class CorruptionDetectionService
             }
 
             result.EnsureSuccess("corruption_manager", datasourceName);
+            if (Volatile.Read(ref rustCancellationReported) != 0)
+            {
+                // Structural cancellation is cooperative: Rust exits 0 after committing its
+                // resumable staging state and emits a partial report. Mark the tracker before
+                // throwing so that this terminal is classified as Cancelled, and never validate
+                // or persist the partial report as a completed scan.
+                _operationTracker.CancelOperation(operationId);
+                throw new OperationCanceledException(
+                    "corruption_manager reported cancellation",
+                    cancellationToken);
+            }
             var report = JsonSerializer.Deserialize<CorruptionReport>(result.Output, _candidateJsonOptions)
                 ?? throw new InvalidDataException(
                     $"corruption_manager returned an empty report for datasource '{datasourceName}'");
@@ -619,6 +634,9 @@ public class CorruptionDetectionService
             await _rustProcessHelper.DeleteTempFileAsync(progressFile);
         }
     }
+
+    internal static bool IsCancelledProgress(CorruptionDetectionProgressData progressData) =>
+        string.Equals(progressData.Status, "cancelled", StringComparison.OrdinalIgnoreCase);
 
     internal static void ValidateAndAttachDatasource(
         CorruptionReport report,

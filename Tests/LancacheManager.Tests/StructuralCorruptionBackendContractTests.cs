@@ -68,10 +68,13 @@ public sealed class StructuralCorruptionBackendContractTests : IDisposable
                 "--state-db",
                 statePath,
                 "--state-scope",
-                scope,
-                "--progress"
+                scope
             ],
             arguments);
+
+        // This caller polls the progress JSON file. Keeping stdout event reporting disabled
+        // reserves stdout for the single CorruptionReport consumed by JsonSerializer.
+        Assert.DoesNotContain("--progress", arguments);
 
         var helper = new RustProcessHelper(
             NullLogger<RustProcessHelper>.Instance,
@@ -83,6 +86,19 @@ public sealed class StructuralCorruptionBackendContractTests : IDisposable
         Assert.Equal(arguments.ToArray(), startInfo.ArgumentList.ToArray());
         Assert.Equal(string.Empty, startInfo.Arguments);
         Assert.False(startInfo.UseShellExecute);
+    }
+
+    [Theory]
+    [InlineData("cancelled", true)]
+    [InlineData("CANCELLED", true)]
+    [InlineData("completed", false)]
+    [InlineData("scanning", false)]
+    [InlineData("", false)]
+    public void OnlyTerminalCancelledProgressStopsPersistence(string status, bool expected)
+    {
+        var progress = new CorruptionDetectionProgressData { Status = status };
+
+        Assert.Equal(expected, CorruptionDetectionService.IsCancelledProgress(progress));
     }
 
     [Fact]
