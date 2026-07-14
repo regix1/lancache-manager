@@ -186,19 +186,16 @@
   flex-shrink: 0;
 }
 
-.mgmt-corruption-actions > button,
-.mgmt-corruption-actions > .badge-count {
-  min-height: 2.75rem;
-}
-
-/* The header action cluster keeps the shared control sizing (SectionActionsMenu
-   kebab = 40px, matching the accordion chevron and every other section header).
-   Do NOT size buttons here to 2.75rem - that inflated the shared kebab and made
-   it taller than the chevron on this section only. */
+/* Row-level corruption actions (View/Delete saved scan, remove suspect/invalid,
+   detail toggles) use Button size="xs" so they read as compact sub-row controls,
+   matching every other list row in the app. The accordion header above them keeps
+   the normal sm-sized controls (SectionActionsMenu kebab = 40px, matching the
+   accordion chevron) - do not inflate buttons in this cluster back toward that
+   size, it is what made these rows look oversized in the first place. */
 
 .mgmt-corruption-actions .mgmt-row__toggle {
-  width: 2.75rem;
-  min-width: 2.75rem;
+  width: 1.5rem;
+  min-width: 1.5rem;
   padding-right: 0;
   padding-left: 0;
 }

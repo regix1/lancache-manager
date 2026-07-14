@@ -1225,7 +1225,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                           <Button
                             variant="filled"
                             color="gray"
-                            size="sm"
+                            size="xs"
                             className="mgmt-row__toggle"
                             onClick={() => toggleDetails(service)}
                             aria-label={
@@ -1252,7 +1252,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             disabled={removalBlocked || loadingDetailsServices.has(service)}
                             variant="filled"
                             color="red"
-                            size="sm"
+                            size="xs"
                             stableWidth
                           >
                             {isRemoving

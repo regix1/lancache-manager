@@ -110,14 +110,13 @@ const HistoryRow: React.FC<HistoryRowProps> = ({
               : 'management.corruption.history.historicalBadge'
           )}
         </Badge>
-        <Button variant="filled" color="gray" size="sm" className="min-h-11" onClick={onView}>
+        <Button variant="filled" color="gray" size="xs" onClick={onView}>
           {t('management.corruption.history.view')}
         </Button>
         <Button
           variant="filled"
           color="red"
-          size="sm"
-          className="min-h-11"
+          size="xs"
           stableWidth
           loading={deleting}
           disabled={deleteDisabled}
@@ -434,7 +433,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
                           <Button
                             variant="filled"
                             color="gray"
-                            size="sm"
+                            size="xs"
                             className="mgmt-row__toggle"
                             onClick={() => toggleDetailService(service)}
                             aria-label={
