@@ -1787,7 +1787,7 @@ const DownloadsTab: React.FC = () => {
                           variant="filled"
                           color="gray"
                           size="md"
-                          className="!p-0 w-10 h-10 justify-center"
+                          className="!p-0 w-10 h-10 justify-center rounded-[var(--theme-border-radius)]"
                           onClick={() => setShowExportOptions(!showExportOptions)}
                           disabled={exportLoading || itemsToDisplay.length === 0}
                           loading={exportLoading}
@@ -1821,7 +1821,7 @@ const DownloadsTab: React.FC = () => {
                         variant="filled"
                         color="gray"
                         size="md"
-                        className="!p-0 w-10 h-10 justify-center"
+                        className="!p-0 w-10 h-10 justify-center rounded-[var(--theme-border-radius)]"
                         onClick={() => retroViewRef.current?.resetWidths()}
                       >
                         <Maximize2 className="w-4 h-4" />
@@ -1835,7 +1835,7 @@ const DownloadsTab: React.FC = () => {
                         variant="filled"
                         color="gray"
                         size="md"
-                        className="!p-0 w-10 h-10 justify-center"
+                        className="!p-0 w-10 h-10 justify-center rounded-[var(--theme-border-radius)]"
                         onClick={handleClearImageCache}
                         disabled={imageCacheClearing}
                       >
@@ -1851,7 +1851,7 @@ const DownloadsTab: React.FC = () => {
                       variant="filled"
                       color="gray"
                       size="md"
-                      className={`downloads-settings-trigger !p-0 w-10 h-10 justify-center${settingsOpened ? ' is-active' : ''}`}
+                      className={`downloads-settings-trigger !p-0 w-10 h-10 justify-center rounded-[var(--theme-border-radius)]${settingsOpened ? ' is-active' : ''}`}
                       onClick={() => setSettingsOpened(!settingsOpened)}
                       data-settings-button="true"
                       aria-expanded={settingsOpened}

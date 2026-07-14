@@ -610,7 +610,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 aria-label={t('dashboard.downloadsPanel.showDetails')}
                 aria-pressed={showDetails}
                 leftSection={<Rows3 className="w-4 h-4" />}
-                className="min-h-10"
+                className="min-h-10 rounded-[var(--theme-border-radius)]"
               />
             </Tooltip>
           )}

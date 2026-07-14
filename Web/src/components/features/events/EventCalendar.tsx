@@ -378,7 +378,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
             variant="default"
             size="md"
             onClick={() => changeMonth(-1)}
-            className="!p-0 w-10 h-10 justify-center"
+            className="!p-0 w-10 h-10 justify-center rounded-[var(--theme-border-radius)]"
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
@@ -404,7 +404,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
             variant="default"
             size="md"
             onClick={() => changeMonth(1)}
-            className="!p-0 w-10 h-10 justify-center"
+            className="!p-0 w-10 h-10 justify-center rounded-[var(--theme-border-radius)]"
           >
             <ChevronRight className="w-4 h-4" />
           </Button>
