@@ -2695,6 +2695,7 @@ fn build_report(
     scan_started_utc: DateTime<Utc>,
     mut candidates: Vec<CorruptionCandidate>,
     coverage: StructuralCoverage,
+    cancelled: bool,
 ) -> CorruptionReport {
     candidates.sort_by(|left, right| left.exact_paths.cmp(&right.exact_paths));
     let mut service_counts = BTreeMap::new();
@@ -2703,6 +2704,7 @@ fn build_report(
     }
     CorruptionReport {
         contract_version: CORRUPTION_CONTRACT_VERSION,
+        cancelled,
         detection_method: DetectionMethod::Structural,
         scan_started_utc: scan_started_utc.to_rfc3339_opts(SecondsFormat::AutoSi, true),
         settings: CorruptionSettings {
@@ -3000,7 +3002,7 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
         }
     }
     require_complete_traversal(traversal_errors, cancelled)?;
-    let report = build_report(scan_started_utc, candidates, coverage.clone());
+    let report = build_report(scan_started_utc, candidates, coverage.clone(), cancelled);
     if cancelled && pipeline.worker_count == 0 {
         let details = progress_details(
             &mut count_telemetry,
@@ -3714,7 +3716,7 @@ mod tests {
         assert!(telemetry.peak_worker_count <= 8);
         assert!(telemetry.worker_count >= 1);
         // ...and resizing it under live workers must not lose, duplicate, or corrupt a file.
-        let adaptive = build_report(started, candidates, coverage);
+        let adaptive = build_report(started, candidates, coverage, false);
         assert_eq!(serial, adaptive);
     }
 
@@ -3851,7 +3853,7 @@ mod tests {
             }
         }
         assert_eq!(coverage.files_seen, total);
-        build_report(scan_started_utc, candidates, coverage)
+        build_report(scan_started_utc, candidates, coverage, false)
     }
 
     fn update_max(counter: &AtomicUsize, value: usize) {
@@ -3927,6 +3929,7 @@ mod tests {
         .unwrap();
 
         assert!(!result.cancelled);
+        assert!(!result.report.cancelled);
         assert!(observer.max_active.load(Ordering::SeqCst) > 1);
         assert!(observer.max_active.load(Ordering::SeqCst) <= parallelism);
         assert_eq!(result.report.coverage.as_ref().unwrap().files_seen, 16);
@@ -4140,6 +4143,7 @@ mod tests {
         .unwrap();
 
         assert!(result.cancelled);
+        assert!(result.report.cancelled);
         assert!(observer.cancellation_seen.load(Ordering::SeqCst));
         assert_eq!(
             observer.scheduled_after_cancellation.load(Ordering::SeqCst),
@@ -5129,6 +5133,7 @@ mod tests {
         })
         .unwrap();
         assert!(result.cancelled);
+        assert!(result.report.cancelled);
         assert!(checks.get() >= 2);
     }
 

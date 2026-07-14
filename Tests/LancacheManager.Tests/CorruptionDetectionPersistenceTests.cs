@@ -110,9 +110,11 @@ public sealed class CorruptionDetectionPersistenceTests
     }
 
     [Fact]
-    public void ContractV4_StrictlyRejectsUnknownFieldsKindsAndIssues()
+    public void ContractV4_StrictlyRejectsMissingAndUnknownFieldsKindsAndIssues()
     {
         var valid = JsonSerializer.Serialize(StructuralReport("default", StructuralCandidate("structural" )).Report);
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CorruptionReport>(
+            valid.Replace("\"cancelled\":false,", string.Empty, StringComparison.Ordinal)));
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CorruptionReport>(
             valid.Replace("\"total\":1", "\"unexpected\":true,\"total\":1", StringComparison.Ordinal)));
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CorruptionReport>(
@@ -242,6 +244,40 @@ public sealed class CorruptionDetectionPersistenceTests
                 }));
 
         Assert.Contains("progress summary", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CancelledReport_CannotValidateOrPersistAsCompletedAsync()
+    {
+        var report = StructuralReport("default", StructuralCandidate("structural"));
+        report.Report.Cancelled = true;
+
+        var validationError = Assert.Throws<InvalidDataException>(() =>
+            CorruptionDetectionService.ValidateAndAttachDatasource(
+                report.Report,
+                "default",
+                3,
+                LookbackDays,
+                CorruptionDetectionMethod.Structural,
+                ScanStartedWire));
+        Assert.Contains("cancelled", validationError.Message, StringComparison.OrdinalIgnoreCase);
+
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Factory);
+        var persistenceError = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            service.PersistCompletedScanAsync(
+                Guid.NewGuid(),
+                3,
+                LookbackDays,
+                CorruptionDetectionMethod.Structural,
+                ScanStartedUtc,
+                ScanStartedUtc.AddSeconds(1),
+                [report],
+                StructuralScanMode.Full));
+        Assert.Contains("cancelled", persistenceError.Message, StringComparison.OrdinalIgnoreCase);
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Empty(await context.CachedCorruptionScans.ToListAsync());
     }
 
     [Theory]

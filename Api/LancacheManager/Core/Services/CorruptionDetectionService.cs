@@ -560,10 +560,9 @@ public class CorruptionDetectionService
             result.EnsureSuccess("corruption_manager", datasourceName);
             if (Volatile.Read(ref rustCancellationReported) != 0)
             {
-                // Structural cancellation is cooperative: Rust exits 0 after committing its
-                // resumable staging state and emits a partial report. Mark the tracker before
-                // throwing so that this terminal is classified as Cancelled, and never validate
-                // or persist the partial report as a completed scan.
+                // Preserve cancellation classification even if the redundant stdout report is
+                // missing or malformed. This signal can only fail closed; it never permits
+                // validation or persistence.
                 _operationTracker.CancelOperation(operationId);
                 throw new OperationCanceledException(
                     "corruption_manager reported cancellation",
@@ -572,6 +571,15 @@ public class CorruptionDetectionService
             var report = JsonSerializer.Deserialize<CorruptionReport>(result.Output, _candidateJsonOptions)
                 ?? throw new InvalidDataException(
                     $"corruption_manager returned an empty report for datasource '{datasourceName}'");
+            if (report.Cancelled)
+            {
+                // The report is the authoritative terminal result. A missed or unreadable final
+                // progress-file update can no longer turn a partial report into a completed scan.
+                _operationTracker.CancelOperation(operationId);
+                throw new OperationCanceledException(
+                    "corruption_manager reported cancellation",
+                    cancellationToken);
+            }
             var scanSummary = SnapshotStructuralSummary(metadata);
             ValidateAndAttachDatasource(
                 report,
@@ -670,6 +678,12 @@ public class CorruptionDetectionService
         {
             throw new InvalidDataException(
                 $"Unsupported corruption report contract version {report.ContractVersion}");
+        }
+
+        if (report.Cancelled)
+        {
+            throw new InvalidDataException(
+                "Cancelled corruption report cannot be validated as a completed scan");
         }
 
         if (report.DetectionMethod != expectedDetectionMethod)
@@ -815,6 +829,12 @@ public class CorruptionDetectionService
         {
             throw new InvalidDataException(
                 "Corruption scan start must be a whole-second UTC timestamp");
+        }
+
+        if (datasourceReports.Any(item => item.Report.Cancelled))
+        {
+            throw new InvalidDataException(
+                "Cancelled corruption report cannot be persisted as a completed scan");
         }
 
         ValidateCrossDatasourceIdentity(datasourceReports);
