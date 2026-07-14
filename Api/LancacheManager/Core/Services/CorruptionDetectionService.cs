@@ -513,7 +513,15 @@ public class CorruptionDetectionService
             StructuralStderrObserver? stderrObserver = detectionMethod == CorruptionDetectionMethod.Structural
                 ? new StructuralStderrObserver(_logger, datasourceName)
                 : null;
-            Action<string>? stderrLineObserver = stderrObserver == null ? null : stderrObserver.Observe;
+            RepeatedMissStderrObserver? repeatedMissStderrObserver =
+                detectionMethod == CorruptionDetectionMethod.RepeatedMiss
+                    ? new RepeatedMissStderrObserver(_logger, datasourceName)
+                    : null;
+            Action<string>? stderrLineObserver = stderrObserver is not null
+                ? stderrObserver.Observe
+                : repeatedMissStderrObserver is not null
+                    ? repeatedMissStderrObserver.Observe
+                    : null;
             var rustCancellationReported = 0;
             ProcessExecutionResult result;
             try
@@ -542,7 +550,7 @@ public class CorruptionDetectionService
                     },
                     "corruption_manager",
                     onStderrLine: stderrLineObserver,
-                    maxRetainedStderrChars: stderrObserver == null ? null : 256 * 1024);
+                    maxRetainedStderrChars: stderrLineObserver == null ? null : 256 * 1024);
             }
             finally
             {

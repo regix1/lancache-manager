@@ -881,12 +881,6 @@ fn parse_prefix(prefix: &[u8], file_len: u64, path_digest: u128, layout: Layout)
             content_range: None,
         });
     }
-    let Some(version) = read_usize(prefix, layout.version) else {
-        return ParseOutcome::Skip(SkipReason::UnsupportedLayout);
-    };
-    if version != 5 {
-        return ParseOutcome::Skip(SkipReason::UnsupportedCacheVersion);
-    }
     let fixed_end = match layout.size.checked_add(KEY_MARKER.len()) {
         Some(value) => value,
         None => return ParseOutcome::Skip(SkipReason::UnsupportedLayout),
@@ -903,6 +897,13 @@ fn parse_prefix(prefix: &[u8], file_len: u64, path_digest: u128, layout: Layout)
             content_length: None,
             content_range: None,
         });
+    }
+    let version = read_usize(prefix, layout.version).expect("fixed header length was checked");
+    if version != 5 {
+        if prefix[..fixed_end].iter().all(|byte| *byte == 0) {
+            return proven_envelope(StructuralIssue::MalformedCacheHeader, 0, 0);
+        }
+        return ParseOutcome::Skip(SkipReason::UnsupportedCacheVersion);
     }
     let Some(header_start) = read_u16(prefix, layout.header_start) else {
         return ParseOutcome::Skip(SkipReason::UnsupportedLayout);
@@ -4945,6 +4946,55 @@ mod tests {
             issues(parse_prefix(short, short.len() as u64, digest, layout)),
             [StructuralIssue::TruncatedCacheHeader]
         );
+    }
+
+    #[test]
+    fn tiny_and_zeroed_headers_are_proven_without_flagging_unknown_versions() {
+        let layout = Layout::linux_x86_64();
+        let digest = 1;
+        let tiny = vec![0; std::mem::size_of::<usize>() - 1];
+        assert_eq!(
+            issues(parse_prefix(&tiny, tiny.len() as u64, digest, layout)),
+            [StructuralIssue::TruncatedCacheHeader]
+        );
+
+        let short_zeroed = vec![0; layout.size];
+        assert_eq!(
+            issues(parse_prefix(
+                &short_zeroed,
+                short_zeroed.len() as u64,
+                digest,
+                layout
+            )),
+            [StructuralIssue::TruncatedCacheHeader]
+        );
+
+        let fixed_end = layout.size + KEY_MARKER.len();
+        let mut short_unknown = vec![0; fixed_end - 1];
+        put_usize(&mut short_unknown, layout.version, 6);
+        assert_eq!(
+            issues(parse_prefix(
+                &short_unknown,
+                short_unknown.len() as u64,
+                digest,
+                layout
+            )),
+            [StructuralIssue::TruncatedCacheHeader]
+        );
+
+        let mut zeroed = vec![0; fixed_end + 16];
+        zeroed[fixed_end..].fill(0xa5);
+        assert_eq!(
+            issues(parse_prefix(&zeroed, zeroed.len() as u64, digest, layout)),
+            [StructuralIssue::MalformedCacheHeader]
+        );
+
+        let mut unknown = zeroed;
+        put_usize(&mut unknown, layout.version, 6);
+        assert!(matches!(
+            parse_prefix(&unknown, unknown.len() as u64, digest, layout),
+            ParseOutcome::Skip(SkipReason::UnsupportedCacheVersion)
+        ));
     }
 
     #[test]

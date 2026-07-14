@@ -213,6 +213,33 @@ struct EvidenceAccumulator {
     winning: Option<Vec<InternalObservation>>,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct RepeatedMissCoverage {
+    malformed_lines: usize,
+    unsupported_ranges: usize,
+    unreadable_log_files: usize,
+    qualified_without_safe_file: usize,
+}
+
+impl RepeatedMissCoverage {
+    fn has_gaps(self) -> bool {
+        self.malformed_lines > 0
+            || self.unsupported_ranges > 0
+            || self.unreadable_log_files > 0
+            || self.qualified_without_safe_file > 0
+    }
+
+    fn warning_line(self) -> String {
+        format!(
+            "WARNING: repeated-MISS scan coverage gaps: malformed_lines={} unsupported_ranges={} unreadable_log_files={} qualified_without_safe_file={}",
+            self.malformed_lines,
+            self.unsupported_ranges,
+            self.unreadable_log_files,
+            self.qualified_without_safe_file,
+        )
+    }
+}
+
 impl EvidenceAccumulator {
     fn record(&mut self, observation: InternalObservation, threshold: usize) {
         if self.winning.is_some() {
@@ -317,18 +344,11 @@ impl CorruptionDetector {
         let log_files = crate::log_discovery::discover_log_files(log_dir, log_base_name)?;
         let total_files = log_files.len();
         if log_files.is_empty() {
-            if let Some(progress_file) = progress_path {
-                self.write_detection_progress(
-                    progress_file,
-                    "completed",
-                    "No log files found",
-                    0,
-                    0,
-                    100.0,
-                    None,
-                )?;
-            }
-            return Ok(self.build_report(Vec::new()));
+            bail!(
+                "repeated-MISS scan incomplete: no access log files matching '{}' were found in {}",
+                log_base_name,
+                log_dir.display()
+            );
         }
 
         eprintln!("Scanning {total_files} log files for repeated MISS evidence...");
@@ -348,6 +368,7 @@ impl CorruptionDetector {
         let mut interner = StringInterner::default();
         let mut trackers: HashMap<EvidenceKey, EvidenceAccumulator> = HashMap::new();
         let mut eligible_entries = 0usize;
+        let mut coverage = RepeatedMissCoverage::default();
 
         for (file_index, log_file) in log_files.iter().enumerate() {
             let file_name = log_file
@@ -378,6 +399,7 @@ impl CorruptionDetector {
                         log_file.path.display(),
                         error
                     );
+                    coverage.unreadable_log_files = coverage.unreadable_log_files.saturating_add(1);
                     continue;
                 }
             };
@@ -394,6 +416,8 @@ impl CorruptionDetector {
                             log_file.path.display(),
                             error
                         );
+                        coverage.unreadable_log_files =
+                            coverage.unreadable_log_files.saturating_add(1);
                         break;
                     }
                 };
@@ -422,7 +446,12 @@ impl CorruptionDetector {
                     }
                 }
 
-                let Some(entry) = parser.parse_line(line.trim()) else {
+                let trimmed = line.trim();
+                if trimmed.is_empty() || service_utils::is_manager_probe(trimmed) {
+                    continue;
+                }
+                let Some(entry) = parser.parse_line(trimmed) else {
+                    coverage.malformed_lines = coverage.malformed_lines.saturating_add(1);
                     continue;
                 };
                 if service_utils::should_skip_url(&entry.url)
@@ -440,6 +469,7 @@ impl CorruptionDetector {
                     &entry.raw_url,
                     &entry.http_range,
                 ) else {
+                    coverage.unsupported_ranges = coverage.unsupported_ranges.saturating_add(1);
                     continue;
                 };
 
@@ -507,12 +537,13 @@ impl CorruptionDetector {
             let Some(winning) = accumulator.winning else {
                 continue;
             };
-            candidates.extend(self.build_candidates(
-                &interner,
-                key,
-                winning,
-                &mut path_is_safe_regular,
-            )?);
+            let resolved =
+                self.build_candidates(&interner, key, winning, &mut path_is_safe_regular)?;
+            if resolved.is_empty() {
+                coverage.qualified_without_safe_file =
+                    coverage.qualified_without_safe_file.saturating_add(1);
+            }
+            candidates.extend(resolved);
         }
         candidates.sort_by(|left, right| {
             let (left_uri, left_slice) = match &left.evidence {
@@ -538,6 +569,16 @@ impl CorruptionDetector {
                 &right.candidate_id,
             ))
         });
+
+        if coverage.has_gaps() {
+            eprintln!("{}", coverage.warning_line());
+        }
+        if coverage.unreadable_log_files > 0 {
+            bail!(
+                "repeated-MISS scan incomplete: {} log file(s) could not be read; no report was produced",
+                coverage.unreadable_log_files
+            );
+        }
 
         let report = self.build_report(candidates);
         if let Some(progress_file) = progress_path {
@@ -972,6 +1013,94 @@ mod tests {
             *evidence_count,
             observations,
         )
+    }
+
+    #[test]
+    fn coverage_warning_is_one_sanitized_count_only_line() {
+        let warning = RepeatedMissCoverage {
+            malformed_lines: 2,
+            unsupported_ranges: 3,
+            unreadable_log_files: 4,
+            qualified_without_safe_file: 5,
+        }
+        .warning_line();
+
+        assert_eq!(
+            warning,
+            "WARNING: repeated-MISS scan coverage gaps: malformed_lines=2 unsupported_ranges=3 unreadable_log_files=4 qualified_without_safe_file=5"
+        );
+        assert!(!warning.contains('/'));
+        assert!(!warning.contains("http"));
+    }
+
+    #[test]
+    fn missing_logs_fail_instead_of_producing_a_clean_report() {
+        let temp = tempfile::tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+
+        let error = CorruptionDetector::new(temp.path(), 3, 1, scan_start())
+            .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+            .unwrap_err();
+
+        assert!(error.to_string().contains("no access log files"));
+    }
+
+    #[test]
+    fn unreadable_compressed_log_fails_instead_of_producing_a_partial_report() {
+        let temp = tempfile::tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        fs::write(log_dir.join("access.log.1.gz"), b"not a gzip stream").unwrap();
+
+        let error = CorruptionDetector::new(temp.path(), 3, 1, scan_start())
+            .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("1 log file(s) could not be read"));
+        assert!(error.to_string().contains("no report was produced"));
+    }
+
+    #[test]
+    fn nonfatal_coverage_gaps_do_not_hide_valid_candidates() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let log_dir = temp.path().join("logs");
+        let valid_url = "/valid.bin";
+        let absent_url = "/absent.bin";
+        write_slice(&ranged_path(&cache_dir, valid_url));
+
+        let mut lines = vec![
+            "not a valid access-log line".to_string(),
+            log_line(
+                scan_start(),
+                "GET",
+                206,
+                "MISS",
+                "/unsupported-range.bin",
+                Some("bytes=0-"),
+            ),
+        ];
+        for second in 0..3 {
+            for url in [valid_url, absent_url] {
+                lines.push(log_line(
+                    scan_start() - Duration::seconds(2 - second),
+                    "GET",
+                    206,
+                    "MISS",
+                    url,
+                    Some("bytes=0-1048575"),
+                ));
+            }
+        }
+        write_log(&log_dir, &lines);
+
+        let result = report(&cache_dir, &log_dir, 3, 1);
+
+        assert_eq!(result.total, 1);
+        assert_eq!(repeated(&result.candidates[0]).0, valid_url);
     }
 
     #[test]

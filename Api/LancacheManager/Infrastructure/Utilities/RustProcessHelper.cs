@@ -315,22 +315,14 @@ public partial class RustProcessHelper
             await _processManager.WaitForExitAsync(process, cancellationToken);
 
             // The child atomically writes its terminal checkpoint immediately before exit. A
-            // periodic poll can lose that last update when process exit wins the race, so read it
-            // once synchronously before stopping the monitor.
-            if (!string.IsNullOrEmpty(progressFilePath) && onProgress != null)
-            {
-                var terminalProgress = await ReadProgressFileAsync<TProgress>(progressFilePath);
-                if (terminalProgress != null)
-                {
-                    await onProgress(terminalProgress);
-                }
-            }
-
-            pollCts.Cancel();
-            if (pollTask != null)
-            {
-                try { await pollTask; } catch (OperationCanceledException) { }
-            }
+            // periodic poll can already hold an older snapshot when process exit wins the race.
+            // Drain that poll first, then deliver the terminal checkpoint last so stale progress
+            // can never overwrite the completed state.
+            await StopProgressPollingAndDeliverTerminalProgressAsync(
+                pollCts,
+                pollTask,
+                progressFilePath,
+                onProgress);
 
             return new ProcessExecutionResult
             {
@@ -341,17 +333,50 @@ public partial class RustProcessHelper
         }
         finally
         {
-            pollCts.Cancel();
-            if (pollTask != null)
-            {
-                try { await pollTask; } catch (OperationCanceledException) { }
-            }
+            await StopProgressPollingAsync(pollCts, pollTask);
 
             // A killed child normally closes both pipes immediately. Bound only the exceptional
             // platform case so cancellation cannot strand the worker forever.
             await Task.WhenAll(
                 ObserveReaderTaskAsync(outputTask, "stdout"),
                 ObserveReaderTaskAsync(errorTask, "stderr"));
+        }
+    }
+
+    internal async Task StopProgressPollingAndDeliverTerminalProgressAsync<TProgress>(
+        CancellationTokenSource pollCts,
+        Task? pollTask,
+        string? progressFilePath,
+        Func<TProgress, Task>? onProgress) where TProgress : class
+    {
+        await StopProgressPollingAsync(pollCts, pollTask);
+        if (string.IsNullOrEmpty(progressFilePath) || onProgress == null)
+        {
+            return;
+        }
+
+        var terminalProgress = await ReadProgressFileAsync<TProgress>(progressFilePath);
+        if (terminalProgress != null)
+        {
+            await onProgress(terminalProgress);
+        }
+    }
+
+    internal static async Task StopProgressPollingAsync(
+        CancellationTokenSource pollCts,
+        Task? pollTask)
+    {
+        pollCts.Cancel();
+        if (pollTask != null)
+        {
+            try
+            {
+                await pollTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when the polling delay observes cancellation.
+            }
         }
     }
 
