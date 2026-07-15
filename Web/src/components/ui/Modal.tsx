@@ -258,7 +258,7 @@ export const Modal: React.FC<ModalProps> = ({
 
   const modalContent = (
     <div
-      className={`modal-backdrop fixed inset-0 overflow-y-auto overflow-x-hidden py-2 sm:py-4 transition duration-250 ease-out ${
+      className={`modal-backdrop fixed inset-0 overflow-y-auto overflow-x-hidden py-2 sm:py-4 transition duration-[250ms] ease-out ${
         isAnimating ? 'bg-black/50 pointer-events-auto' : 'bg-transparent pointer-events-none'
       }`}
       style={{ zIndex }}
@@ -272,7 +272,7 @@ export const Modal: React.FC<ModalProps> = ({
           aria-modal="true"
           aria-labelledby={title ? titleId : undefined}
           tabIndex={-1}
-          className={`themed-card border themed-border-radius ${sizes[size]} w-full max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2rem)] flex flex-col transform transition duration-250 ease-out focus:outline-none ${
+          className={`themed-card border themed-border-radius ${sizes[size]} w-full max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2rem)] flex flex-col transform transition duration-[250ms] ease-out focus:outline-none ${
             isAnimating
               ? 'opacity-100 scale-100 translate-y-0 delay-[50ms]'
               : 'opacity-0 scale-90 translate-y-8 delay-0'

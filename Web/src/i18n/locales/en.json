@@ -3646,7 +3646,7 @@
                 "fullPersistence": "Full persistence"
               },
               "clearLogins": {
-                "zoneTitle": "Danger zone",
+                "zoneTitle": "Stored logins",
                 "button": "Clear stored logins",
                 "clearing": "Clearing stored logins...",
                 "help": "Removes saved container logins for every scheduled prefill service, whether running or stopped.",

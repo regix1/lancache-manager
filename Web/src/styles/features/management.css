@@ -103,11 +103,18 @@
   letter-spacing: 0.05em;
 }
 
-/* Card hover effects within management sections */
+/* Card hover effects within management sections. Higher specificity than the base .themed-card
+   rule (and than Tailwind's own `transition` utility some cards also carry), so this list has to
+   carry every property those cards animate, not just the hover lift's own transform/box-shadow -
+   otherwise it silently strips border-color/background-color/color transitions from any card that
+   relies on the wider Tailwind utility for a state change (e.g. ThemeCard's active/preview border). */
 .management-section .themed-card {
   transition:
     transform 0.15s ease-out,
-    box-shadow 0.15s ease-out;
+    box-shadow 0.15s ease-out,
+    border-color 0.15s ease-out,
+    background-color 0.15s ease-out,
+    color 0.15s ease-out;
 }
 
 .management-section .themed-card:hover {

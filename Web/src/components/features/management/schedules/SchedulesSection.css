@@ -29,8 +29,11 @@
   flex-wrap: wrap;
 }
 
-/* On phones, stack the header sections vertically and let the action buttons fill
-   the row evenly so they remain easy to tap. */
+/* On phones, stack the header sections vertically. The two actions also stack (rather than
+   sharing one row at flex: 1 each) because "Reset to Defaults" is more than twice the length of
+   "Run All" - an even 50/50 split wrapped that label to two lines while its sibling stayed on
+   one, so the pair rendered at visibly different heights. Full-width stacked buttons keep both
+   single-line and the same height regardless of label length. */
 @media (max-width: 639px) {
   .schedules-section-header {
     flex-direction: column;
@@ -38,12 +41,13 @@
   }
 
   .schedules-section-header > .schedules-section-actions {
+    flex-direction: column;
+    align-items: stretch;
     width: 100%;
-    justify-content: stretch;
   }
 
   .schedules-section-header > .schedules-section-actions > * {
-    flex: 1;
+    width: 100%;
   }
 }
 
@@ -792,6 +796,16 @@
   min-width: 8.5rem;
 }
 
+/* Enable all / Disable all packed to their own content width and left ~106px of the actions
+   column empty next to the full-width validity input below them (.scheduled-prefill-number-cap
+   --full). An equal flex-basis (not content-based) makes both buttons share the column 50/50
+   instead of hugging the left edge, so the pair reads as one control matching the input's width.
+   The :first-child/:nth-child(2) min-widths above still apply as a floor, so neither button can
+   be squeezed narrower than its own label even if the column itself is ever pinched thinner. */
+.scheduled-prefill-config-modal__setting-actions--bulk-toggle > button {
+  flex: 1 1 0%;
+}
+
 .scheduled-prefill-config-modal__global-label {
   font-size: var(--font-size-sm);
   font-weight: 700;
@@ -830,49 +844,13 @@
   color: var(--theme-text-muted);
 }
 
-/* Clear-stored-logins lives here, visually set apart from the ordinary settings above it
-   (colour-coded border/background) since it wipes every service's saved login at once. */
-.scheduled-prefill-config-modal__danger-zone {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-top: 1rem;
-  padding: 0.85rem 1rem;
-  border: 1px solid var(--theme-error);
-  border-radius: var(--theme-border-radius);
-  background: var(--theme-error-bg);
-}
-
-.scheduled-prefill-config-modal__danger-zone-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  min-width: 0;
-  flex: 1 1 16rem;
-}
-
-.scheduled-prefill-config-modal__danger-zone-title {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--theme-error-text);
-}
-
-.scheduled-prefill-config-modal__danger-zone-help {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  line-height: 1.45;
-  color: var(--theme-text-muted);
-}
-
-.scheduled-prefill-config-modal__danger-zone-action {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-shrink: 0;
+/* Clear-stored-logins reads as an ordinary row at rest (matches its neighbors), but hovering
+   reveals a caution tint - a nudge that this touches every service's saved login, without the
+   permanently loud red "danger zone" box this used to sit in. Button's own .smooth-transition
+   class already covers background-color/color timing, so no transition is declared here. */
+.scheduled-prefill-clear-logins-button:hover:not(:disabled) {
+  background-color: var(--theme-action-reset-bg);
+  color: var(--theme-button-text);
 }
 
 .scheduled-prefill-config-modal__inline-loading {
@@ -1620,93 +1598,42 @@
   color: var(--theme-text-primary);
 }
 
-.scheduled-prefill-notification-setting {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--theme-border-secondary);
-}
+/* Every per-service schedule setting (cadence, preset, platforms, force, connections,
+   notifications, restart override) is a row of the modal's settings-list grid - the same
+   copy-left / control-right idiom as the global section, so the whole modal reads as one
+   layout language. The two rules below only adapt that idiom to single-control rows. */
 
-.scheduled-prefill-notification-setting__copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+/* The global list's per-child min-width floors exist to line up its two button-PAIR rows
+   (Enable all/Disable all vs 90/Save settings). Every platform row holds a single control
+   (pill toggle, segmented pair, dropdown), so the floors would only stretch pills with
+   dead track - release them here. */
+.scheduled-prefill-platform-block .scheduled-prefill-config-modal__setting-actions > :first-child,
+.scheduled-prefill-platform-block .scheduled-prefill-config-modal__setting-actions > :nth-child(2) {
   min-width: 0;
 }
 
-.scheduled-prefill-notification-setting__label {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--theme-text-primary);
+/* Dropdown-style controls (interval picker, target platforms, restart override) fill the
+   shared actions column so their left AND right edges line up with the number inputs;
+   pills (toggles, segmented controls) stay content-sized at the same left edge. The
+   interval picker brings its own width: 100%; this class gives the other two the same. */
+.scheduled-prefill-setting-fill {
+  width: 100%;
 }
 
-.scheduled-prefill-notification-setting__help {
-  max-width: 36rem;
-  font-size: var(--font-size-xs);
-  line-height: 1.45;
-  color: var(--theme-text-muted);
+/* The three segmented controls (Preset, Connections, Universal notifications) share ONE
+   width so the control column doesn't read ragged (3-option Preset wider than the 2-option
+   pair). They stretch to the settings-list actions track, and Preset - the widest of the
+   three, present for every service - is the widest max-content in the column, so its natural
+   width IS the track: the dropdowns and inputs are percentage fills that never inflate the
+   track during sizing. No pixel constant to drift when i18n labels change. */
+.scheduled-prefill-segment-uniform {
+  width: 100%;
 }
 
-.scheduled-prefill-schedule-fields {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1.1rem;
-  min-width: 0;
-}
-
-.scheduled-prefill-schedule-fields__field {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 0.55rem;
-}
-
-.scheduled-prefill-schedule-fields__field--full {
-  grid-column: 1 / -1;
-}
-
-.scheduled-prefill-schedule-fields__field--override {
-  padding: 0.75rem;
-  border: 1px solid var(--theme-warning);
-  border-radius: var(--theme-border-radius);
-  background-color: var(--theme-warning-bg);
-}
-
-.scheduled-prefill-schedule-fields__label {
-  display: flex;
-  align-items: center;
-  /* Matches the Preset field's HelpPopover trigger (p-1 padding + w-4 h-4 icon = 1.5rem) so every
-     label row reserves the same height whether or not it carries a help icon - otherwise the Preset
-     field's row sits ~6px taller than its plain-label grid sibling and the controls below misalign. */
-  min-height: 1.5rem;
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--theme-text-secondary);
-}
-
-.scheduled-prefill-schedule-fields__help {
-  margin: 0.25rem 0 0;
-  font-size: var(--font-size-base);
-  line-height: 1.5;
-  color: var(--theme-text-muted);
-}
-
-/* Plain setting row (no nested box): copy on the left, toggle on the right —
-   matches the other schedule fields, one containment layer only. */
-.scheduled-prefill-schedule-fields__force {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.scheduled-prefill-schedule-fields__force-copy {
-  min-width: 0;
-  flex: 1;
+/* Options split the shared width evenly (a 0% basis, not content-based, so Auto/Fixed and
+   Silent/Visible land at exact halves and All/Recent/Top at exact thirds). */
+.scheduled-prefill-segment-uniform .segmented-control-button {
+  flex: 1 1 0%;
 }
 
 .scheduled-prefill-platform-auth {
@@ -1796,10 +1723,6 @@
 }
 
 @media (min-width: 768px) {
-  .scheduled-prefill-schedule-fields {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .scheduled-prefill-config-modal__skeleton-body {
     grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
   }
@@ -1872,16 +1795,10 @@
 }
 
 @media (max-width: 639px) {
-  .scheduled-prefill-notification-setting {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
   .scheduled-prefill-config-modal__section-header,
   .scheduled-prefill-service-row__toggle-row,
   .scheduled-prefill-persistent-card__header,
-  .scheduled-prefill-containers__header,
-  .scheduled-prefill-config-modal__danger-zone {
+  .scheduled-prefill-containers__header {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1890,15 +1807,20 @@
     grid-template-columns: 1fr;
   }
 
-  .scheduled-prefill-config-modal__setting-actions,
-  .scheduled-prefill-config-modal__danger-zone-action {
+  .scheduled-prefill-config-modal__setting-actions {
     width: 100%;
     justify-content: flex-start;
   }
 
-  .scheduled-prefill-config-modal__setting-actions > button,
-  .scheduled-prefill-config-modal__danger-zone-action > button {
+  .scheduled-prefill-config-modal__setting-actions > button {
     flex: 1 1 auto;
+  }
+
+  /* Content-based auto basis above leaves Enable all / Disable all a few px apart (the longer
+     "Disable all" label claims more of its own basis before growth is added) - force the same
+     0% basis used on desktop so the pair stays exactly 50/50 on phones too. */
+  .scheduled-prefill-config-modal__setting-actions--bulk-toggle > button {
+    flex: 1 1 0%;
   }
 
   /* The two desktop min-width floors on the setting-actions children exist only to line the
@@ -1936,30 +1858,31 @@
     white-space: normal;
   }
 
-  /* Keep the destructive row compact on phones. The shared setting-action rules above
-     intentionally stretch ordinary form actions, but a single danger-zone command does
-     not need a full-width action row or desktop-sized internal spacing. */
-  .scheduled-prefill-config-modal__danger-zone {
-    gap: 0.625rem;
-    margin-top: 0.75rem;
-    padding: 0.625rem 0.75rem;
+  /* Per-service segmented controls (Preset All/Recent/Top, Connections Auto/Fixed) have short
+     labels that fit a phone row side by side - keep them horizontal and full-width, the same
+     look they had before joining the settings list. Only the global persistence-mode control,
+     whose three long labels cannot share a 360px row, needs the stacked layout above. The
+     extra ancestor class outranks the generic stack rules whatever the source order. */
+  .scheduled-prefill-platform-block
+    .scheduled-prefill-config-modal__settings-list
+    .segmented-control-container {
+    flex-direction: row;
+    height: 2.5rem;
   }
 
-  .scheduled-prefill-config-modal__danger-zone-copy {
-    flex-basis: auto;
-    gap: 0.125rem;
-  }
-
-  .scheduled-prefill-config-modal__danger-zone-help {
-    font-size: var(--font-size-xs);
-    line-height: 1.35;
-  }
-
-  .scheduled-prefill-config-modal__danger-zone-action {
+  .scheduled-prefill-platform-block
+    .scheduled-prefill-config-modal__settings-list
+    .segmented-control-button {
+    flex: 1 1 0%;
     width: auto;
+    min-height: 0;
+    white-space: nowrap;
   }
 
-  .scheduled-prefill-config-modal__danger-zone-action > button {
+  /* The generic full-width rule above targets the global rows' Enable all/Disable all button
+     pairs; a platform row's only direct button child is a ToggleSwitch pill, which must keep
+     its content width instead of stretching into a mostly-empty track. */
+  .scheduled-prefill-platform-block .scheduled-prefill-config-modal__setting-actions > button {
     flex: 0 0 auto;
   }
 

@@ -3646,7 +3646,7 @@
                 "fullPersistence": "完全持久化"
               },
               "clearLogins": {
-                "zoneTitle": "危险区域",
+                "zoneTitle": "已保存的登录",
                 "button": "清除已保存的登录",
                 "clearing": "正在清除已保存的登录...",
                 "help": "清除所有计划预填充服务的已保存容器登录，无论其是否正在运行。",

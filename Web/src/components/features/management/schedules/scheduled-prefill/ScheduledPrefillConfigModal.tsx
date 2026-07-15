@@ -1315,7 +1315,7 @@ export function ScheduledPrefillConfigModal({
                               {t(`${baseKey}.bulkToggle.help`)}
                             </p>
                           </div>
-                          <div className="scheduled-prefill-config-modal__setting-actions">
+                          <div className="scheduled-prefill-config-modal__setting-actions scheduled-prefill-config-modal__setting-actions--bulk-toggle">
                             <Button
                               type="button"
                               variant="default"
@@ -1408,6 +1408,33 @@ export function ScheduledPrefillConfigModal({
                             </div>
                           </div>
                         </div>
+
+                        <div className="scheduled-prefill-config-modal__setting-row">
+                          <div className="scheduled-prefill-config-modal__setting-copy">
+                            <span className="scheduled-prefill-config-modal__global-label">
+                              {t(`${baseKey}.settings.clearLogins.zoneTitle`)}
+                            </span>
+                            <p className="scheduled-prefill-config-modal__global-help">
+                              {t(`${baseKey}.settings.clearLogins.help`)}
+                            </p>
+                          </div>
+                          <div className="scheduled-prefill-config-modal__setting-actions">
+                            <Button
+                              type="button"
+                              variant="default"
+                              fullWidth
+                              className="scheduled-prefill-clear-logins-button"
+                              size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                              onClick={() => setClearLoginsConfirmOpen(true)}
+                              disabled={clearingLogins}
+                              loading={clearingLogins}
+                            >
+                              {clearingLogins
+                                ? t(`${baseKey}.settings.clearLogins.clearing`)
+                                : t(`${baseKey}.settings.clearLogins.button`)}
+                            </Button>
+                          </div>
+                        </div>
                       </div>
 
                       {config?.persistenceMode === 'fullPersistence' && (
@@ -1419,31 +1446,6 @@ export function ScheduledPrefillConfigModal({
                         </Alert>
                       )}
 
-                      <div className="scheduled-prefill-config-modal__danger-zone">
-                        <div className="scheduled-prefill-config-modal__danger-zone-copy">
-                          <p className="scheduled-prefill-config-modal__danger-zone-title">
-                            {t(`${baseKey}.settings.clearLogins.zoneTitle`)}
-                          </p>
-                          <p className="scheduled-prefill-config-modal__danger-zone-help">
-                            {t(`${baseKey}.settings.clearLogins.help`)}
-                          </p>
-                        </div>
-                        <div className="scheduled-prefill-config-modal__danger-zone-action">
-                          <Button
-                            type="button"
-                            variant="filled"
-                            color="red"
-                            size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                            onClick={() => setClearLoginsConfirmOpen(true)}
-                            disabled={clearingLogins}
-                            loading={clearingLogins}
-                          >
-                            {clearingLogins
-                              ? t(`${baseKey}.settings.clearLogins.clearing`)
-                              : t(`${baseKey}.settings.clearLogins.button`)}
-                          </Button>
-                        </div>
-                      </div>
                       {banner && (
                         <Alert
                           color={banner.color}

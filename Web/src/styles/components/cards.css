@@ -18,6 +18,9 @@
     background-clip: padding-box;
     border-color: var(--theme-card-border);
     color: var(--theme-text-primary);
+    /* Base class had no transition at all, so the light-theme hover box-shadow below (line ~31)
+       snapped instantly on any card that didn't separately carry a Tailwind `transition` utility. */
+    transition: box-shadow 0.15s ease-out;
   }
 
   /* Light mode card shadow for visual separation (Linear/Stripe style) */

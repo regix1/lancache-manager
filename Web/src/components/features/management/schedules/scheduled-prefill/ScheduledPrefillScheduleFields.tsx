@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpDefinition, HelpNote } from '@components/ui/HelpPopover';
 import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import { NumberInput } from '@components/ui/NumberInput';
@@ -28,6 +29,22 @@ interface ScheduledPrefillScheduleFieldsProps {
   onChange: (config: ScheduledPrefillServiceConfigDto) => void;
 }
 
+/**
+ * Sentinel + the 3 real modes, in dropdown order. `'useGlobal'` maps to a `null` DTO override
+ * at the onChange boundary - the DTO itself never carries the sentinel string.
+ */
+const PERSISTENCE_MODE_OVERRIDE_VALUES = [
+  'useGlobal',
+  'killOnRestart',
+  'keepAcrossRestart',
+  'fullPersistence'
+] as const;
+
+type PersistenceModeOverrideValue = (typeof PERSISTENCE_MODE_OVERRIDE_VALUES)[number];
+
+const isPersistenceModeOverrideValue = (value: string): value is PersistenceModeOverrideValue =>
+  (PERSISTENCE_MODE_OVERRIDE_VALUES as readonly string[]).includes(value);
+
 const isScheduledPrefillPreset = (value: string): value is ScheduledPrefillPreset =>
   SCHEDULED_PREFILL_PRESET_OPTIONS.some((option) => option.value === value);
 
@@ -39,6 +56,11 @@ const isScheduledPrefillOperatingSystem = (
 const isScheduledPrefillMaxConcurrencyMode = (
   value: string
 ): value is ScheduledPrefillMaxConcurrencyMode => value === 'Auto' || value === 'Fixed';
+
+type NotificationVisibilityValue = 'silent' | 'visible';
+
+const isNotificationVisibilityValue = (value: string): value is NotificationVisibilityValue =>
+  value === 'silent' || value === 'visible';
 
 export function ScheduledPrefillScheduleFields({
   serviceKey,
@@ -97,128 +119,283 @@ export function ScheduledPrefillScheduleFields({
   const osLabelId = `scheduled-prefill-os-label-${serviceKey}`;
   const forceLabelId = `scheduled-prefill-force-label-${serviceKey}`;
   const concurrencyModeLabelId = `scheduled-prefill-concurrency-mode-label-${serviceKey}`;
+  const persistenceLabelId = `scheduled-prefill-persistence-label-${serviceKey}`;
+  const notificationsLabelId = `scheduled-prefill-notifications-label-${serviceKey}`;
 
+  /* Rows are grouped by control shape - dropdowns, then segmented controls, then the toggle
+     pill - so the control column reads as three calm runs instead of alternating shapes. The
+     one deliberate exception: a conditional count input (Top count, Fixed connection count)
+     stays immediately under the segmented control that reveals it, since separating a child
+     input from its parent control would be more confusing than the shape break. */
   return (
-    <div className="scheduled-prefill-schedule-fields">
+    <>
       <div
-        className="scheduled-prefill-schedule-fields__field scheduled-prefill-schedule-fields__field--full"
+        className="scheduled-prefill-config-modal__setting-row"
         role="group"
         aria-labelledby={intervalLabelId}
       >
-        <label id={intervalLabelId} className="scheduled-prefill-schedule-fields__label">
-          {t(`${baseKey}.fields.interval`)}
-        </label>
-        <ScheduleIntervalPicker
-          intervalHours={config.intervalHours}
-          isDisabled={disabled}
-          onChange={(hours) => updateConfig({ intervalHours: hours })}
-        />
-        <p className="scheduled-prefill-schedule-fields__help">
-          {t(`${baseKey}.fields.intervalHelp`)}
-        </p>
+        <div className="scheduled-prefill-config-modal__setting-copy">
+          <span id={intervalLabelId} className="scheduled-prefill-config-modal__global-label">
+            {t(`${baseKey}.fields.interval`)}
+          </span>
+          <p className="scheduled-prefill-config-modal__global-help">
+            {t(`${baseKey}.fields.intervalHelp`)}
+          </p>
+        </div>
+        <div className="scheduled-prefill-config-modal__setting-actions">
+          <ScheduleIntervalPicker
+            intervalHours={config.intervalHours}
+            isDisabled={disabled}
+            onChange={(hours) => updateConfig({ intervalHours: hours })}
+          />
+        </div>
+      </div>
+
+      {SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS[serviceKey].length > 0 && (
+        <div
+          className="scheduled-prefill-config-modal__setting-row"
+          role="group"
+          aria-labelledby={osLabelId}
+        >
+          <div className="scheduled-prefill-config-modal__setting-copy">
+            <span id={osLabelId} className="scheduled-prefill-config-modal__global-label">
+              {t(`${baseKey}.fields.operatingSystems`)}
+            </span>
+          </div>
+          <div className="scheduled-prefill-config-modal__setting-actions">
+            <MultiSelectDropdown
+              className="scheduled-prefill-setting-fill"
+              options={operatingSystemOptions}
+              values={config.operatingSystems}
+              onChange={(values) =>
+                updateConfig({ operatingSystems: values.filter(isScheduledPrefillOperatingSystem) })
+              }
+              disabled={disabled}
+              minSelections={0}
+              placeholder={t(`${baseKey}.fields.operatingSystems`)}
+            />
+          </div>
+        </div>
+      )}
+
+      <div
+        className="scheduled-prefill-config-modal__setting-row"
+        role="group"
+        aria-labelledby={persistenceLabelId}
+      >
+        <div className="scheduled-prefill-config-modal__setting-copy">
+          <span id={persistenceLabelId} className="scheduled-prefill-config-modal__global-label">
+            {t(`${baseKey}.fields.persistenceModeOverride`)}
+          </span>
+          <p className="scheduled-prefill-config-modal__global-help">
+            {t(`${baseKey}.fields.persistenceModeOverrideHelp`)}
+          </p>
+        </div>
+        <div className="scheduled-prefill-config-modal__setting-actions">
+          <EnhancedDropdown
+            className="scheduled-prefill-setting-fill"
+            options={PERSISTENCE_MODE_OVERRIDE_VALUES.map((value) => ({
+              value,
+              label: t(`${baseKey}.settings.persistenceMode.${value}`)
+            }))}
+            value={config.persistenceMode ?? 'useGlobal'}
+            onChange={(value) => {
+              if (!isPersistenceModeOverrideValue(value)) return;
+              updateConfig({ persistenceMode: value === 'useGlobal' ? null : value });
+            }}
+            disabled={disabled}
+            variant="button"
+            triggerAriaLabel={t(`${baseKey}.fields.persistenceModeOverride`)}
+          />
+        </div>
       </div>
 
       <div
-        className={`scheduled-prefill-schedule-fields__field${
-          presetOverridden ? ' scheduled-prefill-schedule-fields__field--override' : ''
-        }`}
+        className="scheduled-prefill-config-modal__setting-row"
         role="group"
         aria-labelledby={presetLabelId}
       >
-        <div className="flex items-center gap-1.5">
-          <label id={presetLabelId} className="scheduled-prefill-schedule-fields__label">
-            {t(`${baseKey}.fields.preset`)}
-          </label>
-          <HelpPopover position="left" width={320}>
-            <HelpSection title={t(`${baseKey}.presetHelp.title`)} variant="subtle">
-              <HelpDefinition items={presetHelpItems} />
-              <HelpNote type="warning">{t(`${baseKey}.presetHelp.overrideNote`)}</HelpNote>
-            </HelpSection>
-          </HelpPopover>
+        <div className="scheduled-prefill-config-modal__setting-copy">
+          <div className="flex items-center gap-1.5">
+            <span id={presetLabelId} className="scheduled-prefill-config-modal__global-label">
+              {t(`${baseKey}.fields.preset`)}
+            </span>
+            <HelpPopover position="left" width={320}>
+              <HelpSection title={t(`${baseKey}.presetHelp.title`)} variant="subtle">
+                <HelpDefinition items={presetHelpItems} />
+                <HelpNote type="warning">{t(`${baseKey}.presetHelp.overrideNote`)}</HelpNote>
+              </HelpSection>
+            </HelpPopover>
+          </div>
+          {presetOverridden && (
+            <p className="scheduled-prefill-schedule-fields__override">
+              {t(`${baseKey}.selectedGames.overridePreset`)}
+            </p>
+          )}
         </div>
-        <SegmentedControl
-          options={presetOptions.map((option) => ({
-            ...option,
-            disabled: disabled || presetOverridden,
-            activeColor: presetOverridden ? 'warning' : 'primary'
-          }))}
-          value={config.preset}
-          onChange={(value) => {
-            if (!isScheduledPrefillPreset(value)) return;
-            updateConfig({
-              preset: value,
-              topCount: value === 'Top' ? (config.topCount ?? 50) : null
-            });
-          }}
-          fullWidth
-          showLabels
-        />
-        {presetOverridden && (
-          <p className="scheduled-prefill-schedule-fields__override">
-            {t(`${baseKey}.selectedGames.overridePreset`)}
-          </p>
-        )}
+        <div className="scheduled-prefill-config-modal__setting-actions">
+          <SegmentedControl
+            className="scheduled-prefill-segment-uniform"
+            options={presetOptions.map((option) => ({
+              ...option,
+              disabled: disabled || presetOverridden,
+              activeColor: presetOverridden ? 'warning' : 'primary'
+            }))}
+            value={config.preset}
+            onChange={(value) => {
+              if (!isScheduledPrefillPreset(value)) return;
+              updateConfig({
+                preset: value,
+                topCount: value === 'Top' ? (config.topCount ?? 50) : null
+              });
+            }}
+            showLabels
+          />
+        </div>
       </div>
 
       {config.preset === 'Top' &&
         SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes('Top') && (
-          <div className="scheduled-prefill-schedule-fields__field">
-            <label
-              className="scheduled-prefill-schedule-fields__label"
-              htmlFor={`scheduled-prefill-top-count-${serviceKey}`}
-            >
-              {t(`${baseKey}.fields.topCount`)}
-            </label>
-            <NumberInput
-              id={`scheduled-prefill-top-count-${serviceKey}`}
-              className="scheduled-prefill-number-cap"
-              min={1}
-              max={99999}
-              step={1}
-              value={config.topCount ?? 50}
-              disabled={disabled || presetOverridden}
-              aria-label={t(`${baseKey}.fields.topCount`)}
-              onChange={(value) => updateConfig({ topCount: Math.max(1, value) })}
-            />
+          <div className="scheduled-prefill-config-modal__setting-row">
+            <div className="scheduled-prefill-config-modal__setting-copy">
+              <label
+                className="scheduled-prefill-config-modal__global-label"
+                htmlFor={`scheduled-prefill-top-count-${serviceKey}`}
+              >
+                {t(`${baseKey}.fields.topCount`)}
+              </label>
+            </div>
+            <div className="scheduled-prefill-config-modal__setting-actions">
+              <NumberInput
+                id={`scheduled-prefill-top-count-${serviceKey}`}
+                className="scheduled-prefill-number-cap scheduled-prefill-number-cap--full"
+                min={1}
+                max={99999}
+                step={1}
+                value={config.topCount ?? 50}
+                disabled={disabled || presetOverridden}
+                aria-label={t(`${baseKey}.fields.topCount`)}
+                onChange={(value) => updateConfig({ topCount: Math.max(1, value) })}
+              />
+            </div>
           </div>
         )}
 
-      {SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS[serviceKey].length > 0 && (
-        <div
-          className="scheduled-prefill-schedule-fields__field"
-          role="group"
-          aria-labelledby={osLabelId}
-        >
-          <label id={osLabelId} className="scheduled-prefill-schedule-fields__label">
-            {t(`${baseKey}.fields.operatingSystems`)}
-          </label>
-          <MultiSelectDropdown
-            options={operatingSystemOptions}
-            values={config.operatingSystems}
-            onChange={(values) =>
-              updateConfig({ operatingSystems: values.filter(isScheduledPrefillOperatingSystem) })
-            }
-            disabled={disabled}
-            minSelections={0}
-            placeholder={t(`${baseKey}.fields.operatingSystems`)}
+      <div
+        className="scheduled-prefill-config-modal__setting-row"
+        role="group"
+        aria-labelledby={concurrencyModeLabelId}
+      >
+        <div className="scheduled-prefill-config-modal__setting-copy">
+          <span
+            id={concurrencyModeLabelId}
+            className="scheduled-prefill-config-modal__global-label"
+          >
+            {t(`${baseKey}.fields.maxConcurrency`)}
+          </span>
+        </div>
+        <div className="scheduled-prefill-config-modal__setting-actions">
+          <SegmentedControl
+            className="scheduled-prefill-segment-uniform"
+            options={[
+              { value: 'Auto', label: t(`${baseKey}.maxConcurrency.auto`), disabled },
+              { value: 'Fixed', label: t(`${baseKey}.maxConcurrency.fixed`), disabled }
+            ]}
+            value={config.maxConcurrency.mode}
+            onChange={(value) => {
+              if (!isScheduledPrefillMaxConcurrencyMode(value)) return;
+              updateConfig({
+                maxConcurrency:
+                  value === 'Auto'
+                    ? { mode: 'Auto', value: null }
+                    : { mode: 'Fixed', value: fixedConcurrency }
+              });
+            }}
+            showLabels
           />
+        </div>
+      </div>
+
+      {config.maxConcurrency.mode === 'Fixed' && (
+        <div className="scheduled-prefill-config-modal__setting-row">
+          <div className="scheduled-prefill-config-modal__setting-copy">
+            <label
+              className="scheduled-prefill-config-modal__global-label"
+              htmlFor={`scheduled-prefill-concurrency-${serviceKey}`}
+            >
+              {t(`${baseKey}.fields.maxConcurrencyValue`)}
+            </label>
+          </div>
+          <div className="scheduled-prefill-config-modal__setting-actions">
+            <NumberInput
+              id={`scheduled-prefill-concurrency-${serviceKey}`}
+              className="scheduled-prefill-number-cap scheduled-prefill-number-cap--full"
+              min={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min}
+              max={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.max}
+              step={1}
+              value={fixedConcurrency}
+              disabled={disabled}
+              aria-label={t(`${baseKey}.fields.maxConcurrencyValue`)}
+              onChange={(value) =>
+                updateConfig({
+                  maxConcurrency: {
+                    mode: 'Fixed',
+                    value: Math.min(
+                      SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.max,
+                      Math.max(SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min, value)
+                    )
+                  }
+                })
+              }
+            />
+          </div>
         </div>
       )}
 
-      <div className="scheduled-prefill-schedule-fields__field scheduled-prefill-schedule-fields__field--full">
-        <div
-          className="scheduled-prefill-schedule-fields__force"
-          role="group"
-          aria-labelledby={forceLabelId}
-        >
-          <div className="scheduled-prefill-schedule-fields__force-copy">
-            <label id={forceLabelId} className="scheduled-prefill-schedule-fields__label">
-              {t(`${baseKey}.fields.force`)}
-            </label>
-            <p className="scheduled-prefill-schedule-fields__help">
-              {t(`${baseKey}.actions.forceDownload`)}
-            </p>
-          </div>
+      <div
+        className="scheduled-prefill-config-modal__setting-row"
+        role="group"
+        aria-labelledby={notificationsLabelId}
+      >
+        <div className="scheduled-prefill-config-modal__setting-copy">
+          <span id={notificationsLabelId} className="scheduled-prefill-config-modal__global-label">
+            {t(`${baseKey}.fields.notifications`)}
+          </span>
+          <p className="scheduled-prefill-config-modal__global-help">
+            {t(`${baseKey}.fields.notificationsHelp`)}
+          </p>
+        </div>
+        <div className="scheduled-prefill-config-modal__setting-actions">
+          <SegmentedControl
+            className="scheduled-prefill-segment-uniform"
+            options={[
+              { value: 'silent', label: t(`${baseKey}.fields.silent`), disabled },
+              { value: 'visible', label: t(`${baseKey}.fields.visible`), disabled }
+            ]}
+            value={config.showNotification !== false ? 'visible' : 'silent'}
+            onChange={(value) => {
+              if (!isNotificationVisibilityValue(value)) return;
+              updateConfig({ showNotification: value === 'visible' });
+            }}
+            showLabels
+          />
+        </div>
+      </div>
+
+      <div
+        className="scheduled-prefill-config-modal__setting-row"
+        role="group"
+        aria-labelledby={forceLabelId}
+      >
+        <div className="scheduled-prefill-config-modal__setting-copy">
+          <span id={forceLabelId} className="scheduled-prefill-config-modal__global-label">
+            {t(`${baseKey}.fields.force`)}
+          </span>
+          <p className="scheduled-prefill-config-modal__global-help">
+            {t(`${baseKey}.actions.forceDownload`)}
+          </p>
+        </div>
+        <div className="scheduled-prefill-config-modal__setting-actions">
           <ToggleSwitch
             options={[
               { value: 'false', label: t(`${baseKey}.fields.toggleOff`), activeColor: 'default' },
@@ -231,66 +408,6 @@ export function ScheduledPrefillScheduleFields({
           />
         </div>
       </div>
-
-      <div
-        className="scheduled-prefill-schedule-fields__field"
-        role="group"
-        aria-labelledby={concurrencyModeLabelId}
-      >
-        <label id={concurrencyModeLabelId} className="scheduled-prefill-schedule-fields__label">
-          {t(`${baseKey}.fields.maxConcurrency`)}
-        </label>
-        <SegmentedControl
-          options={[
-            { value: 'Auto', label: t(`${baseKey}.maxConcurrency.auto`), disabled },
-            { value: 'Fixed', label: t(`${baseKey}.maxConcurrency.fixed`), disabled }
-          ]}
-          value={config.maxConcurrency.mode}
-          onChange={(value) => {
-            if (!isScheduledPrefillMaxConcurrencyMode(value)) return;
-            updateConfig({
-              maxConcurrency:
-                value === 'Auto'
-                  ? { mode: 'Auto', value: null }
-                  : { mode: 'Fixed', value: fixedConcurrency }
-            });
-          }}
-          fullWidth
-          showLabels
-        />
-      </div>
-
-      {config.maxConcurrency.mode === 'Fixed' && (
-        <div className="scheduled-prefill-schedule-fields__field">
-          <label
-            className="scheduled-prefill-schedule-fields__label"
-            htmlFor={`scheduled-prefill-concurrency-${serviceKey}`}
-          >
-            {t(`${baseKey}.fields.maxConcurrencyValue`)}
-          </label>
-          <NumberInput
-            id={`scheduled-prefill-concurrency-${serviceKey}`}
-            className="scheduled-prefill-number-cap"
-            min={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min}
-            max={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.max}
-            step={1}
-            value={fixedConcurrency}
-            disabled={disabled}
-            aria-label={t(`${baseKey}.fields.maxConcurrencyValue`)}
-            onChange={(value) =>
-              updateConfig({
-                maxConcurrency: {
-                  mode: 'Fixed',
-                  value: Math.min(
-                    SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.max,
-                    Math.max(SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min, value)
-                  )
-                }
-              })
-            }
-          />
-        </div>
-      )}
-    </div>
+    </>
   );
 }

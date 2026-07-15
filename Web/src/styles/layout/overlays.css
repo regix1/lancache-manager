@@ -135,13 +135,20 @@
 
   /* ===== END UNIVERSAL OVERLAY FIXES ===== */
 
+  /* transition-property/transition-duration are each a single non-additive value, not merged
+     across rules - .button-press used to declare its own transition-property: transform (via the
+     transition-transform utility) and, cascading after this rule at equal specificity, silently
+     replaced this whole property list instead of adding to it. Every button's hover/color changes
+     were snapping instantly app-wide; only the active-press scale ever actually animated. Both
+     concerns now live in one place, with one duration per property, matched positionally. */
   .smooth-transition {
-    @apply duration-300 ease-in-out;
-    transition-property: background-color, border-color, color, box-shadow, transform, opacity;
+    transition-property: background-color, border-color, color, box-shadow, opacity, transform;
+    transition-duration: 450ms, 450ms, 450ms, 450ms, 450ms, 75ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .button-press {
-    @apply active:scale-95 transition-transform duration-75;
+    @apply active:scale-95;
   }
 
   /* Custom Scrollbar Classes (for specific overrides) - Theme aware */

@@ -425,7 +425,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
                 <button
                   key={pageNum}
                   onClick={() => onPageChange(pageNum)}
-                  className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 ${
+                  className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
                     currentPage === pageNum ? 'shadow-md' : 'hover:bg-opacity-80'
                   }`}
                   style={{
@@ -450,7 +450,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
               <>
                 <button
                   onClick={() => onPageChange(1)}
-                  className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 ${
+                  className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
                     currentPage === 1 ? 'shadow-md' : 'hover:bg-opacity-80'
                   }`}
                   style={{
@@ -492,7 +492,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
                     <button
                       key={pageNum}
                       onClick={() => onPageChange(pageNum)}
-                      className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 ${
+                      className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
                         currentPage === pageNum ? 'shadow-md' : 'hover:bg-opacity-80'
                       }`}
                       style={{
@@ -535,7 +535,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
 
                 <button
                   onClick={() => onPageChange(totalPages)}
-                  className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 ${
+                  className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
                     currentPage === totalPages ? 'shadow-md' : 'hover:bg-opacity-80'
                   }`}
                   style={{
