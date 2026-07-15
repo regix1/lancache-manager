@@ -15,7 +15,10 @@ namespace LancacheManager.Core.Services.SteamPrefill;
 public sealed class SocketDaemonClient : IDaemonClient
 {
     private readonly string _socketPath;
-    private readonly ILogger<SocketDaemonClient>? _logger;
+    // Non-generic ILogger so the owning daemon service's real logger flows through unchanged: the caller
+    // holds an ILogger<TSomeDaemonService>, and a generic-typed field here would force a category cast
+    // that silently yields null (dropping every drain timeout/fault warning this client emits).
+    private readonly ILogger? _logger;
     private readonly string? _sharedSecret;
     private Socket? _socket;
     private NetworkStream? _stream;
@@ -25,6 +28,10 @@ public sealed class SocketDaemonClient : IDaemonClient
     private bool _isAuthenticated;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly SemaphoreSlim _connectLock = new(1, 1);
+
+    // Tracks fire-and-forget ProcessEventAsync tasks so teardown can drain in-flight event callbacks
+    // before disposal (see DaemonEventDrainTracker / DrainEventsAsync).
+    private readonly DaemonEventDrainTracker _eventDrain;
 
     // Pending command responses keyed by request ID
     private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResponse>> _pendingCommands = new();
@@ -81,10 +88,11 @@ public sealed class SocketDaemonClient : IDaemonClient
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public SocketDaemonClient(string socketPath, string? sharedSecret = null, ILogger<SocketDaemonClient>? logger = null)
+    public SocketDaemonClient(string socketPath, string? sharedSecret = null, ILogger? logger = null)
     {
         _socketPath = socketPath;
         _logger = logger;
+        _eventDrain = new DaemonEventDrainTracker(_logger);
 
         // Read shared secret for socket authentication
         _sharedSecret = sharedSecret;
@@ -313,14 +321,13 @@ public sealed class SocketDaemonClient : IDaemonClient
                 _pendingCommands.Clear();
             }
 
-            if (OnDisconnected != null)
-            {
-                _ = OnDisconnected.Invoke();
-            }
+            // Track the disconnect callback through the same admission path so a detach/terminate drain
+            // waits for it too (or rejects it once draining), keeping disposal ordering for this path.
+            _eventDrain.TryTrack(() => DaemonEventDispatch.InvokeAllAsync(OnDisconnected, _logger));
         }
     }
 
-    private void ProcessMessage(string json)
+    internal void ProcessMessage(string json)
     {
         try
         {
@@ -335,7 +342,10 @@ public sealed class SocketDaemonClient : IDaemonClient
                 // Socket events from daemon: credential-challenge, progress, auth-state, status-update
                 if (messageType != DaemonMessageType.Unknown)
                 {
-                    _ = ProcessEventAsync(messageType, root);
+                    // Atomic admission: TryTrack starts + tracks the callback under the drain lock, or
+                    // rejects it (callback never runs) once teardown has begun draining - so no event can
+                    // slip past DrainAsync's snapshot and run after this client is disposed.
+                    _eventDrain.TryTrack(() => ProcessEventAsync(messageType, root));
                     return;
                 }
             }
@@ -378,9 +388,9 @@ public sealed class SocketDaemonClient : IDaemonClient
                     if (root.TryGetProperty("data", out var progressData))
                     {
                         var progress = JsonSerializer.Deserialize<SocketPrefillProgress>(progressData.GetRawText(), _jsonOptions);
-                        if (progress != null && OnProgressUpdate != null)
+                        if (progress != null)
                         {
-                            await OnProgressUpdate.Invoke(progress);
+                            await DaemonEventDispatch.InvokeAllAsync(OnProgressUpdate, progress, _logger);
                         }
                     }
                     break;
@@ -393,24 +403,21 @@ public sealed class SocketDaemonClient : IDaemonClient
                         var displayName = authData.TryGetProperty("displayName", out var dnElem) ? dnElem.GetString() : null;
                         _logger?.LogInformation("Auth state changed: {State} - {Message}", state, message);
                         // Convert auth state to DaemonStatus for the status event
-                        if (OnStatusUpdate != null)
+                        await DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, new DaemonStatus
                         {
-                            await OnStatusUpdate.Invoke(new DaemonStatus
-                            {
-                                Status = state ?? "unknown",
-                                Message = message,
-                                DisplayName = displayName,
-                                Timestamp = DateTime.UtcNow
-                            });
-                        }
+                            Status = state ?? "unknown",
+                            Message = message,
+                            DisplayName = displayName,
+                            Timestamp = DateTime.UtcNow
+                        }, _logger);
                     }
                     break;
 
                 case DaemonMessageType.StatusUpdate:
                     var status = JsonSerializer.Deserialize<DaemonStatus>(root.GetRawText(), _jsonOptions);
-                    if (status != null && OnStatusUpdate != null)
+                    if (status != null)
                     {
-                        await OnStatusUpdate.Invoke(status);
+                        await DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, status, _logger);
                     }
                     break;
 
@@ -422,12 +429,16 @@ public sealed class SocketDaemonClient : IDaemonClient
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "Failed to process event of type {MessageType}", messageType);
-            if (OnError != null)
-            {
-                await OnError.Invoke(ex.Message);
-            }
+            await DaemonEventDispatch.InvokeAllAsync(OnError, ex.Message, _logger);
         }
     }
+
+    /// <summary>
+    /// Drains in-flight fire-and-forget event callbacks (bounded) and rejects new ones, so a teardown can
+    /// guarantee no event writes/broadcasts after it returns. See <see cref="DaemonEventDrainTracker"/>.
+    /// </summary>
+    public Task DrainEventsAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+        => _eventDrain.DrainAsync(timeout, cancellationToken);
 
     private async Task DispatchChallengeAsync(CredentialChallenge challenge)
     {
@@ -447,10 +458,7 @@ public sealed class SocketDaemonClient : IDaemonClient
         }
 
         // Always fire the event
-        if (OnCredentialChallenge != null)
-        {
-            await OnCredentialChallenge.Invoke(challenge);
-        }
+        await DaemonEventDispatch.InvokeAllAsync(OnCredentialChallenge, challenge, _logger);
     }
 
     private static async Task<int> ReadExactlyAsync(Stream stream, byte[] buffer, CancellationToken cancellationToken)
@@ -641,7 +649,7 @@ public sealed class SocketDaemonClient : IDaemonClient
             ["tag"] = encrypted.Tag
         }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
 
-        // RC4 (session 20260703-221336-2070027597): a fixed daemon replies Success=false when it had
+        // RC4: a fixed daemon replies Success=false when it had
         // no matching pending challenge for this credential (the RC3 cross-session misroute). Surface
         // that as a real error instead of returning as if the credential were accepted - the persistent
         // login REST layer maps it to a typed conflict the frontend can act on. An un-updated daemon

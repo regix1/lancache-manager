@@ -10,6 +10,18 @@ export type ScheduledPrefillOperatingSystem = 'Windows' | 'Linux' | 'Macos';
 
 export type ScheduledPrefillMaxConcurrencyMode = 'Auto' | 'Fixed';
 
+/**
+ * What happens to a persistent prefill container and its saved login across a manager
+ * restart. Serialized camelCase on the wire by the backend's dedicated
+ * `PersistenceModeJsonConverter` (NOT the bare `JsonStringEnumConverter<T>` used for the
+ * other scheduled-prefill enums above, which emits PascalCase instead - do not "fix" this
+ * casing to match `ScheduledPrefillPreset` etc., it is deliberately different).
+ */
+export type ScheduledPrefillPersistenceMode =
+  | 'killOnRestart'
+  | 'keepAcrossRestart'
+  | 'fullPersistence';
+
 interface ScheduledPrefillAutoMaxConcurrency {
   mode: 'Auto';
   value?: null;
@@ -43,6 +55,12 @@ export interface ScheduledPrefillServiceConfigDto {
   operatingSystems: ScheduledPrefillOperatingSystem[];
   force: boolean;
   maxConcurrency: ScheduledPrefillMaxConcurrency;
+  /**
+   * Per-service override of the global `persistenceMode`. `null`/`undefined` means
+   * "use the global setting" - the backend's `GetEffectivePersistenceMode` resolves it as
+   * `override ?? global`.
+   */
+  persistenceMode?: ScheduledPrefillPersistenceMode | null;
 }
 
 /** One row of the per-service schedule summary from `GET .../scheduledPrefill/schedule`. */
@@ -58,6 +76,13 @@ export interface ScheduledPrefillConfigDto {
   version: number;
   maxServiceRuntime: string;
   stallTimeout: string;
+  /**
+   * Global default for what happens to persistent containers across a manager restart.
+   * Nullable only on the C# DTO for old-JSON migration compatibility; the backend's
+   * `Validate` throws before a config is ever returned, so a loaded config always has this
+   * populated.
+   */
+  persistenceMode: ScheduledPrefillPersistenceMode;
   steam: ScheduledPrefillServiceConfigDto;
   epic: ScheduledPrefillServiceConfigDto;
   xbox: ScheduledPrefillServiceConfigDto;

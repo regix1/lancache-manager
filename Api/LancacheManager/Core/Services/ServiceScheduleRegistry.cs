@@ -407,7 +407,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     private static void ApplyInterval(ConfigurableScheduledService service, TimeSpan interval)
     {
         // UpdateInterval is protected in ConfigurableScheduledService.
-        // Services may expose a public wrapper (e.g., UpdateInterval(TimeSpan)) added by Worker 3.
+        // Services may expose a public wrapper (e.g., UpdateInterval(TimeSpan)).
         // Fall back to reflection on the protected method.
         var serviceType = service.GetType();
 

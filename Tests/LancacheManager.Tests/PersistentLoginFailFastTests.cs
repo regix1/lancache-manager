@@ -13,7 +13,7 @@ using Microsoft.Extensions.Options;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Session 20260703-005211-295269021, Worker 5: proves <c>PrefillDaemonServiceBase.StartLoginAsync</c>
+/// Proves <c>PrefillDaemonServiceBase.StartLoginAsync</c>
 /// races the daemon's "Login failed: &lt;reason&gt;" status broadcast (<c>OnStatusUpdate</c>, the shape
 /// every daemon repo uses: <c>BroadcastStatusAsync("awaiting-login", $"Login failed: {ex.Message}")</c>)
 /// against the blind challenge waits (diagnostic.md census sites 42-45: the 30s controller wait plus the
@@ -75,7 +75,7 @@ public class PersistentLoginFailFastTests
     }
 
     /// <summary>
-    /// Session 20260703-005211-295269021 verifier, Cursor #3: a second <c>StartLoginAsync</c> call on
+    /// A second <c>StartLoginAsync</c> call on
     /// the same session while the first is still mid-flight must be rejected outright (try-acquire on
     /// <see cref="DaemonSession.LoginLock"/>), not silently queued behind it - overlapping calls would
     /// otherwise race the daemon's single challenge/status stream.
@@ -144,7 +144,7 @@ public class PersistentLoginFailFastTests
             PrefillSessionService sessionService,
             PrefillCacheService cacheService,
             IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator())
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
         {
         }
 

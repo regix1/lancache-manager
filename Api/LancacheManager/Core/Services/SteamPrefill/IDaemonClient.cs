@@ -191,4 +191,14 @@ public interface IDaemonClient : IDisposable
     /// Clear pending challenge files (file-based mode only, no-op for socket).
     /// </summary>
     void ClearPendingChallenges();
+
+    /// <summary>
+    /// Waits (bounded by <paramref name="timeout"/>) for any in-flight fire-and-forget event callbacks
+    /// to finish, and rejects newly arriving ones, so a caller tearing this session down can guarantee no
+    /// status/progress event writes a DB row or broadcasts after this returns. Pairs with (does not
+    /// replace) the reference-equality guard in the event handlers. Never throws and never blocks longer
+    /// than <paramref name="timeout"/>. The default is a no-op for implementations with no fire-and-forget
+    /// event dispatch (test fakes); <c>SocketDaemonClient</c>/<c>TcpDaemonClient</c> override it.
+    /// </summary>
+    Task DrainEventsAsync(TimeSpan timeout, CancellationToken cancellationToken = default) => Task.CompletedTask;
 }

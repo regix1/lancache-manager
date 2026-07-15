@@ -14,7 +14,7 @@ using Microsoft.Extensions.Options;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Session 20260703-105848-2820911866, Worker B: proves
+/// Proves
 /// <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync(string, CancellationToken)"/>,
 /// which lets the "Log out" button forget a persistent container's stored account IN PLACE (no
 /// container restart) when the daemon supports the <c>logout</c> command, instead of the previous
@@ -202,7 +202,7 @@ public class PersistentLogoutTests
             PrefillSessionService sessionService,
             PrefillCacheService cacheService,
             IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator())
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
         {
         }
 

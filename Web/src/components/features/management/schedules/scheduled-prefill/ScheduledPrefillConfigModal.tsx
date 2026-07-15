@@ -10,6 +10,7 @@ import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import ApiService from '@services/api.service';
 import { GameSelectionModal } from '@components/features/prefill/GameSelectionModal';
 import { NumberInput } from '@components/ui/NumberInput';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import {
   PERSISTENT_PREFILL_SERVICES,
   PERSISTENT_PREFILL_VALIDITY_BOUNDS
@@ -49,6 +50,7 @@ import { usePersistentLoginChallengeSignalR } from './usePersistentLoginChalleng
 import type {
   ScheduledPrefillConfigDto,
   ScheduledPrefillOperatingSystem,
+  ScheduledPrefillPersistenceMode,
   ScheduledPrefillServiceConfigDto,
   ScheduledPrefillServiceKey
 } from './types';
@@ -79,6 +81,13 @@ interface NumericBounds {
 }
 
 const DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS = 90;
+
+const PERSISTENCE_MODE_OPTIONS = ['killOnRestart', 'keepAcrossRestart', 'fullPersistence'] as const;
+
+const isScheduledPrefillPersistenceMode = (
+  value: string
+): value is ScheduledPrefillPersistenceMode =>
+  (PERSISTENCE_MODE_OPTIONS as readonly string[]).includes(value);
 
 const mapOperatingSystems = (
   operatingSystems: ScheduledPrefillOperatingSystem[]
@@ -831,6 +840,14 @@ export function ScheduledPrefillConfigModal({
     setGlobalSettingsError(null);
   };
 
+  // Lives inside `config` itself (unlike persistentValidityDays above), so it rides the
+  // modal's single Save call - no separate endpoint, no separate local state.
+  const handlePersistenceModeChange = (value: ScheduledPrefillPersistenceMode) => {
+    setConfig((current) => (current ? { ...current, persistenceMode: value } : current));
+    setValidationError(null);
+    setSaveError(null);
+  };
+
   // Wipes stored logins for every persistent-container service in one shot: logs out any running
   // container and removes the saved credentials of stopped ones. Runs after an explicit confirm
   // (the action is destructive and requires fresh logins afterwards for every account service).
@@ -958,7 +975,7 @@ export function ScheduledPrefillConfigModal({
 
     try {
       if (hasActivePersistentLogin(serviceId)) {
-        // The pinned sessionId (RC3 fix, session 20260703-221336-2070027597) is the login flow's
+        // The pinned sessionId (RC3 fix) is the login flow's
         // OWN session, which may already differ from `container.sessionId` if a replacement
         // container has since started - falling back to the container's id only covers the edge
         // where cancel is clicked before the login ever pinned one (see usePersistentPrefillAuth's
@@ -1355,7 +1372,52 @@ export function ScheduledPrefillConfigModal({
                             />
                           </div>
                         </div>
+
+                        <div className="scheduled-prefill-config-modal__setting-row">
+                          <div className="scheduled-prefill-config-modal__setting-copy">
+                            <span
+                              id="scheduled-prefill-persistence-mode-label"
+                              className="scheduled-prefill-config-modal__global-label"
+                            >
+                              {t(`${baseKey}.settings.persistenceModeLabel`)}
+                            </span>
+                            <p className="scheduled-prefill-config-modal__global-help">
+                              {t(`${baseKey}.settings.persistenceModeHelp`)}
+                            </p>
+                          </div>
+                          <div className="scheduled-prefill-config-modal__setting-actions">
+                            {/* Saved by the modal's single Save button - no inline save here. */}
+                            <div
+                              role="group"
+                              aria-labelledby="scheduled-prefill-persistence-mode-label"
+                            >
+                              <SegmentedControl
+                                options={PERSISTENCE_MODE_OPTIONS.map((option) => ({
+                                  value: option,
+                                  label: t(`${baseKey}.settings.persistenceMode.${option}`),
+                                  disabled: !config || saving || loadingConfig
+                                }))}
+                                value={config?.persistenceMode ?? 'keepAcrossRestart'}
+                                onChange={(value) => {
+                                  if (!isScheduledPrefillPersistenceMode(value)) return;
+                                  handlePersistenceModeChange(value);
+                                }}
+                                size="md"
+                                showLabels
+                              />
+                            </div>
+                          </div>
+                        </div>
                       </div>
+
+                      {config?.persistenceMode === 'fullPersistence' && (
+                        <Alert
+                          color="yellow"
+                          title={t(`${baseKey}.settings.persistenceMode.fullPersistence`)}
+                        >
+                          {t(`${baseKey}.settings.persistenceModeWarning`)}
+                        </Alert>
+                      )}
 
                       <div className="scheduled-prefill-config-modal__danger-zone">
                         <div className="scheduled-prefill-config-modal__danger-zone-copy">

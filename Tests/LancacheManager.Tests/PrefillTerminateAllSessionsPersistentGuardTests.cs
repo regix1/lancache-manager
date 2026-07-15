@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Verifier fix (Cursor #2.5, PRE-EXISTING HIGH, session 20260703-024834-181826369): proves
+/// Proves
 /// <c>PrefillDaemonServiceBase.TerminateAllSessionsAsync</c> - reachable from
 /// <c>SteamKit2Service.Authentication.LogoutAsync</c> on a Steam PICS credential logout, not just
 /// service shutdown - never tears down a persistent (system-owned) session unless a caller explicitly
@@ -117,7 +117,7 @@ public class PrefillTerminateAllSessionsPersistentGuardTests
             PrefillSessionService sessionService,
             PrefillCacheService cacheService,
             IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator())
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
         {
         }
 

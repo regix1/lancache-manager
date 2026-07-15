@@ -92,7 +92,7 @@ public class PrefillSessionPersistentFlagTests
     [Fact]
     public void IsTerminatableByAdmin_ReturnsFalse_ForPersistentContainerName_EvenWhenFlagIsFalse()
     {
-        // Defense-in-depth (Cursor #1.3): the container-name convention is checked directly too, so a
+        // Defense-in-depth: the container-name convention is checked directly too, so a
         // session whose IsPersistent flag wasn't set correctly still can't be torn down if its name
         // matches the deterministic persistent-container convention.
         var session = MakeDaemonSession("persist-2", isPersistent: false);
@@ -277,5 +277,60 @@ public class PrefillSessionPersistentFlagTests
 
         Assert.Equal(PrefillSessionStatus.Active, reactivated.Status);
         Assert.True(reactivated.IsPersistent);
+    }
+
+    // === Platform-scoped orphan sweep: each daemon marks ONLY its own rows, so a later
+    // service's startup can't re-orphan a row an earlier service just reactivated (Active->Orphaned->Active) ===
+
+    [Fact]
+    public async Task MarkOrphansAsync_OnlyOrphansTheGivenPlatform_LeavingOtherServicesActive()
+    {
+        var options = NewInMemoryOptions();
+        var service = NewSessionService(options);
+
+        await service.CreateSessionAsync("steam-active", Guid.NewGuid(), "c-steam", "steam-daemon-persistent", DateTime.UtcNow.AddHours(1), "Steam");
+        await service.CreateSessionAsync("epic-active", Guid.NewGuid(), "c-epic", "epic-daemon-persistent", DateTime.UtcNow.AddHours(1), "Epic");
+
+        await service.MarkOrphansAsync(PrefillPlatform.Steam);
+
+        await using var verify = new AppDbContext(options);
+        var steamRow = await verify.PrefillSessions.FirstAsync(s => s.SessionId == "steam-active");
+        var epicRow = await verify.PrefillSessions.FirstAsync(s => s.SessionId == "epic-active");
+        Assert.Equal(PrefillSessionStatus.Orphaned, steamRow.Status);
+        Assert.Equal(PrefillSessionStatus.Active, epicRow.Status);
+    }
+
+    // === GetLatestPersistentSessionAsync evidence source: the FullPersistence lifecycle
+    // reads it to tell an involuntary death from an admin stop and to anchor a recreated session's expiry ===
+
+    [Fact]
+    public async Task GetLatestPersistentSessionAsync_ReturnsMostRecentPersistentRow_ForPlatform()
+    {
+        var options = NewInMemoryOptions();
+        var service = NewSessionService(options);
+
+        await service.CreateSessionAsync("steam-old", Guid.NewGuid(), "c1", "steam-daemon-persistent", DateTime.UtcNow.AddHours(1), "Steam");
+        await Task.Delay(5); // ensure a distinct CreatedAtUtc so the ordering is deterministic
+        await service.CreateSessionAsync("steam-new", Guid.NewGuid(), "c2", "steam-daemon-persistent", DateTime.UtcNow.AddHours(1), "Steam");
+        await service.CreateSessionAsync("epic-new", Guid.NewGuid(), "c3", "epic-daemon-persistent", DateTime.UtcNow.AddHours(1), "Epic");
+
+        var latest = await service.GetLatestPersistentSessionAsync(PrefillPlatform.Steam);
+
+        Assert.NotNull(latest);
+        Assert.Equal("steam-new", latest!.SessionId);
+    }
+
+    [Fact]
+    public async Task GetLatestPersistentSessionAsync_ReturnsNull_WhenOnlyGuestOrNoRowsExist()
+    {
+        var options = NewInMemoryOptions();
+        var service = NewSessionService(options);
+
+        // A guest (non-persistent) row must never be returned as the "latest persistent" session.
+        await service.CreateSessionAsync("steam-guest", Guid.NewGuid(), "c1", "steam-daemon-a1b2c3d4e5f6a1b2", DateTime.UtcNow.AddHours(1), "Steam");
+
+        var latest = await service.GetLatestPersistentSessionAsync(PrefillPlatform.Steam);
+
+        Assert.Null(latest);
     }
 }

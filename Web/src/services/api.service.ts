@@ -84,7 +84,7 @@ interface CachedGameDetectionResponse {
   lastDetectionTime?: string;
 }
 
-// Session 20260703-221336-2070027597 (RC3 fix): every persistent-login response variant now
+// RC3 fix: every persistent-login response variant now
 // carries the DaemonSession.Id the login started/resolved on, so the frontend can pin it and
 // reject/detect a later cross-session mismatch instead of trusting whichever session the backend
 // happens to resolve as "active" on each call. The bare `'authenticated'` string literal cannot
@@ -110,7 +110,7 @@ export interface PersistentSessionNotFoundInfo {
 
 /**
  * Structural info attached as `.cause` on the Error thrown by `getPersistentChallenge`/
- * `providePersistentCredential` for a 409 (RC3 fix, session 20260703-221336-2070027597):
+ * `providePersistentCredential` for a 409 (RC3 fix):
  * `PersistentPrefillController` now rejects a supplied `sessionId` that no longer matches the
  * live session instead of silently substituting the current one. `session_replaced` is the
  * mismatch itself; `credential_rejected` is the RC4 manager-leg signal (the daemon reported
@@ -3177,7 +3177,7 @@ class ApiService {
 
   /**
    * Parses the typed 409 body `{ error, state }` from the persistent-login session-pinning REST
-   * leg (RC3 fix, session 20260703-221336-2070027597) and attaches it as `.cause`, mirroring the
+   * leg (RC3 fix) and attaches it as `.cause`, mirroring the
    * `getPersistentChallenge` 404 pattern below - a caller detects this structurally via
    * `.cause.error`, never by sniffing the message text.
    */

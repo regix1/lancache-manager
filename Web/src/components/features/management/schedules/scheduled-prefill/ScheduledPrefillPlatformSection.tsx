@@ -1,12 +1,29 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
+import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { ScheduledPrefillPersistentCard } from './ScheduledPrefillPersistentCard';
 import { ScheduledPrefillScheduleFields } from './ScheduledPrefillScheduleFields';
 import { SCHEDULED_PREFILL_PLATFORM_UI } from './scheduledPrefillPlatformUi';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import type { ScheduledPrefillServiceConfigDto, ScheduledPrefillServiceKey } from './types';
+
+/**
+ * Sentinel + the 3 real modes, in dropdown order. `'useGlobal'` maps to a `null` DTO override
+ * at the onChange boundary - the DTO itself never carries the sentinel string.
+ */
+const PERSISTENCE_MODE_OVERRIDE_VALUES = [
+  'useGlobal',
+  'killOnRestart',
+  'keepAcrossRestart',
+  'fullPersistence'
+] as const;
+
+type PersistenceModeOverrideValue = (typeof PERSISTENCE_MODE_OVERRIDE_VALUES)[number];
+
+const isPersistenceModeOverrideValue = (value: string): value is PersistenceModeOverrideValue =>
+  (PERSISTENCE_MODE_OVERRIDE_VALUES as readonly string[]).includes(value);
 
 interface ScheduledPrefillPlatformSectionProps {
   serviceKey: ScheduledPrefillServiceKey;
@@ -60,6 +77,11 @@ export function ScheduledPrefillPlatformSection({
 
   const handleNotificationChange = (value: string) => {
     onChange({ ...config, showNotification: value === 'visible' });
+  };
+
+  const handlePersistenceModeOverrideChange = (value: string) => {
+    if (!isPersistenceModeOverrideValue(value)) return;
+    onChange({ ...config, persistenceMode: value === 'useGlobal' ? null : value });
   };
 
   return (
@@ -135,6 +157,29 @@ export function ScheduledPrefillPlatformSection({
               onChange={handleNotificationChange}
               disabled={disabled}
               title={t(`${baseKey}.fields.notifications`)}
+            />
+          </div>
+
+          <div className="scheduled-prefill-notification-setting">
+            <div className="scheduled-prefill-notification-setting__copy">
+              <span className="scheduled-prefill-notification-setting__label">
+                {t(`${baseKey}.fields.persistenceModeOverride`)}
+              </span>
+              <span className="scheduled-prefill-notification-setting__help">
+                {t(`${baseKey}.fields.persistenceModeOverrideHelp`)}
+              </span>
+            </div>
+            <EnhancedDropdown
+              options={PERSISTENCE_MODE_OVERRIDE_VALUES.map((value) => ({
+                value,
+                label: t(`${baseKey}.settings.persistenceMode.${value}`)
+              }))}
+              value={config.persistenceMode ?? 'useGlobal'}
+              onChange={handlePersistenceModeOverrideChange}
+              disabled={disabled}
+              variant="button"
+              size="lg"
+              triggerAriaLabel={t(`${baseKey}.fields.persistenceModeOverride`)}
             />
           </div>
         </Card>

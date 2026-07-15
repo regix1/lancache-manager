@@ -18,7 +18,7 @@ public abstract partial class PrefillDaemonServiceBase
     {
         try
         {
-            // RC3 (session 20260703-221336-2070027597): a challenge can still arrive from a daemon
+            // RC3: a challenge can still arrive from a daemon
             // client whose session was already terminated/replaced - the client read loop delivering a
             // queued "username" challenge right after Stop removed the session, just as a fresh
             // container becomes the service's active session. Writing it to PendingLoginChallenge or
@@ -92,6 +92,17 @@ public abstract partial class PrefillDaemonServiceBase
     {
         try
         {
+            // Post-detach/replace/terminate guard: daemon event callbacks are dispatched fire-and-forget,
+            // so a queued status event can arrive after this session was detached at shutdown, replaced
+            // (error-state), or terminated. Ignore it before any DB write / broadcast if it is no longer
+            // the live registered instance for its id. Re-checked after each await below so a callback that
+            // escaped the bounded teardown drain (took longer than the timeout) cannot resurrect teardown
+            // state (mirrors the OnCredentialChallengeAsync guard above).
+            if (!IsSessionLive(session))
+            {
+                return;
+            }
+
             var previousAuthState = session.AuthState;
 
             // Update auth state based on status
@@ -116,6 +127,13 @@ public abstract partial class PrefillDaemonServiceBase
                 await _sessionService.SetUsernameAsync(session.Id, status.DisplayName);
             }
 
+            // Re-check liveness after the durable write before broadcasting: teardown may have won during
+            // that await.
+            if (!IsSessionLive(session))
+            {
+                return;
+            }
+
             if (session.AuthState != previousAuthState)
             {
                 await NotifyAuthStateChangeAsync(session);
@@ -136,6 +154,11 @@ public abstract partial class PrefillDaemonServiceBase
                 }
             }
 
+            if (!IsSessionLive(session))
+            {
+                return;
+            }
+
             await NotifyStatusChangeAsync(session, status);
         }
         catch (Exception ex)
@@ -145,12 +168,30 @@ public abstract partial class PrefillDaemonServiceBase
     }
 
     /// <summary>
+    /// True when <paramref name="session"/> is still the live, registered in-memory instance for its id -
+    /// i.e. teardown (detach / terminate / error-replacement) has not de-registered or replaced it. The
+    /// event handlers re-check this after every await before a durable DB write or broadcast, so a callback
+    /// that escaped the bounded teardown drain cannot resurrect teardown state.
+    /// </summary>
+    internal bool IsSessionLive(DaemonSession session)
+        => _sessions.TryGetValue(session.Id, out var live) && ReferenceEquals(live, session);
+
+    /// <summary>
     /// Handles progress update events from socket communication.
     /// </summary>
     private async Task OnProgressChangeAsync(DaemonSession session, SocketPrefillProgress socketProgress)
     {
         try
         {
+            // Post-detach/replace/terminate guard (see OnStatusChangeAsync): a fire-and-forget progress
+            // event can arrive after this session was torn down; ignore it before any history/cache write
+            // or broadcast if it is no longer the live registered instance. NotifyPrefillProgressAsync
+            // re-checks after its awaits before durable writes/broadcasts.
+            if (!IsSessionLive(session))
+            {
+                return;
+            }
+
             // Convert socket progress to internal PrefillProgress format
             // Property names match daemon's PrefillProgressUpdate class
             var progress = new PrefillProgress
@@ -231,9 +272,22 @@ public abstract partial class PrefillDaemonServiceBase
         var payload = new { sessionId = session.Id, authState = session.AuthState.ToString() };
         await BroadcastToSubscribersAsync(session, EventAuthStateChanged, payload);
 
+        // Liveness fence: the subscriber fan-out above can outlast a teardown that won the bounded drain;
+        // stop before mirroring later auth/session updates to the hubs for a session no longer live.
+        if (!IsSessionLive(session))
+        {
+            return;
+        }
+
         // Mirror to DownloadHub so management UIs (persistent container list, prefill sessions)
         // update via SignalR instead of polling when a daemon self-authenticates or logs in.
         await NotifyHubAsync(EventAuthStateChanged, payload);
+
+        // Re-check after the hub push before the session-update broadcast: teardown may have won during it.
+        if (!IsSessionLive(session))
+        {
+            return;
+        }
 
         try
         {
@@ -252,6 +306,13 @@ public abstract partial class PrefillDaemonServiceBase
     {
         await BroadcastToSubscribersAsync(session, EventCredentialChallenge,
             new { sessionId = session.Id, challenge });
+
+        // Liveness fence: the subscriber fan-out above can outlast a teardown that won the bounded drain;
+        // don't mirror the challenge to the DownloadHub for a session that is no longer the live instance.
+        if (!IsSessionLive(session))
+        {
+            return;
+        }
 
         // Mirror to DownloadHub (matches NotifyAuthStateChangeAsync's AuthStateChanged/SessionUpdated
         // mirror above) so the persistent-container config modal - which never calls
@@ -509,8 +570,21 @@ public abstract partial class PrefillDaemonServiceBase
                     status, progress.Result, progress.CurrentAppId, progress.CurrentAppName,
                     bytesDownloaded, totalBytes);
 
+                // Liveness fence (see IsSessionLive): a progress callback that escaped the bounded teardown
+                // drain must not broadcast or write cache records after teardown completed. Re-checked after
+                // each await below before the next durable cache action / broadcast.
+                if (!IsSessionLive(session))
+                {
+                    return;
+                }
+
                 // Broadcast history update
                 await BroadcastHistoryUpdatedAsync(session.Id, progress.CurrentAppId, status);
+
+                if (!IsSessionLive(session))
+                {
+                    return;
+                }
 
                 // Record cached depots for successful downloads (including AlreadyUpToDate)
                 // This allows us to skip re-downloading games that are already cached
@@ -570,8 +644,18 @@ public abstract partial class PrefillDaemonServiceBase
                     session.PrefillState = PrefillState.Downloading;
                 }
 
+                if (!IsSessionLive(session))
+                {
+                    return;
+                }
+
                 await BroadcastToSubscribersAsync(session, EventPrefillProgress,
                     new { sessionId = session.Id, progress = frontendProgress });
+
+                if (!IsSessionLive(session))
+                {
+                    return;
+                }
 
                 // Same push, in-process. Carries frontendProgress (NOT the raw tick) because only the
                 // normalized object has the three completion counters a consumer needs to keep its
@@ -632,6 +716,14 @@ public abstract partial class PrefillDaemonServiceBase
                     _logger.LogDebug("App {Status} for {AppId} ({AppName})",
                         status, session.CurrentAppId, session.CurrentAppName);
 
+                    // Liveness fence: a progress callback that escaped the bounded teardown drain must not
+                    // broadcast a history update after teardown completed (the terminal transition below has
+                    // its own fence before it).
+                    if (!IsSessionLive(session))
+                    {
+                        return;
+                    }
+
                     // Broadcast history update
                     await BroadcastHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
                 }
@@ -671,6 +763,13 @@ public abstract partial class PrefillDaemonServiceBase
                     "Ignoring daemon '{ProgressState}' progress for session {SessionId}: no prefill in " +
                     "progress (likely a login-phase error), not transitioning to a terminal state.",
                     progressState.ToWireString(), session.Id);
+                return;
+            }
+
+            // Liveness fence: a progress callback that escaped the bounded teardown drain must not flip a
+            // terminated session's prefill state or broadcast a terminal event after teardown.
+            if (!IsSessionLive(session))
+            {
                 return;
             }
 
@@ -720,6 +819,13 @@ public abstract partial class PrefillDaemonServiceBase
         if (session.PrefillState == PrefillState.Started)
         {
             session.PrefillState = PrefillState.Downloading;
+        }
+
+        // Liveness fence: don't broadcast a session update for a session torn down while this progress
+        // callback was mid-flight (escaped the bounded drain).
+        if (!IsSessionLive(session))
+        {
+            return;
         }
 
         // Broadcast session update to all clients on every progress (for admin pages - both hubs)

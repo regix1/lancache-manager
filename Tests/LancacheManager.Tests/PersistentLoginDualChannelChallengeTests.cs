@@ -14,7 +14,7 @@ using Microsoft.Extensions.Options;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Session 20260704-014633-2785217377, worker "dualchallenge": proves the fix for Bug #3 - the manager
+/// Proves the fix for Bug #3 - the manager
 /// serving the same login <c>password</c> challenge to the frontend TWICE.
 ///
 /// The daemon delivers each credential challenge over TWO channels: the return value of
@@ -209,7 +209,7 @@ public class PersistentLoginDualChannelChallengeTests
             PrefillSessionService sessionService,
             PrefillCacheService cacheService,
             IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator())
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
         {
             Notifications = notifications;
         }

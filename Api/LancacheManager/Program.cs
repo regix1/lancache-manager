@@ -577,6 +577,10 @@ builder.Services.AddSingleton<PrefillSessionService>();
 // Register PrefillCacheService for tracking cached depots across sessions
 builder.Services.AddSingleton<PrefillCacheService>();
 
+// Docker operation seam for the prefill daemon services. Each daemon resolves this factory and creates
+// its own gateway instance, preserving the previous one-Docker-client-per-service model.
+builder.Services.AddSingleton<LancacheManager.Core.Interfaces.IPrefillContainerGatewayFactory, LancacheManager.Infrastructure.Services.DockerPrefillContainerGatewayFactory>();
+
 // Register SteamDaemonService for secure daemon-based prefill management
 builder.Services.AddSingletonHostedService<SteamDaemonService>();
 

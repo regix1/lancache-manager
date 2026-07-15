@@ -503,15 +503,37 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Marks orphaned sessions (sessions marked as Active in DB but not in memory).
-    /// Called on startup to detect containers that may still be running.
+    /// The most recent PERSISTENT session row for <paramref name="platform"/> (ordered by
+    /// <see cref="PrefillSession.CreatedAtUtc"/>), or null if the service has never had one. Used by the
+    /// FullPersistence lifecycle to tell an involuntary container death (row not
+    /// <see cref="PrefillSessionStatus.Terminated"/> -> preserve the volume login and allow a recreate)
+    /// apart from an explicit admin stop (row Terminated -> run the fresh-login erase backstop and never
+    /// auto-recreate), and to anchor a recreated session's expiry to the prior life's validity window.
     /// </summary>
-    public async Task<List<PrefillSession>> MarkOrphansAsync()
+    public async Task<PrefillSession?> GetLatestPersistentSessionAsync(PrefillPlatform platform)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
+        return await context.PrefillSessions
+            .AsNoTracking()
+            .Where(s => s.IsPersistent && s.Platform == platform)
+            .OrderByDescending(s => s.CreatedAtUtc)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>
+    /// Marks orphaned sessions (sessions marked as Active in DB but not in memory).
+    /// Called on startup to detect containers that may still be running.
+    /// </summary>
+    public async Task<List<PrefillSession>> MarkOrphansAsync(PrefillPlatform platform)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        // Platform-scoped: each of the five hosted daemon services calls this from its own StartAsync.
+        // A global sweep would let a later service re-orphan the rows an earlier service just reactivated
+        // (Active -> Orphaned -> Active), leaving persisted state disagreeing with the live sessions.
         var activeSessions = await context.PrefillSessions
-            .Where(s => s.Status == PrefillSessionStatus.Active)
+            .Where(s => s.Status == PrefillSessionStatus.Active && s.Platform == platform)
             .ToListAsync();
 
         foreach (var session in activeSessions)
@@ -524,7 +546,7 @@ public class PrefillSessionService
         if (activeSessions.Count > 0)
         {
             await context.SaveChangesAsync();
-            _logger.LogWarning("Marked {Count} sessions as orphaned after app restart", activeSessions.Count);
+            _logger.LogWarning("Marked {Count} {Platform} sessions as orphaned after app restart", activeSessions.Count, platform);
         }
 
         return activeSessions;

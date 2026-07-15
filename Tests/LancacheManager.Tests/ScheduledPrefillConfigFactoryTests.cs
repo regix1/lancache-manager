@@ -1,3 +1,4 @@
+using System.Text.Json;
 using LancacheManager.Models;
 
 namespace LancacheManager.Tests;
@@ -248,6 +249,170 @@ public class ScheduledPrefillConfigFactoryTests
         Assert.Equal(selectedAppIds, reconciled.SelectedAppIds);
     }
 
+    // ---- PersistenceMode: wire format, v2->v3 migration, copy-site threading, validation, and
+    // GetEffectivePersistenceMode. ----
+
+    [Theory]
+    [InlineData(PersistenceMode.KillOnRestart, "\"killOnRestart\"")]
+    [InlineData(PersistenceMode.KeepAcrossRestart, "\"keepAcrossRestart\"")]
+    [InlineData(PersistenceMode.FullPersistence, "\"fullPersistence\"")]
+    public void PersistenceMode_SerializesToCamelCaseWireValue_AndRoundTrips(PersistenceMode mode, string expectedJson)
+    {
+        var json = JsonSerializer.Serialize(mode);
+
+        Assert.Equal(expectedJson, json);
+        Assert.Equal(mode, JsonSerializer.Deserialize<PersistenceMode>(json));
+    }
+
+    [Fact]
+    public void CreateDefault_SeedsKeepAcrossRestartGlobally_AndNullPerServiceOverrides()
+    {
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+
+        Assert.Equal(PersistenceMode.KeepAcrossRestart, config.PersistenceMode);
+        foreach (var service in config.GetServicesInRunOrder())
+        {
+            Assert.Null(service.PersistenceMode);
+        }
+
+        // Must pass its own validation (exercises the CreateDefaultService copy site).
+        ScheduledPrefillConfigFactory.Validate(config);
+    }
+
+    [Fact]
+    public void Migrate_V2Config_SeedsGlobalPersistenceModeAndLeavesPerServiceOverridesNull_PreservingEveryOtherField()
+    {
+        var v2 = BuildV2Config();
+
+        var migrated = ScheduledPrefillConfigFactory.Migrate(v2, legacyGlobalIntervalHours: 999d);
+
+        Assert.Equal(3, migrated.Version);
+        Assert.Equal(PersistenceMode.KeepAcrossRestart, migrated.PersistenceMode);
+        Assert.Equal(v2.MaxServiceRuntime, migrated.MaxServiceRuntime);
+        Assert.Equal(v2.StallTimeout, migrated.StallTimeout);
+
+        AssertServicePreservedExceptPersistenceMode(v2.Steam, migrated.Steam);
+        AssertServicePreservedExceptPersistenceMode(v2.Epic, migrated.Epic);
+        AssertServicePreservedExceptPersistenceMode(v2.Xbox, migrated.Xbox);
+        AssertServicePreservedExceptPersistenceMode(v2.BattleNet, migrated.BattleNet);
+        AssertServicePreservedExceptPersistenceMode(v2.Riot, migrated.Riot);
+
+        // The migrated config is what gets persisted/served - it must pass validation.
+        ScheduledPrefillConfigFactory.Validate(migrated);
+    }
+
+    [Fact]
+    public void Migrate_ThreadsPerServicePersistenceModeOverrideThrough_WithIntervalCopySite()
+    {
+        // BuildV1Config is Version 1, so Migrate's v1->v2 stage (the only caller of the private
+        // WithInterval copy site) is what rebuilds this service - proving it threads the field.
+        var v1 = WithServicePersistenceMode(BuildV1Config(), PrefillPlatform.Steam, PersistenceMode.FullPersistence);
+
+        var migrated = ScheduledPrefillConfigFactory.Migrate(v1, legacyGlobalIntervalHours: 6d);
+
+        Assert.Equal(PersistenceMode.FullPersistence, migrated.Steam.PersistenceMode);
+        ScheduledPrefillConfigFactory.Validate(migrated);
+    }
+
+    [Fact]
+    public void Validate_ThreadsPerServicePersistenceModeOverrideThrough_ReconcilePresetAndOperatingSystemsCopySites()
+    {
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+
+        // BattleNet: force an unsupported preset so the private ReconcileServicePreset copy site
+        // rebuilds it. Epic: force an unsupported OS selection so the private
+        // ReconcileServiceOperatingSystems copy site rebuilds it. Both get a distinct override so a
+        // dropped field can't hide behind a coincidentally-matching default.
+        var stale = WithBattleNetPreset(config, ScheduledPrefillPreset.Top, topCount: 50);
+        stale = WithEpicOperatingSystems(stale, new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows });
+        stale = WithServicePersistenceMode(stale, PrefillPlatform.BattleNet, PersistenceMode.FullPersistence);
+        stale = WithServicePersistenceMode(stale, PrefillPlatform.Epic, PersistenceMode.KillOnRestart);
+
+        var validated = ScheduledPrefillConfigFactory.Validate(stale);
+
+        // Sanity: both services actually went through their respective reconcile rebuild.
+        Assert.Equal(ScheduledPrefillPreset.All, validated.BattleNet.Preset);
+        Assert.Empty(validated.Epic.OperatingSystems);
+
+        // The override must have survived the rebuild instead of silently resetting to null.
+        Assert.Equal(PersistenceMode.FullPersistence, validated.BattleNet.PersistenceMode);
+        Assert.Equal(PersistenceMode.KillOnRestart, validated.Epic.PersistenceMode);
+    }
+
+    [Fact]
+    public void Validate_ThrowsWhenGlobalPersistenceModeIsNull()
+    {
+        var config = WithGlobalPersistenceMode(ScheduledPrefillConfigFactory.CreateDefault(), mode: null);
+
+        Assert.Throws<ScheduledPrefillConfigValidationException>(
+            () => ScheduledPrefillConfigFactory.Validate(config));
+    }
+
+    [Fact]
+    public void Validate_RejectsUndefinedGlobalPersistenceModeValue()
+    {
+        var config = WithGlobalPersistenceMode(ScheduledPrefillConfigFactory.CreateDefault(), (PersistenceMode)999);
+
+        Assert.Throws<ScheduledPrefillConfigValidationException>(
+            () => ScheduledPrefillConfigFactory.Validate(config));
+    }
+
+    [Fact]
+    public void Validate_RejectsUndefinedPerServicePersistenceModeOverride()
+    {
+        var config = WithServicePersistenceMode(ScheduledPrefillConfigFactory.CreateDefault(), PrefillPlatform.Steam, (PersistenceMode)999);
+
+        Assert.Throws<ScheduledPrefillConfigValidationException>(
+            () => ScheduledPrefillConfigFactory.Validate(config));
+    }
+
+    [Fact]
+    public void Validate_AcceptsNullPerServiceOverride_AsInheritGlobal()
+    {
+        var validated = ScheduledPrefillConfigFactory.Validate(ScheduledPrefillConfigFactory.CreateDefault());
+
+        Assert.Null(validated.Steam.PersistenceMode);
+    }
+
+    [Theory]
+    [InlineData(PersistenceMode.KillOnRestart)]
+    [InlineData(PersistenceMode.KeepAcrossRestart)]
+    [InlineData(PersistenceMode.FullPersistence)]
+    public void Validate_AcceptsValidPerServicePersistenceModeOverride(PersistenceMode mode)
+    {
+        var config = WithServicePersistenceMode(ScheduledPrefillConfigFactory.CreateDefault(), PrefillPlatform.Steam, mode);
+
+        var validated = ScheduledPrefillConfigFactory.Validate(config);
+
+        Assert.Equal(mode, validated.Steam.PersistenceMode);
+    }
+
+    [Theory]
+    [InlineData(PrefillPlatform.Steam)]
+    [InlineData(PrefillPlatform.Epic)]
+    [InlineData(PrefillPlatform.Xbox)]
+    [InlineData(PrefillPlatform.BattleNet)]
+    [InlineData(PrefillPlatform.Riot)]
+    public void GetEffectivePersistenceMode_ReturnsGlobal_WhenServiceHasNoOverride(PrefillPlatform serviceId)
+    {
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+
+        Assert.Equal(PersistenceMode.KeepAcrossRestart, config.GetEffectivePersistenceMode(serviceId));
+    }
+
+    [Theory]
+    [InlineData(PrefillPlatform.Steam)]
+    [InlineData(PrefillPlatform.Epic)]
+    [InlineData(PrefillPlatform.Xbox)]
+    [InlineData(PrefillPlatform.BattleNet)]
+    [InlineData(PrefillPlatform.Riot)]
+    public void GetEffectivePersistenceMode_ReturnsOverride_WhenServiceHasOne(PrefillPlatform serviceId)
+    {
+        var config = WithServicePersistenceMode(ScheduledPrefillConfigFactory.CreateDefault(), serviceId, PersistenceMode.KillOnRestart);
+
+        Assert.Equal(PersistenceMode.KillOnRestart, config.GetEffectivePersistenceMode(serviceId));
+    }
+
     private static ScheduledPrefillConfigDto WithBattleNetPreset(
         ScheduledPrefillConfigDto config,
         ScheduledPrefillPreset preset,
@@ -259,6 +424,7 @@ public class ScheduledPrefillConfigFactoryTests
             Version = config.Version,
             MaxServiceRuntime = config.MaxServiceRuntime,
             StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
             Steam = config.Steam,
             Epic = config.Epic,
             Xbox = config.Xbox,
@@ -273,7 +439,8 @@ public class ScheduledPrefillConfigFactoryTests
                 SelectedAppIds = config.BattleNet.SelectedAppIds,
                 OperatingSystems = config.BattleNet.OperatingSystems,
                 Force = config.BattleNet.Force,
-                MaxConcurrency = config.BattleNet.MaxConcurrency
+                MaxConcurrency = config.BattleNet.MaxConcurrency,
+                PersistenceMode = config.BattleNet.PersistenceMode
             },
             Riot = config.Riot
         };
@@ -296,7 +463,8 @@ public class ScheduledPrefillConfigFactoryTests
             SelectedAppIds = selectedAppIds,
             OperatingSystems = original.OperatingSystems,
             Force = original.Force,
-            MaxConcurrency = original.MaxConcurrency
+            MaxConcurrency = original.MaxConcurrency,
+            PersistenceMode = original.PersistenceMode
         };
 
         return new ScheduledPrefillConfigDto
@@ -304,6 +472,7 @@ public class ScheduledPrefillConfigFactoryTests
             Version = config.Version,
             MaxServiceRuntime = config.MaxServiceRuntime,
             StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
             Steam = config.Steam,
             Epic = config.Epic,
             Xbox = config.Xbox,
@@ -320,6 +489,7 @@ public class ScheduledPrefillConfigFactoryTests
             Version = config.Version,
             MaxServiceRuntime = config.MaxServiceRuntime,
             StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
             Steam = config.Steam,
             Epic = new ScheduledPrefillServiceConfigDto
             {
@@ -331,7 +501,8 @@ public class ScheduledPrefillConfigFactoryTests
                 SelectedAppIds = config.Epic.SelectedAppIds,
                 OperatingSystems = operatingSystems,
                 Force = config.Epic.Force,
-                MaxConcurrency = config.Epic.MaxConcurrency
+                MaxConcurrency = config.Epic.MaxConcurrency,
+                PersistenceMode = config.Epic.PersistenceMode
             },
             Xbox = config.Xbox,
             BattleNet = config.BattleNet,
@@ -347,6 +518,7 @@ public class ScheduledPrefillConfigFactoryTests
             Version = config.Version,
             MaxServiceRuntime = config.MaxServiceRuntime,
             StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
             Steam = new ScheduledPrefillServiceConfigDto
             {
                 ServiceId = config.Steam.ServiceId,
@@ -357,7 +529,8 @@ public class ScheduledPrefillConfigFactoryTests
                 SelectedAppIds = config.Steam.SelectedAppIds,
                 OperatingSystems = operatingSystems,
                 Force = config.Steam.Force,
-                MaxConcurrency = config.Steam.MaxConcurrency
+                MaxConcurrency = config.Steam.MaxConcurrency,
+                PersistenceMode = config.Steam.PersistenceMode
             },
             Epic = config.Epic,
             Xbox = config.Xbox,
@@ -374,6 +547,7 @@ public class ScheduledPrefillConfigFactoryTests
             Version = config.Version,
             MaxServiceRuntime = config.MaxServiceRuntime,
             StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
             Steam = new ScheduledPrefillServiceConfigDto
             {
                 ServiceId = config.Steam.ServiceId,
@@ -384,7 +558,8 @@ public class ScheduledPrefillConfigFactoryTests
                 SelectedAppIds = config.Steam.SelectedAppIds,
                 OperatingSystems = config.Steam.OperatingSystems,
                 Force = config.Steam.Force,
-                MaxConcurrency = config.Steam.MaxConcurrency
+                MaxConcurrency = config.Steam.MaxConcurrency,
+                PersistenceMode = config.Steam.PersistenceMode
             },
             Epic = config.Epic,
             Xbox = config.Xbox,
@@ -415,6 +590,7 @@ public class ScheduledPrefillConfigFactoryTests
             Version = config.Version,
             MaxServiceRuntime = config.MaxServiceRuntime,
             StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
             Steam = new ScheduledPrefillServiceConfigDto
             {
                 ServiceId = config.Steam.ServiceId,
@@ -425,7 +601,8 @@ public class ScheduledPrefillConfigFactoryTests
                 SelectedAppIds = config.Steam.SelectedAppIds,
                 OperatingSystems = config.Steam.OperatingSystems,
                 Force = config.Steam.Force,
-                MaxConcurrency = config.Steam.MaxConcurrency
+                MaxConcurrency = config.Steam.MaxConcurrency,
+                PersistenceMode = config.Steam.PersistenceMode
             },
             Epic = config.Epic,
             Xbox = config.Xbox,
@@ -446,5 +623,145 @@ public class ScheduledPrefillConfigFactoryTests
             Force = false,
             MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
         };
+    }
+
+    /// <summary>
+    /// Returns a copy of <paramref name="config"/> with only <paramref name="serviceId"/>'s
+    /// per-service <c>PersistenceMode</c> override replaced (<c>null</c> = inherit global), every
+    /// other field on every service - and the global <c>PersistenceMode</c> itself - preserved.
+    /// General-purpose test helper covering all 5 services, used to exercise the copy-site
+    /// threading and validation/effective-mode tests without a bespoke per-service variant.
+    /// </summary>
+    private static ScheduledPrefillConfigDto WithServicePersistenceMode(
+        ScheduledPrefillConfigDto config, PrefillPlatform serviceId, PersistenceMode? mode)
+    {
+        ScheduledPrefillServiceConfigDto WithMode(ScheduledPrefillServiceConfigDto service) => new()
+        {
+            ServiceId = service.ServiceId,
+            Enabled = service.Enabled,
+            ShowNotification = service.ShowNotification,
+            IntervalHours = service.IntervalHours,
+            Preset = service.Preset,
+            TopCount = service.TopCount,
+            SelectedAppIds = service.SelectedAppIds,
+            OperatingSystems = service.OperatingSystems,
+            Force = service.Force,
+            MaxConcurrency = service.MaxConcurrency,
+            PersistenceMode = mode
+        };
+
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
+            Steam = serviceId == PrefillPlatform.Steam ? WithMode(config.Steam) : config.Steam,
+            Epic = serviceId == PrefillPlatform.Epic ? WithMode(config.Epic) : config.Epic,
+            Xbox = serviceId == PrefillPlatform.Xbox ? WithMode(config.Xbox) : config.Xbox,
+            BattleNet = serviceId == PrefillPlatform.BattleNet ? WithMode(config.BattleNet) : config.BattleNet,
+            Riot = serviceId == PrefillPlatform.Riot ? WithMode(config.Riot) : config.Riot
+        };
+    }
+
+    /// <summary>
+    /// Returns a copy of <paramref name="config"/> with only the global <c>PersistenceMode</c>
+    /// replaced; every service (including each service's own override) is preserved untouched.
+    /// </summary>
+    private static ScheduledPrefillConfigDto WithGlobalPersistenceMode(ScheduledPrefillConfigDto config, PersistenceMode? mode)
+    {
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            PersistenceMode = mode,
+            Steam = config.Steam,
+            Epic = config.Epic,
+            Xbox = config.Xbox,
+            BattleNet = config.BattleNet,
+            Riot = config.Riot
+        };
+    }
+
+    /// <summary>
+    /// Builds a realistic Version-2 config (post-IntervalHours-migration, pre-PersistenceMode)
+    /// with distinguishable, non-default values on every field so the v2-&gt;v3 migration test can
+    /// prove each field survives untouched. <c>PersistenceMode</c> is intentionally left unset
+    /// (null) on the root and every service, exactly like a real pre-v3 state.json.
+    /// </summary>
+    private static ScheduledPrefillConfigDto BuildV2Config()
+    {
+        return new ScheduledPrefillConfigDto
+        {
+            Version = 2,
+            MaxServiceRuntime = TimeSpan.FromHours(6),
+            StallTimeout = TimeSpan.FromMinutes(15),
+            Steam = ServiceV2(
+                PrefillPlatform.Steam, enabled: true, intervalHours: 12d, preset: ScheduledPrefillPreset.Top,
+                topCount: 25, selectedAppIds: new List<string> { "730" }, force: true, showNotification: false),
+            Epic = ServiceV2(
+                PrefillPlatform.Epic, enabled: false, intervalHours: 48d, preset: ScheduledPrefillPreset.All,
+                topCount: null, selectedAppIds: new List<string>(), force: false, showNotification: true),
+            Xbox = ServiceV2(
+                PrefillPlatform.Xbox, enabled: true, intervalHours: -1d, preset: ScheduledPrefillPreset.Recent,
+                topCount: null, selectedAppIds: new List<string>(), force: false, showNotification: true),
+            BattleNet = ServiceV2(
+                PrefillPlatform.BattleNet, enabled: true, intervalHours: 0d, preset: ScheduledPrefillPreset.All,
+                topCount: null, selectedAppIds: new List<string> { "wow" }, force: false, showNotification: true),
+            Riot = ServiceV2(
+                PrefillPlatform.Riot, enabled: true, intervalHours: 24d, preset: ScheduledPrefillPreset.All,
+                topCount: null, selectedAppIds: new List<string>(), force: false, showNotification: true)
+        };
+    }
+
+    private static ScheduledPrefillServiceConfigDto ServiceV2(
+        PrefillPlatform id,
+        bool enabled,
+        double intervalHours,
+        ScheduledPrefillPreset preset,
+        int? topCount,
+        List<string> selectedAppIds,
+        bool force,
+        bool showNotification)
+    {
+        return new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = id,
+            Enabled = enabled,
+            ShowNotification = showNotification,
+            IntervalHours = intervalHours,
+            Preset = preset,
+            TopCount = topCount,
+            SelectedAppIds = selectedAppIds,
+            OperatingSystems = ScheduledPrefillConfigFactory.SupportsOperatingSystemSelection(id)
+                ? new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows, ScheduledPrefillOperatingSystem.Linux }
+                : new List<ScheduledPrefillOperatingSystem>(),
+            Force = force,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Fixed, Value = 4 }
+            // PersistenceMode intentionally omitted (null) - simulates a real pre-v3 config.
+        };
+    }
+
+    /// <summary>
+    /// Asserts every field that a v2-&gt;v3 migration must preserve unchanged, and that the new
+    /// per-service <c>PersistenceMode</c> override was seeded null (inherit global) rather than
+    /// some other default.
+    /// </summary>
+    private static void AssertServicePreservedExceptPersistenceMode(
+        ScheduledPrefillServiceConfigDto original, ScheduledPrefillServiceConfigDto migrated)
+    {
+        Assert.Null(migrated.PersistenceMode);
+        Assert.Equal(original.ServiceId, migrated.ServiceId);
+        Assert.Equal(original.Enabled, migrated.Enabled);
+        Assert.Equal(original.ShowNotification, migrated.ShowNotification);
+        Assert.Equal(original.IntervalHours, migrated.IntervalHours);
+        Assert.Equal(original.Preset, migrated.Preset);
+        Assert.Equal(original.TopCount, migrated.TopCount);
+        Assert.Equal(original.SelectedAppIds, migrated.SelectedAppIds);
+        Assert.Equal(original.OperatingSystems, migrated.OperatingSystems);
+        Assert.Equal(original.Force, migrated.Force);
+        Assert.Equal(original.MaxConcurrency.Mode, migrated.MaxConcurrency.Mode);
+        Assert.Equal(original.MaxConcurrency.Value, migrated.MaxConcurrency.Value);
     }
 }

@@ -13,7 +13,7 @@ using Microsoft.Extensions.Options;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Swarm session 20260704-005231-2124919689, Worker 1: proves <c>NotifyPrefillProgressAsync</c> only
+/// Proves <c>NotifyPrefillProgressAsync</c> only
 /// drives a session to a terminal Failed/Cancelled state when that session is actually mid-prefill.
 ///
 /// Root cause (context/diagnostic.md): the daemon reuses the prefill progress channel to report
@@ -154,7 +154,7 @@ public class PrefillProgressLoginPhaseGuardTests
             PrefillSessionService sessionService,
             PrefillCacheService cacheService,
             IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator())
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
         {
         }
 

@@ -14,9 +14,9 @@ using Microsoft.Extensions.Options;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Session 20260703-085455-996528703, Worker 4: proves that a credential challenge received for a
+/// Proves that a credential challenge received for a
 /// session (the same event that populates <see cref="DaemonSession.PendingLoginChallenge"/> - see
-/// PersistentLoginChallengeResumeTests.cs / Worker 1) is also pushed to the DownloadHub via
+/// PersistentLoginChallengeResumeTests.cs) is also pushed to the DownloadHub via
 /// <c>NotifyHubAsync</c>, mirroring the existing AuthStateChanged/SessionUpdated mirror in
 /// <c>NotifyAuthStateChangeAsync</c>. This is what lets the persistent-container config modal -
 /// which never calls <c>SubscribeToSessionAsync</c>, unlike the mapping-flow live login - receive
@@ -116,7 +116,7 @@ public class PersistentLoginChallengePushTests
             PrefillSessionService sessionService,
             PrefillCacheService cacheService,
             IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator())
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
         {
             Notifications = notifications;
         }

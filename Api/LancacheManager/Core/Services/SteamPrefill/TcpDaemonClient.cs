@@ -16,7 +16,10 @@ public sealed class TcpDaemonClient : IDaemonClient
 {
     private readonly string _host;
     private readonly int _port;
-    private readonly ILogger<TcpDaemonClient>? _logger;
+    // Non-generic ILogger so the owning daemon service's real logger flows through unchanged: the caller
+    // holds an ILogger<TSomeDaemonService>, and a generic-typed field here would force a category cast
+    // that silently yields null (dropping every drain timeout/fault warning this client emits).
+    private readonly ILogger? _logger;
     private readonly string? _sharedSecret;
     private Socket? _socket;
     private NetworkStream? _stream;
@@ -26,6 +29,10 @@ public sealed class TcpDaemonClient : IDaemonClient
     private bool _isAuthenticated;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly SemaphoreSlim _connectLock = new(1, 1);
+
+    // Tracks fire-and-forget ProcessEventAsync tasks so teardown can drain in-flight event callbacks
+    // before disposal (see DaemonEventDrainTracker / DrainEventsAsync).
+    private readonly DaemonEventDrainTracker _eventDrain;
 
     // Pending command responses keyed by request ID
     private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResponse>> _pendingCommands = new();
@@ -56,11 +63,12 @@ public sealed class TcpDaemonClient : IDaemonClient
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public TcpDaemonClient(string host, int port, string? sharedSecret = null, ILogger<TcpDaemonClient>? logger = null)
+    public TcpDaemonClient(string host, int port, string? sharedSecret = null, ILogger? logger = null)
     {
         _host = host;
         _port = port;
         _logger = logger;
+        _eventDrain = new DaemonEventDrainTracker(_logger);
 
         // Read shared secret for socket authentication
         _sharedSecret = sharedSecret;
@@ -244,14 +252,13 @@ public sealed class TcpDaemonClient : IDaemonClient
         }
         finally
         {
-            if (OnDisconnected != null)
-            {
-                _ = OnDisconnected.Invoke();
-            }
+            // Track the disconnect callback through the same admission path so a detach/terminate drain
+            // waits for it too (or rejects it once draining), keeping disposal ordering for this path.
+            _eventDrain.TryTrack(() => DaemonEventDispatch.InvokeAllAsync(OnDisconnected, _logger));
         }
     }
 
-    private void ProcessMessage(string json)
+    internal void ProcessMessage(string json)
     {
         try
         {
@@ -264,7 +271,10 @@ public sealed class TcpDaemonClient : IDaemonClient
 
                 if (messageType != DaemonMessageType.Unknown)
                 {
-                    _ = ProcessEventAsync(messageType, root);
+                    // Atomic admission: TryTrack starts + tracks the callback under the drain lock, or
+                    // rejects it (callback never runs) once teardown has begun draining - so no event can
+                    // slip past DrainAsync's snapshot and run after this client is disposed.
+                    _eventDrain.TryTrack(() => ProcessEventAsync(messageType, root));
                     return;
                 }
             }
@@ -306,9 +316,9 @@ public sealed class TcpDaemonClient : IDaemonClient
                     if (root.TryGetProperty("data", out var progressData))
                     {
                         var progress = JsonSerializer.Deserialize<SocketPrefillProgress>(progressData.GetRawText(), _jsonOptions);
-                        if (progress != null && OnProgressUpdate != null)
+                        if (progress != null)
                         {
-                            await OnProgressUpdate.Invoke(progress);
+                            await DaemonEventDispatch.InvokeAllAsync(OnProgressUpdate, progress, _logger);
                         }
                     }
                     break;
@@ -320,24 +330,21 @@ public sealed class TcpDaemonClient : IDaemonClient
                         var message = authData.TryGetProperty("message", out var msgElem) ? msgElem.GetString() : null;
                         var displayName = authData.TryGetProperty("displayName", out var dnElem) ? dnElem.GetString() : null;
                         _logger?.LogInformation("Auth state changed: {State} - {Message}", state, message);
-                        if (OnStatusUpdate != null)
+                        await DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, new DaemonStatus
                         {
-                            await OnStatusUpdate.Invoke(new DaemonStatus
-                            {
-                                Status = state ?? "unknown",
-                                Message = message,
-                                DisplayName = displayName,
-                                Timestamp = DateTime.UtcNow
-                            });
-                        }
+                            Status = state ?? "unknown",
+                            Message = message,
+                            DisplayName = displayName,
+                            Timestamp = DateTime.UtcNow
+                        }, _logger);
                     }
                     break;
 
                 case DaemonMessageType.StatusUpdate:
                     var status = JsonSerializer.Deserialize<DaemonStatus>(root.GetRawText(), _jsonOptions);
-                    if (status != null && OnStatusUpdate != null)
+                    if (status != null)
                     {
-                        await OnStatusUpdate.Invoke(status);
+                        await DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, status, _logger);
                     }
                     break;
 
@@ -349,12 +356,16 @@ public sealed class TcpDaemonClient : IDaemonClient
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "Failed to process event of type {MessageType}", messageType);
-            if (OnError != null)
-            {
-                await OnError.Invoke(ex.Message);
-            }
+            await DaemonEventDispatch.InvokeAllAsync(OnError, ex.Message, _logger);
         }
     }
+
+    /// <summary>
+    /// Drains in-flight fire-and-forget event callbacks (bounded) and rejects new ones, so a teardown can
+    /// guarantee no event writes/broadcasts after it returns. See <see cref="DaemonEventDrainTracker"/>.
+    /// </summary>
+    public Task DrainEventsAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+        => _eventDrain.DrainAsync(timeout, cancellationToken);
 
     private async Task HandleCredentialChallengeAsync(CredentialChallenge challenge)
     {
@@ -371,10 +382,7 @@ public sealed class TcpDaemonClient : IDaemonClient
             }
         }
 
-        if (OnCredentialChallenge != null)
-        {
-            await OnCredentialChallenge.Invoke(challenge);
-        }
+        await DaemonEventDispatch.InvokeAllAsync(OnCredentialChallenge, challenge, _logger);
     }
 
     private static async Task<int> ReadExactlyAsync(Stream stream, byte[] buffer, CancellationToken cancellationToken)

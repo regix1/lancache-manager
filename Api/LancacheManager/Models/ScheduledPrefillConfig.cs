@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace LancacheManager.Models;
@@ -32,6 +33,56 @@ public enum ScheduledPrefillMaxConcurrencyMode
 {
     Auto,
     Fixed
+}
+
+/// <summary>
+/// Controls what happens to a persistent prefill container and its saved login across a
+/// manager restart. Serialized as camelCase strings on the wire ("killOnRestart",
+/// "keepAcrossRestart", "fullPersistence") to match the frontend's JSON contract - see
+/// <see cref="PersistenceModeJsonConverter"/> for why a dedicated converter (not the bare
+/// <c>JsonStringEnumConverter&lt;TEnum&gt;</c> attribute used elsewhere in this file) is
+/// required to actually get camelCase here.
+/// </summary>
+[JsonConverter(typeof(PersistenceModeJsonConverter))]
+public enum PersistenceMode
+{
+    /// <summary>
+    /// Today's behavior: on manager shutdown the container is stopped, its login is erased,
+    /// and the container is removed.
+    /// </summary>
+    KillOnRestart,
+
+    /// <summary>
+    /// Default for new and migrated installs. On manager shutdown the container is left
+    /// running with its login intact and is re-adopted on the next start. A container that
+    /// died while the manager was down still gets today's stopped-container cleanup and a
+    /// fresh login on its next create.
+    /// </summary>
+    KeepAcrossRestart,
+
+    /// <summary>
+    /// Like <see cref="KeepAcrossRestart"/>, but a container that died while the manager was
+    /// down is also recreated automatically, and its saved login is preserved (the fresh-login
+    /// guard is skipped) so the daemon self-authenticates from its named volume.
+    /// </summary>
+    FullPersistence
+}
+
+/// <summary>
+/// Serializes <see cref="PersistenceMode"/> as camelCase strings ("killOnRestart",
+/// "keepAcrossRestart", "fullPersistence"). The bare <c>JsonStringEnumConverter&lt;TEnum&gt;</c>
+/// attribute (used elsewhere in this file for <see cref="ScheduledPrefillPreset"/> etc.) ignores
+/// the globally-configured <c>PropertyNamingPolicy</c> and emits PascalCase member names instead
+/// (confirmed by <c>ScheduledPrefillPreset</c>'s own frontend mirror, which is
+/// <c>'All' | 'Recent' | 'Top'</c> - PascalCase, not camelCase); the identical gotcha is
+/// documented on <see cref="SessionType"/>, which uses this same dedicated-converter pattern.
+/// </summary>
+internal sealed class PersistenceModeJsonConverter : JsonStringEnumConverter<PersistenceMode>
+{
+    public PersistenceModeJsonConverter()
+        : base(JsonNamingPolicy.CamelCase, allowIntegerValues: false)
+    {
+    }
 }
 
 /// <summary>
@@ -81,6 +132,18 @@ public sealed class ScheduledPrefillServiceConfigDto
     public required List<ScheduledPrefillOperatingSystem> OperatingSystems { get; init; }
     public required bool Force { get; init; }
     public required ScheduledPrefillMaxConcurrencyDto MaxConcurrency { get; init; }
+
+    /// <summary>
+    /// Per-service override for what happens to this service's persistent container across a
+    /// manager restart. <c>null</c> means "use the global
+    /// <see cref="ScheduledPrefillConfigDto.PersistenceMode"/>". NOT required so a pre-v3 (or a
+    /// v3 config that never set an override) config deserializes. Every DTO-rebuilding copy site
+    /// in <see cref="ScheduledPrefillConfigFactory"/> (<c>WithInterval</c>,
+    /// <c>CreateDefaultService</c>, <c>ReconcileServicePreset</c>,
+    /// <c>ReconcileServiceOperatingSystems</c>) must thread this value through explicitly or a
+    /// saved override silently resets on the next load/save.
+    /// </summary>
+    public PersistenceMode? PersistenceMode { get; init; }
 }
 
 /// <summary>
@@ -102,6 +165,18 @@ public sealed class ScheduledPrefillConfigDto
     public required ScheduledPrefillServiceConfigDto Riot { get; init; }
 
     /// <summary>
+    /// Global default for what happens to a persistent container across a manager restart, used
+    /// whenever a service has no <see cref="ScheduledPrefillServiceConfigDto.PersistenceMode"/>
+    /// override. Nullable only so a pre-v3 state.json (which had no persistence-mode concept)
+    /// deserializes; the v2→v3 migration in <see cref="ScheduledPrefillConfigFactory.Migrate"/>
+    /// seeds it to <see cref="LancacheManager.Models.PersistenceMode.KeepAcrossRestart"/>.
+    /// <see cref="ScheduledPrefillConfigFactory.Validate"/> throws if this is still null at
+    /// <see cref="ScheduledPrefillConfigFactory.CurrentVersion"/> - there is no silent fallback
+    /// for a required global setting.
+    /// </summary>
+    public PersistenceMode? PersistenceMode { get; init; }
+
+    /// <summary>
     /// Returns the per-service configs in a stable run order: Steam, Epic, Xbox, Battle.net, Riot.
     /// </summary>
     public IReadOnlyList<ScheduledPrefillServiceConfigDto> GetServicesInRunOrder()
@@ -112,6 +187,33 @@ public sealed class ScheduledPrefillConfigDto
     /// </summary>
     public IReadOnlyList<ScheduledPrefillServiceConfigDto> GetEnabledServicesInRunOrder()
         => GetServicesInRunOrder().Where(s => s.Enabled).ToList();
+
+    /// <summary>
+    /// Returns the effective persistence mode for <paramref name="serviceId"/>: its own
+    /// per-service override when set, otherwise the global <see cref="PersistenceMode"/>.
+    /// Reused by shutdown (<c>PrefillDaemonServiceBase.StopAsync</c>), startup reconcile, and
+    /// the fresh-login guard so all three read the same override-then-global precedence rule.
+    /// Throws if the global mode is null, which <see cref="ScheduledPrefillConfigFactory.Validate"/>
+    /// should already have rejected - this is a defensive fail-loud guard, not a silent default.
+    /// </summary>
+    public PersistenceMode GetEffectivePersistenceMode(PrefillPlatform serviceId)
+    {
+        var service = GetServicesInRunOrder().FirstOrDefault(s => s.ServiceId == serviceId)
+            ?? throw new ArgumentOutOfRangeException(nameof(serviceId), serviceId, "Unknown scheduled prefill service id.");
+
+        if (service.PersistenceMode is { } overrideMode)
+        {
+            return overrideMode;
+        }
+
+        if (PersistenceMode is { } globalMode)
+        {
+            return globalMode;
+        }
+
+        throw new InvalidOperationException(
+            $"Scheduled prefill config's global PersistenceMode is null for {serviceId}; ScheduledPrefillConfigFactory.Validate() must run before GetEffectivePersistenceMode is called.");
+    }
 }
 
 /// <summary>
@@ -122,7 +224,8 @@ public sealed class ScheduledPrefillConfigDto
 public static class ScheduledPrefillConfigFactory
 {
     // Bumped 1 -> 2 when per-service IntervalHours was added (see Migrate).
-    public const int CurrentVersion = 2;
+    // Bumped 2 -> 3 when global + per-service PersistenceMode was added (see Migrate).
+    public const int CurrentVersion = 3;
     public const int DefaultTopCount = 50;
     public const int MinFixedConcurrency = 1;
     public const int MaxFixedConcurrency = 256;
@@ -149,6 +252,7 @@ public static class ScheduledPrefillConfigFactory
             Version = CurrentVersion,
             MaxServiceRuntime = DefaultMaxServiceRuntime,
             StallTimeout = DefaultStallTimeout,
+            PersistenceMode = PersistenceMode.KeepAcrossRestart,
             Steam = CreateDefaultService(PrefillPlatform.Steam, enabled: false),
             Epic = CreateDefaultService(PrefillPlatform.Epic, enabled: false),
             Xbox = CreateDefaultService(PrefillPlatform.Xbox, enabled: false),
@@ -158,12 +262,15 @@ public static class ScheduledPrefillConfigFactory
     }
 
     /// <summary>
-    /// Upgrades an older persisted config to <see cref="CurrentVersion"/> before validation. v1 had no
-    /// per-service <c>IntervalHours</c> (a single global cadence lived in
-    /// <c>StateService.ServiceIntervals["scheduledPrefill"]</c>); this seeds every service's interval
-    /// from that legacy global value (sanitized; fallback <see cref="DefaultIntervalHours"/>) so a
-    /// pre-feature schedule keeps firing on its old cadence, now independently per service. A config
-    /// already at the current version is returned unchanged.
+    /// Upgrades an older persisted config to <see cref="CurrentVersion"/> before validation, one
+    /// version step at a time. v1 had no per-service <c>IntervalHours</c> (a single global cadence
+    /// lived in <c>StateService.ServiceIntervals["scheduledPrefill"]</c>); the v1→v2 step seeds
+    /// every service's interval from that legacy global value (sanitized; fallback
+    /// <see cref="DefaultIntervalHours"/>) so a pre-feature schedule keeps firing on its old
+    /// cadence, now independently per service. v2 had no <c>PersistenceMode</c> concept; the
+    /// v2→v3 step seeds the global mode to <see cref="LancacheManager.Models.PersistenceMode.KeepAcrossRestart"/>
+    /// (the new default) when it is null and leaves every per-service override null (inherit
+    /// global). A config already at the current version is returned unchanged.
     /// </summary>
     public static ScheduledPrefillConfigDto Migrate(ScheduledPrefillConfigDto config, double? legacyGlobalIntervalHours)
     {
@@ -174,27 +281,49 @@ public static class ScheduledPrefillConfigFactory
             return config;
         }
 
-        var seededInterval = legacyGlobalIntervalHours is double legacy && IsIntervalHoursValid(legacy)
-            ? legacy
-            : DefaultIntervalHours;
-
-        return new ScheduledPrefillConfigDto
+        if (config.Version < 2)
         {
-            Version = CurrentVersion,
-            MaxServiceRuntime = config.MaxServiceRuntime,
-            StallTimeout = config.StallTimeout,
-            Steam = WithInterval(config.Steam, seededInterval),
-            Epic = WithInterval(config.Epic, seededInterval),
-            Xbox = WithInterval(config.Xbox, seededInterval),
-            BattleNet = WithInterval(config.BattleNet, seededInterval),
-            Riot = WithInterval(config.Riot, seededInterval)
-        };
+            var seededInterval = legacyGlobalIntervalHours is double legacy && IsIntervalHoursValid(legacy)
+                ? legacy
+                : DefaultIntervalHours;
+
+            config = new ScheduledPrefillConfigDto
+            {
+                Version = 2,
+                MaxServiceRuntime = config.MaxServiceRuntime,
+                StallTimeout = config.StallTimeout,
+                PersistenceMode = config.PersistenceMode,
+                Steam = WithInterval(config.Steam, seededInterval),
+                Epic = WithInterval(config.Epic, seededInterval),
+                Xbox = WithInterval(config.Xbox, seededInterval),
+                BattleNet = WithInterval(config.BattleNet, seededInterval),
+                Riot = WithInterval(config.Riot, seededInterval)
+            };
+        }
+
+        if (config.Version < 3)
+        {
+            config = new ScheduledPrefillConfigDto
+            {
+                Version = CurrentVersion,
+                MaxServiceRuntime = config.MaxServiceRuntime,
+                StallTimeout = config.StallTimeout,
+                PersistenceMode = config.PersistenceMode ?? PersistenceMode.KeepAcrossRestart,
+                Steam = config.Steam,
+                Epic = config.Epic,
+                Xbox = config.Xbox,
+                BattleNet = config.BattleNet,
+                Riot = config.Riot
+            };
+        }
+
+        return config;
     }
 
     /// <summary>
     /// Returns a copy of <paramref name="service"/> with <see cref="ScheduledPrefillServiceConfigDto.IntervalHours"/>
     /// replaced. Used by <see cref="Migrate"/> to seed the new per-service cadence while preserving
-    /// every other setting (enabled / preset / selected apps / OS / concurrency).
+    /// every other setting (enabled / preset / selected apps / OS / concurrency / persistence mode).
     /// </summary>
     private static ScheduledPrefillServiceConfigDto WithInterval(ScheduledPrefillServiceConfigDto service, double intervalHours)
     {
@@ -211,7 +340,8 @@ public static class ScheduledPrefillConfigFactory
             SelectedAppIds = service.SelectedAppIds,
             OperatingSystems = service.OperatingSystems,
             Force = service.Force,
-            MaxConcurrency = service.MaxConcurrency
+            MaxConcurrency = service.MaxConcurrency,
+            PersistenceMode = service.PersistenceMode
         };
     }
 
@@ -239,7 +369,8 @@ public static class ScheduledPrefillConfigFactory
                 ? new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows }
                 : new List<ScheduledPrefillOperatingSystem>(),
             Force = false,
-            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto },
+            PersistenceMode = null
         };
     }
 
@@ -332,6 +463,7 @@ public static class ScheduledPrefillConfigFactory
             Version = config.Version,
             MaxServiceRuntime = config.MaxServiceRuntime,
             StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
             Steam = steam,
             Epic = epic,
             Xbox = xbox,
@@ -359,7 +491,8 @@ public static class ScheduledPrefillConfigFactory
             SelectedAppIds = service.SelectedAppIds,
             OperatingSystems = service.OperatingSystems,
             Force = service.Force,
-            MaxConcurrency = service.MaxConcurrency
+            MaxConcurrency = service.MaxConcurrency,
+            PersistenceMode = service.PersistenceMode
         };
     }
 
@@ -391,6 +524,7 @@ public static class ScheduledPrefillConfigFactory
             Version = config.Version,
             MaxServiceRuntime = config.MaxServiceRuntime,
             StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
             Steam = steam,
             Epic = epic,
             Xbox = xbox,
@@ -421,7 +555,8 @@ public static class ScheduledPrefillConfigFactory
             SelectedAppIds = service.SelectedAppIds,
             OperatingSystems = service.OperatingSystems.Where(supportedOperatingSystems.Contains).ToList(),
             Force = service.Force,
-            MaxConcurrency = service.MaxConcurrency
+            MaxConcurrency = service.MaxConcurrency,
+            PersistenceMode = service.PersistenceMode
         };
     }
 
@@ -444,6 +579,18 @@ public static class ScheduledPrefillConfigFactory
         {
             throw new ScheduledPrefillConfigValidationException(
                 $"Unsupported scheduled prefill config version {config.Version}; expected {CurrentVersion}.");
+        }
+
+        if (config.PersistenceMode is not { } globalPersistenceMode)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                "PersistenceMode is required and must not be null (Migrate should have seeded a default; refusing to silently default a required global setting).");
+        }
+
+        if (!Enum.IsDefined(globalPersistenceMode))
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"PersistenceMode '{globalPersistenceMode}' is not a supported value.");
         }
 
         if (config.MaxServiceRuntime <= TimeSpan.Zero)
@@ -566,6 +713,12 @@ public static class ScheduledPrefillConfigFactory
         {
             throw new ScheduledPrefillConfigValidationException(
                 $"{expectedServiceId} TopCount must be null unless Preset is Top.");
+        }
+
+        if (service.PersistenceMode is { } persistenceMode && !Enum.IsDefined(persistenceMode))
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{expectedServiceId} PersistenceMode '{persistenceMode}' is not a supported value.");
         }
 
         ValidateMaxConcurrency(service.MaxConcurrency, expectedServiceId);

@@ -13,7 +13,7 @@ using Microsoft.Extensions.Options;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Session 20260703-085455-996528703, Worker 1: proves the manager-side pending-login-challenge cache
+/// Proves the manager-side pending-login-challenge cache
 /// on <see cref="DaemonSession.PendingLoginChallenge"/> that fixes the double-start bug from
 /// diagnostic.md §5 - a second <c>StartLoginAsync</c> call arriving while a challenge is still pending
 /// (e.g. the frontend closed/reopened the login modal) now resumes the SAME challenge instead of
@@ -70,7 +70,7 @@ public class PersistentLoginChallengeResumeTests
     }
 
     /// <summary>
-    /// Session 20260703-085455-996528703 post-review fix: a failed daemon-side cancel round-trip
+    /// A failed daemon-side cancel round-trip
     /// (socket error, unresponsive daemon) must NOT be treated as a successful cancel. Before this fix,
     /// <c>CancelLoginAsync</c> cleared <see cref="DaemonSession.PendingLoginChallenge"/> and flipped
     /// <see cref="DaemonSession.AuthState"/> to <see cref="DaemonAuthState.NotAuthenticated"/>
@@ -188,7 +188,7 @@ public class PersistentLoginChallengeResumeTests
     }
 
     /// <summary>
-    /// Session 20260703-085455-996528703 verifier, Cursor #1 (the BLOCKER): a multi-step login
+    /// A multi-step login
     /// (username -> password) must never resume the STALE first-step challenge after the caller has
     /// already submitted credentials for it. Before this fix, <c>ProvideCredentialAsync</c> never
     /// cleared <see cref="DaemonSession.PendingLoginChallenge"/> and the follow-on challenge dispatch
@@ -219,7 +219,7 @@ public class PersistentLoginChallengeResumeTests
     }
 
     /// <summary>
-    /// Session 20260703-085455-996528703 verifier, Cursor #1: drives the full Steam-shaped multi-step
+    /// Drives the full Steam-shaped multi-step
     /// flow (username -> password -> 2FA -> authenticated) purely through the REST-facing service
     /// methods (<c>StartLoginAsync</c>/<c>ProvideCredentialAsync</c>/<c>WaitForChallengeAsync</c>) with
     /// no SignalR hub assertions at all, proving the flow completes correctly on REST alone (i.e. it
@@ -327,7 +327,7 @@ public class PersistentLoginChallengeResumeTests
             PrefillSessionService sessionService,
             PrefillCacheService cacheService,
             IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator())
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
         {
         }
 

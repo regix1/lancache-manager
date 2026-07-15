@@ -15,7 +15,7 @@ using Microsoft.Extensions.Options;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Lane 2 (session 20260703-001631-1548419933): proves the scheduled run path for the ANONYMOUS
+/// Proves the scheduled run path for the ANONYMOUS
 /// services (Battle.net/Riot) with SelectedAppIds populated. The one real unknown from the plan was
 /// whether <see cref="ScheduledPrefillService.RunServiceAsync"/>'s step-2b live-status poll
 /// (<c>status?.Status == "logged-in"</c>) would wrongly skip anonymous daemons. Investigation found
@@ -176,7 +176,7 @@ public class ScheduledPrefillAnonymousRunPathTests
             PrefillSessionService sessionService,
             PrefillCacheService cacheService,
             IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator())
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
         {
         }
 
@@ -194,7 +194,7 @@ public class ScheduledPrefillAnonymousRunPathTests
             PrefillSessionService sessionService,
             PrefillCacheService cacheService,
             IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator())
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
         {
         }
 

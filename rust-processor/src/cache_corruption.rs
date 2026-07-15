@@ -173,7 +173,7 @@ struct RemovalEvidenceEnvelope {
     candidates: Vec<RemovalCandidate>,
 }
 
-/// C# attaches datasource to Worker 1's canonical candidate. `flatten` consumes that one extra
+/// C# attaches datasource to the canonical candidate. `flatten` consumes that one extra
 /// field while preserving the shared candidate type unchanged.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

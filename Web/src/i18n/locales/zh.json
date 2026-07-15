@@ -3636,6 +3636,15 @@
               "error": "保存全局计划预填充设置失败：{{error}}",
               "persistentValidityLabel": "持久容器登录有效期（天）",
               "persistentValidityHelp": "持久容器会无限期运行。其登录会持续此天数，到期后需要重新登录。允许范围：{{min}}-{{max}} 天。",
+              "persistenceModeLabel": "重启后",
+              "persistenceModeHelp": "此应用重启时，各平台容器会发生的情况。完全持久化还会保存登录信息，因此容器在断电后也能恢复。",
+              "persistenceModeWarning": "完全持久化会将登录令牌保存在此服务器的存储中，使其在重启和断电后仍然有效。任何能访问此服务器的人都可以使用这些令牌。如果此服务器是共享的，请使用其他模式。",
+              "persistenceMode": {
+                "useGlobal": "使用全局设置",
+                "killOnRestart": "停止并注销",
+                "keepAcrossRestart": "保持运行",
+                "fullPersistence": "完全持久化"
+              },
               "clearLogins": {
                 "zoneTitle": "危险区域",
                 "button": "清除已保存的登录",
@@ -3693,6 +3702,8 @@
               "intervalHelp": "该平台的运行频率。每个平台独立排程。",
               "notifications": "通用通知",
               "notificationsHelp": "在通用通知栏中显示此平台的预填充进度。静默运行仍会在后台继续。",
+              "persistenceModeOverride": "重启后",
+              "persistenceModeOverrideHelp": "覆盖上方的全局“重启后”设置，仅适用于此平台。保持“使用全局设置”以遵循上方的默认值。",
               "visible": "显示",
               "silent": "静默"
             },

@@ -220,8 +220,8 @@ public class CredentialChallenge
 
     /// <summary>
     /// Manager-side correlation only: the id of the <see cref="DaemonSession"/> this challenge was
-    /// started/resolved on. The daemon never sends this field (it is session-agnostic - see RC3,
-    /// session 20260703-221336-2070027597); the persistent login REST surface stamps it onto every
+    /// started/resolved on. The daemon never sends this field (it is session-agnostic - see RC3);
+    /// the persistent login REST surface stamps it onto every
     /// challenge it returns so the frontend can pin the session a login flow belongs to and reject a
     /// challenge that would otherwise land on a replacement session. Null on any challenge parsed
     /// straight off the wire.
@@ -259,8 +259,8 @@ public class CredentialChallenge
 /// <summary>
 /// Thrown by <see cref="IDaemonClient.ProvideCredentialAsync"/> when the daemon replies
 /// <c>Success=false</c> to a <c>provide-credential</c> command - i.e. it dropped the credential
-/// because no matching login challenge was pending for it (RC4, session
-/// 20260703-221336-2070027597). Before the RC4 fix the daemon masked this as <c>Success=true</c>,
+/// because no matching login challenge was pending for it (RC4).
+/// Before the RC4 fix the daemon masked this as <c>Success=true</c>,
 /// so a credential misrouted to the wrong session (RC3) was silently celebrated as accepted; the
 /// manager now surfaces the drop as a real error instead of a false success.
 /// </summary>

@@ -53,7 +53,7 @@ function isPersistentChallengeNotFoundError(
   return error instanceof ApiError && error.status === 404;
 }
 
-// RC3 fix (session 20260703-221336-2070027597): the challenge GET and provide-credential 409
+// RC3 fix: the challenge GET and provide-credential 409
 // structurally when the pinned sessionId no longer matches the active session, or (provide-
 // credential only) when the daemon reported it dropped the credential (RC4 manager leg). Detected
 // via `.cause`, mirroring isPersistentChallengeNotFoundError above - never by message-sniffing.
@@ -192,7 +192,7 @@ export function usePersistentPrefillAuth(
     [service]
   );
 
-  // Single choke point for the RC3 409 conflict (session 20260703-221336-2070027597): both
+  // Single choke point for the RC3 409 conflict: both
   // `pollForResult` (challenge GET) and `submitChallenge` (provide-credential) funnel their 409
   // here so the reset + translated message are applied exactly once, from exactly one place,
   // regardless of which REST call surfaced the conflict.
@@ -486,7 +486,7 @@ export function usePersistentPrefillAuth(
       // from the same synchronous flow that just started a login (e.g. an auto-cancel path) must
       // still see the sessionId written moments ago, not a pre-login closure value.
       // No sessionId is pinned yet only when cancel is clicked in the brief window before start()'s
-      // very first response ever lands (RC3, session 20260703-221336-2070027597) - there is no
+      // very first response ever lands (RC3) - there is no
       // known daemon session id to send, and the cancel flag set above already makes start() bail
       // out locally the moment it resolves, so skipping the round-trip here is safe rather than a
       // silent no-op: nothing server-side has been told about this login attempt yet either.

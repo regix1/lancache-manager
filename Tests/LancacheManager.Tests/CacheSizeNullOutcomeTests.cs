@@ -3,7 +3,7 @@ using LancacheManager.Models;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Session 20260703-143959-1235921382, Worker 2: proves the null-result mapping
+/// Proves the null-result mapping
 /// <see cref="CacheSizeNullOutcome.Resolve"/> that <see cref="Controllers.CacheController"/>
 /// uses when <c>GetCacheSizeAsync</c> returns null - an active scan wins (report scanning so
 /// the frontend polls/waits), else a previously persisted stale result is served instead of an

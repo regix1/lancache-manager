@@ -315,6 +315,7 @@ public class ScheduledPrefillServiceTests
             Version = template.Version,
             MaxServiceRuntime = template.MaxServiceRuntime,
             StallTimeout = template.StallTimeout,
+            PersistenceMode = template.PersistenceMode,
             Steam = Reconfigure(template.Steam, steamEnabled, steamIntervalHours),
             Epic = Reconfigure(template.Epic, enabled: false, template.Epic.IntervalHours),
             Xbox = Reconfigure(template.Xbox, enabled: false, template.Xbox.IntervalHours),
@@ -335,7 +336,8 @@ public class ScheduledPrefillServiceTests
             SelectedAppIds = template.SelectedAppIds,
             OperatingSystems = template.OperatingSystems,
             Force = template.Force,
-            MaxConcurrency = template.MaxConcurrency
+            MaxConcurrency = template.MaxConcurrency,
+            PersistenceMode = template.PersistenceMode
         };
 
     // Builds a REAL StateService rooted at a throwaway temp directory. The encryption / steam-auth deps

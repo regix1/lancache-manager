@@ -64,4 +64,47 @@ public class PersistentLoginValidityClockTests
 
         Assert.Equal(expiresAt, effective);
     }
+
+    // === ResolveRecreatedPersistentExpiry (FullPersistence mode-3 outage recreate anchor) ===
+
+    private static readonly DateTime AnchorNow = new(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void ResolveRecreatedPersistentExpiry_PrefersPriorRecord_WhenStillFuture()
+    {
+        // A container recreated after an outage inherits the prior life's still-future window so the
+        // outage does not silently extend the admin-configured validity.
+        var priorExpiry = AnchorNow.AddDays(40);
+
+        var resolved = PrefillDaemonServiceBase.ResolveRecreatedPersistentExpiry(priorExpiry, AnchorNow, validityDays: 90);
+
+        Assert.Equal(priorExpiry, resolved);
+    }
+
+    [Fact]
+    public void ResolveRecreatedPersistentExpiry_FallsBackToNowPlusValidity_WhenPriorIsPast()
+    {
+        var priorExpiry = AnchorNow.AddDays(-1);
+
+        var resolved = PrefillDaemonServiceBase.ResolveRecreatedPersistentExpiry(priorExpiry, AnchorNow, validityDays: 90);
+
+        Assert.Equal(AnchorNow.AddDays(90), resolved);
+    }
+
+    [Fact]
+    public void ResolveRecreatedPersistentExpiry_FallsBackToNowPlusValidity_WhenPriorIsNull()
+    {
+        var resolved = PrefillDaemonServiceBase.ResolveRecreatedPersistentExpiry(null, AnchorNow, validityDays: 90);
+
+        Assert.Equal(AnchorNow.AddDays(90), resolved);
+    }
+
+    [Fact]
+    public void ResolveRecreatedPersistentExpiry_FallsBackToNowPlusValidity_WhenPriorEqualsNow()
+    {
+        // Boundary: "future" is strict (>), so a record expiring exactly now is treated as stale.
+        var resolved = PrefillDaemonServiceBase.ResolveRecreatedPersistentExpiry(AnchorNow, AnchorNow, validityDays: 30);
+
+        Assert.Equal(AnchorNow.AddDays(30), resolved);
+    }
 }

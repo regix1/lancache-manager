@@ -15,7 +15,7 @@ using Microsoft.Extensions.Options;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Session 20260703-221336-2070027597, Worker 3: RC3 session pinning + RC4 manager leg.
+/// RC3 session pinning + RC4 manager leg.
 ///
 /// RC3: the persistent-login REST surface re-resolved "the current active session" fresh on every
 /// call with zero pinning, so an in-flight login for a stopped session A transparently operated on a
@@ -270,7 +270,7 @@ public class PersistentLoginSessionPinningTests
             PrefillSessionService sessionService,
             PrefillCacheService cacheService,
             IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator())
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
         {
         }
 

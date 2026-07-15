@@ -3636,6 +3636,15 @@
               "error": "Failed to save global scheduled prefill settings: {{error}}",
               "persistentValidityLabel": "Persistent container login validity (days)",
               "persistentValidityHelp": "Persistent containers run indefinitely. Their login lasts this many days, then re-login is required. Allowed range: {{min}}-{{max}} days.",
+              "persistenceModeLabel": "After a restart",
+              "persistenceModeHelp": "What happens to each platform's container when this app restarts. Full persistence also saves logins so containers come back after a power outage.",
+              "persistenceModeWarning": "Full persistence keeps login tokens on this server's storage so they survive restarts and power loss. Anyone with access to the server can use them. Use the other modes if this server is shared.",
+              "persistenceMode": {
+                "useGlobal": "Use global setting",
+                "killOnRestart": "Stop and log out",
+                "keepAcrossRestart": "Keep running",
+                "fullPersistence": "Full persistence"
+              },
               "clearLogins": {
                 "zoneTitle": "Danger zone",
                 "button": "Clear stored logins",
@@ -3693,6 +3702,8 @@
               "intervalHelp": "How often this platform runs. Each platform schedules independently.",
               "notifications": "Universal notifications",
               "notificationsHelp": "Show this platform's prefill progress in the universal notification bar. Silent runs continue in the background.",
+              "persistenceModeOverride": "After a restart",
+              "persistenceModeOverrideHelp": "Overrides the global \"After a restart\" setting for this platform only. Leave as \"Use global setting\" to follow the default above.",
               "visible": "Visible",
               "silent": "Silent"
             },

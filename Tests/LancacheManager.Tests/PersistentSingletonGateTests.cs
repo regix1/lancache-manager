@@ -1,6 +1,7 @@
 using Docker.DotNet.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Models;
 
 namespace LancacheManager.Tests;
 
@@ -220,5 +221,115 @@ public class PersistentSingletonGateTests
         Assert.Equal("newer-stopped", decision.Target?.ID);
         Assert.Single(decision.ExtrasToRemove);
         Assert.Equal("older-stopped", decision.ExtrasToRemove[0].ID);
+    }
+
+    // === DecideExistingContainerAction with recreateStoppedContainer (FullPersistence, mode 3) ===
+
+    [Fact]
+    public void DecideExistingContainerAction_ReturnsRecreate_ForStoppedContainer_WhenRecreateRequested()
+    {
+        // FullPersistence, enabled service: a container that died while the manager was down must be
+        // rebuilt, not just reaped. The Target is still the dead container the caller removes first.
+        var container = MakeContainer("stopped-1", "exited", NowUtc.AddHours(-2));
+
+        var decision = PersistentSingletonGates.DecideExistingContainerAction(
+            new List<ContainerListResponse> { container }, NoneAdopted, recreateStoppedContainer: true);
+
+        Assert.Equal(PersistentContainerAction.Recreate, decision.Action);
+        Assert.Equal("stopped-1", decision.Target?.ID);
+        Assert.Empty(decision.ExtrasToRemove);
+    }
+
+    [Fact]
+    public void DecideExistingContainerAction_MultipleStopped_RecreateRequested_RecreatesNewestRemovesRest()
+    {
+        var older = MakeContainer("older-stopped", "exited", NowUtc.AddHours(-5));
+        var newer = MakeContainer("newer-stopped", "exited", NowUtc.AddHours(-2));
+
+        var decision = PersistentSingletonGates.DecideExistingContainerAction(
+            new List<ContainerListResponse> { older, newer }, NoneAdopted, recreateStoppedContainer: true);
+
+        Assert.Equal(PersistentContainerAction.Recreate, decision.Action);
+        Assert.Equal("newer-stopped", decision.Target?.ID);
+        Assert.Single(decision.ExtrasToRemove);
+        Assert.Equal("older-stopped", decision.ExtrasToRemove[0].ID);
+    }
+
+    [Fact]
+    public void DecideExistingContainerAction_RecreateRequested_RunningContainer_StillAdopts()
+    {
+        // The recreate flag only upgrades the stopped-container outcome; a running container is still
+        // adopted (never rebuilt) in every mode.
+        var container = MakeContainer("running-1", "running", NowUtc.AddHours(-1));
+
+        var decision = PersistentSingletonGates.DecideExistingContainerAction(
+            new List<ContainerListResponse> { container }, NoneAdopted, recreateStoppedContainer: true);
+
+        Assert.Equal(PersistentContainerAction.Adopt, decision.Action);
+        Assert.Equal("running-1", decision.Target?.ID);
+    }
+
+    [Fact]
+    public void DecideExistingContainerAction_RecreateRequested_NoContainers_StillCreateFresh_NeverFabricates()
+    {
+        // No container ever existed: even FullPersistence must not fabricate one - a never-started
+        // service stays untouched at startup.
+        var decision = PersistentSingletonGates.DecideExistingContainerAction(
+            Array.Empty<ContainerListResponse>(), NoneAdopted, recreateStoppedContainer: true);
+
+        Assert.Equal(PersistentContainerAction.CreateFresh, decision.Action);
+        Assert.Null(decision.Target);
+    }
+
+    [Fact]
+    public void DecideExistingContainerAction_StoppedContainer_DefaultsToRemove_WhenRecreateNotRequested()
+    {
+        // Regression guard: the default (KillOnRestart / KeepAcrossRestart, or the pre-create path)
+        // keeps today's stopped -> Remove outcome unchanged.
+        var container = MakeContainer("stopped-1", "exited", NowUtc.AddHours(-2));
+
+        var decision = PersistentSingletonGates.DecideExistingContainerAction(
+            new List<ContainerListResponse> { container }, NoneAdopted);
+
+        Assert.Equal(PersistentContainerAction.Remove, decision.Action);
+        Assert.Equal("stopped-1", decision.Target?.ID);
+    }
+
+    // === ShouldRecreatePersistentContainer: FullPersistence + enabled + last life ended INVOLUNTARILY ===
+
+    [Theory]
+    [InlineData(PrefillSessionStatus.Orphaned, true)]
+    [InlineData(PrefillSessionStatus.Active, true)]
+    [InlineData(PrefillSessionStatus.Cancelled, true)]
+    [InlineData(PrefillSessionStatus.Terminated, false)] // explicit admin stop -> never auto-resurrect
+    public void ShouldRecreatePersistentContainer_FullPersistenceEnabled_TracksPriorRowStatus(
+        PrefillSessionStatus priorStatus, bool expected)
+    {
+        Assert.Equal(expected, PersistentSingletonGates.ShouldRecreatePersistentContainer(
+            PersistenceMode.FullPersistence, serviceEnabled: true, priorStatus));
+    }
+
+    [Fact]
+    public void ShouldRecreatePersistentContainer_ReturnsFalse_WhenNoPriorRow()
+    {
+        // Never fabricate a container for a service that never had one.
+        Assert.False(PersistentSingletonGates.ShouldRecreatePersistentContainer(
+            PersistenceMode.FullPersistence, serviceEnabled: true, latestPersistentSessionStatus: null));
+    }
+
+    [Fact]
+    public void ShouldRecreatePersistentContainer_ReturnsFalse_WhenServiceDisabled()
+    {
+        Assert.False(PersistentSingletonGates.ShouldRecreatePersistentContainer(
+            PersistenceMode.FullPersistence, serviceEnabled: false, PrefillSessionStatus.Orphaned));
+    }
+
+    [Theory]
+    [InlineData(PersistenceMode.KillOnRestart)]
+    [InlineData(PersistenceMode.KeepAcrossRestart)]
+    public void ShouldRecreatePersistentContainer_ReturnsFalse_ForNonFullPersistenceMode(PersistenceMode mode)
+    {
+        Assert.False(PersistentSingletonGates.ShouldRecreatePersistentContainer(
+            mode, serviceEnabled: true, PrefillSessionStatus.Orphaned));
     }
 }

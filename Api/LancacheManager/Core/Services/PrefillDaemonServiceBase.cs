@@ -31,8 +31,19 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     protected readonly PrefillSessionService _sessionService;
     protected readonly PrefillCacheService _cacheService;
     protected readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
-    protected DockerClient? _dockerClient;
+
+    /// <summary>
+    /// Seam over the Docker Engine operations this service performs. Each daemon owns its own instance
+    /// (created from the injected factory) and disposes it, matching the previous one-client-per-service
+    /// model. Not connected until <see cref="StartAsync"/> probes Docker; <see cref="IPrefillContainerGateway.IsAvailable"/>
+    /// replaces the previous <c>_dockerClient != null</c> availability check.
+    /// </summary>
+    protected readonly IPrefillContainerGateway _containerGateway;
     private bool _disposed;
+
+    // Set true at the top of StopAsync so a create completing after shutdown began is rejected at its
+    // final registration step instead of escaping the one-time _sessions snapshot.
+    private volatile bool _stopping;
     protected readonly bool _isRunningInContainer;
     private readonly IOptionsMonitor<PrefillNetworkOptions> _networkOptions;
 
@@ -70,6 +81,16 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     private const int DefaultStallTimeoutSeconds = 180;
     private const int DefaultTcpPort = 45555;
 
+    // Bounded wait for a session's in-flight daemon event callbacks to finish during teardown (detach or
+    // terminate) before its client is disposed, so no late status/progress event writes a DB row or
+    // broadcasts. Best-effort: a callback slower than this can still run afterwards (the handlers re-check
+    // liveness before durable writes), but shutdown is never blocked longer than this.
+    private static readonly TimeSpan _eventDrainTimeout = TimeSpan.FromSeconds(5);
+
+    // Bounded wait for a container removal on a shutdown/rejected-create path, so an unresponsive Docker
+    // call can never block shutdown (never CancellationToken.None on those paths).
+    private static readonly TimeSpan _containerTeardownTimeout = TimeSpan.FromSeconds(10);
+
     // Docker labels stamped onto PERSISTENT daemon containers so they can survive a manager restart
     // and be re-adopted (reconnected) instead of being force-removed by the orphan cleanup sweep.
     private const string PersistentLabelKey = "lancache.prefill.persistent";
@@ -80,7 +101,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// <summary>
     /// Indicates whether Docker is available and connected.
     /// </summary>
-    public bool IsDockerAvailable => _dockerClient != null;
+    public bool IsDockerAvailable => _containerGateway.IsAvailable;
 
     // === Abstract members for service-specific behavior ===
 
@@ -359,7 +380,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
         IOptionsMonitor<PrefillNetworkOptions> networkOptions,
-        ILancacheServerLocator locator)
+        ILancacheServerLocator locator,
+        IPrefillContainerGatewayFactory containerGatewayFactory)
     {
         _logger = logger;
         _notifications = notifications;
@@ -370,6 +392,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _cacheService = cacheService;
         _networkOptions = networkOptions;
         _locator = locator;
+        _containerGateway = containerGatewayFactory.Create();
         _isRunningInContainer = bool.TryParse(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), out var inContainer) && inContainer;
     }
 
@@ -397,12 +420,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                     "Mount the Docker socket to enable prefill containers: -v /var/run/docker.sock:/var/run/docker.sock");
             }
 
-            _dockerClient = new DockerClientConfiguration(dockerUri).CreateClient();
+            _containerGateway.Connect(dockerUri);
 
             // Test connection
             try
             {
-                var version = await _dockerClient.System.GetVersionAsync(cancellationToken);
+                var version = await _containerGateway.GetVersionAsync(cancellationToken);
                 _logger.LogInformation("Docker client connected. Docker version: {Version}", version.Version);
             }
             catch (Exception ex)
@@ -410,11 +433,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 // Log clean message without stack trace - Docker not running is expected in many setups
                 _logger.LogWarning("{ServiceName} Prefill feature will be disabled - Docker is not available. Start Docker Desktop to enable it.", ServiceName);
                 _logger.LogTrace(ex, "Docker connection error details");
-                _dockerClient = null;
+                _containerGateway.Reset();
             }
 
             // Ensure image is available
-            if (_dockerClient != null)
+            if (_containerGateway.IsAvailable)
             {
                 await EnsureImageExistsAsync(cancellationToken);
 
@@ -430,10 +453,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             // Log clean message without stack trace
             _logger.LogWarning("Failed to initialize Docker client - {ServiceName} Prefill feature will be disabled.", ServiceName);
             _logger.LogTrace(ex, "Docker initialization error details");
-            _dockerClient = null;
+            _containerGateway.Reset();
         }
 
-        _logger.LogInformation("{ServiceName}PrefillDaemonService started. Docker available: {DockerAvailable}", ServiceName, _dockerClient != null);
+        _logger.LogInformation("{ServiceName}PrefillDaemonService started. Docker available: {DockerAvailable}", ServiceName, _containerGateway.IsAvailable);
     }
 
     /// <summary>
@@ -442,15 +465,16 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     private async Task CleanupOrphanedContainersAsync(CancellationToken cancellationToken)
     {
-        if (_dockerClient == null) return;
+        if (!_containerGateway.IsAvailable) return;
 
         try
         {
-            // Mark any "Active" sessions in DB as orphaned
-            var orphanedSessions = await _sessionService.MarkOrphansAsync();
+            // Mark this service's "Active" sessions in DB as orphaned. Platform-scoped so a later
+            // daemon's startup cannot re-orphan a row an earlier daemon just reactivated.
+            await _sessionService.MarkOrphansAsync(Platform);
 
             // Find all running containers matching this service's prefix
-            var containers = await _dockerClient.Containers.ListContainersAsync(
+            var containers = await _containerGateway.ListContainersAsync(
                 new ContainersListParameters
                 {
                     All = true,
@@ -494,7 +518,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                     // Stop and remove the container
                     if (container.State == "running")
                     {
-                        await _dockerClient.Containers.StopContainerAsync(
+                        await _containerGateway.StopContainerAsync(
                             container.ID,
                             new ContainerStopParameters { WaitBeforeKillSeconds = 1 },
                             cancellationToken);
@@ -503,7 +527,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                     // RemoveVolumes: a login-required daemon (Xbox/Epic) stores its anonymous token
                     // in an anonymous container volume; without RemoveVolumes those volumes linger
                     // after teardown and accumulate. Force kills it if still running.
-                    if (!await RemoveContainerForceAsync(container.ID, cancellationToken, removeVolumes: true))
+                    if (await RemoveContainerForceAsync(container.ID, cancellationToken, removeVolumes: true) != ContainerRemovalOutcome.Removed)
                     {
                         // Already gone, or another sweep is mid-removal - not actually cleaned up by
                         // THIS call, so don't mark it cleaned or log success for it.
@@ -551,14 +575,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     private async Task ReadoptPersistentContainersAsync(CancellationToken cancellationToken)
     {
-        if (_dockerClient == null) return;
+        if (!_containerGateway.IsAvailable) return;
 
         try
         {
             // Prefix-based (not exact-name) filter deliberately: this also catches leftover
             // random-suffix persistent containers from before deterministic naming shipped, so the
             // migration below cleans those up too, not just future exact-name duplicates.
-            var containers = await _dockerClient.Containers.ListContainersAsync(
+            var containers = await _containerGateway.ListContainersAsync(
                 new ContainersListParameters
                 {
                     All = true,
@@ -570,12 +594,31 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 },
                 cancellationToken);
 
+            // The most recent persistent DB row for this service drives BOTH whether a vanished container
+            // may be recreated (FullPersistence + enabled + last life ended involuntarily) AND the
+            // recreated session's expiry anchor. Fetched once for this reconcile pass.
+            var latestRow = await _sessionService.GetLatestPersistentSessionAsync(Platform);
+            var shouldRecreate = ShouldRecreatePersistentContainer(latestRow);
+
             if (containers.Count == 0)
             {
+                // Retry arm: a prior FullPersistence recreate may have removed the dead
+                // container then failed to create the replacement, leaving zero containers but a
+                // non-Terminated DB row. Recreate now so a transient failure does not degrade into a
+                // manual-start-only state. No container ever existed for a never-started service, so a
+                // null / Terminated latest row (shouldRecreate == false) correctly creates nothing.
+                if (shouldRecreate)
+                {
+                    _logger.LogInformation(
+                        "Startup re-adopt: no persistent {ServiceName} container exists but the last session ended involuntarily under FullPersistence; recreating from the saved volume login",
+                        ServiceName);
+                    await RecreatePersistentContainerAsync(latestRow, targetToRemove: null, cancellationToken);
+                }
                 return;
             }
 
-            var decision = PersistentSingletonGates.DecideExistingContainerAction(containers.ToList(), GetAdoptedPersistentContainerIds());
+            var decision = PersistentSingletonGates.DecideExistingContainerAction(
+                containers.ToList(), GetAdoptedPersistentContainerIds(), shouldRecreate);
 
             // Adopt-newest-remove-rest: whenever more than one persistent container matched, every
             // container besides the one we are about to adopt/remove is a leaked duplicate from M1 -
@@ -599,6 +642,16 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                         "Startup re-adopt: removing stopped persistent {ServiceName} container {Id} (no running container to adopt)",
                         ServiceName, ShortContainerId(decision.Target!.ID));
                     await RemoveContainerForceAsync(decision.Target!.ID, cancellationToken);
+                    return;
+
+                case PersistentContainerAction.Recreate:
+                    // FullPersistence, enabled service whose container died involuntarily while the manager
+                    // was down: remove the dead container, then recreate it so the daemon self-authenticates
+                    // from its still-populated named auth volume (the fresh-login guard preserves it).
+                    _logger.LogInformation(
+                        "Startup re-adopt: persistent {ServiceName} container {Id} died while the manager was down; FullPersistence is enabled and the last session ended involuntarily, so removing it and recreating from the saved volume login",
+                        ServiceName, ShortContainerId(decision.Target!.ID));
+                    await RecreatePersistentContainerAsync(latestRow, targetToRemove: decision.Target, cancellationToken);
                     return;
 
                 case PersistentContainerAction.Adopt:
@@ -646,6 +699,86 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
+    /// Whether a persistent container that died while the manager was down should be RECREATED (rather
+    /// than merely reaped) on startup: true only for a FullPersistence, enabled service. A null config,
+    /// or a disabled/unknown service, returns false - the manager never fabricates a container for a
+    /// service the admin did not enable. Drives the
+    /// <see cref="PersistentSingletonGates.DecideExistingContainerAction"/> recreate decision from
+    /// <see cref="ReadoptPersistentContainersAsync"/>.
+    /// </summary>
+    /// <summary>
+    /// Whether a persistent container that vanished should be RECREATED (rather than merely reaped or
+    /// left absent) on startup, given the most recent persistent DB row for this service
+    /// (<paramref name="latestRow"/>). Reads config for the effective mode + enabled flag and delegates
+    /// the pure rule to <see cref="PersistentSingletonGates.ShouldRecreatePersistentContainer"/>: recreate
+    /// only for a FullPersistence, enabled service whose last life ended involuntarily (row not
+    /// Terminated). A null config, disabled/unknown service, admin-terminated row, or no row → false.
+    /// </summary>
+    private bool ShouldRecreatePersistentContainer(PrefillSession? latestRow)
+    {
+        var config = _stateService.GetScheduledPrefillConfig();
+        if (config == null)
+        {
+            // Config is production-guaranteed non-null (Validate runs on every load); this only guards the
+            // test null-returning state-service proxy, which can feed a null config through the startup path.
+            return false;
+        }
+
+        // Resolve the service ONCE and derive both enabled + effective mode from it, instead of letting
+        // GetEffectivePersistenceMode(Platform) re-walk GetServicesInRunOrder for the same service. Same
+        // override-then-global precedence as that helper, including its fail-loud on a null global mode.
+        var service = config.GetServicesInRunOrder().FirstOrDefault(s => s.ServiceId == Platform);
+        var enabled = service is { Enabled: true };
+        var effectiveMode = service?.PersistenceMode
+            ?? config.PersistenceMode
+            ?? throw new InvalidOperationException(
+                $"Scheduled prefill config's global PersistenceMode is null for {Platform}; ScheduledPrefillConfigFactory.Validate() must run first.");
+
+        return PersistentSingletonGates.ShouldRecreatePersistentContainer(effectiveMode, enabled, latestRow?.Status);
+    }
+
+    /// <summary>
+    /// Removes a dead persistent container (when <paramref name="targetToRemove"/> is non-null) and
+    /// creates a fresh one for a FullPersistence service so the daemon self-authenticates from its named
+    /// auth volume. Anchors the new session's expiry to the prior life's still-future validity window
+    /// (from <paramref name="latestRow"/>) and marks the create involuntary so the fresh-login guard
+    /// preserves the login. A create failure is logged but never aborts startup - the dead session's DB
+    /// row stays non-Terminated, so the next startup's retry arm attempts the recreate again.
+    /// </summary>
+    private async Task RecreatePersistentContainerAsync(
+        PrefillSession? latestRow, ContainerListResponse? targetToRemove, CancellationToken cancellationToken)
+    {
+        var anchoredExpiresAt = ResolveRecreatedPersistentExpiry(
+            latestRow?.ExpiresAtUtc, DateTime.UtcNow, _stateService.GetAdminPersistentLoginValidityDays());
+
+        if (targetToRemove != null)
+        {
+            await RemoveContainerForceAsync(targetToRemove.ID, cancellationToken);
+        }
+
+        try
+        {
+            // Non-reconnect create (fresh DB row via CreateSessionAsync -> isReconnect:false).
+            // involuntaryRecreate makes the fresh-login guard preserve the login already on this
+            // service's named auth volume so the recreated daemon self-authenticates.
+            await CreateSessionAsync(
+                ScheduledPrefillConstants.DeriveSystemUserId(),
+                isPersistent: true,
+                persistentExpiresAtOverrideUtc: anchoredExpiresAt,
+                involuntaryRecreate: true,
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Must not abort startup for the other services. The dead session's DB row stays
+            // non-Terminated, so the next startup's zero-container retry arm attempts the recreate again.
+            _logger.LogError(ex,
+                "Failed to recreate persistent {ServiceName} container after outage; will retry on the next startup",
+                ServiceName);
+        }
+    }
+
+    /// <summary>
     /// Reconnects to one already-running persistent daemon container (identified by its
     /// <c>lancache.prefill.*</c> labels) and rebuilds + registers its in-memory session. Recovers the
     /// per-container socket secret and TCP host port from the container's inspected env / port bindings
@@ -655,7 +788,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     private async Task ReconnectPersistentSessionAsync(ContainerListResponse container, CancellationToken cancellationToken)
     {
-        if (_dockerClient == null) return;
+        if (!_containerGateway.IsAvailable) return;
 
         var containerId = container.ID;
         var shortId = ShortContainerId(containerId);
@@ -677,7 +810,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var userId = Guid.TryParse(userIdRaw, out var parsedUserId) ? parsedUserId : Guid.Empty;
 
         // Recover per-container secrets/ports from the live container (not held across restart).
-        var inspect = await _dockerClient.Containers.InspectContainerAsync(containerId, cancellationToken);
+        var inspect = await _containerGateway.InspectContainerAsync(containerId, cancellationToken);
         var env = inspect.Config?.Env ?? new List<string>();
 
         var socketSecret = GetEnvValue(env, "PREFILL_SOCKET_SECRET");
@@ -748,6 +881,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             userAgent: null,
             networkDiagnostics: null,
             isReconnect: true,
+            involuntaryRecreate: false,
             cancellationToken);
     }
 
@@ -775,7 +909,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         for (var attempt = 0; ; attempt++)
         {
-            var containers = await _dockerClient!.Containers.ListContainersAsync(
+            var containers = await _containerGateway.ListContainersAsync(
                 new ContainersListParameters
                 {
                     All = true,
@@ -816,7 +950,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             try
             {
-                return await _dockerClient!.Containers.CreateContainerAsync(parameters, cancellationToken);
+                return await _containerGateway.CreateContainerAsync(parameters, cancellationToken);
             }
             catch (DockerApiException ex) when (IsNameConflict(ex))
             {
@@ -831,7 +965,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             "Persistent container name {Name} still conflicting after {Max} retries; force-removing and creating once more",
             parameters.Name, maxRetries);
         await ForceRemoveContainersByExactNameAsync(parameters.Name!, cancellationToken);
-        return await _dockerClient!.Containers.CreateContainerAsync(parameters, cancellationToken);
+        return await _containerGateway.CreateContainerAsync(parameters, cancellationToken);
     }
 
     private static bool IsNameConflict(DockerApiException ex)
@@ -840,7 +974,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     private async Task ForceRemoveContainersByExactNameAsync(string containerName, CancellationToken cancellationToken)
     {
-        var matches = await _dockerClient!.Containers.ListContainersAsync(
+        var matches = await _containerGateway.ListContainersAsync(
             new ContainersListParameters
             {
                 All = true,
@@ -858,35 +992,53 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
+    /// Outcome of a force-remove attempt. Distinguishes a container that is CONFIRMED absent now
+    /// (<see cref="Removed"/> by this call, or <see cref="AlreadyAbsent"/>) from one whose absence is NOT
+    /// yet confirmed (<see cref="RemovalInProgress"/> - another sweep is mid-removal), so a caller that must
+    /// only act on a confirmed-absent container (e.g. deleting its bind-mount directory) can tell them apart.
+    /// </summary>
+    private enum ContainerRemovalOutcome
+    {
+        /// <summary>This call removed the container.</summary>
+        Removed,
+        /// <summary>The container was already gone (another teardown/sweep removed it, or AutoRemove did).</summary>
+        AlreadyAbsent,
+        /// <summary>Another removal is in flight; the container's absence is not yet confirmed.</summary>
+        RemovalInProgress
+    }
+
+    /// <summary>
     /// Force-removes a container by id, tolerating the two races already handled elsewhere in this
     /// class (already gone; another sweep mid-removal) - see <see cref="TerminateSessionAsync"/> for
-    /// the origin of this exact exception-matching shape. Returns true when this call actually removed
-    /// the container, false when removal was swallowed as one of the two known races (so callers that
-    /// only want to log/mark-cleaned on genuine success can gate on the result). RemoveVolumes defaults
-    /// to false: most callers force-remove a leaked/duplicate/stopped sibling that shares the SAME named
-    /// auth volume with a surviving container (<see cref="GetPersistentConfigVolumeName"/>) and must
-    /// never wipe it; pass <paramref name="removeVolumes"/> true only for teardown paths that own the
-    /// container's volume outright (e.g. non-persistent session termination, orphan cleanup).
+    /// the origin of this exact exception-matching shape. Returns <see cref="ContainerRemovalOutcome.Removed"/>
+    /// when this call removed the container, <see cref="ContainerRemovalOutcome.AlreadyAbsent"/> when it was
+    /// already gone (both mean the container is CONFIRMED absent now), or
+    /// <see cref="ContainerRemovalOutcome.RemovalInProgress"/> when another removal is mid-flight (absence not
+    /// yet confirmed). RemoveVolumes defaults to false: most callers force-remove a leaked/duplicate/stopped
+    /// sibling that shares the SAME named auth volume with a surviving container
+    /// (<see cref="GetPersistentConfigVolumeName"/>) and must never wipe it; pass <paramref name="removeVolumes"/>
+    /// true only for teardown paths that own the container's volume outright (e.g. non-persistent session
+    /// termination, orphan cleanup).
     /// </summary>
-    private async Task<bool> RemoveContainerForceAsync(string containerId, CancellationToken cancellationToken, bool removeVolumes = false)
+    private async Task<ContainerRemovalOutcome> RemoveContainerForceAsync(string containerId, CancellationToken cancellationToken, bool removeVolumes = false)
     {
         try
         {
-            await _dockerClient!.Containers.RemoveContainerAsync(
+            await _containerGateway.RemoveContainerAsync(
                 containerId,
                 new ContainerRemoveParameters { Force = true, RemoveVolumes = removeVolumes },
                 cancellationToken);
-            return true;
+            return ContainerRemovalOutcome.Removed;
         }
         catch (DockerContainerNotFoundException)
         {
-            // Already gone.
-            return false;
+            // Already gone - CONFIRMED absent (another teardown/sweep or AutoRemove got there first).
+            return ContainerRemovalOutcome.AlreadyAbsent;
         }
         catch (DockerApiException ex) when (ex.Message.Contains("removal") && ex.Message.Contains("already in progress"))
         {
-            // Another sweep/removal is already in flight for this container - fine.
-            return false;
+            // Another removal is already in flight; the container's absence is NOT yet confirmed.
+            return ContainerRemovalOutcome.RemovalInProgress;
         }
     }
 
@@ -936,14 +1088,207 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     {
         _logger.LogInformation("{ServiceName}PrefillDaemonService stopping...", ServiceName);
 
-        // Terminate all active sessions
+        // Close the creation gate before snapshotting _sessions: a create that completes after this point
+        // is rejected at (or pulled back out by) its registration re-check.
+        _stopping = true;
+
+        // Read the effective persistence policy once for this shutdown pass. GetScheduledPrefillConfig
+        // is synchronous and lock-safe on StateService (no IO, no cache to go stale), so it is safe to
+        // call while the host is tearing this hosted service down.
+        var config = _stateService.GetScheduledPrefillConfig();
+
         var sessions = _sessions.Values.ToList();
+
+        // Detach KeepAcrossRestart / FullPersistence persistent sessions CONCURRENTLY: each detach is an
+        // independent bounded drain + local-handle release (no shared mutable state, container untouched),
+        // so several stuck drains share one shutdown-wide budget instead of costing the timeout x N
+        // sequentially. The host cancellation token is threaded in so a cancelled shutdown cuts each drain
+        // short. Guest / KillOnRestart terminates run sequentially - each stops/removes a container and
+        // flips DB rows.
+        var detachTasks = new List<Task>();
         foreach (var session in sessions)
         {
-            await TerminateSessionAsync(session.Id, "Service shutdown");
+            if (ShouldDetachOnShutdown(session, config))
+            {
+                detachTasks.Add(DetachPersistentSessionForShutdownAsync(session, cancellationToken));
+            }
+            else
+            {
+                await TerminateSessionAsync(session.Id, "Service shutdown");
+            }
+        }
+
+        if (detachTasks.Count > 0)
+        {
+            await Task.WhenAll(detachTasks);
         }
 
         _logger.LogInformation("{ServiceName}PrefillDaemonService stopped", ServiceName);
+    }
+
+    /// <summary>
+    /// Whether a session should be DETACHED (container left running for re-adoption) rather than
+    /// terminated on manager shutdown. Guest sessions never detach. A persistent session detaches when
+    /// its effective <see cref="PersistenceMode"/> is KeepAcrossRestart or FullPersistence.
+    /// A null config is a should-not-happen path (the field is required and
+    /// <see cref="ScheduledPrefillConfigFactory.Validate"/> guarantees it non-null in production): rather
+    /// than throwing during host shutdown (which would abort teardown of the remaining sessions) or
+    /// silently leaving a container running whose mode we cannot confirm, fall back to today's
+    /// terminate + erase (KillOnRestart) and log it. This is a deliberate, logged exception to the
+    /// no-fallback-defaults rule, justified by the shutdown context.
+    /// </summary>
+    private bool ShouldDetachOnShutdown(DaemonSession session, ScheduledPrefillConfigDto? config)
+    {
+        if (!session.IsPersistent)
+        {
+            return false;
+        }
+
+        if (config == null)
+        {
+            _logger.LogWarning(
+                "Scheduled prefill config unavailable during {ServiceName} shutdown; terminating persistent session {SessionId} as KillOnRestart",
+                ServiceName, session.Id);
+            return false;
+        }
+
+        return config.GetEffectivePersistenceMode(Platform) != PersistenceMode.KillOnRestart;
+    }
+
+    /// <summary>
+    /// Restart-persistence detach used at manager shutdown for a persistent session whose effective
+    /// <see cref="PersistenceMode"/> is KeepAcrossRestart or FullPersistence. Leaves the container
+    /// RUNNING with its login so the next start re-adopts it (see
+    /// <see cref="ReadoptPersistentContainersAsync"/>). Releases ONLY the manager PROCESS's local handle:
+    /// it drops the in-memory session and disposes the daemon client + CTS. It deliberately does NOT run
+    /// <see cref="TerminateSessionAsync"/>, so it skips the daemon logout, the DB Active-&gt;Terminated
+    /// flip (the row self-heals Active-&gt;Orphaned-&gt;Active on the next start), both SignalR
+    /// termination broadcasts, the container stop/kill/remove, and the session command/response directory
+    /// delete (re-adopt recomputes and reuses those exact paths from the session id).
+    /// </summary>
+    private async Task DetachPersistentSessionForShutdownAsync(DaemonSession session, CancellationToken cancellationToken = default)
+    {
+        // Remove from the in-memory store FIRST so a socket OnDisconnected raised while the client is
+        // disposed below finds no matching session and therefore fires no EventSessionUpdated broadcast.
+        if (!_sessions.TryRemove(session.Id, out var detached))
+        {
+            return;
+        }
+
+        _logger.LogInformation(
+            "Detaching persistent {ServiceName} session {SessionId} on shutdown: leaving its container running for re-adoption on next start",
+            ServiceName, session.Id);
+
+        // Stop manager-side monitoring cleanly, drain any in-flight daemon event callbacks (bounded) so
+        // none writes a DB row or broadcasts after this returns - pairing with the reference-equality
+        // guard in the event handlers - then release this process's local handles. The container and the
+        // daemon inside it are untouched and keep running.
+        await DisposeClientWithDrainAsync(detached, cancellationToken);
+    }
+
+    /// <summary>
+    /// Tears down a create that raced shutdown - rejected at the pre-registration gate or pulled back out
+    /// by the post-registration re-check. Routes by the session's effective persistence mode: a
+    /// KeepAcrossRestart / FullPersistence persistent session is DETACHED (its container is left running
+    /// for the next start to re-adopt); a guest or KillOnRestart session has its fresh container REMOVED so
+    /// nothing survives shutdown. Drops any in-memory registration first (no-op on the pre-gate path).
+    /// </summary>
+    internal async Task RejectEscapedCreateAsync(DaemonSession session, bool involuntaryRecreate, bool wasRegistered, CancellationToken cancellationToken = default, ScheduledPrefillConfigDto? config = null)
+    {
+        var removed = _sessions.TryRemove(session.Id, out var removedSession);
+
+        // Single-owner teardown. A POST-registration reject (wasRegistered) races StopAsync's shutdown
+        // snapshot for the same session; whoever wins the TryRemove owns the teardown. If shutdown already
+        // claimed it (our TryRemove lost, or removed a different instance under the same id) do NOT dispose
+        // the client or touch the container: shutdown's Detach/Terminate runs the full mode-correct teardown,
+        // and a second DisposeClientWithDrainAsync would double-dispose the client while its Cancel() threw on
+        // the already-disposed CTS. Release the create and let shutdown finish. A PRE-registration reject
+        // (wasRegistered == false) is the SOLE owner of a never-registered session (StopAsync's snapshot can
+        // never see it), so its TryRemove legitimately returns false and it must still tear the create down.
+        if (wasRegistered && (!removed || !ReferenceEquals(removedSession, session)))
+        {
+            _logger.LogInformation(
+                "{ServiceName} session {SessionId} create raced shutdown; shutdown already owns its teardown, releasing the create without disposing the client",
+                ServiceName, session.Id);
+            return;
+        }
+
+        // Reuse a config snapshot threaded from RollBackCreateIfShuttingDownAsync when present, else read it
+        // once here (the pre/post-registration gate call sites pass none). Both the detach decision below and
+        // the preserve decision inside TearDownRejectedCreateAsync then read the SAME snapshot.
+        config ??= _stateService.GetScheduledPrefillConfig();
+        if (ShouldDetachOnShutdown(session, config))
+        {
+            _logger.LogInformation(
+                "Persistent {ServiceName} session {SessionId} create raced shutdown; detaching (leaving its container running for re-adoption)",
+                ServiceName, session.Id);
+            await DisposeClientWithDrainAsync(session, cancellationToken);
+        }
+        else
+        {
+            await TearDownRejectedCreateAsync(session, involuntaryRecreate, config);
+        }
+    }
+
+    /// <summary>
+    /// Final ownership re-check for a fresh create AFTER it has inserted its DB row, closing the one
+    /// interleaving the post-registration re-check cannot: shutdown can flip <see cref="_stopping"/> and take
+    /// its one-time <c>_sessions</c> snapshot AFTER that earlier re-check passed but while this create is
+    /// still finalizing (DB insert + <c>EventSessionCreated</c> broadcast). Because the session was registered
+    /// before that snapshot, shutdown's teardown claims it, yet the create would still leave a fresh Active
+    /// row and broadcast a creation, resurrecting a session after termination completed. Returns true when the
+    /// create must be rejected (the caller aborts before broadcasting). For terminate modes (guest /
+    /// KillOnRestart) the container is being removed, so the just-inserted row is rolled back to Terminated;
+    /// for detach modes (KeepAcrossRestart / FullPersistence) the container is intentionally left running for
+    /// re-adoption, so the row is left Active exactly as a normal shutdown detach leaves it. A re-adopt
+    /// (<paramref name="isReconnect"/>) is exempt: it runs only during StartAsync, never during StopAsync.
+    /// </summary>
+    internal async Task<bool> RollBackCreateIfShuttingDownAsync(
+        DaemonSession session, bool involuntaryRecreate, bool isReconnect, CancellationToken cancellationToken)
+    {
+        // The ConcurrentDictionary registration already fenced store/load, but be explicit before re-reading
+        // the volatile shutdown flag.
+        Interlocked.MemoryBarrier();
+        if (!_stopping || isReconnect)
+        {
+            return false;
+        }
+
+        var config = _stateService.GetScheduledPrefillConfig();
+        var detach = ShouldDetachOnShutdown(session, config);
+
+        _logger.LogWarning(
+            "{ServiceName} session {SessionId} finished creating as shutdown began; rejecting it ({Mode}) so no Active row or creation broadcast outlives shutdown",
+            ServiceName, session.Id, detach ? "detach" : "terminate");
+
+        if (!detach)
+        {
+            // Terminate mode removes the container, so the just-inserted Active row must not survive.
+            await _sessionService.TerminateSessionAsync(session.Id, "Create raced shutdown", terminatedBy: "system");
+        }
+
+        // Pass the config snapshot already read here so the reject chain does not re-read it (and cannot
+        // decide off a different snapshot than the detach decision above).
+        await RejectEscapedCreateAsync(session, involuntaryRecreate, wasRegistered: true, cancellationToken, config);
+        return true;
+    }
+
+    /// <summary>
+    /// Bounded, best-effort drain of a session's in-flight fire-and-forget daemon event callbacks, used
+    /// during teardown (detach + terminate) before the client is disposed so a late status/progress event
+    /// cannot write a DB row or broadcast after teardown declared completion. Never throws - a drain
+    /// failure or timeout must not block or fault the shutdown/teardown.
+    /// </summary>
+    private async Task DrainSessionEventsAsync(DaemonSession session, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await session.Client.DrainEventsAsync(_eventDrainTimeout, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error draining in-flight daemon events for session {SessionId} during teardown", session.Id);
+        }
     }
 
     /// <summary>
@@ -957,9 +1302,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         SessionType sessionType = SessionType.Admin,
         bool isPersistent = false,
         bool reuseExistingSession = true,
+        DateTime? persistentExpiresAtOverrideUtc = null,
+        bool involuntaryRecreate = false,
         CancellationToken cancellationToken = default)
     {
-        if (_dockerClient == null)
+        if (!_containerGateway.IsAvailable)
         {
             throw new InvalidOperationException(
                 "Docker is not running or not accessible. Please start Docker Desktop and try again.");
@@ -967,7 +1314,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         if (!isPersistent)
         {
-            return await CreateSessionCoreAsync(userId, ipAddress, userAgent, sessionType, isPersistent, reuseExistingSession, cancellationToken);
+            return await CreateSessionCoreAsync(userId, ipAddress, userAgent, sessionType, isPersistent, reuseExistingSession, persistentExpiresAtOverrideUtc, involuntaryRecreate, cancellationToken);
         }
 
         // Persistent starts are serialized per service (this instance) so two concurrent "Start
@@ -978,7 +1325,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         await _persistentStartLock.WaitAsync(cancellationToken);
         try
         {
-            return await CreateSessionCoreAsync(userId, ipAddress, userAgent, sessionType, isPersistent, reuseExistingSession, cancellationToken);
+            return await CreateSessionCoreAsync(userId, ipAddress, userAgent, sessionType, isPersistent, reuseExistingSession, persistentExpiresAtOverrideUtc, involuntaryRecreate, cancellationToken);
         }
         finally
         {
@@ -994,6 +1341,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         SessionType sessionType,
         bool isPersistent,
         bool reuseExistingSession,
+        DateTime? persistentExpiresAtOverrideUtc,
+        bool involuntaryRecreate,
         CancellationToken cancellationToken)
     {
         // Check if user already has an active session - return it instead of creating a new one.
@@ -1024,6 +1373,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // Always pull latest image before creating session
         await EnsureImageExistsAsync(cancellationToken);
 
+        // Whether the fresh-login guard should preserve a FullPersistence volume login: true for a
+        // caller-declared involuntary recreate (startup outage-recreate) OR an in-place error-state
+        // replacement (an involuntary socket death, not an admin stop). Terminating the errored session
+        // below flips its DB row to Terminated, so the guard's row-status heuristic alone would wrongly
+        // erase; this explicit flag overrides it for that verified-involuntary path.
+        var involuntaryReplacement = false;
+
         if (isPersistent)
         {
             // Error-state replacement (kills leak M2): a socket-disconnect flips a persistent session
@@ -1037,6 +1393,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                     "Existing persistent {ServiceName} session {SessionId} is in Error state; replacing it",
                     ServiceName, existingErrorSession.Id);
                 await TerminateSessionAsync(existingErrorSession.Id, "Replacing errored persistent session", force: true);
+                involuntaryReplacement = true;
             }
 
             // Docker-level adopt-or-replace pre-create check (kills leak M1's leftover/409 path):
@@ -1339,13 +1696,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         var createResponse = isPersistent
             ? await CreatePersistentContainerWithConflictRetryAsync(createParameters, cancellationToken)
-            : await _dockerClient!.Containers.CreateContainerAsync(createParameters, cancellationToken);
+            : await _containerGateway.CreateContainerAsync(createParameters, cancellationToken);
 
         var containerId = createResponse.ID;
         _logger.LogInformation("Created container {ContainerId} for session {SessionId}", containerId, sessionId);
 
         // Start container
-        var started = await _dockerClient!.Containers.StartContainerAsync(containerId, null, cancellationToken);
+        var started = await _containerGateway.StartContainerAsync(containerId, null, cancellationToken);
         if (!started)
         {
             throw new InvalidOperationException($"Failed to start container {containerId}");
@@ -1357,7 +1714,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         await Task.Delay(1000, cancellationToken); // Give it a moment to crash if it's going to
         try
         {
-            var inspect = await _dockerClient.Containers.InspectContainerAsync(containerId, cancellationToken);
+            var inspect = await _containerGateway.InspectContainerAsync(containerId, cancellationToken);
             if (!inspect.State.Running)
             {
                 var exitCode = inspect.State.ExitCode;
@@ -1369,7 +1726,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 try
                 {
                     var logParams = new ContainerLogsParameters { ShowStdout = true, ShowStderr = true, Tail = "50" };
-                    using var logStream = await _dockerClient.Containers.GetContainerLogsAsync(containerId, false, logParams, cancellationToken);
+                    using var logStream = await _containerGateway.GetContainerLogsAsync(containerId, false, logParams, cancellationToken);
                     using var memoryStream = new MemoryStream();
                     await logStream.CopyOutputToAsync(null, memoryStream, null, cancellationToken);
                     memoryStream.Position = 0;
@@ -1424,8 +1781,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         if (isPersistent)
         {
             // Persistent admin login: expiry governs when NeedsRelogin is flagged (the reaper never
-            // tears a persistent session down). Use the admin-configured validity window.
-            expiresAt = createdAtUtc.AddDays(_stateService.GetAdminPersistentLoginValidityDays());
+            // tears a persistent session down). A FullPersistence startup recreate passes an explicit
+            // anchor (the prior life's still-future window) so the outage does not silently extend the
+            // admin-configured validity; every other persistent create uses the configured window.
+            expiresAt = persistentExpiresAtOverrideUtc
+                ?? createdAtUtc.AddDays(_stateService.GetAdminPersistentLoginValidityDays());
         }
         else if (isTemporary)
         {
@@ -1455,10 +1815,28 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             userAgent,
             networkDiagnostics,
             isReconnect: false,
+            involuntaryRecreate: involuntaryRecreate || involuntaryReplacement,
             cancellationToken);
 
         return session;
     }
+
+    /// <summary>
+    /// Constructs the per-session daemon client (Unix socket or TCP) used to talk to the daemon process
+    /// running inside the container. Extracted from <see cref="ConnectAndRegisterSessionAsync"/> as a
+    /// virtual seam so orchestration tests can substitute a fake client and exercise the full startup
+    /// re-adopt / recreate path without a live daemon socket. Production behavior is unchanged.
+    /// </summary>
+    protected virtual IDaemonClient CreateDaemonClient(bool useTcpMode, int? tcpHostPort, string socketPath, string socketSecret)
+        // Pass the daemon service's own ILogger straight through (the client params are non-generic
+        // ILogger?). A prior `_logger as ILogger<TcpDaemonClient>` cast always yielded null in production
+        // - _logger is ILogger<TSomeDaemonService> - so the client's drain timeout/fault warnings were
+        // silently dropped.
+        => useTcpMode && tcpHostPort.HasValue
+            ? new TcpDaemonClient(GetTcpHost(), tcpHostPort.Value, socketSecret, _logger)
+                { HkdfInfo = CredentialEncryptionHkdfInfo }
+            : new SocketDaemonClient(socketPath, socketSecret, _logger)
+                { HkdfInfo = CredentialEncryptionHkdfInfo };
 
     /// <summary>
     /// Builds the in-memory <see cref="DaemonSession"/> for an already-created/running daemon container,
@@ -1490,6 +1868,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         string? userAgent,
         NetworkDiagnostics? networkDiagnostics,
         bool isReconnect,
+        bool involuntaryRecreate,
         CancellationToken cancellationToken)
     {
         // Parse user agent for OS and browser info
@@ -1519,11 +1898,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         };
 
         // Create daemon client with service-specific HKDF info for credential encryption
-        IDaemonClient daemonClient = useTcpMode && tcpHostPort.HasValue
-            ? new TcpDaemonClient(GetTcpHost(), tcpHostPort.Value, socketSecret, _logger as ILogger<TcpDaemonClient>)
-                { HkdfInfo = CredentialEncryptionHkdfInfo }
-            : new SocketDaemonClient(socketPath, socketSecret, _logger as ILogger<SocketDaemonClient>)
-                { HkdfInfo = CredentialEncryptionHkdfInfo };
+        IDaemonClient daemonClient = CreateDaemonClient(useTcpMode, tcpHostPort, socketPath, socketSecret);
 
         // Wire up socket events to session handlers
         daemonClient.OnCredentialChallenge += async (CredentialChallenge challenge) =>
@@ -1617,9 +1992,43 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // BEFORE the session is registered/persisted/broadcast below, so nothing - a SignalR listener
         // reacting to EventSessionCreated, a status poll - can ever observe this session (and therefore
         // attempt a login against it) until any stale login has already been erased.
-        await ApplyFreshPersistentLoginGuardAsync(session, isPersistent, isReconnect);
+        await ApplyFreshPersistentLoginGuardAsync(session, isPersistent, isReconnect, involuntaryRecreate);
+
+        // Creation gate: if shutdown began after this create started, do NOT register the session -
+        // StopAsync's one-time _sessions snapshot has already passed, so registering here would let the
+        // session escape teardown, AND because it was never registered StopAsync cannot clean it up
+        // either, stranding a running container that survives shutdown and gets adopted next startup
+        // (which for KillOnRestart would violate the mode). Tear down everything the create built - the
+        // container, the session's bind-mount directory, and the client/CTS - then fail the create. No DB
+        // row exists yet; it is inserted only after registration below. A re-adopt (isReconnect) is
+        // exempt: it only runs during StartAsync, never during StopAsync.
+        if (_stopping && !isReconnect)
+        {
+            // Pre-registration: this session was never in _sessions, so StopAsync's snapshot can never see
+            // it - the create is its sole owner and must tear it down (wasRegistered: false).
+            await RejectEscapedCreateAsync(session, involuntaryRecreate, wasRegistered: false, cancellationToken);
+            throw new InvalidOperationException(
+                $"{ServiceName} daemon is shutting down; refusing to register a new session.");
+        }
 
         _sessions[sessionId] = session;
+
+        // Post-registration re-check closes the check-then-act race behind the gate above: shutdown can
+        // flip _stopping and take its one-time _sessions snapshot in the tiny window between that check and
+        // this registration, leaving the session escaped (never visited by StopAsync). Fence (the
+        // ConcurrentDictionary write already fences store/load, but be explicit) then re-read: if shutdown
+        // began, pull the just-registered session back out and tear it down by mode. No DB row exists yet -
+        // it is inserted only below.
+        Interlocked.MemoryBarrier();
+        if (_stopping && !isReconnect)
+        {
+            // Post-registration: this session was registered, so StopAsync's snapshot may have claimed it.
+            // Reject as a registered owner (wasRegistered: true) - RejectEscapedCreateAsync tears down only
+            // if it still owns the session; if shutdown already won the TryRemove it leaves the client alone.
+            await RejectEscapedCreateAsync(session, involuntaryRecreate, wasRegistered: true, cancellationToken);
+            throw new InvalidOperationException(
+                $"{ServiceName} daemon is shutting down; refusing to register a new session.");
+        }
 
         // Persist session to database for admin visibility and orphan tracking. On reconnect the backing
         // record was just flipped to Orphaned by MarkOrphansAsync, so reactivate it IN PLACE (reusing the
@@ -1678,11 +2087,128 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             }
         }
 
+        // Final ownership re-check AFTER the DB insert (and any reconnect reconciliation), before the
+        // creation broadcast: shutdown may have flipped _stopping and taken its one-time snapshot between the
+        // post-registration re-check above and here. If so, roll the create back (mode-aware: terminate modes
+        // flip the just-inserted row to Terminated, detach modes leave it Active for re-adoption) and abort,
+        // so a fresh Active row / EventSessionCreated can never materialize after termination completed.
+        if (await RollBackCreateIfShuttingDownAsync(session, involuntaryRecreate, isReconnect, cancellationToken))
+        {
+            throw new InvalidOperationException(
+                $"{ServiceName} daemon is shutting down; refusing to register a new session.");
+        }
+
         // Broadcast session creation to all clients for real-time updates (both hubs)
         var sessionDtoCreated = DaemonSessionDto.FromSession(session);
         await NotifyHubAsync(EventSessionCreated, sessionDtoCreated);
 
         return session;
+    }
+
+    /// <summary>
+    /// Tears down everything a fresh create built when it is rejected at the shutdown creation gate
+    /// (before registration): stops and removes the container - preserving a persistent named auth volume
+    /// exactly as the normal teardown does, and deliberately WITHOUT a daemon logout so a FullPersistence
+    /// volume login survives - deletes the session's command/response bind-mount directory, and disposes
+    /// the client + CTS. No DB row exists at this point (the create inserts it only after registration),
+    /// so there is nothing to flip to Terminated. Reuses the same container-removal primitive and
+    /// directory cleanup as <see cref="TerminateSessionAsync"/>. Internal so it can be unit-tested for the
+    /// directory + client/CTS teardown without standing up Docker.
+    /// </summary>
+    internal async Task TearDownRejectedCreateAsync(DaemonSession session, bool involuntaryRecreate = false, ScheduledPrefillConfigDto? config = null)
+    {
+        // The bind-mount directory is deleted ONLY once the container is CONFIRMED absent (removed by this
+        // call, or already gone) - deleting it while the container might still be live would break the
+        // daemon. "No container to remove" counts as confirmed absent.
+        var containerRemoved = string.IsNullOrEmpty(session.ContainerId);
+
+        if (_containerGateway.IsAvailable && !string.IsNullOrEmpty(session.ContainerId))
+        {
+            // A rejected create never finished login, but its named auth volume can hold a PRIOR life's
+            // login. Preserve it ONLY for the verified FullPersistence-involuntary case (same predicate the
+            // fresh-login guard uses); otherwise best-effort erase before removal, matching the
+            // erase-on-stop policy for KillOnRestart / KeepAcrossRestart. The threaded config is reused so
+            // the whole shutdown-reject chain decides off one config snapshot.
+            if (!await ShouldPreserveVolumeLoginAsync(session, involuntaryRecreate, config))
+            {
+                await TryBestEffortLogoutAsync(session, "create rejected at shutdown gate");
+            }
+
+            // Bounded token (never CancellationToken.None on a shutdown path): an unresponsive Docker call
+            // must not block shutdown.
+            using var removeCts = new CancellationTokenSource(_containerTeardownTimeout);
+            try
+            {
+                var outcome = await RemoveContainerForceAsync(session.ContainerId, removeCts.Token, removeVolumes: !session.IsPersistent);
+                // Confirmed absent (removed now, or already gone) -> the dir is safe to delete. An in-flight
+                // removal by another sweep leaves absence unconfirmed, so retain the dir until it is.
+                containerRemoved = outcome is ContainerRemovalOutcome.Removed or ContainerRemovalOutcome.AlreadyAbsent;
+                if (outcome == ContainerRemovalOutcome.RemovalInProgress)
+                {
+                    _logger.LogWarning(
+                        "Container {ContainerId} for a create rejected at the shutdown gate is mid-removal by another sweep; retaining its bind-mount directory until removal is confirmed",
+                        session.ContainerId);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Loud: a stranded running container is exactly what the gate exists to prevent. The next
+                // startup's orphan sweep / re-adopt reconciles the CONTAINER; nothing reaps the bind-mount
+                // directory, so it is retained deliberately as a safety measure - never delete it while the
+                // container may still be live (a genuinely stuck removal leaking one dir is the safer trade).
+                _logger.LogError(ex,
+                    "Failed to remove container {ContainerId} for a create rejected at the shutdown gate; retaining its bind-mount directory (never deleted under a possibly-live container)",
+                    session.ContainerId);
+            }
+        }
+
+        await DisposeClientWithDrainAsync(session);
+
+        if (containerRemoved)
+        {
+            DeleteSessionDirectory(session);
+        }
+    }
+
+    /// <summary>
+    /// Drain-then-dispose funnel for a session's client: cancels manager-side work, drains in-flight
+    /// daemon event callbacks (bounded, best-effort) so none writes/broadcasts after this returns, then
+    /// disposes the client and CTS. Used by the detach and rejected-create teardown paths.
+    /// </summary>
+    private async Task DisposeClientWithDrainAsync(DaemonSession session, CancellationToken cancellationToken = default)
+    {
+        // Tolerate an already-disposed CTS. The single-owner reject guard means only one teardown path
+        // should reach here for a given session, but a shutdown race can still hand this an instance whose
+        // CTS the winner already disposed; Cancel() would then throw ObjectDisposedException. Degrade to a
+        // no-op rather than fault teardown. (Dispose() below is idempotent and never throws on a disposed CTS.)
+        try
+        {
+            session.CancellationTokenSource.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        await DrainSessionEventsAsync(session, cancellationToken);
+        session.Client.Dispose();
+        session.CancellationTokenSource.Dispose();
+    }
+
+    /// <summary>Deletes a session's command/response bind-mount directory, warn-and-continue on error.</summary>
+    private void DeleteSessionDirectory(DaemonSession session)
+    {
+        try
+        {
+            var sessionDir = Path.GetDirectoryName(session.CommandsDir);
+            if (sessionDir != null && Directory.Exists(sessionDir))
+            {
+                Directory.Delete(sessionDir, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error cleaning up session directory for {SessionId}", session.Id);
+        }
     }
 
     /// <summary>
@@ -1749,14 +2275,59 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// standing up a real Docker container and daemon socket - see
     /// <c>InternalsVisibleTo("LancacheManager.Tests")</c> on the containing project.
     /// </summary>
-    internal Task ApplyFreshPersistentLoginGuardAsync(DaemonSession session, bool isPersistent, bool isReconnect)
+    internal async Task ApplyFreshPersistentLoginGuardAsync(
+        DaemonSession session, bool isPersistent, bool isReconnect, bool involuntaryRecreate = false)
     {
         if (!isPersistent || isReconnect)
         {
-            return Task.CompletedTask;
+            return;
         }
 
-        return TryBestEffortLogoutAsync(session, "fresh persistent container create");
+        if (await ShouldPreserveVolumeLoginAsync(session, involuntaryRecreate))
+        {
+            _logger.LogInformation(
+                "Skipping fresh-login guard for persistent {ServiceName} session {SessionId}: FullPersistence preserves the saved volume login across a verified involuntary death (explicit recreate flag or prior session not terminated)",
+                ServiceName, session.Id);
+            return;
+        }
+
+        _logger.LogInformation(
+            "Running fresh-login guard for persistent {ServiceName} session {SessionId}: erasing any inherited volume login (not FullPersistence, or the prior FullPersistence session was terminated / none exists)",
+            ServiceName, session.Id);
+        await TryBestEffortLogoutAsync(session, "fresh persistent container create");
+    }
+
+    /// <summary>
+    /// Whether a persistent session's saved named-volume login should be PRESERVED (not erased) - true
+    /// only for FullPersistence across a VERIFIED involuntary death: an explicit involuntary-recreate flag
+    /// (startup outage-recreate or error-state replacement), or the most recent persistent DB row for this
+    /// service ending NON-Terminated. An explicit admin Stop leaves a Terminated row (and its best-effort
+    /// logout can silently fail), so a Terminated / absent row - or any non-FullPersistence mode - returns
+    /// false so the caller erases as a backstop. Shared by the fresh-login guard and the rejected-create
+    /// teardown so both make the identical erase-vs-preserve decision.
+    /// </summary>
+    private async Task<bool> ShouldPreserveVolumeLoginAsync(DaemonSession session, bool involuntaryRecreate, ScheduledPrefillConfigDto? config = null)
+    {
+        if (!session.IsPersistent)
+        {
+            return false;
+        }
+
+        // Reuse a config snapshot threaded from the shutdown-reject chain when present, else read it here
+        // (the fresh-login guard call site passes none).
+        config ??= _stateService.GetScheduledPrefillConfig();
+        if (config == null || config.GetEffectivePersistenceMode(Platform) != PersistenceMode.FullPersistence)
+        {
+            return false;
+        }
+
+        if (involuntaryRecreate)
+        {
+            return true;
+        }
+
+        var latest = await _sessionService.GetLatestPersistentSessionAsync(Platform);
+        return latest is { Status: not PrefillSessionStatus.Terminated };
     }
 
     /// <summary>
@@ -1764,17 +2335,17 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     private async Task LogContainerLogsAsync(string containerId, string sessionId, CancellationToken cancellationToken)
     {
-        if (_dockerClient == null) return;
+        if (!_containerGateway.IsAvailable) return;
 
         try
         {
             // Check if container is still running
-            var inspect = await _dockerClient.Containers.InspectContainerAsync(containerId, cancellationToken);
+            var inspect = await _containerGateway.InspectContainerAsync(containerId, cancellationToken);
             _logger.LogWarning("Daemon container state for session {SessionId}: Running={Running}, Status={Status}, ExitCode={ExitCode}",
                 sessionId, inspect.State.Running, inspect.State.Status, inspect.State.ExitCode);
 
             var logParams = new ContainerLogsParameters { ShowStdout = true, ShowStderr = true, Tail = "50" };
-            using var logStream = await _dockerClient.Containers.GetContainerLogsAsync(containerId, false, logParams, cancellationToken);
+            using var logStream = await _containerGateway.GetContainerLogsAsync(containerId, false, logParams, cancellationToken);
             using var memoryStream = new MemoryStream();
             await logStream.CopyOutputToAsync(null, memoryStream, null, cancellationToken);
             memoryStream.Position = 0;
@@ -1829,7 +2400,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
-        // Serializes login attempts on this session (Cursor #3): overlapping calls would race the
+        // Serializes login attempts on this session: overlapping calls would race the
         // daemon's single challenge/status stream and clobber each other's failure text/auth state.
         // A second concurrent attempt is rejected outright (try-acquire, never queued) so the caller
         // gets an immediate, unambiguous error instead of silently waiting behind one it doesn't know
@@ -1847,12 +2418,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         finally
         {
             // Normally releases immediately. But when a fail-fast completion abandoned a still-running
-            // daemon task (Cursor #1), AwaitChallengeOrLoginFailureAsync stashed its cleanup task here
+            // daemon task, AwaitChallengeOrLoginFailureAsync stashed its cleanup task here
             // instead of awaiting it inline - the real CancelLoginAsync clears the pending challenge
             // wait synchronously but then also awaits its own "cancel-login" command round-trip to the
             // daemon (up to that command's own timeout), so it must never be awaited on the hot
             // fail-fast return path. The lock is released only once that cleanup finishes, so a later
-            // login attempt on this session can never overlap with the abandoned one (Cursor #1+#3).
+            // login attempt on this session can never overlap with the abandoned one.
             if (abandonedLoginCleanup.Task is { } cleanupTask)
             {
                 _ = cleanupTask.ContinueWith(_ => session.LoginLock.Release(), TaskScheduler.Default);
@@ -2049,7 +2620,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// up to that command's own timeout - awaiting it here would reintroduce the exact blind-wait
     /// latency this fix eliminates. Instead the cancel+observe work is stashed on
     /// <paramref name="abandonedLoginCleanup"/> for <see cref="StartLoginAsync"/> to await before
-    /// releasing <see cref="DaemonSession.LoginLock"/> (Cursor #1+#3 together): a later login attempt
+    /// releasing <see cref="DaemonSession.LoginLock"/>: a later login attempt
     /// on this session is rejected by the lock until the abandoned task is fully resolved, so it can
     /// never overlap with it.
     /// </remarks>
@@ -2071,7 +2642,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     /// <summary>
     /// Best-effort cancels the daemon's in-flight login wait and then awaits it to completion,
-    /// swallowing any resulting exception so it is never left unobserved (Cursor #1). Always uses
+    /// swallowing any resulting exception so it is never left unobserved. Always uses
     /// <see cref="CancellationToken.None"/> for the cancel command itself - this cleanup must run to
     /// completion regardless of whether the original caller's request/token has since been cancelled
     /// or disposed.
@@ -2366,12 +2937,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     // it to exercise the hard-remove path without a live Docker daemon.
     public virtual async Task<PersistentVolumeClearResult> ClearPersistentAuthVolumeAsync(CancellationToken cancellationToken = default)
     {
-        if (_dockerClient == null)
+        if (!_containerGateway.IsAvailable)
         {
             return PersistentVolumeClearResult.DockerUnavailable;
         }
 
-        // RC5 (session 20260703-221336-2070027597): with deterministic naming a STOPPED
+        // RC5: with deterministic naming a STOPPED
         // {ContainerPrefix}persistent container keeps this service's named auth volume ATTACHED, so the
         // force:false remove below 409s -> InUse and "clear stored logins" silently no-ops. Reap the
         // lingering stopped container first so the volume can actually be removed. A still-RUNNING
@@ -2382,7 +2953,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var volumeName = GetPersistentConfigVolumeName();
         try
         {
-            await _dockerClient.Volumes.RemoveAsync(volumeName, force: false, cancellationToken);
+            await _containerGateway.RemoveVolumeAsync(volumeName, force: false, cancellationToken);
             _logger.LogInformation("Cleared persistent {ServiceName} auth volume {Volume}", ServiceName, volumeName);
             return PersistentVolumeClearResult.Removed;
         }
@@ -2478,7 +3049,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
-    /// RC5 (session 20260703-221336-2070027597): force-removes any STOPPED
+    /// RC5: force-removes any STOPPED
     /// <c>{ContainerPrefix}persistent</c> container that still holds this service's named auth volume
     /// attached, so <see cref="ClearPersistentAuthVolumeAsync"/> can actually delete the volume. A
     /// RUNNING container is deliberately skipped (the caller's <c>GetActivePersistentSession()==null</c>
@@ -2490,7 +3061,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     private async Task RemoveStoppedPersistentContainersAsync(CancellationToken cancellationToken)
     {
-        if (_dockerClient == null)
+        if (!_containerGateway.IsAvailable)
         {
             return;
         }
@@ -2499,7 +3070,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         IList<ContainerListResponse> matches;
         try
         {
-            matches = await _dockerClient.Containers.ListContainersAsync(
+            matches = await _containerGateway.ListContainersAsync(
                 new ContainersListParameters
                 {
                     All = true,
@@ -2530,7 +3101,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 continue;
             }
 
-            if (await RemoveContainerForceAsync(match.ID, cancellationToken))
+            if (await RemoveContainerForceAsync(match.ID, cancellationToken) == ContainerRemovalOutcome.Removed)
             {
                 _logger.LogInformation(
                     "Removed stopped persistent {ServiceName} container {Id} so its auth volume can be cleared",
@@ -2914,6 +3485,20 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     public Task StopPersistentSessionAsync(string sessionId, string? terminatedBy = null)
     {
+        // Host-shutdown vs explicit admin-stop race: on shutdown StopAsync detaches KeepAcrossRestart /
+        // FullPersistence persistent sessions, deliberately leaving the container running WITH its login for
+        // re-adoption, and can win TerminateSessionAsync's single-owner TryRemove before an explicit stop
+        // reaches it - which would then early-return and report this stop as a silent success while the login
+        // survives the restart, violating the explicit-stop-always-erases invariant. During shutdown an
+        // explicit stop cannot guarantee that erase (the detach owns the container), so fail loudly rather
+        // than silently no-op: the login is preserved for re-adoption and can be stopped again after restart.
+        if (_stopping)
+        {
+            throw new InvalidOperationException(
+                $"{ServiceName} daemon is shutting down; the persistent session {sessionId} cannot be stopped right now. " +
+                "Its login is preserved for re-adoption on the next start; stop it again after the manager restarts.");
+        }
+
         var session = GetSession(sessionId);
         if (session == null)
         {
@@ -2933,7 +3518,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     /// <summary>
     /// Runs the actual teardown under <see cref="_persistentStartLock"/> so a Stop can never interleave
-    /// with a concurrent persistent Start/adopt/replace for this service (Cursor #2) - e.g. a Stop
+    /// with a concurrent persistent Start/adopt/replace for this service - e.g. a Stop
     /// racing a Start that is mid-adopt of the very container being stopped. Safe against the lock
     /// already being held by <c>CreateSessionCoreAsync</c>'s Error-state-replacement call into
     /// <see cref="TerminateSessionAsync"/>: that call happens on a DIFFERENT logical entry (the create
@@ -2969,6 +3554,25 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         _logger.LogInformation("Terminating session {SessionId}: {Reason} (force={Force})", sessionId, reason, force);
 
+        // Quiescence FIRST, before any of the mutations/broadcasts this teardown owns. The session is
+        // already de-registered (TryRemove above), so mark it terminated + cancel its work, then drain
+        // in-flight daemon event callbacks (bounded). A callback that already passed the handler's
+        // reference-equality guard before the TryRemove is awaited to completion here, so it cannot
+        // interleave a DB write / history entry / broadcast with the termination below. (Best-effort: a
+        // callback slower than the drain timeout can still resume - the handlers re-check liveness before
+        // every durable write/broadcast so it cannot resurrect teardown state.)
+        session.Status = DaemonSessionStatus.Terminated;
+        session.EndedAt = DateTime.UtcNow;
+        // RC3: clear BOTH the manager-side resume cache and the client's own queued/awaited challenge so
+        // a challenge the dying daemon already emitted can never be replayed after this session is gone
+        // (paired with the dead-session guard in OnCredentialChallengeAsync). Status is flipped to
+        // Terminated first so any challenge racing in during teardown is rejected by that guard.
+        ClearPendingLoginChallenge(session);
+        session.Client.ClearPendingChallenges();
+        session.CancellationTokenSource.Cancel();
+
+        await DrainSessionEventsAsync(session);
+
         // Complete any in-progress history entry with current bytes before cancelling
         if (!string.IsNullOrEmpty(session.CurrentAppId))
         {
@@ -2997,16 +3601,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // Persist termination to database
         await _sessionService.TerminateSessionAsync(sessionId, reason, terminatedBy);
 
-        session.Status = DaemonSessionStatus.Terminated;
-        session.EndedAt = DateTime.UtcNow;
-        // RC3 (session 20260703-221336-2070027597): clear BOTH the manager-side resume cache and the
-        // client's own queued/awaited challenge so a challenge the dying daemon already emitted can
-        // never be replayed after this session is gone (paired with the dead-session guard in
-        // OnCredentialChallengeAsync). Status is flipped to Terminated first so any challenge racing
-        // in during teardown is rejected by that guard.
-        ClearPendingLoginChallenge(session);
-        session.Client.ClearPendingChallenges();
-
         // User policy: a persistent container's login exists ONLY while that container is alive -
         // stopping it must forget the daemon's stored account so a later Start never silently inherits
         // a previous life's login. Best-effort and bounded (see TryBestEffortLogoutAsync): a dead/hung
@@ -3020,20 +3614,18 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var terminatedEvent = new { sessionId = session.Id, reason = reason };
         await NotifyHubAsync(EventSessionTerminated, terminatedEvent);
 
-        // Cancel any ongoing operations immediately
-        session.CancellationTokenSource.Cancel();
-
         // Kill container immediately if force, otherwise try graceful shutdown
-        if (_dockerClient != null && !string.IsNullOrEmpty(session.ContainerId))
+        if (_containerGateway.IsAvailable && !string.IsNullOrEmpty(session.ContainerId))
         {
             try
             {
                 if (force)
                 {
                     // Kill immediately without waiting
-                    await _dockerClient.Containers.KillContainerAsync(
+                    await _containerGateway.KillContainerAsync(
                         session.ContainerId,
-                        new ContainerKillParameters());
+                        new ContainerKillParameters(),
+                        CancellationToken.None);
                     _logger.LogInformation("Force killed container {ContainerId} for session {SessionId}",
                         session.ContainerId, sessionId);
                 }
@@ -3051,9 +3643,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                     }
 
                     // Stop with minimal wait time
-                    await _dockerClient.Containers.StopContainerAsync(
+                    await _containerGateway.StopContainerAsync(
                         session.ContainerId,
-                        new ContainerStopParameters { WaitBeforeKillSeconds = 1 });
+                        new ContainerStopParameters { WaitBeforeKillSeconds = 1 },
+                        CancellationToken.None);
 
                     _logger.LogInformation("Stopped container {ContainerId} for session {SessionId}",
                         session.ContainerId, sessionId);
@@ -3072,7 +3665,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 //    container/manager restarts so the admin does not have to re-login every stop.
                 // Force=true is a no-op once already stopped/killed.
                 var removeVolumes = !session.IsPersistent;
-                if (await RemoveContainerForceAsync(session.ContainerId, CancellationToken.None, removeVolumes))
+                if (await RemoveContainerForceAsync(session.ContainerId, CancellationToken.None, removeVolumes) == ContainerRemovalOutcome.Removed)
                 {
                     _logger.LogInformation(
                         "Removed container {ContainerId} (RemoveVolumes={RemoveVolumes}) for session {SessionId}",
@@ -3158,6 +3751,19 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     public static DateTime ComputePersistentExpiry(DateTime createdAtUtc, int validityDays)
         => createdAtUtc.AddDays(validityDays);
+
+    /// <summary>
+    /// Expiry anchor for a FullPersistence container recreated after it died while the manager was down.
+    /// Prefers the prior life's still-future validity window (<paramref name="priorExpiresAtUtc"/>, the
+    /// last DB session row's <c>ExpiresAtUtc</c>) so an admin-configured window is not silently extended
+    /// by the outage; falls back to <paramref name="nowUtc"/> + <paramref name="validityDays"/> when no
+    /// future record survives. Mirrors the re-adopt anchor in
+    /// <see cref="ReconnectPersistentSessionAsync"/>.
+    /// </summary>
+    public static DateTime ResolveRecreatedPersistentExpiry(DateTime? priorExpiresAtUtc, DateTime nowUtc, int validityDays)
+        => priorExpiresAtUtc is { } prior && prior > nowUtc
+            ? prior
+            : ComputePersistentExpiry(nowUtc, validityDays);
 
     /// <summary>
     /// Resolves the concrete daemon singleton for a given platform. The single canonical copy of a
@@ -3376,7 +3982,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     private async Task EnsureImageExistsAsync(CancellationToken cancellationToken)
     {
-        if (_dockerClient == null) return;
+        if (!_containerGateway.IsAvailable) return;
 
         var imageName = GetImageName();
         _logger.LogInformation("Pulling latest prefill daemon image: {ImageName}", imageName);
@@ -3384,7 +3990,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         try
         {
             // Always pull to ensure we have the latest version
-            await _dockerClient.Images.CreateImageAsync(
+            await _containerGateway.CreateImageAsync(
                 new ImagesCreateParameters
                 {
                     FromImage = imageName.Split(':')[0],
@@ -3408,7 +4014,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 }),
                 cancellationToken);
 
-            var imageInfo = await _dockerClient.Images.InspectImageAsync(imageName, cancellationToken);
+            var imageInfo = await _containerGateway.InspectImageAsync(imageName, cancellationToken);
             _logger.LogInformation("Image ready: {ImageName} (ID: {ImageId})", imageName, imageInfo.ID[..12]);
         }
         catch (Exception ex)
@@ -3416,7 +4022,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             // Check if we have a local copy we can use
             try
             {
-                var imageInfo = await _dockerClient.Images.InspectImageAsync(imageName, cancellationToken);
+                var imageInfo = await _containerGateway.InspectImageAsync(imageName, cancellationToken);
                 _logger.LogWarning(ex, "Failed to pull latest image, using cached version: {ImageId}", imageInfo.ID[..12]);
             }
             catch (DockerImageNotFoundException)
@@ -3652,14 +4258,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         }
 
         // Auto-detect by inspecting our own container's mounts
-        if (_dockerClient != null && _isRunningInContainer)
+        if (_containerGateway.IsAvailable && _isRunningInContainer)
         {
             try
             {
                 var containerId = GetOwnContainerId();
                 if (!string.IsNullOrEmpty(containerId))
                 {
-                    var inspect = await _dockerClient.Containers.InspectContainerAsync(containerId, cancellationToken);
+                    var inspect = await _containerGateway.InspectContainerAsync(containerId, cancellationToken);
 
                     // Find the mount for /data
                     var dataMount = inspect.Mounts?.FirstOrDefault(m => m.Destination == "/data");
@@ -3765,11 +4371,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         }
 
         // Auto-detect: if lancache-dns uses host networking, we should too
-        if (_dockerClient != null)
+        if (_containerGateway.IsAvailable)
         {
             try
             {
-                var containers = await _dockerClient.Containers.ListContainersAsync(
+                var containers = await _containerGateway.ListContainersAsync(
                     new ContainersListParameters { All = false },
                     cancellationToken);
 
@@ -3784,7 +4390,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 if (dnsContainer != null)
                 {
                     _logger.LogInformation("Found lancache-dns container: {ContainerName}", dnsContainer.Names.FirstOrDefault());
-                    var inspect = await _dockerClient.Containers.InspectContainerAsync(dnsContainer.ID, cancellationToken);
+                    var inspect = await _containerGateway.InspectContainerAsync(dnsContainer.ID, cancellationToken);
                     _logger.LogInformation("lancache-dns network mode: {NetworkMode}", inspect.HostConfig.NetworkMode);
                     if (inspect.HostConfig.NetworkMode == "host")
                     {
@@ -3826,7 +4432,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     {
         if (_disposed) return;
 
-        _dockerClient?.Dispose();
+        _containerGateway.Dispose();
 
         foreach (var session in _sessions.Values)
         {

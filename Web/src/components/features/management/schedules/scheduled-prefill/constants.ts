@@ -54,7 +54,7 @@ export const SCHEDULED_PREFILL_PRESET_OPTIONS = [
 
 /**
  * Presets each service's daemon can actually back with real data, keyed by service.
- * Reconciled against the daemon workers' real outcomes this swarm:
+ * Reconciled against the daemon workers' real outcomes:
  *  - Steam: full All/Recent/Top (pre-existing daemon support).
  *  - Xbox: full All/Recent/Top (daemon sorts owned titles by titlehub lastTimePlayed for
  *    Recent, and intersects Microsoft's public most-played ranking for Top).
@@ -96,7 +96,7 @@ export const SCHEDULED_PREFILL_OS_OPTIONS = [
 
 /**
  * Services whose daemon actually varies output by target platform, keyed by service. Reconciled
- * against this swarm's daemon investigation (session 20260704-143707-433023485):
+ * against the daemon investigation:
  *  - Steam: real support. The `os` param filters depots via Steam's own PICS `config.oslist`
  *    metadata (`DepotHandler.FilterDepotsToDownloadAsync`, unit-tested).
  *  - Epic, Xbox, BattleNet, Riot: no daemon-side platform concept exists at all - each hardcodes a

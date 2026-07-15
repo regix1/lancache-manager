@@ -184,7 +184,7 @@ public class PersistentClearLoginsEscalationTests
             PrefillCacheService cacheService,
             IOptionsMonitor<PrefillNetworkOptions> networkOptions,
             PersistentVolumeClearResult volumeClearResult)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator())
+            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
         {
             _volumeClearResult = volumeClearResult;
         }

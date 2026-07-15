@@ -16,7 +16,7 @@ public abstract partial class PrefillDaemonServiceBase
             LancacheIpSource = _lastLancacheIpSource
         };
 
-        if (_dockerClient == null) return diagnostics;
+        if (!_containerGateway.IsAvailable) return diagnostics;
 
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
         _logger.LogInformation("  PREFILL CONTAINER NETWORK DIAGNOSTICS - {ContainerName}", containerName);
@@ -266,13 +266,13 @@ public abstract partial class PrefillDaemonServiceBase
         string[] command,
         CancellationToken cancellationToken)
     {
-        if (_dockerClient == null)
+        if (!_containerGateway.IsAvailable)
         {
             throw new InvalidOperationException("Docker client not available");
         }
 
         // Create exec instance
-        var execCreateResponse = await _dockerClient.Exec.ExecCreateContainerAsync(
+        var execCreateResponse = await _containerGateway.ExecCreateContainerAsync(
             containerId,
             new ContainerExecCreateParameters
             {
@@ -283,7 +283,7 @@ public abstract partial class PrefillDaemonServiceBase
             cancellationToken);
 
         // Start exec and capture output
-        using var stream = await _dockerClient.Exec.StartAndAttachContainerExecAsync(
+        using var stream = await _containerGateway.StartAndAttachContainerExecAsync(
             execCreateResponse.ID,
             false,
             cancellationToken);
@@ -299,7 +299,7 @@ public abstract partial class PrefillDaemonServiceBase
         var output = await reader.ReadToEndAsync(cts.Token);
 
         // Get exit code
-        var execInspect = await _dockerClient.Exec.InspectContainerExecAsync(execCreateResponse.ID, cancellationToken);
+        var execInspect = await _containerGateway.InspectContainerExecAsync(execCreateResponse.ID, cancellationToken);
 
         return (execInspect.ExitCode, output);
     }

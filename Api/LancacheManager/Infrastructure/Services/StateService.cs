@@ -1,5 +1,8 @@
+using System.Collections;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
@@ -204,16 +207,34 @@ public class StateService : IStateService
             }
 
             // Whether we may persist the normalized/seeded scheduled-prefill result below. Left true on the
-            // normal load / legacy-migration paths; the corrupt-load fallback flips it false so a transient
-            // read error never overwrites a possibly-recoverable state.json.
+            // normal load / legacy-migration paths; the outer corrupt-load fallback flips it false so a
+            // transient read error never overwrites a possibly-recoverable state.json.
             var canPersistScheduledPrefillInit = true;
+
+            // True when a corrupt SECTION was recovered per-section below. A recovery load must not rewrite
+            // state.json (neither the one-time Steam-auth migration save nor the anchor-seed save) so the
+            // original file survives untouched for manual repair until an explicit later mutation saves it.
+            var loadedWithSectionRecovery = false;
 
             try
             {
                 if (File.Exists(_stateFilePath))
                 {
                     var json = File.ReadAllText(_stateFilePath);
-                    var persisted = JsonSerializer.Deserialize<PersistedState>(json) ?? new PersistedState();
+                    PersistedState persisted;
+                    try
+                    {
+                        persisted = JsonSerializer.Deserialize<PersistedState>(json) ?? new PersistedState();
+                    }
+                    catch (JsonException ex)
+                    {
+                        // A single corrupt section (e.g. an out-of-range enum rejected by a strict converter)
+                        // must not discard every OTHER persisted setting. Re-parse and bind each top-level
+                        // section independently so only the offending block degrades; a genuinely unparseable
+                        // file re-throws from the helper to the outer fallback (today's whole-state default).
+                        persisted = DeserializePersistedStateWithSectionIsolation(json, ex);
+                        loadedWithSectionRecovery = true;
+                    }
 
                     // Convert persisted state to app state, decrypting sensitive fields
                     _cachedState = FromPersisted(persisted);
@@ -239,7 +260,13 @@ public class StateService : IStateService
                         }
 
                         _cachedState.SteamAuth = null;
-                        SaveState(_cachedState);
+
+                        // Don't rewrite the file on a section-recovery load: persisting here would overwrite
+                        // the still-hand-repairable original with the recovered-and-defaulted state.
+                        if (!loadedWithSectionRecovery)
+                        {
+                            SaveState(_cachedState);
+                        }
                     }
 
                 }
@@ -261,11 +288,12 @@ public class StateService : IStateService
             // instead of instant-running on the next poll. Seeds only MISSING keys, so a normal restart
             // (keys already persisted and reloaded) is a no-op and the schedule never shifts. (AppState
             // defaults ScheduledPrefill to a non-null CreateDefault(), so no null-normalization is needed.)
-            // The in-memory state is always seeded; persist only when it seeded AND the load succeeded, so a
-            // corrupt-load fallback still avoids an instant run without clobbering a recoverable state.json.
+            // The in-memory state is always seeded; persist only when it seeded, the load succeeded, and no
+            // section recovery ran, so a corrupt-load fallback still avoids an instant run without clobbering
+            // a recoverable state.json.
             var loadedState = _cachedState!;
             var anchorsSeeded = SeedInitialFirstRunAnchors(loadedState, DateTime.UtcNow);
-            if (anchorsSeeded && canPersistScheduledPrefillInit)
+            if (anchorsSeeded && canPersistScheduledPrefillInit && !loadedWithSectionRecovery)
             {
                 SaveState(loadedState);
             }
@@ -1115,6 +1143,271 @@ public class StateService : IStateService
         }
     }
 
+    // The persisted sections the JSON serializer binds, resolved once from serializer metadata (not raw CLR
+    // reflection) so the corrupt-load recovery path uses the SAME effective JSON names and setters as the
+    // main deserialize. A future [JsonPropertyName] or naming-policy change can't silently desync the two
+    // paths, and a newly added persisted field is bound automatically rather than dropped.
+    private static readonly JsonPropertyInfo[] _persistedStateSections =
+        JsonSerializerOptions.Default.GetTypeInfo(typeof(PersistedState)).Properties
+            .Where(section => section.Set is not null)
+            .ToArray();
+
+    /// <summary>The result of binding one JSON node to a target type via <see cref="TryBindJsonValue"/>.</summary>
+    private enum JsonBindOutcome
+    {
+        /// <summary>A value was produced (null only for an explicit JSON null on a nullable/reference target).</summary>
+        Bound,
+
+        /// <summary>An explicit JSON null on a non-nullable value type: not a usable value.</summary>
+        NullRejected,
+
+        /// <summary>The node did not deserialize into the target type (see the out error).</summary>
+        Failed
+    }
+
+    /// <summary>
+    /// Binds a single JSON node to <paramref name="targetType"/> using the SAME options and null semantics as
+    /// the main deserialize, without storing anything. This is the one shared bind kernel behind the section
+    /// loop, the compound-member salvage, and the dictionary-entry salvage; each caller maps the outcome to its
+    /// own failure accounting (per-section warning, dropped-member count, dropped-entry count). On
+    /// <see cref="JsonBindOutcome.Bound"/>, <paramref name="value"/> is the result to store (null only for an
+    /// explicit JSON null on a nullable/reference target).
+    /// </summary>
+    private static JsonBindOutcome TryBindJsonValue(JsonNode? node, Type targetType, out object? value, out JsonException? error)
+    {
+        value = null;
+        error = null;
+
+        if (node is null)
+        {
+            // Explicit JSON null: valid only for a nullable/reference target; a null on a non-nullable value
+            // type is itself an invalid value.
+            return !targetType.IsValueType || Nullable.GetUnderlyingType(targetType) is not null
+                ? JsonBindOutcome.Bound
+                : JsonBindOutcome.NullRejected;
+        }
+
+        try
+        {
+            value = node.Deserialize(targetType, JsonSerializerOptions.Default);
+            return JsonBindOutcome.Bound;
+        }
+        catch (JsonException ex)
+        {
+            error = ex;
+            return JsonBindOutcome.Failed;
+        }
+    }
+
+    /// <summary>
+    /// Recovers as much persisted state as possible when a whole-file deserialize fails because ONE section
+    /// holds an invalid value (e.g. an out-of-range enum rejected by a strict converter). Parses the file
+    /// once into a <see cref="JsonObject"/> and binds each top-level section independently, so a single
+    /// corrupt block degrades to its own default (its existing downstream repair path, such as
+    /// <see cref="ResolveScheduledPrefillConfig"/> for the scheduled-prefill block) while every other
+    /// persisted setting is preserved. Keyed maps salvage their valid entries (see
+    /// <see cref="TrySalvageDictionarySection"/>) instead of resetting wholesale. Each reset is logged with
+    /// the section name and the underlying cause. A truly unparseable file, or a non-object root, is not
+    /// recoverable per-section, so <paramref name="originalError"/> (the whole-file deserialize failure) is
+    /// re-thrown to let the caller's outer fallback handle it exactly as before.
+    /// </summary>
+    private PersistedState DeserializePersistedStateWithSectionIsolation(string json, JsonException originalError)
+    {
+        JsonObject root;
+        try
+        {
+            root = JsonNode.Parse(json) as JsonObject
+                ?? throw new JsonException("Persisted state root is not a JSON object.");
+        }
+        catch (JsonException)
+        {
+            // Unparseable file or non-object root: there are no sections to isolate. Re-throw the ORIGINAL
+            // whole-file deserialize error (not the re-parse error) so the outer catch reports today's cause
+            // and falls back to a default state exactly as it did before section isolation existed.
+            throw originalError;
+        }
+
+        // Only warn about per-section recovery once we know the file is structurally recoverable.
+        _logger.LogWarning(originalError, "State file has an invalid section; recovering per-section so only the corrupt block(s) reset");
+
+        var result = new PersistedState();
+        foreach (var section in _persistedStateSections)
+        {
+            if (!root.TryGetPropertyValue(section.Name, out var node))
+            {
+                // Absent key: keep the DTO default, matching a normal deserialize of a missing property.
+                continue;
+            }
+
+            switch (TryBindJsonValue(node, section.PropertyType, out var value, out var error))
+            {
+                case JsonBindOutcome.Bound:
+                    // Store an explicit null (nullable target) and any deserialized value. A non-null node
+                    // never yields a null value here, preserving the original `if (value is not null)` guard.
+                    if (node is null || value is not null)
+                    {
+                        section.Set!(result, value);
+                    }
+
+                    break;
+
+                case JsonBindOutcome.NullRejected:
+                    _logger.LogWarning(
+                        "Persisted state section '{Section}' was null where a value is required; reset to its default, other settings preserved",
+                        section.Name);
+                    break;
+
+                default:
+                    // Recover as much of the section as is safe before falling back to its bare initializer:
+                    //  - keyed maps keep the entries that bind (a reset schedule-basis/last-run map silently
+                    //    re-anchors runs to "now" or erases genuine-run history, which is real data loss);
+                    //  - durable-cursor compounds keep the members that bind (one bad field must not discard the
+                    //    whole log/depot checkpoint);
+                    //  - a security-sensitive value degrades fail-closed rather than to a weaker fail-open default.
+                    // node is non-null on Failed (the null cases return above), so the salvage calls are safe.
+                    if (TrySalvageDictionarySection(section, node!, result, error!)
+                        || TrySalvageCompoundSection(section, node!, result, error!)
+                        || TryApplyFailClosedSecurityDefault(section, result, error!))
+                    {
+                        break;
+                    }
+
+                    _logger.LogWarning(
+                        error,
+                        "Persisted state section '{Section}' could not be read (invalid value) and was reset to its default; other settings preserved",
+                        section.Name);
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Attempts per-entry recovery of a <c>Dictionary&lt;string, T&gt;</c> section whose whole-section
+    /// deserialize failed: keeps every entry that binds and drops only the invalid ones (logged), so one bad
+    /// entry never discards the rest of the map. Returns false for a non-dictionary (or non-object) section
+    /// so the caller applies the bare-default degrade instead.
+    /// </summary>
+    private bool TrySalvageDictionarySection(JsonPropertyInfo section, JsonNode node, PersistedState target, JsonException originalError)
+    {
+        if (node is not JsonObject map)
+        {
+            return false;
+        }
+
+        var sectionType = section.PropertyType;
+        if (!sectionType.IsGenericType
+            || sectionType.GetGenericTypeDefinition() != typeof(Dictionary<,>)
+            || sectionType.GetGenericArguments()[0] != typeof(string))
+        {
+            return false;
+        }
+
+        var valueType = sectionType.GetGenericArguments()[1];
+        var salvaged = (IDictionary)Activator.CreateInstance(sectionType)!;
+        var droppedCount = 0;
+        foreach (var entry in map)
+        {
+            switch (TryBindJsonValue(entry.Value, valueType, out var value, out _))
+            {
+                case JsonBindOutcome.Bound:
+                    salvaged[entry.Key] = value;
+                    break;
+
+                default:
+                    // Invalid, or a JSON null on a non-nullable value entry: drop just this entry.
+                    droppedCount++;
+                    break;
+            }
+        }
+
+        section.Set!(target, salvaged);
+        _logger.LogWarning(
+            originalError,
+            "Persisted state section '{Section}' had {DroppedCount} invalid entries dropped; {KeptCount} preserved",
+            section.Name,
+            droppedCount,
+            salvaged.Count);
+        return true;
+    }
+
+    /// <summary>
+    /// Attempts member-by-member recovery of a durable-cursor COMPOUND section (the log/depot processing
+    /// checkpoints) whose whole-section deserialize failed: keeps every member that binds and defaults only
+    /// the invalid one(s), so a single malformed field can't discard the entire cursor (e.g. every log
+    /// position). Scoped to those durable cursors; any other object section keeps the bare-default degrade.
+    /// </summary>
+    private bool TrySalvageCompoundSection(JsonPropertyInfo section, JsonNode node, PersistedState target, JsonException originalError)
+    {
+        if (section.PropertyType != typeof(LogProcessingState) && section.PropertyType != typeof(DepotProcessingState))
+        {
+            return false;
+        }
+
+        if (node is not JsonObject memberObject)
+        {
+            return false;
+        }
+
+        var salvaged = Activator.CreateInstance(section.PropertyType)!;
+        var droppedCount = 0;
+        foreach (var member in JsonSerializerOptions.Default.GetTypeInfo(section.PropertyType).Properties)
+        {
+            if (member.Set is null || !memberObject.TryGetPropertyValue(member.Name, out var memberNode))
+            {
+                continue;
+            }
+
+            switch (TryBindJsonValue(memberNode, member.PropertyType, out var value, out _))
+            {
+                case JsonBindOutcome.Bound:
+                    // Store an explicit null (nullable member) and any deserialized value; a non-null node
+                    // never yields a null value here, matching the original per-member guard.
+                    if (memberNode is null || value is not null)
+                    {
+                        member.Set(salvaged, value);
+                    }
+
+                    break;
+
+                default:
+                    // Invalid, or a JSON null on a non-nullable member: leave it at the compound's default.
+                    droppedCount++;
+                    break;
+            }
+        }
+
+        section.Set!(target, salvaged);
+        _logger.LogWarning(
+            originalError,
+            "Persisted state section '{Section}' had {DroppedCount} invalid member(s) reset to default; the rest were preserved",
+            section.Name,
+            droppedCount);
+        return true;
+    }
+
+    /// <summary>
+    /// Applies a conservative fail-closed default when a SECURITY-sensitive section is present but invalid,
+    /// instead of the bare initializer. An invalid metrics-auth value degrades to "authentication required"
+    /// (true) so a corrupt value can never silently weaken the policy to the fail-open configuration default.
+    /// </summary>
+    private bool TryApplyFailClosedSecurityDefault(JsonPropertyInfo section, PersistedState target, JsonException originalError)
+    {
+        // Identifies the metrics-auth toggle by its (attribute-free) persisted name.
+        if (section.Name != nameof(PersistedState.RequireAuthForMetrics))
+        {
+            return false;
+        }
+
+        section.Set!(target, true);
+        _logger.LogWarning(
+            originalError,
+            "Persisted state section '{Section}' had an invalid value; failing closed (metrics authentication required) instead of the fail-open default",
+            section.Name);
+        return true;
+    }
+
     /// <summary>
     /// Extracts the legacy single scheduled-prefill schedule interval (hours) from the per-service
     /// interval map. Pre-v2 state.json stored one global cadence under "scheduledPrefill"; it is the
@@ -1152,6 +1445,7 @@ public class StateService : IStateService
             HasDataLoaded = persisted.HasDataLoaded,
             HasProcessedLogs = persisted.HasProcessedLogs,
             GuestSessionDurationHours = persisted.GuestSessionDurationHours,
+            GuestModeLocked = persisted.GuestModeLocked,
             DefaultGuestTheme = persisted.DefaultGuestTheme ?? "dark-default",
             RefreshRate = RefreshRateExtensions.TryParseWire(persisted.RefreshRate) ?? RefreshRate.Standard,
             DefaultGuestRefreshRate = RefreshRateExtensions.TryParseWire(persisted.DefaultGuestRefreshRate) ?? RefreshRate.Standard,
@@ -1257,6 +1551,7 @@ public class StateService : IStateService
             HasDataLoaded = state.HasDataLoaded,
             HasProcessedLogs = state.HasProcessedLogs,
             GuestSessionDurationHours = state.GuestSessionDurationHours,
+            GuestModeLocked = state.GuestModeLocked,
             DefaultGuestTheme = state.DefaultGuestTheme,
             RefreshRate = state.RefreshRate.ToWireString(),
             DefaultGuestRefreshRate = state.DefaultGuestRefreshRate.ToWireString(),

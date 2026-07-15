@@ -47,8 +47,8 @@ internal sealed class PersistentSessionNotFoundStateJsonConverter : JsonStringEn
 }
 
 /// <summary>
-/// Stable <c>error</c> discriminators for <see cref="PersistentLoginConflictResponse"/> (RC3, session
-/// 20260703-221336-2070027597). The frontend reads these off <c>error.cause</c> structurally - never
+/// Stable <c>error</c> discriminators for <see cref="PersistentLoginConflictResponse"/> (RC3).
+/// The frontend reads these off <c>error.cause</c> structurally - never
 /// by sniffing the message text - so they are a wire contract shared 1:1 with
 /// <c>usePersistentPrefillAuth.ts</c>.
 /// </summary>
@@ -63,7 +63,7 @@ public static class PersistentLoginConflictReasons
 
 /// <summary>
 /// 409 body for a persistent-login REST call that was pinned to a session which is no longer the one
-/// the server would act on (RC3, session 20260703-221336-2070027597): either a different session has
+/// the server would act on (RC3): either a different session has
 /// become active for the service (<see cref="PersistentLoginConflictReasons.SessionReplaced"/>) or the
 /// daemon dropped the supplied credential (<see cref="PersistentLoginConflictReasons.CredentialRejected"/>).
 /// The frontend reads <see cref="Error"/> + <see cref="State"/> from <c>error.cause</c>.
@@ -84,7 +84,7 @@ public class PersistentLoginConflictResponse
 /// <summary>
 /// Success body for the persistent login/challenge routes when the session is already authenticated
 /// (no credential challenge to answer). Carries the resolved <see cref="SessionId"/> so the frontend
-/// can pin the session the flow belongs to (RC3, session 20260703-221336-2070027597), plus the
+/// can pin the session the flow belongs to (RC3), plus the
 /// existing <c>status:"logged-in"</c> shape the frontend already type-guards on.
 /// </summary>
 public class PersistentLoginStatusResponse

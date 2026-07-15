@@ -25,8 +25,9 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
         IOptionsMonitor<PrefillNetworkOptions> networkOptions,
-        ILancacheServerLocator locator)
-        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator)
+        ILancacheServerLocator locator,
+        IPrefillContainerGatewayFactory containerGatewayFactory)
+        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator, containerGatewayFactory)
     {
     }
 

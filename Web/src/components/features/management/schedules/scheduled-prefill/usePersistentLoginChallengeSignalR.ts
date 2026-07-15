@@ -56,7 +56,7 @@ interface UsePersistentLoginChallengeSignalROptions {
  * leak its challenge into the admin's persistent login flow, and a stale event for a service with
  * no login pending is silently ignored.
  *
- * RC3 hardening (session 20260703-221336-2070027597): `containersByService` is React state that
+ * RC3 hardening: `containersByService` is React state that
  * refreshes on its own cadence, so at the exact moment of a stop-then-start race it can itself
  * still report the just-replaced session for a beat. Once the login store has pinned a sessionId
  * (from this login flow's own login/challenge response - see `applyPersistentLoginChallenge`),
