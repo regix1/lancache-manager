@@ -355,3 +355,281 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
         => throw new NotSupportedException();
     public void ClearPendingChallenges() { }
 }
+
+/// <summary>
+/// Scripted login surface for the headless self-auth orchestration scenarios. Three shapes:
+/// already-logged-in (anonymous daemons report logged-in on the first status poll - no login command
+/// expected), self-auth (default: a login command flips the reported status to logged-in, no
+/// challenge - the stored volume login was intact), and challenge (the login command answers with a
+/// credential challenge - the stored login is missing/invalid). Challenge delivery is
+/// PRODUCTION-shaped: the real transports deliver every challenge over BOTH channels - the
+/// <see cref="OnCredentialChallenge"/> event (raised from the read loop) AND the command return
+/// value - so this fake raises the event before returning; a fake with no-op event accessors would
+/// hide a challenge-publication leak. The login and cancel commands can be held on barriers and the
+/// cancel outcome scripted, for the concurrency and confirmed-cancel scenarios. Members the
+/// recreate + login path never touches fail loudly.
+/// </summary>
+internal sealed class ScriptedLoginDaemonClient : IDaemonClient
+{
+    private readonly bool _alreadyLoggedIn;
+    private readonly CredentialChallenge? _challengeOnLogin;
+
+    public ScriptedLoginDaemonClient(bool alreadyLoggedIn = false, CredentialChallenge? challengeOnLogin = null)
+    {
+        _alreadyLoggedIn = alreadyLoggedIn;
+        _challengeOnLogin = challengeOnLogin;
+    }
+
+    public int StartLoginCallCount { get; private set; }
+    public int CancelLoginCallCount { get; private set; }
+    public int GetStatusCallCount { get; private set; }
+    public int LogoutCount { get; private set; }
+    public bool Disposed { get; private set; }
+
+    /// <summary>Whether the daemon acknowledges a cancel-login command (the outcome the service reads).</summary>
+    public bool CancelAcknowledged { get; set; } = true;
+
+    /// <summary>When true, a login command waits on <see cref="ReleaseStartLogin"/> before completing.</summary>
+    public bool HoldStartLogin { get; set; }
+
+    /// <summary>Completed when a login command has been entered (barrier for concurrency tests).</summary>
+    public TaskCompletionSource StartLoginEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Completed by the test to let a held login command finish.</summary>
+    public TaskCompletionSource ReleaseStartLogin { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>When true, a cancel-login command waits on <see cref="ReleaseCancelLogin"/> before completing.</summary>
+    public bool HoldCancelLogin { get; set; }
+
+    /// <summary>Completed when a cancel-login command has been entered (barrier for concurrency tests).</summary>
+    public TaskCompletionSource CancelLoginEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Completed by the test to let a held cancel-login command finish.</summary>
+    public TaskCompletionSource ReleaseCancelLogin { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// When true, only the FIRST login command yields the scripted challenge; a later one behaves
+    /// like a fresh self-auth. Lets a concurrency test prove a post-cleanup manual login starts a
+    /// genuinely new daemon attempt instead of inheriting the earlier challenge.
+    /// </summary>
+    public bool ChallengeOnlyOnFirstLogin { get; set; }
+
+    /// <summary>
+    /// When true, a challenge-less login command does NOT flip the daemon to logged-in: the daemon
+    /// neither authenticates, nor challenges, nor fails - the no-response shape.
+    /// </summary>
+    public bool NeverAuthenticates { get; set; }
+
+    /// <summary>When true, the login's challenge dispatch waits on <see cref="ReleaseChallengeDispatch"/>.</summary>
+    public bool HoldChallengeDispatch { get; set; }
+
+    /// <summary>Completed when the login command has installed its waiter and reached the dispatch point.</summary>
+    public TaskCompletionSource ChallengeDispatchReached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Completed by the test to let a held challenge dispatch proceed.</summary>
+    public TaskCompletionSource ReleaseChallengeDispatch { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Completed when a challenge poll has installed its waiter in the shared slot.</summary>
+    public TaskCompletionSource PollWaiterInstalled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public int WaitForChallengeCallCount { get; private set; }
+
+    private bool _selfAuthenticated;
+
+    // Shared challenge-waiter slot, mirroring the production transports' shape.
+    private readonly object _challengeWaiterLock = new();
+    private TaskCompletionSource<CredentialChallenge>? _challengeWaiter;
+    private bool _challengeDelivered;
+
+    public event Func<CredentialChallenge, Task>? OnCredentialChallenge;
+    public event Func<DaemonStatus, Task>? OnStatusUpdate { add { } remove { } }
+    public event Func<SocketPrefillProgress, Task>? OnProgressUpdate { add { } remove { } }
+    public event Func<string, Task>? OnError { add { } remove { } }
+    public event Func<Task>? OnDisconnected { add { } remove { } }
+
+    public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
+    {
+        GetStatusCallCount++;
+        return Task.FromResult<DaemonStatus?>(new DaemonStatus
+        {
+            Type = "status",
+            Status = _alreadyLoggedIn || _selfAuthenticated ? "logged-in" : "awaiting-login",
+            Timestamp = DateTime.UtcNow
+        });
+    }
+
+    public async Task<CredentialChallenge?> StartLoginAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    {
+        StartLoginCallCount++;
+        StartLoginEntered.TrySetResult();
+        if (HoldStartLogin)
+        {
+            await ReleaseStartLogin.Task.WaitAsync(cancellationToken);
+        }
+
+        var challenge = _challengeOnLogin;
+        if (challenge is not null && ChallengeOnlyOnFirstLogin && StartLoginCallCount > 1)
+        {
+            challenge = null;
+        }
+
+        if (challenge is null)
+        {
+            if (!NeverAuthenticates)
+            {
+                _selfAuthenticated = true;
+            }
+            return null;
+        }
+
+        // Mirror the production transports' SHARED challenge-waiter shape - deliberately WITHOUT the
+        // login-ownership guard the real clients carry - so the orchestration tests prove the
+        // SERVICE-level suppression gate protects the flow on its own: the login installs the shared
+        // waiter, a later poll REPLACES it, and the daemon's challenge completes whoever holds the
+        // slot at dispatch, before the event is raised.
+        var loginWaiter = new TaskCompletionSource<CredentialChallenge>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_challengeWaiterLock)
+        {
+            _challengeWaiter = loginWaiter;
+        }
+
+        try
+        {
+            ChallengeDispatchReached.TrySetResult();
+            if (HoldChallengeDispatch)
+            {
+                await ReleaseChallengeDispatch.Task.WaitAsync(cancellationToken);
+            }
+
+            TaskCompletionSource<CredentialChallenge>? current;
+            lock (_challengeWaiterLock)
+            {
+                current = _challengeWaiter;
+                _challengeWaiter = null;
+                _challengeDelivered = true;
+            }
+            current?.TrySetResult(challenge);
+
+            // Production transports deliver every challenge over BOTH channels: the event (from the
+            // read loop) and the command return value.
+            if (OnCredentialChallenge is { } handlers)
+            {
+                foreach (var handler in handlers.GetInvocationList().Cast<Func<CredentialChallenge, Task>>())
+                {
+                    await handler(challenge);
+                }
+            }
+
+            // The login command returns what its OWN waiter observed: the challenge when it still
+            // held the slot at dispatch; null (the production timeout shape) when a poll stole it.
+            return loginWaiter.Task.IsCompleted ? await loginWaiter.Task : null;
+        }
+        finally
+        {
+            lock (_challengeWaiterLock)
+            {
+                if (ReferenceEquals(_challengeWaiter, loginWaiter))
+                {
+                    _challengeWaiter = null;
+                }
+            }
+        }
+    }
+
+    public async Task<CredentialChallenge?> WaitForChallengeAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    {
+        WaitForChallengeCallCount++;
+
+        // Nothing scripted, or the scripted challenge already went out: report no-challenge fast so
+        // the login flow's own queued-challenge check never stalls a test.
+        if (_challengeOnLogin is null || _challengeDelivered)
+        {
+            return null;
+        }
+
+        var pollWaiter = new TaskCompletionSource<CredentialChallenge>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_challengeWaiterLock)
+        {
+            _challengeWaiter = pollWaiter; // unconditional replace, like the pre-guard transports
+        }
+        PollWaiterInstalled.TrySetResult();
+
+        try
+        {
+            var completed = await Task.WhenAny(pollWaiter.Task, Task.Delay(timeout ?? TimeSpan.FromMilliseconds(250), cancellationToken));
+            return completed == pollWaiter.Task ? await pollWaiter.Task : null;
+        }
+        finally
+        {
+            lock (_challengeWaiterLock)
+            {
+                if (ReferenceEquals(_challengeWaiter, pollWaiter))
+                {
+                    _challengeWaiter = null;
+                }
+            }
+        }
+    }
+
+    public Task CancelLoginAsync(CancellationToken cancellationToken = default) => CancelCoreAsync(cancellationToken);
+
+    public async Task<bool> CancelLoginWithOutcomeAsync(CancellationToken cancellationToken = default)
+        => await CancelCoreAsync(cancellationToken);
+
+    private async Task<bool> CancelCoreAsync(CancellationToken cancellationToken)
+    {
+        CancelLoginCallCount++;
+        CancelLoginEntered.TrySetResult();
+        if (HoldCancelLogin)
+        {
+            await ReleaseCancelLogin.Task.WaitAsync(cancellationToken);
+        }
+
+        return CancelAcknowledged;
+    }
+
+    public Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+    {
+        LogoutCount++;
+        return Task.FromResult(true);
+    }
+
+    public void ClearPendingChallenges() { }
+
+    public void Dispose() => Disposed = true;
+
+    public Task<CommandResponse> SendCommandAsync(string type, Dictionary<string, string>? parameters = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task ProvideCredentialAsync(CredentialChallenge challenge, string credential, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<CredentialChallenge?> GetAutoLoginChallengeAsync(string sessionId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<bool> ProvideAutoLoginAsync(string sessionId, string username, string refreshToken, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<bool> ProvideEpicAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, string deviceKeyPkcs8, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task CancelPrefillAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<PrefillResult> PrefillAsync(bool all = false, bool recent = false, bool recentlyPurchased = false, int? top = null, bool force = false, List<string>? operatingSystems = null, int? maxConcurrency = null, List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<ClearCacheResult> GetCacheInfoAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(List<string>? operatingSystems = null, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<CacheStatusResult> CheckCacheStatusAsync(List<CachedDepotInput> cachedDepots, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task ShutdownAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+}

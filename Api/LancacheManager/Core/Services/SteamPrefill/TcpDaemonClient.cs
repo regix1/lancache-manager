@@ -40,6 +40,12 @@ public sealed class TcpDaemonClient : IDaemonClient
     // Queue for credential challenges received via socket
     private readonly ConcurrentQueue<CredentialChallenge> _challengeQueue = new();
     private TaskCompletionSource<CredentialChallenge>? _challengeWaiter;
+
+    // True while the CURRENT _challengeWaiter belongs to an in-flight StartLoginAsync login command.
+    // The slot is shared between the login command and the challenge poll; without ownership a poll
+    // could take over the slot and receive the login's challenge while the login orphans to its
+    // timeout. Guarded by _challengeLock; set and cleared only by StartLoginAsync.
+    private bool _challengeWaiterOwnedByLogin;
     private readonly object _challengeLock = new();
 
     public event Func<CredentialChallenge, Task>? OnCredentialChallenge;
@@ -494,6 +500,7 @@ public sealed class TcpDaemonClient : IDaemonClient
         lock (_challengeLock)
         {
             _challengeWaiter = challengeTcs;
+            _challengeWaiterOwnedByLogin = true;
         }
 
         try
@@ -524,7 +531,13 @@ public sealed class TcpDaemonClient : IDaemonClient
         {
             lock (_challengeLock)
             {
-                _challengeWaiter = null;
+                // Release ownership; clear the slot only if it still holds this login's waiter (the
+                // challenge dispatch or ClearPendingChallenges may already have consumed it).
+                if (ReferenceEquals(_challengeWaiter, challengeTcs))
+                {
+                    _challengeWaiter = null;
+                }
+                _challengeWaiterOwnedByLogin = false;
             }
         }
     }
@@ -723,6 +736,17 @@ public sealed class TcpDaemonClient : IDaemonClient
             {
                 return existingChallenge;
             }
+
+            // An in-flight login command owns the shared waiter slot. Its challenge belongs to the
+            // login caller; taking over the slot here would hand that challenge to this poll and
+            // orphan the login until its timeout. Report "no challenge available" instead - once the
+            // challenge arrives it is published via the event channel/manager cache, which the next
+            // poll reads.
+            if (_challengeWaiterOwnedByLogin)
+            {
+                return null;
+            }
+
             _challengeWaiter = challengeTcs;
         }
 
@@ -742,21 +766,37 @@ public sealed class TcpDaemonClient : IDaemonClient
         {
             lock (_challengeLock)
             {
-                _challengeWaiter = null;
+                // Clear only this poll's own waiter: a login command may have installed ITS waiter
+                // after this poll's (superseding it) - clobbering the slot to null here would strand
+                // that login's challenge in the queue until the login timed out.
+                if (ReferenceEquals(_challengeWaiter, challengeTcs))
+                {
+                    _challengeWaiter = null;
+                }
             }
         }
     }
 
-    public async Task CancelLoginAsync(CancellationToken cancellationToken = default)
+    // Existing callers (the interactive modal's cancel) keep the historical best-effort contract:
+    // errors are swallowed via the outcome variant below and the result is discarded.
+    public Task CancelLoginAsync(CancellationToken cancellationToken = default)
+        => CancelLoginWithOutcomeAsync(cancellationToken);
+
+    public async Task<bool> CancelLoginWithOutcomeAsync(CancellationToken cancellationToken = default)
     {
         ClearPendingChallenges();
         try
         {
-            await SendCommandAsync("cancel-login", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
+            var response = await SendCommandAsync("cancel-login", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
+            return response.Success;
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore errors during cancel
+            // Unacknowledged: the daemon may still have a login in flight. Callers that need
+            // certainty read the false return; best-effort callers ignore it (the historical
+            // swallow behavior).
+            _logger?.LogWarning(ex, "cancel-login command was not acknowledged by the daemon");
+            return false;
         }
     }
 

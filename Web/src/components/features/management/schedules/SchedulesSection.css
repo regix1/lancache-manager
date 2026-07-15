@@ -1901,6 +1901,41 @@
     flex: 1 1 auto;
   }
 
+  /* The two desktop min-width floors on the setting-actions children exist only to line the
+     bulk-toggle and validity rows up as one aligned column at wide widths (see the base rules).
+     On a phone the settings list is a single stacked column, so those floors just force awkward
+     wrapping - release them so Enable all / Disable all can share one row and the validity input
+     fills the width. */
+  .scheduled-prefill-config-modal__setting-actions > :first-child,
+  .scheduled-prefill-config-modal__setting-actions > :nth-child(2) {
+    min-width: 0;
+  }
+
+  /* Persistence-mode control: its three descriptive labels ("Stop and log out", "Keep running",
+     "Full persistence") cannot share one phone-width row without clipping. Unlike the per-service
+     preset/concurrency controls (short labels, fullWidth), this one is a plain inline-flex segmented
+     control, so its intrinsic ~363px width was dragging the whole settings column past the modal
+     edge and clipping every sibling (buttons, validity input, help copy). Stack it into a full-width
+     vertical control so each option keeps one readable line and a comfortable tap target. Scoped to
+     the settings list so the per-service segmented controls in the platform panel are untouched. */
+  .scheduled-prefill-config-modal__setting-actions > [role='group'] {
+    width: 100%;
+  }
+
+  .scheduled-prefill-config-modal__settings-list .segmented-control-container {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    height: auto;
+  }
+
+  .scheduled-prefill-config-modal__settings-list .segmented-control-button {
+    width: 100%;
+    min-height: 2.5rem;
+    white-space: normal;
+  }
+
   /* Keep the destructive row compact on phones. The shared setting-action rules above
      intentionally stretch ordinary form actions, but a single danger-zone command does
      not need a full-width action row or desktop-sized internal spacing. */

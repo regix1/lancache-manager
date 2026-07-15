@@ -56,6 +56,20 @@ public class DaemonSession
     public string? LastConsumedLoginChallengeId { get; set; }
 
     /// <summary>
+    /// True while a headless (manager-initiated) login attempt owns this session's login flow.
+    /// While set, an incoming daemon credential challenge is NOT published: the event handler in
+    /// <c>PrefillDaemonServiceBase.OnCredentialChallengeAsync</c> neither rewrites <see cref="AuthState"/>,
+    /// nor caches <see cref="PendingLoginChallenge"/>, nor broadcasts the challenge - and the login flow
+    /// skips its own resume-cache writes. The headless attempt consumes the challenge from the command
+    /// return channel and silently cancels it, so publishing would hand the UI (or an unlocked REST
+    /// challenge poll) a challenge that is about to be revoked. Only ever set and cleared by the headless
+    /// coordinator while it holds <see cref="LoginLock"/>; a field (not a property) so it can be volatile,
+    /// because the transport event handlers read it from socket threads. Interactive logins never set it,
+    /// so their challenge delivery is unchanged.
+    /// </summary>
+    public volatile bool SuppressLoginChallengePublication;
+
+    /// <summary>
     /// Serializes login attempts on this session (<c>PrefillDaemonServiceBase.StartLoginAsync</c>).
     /// Overlapping calls would race the daemon's single challenge/status stream, clobber each other's
     /// <see cref="LastLoginFailureMessage"/>/<see cref="AuthState"/> writes, and stack duplicate

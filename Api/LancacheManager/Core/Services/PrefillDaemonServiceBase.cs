@@ -1992,7 +1992,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // BEFORE the session is registered/persisted/broadcast below, so nothing - a SignalR listener
         // reacting to EventSessionCreated, a status poll - can ever observe this session (and therefore
         // attempt a login against it) until any stale login has already been erased.
-        await ApplyFreshPersistentLoginGuardAsync(session, isPersistent, isReconnect, involuntaryRecreate);
+        var volumeLoginPreserved = await ApplyFreshPersistentLoginGuardAsync(session, isPersistent, isReconnect, involuntaryRecreate);
 
         // Creation gate: if shutdown began after this create started, do NOT register the session -
         // StopAsync's one-time _sessions snapshot has already passed, so registering here would let the
@@ -2101,6 +2101,24 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // Broadcast session creation to all clients for real-time updates (both hubs)
         var sessionDtoCreated = DaemonSessionDto.FromSession(session);
         await NotifyHubAsync(EventSessionCreated, sessionDtoCreated);
+
+        // Whenever the fresh-login guard PRESERVED a FullPersistence volume login - a startup
+        // outage-recreate, an errored-session replacement, or a manual fresh Start whose prior life
+        // was not explicitly stopped - the daemon can authenticate itself, but only does so when it
+        // receives a login command. Issue that command headlessly in the background so nobody has to
+        // click Log in for a login that already exists (the intent: an admin should never be asked to
+        // re-login while a valid stored login sits on the volume, and scheduled prefill keeps working
+        // unattended after an outage). The invariants hold because they live in the guard itself: an
+        // explicit admin stop marks the row Terminated so the guard ERASES (never fires here); guests,
+        // re-adopts, and non-FullPersistence modes make the guard return false. An unusable stored
+        // login is silently cancelled inside the attempt; no modal, notification, or challenge is ever
+        // pushed - login-modal visibility stays anchored to the user's own action.
+        if (volumeLoginPreserved)
+        {
+            LastHeadlessSelfAuthAttempt = InvokeSafeAsync(
+                () => AttemptHeadlessPersistentSelfAuthAsync(session),
+                nameof(AttemptHeadlessPersistentSelfAuthAsync));
+        }
 
         return session;
     }
@@ -2274,13 +2292,16 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// preserved. Internal (not private) so tests can exercise the decision seam directly without
     /// standing up a real Docker container and daemon socket - see
     /// <c>InternalsVisibleTo("LancacheManager.Tests")</c> on the containing project.
+    /// Returns true iff the guard deliberately PRESERVED a FullPersistence volume login (the skip
+    /// branch) - the caller uses that to decide whether a headless self-auth attempt makes sense
+    /// (there is a stored login on the volume worth issuing a login command for).
     /// </summary>
-    internal async Task ApplyFreshPersistentLoginGuardAsync(
+    internal async Task<bool> ApplyFreshPersistentLoginGuardAsync(
         DaemonSession session, bool isPersistent, bool isReconnect, bool involuntaryRecreate = false)
     {
         if (!isPersistent || isReconnect)
         {
-            return;
+            return false;
         }
 
         if (await ShouldPreserveVolumeLoginAsync(session, involuntaryRecreate))
@@ -2288,13 +2309,184 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             _logger.LogInformation(
                 "Skipping fresh-login guard for persistent {ServiceName} session {SessionId}: FullPersistence preserves the saved volume login across a verified involuntary death (explicit recreate flag or prior session not terminated)",
                 ServiceName, session.Id);
-            return;
+            return true;
         }
 
         _logger.LogInformation(
             "Running fresh-login guard for persistent {ServiceName} session {SessionId}: erasing any inherited volume login (not FullPersistence, or the prior FullPersistence session was terminated / none exists)",
             ServiceName, session.Id);
         await TryBestEffortLogoutAsync(session, "fresh persistent container create");
+        return false;
+    }
+
+    /// <summary>
+    /// The most recent background headless self-auth attempt fired after an involuntary
+    /// FullPersistence recreate, or null when none has been triggered this service lifetime. The
+    /// task never faults (it is wrapped by <see cref="InvokeSafeAsync"/>). Internal so tests can
+    /// await the fire-and-forget attempt deterministically instead of polling.
+    /// </summary>
+    internal Task? LastHeadlessSelfAuthAttempt { get; private set; }
+
+    /// <summary>
+    /// Headless self-auth for a fresh persistent session whose named auth volume still holds a
+    /// previous life's login (the fresh-login guard preserved it): the daemon only reads that stored
+    /// login when it receives a <c>login</c> command, so issue one on the admin's behalf. The whole
+    /// transaction - the live-status preflight, the login, and any silent cancellation - runs while
+    /// OWNING <see cref="DaemonSession.LoginLock"/>, so a concurrent interactive login either wins
+    /// the try-acquire before this attempt begins or starts only after this attempt's cleanup
+    /// finished; it can never observe or inherit this attempt's challenge. While the login runs,
+    /// <see cref="DaemonSession.SuppressLoginChallengePublication"/> keeps a daemon challenge from
+    /// being published (state write + broadcast) by the transport event handler - this attempt
+    /// consumes it from the command return channel and silently cancels it. Outcomes: an
+    /// authenticated daemon flips through the existing auth-state flows; a challenge or a
+    /// no-response is cancelled daemon-side, and only a CONFIRMED cancel presents the ordinary
+    /// needs-login state (an unconfirmed cancel marks the session errored - see
+    /// <see cref="CancelHeadlessLoginAsync"/>). Never pushes a modal, notification, or challenge
+    /// broadcast. Runs fire-and-forget in the background (never blocks or fails startup); any
+    /// exception is observed and logged by the <see cref="InvokeSafeAsync"/> wrapper.
+    /// </summary>
+    internal async Task AttemptHeadlessPersistentSelfAuthAsync(DaemonSession session)
+    {
+        // The session was torn down (shutdown/terminate) between the trigger and this task running.
+        if (!IsSessionLive(session))
+        {
+            return;
+        }
+
+        var cancellationToken = session.CancellationTokenSource.Token;
+
+        // Try-acquire like the interactive entry point, but bail silently instead of throwing: a
+        // held lock means an interactive login is already in flight - the user got there first and
+        // this attempt is unnecessary.
+        if (!await session.LoginLock.WaitAsync(0, cancellationToken))
+        {
+            return;
+        }
+
+        var abandonedLoginCleanup = new AbandonedLoginCleanupHolder();
+        try
+        {
+            // A cached challenge means an interactive login is mid-flow (paused/reopened modal);
+            // never cancel it out from under the user.
+            if (session.PendingLoginChallenge is not null)
+            {
+                return;
+            }
+
+            // One live-status preflight, applied through the same handler every socket status push
+            // uses, so an already-authenticated daemon (anonymous services, or a login-required
+            // daemon that authenticated earlier) reconciles to Authenticated and broadcasts through
+            // the existing flows instead of being skipped silently.
+            var preflight = await session.Client.GetStatusAsync(cancellationToken);
+            if (preflight?.Status == "logged-in")
+            {
+                await OnStatusChangeAsync(session, preflight);
+                return;
+            }
+
+            session.SuppressLoginChallengePublication = true;
+            try
+            {
+                var result = await StartLoginCoreAsync(session, session.Id, timeout: null, abandonedLoginCleanup, cancellationToken);
+                switch (result.Outcome)
+                {
+                    case LoginAttemptOutcome.Authenticated:
+                        // The daemon self-authenticated from its stored volume login; the login flow
+                        // already flipped auth state and broadcast through the existing flows.
+                        return;
+
+                    case LoginAttemptOutcome.Failed:
+                        // The daemon itself failed the attempt (fail-fast path): auth state was
+                        // already reset to NotAuthenticated and notified, no login is left in
+                        // flight, and the failure was already logged with the daemon's own text.
+                        return;
+
+                    default:
+                        // ChallengeIssued: the stored login is gone/invalid and the daemon wants
+                        // credentials nobody is present to type. NoResponse: the daemon neither
+                        // authenticated nor challenged within the bounded waits, and may still be
+                        // processing the login command; it must not be left visibly LoggingIn.
+                        // Both need a confirmed daemon-side cancellation.
+                        await CancelHeadlessLoginAsync(session, result, cancellationToken);
+                        return;
+                }
+            }
+            finally
+            {
+                session.SuppressLoginChallengePublication = false;
+            }
+        }
+        finally
+        {
+            ReleaseLoginLockAfterCleanup(session, abandonedLoginCleanup);
+        }
+    }
+
+    /// <summary>
+    /// Silently cancels a headless login attempt that ended in a challenge or in no response, while
+    /// the caller still owns <see cref="DaemonSession.LoginLock"/>. Only a cancel the daemon
+    /// ACKNOWLEDGED may present the ordinary needs-login state - the daemon answers a repeat
+    /// <c>login</c> command for an attempt it still considers in flight with "already in progress"
+    /// WITHOUT re-emitting a challenge, so claiming needs-login after an unconfirmed cancel would
+    /// wedge the admin's next interactive attempt. An unconfirmed cancel instead marks the session
+    /// errored (the honest state: this daemon needs replacing) so the next start replaces it through
+    /// the existing errored-session replacement path, which preserves a FullPersistence volume login.
+    /// </summary>
+    private async Task CancelHeadlessLoginAsync(DaemonSession session, LoginAttemptResult result, CancellationToken cancellationToken)
+    {
+        // Publication was suppressed, so nothing should be cached - clear defensively anyway, plus
+        // the client's own queued copy, before the daemon round-trip.
+        ClearPendingLoginChallenge(session);
+        session.Client.ClearPendingChallenges();
+
+        bool cancelConfirmed;
+        try
+        {
+            cancelConfirmed = await session.Client.CancelLoginWithOutcomeAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "cancel-login round-trip failed while cleaning up a headless login attempt for session {SessionId}",
+                session.Id);
+            cancelConfirmed = false;
+        }
+
+        if (cancelConfirmed)
+        {
+            session.AuthState = DaemonAuthState.NotAuthenticated;
+            await NotifyAuthStateChangeAsync(session);
+
+            if (result.Outcome == LoginAttemptOutcome.ChallengeIssued)
+            {
+                _logger.LogWarning(
+                    "Headless self-auth for persistent {ServiceName} session {SessionId} found no usable stored login (daemon answered with a {CredentialType} challenge); attempt cancelled - awaiting interactive login",
+                    ServiceName, session.Id, result.Challenge!.CredentialType);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Headless self-auth for persistent {ServiceName} session {SessionId} got no response from the daemon (neither authenticated nor challenged); attempt cancelled - awaiting interactive login",
+                    ServiceName, session.Id);
+            }
+
+            return;
+        }
+
+        _logger.LogError(
+            "Headless self-auth for persistent {ServiceName} session {SessionId} could not confirm daemon-side login cancellation; marking the session errored so the next start replaces the daemon cleanly",
+            ServiceName, session.Id);
+        session.Status = DaemonSessionStatus.Error;
+        session.ErrorMessage = "Automatic sign-in could not be cancelled cleanly. Start the session again to recover.";
+        try
+        {
+            await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to broadcast session update after headless cancel recovery for session {SessionId}", session.Id);
+        }
     }
 
     /// <summary>
@@ -2413,25 +2605,38 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var abandonedLoginCleanup = new AbandonedLoginCleanupHolder();
         try
         {
-            return await StartLoginCoreAsync(session, sessionId, timeout, abandonedLoginCleanup, cancellationToken);
+            // Public contract unchanged: callers receive the challenge (or null for
+            // authenticated / failed-fast / no-response, exactly as before the outcome
+            // was made explicit for the headless coordinator).
+            var result = await StartLoginCoreAsync(session, sessionId, timeout, abandonedLoginCleanup, cancellationToken);
+            return result.Challenge;
         }
         finally
         {
-            // Normally releases immediately. But when a fail-fast completion abandoned a still-running
-            // daemon task, AwaitChallengeOrLoginFailureAsync stashed its cleanup task here
-            // instead of awaiting it inline - the real CancelLoginAsync clears the pending challenge
-            // wait synchronously but then also awaits its own "cancel-login" command round-trip to the
-            // daemon (up to that command's own timeout), so it must never be awaited on the hot
-            // fail-fast return path. The lock is released only once that cleanup finishes, so a later
-            // login attempt on this session can never overlap with the abandoned one.
-            if (abandonedLoginCleanup.Task is { } cleanupTask)
-            {
-                _ = cleanupTask.ContinueWith(_ => session.LoginLock.Release(), TaskScheduler.Default);
-            }
-            else
-            {
-                session.LoginLock.Release();
-            }
+            ReleaseLoginLockAfterCleanup(session, abandonedLoginCleanup);
+        }
+    }
+
+    /// <summary>
+    /// Releases a session's <see cref="DaemonSession.LoginLock"/> after a login attempt. Normally
+    /// releases immediately. But when a fail-fast completion abandoned a still-running daemon task,
+    /// <see cref="AwaitChallengeOrLoginFailureAsync"/> stashed its cleanup task in the holder instead
+    /// of awaiting it inline - that cleanup's CancelLoginAsync clears the pending challenge wait
+    /// synchronously but then also awaits its own "cancel-login" command round-trip to the daemon (up
+    /// to that command's own timeout), so it must never be awaited on the hot fail-fast return path.
+    /// The lock is released only once that cleanup finishes, so a later login attempt on this session
+    /// can never overlap with the abandoned one. Shared by the interactive entry point and the
+    /// headless coordinator (both own the lock for their whole attempt).
+    /// </summary>
+    private static void ReleaseLoginLockAfterCleanup(DaemonSession session, AbandonedLoginCleanupHolder abandonedLoginCleanup)
+    {
+        if (abandonedLoginCleanup.Task is { } cleanupTask)
+        {
+            _ = cleanupTask.ContinueWith(_ => session.LoginLock.Release(), TaskScheduler.Default);
+        }
+        else
+        {
+            session.LoginLock.Release();
         }
     }
 
@@ -2446,7 +2651,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         public Task? Task;
     }
 
-    private async Task<CredentialChallenge?> StartLoginCoreAsync(
+    private async Task<LoginAttemptResult> StartLoginCoreAsync(
         DaemonSession session, string sessionId, TimeSpan? timeout, AbandonedLoginCleanupHolder abandonedLoginCleanup, CancellationToken cancellationToken)
     {
         // Resume path: a challenge from an earlier StartLoginAsync call on this session is still
@@ -2460,7 +2665,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             _logger.LogInformation(
                 "Session {SessionId} has a pending login challenge - resuming it instead of starting a new daemon login",
                 sessionId);
-            return pendingLoginChallenge;
+            return LoginAttemptResult.ForChallenge(pendingLoginChallenge);
         }
 
         _logger.LogInformation("Starting login for session {SessionId}. ResponsesDir: {ResponsesDir}",
@@ -2500,13 +2705,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                     session, session.Client.StartLoginAsync(timeout, cancellationToken), loginFailureTcs, abandonedLoginCleanup);
                 if (loginFailureTcs.Task.IsCompleted)
                 {
-                    return await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
+                    await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
+                    return LoginAttemptResult.LoginFailed;
                 }
                 if (existingChallenge == null)
                 {
                     // Daemon confirms we're still logged in
                     _logger.LogInformation("Session {SessionId} confirmed authenticated by daemon", sessionId);
-                    return null;
+                    return LoginAttemptResult.Authenticated;
                 }
                 // Daemon needs re-authentication - fall through to normal flow
                 _logger.LogInformation("Session {SessionId} requires re-authentication", sessionId);
@@ -2531,7 +2737,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 session, session.Client.StartLoginAsync(timeout, cancellationToken), loginFailureTcs, abandonedLoginCleanup);
             if (loginFailureTcs.Task.IsCompleted)
             {
-                return await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
+                await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
+                return LoginAttemptResult.LoginFailed;
             }
 
             // Log result
@@ -2539,8 +2746,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             {
                 _logger.LogInformation("Received challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
                     sessionId, challenge.CredentialType, challenge.ChallengeId);
-                session.PendingLoginChallenge = challenge;
-                return challenge;
+                // A headless attempt consumes and cancels its challenge without publishing it, so the
+                // resume cache must not hold a challenge that is about to be revoked (an unlocked REST
+                // challenge poll could otherwise serve it mid-attempt).
+                if (!session.SuppressLoginChallengePublication)
+                {
+                    session.PendingLoginChallenge = challenge;
+                }
+                return LoginAttemptResult.ForChallenge(challenge);
             }
 
             // If login is already in progress, a challenge might already be queued.
@@ -2548,14 +2761,19 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 session, session.Client.WaitForChallengeAsync(TimeSpan.FromSeconds(10), cancellationToken), loginFailureTcs, abandonedLoginCleanup);
             if (loginFailureTcs.Task.IsCompleted)
             {
-                return await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
+                await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
+                return LoginAttemptResult.LoginFailed;
             }
             if (pendingChallenge != null)
             {
                 _logger.LogInformation("Received queued challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
                     sessionId, pendingChallenge.CredentialType, pendingChallenge.ChallengeId);
-                session.PendingLoginChallenge = pendingChallenge;
-                return pendingChallenge;
+                // Same suppression rule as the first-challenge cache write above.
+                if (!session.SuppressLoginChallengePublication)
+                {
+                    session.PendingLoginChallenge = pendingChallenge;
+                }
+                return LoginAttemptResult.ForChallenge(pendingChallenge);
             }
 
             var status = await session.Client.GetStatusAsync(cancellationToken);
@@ -2568,7 +2786,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 FireAndForgetAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
 
                 _logger.LogInformation("Session {SessionId} already authenticated - no challenge needed", sessionId);
-                return null;
+                return LoginAttemptResult.Authenticated;
             }
 
             if (Directory.Exists(session.ResponsesDir))
@@ -2591,13 +2809,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 FireAndForgetAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
                 _logger.LogInformation(
                     "Session {SessionId} already authenticated per daemon status - no challenge needed", sessionId);
-                return null;
+                return LoginAttemptResult.Authenticated;
             }
 
             _logger.LogWarning(
                 "Session {SessionId} login started but no challenge was received from the daemon",
                 sessionId);
-            return null;
+            return LoginAttemptResult.NoResponse;
         }
         finally
         {
@@ -2793,6 +3011,20 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         if (session.PendingLoginChallenge is { } pendingLoginChallenge && session.AuthState != DaemonAuthState.Authenticated)
         {
             return pendingLoginChallenge;
+        }
+
+        // A headless self-auth attempt currently owns this session's login flow: whatever challenge
+        // the daemon emits belongs to that attempt (which consumes and silently cancels it), never to
+        // a UI/reconcile poll - and reaching the transport below would let this poll take over the
+        // shared challenge waiter the attempt's login command installed, stealing the challenge the
+        // attempt is about to revoke. There is no user-facing challenge while the flag is set, by
+        // definition; report "none" without touching the client. (A poll that was ALREADY waiting
+        // inside the transport when the attempt began is superseded by the login command's own waiter
+        // install and starves harmlessly to its timeout; a poll that slips past this check before the
+        // flag is set is refused by the transports' login-owned-waiter guard.)
+        if (session.SuppressLoginChallengePublication)
+        {
+            return null;
         }
 
         return await session.Client.WaitForChallengeAsync(timeout, cancellationToken);
@@ -4506,4 +4738,37 @@ public enum PersistentRunningLoginClearOutcome
     /// caller must surface rather than reporting a false success.
     /// </summary>
     HardRemoveFailed
+}
+
+/// <summary>
+/// Explicit outcome of one daemon login attempt (<c>PrefillDaemonServiceBase.StartLoginCoreAsync</c>).
+/// The public REST surface still collapses this to "challenge or null" exactly as before, but the
+/// headless self-auth coordinator must distinguish a daemon that authenticated from one that answered
+/// with a challenge, failed fast, or never responded - the latter three previously shared a null
+/// return, and treating a no-response as success left sessions visibly stuck LoggingIn.
+/// </summary>
+internal enum LoginAttemptOutcome
+{
+    /// <summary>The daemon reports logged-in (self-authenticated from its stored login, or already authenticated).</summary>
+    Authenticated,
+    /// <summary>The daemon answered with a credential challenge (carried in <see cref="LoginAttemptResult.Challenge"/>).</summary>
+    ChallengeIssued,
+    /// <summary>The daemon reported a login failure (fail-fast path; auth state already reset and notified).</summary>
+    Failed,
+    /// <summary>The daemon neither authenticated, nor challenged, nor failed within the bounded waits.</summary>
+    NoResponse
+}
+
+/// <summary>
+/// Result of one daemon login attempt. <see cref="Challenge"/> is non-null iff
+/// <see cref="Outcome"/> is <see cref="LoginAttemptOutcome.ChallengeIssued"/>.
+/// </summary>
+internal sealed record LoginAttemptResult(LoginAttemptOutcome Outcome, CredentialChallenge? Challenge = null)
+{
+    internal static readonly LoginAttemptResult Authenticated = new(LoginAttemptOutcome.Authenticated);
+    internal static readonly LoginAttemptResult LoginFailed = new(LoginAttemptOutcome.Failed);
+    internal static readonly LoginAttemptResult NoResponse = new(LoginAttemptOutcome.NoResponse);
+
+    internal static LoginAttemptResult ForChallenge(CredentialChallenge challenge)
+        => new(LoginAttemptOutcome.ChallengeIssued, challenge);
 }

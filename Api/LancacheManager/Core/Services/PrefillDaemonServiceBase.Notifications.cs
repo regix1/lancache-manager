@@ -36,6 +36,20 @@ public abstract partial class PrefillDaemonServiceBase
                 return;
             }
 
+            // A headless manager-initiated login currently owns this session's login flow (it holds
+            // LoginLock and set this flag for the duration of its attempt). Its challenge is consumed
+            // from the command return channel and silently cancelled, so publishing it here - the
+            // auth-state rewrite, the resume-cache write, and the SignalR broadcasts below - would
+            // hand the UI a challenge that is about to be revoked. Drop it entirely; interactive
+            // logins never set the flag, so their challenge delivery is unchanged.
+            if (session.SuppressLoginChallengePublication)
+            {
+                _logger.LogDebug(
+                    "Suppressing credential challenge {ChallengeId} ({CredentialType}) for session {SessionId}: a headless login attempt owns this login flow",
+                    challenge.ChallengeId, challenge.CredentialType, session.Id);
+                return;
+            }
+
             // Stale re-delivery guard (Bug #3): the daemon delivers each credential challenge over TWO
             // channels - the WaitForChallengeAsync return value AND this OnCredentialChallenge event. Once
             // the caller has answered a challenge, ProvideCredentialAsync clears the cache and records its

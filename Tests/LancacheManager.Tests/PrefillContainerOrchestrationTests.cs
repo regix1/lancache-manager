@@ -3,11 +3,13 @@ using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -236,6 +238,461 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         second.Dispose();
     }
 
+    // ============================ Headless self-auth after involuntary recreate ============================
+    // A FullPersistence outage-recreate preserves the daemon's stored volume login, but the daemon only
+    // self-authenticates when it receives a login command. The manager now issues that command itself,
+    // headlessly, so the session comes back logged-in with zero user interaction.
+
+    [Fact]
+    public async Task StartAsync_FullPersistenceRecreate_HeadlessSelfAuthRestoresLoginWithoutUserAction()
+    {
+        var client = new ScriptedLoginDaemonClient(); // stored volume login intact: self-auths on the login command
+        var (_, daemon, _, _) = SetupRecreateScenario(DateTime.UtcNow.AddDays(30), clientFactory: () => client);
+
+        await daemon.StartAsync(CancellationToken.None);
+
+        var attempt = daemon.LastHeadlessSelfAuthAttempt;
+        Assert.NotNull(attempt);
+        await attempt!;
+
+        var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
+        Assert.Equal(1, client.StartLoginCallCount);                        // exactly one login command issued
+        Assert.Equal(0, client.CancelLoginCallCount);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);     // logged-in with zero user interaction
+        Assert.Null(session.PendingLoginChallenge);                         // no challenge state left behind
+
+        daemon.Dispose();
+    }
+
+    [Fact]
+    public async Task StartAsync_FullPersistenceRecreate_StoredLoginUnusable_CancelsHeadlessAttemptSilently()
+    {
+        var challenge = new CredentialChallenge
+        {
+            ChallengeId = "headless-chal-1",
+            CredentialType = "username",
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5)
+        };
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: challenge);
+        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, EventRecordingNotificationsProxy>();
+        var recorder = (EventRecordingNotificationsProxy)notifications;
+        var logger = new CapturingLogger<SteamDaemonService>();
+        var (_, daemon, _, _) = SetupRecreateScenario(DateTime.UtcNow.AddDays(30), clientFactory: () => client, notifications: notifications, logger: logger);
+
+        await daemon.StartAsync(CancellationToken.None);
+
+        var attempt = daemon.LastHeadlessSelfAuthAttempt;
+        Assert.NotNull(attempt);
+        await attempt!;
+
+        var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
+        Assert.Equal(1, client.StartLoginCallCount);
+        Assert.Equal(1, client.CancelLoginCallCount);                        // cancelled daemon-side (acknowledged)
+        Assert.Null(session.PendingLoginChallenge);                          // resume cache left empty
+        Assert.Equal(DaemonAuthState.NotAuthenticated, session.AuthState);   // ordinary needs-login state
+
+        // The daemon delivered the challenge over the real event channel too (production-shaped
+        // fake); publication suppression must keep it away from every hub - no credential-challenge
+        // event may reach a connected UI for an attempt nobody initiated.
+        Assert.DoesNotContain(SignalREvents.CredentialChallenge, recorder.EventNames);
+
+        // Single-warning contract: exactly one warning announces the unusable stored login.
+        Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("no usable stored login"));
+
+        daemon.Dispose();
+    }
+
+    [Fact]
+    public async Task StartAsync_FullPersistenceRecreate_DaemonReportsLoggedIn_IssuesNoLoginCommand()
+    {
+        // Anonymous daemons (Battle.net/Riot) - and any already-authenticated one - answer the single
+        // status poll with logged-in, so no login command is ever issued.
+        var client = new ScriptedLoginDaemonClient(alreadyLoggedIn: true);
+        var (_, daemon, _, _) = SetupRecreateScenario(DateTime.UtcNow.AddDays(30), clientFactory: () => client);
+
+        await daemon.StartAsync(CancellationToken.None);
+
+        var attempt = daemon.LastHeadlessSelfAuthAttempt;
+        Assert.NotNull(attempt);
+        await attempt!;
+
+        Assert.Equal(0, client.StartLoginCallCount);
+        Assert.Equal(0, client.CancelLoginCallCount);
+
+        // The preflight status is applied through the ordinary status-reconciliation handler, so the
+        // already-authenticated daemon is VISIBLY authenticated instead of sitting at needs-login
+        // until it happens to push a status event.
+        var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+
+        daemon.Dispose();
+    }
+
+    [Theory]
+    [InlineData(PersistenceMode.KeepAcrossRestart)]
+    [InlineData(PersistenceMode.FullPersistence)]
+    public async Task StartAsync_ReadoptedRunningContainer_NeverFiresHeadlessSelfAuth(PersistenceMode mode)
+    {
+        // A re-adopted RUNNING container's daemon process never died - its login (or lack of one) is its
+        // current live state and needs no login command. The FakeReconnectDaemonClient throws on
+        // StartLoginAsync, so an attempt here would also surface as an unexpected-call failure.
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        var sessionId = await SeedActivePersistentRowAsync(sessionService, expiresAt: DateTime.UtcNow.AddDays(30));
+        var gateway = new RecordingContainerGateway();
+        gateway.AddContainer(RunningPersistentContainer(sessionId));
+        var daemon = new TestSteamDaemon(MakeDeps(dbFactory, sessionService, Config(mode, steamEnabled: true)), gateway);
+
+        await daemon.StartAsync(CancellationToken.None);
+
+        Assert.NotNull(SessionsOf(daemon).Values.SingleOrDefault(s => s.IsPersistent)); // re-adopted, not recreated
+        Assert.Null(daemon.LastHeadlessSelfAuthAttempt);
+
+        daemon.Dispose();
+    }
+
+    // The trigger is exactly "the fresh-login guard preserved the volume login": a MANUAL fresh Start
+    // whose prior FullPersistence life was not explicitly stopped also fires - the admin should never
+    // be asked to click Log in while a valid stored login sits on the volume.
+    [Fact]
+    public async Task CreateSession_ManualFreshStart_PreservedVolumeLogin_FiresHeadlessSelfAuth()
+    {
+        var client = new ScriptedLoginDaemonClient();
+        var (_, daemon, _, _) = SetupRecreateScenario(DateTime.UtcNow.AddDays(30), clientFactory: () => client);
+
+        // Manual start path (the persistent Start endpoint), not the startup reconcile.
+        await daemon.CreateSessionAsync(ScheduledPrefillConstants.DeriveSystemUserId(), isPersistent: true);
+
+        var attempt = daemon.LastHeadlessSelfAuthAttempt;
+        Assert.NotNull(attempt);
+        await attempt!;
+
+        var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
+        Assert.Equal(0, client.LogoutCount);                             // guard preserved, never erased
+        Assert.Equal(1, client.StartLoginCallCount);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+
+        daemon.Dispose();
+    }
+
+    // Explicit admin stop marks the row Terminated, so the guard ERASES the volume login - the
+    // headless attempt must never fire and resurrect a login the admin deliberately removed.
+    [Fact]
+    public async Task CreateSession_ManualStartAfterExplicitStop_ErasesAndNeverFiresHeadlessSelfAuth()
+    {
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        await SeedPriorPersistentRowAsync(sessionService, PrefillSessionStatus.Terminated, expiresAt: DateTime.UtcNow.AddDays(30));
+
+        var client = new ScriptedLoginDaemonClient();
+        var daemon = new TestSteamDaemon(
+            MakeDeps(dbFactory, sessionService, Config(PersistenceMode.FullPersistence, steamEnabled: true)),
+            new RecordingContainerGateway(),
+            () => client);
+
+        await daemon.CreateSessionAsync(ScheduledPrefillConstants.DeriveSystemUserId(), isPersistent: true);
+
+        Assert.Null(daemon.LastHeadlessSelfAuthAttempt);
+        Assert.Equal(1, client.LogoutCount);        // fresh-login guard erased the inherited login
+        Assert.Equal(0, client.StartLoginCallCount);
+
+        daemon.Dispose();
+    }
+
+    // A manual Start that replaces an ERRORED persistent session is a verified-involuntary path (the
+    // socket died, not the admin): under FullPersistence the guard preserves the volume login and the
+    // headless attempt fires; under KillOnRestart/KeepAcrossRestart the guard erases and it must not.
+    [Theory]
+    [InlineData(PersistenceMode.KillOnRestart, false)]
+    [InlineData(PersistenceMode.KeepAcrossRestart, false)]
+    [InlineData(PersistenceMode.FullPersistence, true)]
+    public async Task CreateSession_ManualErroredReplacement_FiresHeadlessSelfAuthOnlyUnderFullPersistence(PersistenceMode mode, bool expectAttempt)
+    {
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        ScriptedLoginDaemonClient? createdClient = null;
+        var daemon = new TestSteamDaemon(
+            MakeDeps(dbFactory, sessionService, Config(mode, steamEnabled: true)),
+            new RecordingContainerGateway(),
+            () => createdClient = new ScriptedLoginDaemonClient());
+
+        // An errored persistent predecessor (socket-death shape); the manual Start replaces it in place.
+        var errored = InjectedPersistentSession(daemon, new ScriptedLoginDaemonClient());
+        errored.Status = DaemonSessionStatus.Error;
+        errored.ErrorMessage = "socket lost";
+
+        await daemon.CreateSessionAsync(ScheduledPrefillConstants.DeriveSystemUserId(), isPersistent: true);
+
+        Assert.NotNull(createdClient);
+        if (expectAttempt)
+        {
+            var attempt = daemon.LastHeadlessSelfAuthAttempt;
+            Assert.NotNull(attempt);
+            await attempt!;
+            Assert.Equal(0, createdClient!.LogoutCount);   // preserved (verified involuntary)
+            Assert.Equal(1, createdClient.StartLoginCallCount);
+        }
+        else
+        {
+            Assert.Null(daemon.LastHeadlessSelfAuthAttempt);
+            Assert.Equal(1, createdClient!.LogoutCount);   // erased (non-FullPersistence)
+            Assert.Equal(0, createdClient.StartLoginCallCount);
+        }
+
+        daemon.Dispose();
+    }
+
+    [Fact]
+    public async Task CreateSession_Guest_NeverFiresHeadlessSelfAuth()
+    {
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        ScriptedLoginDaemonClient? client = null;
+        var daemon = new TestSteamDaemon(
+            MakeDeps(dbFactory, sessionService, Config(PersistenceMode.FullPersistence, steamEnabled: true)),
+            new RecordingContainerGateway(),
+            () => client = new ScriptedLoginDaemonClient());
+
+        await daemon.CreateSessionAsync(Guid.NewGuid(), sessionType: SessionType.Guest, isPersistent: false);
+
+        Assert.Null(daemon.LastHeadlessSelfAuthAttempt);
+        Assert.NotNull(client);
+        Assert.Equal(0, client!.StartLoginCallCount);
+
+        daemon.Dispose();
+    }
+
+    // The status-poll -> login -> cancel transaction owns LoginLock for its WHOLE duration: a
+    // concurrent manual login either wins before the attempt begins (try-acquire) or starts only
+    // after its cleanup completed - it can never observe or inherit the headless challenge.
+    [Fact]
+    public async Task AttemptHeadlessSelfAuth_OwnsLoginLockForWholeTransaction_ManualLoginNeverSeesItsChallenge()
+    {
+        var challenge = new CredentialChallenge
+        {
+            ChallengeId = "headless-race-1",
+            CredentialType = "username",
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5)
+        };
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: challenge)
+        {
+            HoldStartLogin = true,
+            HoldCancelLogin = true,
+            ChallengeOnlyOnFirstLogin = true
+        };
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        var daemon = new TestSteamDaemon(
+            MakeDeps(dbFactory, sessionService, Config(PersistenceMode.FullPersistence, steamEnabled: true)),
+            new RecordingContainerGateway());
+        var session = InjectedPersistentSession(daemon, client);
+
+        var headless = daemon.AttemptHeadlessPersistentSelfAuthAsync(session);
+
+        // Barrier 1: the attempt is inside the daemon login command and owns LoginLock.
+        await client.StartLoginEntered.Task;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => daemon.StartLoginAsync(session.Id));
+
+        // Barrier 2: the login returned a challenge and the attempt is now inside the daemon cancel
+        // round-trip. The lock must STILL be held - this is exactly the window where a manual login
+        // could previously resume a challenge that was being cancelled out from under it.
+        client.ReleaseStartLogin.SetResult();
+        await client.CancelLoginEntered.Task;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => daemon.StartLoginAsync(session.Id));
+        Assert.Null(session.PendingLoginChallenge); // the headless challenge was never cached for a resume
+
+        client.ReleaseCancelLogin.SetResult();
+        await headless;
+
+        // Cleanup finished: a manual login now starts a genuinely FRESH daemon attempt.
+        var manual = await daemon.StartLoginAsync(session.Id);
+        Assert.Null(manual);                            // not the headless attempt's challenge
+        Assert.Equal(2, client.StartLoginCallCount);    // a new login command, not a resume
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+
+        daemon.Dispose();
+    }
+
+    // Only a cancel the daemon ACKNOWLEDGED may present needs-login. An unconfirmed cancel means the
+    // daemon may still hold the login in flight (it answers a repeat login with "already in progress"
+    // WITHOUT re-emitting a challenge), so the honest state is an errored session the next start
+    // replaces - never a needs-login that would wedge the admin's next interactive attempt.
+    [Fact]
+    public async Task AttemptHeadlessSelfAuth_CancelNotAcknowledged_MarksSessionErroredInsteadOfNeedsLogin()
+    {
+        var challenge = new CredentialChallenge
+        {
+            ChallengeId = "headless-cancelfail-1",
+            CredentialType = "username",
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5)
+        };
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: challenge) { CancelAcknowledged = false };
+        var logger = new CapturingLogger<SteamDaemonService>();
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        var daemon = new TestSteamDaemon(
+            MakeDeps(dbFactory, sessionService, Config(PersistenceMode.FullPersistence, steamEnabled: true)),
+            new RecordingContainerGateway(),
+            clientFactory: null,
+            logger: logger);
+        var session = InjectedPersistentSession(daemon, client);
+
+        await daemon.AttemptHeadlessPersistentSelfAuthAsync(session);
+
+        Assert.Equal(1, client.CancelLoginCallCount);
+        Assert.Equal(DaemonSessionStatus.Error, session.Status);
+        Assert.NotNull(session.ErrorMessage);
+        Assert.NotEqual(DaemonAuthState.NotAuthenticated, session.AuthState); // needs-login never claimed
+        Assert.Null(session.PendingLoginChallenge);
+        Assert.Equal(1, logger.Entries.Count(e => e.Level == LogLevel.Error && e.Message.Contains("could not confirm daemon-side login cancellation")));
+
+        daemon.Dispose();
+    }
+
+    // A daemon that neither authenticates nor challenges must not leave the session visibly stuck
+    // LoggingIn: the attempt cancels (confirmed) and resets through the ordinary auth-state flow.
+    [Fact]
+    public async Task AttemptHeadlessSelfAuth_NoResponseFromDaemon_ConfirmedCancelResetsToNeedsLogin()
+    {
+        var client = new ScriptedLoginDaemonClient { NeverAuthenticates = true };
+        var logger = new CapturingLogger<SteamDaemonService>();
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        var daemon = new TestSteamDaemon(
+            MakeDeps(dbFactory, sessionService, Config(PersistenceMode.FullPersistence, steamEnabled: true)),
+            new RecordingContainerGateway(),
+            clientFactory: null,
+            logger: logger);
+        var session = InjectedPersistentSession(daemon, client);
+
+        await daemon.AttemptHeadlessPersistentSelfAuthAsync(session);
+
+        Assert.Equal(1, client.StartLoginCallCount);
+        Assert.Equal(1, client.CancelLoginCallCount);
+        Assert.Equal(DaemonAuthState.NotAuthenticated, session.AuthState); // never left stuck LoggingIn
+        Assert.Equal(1, logger.Entries.Count(e => e.Level == LogLevel.Warning && e.Message.Contains("got no response from the daemon")));
+
+        daemon.Dispose();
+    }
+
+    // A session torn down (shutdown/terminate) between the trigger and the background task running:
+    // the attempt must issue NO daemon commands at all.
+    [Fact]
+    public async Task AttemptHeadlessSelfAuth_SessionTornDown_IssuesNoCommands()
+    {
+        var client = new ScriptedLoginDaemonClient();
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        var daemon = new TestSteamDaemon(
+            MakeDeps(dbFactory, sessionService, Config(PersistenceMode.FullPersistence, steamEnabled: true)),
+            new RecordingContainerGateway());
+
+        // Built but never registered - the shape of a session teardown won.
+        var tornDown = new DaemonSession
+        {
+            Id = Guid.NewGuid().ToString("N")[..16],
+            UserId = ScheduledPrefillConstants.DeriveSystemUserId(),
+            Status = DaemonSessionStatus.Active,
+            IsPersistent = true,
+            AuthState = DaemonAuthState.NotAuthenticated,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddDays(30),
+            Client = client
+        };
+
+        await daemon.AttemptHeadlessPersistentSelfAuthAsync(tornDown);
+
+        Assert.Equal(0, client.GetStatusCallCount);
+        Assert.Equal(0, client.StartLoginCallCount);
+        Assert.Equal(0, client.CancelLoginCallCount);
+
+        daemon.Dispose();
+    }
+
+    // The challenge GET/reconcile poll is a THIRD challenge-delivery channel (besides the event and
+    // the login command's return value). The transports share ONE waiter slot between the login
+    // command and the poll, so a poll reaching the transport mid-attempt would take over the slot
+    // and receive the exact challenge the attempt is about to cancel. The service-level gate must
+    // answer "no challenge" without ever touching the client. The fake deliberately keeps the
+    // theft-capable pre-guard transport shape, so this pins the service gate on its own.
+    [Fact]
+    public async Task WaitForChallenge_PollDuringHeadlessAttempt_NeverReceivesTheHeadlessChallenge()
+    {
+        var challenge = new CredentialChallenge
+        {
+            ChallengeId = "headless-poll-1",
+            CredentialType = "username",
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5)
+        };
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: challenge) { HoldChallengeDispatch = true };
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        var daemon = new TestSteamDaemon(
+            MakeDeps(dbFactory, sessionService, Config(PersistenceMode.FullPersistence, steamEnabled: true)),
+            new RecordingContainerGateway());
+        var session = InjectedPersistentSession(daemon, client);
+
+        var headless = daemon.AttemptHeadlessPersistentSelfAuthAsync(session);
+
+        // The attempt's login command has installed its waiter; the daemon's challenge is held back.
+        await client.ChallengeDispatchReached.Task;
+
+        // A poll arrives mid-attempt (the UI/reconcile GET surface).
+        var pollTask = daemon.WaitForChallengeAsync(session.Id, TimeSpan.FromSeconds(2));
+
+        client.ReleaseChallengeDispatch.SetResult();
+        var poll = await pollTask;
+        await headless;
+
+        Assert.Null(poll);                               // the poll never receives the headless challenge
+        Assert.Equal(0, client.WaitForChallengeCallCount); // ...and never reached the transport at all
+        Assert.Equal(1, client.CancelLoginCallCount);    // the coordinator received and cancelled it
+        Assert.Null(session.PendingLoginChallenge);
+        Assert.Equal(DaemonAuthState.NotAuthenticated, session.AuthState);
+
+        daemon.Dispose();
+    }
+
+    // A poll that was ALREADY waiting inside the transport when the headless attempt began: the
+    // login command's own waiter install supersedes the poll's, so the poll starves harmlessly to
+    // its timeout while the coordinator receives and cancels the challenge.
+    [Fact]
+    public async Task WaitForChallenge_PollAlreadyWaitingWhenHeadlessAttemptStarts_StarvesWithoutAChallenge()
+    {
+        var challenge = new CredentialChallenge
+        {
+            ChallengeId = "headless-poll-2",
+            CredentialType = "username",
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5)
+        };
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: challenge);
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
+        var daemon = new TestSteamDaemon(
+            MakeDeps(dbFactory, sessionService, Config(PersistenceMode.FullPersistence, steamEnabled: true)),
+            new RecordingContainerGateway());
+        var session = InjectedPersistentSession(daemon, client);
+
+        // The poll enters FIRST (suppression not yet set) and installs its waiter in the transport.
+        var pollTask = daemon.WaitForChallengeAsync(session.Id, TimeSpan.FromMilliseconds(600));
+        await client.PollWaiterInstalled.Task;
+
+        await daemon.AttemptHeadlessPersistentSelfAuthAsync(session);
+
+        var poll = await pollTask;
+        Assert.Null(poll);                             // starved to its timeout, no challenge
+        Assert.Equal(1, client.CancelLoginCallCount);  // the coordinator, not the poll, got it and cancelled
+        Assert.Null(session.PendingLoginChallenge);
+        Assert.Equal(DaemonAuthState.NotAuthenticated, session.AuthState);
+
+        daemon.Dispose();
+    }
+
     public void Dispose()
     {
         foreach (var root in _tempRoots)
@@ -328,7 +785,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
     // Builds the shared per-recreate-test scenario: FullPersistence + Steam enabled, one prior persistent
     // Active row (with the given expiry) that cleanup will orphan, and an empty container inventory.
     private (DbContextOptions<AppDbContext> Options, TestSteamDaemon Daemon, RecordingContainerGateway Gateway, string PriorSessionId)
-        SetupRecreateScenario(DateTime priorExpiry, int validityDays = 90)
+        SetupRecreateScenario(DateTime priorExpiry, int validityDays = 90, Func<IDaemonClient>? clientFactory = null, ISignalRNotificationService? notifications = null, ILogger<SteamDaemonService>? logger = null)
     {
         var (options, dbFactory) = NewDatabase();
         var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
@@ -336,7 +793,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
 
         var gateway = new RecordingContainerGateway();
         var config = Config(PersistenceMode.FullPersistence, steamEnabled: true);
-        var daemon = new TestSteamDaemon(MakeDeps(dbFactory, sessionService, config, validityDays), gateway);
+        var daemon = new TestSteamDaemon(MakeDeps(dbFactory, sessionService, config, validityDays, notifications), gateway, clientFactory, logger);
         return (options, daemon, gateway, priorSessionId);
     }
 
@@ -352,9 +809,10 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         };
 
     private DaemonDeps MakeDeps(
-        IDbContextFactory<AppDbContext> dbFactory, PrefillSessionService sessionService, ScheduledPrefillConfigDto config, int validityDays = 90)
+        IDbContextFactory<AppDbContext> dbFactory, PrefillSessionService sessionService, ScheduledPrefillConfigDto config, int validityDays = 90,
+        ISignalRNotificationService? notifications = null)
     {
-        var notifications = FakeInterface<ISignalRNotificationService>();
+        notifications ??= FakeInterface<ISignalRNotificationService>();
         var stateService = OrchestrationStateService.New(config, validityDays);
         var pathResolver = PathResolverProxy.New(NewTempRoot());
         var cacheService = new PrefillCacheService(dbFactory, NullLogger<PrefillCacheService>.Instance);
@@ -434,10 +892,21 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
 
     private sealed class TestSteamDaemon : SteamDaemonService
     {
-        public TestSteamDaemon(DaemonDeps d, IPrefillContainerGateway g)
-            : base(NullLogger<SteamDaemonService>.Instance, d.Notifications, d.Configuration, d.PathResolver, d.StateService, d.SessionService, d.CacheService, d.NetworkOptions, d.Locator, new SingleContainerGatewayFactory(g)) { }
+        private readonly Func<IDaemonClient>? _clientFactory;
+
+        // The optional clientFactory lets the headless self-auth scenarios substitute a scripted
+        // login client for the session the recreate path builds; everything else keeps the default
+        // reconnect fake. The optional logger lets a test capture the warning/error contract.
+        public TestSteamDaemon(DaemonDeps d, IPrefillContainerGateway g, Func<IDaemonClient>? clientFactory = null, ILogger<SteamDaemonService>? logger = null)
+            : base(logger ?? NullLogger<SteamDaemonService>.Instance, d.Notifications, d.Configuration, d.PathResolver, d.StateService, d.SessionService, d.CacheService, d.NetworkOptions, d.Locator, new SingleContainerGatewayFactory(g))
+            => _clientFactory = clientFactory;
+
         protected override IDaemonClient CreateDaemonClient(bool useTcpMode, int? tcpHostPort, string socketPath, string socketSecret)
-            => new FakeReconnectDaemonClient();
+            => _clientFactory?.Invoke() ?? new FakeReconnectDaemonClient();
+
+        // Direct-injection seam for the concurrency/cancel scenarios that need a session without a
+        // full create round-trip (mirrors the InjectSession seam in PersistentEraseOnStopTests.cs).
+        public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
     }
 
     // The Epic/Xbox mapping service is a game-catalog dependency the startup re-adopt path never touches
@@ -545,6 +1014,85 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
     {
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
             => OrchestrationStateService.DefaultReturn(targetMethod?.ReturnType);
+    }
+
+    // Builds and registers a persistent session directly (no create round-trip), for the concurrency
+    // and cancel scenarios that drive AttemptHeadlessPersistentSelfAuthAsync by hand.
+    private static DaemonSession InjectedPersistentSession(TestSteamDaemon daemon, IDaemonClient client)
+    {
+        var session = new DaemonSession
+        {
+            Id = Guid.NewGuid().ToString("N")[..16],
+            UserId = ScheduledPrefillConstants.DeriveSystemUserId(),
+            Status = DaemonSessionStatus.Active,
+            IsPersistent = true,
+            AuthState = DaemonAuthState.NotAuthenticated,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddDays(30),
+            Client = client
+        };
+        daemon.InjectSession(session);
+        return session;
+    }
+
+    // Minimal log capture so tests can assert the single-warning / loud-error contracts.
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        private readonly List<(LogLevel Level, string Message)> _entries = new();
+
+        public IReadOnlyList<(LogLevel Level, string Message)> Entries
+        {
+            get
+            {
+                lock (_entries)
+                {
+                    return _entries.ToList();
+                }
+            }
+        }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            lock (_entries)
+            {
+                _entries.Add((logLevel, formatter(state, exception)));
+            }
+        }
+    }
+
+    // ISignalRNotificationService stub recording the event-name first argument of every hub push, so a
+    // test can assert a specific event (e.g. a credential challenge) was never broadcast.
+    private class EventRecordingNotificationsProxy : DispatchProxy
+    {
+        private readonly List<string> _eventNames = new();
+
+        public IReadOnlyList<string> EventNames
+        {
+            get
+            {
+                lock (_eventNames)
+                {
+                    return _eventNames.ToList();
+                }
+            }
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (args is [string eventName, ..])
+            {
+                lock (_eventNames)
+                {
+                    _eventNames.Add(eventName);
+                }
+            }
+
+            return OrchestrationStateService.DefaultReturn(targetMethod?.ReturnType);
+        }
     }
 
     // IPathResolver stub returning temp-dir-rooted paths, so the create path can make real bind-mount dirs.

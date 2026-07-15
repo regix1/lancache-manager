@@ -96,6 +96,22 @@ public interface IDaemonClient : IDisposable
     Task CancelLoginAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Like <see cref="CancelLoginAsync"/> but reports whether the daemon ACKNOWLEDGED the
+    /// cancel-login command. The transport implementations historically swallowed every cancel error
+    /// (best-effort fire-and-forget for the interactive modal's cancel button), which makes
+    /// "the daemon no longer has a login in flight" unprovable; callers that must not present a
+    /// needs-login state until cancellation is confirmed (the headless self-auth flow) use this
+    /// instead. Default interface method adapts <see cref="CancelLoginAsync"/> for fakes and
+    /// implementations that predate the outcome (a non-throwing cancel counts as acknowledged);
+    /// the production clients override it to surface the real command outcome.
+    /// </summary>
+    async Task<bool> CancelLoginWithOutcomeAsync(CancellationToken cancellationToken = default)
+    {
+        await CancelLoginAsync(cancellationToken);
+        return true;
+    }
+
+    /// <summary>
     /// Requests the daemon log out and forget its stored account in place (no container restart).
     /// Sends the <c>logout</c> command. Returns true when the daemon acknowledges success; false when
     /// the response reports failure or the round-trip itself fails (socket error, timeout). Callers
