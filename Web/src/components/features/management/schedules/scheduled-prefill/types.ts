@@ -1,3 +1,5 @@
+import type { NotificationMode } from '../types';
+
 export type ScheduledPrefillServiceKey = 'steam' | 'epic' | 'xbox' | 'battleNet' | 'riot';
 
 export type ScheduledPrefillServiceId = 'Steam' | 'Epic' | 'Xbox' | 'BattleNet' | 'Riot';
@@ -40,10 +42,11 @@ export interface ScheduledPrefillServiceConfigDto {
   serviceId: ScheduledPrefillServiceId;
   enabled: boolean;
   /**
-   * Whether this platform's run appears in the universal notification bar.
-   * Optional for compatibility with configurations saved before this setting existed.
+   * When this platform's prefill progress appears in the universal notification bar.
+   * `null`/`undefined` means "use the default" (all runs). Shares the `NotificationMode`
+   * union with the plain ScheduleCard notifications control for cross-surface consistency.
    */
-  showNotification?: boolean;
+  notificationMode?: NotificationMode | null;
   /**
    * Per-service run interval in hours. `>0` = every N hours, `0` = paused,
    * `-1` = run on startup only. Saved via the whole-config round-trip.

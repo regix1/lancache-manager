@@ -33,6 +33,13 @@ export type NotificationType =
   | 'eviction_removal'
   | 'cache_size_scan'
   | 'scheduled_prefill'
+  | 'log_rotation'
+  | 'game_image_fetch'
+  | 'steam_service_refresh'
+  | 'cache_snapshot'
+  | 'operation_history_cleanup'
+  | 'performance_optimization'
+  | 'dashboard_cache_warmer'
   | 'bulk_removal'
   | 'generic';
 

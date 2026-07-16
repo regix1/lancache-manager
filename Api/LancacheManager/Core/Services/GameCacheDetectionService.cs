@@ -74,6 +74,12 @@ public partial class GameCacheDetectionService : IDisposable
         public string? Error { get; set; }
 
         /// <summary>
+        /// Run-stable display flag for the active run. Silent automatic detections leave this
+        /// false so the recovery endpoint can decline to resurrect a card on page reload.
+        /// </summary>
+        public bool ShowNotification { get; set; } = true;
+
+        /// <summary>
         /// i18n interpolation values for <see cref="Message"/> when it is a signalr stage key.
         /// </summary>
         public Dictionary<string, object?>? Context { get; set; }
@@ -120,12 +126,14 @@ public partial class GameCacheDetectionService : IDisposable
         RestoreInterruptedOperations();
     }
 
-    public async Task<Guid?> StartDetectionAsync(bool incremental = true)
+    public async Task<Guid?> StartDetectionAsync(bool incremental = true, bool showNotification = true)
     {
         await _startLock.WaitAsync();
         try
         {
-            // Clean up stale operations (running for more than 30 minutes)
+            // Clean up stale operations (running for more than 30 minutes). Each stale op's terminal
+            // is fired below via CompleteOperation, which runs THAT op's own onTerminalEmit closure -
+            // carrying the stale run's own captured visibility, never this new attempt's flag.
             var staleOperations = _operationTracker.GetActiveOperations(OperationType.GameDetection)
                 .Where(op => op.StartedAt < DateTime.UtcNow.AddMinutes(-30))
                 .ToList();
@@ -153,7 +161,7 @@ public partial class GameCacheDetectionService : IDisposable
                 : "signalr.gameDetect.starting.full";
 
             // Register with unified operation tracker for centralized cancellation
-            var metadata = new GameDetectionMetrics { ScanType = scanType };
+            var metadata = new GameDetectionMetrics { ScanType = scanType, ShowNotification = showNotification };
             var registeredId = default(Guid);
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
                 OperationType.GameDetection,
@@ -164,7 +172,9 @@ public partial class GameCacheDetectionService : IDisposable
                 // which path completed the op, so a force-kill that bypasses FinalizeDetectionAsync still
                 // clears the service-local "detection running" marker (mirrors the reset at line ~777).
                 onTerminalCleanup: () => { _currentTrackerOperationId = null; },
-                onTerminalEmit: info => EmitDetectionCompleteAsync(registeredId, info)
+                // Capture this run's visibility in the closure so the terminal always carries the flag
+                // the run started with, even if a concurrent StartDetectionAsync arrives mid-flight.
+                onTerminalEmit: info => EmitDetectionCompleteAsync(registeredId, info, showNotification)
             );
             var operationId = _currentTrackerOperationId.Value;
             registeredId = operationId;
@@ -182,21 +192,21 @@ public partial class GameCacheDetectionService : IDisposable
                 Data = JsonSerializer.SerializeToElement(new { operationId })
             });
 
-            // Send SignalR notification that detection started
-            _ = Task.Run(async () =>
+            // Send SignalR notification that detection started. Awaited (not fire-and-forget) so the
+            // Started event is on the wire before any progress tick can be emitted by the background
+            // run below, which prevents a progress event racing ahead of the card's creation.
+            await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
             {
-                await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
-                {
-                    OperationId = operationId,
-                    StageKey = stageKeyStarting,
-                    scanType,
-                    timestamp = DateTime.UtcNow
-                });
+                OperationId = operationId,
+                StageKey = stageKeyStarting,
+                scanType,
+                timestamp = DateTime.UtcNow,
+                ShowNotification = showNotification
             });
 
             // Start detection in background with cancellation token
             var cancellationToken = _cancellationTokenSource.Token;
-            _ = Task.Run(async () => await RunDetectionAsync(operationId, incremental, cancellationToken), cancellationToken);
+            _ = Task.Run(async () => await RunDetectionAsync(operationId, incremental, showNotification, cancellationToken), cancellationToken);
 
             return operationId;
         }
@@ -289,7 +299,7 @@ public partial class GameCacheDetectionService : IDisposable
         }
     }
 
-    private async Task RunDetectionAsync(Guid operationId, bool incremental, CancellationToken cancellationToken = default)
+    private async Task RunDetectionAsync(Guid operationId, bool incremental, bool showNotification, CancellationToken cancellationToken = default)
     {
         var trackerOp = _operationTracker.GetOperation(operationId);
         if (trackerOp == null)
@@ -304,9 +314,23 @@ public partial class GameCacheDetectionService : IDisposable
         var aggregatedGames = new List<GameCacheInfo>();
         var aggregatedServices = new List<ServiceCacheInfo>();
 
+        // Highest percent emitted so far this run. Every emission (Rust scan tick and the phase
+        // milestones below) is raised to this floor so the bar never regresses, a backstop on top of
+        // the global-denominator scan mapping.
+        double highestEmittedPercent = 0;
+        double ClampMonotonic(double percent)
+        {
+            if (percent > highestEmittedPercent)
+            {
+                highestEmittedPercent = percent;
+            }
+            return highestEmittedPercent;
+        }
+
         // Helper to send progress notification
         async Task SendProgressAsync(string status, string stageKey, int gamesDetected = 0, int servicesDetected = 0, double progressPercent = 0, Dictionary<string, object?>? context = null)
         {
+            progressPercent = ClampMonotonic(progressPercent);
             _operationTracker.UpdateProgress(operationId, progressPercent, stageKey);
             // The tracker stores only the stage KEY; persist the interpolation context on the
             // metrics so the /api/games/detect/active recovery endpoint can translate it.
@@ -323,7 +347,8 @@ public partial class GameCacheDetectionService : IDisposable
                 StageKey = stageKey,
                 Context = context,
                 gamesDetected,
-                servicesDetected
+                servicesDetected,
+                ShowNotification = showNotification
             });
         }
 
@@ -458,8 +483,11 @@ public partial class GameCacheDetectionService : IDisposable
                             return;
                         }
 
-                        // Scale Rust progress (0-100%) to the scanning phase range (1-30%)
-                        var scaledPercent = 1 + (progress.PercentComplete * 29.0 / 100.0);
+                        // Map this datasource's Rust progress into its slice of the global 1-30
+                        // scanning band, then clamp to the running max so percent stays monotonic
+                        // across datasources (a fresh Rust process restarts its own count at 0).
+                        var scaledPercent = ClampMonotonic(
+                            MapDatasourceScanPercent(progress.PercentComplete, datasourceIndex, datasources.Count));
                         _operationTracker.UpdateProgress(operationId, scaledPercent, progress.StageKey ?? string.Empty);
                         // The tracker stores only the stage KEY; persist the Rust progress
                         // context (e.g. processed/total for services.progress) on the metrics
@@ -504,7 +532,8 @@ public partial class GameCacheDetectionService : IDisposable
                             gamesDetected = aggregatedGames.Count,
                             servicesDetected = skipServiceScan && existingServices != null ? existingServices.Count : aggregatedServices.Count,
                             gamesProcessed = progress.GamesProcessed,
-                            totalGames = progress.TotalGames
+                            totalGames = progress.TotalGames,
+                            ShowNotification = showNotification
                         });
                     },
                     "cache_game_detect");
@@ -892,7 +921,7 @@ public partial class GameCacheDetectionService : IDisposable
     /// force-kill switch. Reads the metrics FinalizeDetectionAsync stashed in <see cref="_terminalPayload"/>;
     /// on a force-kill that bypasses Finalize, the payload defaults to a cancelled-shaped record.
     /// </summary>
-    private Task EmitDetectionCompleteAsync(Guid operationId, OperationTerminalInfo info)
+    private Task EmitDetectionCompleteAsync(Guid operationId, OperationTerminalInfo info, bool showNotification)
     {
         var payload = _terminalPayload;
         var status = info.Cancelled
@@ -919,7 +948,8 @@ public partial class GameCacheDetectionService : IDisposable
             NewGamesCount: payload.NewGamesCount,
             Timestamp: DateTime.UtcNow,
             Context: payload.Context,
-            Error: info.Error);
+            Error: info.Error,
+            ShowNotification: showNotification);
 
         // A genuine failure (not cancellation) routes through the uniform failure broadcast so the
         // reason is logged centrally and guaranteed on IOperationComplete.Error; success and cancel
@@ -1174,7 +1204,9 @@ public partial class GameCacheDetectionService : IDisposable
                         _cancellationTokenSource,
                         metadata,
                         onTerminalCleanup: () => { _currentTrackerOperationId = null; },
-                        onTerminalEmit: info => EmitDetectionCompleteAsync(persistedGuid, info)))
+                        // Original trigger's visibility is not persisted, so a restored run defaults to
+                        // visible rather than inheriting some later attempt's flag.
+                        onTerminalEmit: info => EmitDetectionCompleteAsync(persistedGuid, info, showNotification: true)))
                 {
                     // core-7: the tracker did NOT adopt this CTS (ID already in use), so we still own it.
                     // Dispose the just-created CTS before continuing so it is not leaked.
@@ -1191,7 +1223,7 @@ public partial class GameCacheDetectionService : IDisposable
 
                 // Restart the detection task with incremental scanning (default)
                 var cancellationToken = _cancellationTokenSource.Token;
-                _ = Task.Run(async () => await RunDetectionAsync(persistedGuid, incremental: true, cancellationToken));
+                _ = Task.Run(async () => await RunDetectionAsync(persistedGuid, incremental: true, showNotification: true, cancellationToken));
             }
         }
         catch (Exception ex)
@@ -1215,6 +1247,7 @@ public partial class GameCacheDetectionService : IDisposable
             Message = opInfo.Message,
             PercentComplete = opInfo.PercentComplete,
             ScanType = metrics?.ScanType ?? DetectionScanType.Incremental,
+            ShowNotification = metrics?.ShowNotification ?? true,
             Games = metrics?.Games,
             Services = metrics?.Services,
             TotalGamesDetected = metrics?.TotalGamesDetected ?? 0,
@@ -1310,6 +1343,28 @@ public partial class GameCacheDetectionService : IDisposable
         }
 
         return $"steam:{game.GameAppId}";
+    }
+
+    /// <summary>
+    /// Maps a single datasource's Rust progress (0..100) into its equal slice of the global
+    /// scanning band (1..30). Each datasource owns <c>29 / datasourceCount</c> percentage points,
+    /// so the emitted percent advances through a shared global denominator instead of resetting to
+    /// the band floor when the next datasource's Rust process starts at 0. This keeps the scan-phase
+    /// percent monotonic across every datasource; single-datasource runs collapse to the original
+    /// <c>1 + rustPercent * 29 / 100</c> mapping. Callers apply an additional running-max clamp as a
+    /// backstop.
+    /// </summary>
+    internal static double MapDatasourceScanPercent(double rustPercent, int datasourceIndex, int datasourceCount)
+    {
+        const double bandStart = 1.0;
+        const double bandWidth = 29.0;
+
+        var effectiveCount = datasourceCount < 1 ? 1 : datasourceCount;
+        var boundedIndex = Math.Clamp(datasourceIndex, 0, effectiveCount - 1);
+        var sliceWidth = bandWidth / effectiveCount;
+        var sliceStart = bandStart + (sliceWidth * boundedIndex);
+        var clampedRust = Math.Clamp(rustPercent, 0.0, 100.0);
+        return sliceStart + (clampedRust * sliceWidth / 100.0);
     }
 
     private GameCacheInfo ToGameCacheInfo(CachedGameDetection cached)

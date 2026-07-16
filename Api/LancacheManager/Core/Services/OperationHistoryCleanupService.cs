@@ -1,5 +1,8 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
 
@@ -11,19 +14,32 @@ namespace LancacheManager.Core.Services;
 public class OperationHistoryCleanupService : ScheduledBackgroundService
 {
     private readonly IStateService _stateService;
+    private readonly ISignalRNotificationService _notifications;
+    private readonly IUnifiedOperationTracker _operationTracker;
+
+    private const string StageBase = "signalr.scheduledRun.operationHistoryCleanup";
+    private static readonly ScheduledRunEventNames _eventNames = new(
+        SignalREvents.OperationHistoryCleanupStarted,
+        SignalREvents.OperationHistoryCleanupProgress,
+        SignalREvents.OperationHistoryCleanupComplete);
 
     protected override string ServiceName => "OperationHistoryCleanupService";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(5);
     public override bool DefaultRunOnStartup => false;
     public override string ServiceKey => "operationHistoryCleanup";
+    protected override bool SupportsNotifications => true;
 
     public OperationHistoryCleanupService(
         ILogger<OperationHistoryCleanupService> logger,
         IConfiguration configuration,
-        IStateService stateService)
+        IStateService stateService,
+        ISignalRNotificationService notifications,
+        IUnifiedOperationTracker operationTracker)
         : base(logger, configuration)
     {
         _stateService = stateService;
+        _notifications = notifications;
+        _operationTracker = operationTracker;
         LoadStateOverrides(stateService);
     }
 
@@ -31,35 +47,57 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
         => ExecuteWorkAsync(stoppingToken);
 
     protected override Task ExecuteWorkAsync(CancellationToken stoppingToken)
-    {
-        Cleanup();
-        return Task.CompletedTask;
-    }
+        => CleanupAsync(stoppingToken);
 
-    private void Cleanup()
+    private async Task CleanupAsync(CancellationToken stoppingToken)
     {
-        try
+        var cutoff = DateTime.UtcNow.AddHours(-24);
+
+        var stateOps = _stateService.GetCacheClearOperations().ToList();
+        var toRemove = stateOps
+            .Where(op => op.EndTime.HasValue && op.EndTime.Value < cutoff)
+            .Select(op => op.Id)
+            .ToList();
+
+        // Prerequisite not met (nothing to remove): return before starting so no card surfaces.
+        if (toRemove.Count == 0)
         {
-            var cutoff = DateTime.UtcNow.AddHours(-24);
+            return;
+        }
 
-            var stateOps = _stateService.GetCacheClearOperations().ToList();
-            var toRemove = stateOps
-                .Where(op => op.EndTime.HasValue && op.EndTime.Value < cutoff)
-                .Select(op => op.Id)
-                .ToList();
+        var show = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        await using var reporter = new ScheduledRunReporter(
+            _notifications,
+            _operationTracker,
+            ServiceKey,
+            OperationType.OperationHistoryCleanup,
+            _eventNames,
+            $"{StageBase}.complete",
+            show,
+            stoppingToken);
 
-            if (toRemove.Count > 0)
+        await reporter.StartAsync($"{StageBase}.starting", BuildContext(0, toRemove.Count));
+
+        var reportStep = Math.Max(1, toRemove.Count / 20);
+        for (var i = 0; i < toRemove.Count; i++)
+        {
+            _stateService.RemoveCacheClearOperation(toRemove[i]);
+
+            var processed = i + 1;
+            if (processed % reportStep == 0 || processed == toRemove.Count)
             {
-                foreach (var id in toRemove)
-                {
-                    _stateService.RemoveCacheClearOperation(id);
-                }
-                _logger.LogDebug("Cleaned up {Count} old cache clear operations from state", toRemove.Count);
+                var percent = (double)processed / toRemove.Count * 100;
+                await reporter.ReportAsync(percent, $"{StageBase}.running", BuildContext(processed, toRemove.Count));
             }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error cleaning up old operations");
-        }
+
+        _logger.LogDebug("Cleaned up {Count} old cache clear operations from state", toRemove.Count);
+        await reporter.CompleteAsync(success: true);
     }
+
+    private static Dictionary<string, object?> BuildContext(int processed, int total) => new()
+    {
+        ["processed"] = processed,
+        ["total"] = total
+    };
 }

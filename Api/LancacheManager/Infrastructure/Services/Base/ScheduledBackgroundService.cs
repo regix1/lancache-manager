@@ -1,4 +1,5 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services.Base;
 
@@ -23,6 +24,13 @@ public abstract class ScheduledBackgroundService : BackgroundService
     private CancellationTokenSource? _intervalChangedCts;
     private readonly object _intervalLock = new();
     private volatile bool _intervalJustChanged;
+
+    // Trigger provenance for the run currently executing. Set at the loop's startup pass and its
+    // interval tick, and marked by TriggerImmediateRun via _pendingManualRun, so a subclass can gate
+    // notifications on whether a run was manual. Generalizes ScheduledPrefillService's former
+    // per-subclass manual-run bypass to every scheduled service.
+    private int _pendingManualRun;
+    protected RunTrigger CurrentRunTrigger { get; private set; } = RunTrigger.Scheduled;
 
     // Schedule tracking properties
     public DateTime? LastRunUtc { get; private set; }
@@ -134,6 +142,10 @@ public abstract class ScheduledBackgroundService : BackgroundService
     /// </summary>
     public void TriggerImmediateRun()
     {
+        // Mark the next work run as manually triggered. Set before waking the loop so the woken
+        // iteration observes it when it computes CurrentRunTrigger.
+        Interlocked.Exchange(ref _pendingManualRun, 1);
+
         lock (_intervalLock)
         {
             try
@@ -174,6 +186,12 @@ public abstract class ScheduledBackgroundService : BackgroundService
             try
             {
                 IsCurrentlyExecuting = true;
+                // Manual takes priority over Startup (same ternary as ConfigurableScheduledService):
+                // a Run Now landing around startup must be consumed here, or the stale flag would
+                // misattribute a later scheduled tick as Manual.
+                CurrentRunTrigger = Interlocked.Exchange(ref _pendingManualRun, 0) == 1
+                    ? RunTrigger.Manual
+                    : RunTrigger.Startup;
                 await OnStartupAsync(stoppingToken);
                 LastRunUtc = DateTime.UtcNow;
                 ServiceWorkCompleted?.Invoke(ServiceKey);
@@ -205,7 +223,17 @@ public abstract class ScheduledBackgroundService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (skipFirstExecution)
+            // A pending manual run must always be honored this iteration, even if an interval
+            // change ALSO woke the loop (both call CancelAndRecreateDelay, so either or both can
+            // be true on the same wake) AND even during the skip-first-execution pass. Reading it
+            // before the branches, rather than inside the "else" below, is what makes that possible
+            // - checking _intervalJustChanged/skipFirstExecution first and only reading
+            // _pendingManualRun in the other branch silently drops a same-tick Run Now (no work
+            // happens) AND leaves the flag stale to misattribute a LATER genuinely scheduled tick as
+            // Manual. Mirrors ConfigurableScheduledService's ordering.
+            var manualPending = Interlocked.Exchange(ref _pendingManualRun, 0) == 1;
+
+            if (skipFirstExecution && !manualPending)
             {
                 skipFirstExecution = false;
                 var skipInterval = EffectiveInterval;
@@ -217,16 +245,20 @@ public abstract class ScheduledBackgroundService : BackgroundService
                 continue;
             }
 
-            // Skip work if woken by an interval change - just re-sleep with the new interval
-            if (_intervalJustChanged)
+            // Skip work if woken by an interval change with no manual run pending - just re-sleep
+            // with the new interval.
+            if (_intervalJustChanged && !manualPending)
             {
                 _intervalJustChanged = false;
             }
             else
             {
+                skipFirstExecution = false;
+                _intervalJustChanged = false;
                 try
                 {
                     IsCurrentlyExecuting = true;
+                    CurrentRunTrigger = manualPending ? RunTrigger.Manual : RunTrigger.Scheduled;
                     await ExecuteWorkAsync(stoppingToken);
                     LastRunUtc = DateTime.UtcNow;
                     ServiceWorkCompleted?.Invoke(ServiceKey);
@@ -248,6 +280,18 @@ public abstract class ScheduledBackgroundService : BackgroundService
                 {
                     IsCurrentlyExecuting = false;
                 }
+            }
+
+            // A Run Now that arrived while ExecuteWorkAsync was running cancelled the delay CTS that
+            // belonged to the already-finished prior sleep, so it cannot interrupt the sleep we are
+            // about to start below. Detect it here and loop straight into another run instead of
+            // sleeping - otherwise a positive-interval service defers it to the next natural wake
+            // (mislabelled Manual) and a paused service (interval <= 0) sleeps forever, dropping the
+            // accepted run entirely. The flag is consumed exactly once at the loop top, which re-reads
+            // it and tags the follow-up run Manual; peek without consuming here.
+            if (Interlocked.CompareExchange(ref _pendingManualRun, 0, 0) == 1)
+            {
+                continue;
             }
 
             var interval = EffectiveInterval;
@@ -339,6 +383,37 @@ public abstract class ScheduledBackgroundService : BackgroundService
     }
 
     /// <summary>
+    /// Hardcoded default notification mode for this service. Subclasses that emit lifecycle
+    /// notifications override this to express their intended default; the user can override it at
+    /// runtime via SetNotificationMode - typically loaded from IStateService in each service's
+    /// constructor and updated via the Schedules UI.
+    /// </summary>
+    protected virtual NotificationMode DefaultNotificationMode => NotificationMode.All;
+
+    /// <summary>
+    /// User-controlled override for the notification mode (null = use DefaultNotificationMode).
+    /// </summary>
+    private NotificationMode? _notificationModeOverride;
+
+    /// <summary>
+    /// Effective notification mode: user override if set, else DefaultNotificationMode.
+    /// </summary>
+    public NotificationMode EffectiveNotificationMode => _notificationModeOverride ?? DefaultNotificationMode;
+
+    /// <summary>
+    /// Set the user-controlled notification-mode override. Pass null to clear and revert to
+    /// DefaultNotificationMode.
+    /// </summary>
+    public void SetNotificationMode(NotificationMode? mode) => _notificationModeOverride = mode;
+
+    /// <summary>
+    /// Whether this service emits lifecycle notifications the user can gate from the Schedules UI.
+    /// Only services that actually notify override this to true; every other schedule card hides
+    /// the Notifications control.
+    /// </summary>
+    protected virtual bool SupportsNotifications => false;
+
+    /// <summary>
     /// Convenience helper for subclass constructors: applies any user-saved interval and
     /// run-on-startup overrides for this ServiceKey from the state store. Call this from
     /// the constructor after the base constructor has run, to avoid duplicating the same
@@ -356,6 +431,12 @@ public abstract class ScheduledBackgroundService : BackgroundService
         if (savedRunOnStartup.HasValue)
         {
             SetRunOnStartup(savedRunOnStartup.Value);
+        }
+
+        var savedNotificationMode = stateService.GetServiceNotificationMode(ServiceKey);
+        if (savedNotificationMode.HasValue)
+        {
+            SetNotificationMode(savedNotificationMode.Value);
         }
     }
 

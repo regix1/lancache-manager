@@ -1,5 +1,7 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -13,9 +15,18 @@ namespace LancacheManager.Infrastructure.Services;
 public class DashboardCacheWarmerService : ScheduledBackgroundService
 {
     private readonly IDashboardBatchService _batchService;
+    private readonly ISignalRNotificationService _notifications;
+    private readonly IUnifiedOperationTracker _operationTracker;
+
+    private const string StageBase = "signalr.scheduledRun.dashboardCacheWarmer";
+    private static readonly ScheduledRunEventNames _eventNames = new(
+        SignalREvents.DashboardCacheWarmerStarted,
+        SignalREvents.DashboardCacheWarmerProgress,
+        SignalREvents.DashboardCacheWarmerComplete);
 
     public override string ServiceKey => "dashboardCacheWarmer";
     public override bool DefaultRunOnStartup => true;
+    protected override bool SupportsNotifications => true;
 
     protected override string ServiceName => "DashboardCacheWarmer";
     protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(5);
@@ -25,10 +36,14 @@ public class DashboardCacheWarmerService : ScheduledBackgroundService
         IDashboardBatchService batchService,
         IStateService stateService,
         IConfiguration configuration,
-        ILogger<DashboardCacheWarmerService> logger)
+        ILogger<DashboardCacheWarmerService> logger,
+        ISignalRNotificationService notifications,
+        IUnifiedOperationTracker operationTracker)
         : base(logger, configuration)
     {
         _batchService = batchService;
+        _notifications = notifications;
+        _operationTracker = operationTracker;
         LoadStateOverrides(stateService);
     }
 
@@ -38,26 +53,32 @@ public class DashboardCacheWarmerService : ScheduledBackgroundService
     protected override Task ExecuteWorkAsync(CancellationToken stoppingToken)
         => WarmAsync(stoppingToken);
 
-    private async Task WarmAsync(CancellationToken ct)
+    private async Task WarmAsync(CancellationToken stoppingToken)
     {
-        try
-        {
-            var started = DateTime.UtcNow;
-            _ = await _batchService.GetBatchAsync(null, null, null, ct);
-            var elapsed = DateTime.UtcNow - started;
-            _logger.LogInformation(
-                "Dashboard batch cache warmed (live view, no event filter) in {ElapsedMs} ms",
-                (long)elapsed.TotalMilliseconds);
-        }
-        catch (OperationCanceledException)
-        {
-            // Shutdown - let the loop exit normally
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // Warming failure must never crash startup or the background loop.
-            _logger.LogWarning(ex, "Dashboard batch cache warm failed - will retry on next interval");
-        }
+        var show = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        await using var reporter = new ScheduledRunReporter(
+            _notifications,
+            _operationTracker,
+            ServiceKey,
+            OperationType.DashboardCacheWarmer,
+            _eventNames,
+            $"{StageBase}.complete",
+            show,
+            stoppingToken);
+
+        await reporter.StartAsync($"{StageBase}.starting");
+
+        // Warming the dashboard batch is a single opaque compute, so progress is stepped rather than
+        // per-key: announce the warm, run it, then complete at 100.
+        await reporter.ReportAsync(25, $"{StageBase}.running");
+
+        var started = DateTime.UtcNow;
+        _ = await _batchService.GetBatchAsync(null, null, null, reporter.Token);
+        var elapsed = DateTime.UtcNow - started;
+        _logger.LogInformation(
+            "Dashboard batch cache warmed (live view, no event filter) in {ElapsedMs} ms",
+            (long)elapsed.TotalMilliseconds);
+
+        await reporter.CompleteAsync(success: true);
     }
 }

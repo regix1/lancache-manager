@@ -7,6 +7,7 @@ import { NumberInput } from '@components/ui/NumberInput';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import ScheduleIntervalPicker from '../ScheduleIntervalPicker';
+import { isNotificationMode } from '../types';
 import {
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
   SCHEDULED_PREFILL_OS_OPTIONS,
@@ -56,11 +57,6 @@ const isScheduledPrefillOperatingSystem = (
 const isScheduledPrefillMaxConcurrencyMode = (
   value: string
 ): value is ScheduledPrefillMaxConcurrencyMode => value === 'Auto' || value === 'Fixed';
-
-type NotificationVisibilityValue = 'silent' | 'visible';
-
-const isNotificationVisibilityValue = (value: string): value is NotificationVisibilityValue =>
-  value === 'silent' || value === 'visible';
 
 export function ScheduledPrefillScheduleFields({
   serviceKey,
@@ -369,13 +365,22 @@ export function ScheduledPrefillScheduleFields({
           <SegmentedControl
             className="scheduled-prefill-segment-uniform"
             options={[
-              { value: 'silent', label: t(`${baseKey}.fields.silent`), disabled },
-              { value: 'visible', label: t(`${baseKey}.fields.visible`), disabled }
+              { value: 'all', label: t('management.schedules.notificationMode.all'), disabled },
+              {
+                value: 'manual',
+                label: t('management.schedules.notificationMode.manual'),
+                disabled
+              },
+              {
+                value: 'silent',
+                label: t('management.schedules.notificationMode.silent'),
+                disabled
+              }
             ]}
-            value={config.showNotification !== false ? 'visible' : 'silent'}
+            value={config.notificationMode ?? 'all'}
             onChange={(value) => {
-              if (!isNotificationVisibilityValue(value)) return;
-              updateConfig({ showNotification: value === 'visible' });
+              if (!isNotificationMode(value)) return;
+              updateConfig({ notificationMode: value });
             }}
             showLabels
           />

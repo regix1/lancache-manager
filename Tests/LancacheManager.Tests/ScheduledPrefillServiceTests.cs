@@ -330,6 +330,7 @@ public class ScheduledPrefillServiceTests
         {
             ServiceId = template.ServiceId,
             Enabled = enabled,
+            NotificationMode = template.NotificationMode,
             IntervalHours = intervalHours,
             Preset = template.Preset,
             TopCount = template.TopCount,

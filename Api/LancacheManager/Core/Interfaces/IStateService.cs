@@ -72,6 +72,11 @@ public interface IStateService
     void SetServiceRunOnStartup(string serviceKey, bool runOnStartup);
     void ClearServiceRunOnStartup(string serviceKey);
 
+    // Service NotificationMode Methods (absent key = use the service's DefaultNotificationMode)
+    NotificationMode? GetServiceNotificationMode(string serviceKey);
+    void SetServiceNotificationMode(string serviceKey, NotificationMode mode);
+    void ClearServiceNotificationMode(string serviceKey);
+
     // Scheduled Prefill Config Methods
     // Get returns a validated, default-constructed-if-missing config; Set validates before persisting
     // (both throw ScheduledPrefillConfigValidationException on invalid config).

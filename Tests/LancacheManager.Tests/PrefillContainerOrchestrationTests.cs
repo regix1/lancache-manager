@@ -831,7 +831,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         {
             ServiceId = b.Steam.ServiceId,
             Enabled = steamEnabled,
-            ShowNotification = b.Steam.ShowNotification,
+            NotificationMode = b.Steam.NotificationMode,
             IntervalHours = b.Steam.IntervalHours,
             Preset = b.Steam.Preset,
             TopCount = b.Steam.TopCount,

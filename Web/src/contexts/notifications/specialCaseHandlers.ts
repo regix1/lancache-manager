@@ -104,6 +104,7 @@ export function createSpecialCaseHandlers(
       type: 'depot_mapping',
       getId: () => NOTIFICATION_IDS.DEPOT_MAPPING,
       storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
+      shouldDisplay: (event) => event.showNotification !== false,
       defaultMessage: 'Starting depot mapping scan...',
       getMessage: formatDepotMappingStartedMessage,
       getDetails: (e) => ({ operationId: e.operationId, isLoggedOn: e.isLoggedOn }),
@@ -118,6 +119,7 @@ export function createSpecialCaseHandlers(
       type: 'depot_mapping',
       getId: () => NOTIFICATION_IDS.DEPOT_MAPPING,
       storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
+      shouldDisplay: (event) => event.showNotification !== false,
       getMessage: (event) => formatDepotMappingProgressMessage(event, undefined),
       getProgress: (event) => event.percentComplete ?? event.progressPercent ?? 0,
       getStatus: (e) => {
@@ -210,6 +212,7 @@ export function createSpecialCaseHandlers(
       type: 'epic_game_mapping',
       getId: () => NOTIFICATION_IDS.EPIC_GAME_MAPPING,
       storageKey: NOTIFICATION_STORAGE_KEYS.EPIC_GAME_MAPPING,
+      shouldDisplay: (event) => event.showNotification !== false,
       getMessage: formatEpicMappingProgressMessage,
       getProgress: (e) => e.percentComplete || 0,
       getStatus: (e) =>
@@ -261,6 +264,7 @@ export function createSpecialCaseHandlers(
       type: 'xbox_game_mapping',
       getId: () => NOTIFICATION_IDS.XBOX_GAME_MAPPING,
       storageKey: NOTIFICATION_STORAGE_KEYS.XBOX_GAME_MAPPING,
+      shouldDisplay: (event) => event.showNotification !== false,
       getMessage: formatXboxMappingProgressMessage,
       getProgress: (e) => e.percentComplete || 0,
       getStatus: (e) =>

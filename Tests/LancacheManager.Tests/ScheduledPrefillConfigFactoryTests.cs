@@ -1,6 +1,10 @@
 using System.Text.Json;
 using LancacheManager.Models;
 
+// The legacy ShowNotification bool is the v3->v4 migration source these tests exercise, so
+// referencing it here is deliberate, not an oversight.
+#pragma warning disable CS0618
+
 namespace LancacheManager.Tests;
 
 /// <summary>
@@ -20,7 +24,7 @@ public class ScheduledPrefillConfigFactoryTests
         foreach (var service in config.GetServicesInRunOrder())
         {
             Assert.Equal(ScheduledPrefillConfigFactory.DefaultIntervalHours, service.IntervalHours);
-            Assert.True(service.ShowNotification);
+            Assert.Equal(NotificationMode.All, service.NotificationMode);
         }
 
         // Default config must always pass its own validation.
@@ -110,7 +114,50 @@ public class ScheduledPrefillConfigFactoryTests
 
         var migrated = ScheduledPrefillConfigFactory.Migrate(v1, legacyGlobalIntervalHours: 24d);
 
+        // The legacy silent flag must survive the v1->v2 interval rebuild intact and then seed
+        // the v3->v4 NotificationMode migration.
         Assert.False(migrated.BattleNet.ShowNotification);
+        Assert.Equal(NotificationMode.Silent, migrated.BattleNet.NotificationMode);
+    }
+
+    // ---- NotificationMode is a required v4 field: reject a null on a current-version payload,
+    // but keep seeding it from the legacy flag for older (pre-v4) payloads. ----
+
+    [Fact]
+    public void Validate_RejectsCurrentVersionServiceWithNullNotificationMode()
+    {
+        // A current-version (v4) payload that omitted NotificationMode must be rejected outright, not
+        // silently defaulted to All. Migrate seeds the field for pre-v4 payloads before Validate runs,
+        // so a null here can only be a current-schema config that dropped a required field.
+        var config = WithSteamNotificationMode(ScheduledPrefillConfigFactory.CreateDefault(), mode: null);
+
+        Assert.Throws<ScheduledPrefillConfigValidationException>(
+            () => ScheduledPrefillConfigFactory.Validate(config));
+    }
+
+    [Fact]
+    public void Validate_RejectsUndefinedNotificationModeValue()
+    {
+        var config = WithSteamNotificationMode(ScheduledPrefillConfigFactory.CreateDefault(), (NotificationMode)999);
+
+        Assert.Throws<ScheduledPrefillConfigValidationException>(
+            () => ScheduledPrefillConfigFactory.Validate(config));
+    }
+
+    [Fact]
+    public void Migrate_V3Config_SeedsNotificationModeFromLegacyFlag_AndPassesValidation()
+    {
+        // A v3 payload has no NotificationMode; the v3->v4 migration seeds it from the legacy
+        // ShowNotification bool (true -> All, false -> Silent) so the migrated config validates
+        // instead of hitting the new required-field rejection.
+        var v3 = BuildV3Config();
+
+        var migrated = ScheduledPrefillConfigFactory.Migrate(v3, legacyGlobalIntervalHours: null);
+
+        Assert.Equal(ScheduledPrefillConfigFactory.CurrentVersion, migrated.Version);
+        Assert.Equal(NotificationMode.Silent, migrated.Steam.NotificationMode); // legacy false
+        Assert.Equal(NotificationMode.All, migrated.Epic.NotificationMode);     // legacy true
+        ScheduledPrefillConfigFactory.Validate(migrated);
     }
 
     [Theory]
@@ -160,12 +207,14 @@ public class ScheduledPrefillConfigFactoryTests
             config,
             ScheduledPrefillPreset.Top,
             topCount: 50,
-            showNotification: false);
+            showNotification: false,
+            notificationMode: NotificationMode.Silent);
 
         var validated = ScheduledPrefillConfigFactory.Validate(stale);
 
         Assert.Equal(ScheduledPrefillPreset.All, validated.BattleNet.Preset);
         Assert.False(validated.BattleNet.ShowNotification);
+        Assert.Equal(NotificationMode.Silent, validated.BattleNet.NotificationMode);
     }
 
     [Fact]
@@ -286,8 +335,12 @@ public class ScheduledPrefillConfigFactoryTests
 
         var migrated = ScheduledPrefillConfigFactory.Migrate(v2, legacyGlobalIntervalHours: 999d);
 
-        Assert.Equal(3, migrated.Version);
+        Assert.Equal(ScheduledPrefillConfigFactory.CurrentVersion, migrated.Version);
         Assert.Equal(PersistenceMode.KeepAcrossRestart, migrated.PersistenceMode);
+
+        // The v3->v4 step seeds NotificationMode from the legacy flag without altering it.
+        Assert.Equal(NotificationMode.Silent, migrated.Steam.NotificationMode);
+        Assert.Equal(NotificationMode.All, migrated.Epic.NotificationMode);
         Assert.Equal(v2.MaxServiceRuntime, migrated.MaxServiceRuntime);
         Assert.Equal(v2.StallTimeout, migrated.StallTimeout);
 
@@ -417,7 +470,8 @@ public class ScheduledPrefillConfigFactoryTests
         ScheduledPrefillConfigDto config,
         ScheduledPrefillPreset preset,
         int? topCount,
-        bool? showNotification = null)
+        bool? showNotification = null,
+        NotificationMode? notificationMode = null)
     {
         return new ScheduledPrefillConfigDto
         {
@@ -433,6 +487,7 @@ public class ScheduledPrefillConfigFactoryTests
                 ServiceId = config.BattleNet.ServiceId,
                 Enabled = config.BattleNet.Enabled,
                 ShowNotification = showNotification ?? config.BattleNet.ShowNotification,
+                NotificationMode = notificationMode ?? config.BattleNet.NotificationMode,
                 IntervalHours = config.BattleNet.IntervalHours,
                 Preset = preset,
                 TopCount = topCount,
@@ -457,6 +512,7 @@ public class ScheduledPrefillConfigFactoryTests
         {
             ServiceId = original.ServiceId,
             Enabled = original.Enabled,
+            NotificationMode = original.NotificationMode,
             IntervalHours = original.IntervalHours,
             Preset = preset,
             TopCount = topCount,
@@ -495,6 +551,7 @@ public class ScheduledPrefillConfigFactoryTests
             {
                 ServiceId = config.Epic.ServiceId,
                 Enabled = config.Epic.Enabled,
+                NotificationMode = config.Epic.NotificationMode,
                 IntervalHours = config.Epic.IntervalHours,
                 Preset = config.Epic.Preset,
                 TopCount = config.Epic.TopCount,
@@ -523,6 +580,7 @@ public class ScheduledPrefillConfigFactoryTests
             {
                 ServiceId = config.Steam.ServiceId,
                 Enabled = config.Steam.Enabled,
+                NotificationMode = config.Steam.NotificationMode,
                 IntervalHours = config.Steam.IntervalHours,
                 Preset = config.Steam.Preset,
                 TopCount = config.Steam.TopCount,
@@ -552,6 +610,7 @@ public class ScheduledPrefillConfigFactoryTests
             {
                 ServiceId = config.Steam.ServiceId,
                 Enabled = config.Steam.Enabled,
+                NotificationMode = config.Steam.NotificationMode,
                 IntervalHours = config.Steam.IntervalHours,
                 Preset = preset,
                 TopCount = topCount,
@@ -565,6 +624,82 @@ public class ScheduledPrefillConfigFactoryTests
             Xbox = config.Xbox,
             BattleNet = config.BattleNet,
             Riot = config.Riot
+        };
+    }
+
+    /// <summary>
+    /// Returns a copy of <paramref name="config"/> with only Steam's <c>NotificationMode</c> replaced
+    /// (<c>null</c> = omitted), every other field on every service preserved. Used to exercise the
+    /// required-field validation rule.
+    /// </summary>
+    private static ScheduledPrefillConfigDto WithSteamNotificationMode(ScheduledPrefillConfigDto config, NotificationMode? mode)
+    {
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
+            Steam = new ScheduledPrefillServiceConfigDto
+            {
+                ServiceId = config.Steam.ServiceId,
+                Enabled = config.Steam.Enabled,
+                ShowNotification = config.Steam.ShowNotification,
+                NotificationMode = mode,
+                IntervalHours = config.Steam.IntervalHours,
+                Preset = config.Steam.Preset,
+                TopCount = config.Steam.TopCount,
+                SelectedAppIds = config.Steam.SelectedAppIds,
+                OperatingSystems = config.Steam.OperatingSystems,
+                Force = config.Steam.Force,
+                MaxConcurrency = config.Steam.MaxConcurrency,
+                PersistenceMode = config.Steam.PersistenceMode
+            },
+            Epic = config.Epic,
+            Xbox = config.Xbox,
+            BattleNet = config.BattleNet,
+            Riot = config.Riot
+        };
+    }
+
+    /// <summary>
+    /// Builds a realistic Version-3 config (post-PersistenceMode, pre-NotificationMode): every service
+    /// carries the legacy <c>ShowNotification</c> bool and leaves <c>NotificationMode</c> unset (null),
+    /// exactly like a real pre-v4 state.json. Steam is legacy-silent, the rest legacy-visible, so the
+    /// v3-&gt;v4 migration's true-&gt;All / false-&gt;Silent seeding is observable.
+    /// </summary>
+    private static ScheduledPrefillConfigDto BuildV3Config()
+    {
+        return new ScheduledPrefillConfigDto
+        {
+            Version = 3,
+            MaxServiceRuntime = TimeSpan.FromHours(6),
+            StallTimeout = TimeSpan.FromMinutes(15),
+            PersistenceMode = PersistenceMode.KeepAcrossRestart,
+            Steam = ServiceV3(PrefillPlatform.Steam, showNotification: false),
+            Epic = ServiceV3(PrefillPlatform.Epic, showNotification: true),
+            Xbox = ServiceV3(PrefillPlatform.Xbox, showNotification: true),
+            BattleNet = ServiceV3(PrefillPlatform.BattleNet, showNotification: true),
+            Riot = ServiceV3(PrefillPlatform.Riot, showNotification: true)
+        };
+    }
+
+    private static ScheduledPrefillServiceConfigDto ServiceV3(PrefillPlatform id, bool showNotification)
+    {
+        return new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = id,
+            Enabled = true,
+            ShowNotification = showNotification,
+            // NotificationMode intentionally omitted (null) - simulates a real pre-v4 config.
+            IntervalHours = 24d,
+            Preset = ScheduledPrefillPreset.All,
+            SelectedAppIds = new List<string>(),
+            OperatingSystems = ScheduledPrefillConfigFactory.SupportsOperatingSystemSelection(id)
+                ? new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows }
+                : new List<ScheduledPrefillOperatingSystem>(),
+            Force = false,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
         };
     }
 
@@ -595,6 +730,7 @@ public class ScheduledPrefillConfigFactoryTests
             {
                 ServiceId = config.Steam.ServiceId,
                 Enabled = config.Steam.Enabled,
+                NotificationMode = config.Steam.NotificationMode,
                 IntervalHours = intervalHours,
                 Preset = config.Steam.Preset,
                 TopCount = config.Steam.TopCount,
@@ -640,6 +776,7 @@ public class ScheduledPrefillConfigFactoryTests
             ServiceId = service.ServiceId,
             Enabled = service.Enabled,
             ShowNotification = service.ShowNotification,
+            NotificationMode = service.NotificationMode,
             IntervalHours = service.IntervalHours,
             Preset = service.Preset,
             TopCount = service.TopCount,

@@ -22,6 +22,28 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         "dashboardCacheWarmer"
     };
 
+    // Maps a schedule service key to the operation type the run-status endpoint queries on the tracker.
+    // Covers both the pipeline-less maintenance services (each owns its own operation type) and the
+    // existing pipelines (eviction/cache-size/detection/depot/epic/xbox/prefill) so a single generic
+    // recovery route can rehydrate any card's in-progress bar after a refresh.
+    private static readonly Dictionary<string, OperationType> _runStatusOperationTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["logRotation"] = OperationType.LogRotation,
+        ["gameImageFetch"] = OperationType.GameImageFetch,
+        ["steamService"] = OperationType.SteamServiceRefresh,
+        ["cacheSnapshot"] = OperationType.CacheSnapshot,
+        ["operationHistoryCleanup"] = OperationType.OperationHistoryCleanup,
+        ["performanceOptimization"] = OperationType.PerformanceOptimization,
+        ["dashboardCacheWarmer"] = OperationType.DashboardCacheWarmer,
+        ["cacheReconciliation"] = OperationType.EvictionScan,
+        ["cacheSizeScan"] = OperationType.CacheSizeScan,
+        ["gameDetection"] = OperationType.GameDetection,
+        ["depotMapping"] = OperationType.DepotMapping,
+        ["epicMapping"] = OperationType.EpicMapping,
+        ["xboxMapping"] = OperationType.XboxMapping,
+        ["scheduledPrefill"] = OperationType.ScheduledPrefill,
+    };
+
     private readonly Dictionary<string, ScheduledBackgroundService> _scheduledServices = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ConfigurableScheduledService> _configurableServices = new(StringComparer.OrdinalIgnoreCase);
 
@@ -33,11 +55,16 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     private readonly HashSet<string> _configurableServiceNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
+    private readonly IUnifiedOperationTracker? _tracker;
 
-    public ServiceScheduleRegistry(IEnumerable<IHostedService> hostedServices, IStateService stateService, ISignalRNotificationService notifications)
+    // The tracker is optional so existing unit tests that construct the registry without one keep
+    // compiling; at runtime the DI container always supplies the registered singleton. GetRunStatus
+    // reports "not running" when it is absent.
+    public ServiceScheduleRegistry(IEnumerable<IHostedService> hostedServices, IStateService stateService, ISignalRNotificationService notifications, IUnifiedOperationTracker? tracker = null)
     {
         _stateService = stateService;
         _notifications = notifications;
+        _tracker = tracker;
         foreach (var service in hostedServices)
         {
             if (service is ScheduledBackgroundService scheduledService)
@@ -56,7 +83,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
                 // Also index by the protected ServiceName used by the ServiceWorkCompleted event
                 // (see _configurableServiceNames above) so the completion guard can recognize it.
-                var serviceName = GetStringProperty(configurableService.GetType(), configurableService, "ServiceName");
+                var serviceName = (string?)GetPropertyValue(configurableService.GetType(), configurableService, "ServiceName", typeof(string));
                 if (!string.IsNullOrEmpty(serviceName))
                 {
                     _configurableServiceNames.Add(serviceName);
@@ -201,22 +228,42 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
     }
 
+    public void SetNotificationMode(string serviceKey, NotificationMode mode)
+    {
+        if (_scheduledServices.TryGetValue(serviceKey, out var scheduled))
+        {
+            scheduled.SetNotificationMode(mode);
+            _stateService.SetServiceNotificationMode(serviceKey, mode);
+            return;
+        }
+
+        if (_configurableServices.TryGetValue(serviceKey, out var configurable))
+        {
+            configurable.SetNotificationMode(mode);
+            _stateService.SetServiceNotificationMode(serviceKey, mode);
+        }
+    }
+
     public void ResetToDefaults()
     {
         foreach (var (key, service) in _scheduledServices)
         {
             service.ResetInterval();
             service.SetRunOnStartup(null);
+            service.SetNotificationMode(null);
             _stateService.ClearServiceInterval(key);
             _stateService.ClearServiceRunOnStartup(key);
+            _stateService.ClearServiceNotificationMode(key);
         }
 
         foreach (var (key, service) in _configurableServices)
         {
             service.ResetInterval();
             service.SetRunOnStartup(null);
+            service.SetNotificationMode(null);
             _stateService.ClearServiceInterval(key);
             _stateService.ClearServiceRunOnStartup(key);
+            _stateService.ClearServiceNotificationMode(key);
         }
 
         // Scheduled prefill keeps its cadence per-service in the config DTO + durable last-run map
@@ -225,6 +272,13 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // the currently-enabled services to now — a reset returns to a "wait one full interval" baseline
         // rather than leaving stale next-run times or triggering an immediate run.
         _stateService.ClearScheduledPrefillServiceLastRun();
+
+        // Scheduled prefill's notification mode lives per-platform in the config DTO, not in the
+        // base-class override the loop above already reset (that reset is a no-op for this service -
+        // ScheduledPrefillService never reads EffectiveNotificationMode). Reset each platform's mode
+        // explicitly or a platform left on Manual/Silent survives "Reset to Defaults" unchanged.
+        var prefillConfig = _stateService.GetScheduledPrefillConfig();
+        _stateService.SetScheduledPrefillConfig(ScheduledPrefillConfigFactory.ResetNotificationModes(prefillConfig));
     }
 
     public Task TriggerRunAsync(string serviceKey)
@@ -241,6 +295,65 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
 
         return Task.CompletedTask;
+    }
+
+    public ScheduleRunStatus? GetRunStatus(string serviceKey)
+    {
+        if (!_runStatusOperationTypes.TryGetValue(serviceKey, out var operationType))
+        {
+            // Unknown key: the caller (controller) turns this into a 404.
+            return null;
+        }
+
+        var active = _tracker?.GetActiveOperations(operationType).FirstOrDefault();
+        if (active == null)
+        {
+            // An idle service is visible by default: recovery must stale-complete a persisted running
+            // card on reconnect after a missed terminal, not delete it. Only an ACTIVE silent run
+            // (ShowNotification=false below) is a legitimate skip.
+            return new ScheduleRunStatus { IsRunning = false, ShowNotification = true };
+        }
+
+        // The run reporter carries the stage key as the operation's Message and persists the run's
+        // immutable display flag into the operation metadata under "showNotification". A run without
+        // that key (an operation registered by a non-reporter caller) is treated as visible so
+        // recovery never drops a legitimately visible card.
+        return new ScheduleRunStatus
+        {
+            IsRunning = true,
+            OperationId = active.Id.ToString(),
+            PercentComplete = active.PercentComplete,
+            StageKey = string.IsNullOrEmpty(active.Message) ? null : active.Message,
+            Context = ReadContext(active.Metadata),
+            ShowNotification = ReadShowNotification(active.Metadata),
+        };
+    }
+
+    private static bool ReadShowNotification(object? metadata)
+    {
+        var value = metadata switch
+        {
+            IReadOnlyDictionary<string, object?> readOnly when readOnly.TryGetValue("showNotification", out var v) => v,
+            IDictionary<string, object> mutable when mutable.TryGetValue("showNotification", out var v) => v,
+            _ => null,
+        };
+
+        return value is not bool show || show;
+    }
+
+    // The reporter mirrors each run's latest interpolation context into the operation metadata under
+    // "context" so a mid-run page refresh can rehydrate the card with its {{processed}}/{{total}}
+    // values instead of rendering a bare stage key.
+    private static IReadOnlyDictionary<string, object?>? ReadContext(object? metadata)
+    {
+        var value = metadata switch
+        {
+            IReadOnlyDictionary<string, object?> readOnly when readOnly.TryGetValue("context", out var v) => v,
+            IDictionary<string, object> mutable when mutable.TryGetValue("context", out var v) => v,
+            _ => null,
+        };
+
+        return value as IReadOnlyDictionary<string, object?>;
     }
 
     public Task<int> TriggerAllAsync()
@@ -269,6 +382,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             Key = service.ServiceKey,
             IntervalHours = service.EffectiveInterval.TotalHours,
             RunOnStartup = service.RunOnStartup,
+            NotificationMode = service.EffectiveNotificationMode,
+            SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
             IsRunning = service.IsCurrentlyExecuting,
             LastRunUtc = service.LastRunUtc,
             NextRunUtc = service.NextRunUtc,
@@ -332,6 +447,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     Key = key,
                     IntervalHours = 0,
                     RunOnStartup = service.RunOnStartup,
+                    NotificationMode = service.EffectiveNotificationMode,
+                    SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
                     IsRunning = service.IsCurrentlyExecuting,
                     LastRunUtc = latestLastRun,
                     NextRunUtc = null,
@@ -356,6 +473,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     Key = key,
                     IntervalHours = -1d,
                     RunOnStartup = service.RunOnStartup,
+                    NotificationMode = service.EffectiveNotificationMode,
+                    SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
                     IsRunning = service.IsCurrentlyExecuting,
                     LastRunUtc = latestLastRun,
                     NextRunUtc = null,
@@ -369,6 +488,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 Key = key,
                 IntervalHours = service.ConfiguredInterval.TotalHours,
                 RunOnStartup = service.RunOnStartup,
+                NotificationMode = service.EffectiveNotificationMode,
+                SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
                 IsRunning = service.IsCurrentlyExecuting,
                 LastRunUtc = latestLastRun,
                 NextRunUtc = soonestNextRun,
@@ -380,6 +501,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             Key = key,
             IntervalHours = service.ConfiguredInterval.TotalHours,
             RunOnStartup = service.RunOnStartup,
+            NotificationMode = service.EffectiveNotificationMode,
+            SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
             IsRunning = service.IsCurrentlyExecuting,
             LastRunUtc = service.LastRunUtc,
             NextRunUtc = service.NextRunUtc,
@@ -389,19 +512,27 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     private static string GetServiceKey(ConfigurableScheduledService service)
     {
         var serviceType = service.GetType();
-        return GetStringProperty(serviceType, service, "ScheduleServiceKey") ?? serviceType.Name;
+        return (string?)GetPropertyValue(serviceType, service, "ScheduleServiceKey", typeof(string)) ?? serviceType.Name;
     }
 
-    private static string? GetStringProperty(Type type, object instance, string propertyName)
+    /// <summary>
+    /// Reads a property of type <paramref name="expectedType"/> by name, including protected
+    /// declarations (ScheduleServiceKey/ServiceName are public/protected respectively;
+    /// SupportsNotifications is protected and only present on leaf types that override it). Returns
+    /// null if the property is absent, wrong-typed, or not overridden - callers cast to their
+    /// expected nullable type and apply their own default for "absent" (e.g. the base class's own
+    /// default value). Returns `object?` rather than a generic `T?` because an unconstrained `T?`
+    /// does not reliably resolve to `Nullable<T>` for a value-type `T` (observed: `bool` call sites
+    /// got a non-nullable `bool` return, breaking `?? false`) - callers cast explicitly instead.
+    /// </summary>
+    private static object? GetPropertyValue(Type type, object instance, string propertyName, Type expectedType)
     {
-        // Public | NonPublic | Instance: ScheduleServiceKey is public, but ServiceName (used by the
-        // ServiceWorkCompleted-event lookup above) is declared protected on ConfigurableScheduledService.
         var property = type.GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-        if (property == null || property.PropertyType != typeof(string))
+        if (property == null || property.PropertyType != expectedType)
         {
             return null;
         }
-        return property.GetValue(instance) as string;
+        return property.GetValue(instance);
     }
 
     private static void ApplyInterval(ConfigurableScheduledService service, TimeSpan interval)

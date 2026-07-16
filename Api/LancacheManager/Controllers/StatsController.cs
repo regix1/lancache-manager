@@ -32,6 +32,7 @@ public class StatsController : ControllerBase
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
+    private readonly IServiceScheduleRegistry _scheduleRegistry;
 
     public StatsController(
         AppDbContext context,
@@ -43,7 +44,8 @@ public class StatsController : ControllerBase
         CacheReconciliationService reconciliationService,
         IUnifiedOperationTracker operationTracker,
         IOperationConflictChecker conflictChecker,
-        IOperationQueue operationQueue)
+        IOperationQueue operationQueue,
+        IServiceScheduleRegistry scheduleRegistry)
     {
         _context = context;
         _clientGroupsRepository = clientGroupsRepository;
@@ -55,6 +57,7 @@ public class StatsController : ControllerBase
         _operationTracker = operationTracker;
         _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
+        _scheduleRegistry = scheduleRegistry;
     }
 
     /// <summary>
@@ -435,7 +438,18 @@ public class StatsController : ControllerBase
         }
         if (request.EvictionScanNotifications.HasValue)
         {
+            // Keep the legacy boolean written for old readers/migration.
             _stateRepository.SetEvictionScanNotifications(request.EvictionScanNotifications.Value);
+            // Route the mode change through the registry (not a direct state write) so the LIVE
+            // reconciliation instance's EffectiveNotificationMode updates immediately AND persists,
+            // exactly like the per-service Schedules page control. A direct state write would only
+            // update GET responses and take effect on next restart.
+            _scheduleRegistry.SetNotificationMode(
+                "cacheReconciliation",
+                request.EvictionScanNotifications.Value ? NotificationMode.All : NotificationMode.Manual);
+            // Broadcast the schedule list so the Schedules card reflects the new mode without a reload,
+            // matching how the per-service control surfaces the change.
+            _scheduleRegistry.NotifySchedulesChanged();
         }
         if (request.PruneOrphanedDownloads.HasValue)
         {
@@ -534,6 +548,9 @@ public class StatsController : ControllerBase
             {
                 isProcessing = false,
                 silentMode,
+                // Display flag mirror of silentMode: the recovery config skips resurrecting a card
+                // whose run is display-silent (scanSilent). No scan active → nothing to skip.
+                showNotification = !silentMode,
                 status = OperationStatus.Completed,
                 percentComplete = 0.0,
                 message = string.Empty,
@@ -557,6 +574,8 @@ public class StatsController : ControllerBase
         {
             isProcessing = true,
             silentMode,
+            // Display flag mirror of silentMode so a refresh cannot resurrect a silent run's card.
+            showNotification = !silentMode,
             status = activeScan.Status,
             percentComplete = activeScan.PercentComplete,
             message = stageKey ?? "Scanning for evictable cache entries...",

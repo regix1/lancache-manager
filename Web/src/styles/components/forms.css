@@ -27,6 +27,15 @@
     border-color: var(--theme-input-focus);
   }
 
+  /* Unlike SegmentedControl/ToggleSwitch/EnhancedDropdown, a plain text input has no
+     active-state fill to swap out when disabled, so with no explicit rule a disabled
+     themed-input renders identically to an enabled one (e.g. a scheduled-prefill number
+     field left readable and full-opacity next to its now-dimmed sibling controls). */
+  .themed-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   /* Theme-aware focus outline utility for interactive controls */
   .themed-outline {
     outline: 2px solid transparent;

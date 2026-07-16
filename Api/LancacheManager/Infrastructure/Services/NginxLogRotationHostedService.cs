@@ -1,6 +1,8 @@
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -12,6 +14,14 @@ namespace LancacheManager.Infrastructure.Services;
 public class NginxLogRotationHostedService : ScheduledBackgroundService
 {
     private readonly NginxLogRotationService _rotationService;
+    private readonly ISignalRNotificationService _notifications;
+    private readonly IUnifiedOperationTracker _operationTracker;
+
+    private const string StageBase = "signalr.scheduledRun.logRotation";
+    private static readonly ScheduledRunEventNames _eventNames = new(
+        SignalREvents.LogRotationStarted,
+        SignalREvents.LogRotationProgress,
+        SignalREvents.LogRotationComplete);
 
     // Default interval pulled from configuration on construction. Runtime overrides
     // (Schedules UI) come from state.json via the base class LoadStateOverrides helper.
@@ -23,16 +33,21 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
 
     public override bool DefaultRunOnStartup => false;
     public override string ServiceKey => "logRotation";
+    protected override bool SupportsNotifications => true;
 
     public NginxLogRotationHostedService(
         NginxLogRotationService rotationService,
         IConfiguration configuration,
         ILogger<NginxLogRotationHostedService> logger,
         IPathResolver pathResolver,
-        IStateService stateService)
+        IStateService stateService,
+        ISignalRNotificationService notifications,
+        IUnifiedOperationTracker operationTracker)
         : base(logger, configuration)
     {
         _rotationService = rotationService;
+        _notifications = notifications;
+        _operationTracker = operationTracker;
 
         var configHours = configuration.GetValue<int>("NginxLogRotation:ScheduleHours", 24);
         _defaultInterval = TimeSpan.FromHours(configHours);
@@ -94,7 +109,7 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Running nginx log rotation at startup...");
-        await RotateAsync("Startup");
+        await RotateAsync("Startup", stoppingToken);
     }
 
     /// <summary>
@@ -103,27 +118,39 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
     /// </summary>
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        await RotateAsync("Scheduled");
+        await RotateAsync("Scheduled", stoppingToken);
     }
 
-    private async Task RotateAsync(string trigger)
+    private async Task RotateAsync(string trigger, CancellationToken stoppingToken)
     {
-        try
-        {
-            var result = await _rotationService.ReopenNginxLogsAsync();
+        var show = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        await using var reporter = new ScheduledRunReporter(
+            _notifications,
+            _operationTracker,
+            ServiceKey,
+            OperationType.LogRotation,
+            _eventNames,
+            $"{StageBase}.complete",
+            show,
+            stoppingToken);
 
-            if (result.Success)
-            {
-                _logger.LogInformation("Log rotation completed successfully (trigger: {Trigger})", trigger);
-            }
-            else
-            {
-                _logger.LogWarning("Log rotation failed (trigger: {Trigger}): {Error}", trigger, result.ErrorMessage);
-            }
-        }
-        catch (Exception ex)
+        await reporter.StartAsync($"{StageBase}.starting");
+
+        // Reopening the nginx logs is a single atomic action, so progress is stepped: announce it,
+        // run it, then complete from the rotation result.
+        await reporter.ReportAsync(50, $"{StageBase}.running");
+
+        var result = await _rotationService.ReopenNginxLogsAsync();
+
+        if (result.Success)
         {
-            _logger.LogError(ex, "Error executing log rotation (trigger: {Trigger})", trigger);
+            _logger.LogInformation("Log rotation completed successfully (trigger: {Trigger})", trigger);
+            await reporter.CompleteAsync(success: true);
+        }
+        else
+        {
+            _logger.LogWarning("Log rotation failed (trigger: {Trigger}): {Error}", trigger, result.ErrorMessage);
+            await reporter.CompleteAsync(success: false, error: result.ErrorMessage);
         }
     }
 }

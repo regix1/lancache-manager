@@ -255,6 +255,16 @@
   .schedule-readout-row {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  /* Safety net for the Notifications row's 3-option control: the button labels are kept
+     short (<=11 chars) so they fit one line at this width, but nowrap text still imposes a
+     min-content width floor on each flex-shrink button - if the floor ever exceeds the
+     available row width the row overflows instead of clipping gracefully. Allowing wrap
+     removes that floor with no visible effect when the label already fits on one line. */
+  .schedule-segment-uniform .segmented-control-button {
+    white-space: normal;
+    text-align: center;
+  }
 }
 
 .schedule-timing-item {
@@ -1925,8 +1935,10 @@
   }
 }
 
-/* Run-on-startup row sits between the controls row and the bottom action row */
-.schedule-startup-row {
+/* Run-on-startup and Notifications rows sit between the controls row and the bottom
+   action row, sharing one rhythm so a card with both stacks them identically. */
+.schedule-startup-row,
+.schedule-notifications-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1935,17 +1947,21 @@
   color: var(--theme-text-muted);
 }
 
-.schedule-startup-row label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-  user-select: none;
+.schedule-row-label {
+  color: var(--theme-text-secondary);
+  flex-shrink: 0;
 }
 
-.schedule-startup-row label.disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+/* Equal-split width recipe (mirrors .scheduled-prefill-segment-uniform) so the 3-option
+   Notifications control fills the row instead of falling back to its inline-flex content
+   width, which overflows a narrow grid card. The card body is a fresh CSS context from the
+   config modal, so this class is added fresh rather than assumed inherited. */
+.schedule-segment-uniform {
+  width: 100%;
+}
+
+.schedule-segment-uniform .segmented-control-button {
+  flex: 1 1 0%;
 }
 
 /* Run Now sits at the card's true bottom-right corner, pinned there with

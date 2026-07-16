@@ -158,6 +158,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
     [Theory]
     [InlineData("ServiceIntervals", "ServiceIntervals")]
     [InlineData("ServiceRunOnStartup", "ServiceRunOnStartup")]
+    [InlineData("ServiceNotificationMode", "ServiceNotificationMode")]
     [InlineData("ScheduledPrefillServiceLastRunUtc", "ScheduledPrefillServiceLastRunUtc")]
     [InlineData("ScheduledPrefillServiceLastActualRunUtc", "ScheduledPrefillServiceLastActualRunUtc")]
     [InlineData("LogProcessing", "LogProcessing")]
@@ -317,6 +318,87 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         Assert.True(reloaded.GuestModeLocked);
     }
 
+    // ---- eviction-notification migration marker persistence + seeding rule ----
+
+    // S-1: the migration marker must be written by ToPersisted and read back by FromPersisted. Without the
+    // mapper members it is silently dropped on every save, so the one-time migration reruns on each restart.
+    [Fact]
+    public void MigrationMarker_SurvivesPersistRoundTrip()
+    {
+        var (writer, _) = CreateStateService();
+        writer.SaveState(new AppState { EvictionNotificationsMigrated = true, EvictionScanNotifications = false });
+
+        // The marker was actually serialized (ToPersisted mapped it), not merely re-set by a rerun on reload.
+        var persisted = JsonNode.Parse(File.ReadAllText(StateFilePath))!.AsObject();
+        var markerNode = persisted["EvictionNotificationsMigrated"];
+        Assert.NotNull(markerNode);
+        Assert.True(markerNode!.GetValue<bool>());
+
+        var reloaded = CreateStateService().Service.GetState();
+        Assert.True(reloaded.EvictionNotificationsMigrated);
+    }
+
+    // S-2: a restart must not overwrite a mode the user selected after the migration already ran. With the
+    // marker persisted, the migration is skipped on reload and the user's Silent choice survives; without it,
+    // the migration reruns and (legacy flag = true) re-seeds All, clobbering the selection.
+    [Fact]
+    public void Restart_WithMarkerAndUserSelectedSilent_KeepsSilent()
+    {
+        var (writer, _) = CreateStateService();
+        writer.SaveState(new AppState
+        {
+            EvictionScanNotifications = true,
+            EvictionNotificationsMigrated = true,
+            ServiceNotificationMode = new() { ["cacheReconciliation"] = NotificationMode.Silent }
+        });
+
+        var reloaded = CreateStateService().Service.GetState();
+
+        Assert.Equal(NotificationMode.Silent, reloaded.ServiceNotificationMode["cacheReconciliation"]);
+    }
+
+    // S-3: Reset to Defaults removes the per-service key but leaves the marker set. A reload must not resurrect
+    // the seeded mode from the legacy flag; the key stays absent so the schedule's own default applies.
+    [Fact]
+    public void ResetToDefaults_ThenReload_DoesNotResurrectSeededMode()
+    {
+        var stateJson = BuildStateJson(root =>
+        {
+            root["EvictionScanNotifications"] = true;   // legacy flag still on
+            root["EvictionNotificationsMigrated"] = true; // migration already ran; reset cleared the per-service key
+            // ServiceNotificationMode intentionally absent (the reset removed the cacheReconciliation entry).
+        });
+
+        var (loaded, _) = LoadWrittenState(stateJson);
+
+        Assert.False(loaded.ServiceNotificationMode.ContainsKey("cacheReconciliation"));
+    }
+
+    // S-4a: a never-migrated install whose legacy flag was explicitly ON seeds All and sets the marker.
+    [Fact]
+    public void Migration_LegacyFlagTrue_SeedsAllAndSetsMarker()
+    {
+        var stateJson = BuildStateJson(root => root["EvictionScanNotifications"] = true);
+
+        var (loaded, _) = LoadWrittenState(stateJson);
+
+        Assert.Equal(NotificationMode.All, loaded.ServiceNotificationMode["cacheReconciliation"]);
+        Assert.True(loaded.EvictionNotificationsMigrated);
+    }
+
+    // S-4b: a never-migrated install whose legacy flag was OFF (the legacy default, indistinguishable from
+    // "never touched") seeds NOTHING, so the schedule's own default applies, and still sets the marker.
+    [Fact]
+    public void Migration_LegacyFlagFalse_SeedsNothingAndSetsMarker()
+    {
+        var stateJson = BuildStateJson(root => root["EvictionScanNotifications"] = false);
+
+        var (loaded, _) = LoadWrittenState(stateJson);
+
+        Assert.False(loaded.ServiceNotificationMode.ContainsKey("cacheReconciliation"));
+        Assert.True(loaded.EvictionNotificationsMigrated);
+    }
+
     // ---- JSON fixture helpers ----
 
     private static JsonObject BuildStateJson(Action<JsonObject> customize)
@@ -419,6 +501,8 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         CompletedPlatforms = "{\"steam\":\"github\"}",
         ServiceIntervals = new() { ["steam"] = 4.0, ["epic"] = 8.0 },
         ServiceRunOnStartup = new() { ["steam"] = true },
+        ServiceNotificationMode = new() { ["cacheReconciliation"] = NotificationMode.Silent },
+        EvictionNotificationsMigrated = true,
         ScheduledPrefillServiceLastRunUtc = new()
         {
             ["Steam"] = new DateTime(2030, 1, 2, 3, 4, 5, DateTimeKind.Utc),
@@ -481,6 +565,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
             // Keyed maps: an entry of the wrong type fails the whole-section deserialize (then salvage runs).
             case "ServiceIntervals":
             case "ServiceRunOnStartup":
+            case "ServiceNotificationMode":
             case "ScheduledPrefillServiceLastRunUtc":
             case "ScheduledPrefillServiceLastActualRunUtc":
                 root[sectionKey]!.AsObject()["__corrupt__"] = "not-a-valid-value";

@@ -67,6 +67,14 @@ public partial class CacheManagementService
     /// </summary>
     public Dictionary<string, object?>? CurrentCacheSizeScanProgressContext { get; private set; }
 
+    /// <summary>
+    /// Run-stable display flag for the active tracked cache-file scan. Lifecycle events are always
+    /// emitted so recovery works, but a silent automatic scan leaves this false so the recovery
+    /// endpoint (GET /api/cache/size/scan/status) can decline to resurrect a card on page reload
+    /// instead of leaving it stuck once the silent terminal arrives. Null while no scan is running.
+    /// </summary>
+    public bool? CurrentCacheSizeScanShowNotification { get; private set; }
+
     public CacheManagementService(
         IConfiguration configuration,
         ILogger<CacheManagementService> logger,
@@ -1268,7 +1276,7 @@ public partial class CacheManagementService
     /// skipped: the Rust binary overwrites the progress file with the final result JSON (no
     /// stageKey) when it finishes, and the poller may read that before it stops.
     /// </summary>
-    private async Task RelayProgressAsync(Guid operationId, CacheSizeScanProgressData progress)
+    private async Task RelayProgressAsync(Guid operationId, CacheSizeScanProgressData progress, bool showNotification = true)
     {
         if (string.IsNullOrEmpty(progress.StageKey))
         {
@@ -1308,7 +1316,8 @@ public partial class CacheManagementService
             TotalDirectories: progress.TotalDirectories,
             TotalFiles: progress.TotalFiles,
             TotalBytes: progress.TotalBytes,
-            Context: context));
+            Context: context,
+            ShowNotification: showNotification));
     }
 
     /// <summary>
@@ -1324,7 +1333,8 @@ public partial class CacheManagementService
     private async Task<CacheSizeResponse?> RunFullScanAsync(
         string cachePath,
         CancellationToken callerToken,
-        Action<Guid>? onScanStarted = null)
+        Action<Guid>? onScanStarted = null,
+        bool showNotification = true)
     {
         // Heavy data ops run one at a time (OperationConflictChecker section 1a). Both scan
         // entry points (the queued manual refresh and the scheduled service) funnel through
@@ -1343,6 +1353,10 @@ public partial class CacheManagementService
         var terminalBytes = 0L;
         string? terminalFormattedSize = null;
 
+        // Stamp the run's visibility before any Started/Progress emit so the recovery endpoint
+        // reports the run-stable flag for the whole scan, even if the page reloads mid-run.
+        CurrentCacheSizeScanShowNotification = showNotification;
+
         // CTS ownership: handed to the tracker, which disposes it in CompleteOperation.
         var cts = new CancellationTokenSource();
         Guid operationId = default;
@@ -1350,7 +1364,11 @@ public partial class CacheManagementService
             OperationType.CacheSizeScan,
             "Cache File Scan",
             cts,
-            onTerminalCleanup: () => CurrentCacheSizeScanProgressContext = null,
+            onTerminalCleanup: () =>
+            {
+                CurrentCacheSizeScanProgressContext = null;
+                CurrentCacheSizeScanShowNotification = null;
+            },
             onTerminalEmit: info =>
             {
                 if (info.Cancelled)
@@ -1361,7 +1379,8 @@ public partial class CacheManagementService
                         StageKey: "signalr.cacheSizeScan.complete",
                         TotalFiles: 0,
                         TotalBytes: 0,
-                        Error: "Cancelled by user"));
+                        Error: "Cancelled by user",
+                        ShowNotification: showNotification));
                 }
 
                 if (info.Success)
@@ -1377,7 +1396,8 @@ public partial class CacheManagementService
                         {
                             ["totalFiles"] = terminalFiles,
                             ["totalSize"] = terminalFormattedSize ?? FormatBytes(terminalBytes)
-                        }));
+                        },
+                        ShowNotification: showNotification));
                 }
 
                 return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
@@ -1386,7 +1406,8 @@ public partial class CacheManagementService
                     StageKey: "signalr.cacheSizeScan.complete",
                     TotalFiles: 0,
                     TotalBytes: 0,
-                    Error: info.Error ?? "Rust cache size binary returned failure"));
+                    Error: info.Error ?? "Rust cache size binary returned failure",
+                    ShowNotification: showNotification));
             });
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(callerToken, cts.Token);
@@ -1395,7 +1416,8 @@ public partial class CacheManagementService
         {
             await _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanStarted, new CacheSizeScanStarted(
                 StageKey: "signalr.cacheSizeScan.starting",
-                OperationId: operationId));
+                OperationId: operationId,
+                ShowNotification: showNotification));
             // Info-level on purpose: NotifyAllAsync logs success only at Debug, so without this
             // line production logs cannot distinguish "Started was emitted but the browser runs a
             // stale bundle" from "Started was never emitted".
@@ -1406,7 +1428,7 @@ public partial class CacheManagementService
                 cachePath,
                 linked.Token,
                 operationId,
-                onProgress: progress => RelayProgressAsync(operationId, progress));
+                onProgress: progress => RelayProgressAsync(operationId, progress, showNotification));
 
             linked.Token.ThrowIfCancellationRequested();
 
@@ -1450,14 +1472,14 @@ public partial class CacheManagementService
     /// service continues the scan, persists the result, and emits <see cref="SignalREvents.CacheScanComplete"/>
     /// after the cached result is ready for readers. Intended for <see cref="IOperationQueue"/> promotion.
     /// </summary>
-    public Task<Guid?> StartCacheSizeScanInBackgroundAsync()
+    public Task<Guid?> StartCacheSizeScanInBackgroundAsync(bool showNotification = true)
     {
         var started = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ = RunCacheSizeScanInBackgroundAsync(started);
+        _ = RunCacheSizeScanInBackgroundAsync(started, showNotification);
         return started.Task;
     }
 
-    private async Task RunCacheSizeScanInBackgroundAsync(TaskCompletionSource<Guid?> started)
+    private async Task RunCacheSizeScanInBackgroundAsync(TaskCompletionSource<Guid?> started, bool showNotification)
     {
         Guid? operationId = null;
         try
@@ -1470,7 +1492,8 @@ public partial class CacheManagementService
                 {
                     operationId = id;
                     started.TrySetResult(id);
-                });
+                },
+                showNotification: showNotification);
 
             // A last-moment conflict can still make the start path decline after the queue's
             // eligibility check. Returning null lets OperationQueue terminate the waiting card
@@ -1508,7 +1531,8 @@ public partial class CacheManagementService
         bool force = false,
         string? datasource = null,
         CancellationToken cancellationToken = default,
-        Action<Guid>? onScanStarted = null)
+        Action<Guid>? onScanStarted = null,
+        bool showNotification = true)
     {
         // Per-datasource scans are always live - no caching
         if (!string.IsNullOrEmpty(datasource))
@@ -1541,7 +1565,7 @@ public partial class CacheManagementService
         {
             // A forced scan is either a queued manual refresh or the scheduled service.
             _logger.LogInformation("Force rescan requested - running fresh cache size scan");
-            var freshResult = await RunFullScanAsync(allCachePath, cancellationToken, onScanStarted);
+            var freshResult = await RunFullScanAsync(allCachePath, cancellationToken, onScanStarted, showNotification);
             if (freshResult != null)
             {
                 var cacheInfo = await GetCacheInfoAsync();

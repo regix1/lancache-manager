@@ -151,7 +151,21 @@ export const NOTIFICATION_STORAGE_KEYS = {
   /** Key for cache file scan operation state */
   CACHE_SIZE_SCAN: 'cache-size-scan-storage',
   /** Key for scheduled prefill operation state */
-  SCHEDULED_PREFILL: 'notification_scheduled_prefill'
+  SCHEDULED_PREFILL: 'notification_scheduled_prefill',
+  /** Key for scheduled log rotation run state */
+  LOG_ROTATION: 'notification_log_rotation',
+  /** Key for scheduled game image fetch run state */
+  GAME_IMAGE_FETCH: 'notification_game_image_fetch',
+  /** Key for scheduled Steam service refresh run state */
+  STEAM_SERVICE_REFRESH: 'notification_steam_service_refresh',
+  /** Key for scheduled cache snapshot run state */
+  CACHE_SNAPSHOT: 'notification_cache_snapshot',
+  /** Key for scheduled operation history cleanup run state */
+  OPERATION_HISTORY_CLEANUP: 'notification_operation_history_cleanup',
+  /** Key for scheduled performance optimization run state */
+  PERFORMANCE_OPTIMIZATION: 'notification_performance_optimization',
+  /** Key for scheduled dashboard cache warmer run state */
+  DASHBOARD_CACHE_WARMER: 'notification_dashboard_cache_warmer'
 } as const;
 
 /** Pre-registry generic toast id for scheduled prefill Run Now (never completed). */
@@ -202,5 +216,19 @@ export const NOTIFICATION_IDS = {
   /** ID for cache file scan operations */
   CACHE_SIZE_SCAN: 'cache-size-scan-notification',
   /** ID for scheduled prefill operations */
-  SCHEDULED_PREFILL: 'scheduled_prefill'
+  SCHEDULED_PREFILL: 'scheduled_prefill',
+  /** ID for scheduled log rotation runs */
+  LOG_ROTATION: 'log_rotation',
+  /** ID for scheduled game image fetch runs */
+  GAME_IMAGE_FETCH: 'game_image_fetch',
+  /** ID for scheduled Steam service refresh runs */
+  STEAM_SERVICE_REFRESH: 'steam_service_refresh',
+  /** ID for scheduled cache snapshot runs */
+  CACHE_SNAPSHOT: 'cache_snapshot',
+  /** ID for scheduled operation history cleanup runs */
+  OPERATION_HISTORY_CLEANUP: 'operation_history_cleanup',
+  /** ID for scheduled performance optimization runs */
+  PERFORMANCE_OPTIMIZATION: 'performance_optimization',
+  /** ID for scheduled dashboard cache warmer runs */
+  DASHBOARD_CACHE_WARMER: 'dashboard_cache_warmer'
 } as const;

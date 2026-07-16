@@ -105,11 +105,20 @@ public sealed class ScheduledPrefillServiceConfigDto
     public required bool Enabled { get; init; }
 
     /// <summary>
-    /// Whether this service's run progress is shown in the universal notification bar. This is
-    /// intentionally not required so configurations saved before the setting existed deserialize
-    /// as visible instead of silently changing existing behavior.
+    /// Legacy visible/silent toggle. Kept only so pre-v4 saved configs still deserialize cleanly;
+    /// new code MUST NOT branch on this value - use <see cref="NotificationMode"/> instead.
+    /// <see cref="ScheduledPrefillConfigFactory.Migrate"/> performs a one-time migration that maps
+    /// this into <see cref="NotificationMode"/> (true/absent -> All, false -> Silent).
     /// </summary>
+    [Obsolete("Replaced by NotificationMode. Kept for legacy JSON deserialization.")]
     public bool ShowNotification { get; init; } = true;
+
+    /// <summary>
+    /// Whether this service's run progress is shown in the universal notification bar, and for
+    /// which triggers. Null means "use the per-service default" (All) - only possible on a config
+    /// that predates this field and has not yet been through <see cref="ScheduledPrefillConfigFactory.Migrate"/>.
+    /// </summary>
+    public NotificationMode? NotificationMode { get; init; }
 
     /// <summary>
     /// Per-service schedule cadence in hours, driving the independent due-check in
@@ -225,7 +234,8 @@ public static class ScheduledPrefillConfigFactory
 {
     // Bumped 1 -> 2 when per-service IntervalHours was added (see Migrate).
     // Bumped 2 -> 3 when global + per-service PersistenceMode was added (see Migrate).
-    public const int CurrentVersion = 3;
+    // Bumped 3 -> 4 when per-service ShowNotification (bool) was replaced by NotificationMode (see Migrate).
+    public const int CurrentVersion = 4;
     public const int DefaultTopCount = 50;
     public const int MinFixedConcurrency = 1;
     public const int MaxFixedConcurrency = 256;
@@ -305,7 +315,7 @@ public static class ScheduledPrefillConfigFactory
         {
             config = new ScheduledPrefillConfigDto
             {
-                Version = CurrentVersion,
+                Version = 3,
                 MaxServiceRuntime = config.MaxServiceRuntime,
                 StallTimeout = config.StallTimeout,
                 PersistenceMode = config.PersistenceMode ?? PersistenceMode.KeepAcrossRestart,
@@ -317,7 +327,59 @@ public static class ScheduledPrefillConfigFactory
             };
         }
 
+        if (config.Version < 4)
+        {
+            config = new ScheduledPrefillConfigDto
+            {
+                Version = CurrentVersion,
+                MaxServiceRuntime = config.MaxServiceRuntime,
+                StallTimeout = config.StallTimeout,
+                PersistenceMode = config.PersistenceMode,
+                Steam = WithMigratedNotificationMode(config.Steam),
+                Epic = WithMigratedNotificationMode(config.Epic),
+                Xbox = WithMigratedNotificationMode(config.Xbox),
+                BattleNet = WithMigratedNotificationMode(config.BattleNet),
+                Riot = WithMigratedNotificationMode(config.Riot)
+            };
+        }
+
         return config;
+    }
+
+    /// <summary>
+    /// v3->v4 step of <see cref="Migrate"/>: seeds <see cref="ScheduledPrefillServiceConfigDto.NotificationMode"/>
+    /// from the legacy <see cref="ScheduledPrefillServiceConfigDto.ShowNotification"/> bool when the new
+    /// field is absent (true/absent -> All, false -> Silent). A config already carrying
+    /// <see cref="ScheduledPrefillServiceConfigDto.NotificationMode"/> is left untouched.
+    /// </summary>
+    private static ScheduledPrefillServiceConfigDto WithMigratedNotificationMode(ScheduledPrefillServiceConfigDto service)
+    {
+        if (service.NotificationMode is not null)
+        {
+            return service;
+        }
+
+#pragma warning disable CS0618 // Type or member is obsolete - migration path only
+        var migratedMode = service.ShowNotification ? NotificationMode.All : NotificationMode.Silent;
+#pragma warning restore CS0618
+
+        return new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = service.ServiceId,
+            Enabled = service.Enabled,
+#pragma warning disable CS0618 // migration keeps the legacy value intact so older builds reading this state still see it
+            ShowNotification = service.ShowNotification,
+#pragma warning restore CS0618
+            NotificationMode = migratedMode,
+            IntervalHours = service.IntervalHours,
+            Preset = service.Preset,
+            TopCount = service.TopCount,
+            SelectedAppIds = service.SelectedAppIds,
+            OperatingSystems = service.OperatingSystems,
+            Force = service.Force,
+            MaxConcurrency = service.MaxConcurrency,
+            PersistenceMode = service.PersistenceMode
+        };
     }
 
     /// <summary>
@@ -333,8 +395,65 @@ public static class ScheduledPrefillConfigFactory
         {
             ServiceId = service.ServiceId,
             Enabled = service.Enabled,
+#pragma warning disable CS0618 // legacy value must survive DTO rebuilds so Migrate's v3->v4 step can still read it
             ShowNotification = service.ShowNotification,
+#pragma warning restore CS0618
+            NotificationMode = service.NotificationMode,
             IntervalHours = intervalHours,
+            Preset = service.Preset,
+            TopCount = service.TopCount,
+            SelectedAppIds = service.SelectedAppIds,
+            OperatingSystems = service.OperatingSystems,
+            Force = service.Force,
+            MaxConcurrency = service.MaxConcurrency,
+            PersistenceMode = service.PersistenceMode
+        };
+    }
+
+    /// <summary>
+    /// Returns <paramref name="config"/> with every platform's <see cref="ScheduledPrefillServiceConfigDto.NotificationMode"/>
+    /// forced back to the factory default (<see cref="NotificationMode.All"/>). Scheduled prefill's
+    /// notification setting lives per-platform in this DTO, NOT in the base
+    /// <c>ConfigurableScheduledService</c> override the Schedules-page "Reset to Defaults" action
+    /// resets - that base-class reset is a no-op for this service, so the registry's reset path
+    /// must call this explicitly or a platform left on Manual/Silent survives a reset unchanged.
+    /// </summary>
+    public static ScheduledPrefillConfigDto ResetNotificationModes(ScheduledPrefillConfigDto config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
+            Steam = WithNotificationMode(config.Steam, NotificationMode.All),
+            Epic = WithNotificationMode(config.Epic, NotificationMode.All),
+            Xbox = WithNotificationMode(config.Xbox, NotificationMode.All),
+            BattleNet = WithNotificationMode(config.BattleNet, NotificationMode.All),
+            Riot = WithNotificationMode(config.Riot, NotificationMode.All)
+        };
+    }
+
+    /// <summary>
+    /// Returns a copy of <paramref name="service"/> with <see cref="ScheduledPrefillServiceConfigDto.NotificationMode"/>
+    /// unconditionally replaced by <paramref name="mode"/>. Unlike <see cref="WithMigratedNotificationMode"/>
+    /// (which only seeds an absent value), this always overwrites - used by <see cref="ResetNotificationModes"/>.
+    /// </summary>
+    private static ScheduledPrefillServiceConfigDto WithNotificationMode(ScheduledPrefillServiceConfigDto service, NotificationMode mode)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+
+        return new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = service.ServiceId,
+            Enabled = service.Enabled,
+#pragma warning disable CS0618 // legacy value must survive DTO rebuilds so Migrate's v3->v4 step can still read it
+            ShowNotification = service.ShowNotification,
+#pragma warning restore CS0618
+            NotificationMode = mode,
+            IntervalHours = service.IntervalHours,
             Preset = service.Preset,
             TopCount = service.TopCount,
             SelectedAppIds = service.SelectedAppIds,
@@ -358,7 +477,7 @@ public static class ScheduledPrefillConfigFactory
         {
             ServiceId = serviceId,
             Enabled = enabled,
-            ShowNotification = true,
+            NotificationMode = NotificationMode.All,
             IntervalHours = DefaultIntervalHours,
             Preset = ScheduledPrefillPreset.All,
             TopCount = null,
@@ -484,7 +603,10 @@ public static class ScheduledPrefillConfigFactory
         {
             ServiceId = service.ServiceId,
             Enabled = service.Enabled,
+#pragma warning disable CS0618 // legacy value must survive DTO rebuilds so Migrate's v3->v4 step can still read it
             ShowNotification = service.ShowNotification,
+#pragma warning restore CS0618
+            NotificationMode = service.NotificationMode,
             IntervalHours = service.IntervalHours,
             Preset = ScheduledPrefillPreset.All,
             TopCount = null,
@@ -548,7 +670,10 @@ public static class ScheduledPrefillConfigFactory
         {
             ServiceId = service.ServiceId,
             Enabled = service.Enabled,
+#pragma warning disable CS0618 // legacy value must survive DTO rebuilds so Migrate's v3->v4 step can still read it
             ShowNotification = service.ShowNotification,
+#pragma warning restore CS0618
+            NotificationMode = service.NotificationMode,
             IntervalHours = service.IntervalHours,
             Preset = service.Preset,
             TopCount = service.TopCount,
@@ -638,6 +763,22 @@ public static class ScheduledPrefillConfigFactory
         {
             throw new ScheduledPrefillConfigValidationException(
                 $"Service config ServiceId '{service.ServiceId}' does not match its container slot '{expectedServiceId}'.");
+        }
+
+        // NotificationMode is a required field on a current-version (v4) config. Validate only ever
+        // runs at CurrentVersion, so a null here is a current-schema payload that omitted the field,
+        // NOT a legacy config (Migrate seeds those from the legacy ShowNotification flag before this
+        // runs). Reject it rather than silently defaulting a required field.
+        if (service.NotificationMode is not { } notificationMode)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{expectedServiceId} NotificationMode is required (Migrate seeds it for pre-v{CurrentVersion} configs; refusing to silently default a required field).");
+        }
+
+        if (!Enum.IsDefined(notificationMode))
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{expectedServiceId} NotificationMode '{notificationMode}' is not a supported value.");
         }
 
         if (!IsIntervalHoursValid(service.IntervalHours))

@@ -76,6 +76,13 @@ public class SteamPicsProgress
 
     [JsonPropertyName("operationId")]
     public Guid? OperationId { get; set; }
+
+    /// <summary>
+    /// Run-stable display flag for the rebuild in progress. Lets the depot-mapping recovery path
+    /// skip resurrecting a card for a silent run when the page reloads mid-rebuild.
+    /// </summary>
+    [JsonPropertyName("showNotification")]
+    public bool ShowNotification { get; set; } = true;
 }
 
 /// <summary>

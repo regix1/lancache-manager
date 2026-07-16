@@ -20,6 +20,10 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
     protected override TimeSpan Interval => _defaultInterval;
 
+    // The tracked scan already emits Started/Progress/Complete lifecycle events; opting in lets the
+    // Schedules UI expose the Notifications control and lets a run be gated to silent per the mode.
+    protected override bool SupportsNotifications => true;
+
     public override bool DefaultRunOnStartup => false;
     public override string ServiceKey => "cacheSizeScan";
 
@@ -64,7 +68,12 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
 
         try
         {
-            Task<Guid?> StartScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync();
+            // Stamp the run-stable display flag from the effective mode + this run's trigger. The
+            // lifecycle events are always emitted (recovery/state stay accurate); the frontend gates
+            // whether the card is shown.
+            var showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+
+            Task<Guid?> StartScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync(showNotification);
 
             var outcome = await _operationQueue.EnqueueAsync(
                 OperationType.CacheSizeScan,

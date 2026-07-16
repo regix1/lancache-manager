@@ -19,12 +19,23 @@ public partial class SteamKit2Service
     private int _emitDownloadsUpdated;
     private DepotScanMode _emitScanMode;
 
-    public bool TryStartRebuild(CancellationToken cancellationToken = default, bool incrementalOnly = false)
+    public bool TryStartRebuild(
+        CancellationToken cancellationToken = default,
+        bool incrementalOnly = false,
+        RunTrigger trigger = RunTrigger.Manual)
     {
         if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
         {
             return false;
         }
+
+        // Capture the run-stable display flag once, under the single-flight guard, before any
+        // lifecycle event is emitted. This is the single assignment point, so every start path
+        // stamps it correctly: a direct (REST) rebuild defaults to a manual trigger evaluated
+        // against the effective notification mode, while the scheduled dispatch passes its own
+        // computed trigger. A run that opts out of notifications still emits every event; the flag
+        // only gates whether the frontend renders the card.
+        _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(trigger);
 
         _logger.LogInformation("Starting Steam PICS depot crawl");
         _lastScanWasForced = false; // Reset flag at start of new scan
@@ -77,7 +88,8 @@ public partial class SteamKit2Service
                         Message: "Depot mapping scan cancelled",
                         Cancelled: true,
                         IsLoggedOn: IsSteamAuthenticated,
-                        Timestamp: DateTime.UtcNow))
+                        Timestamp: DateTime.UtcNow,
+                        ShowNotification: _depotRunShowNotification))
                 : info.Success
                     ? _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete,
                         new DepotMappingComplete(
@@ -88,7 +100,8 @@ public partial class SteamKit2Service
                             DownloadsUpdated: _emitDownloadsUpdated,
                             ScanMode: _emitScanMode,
                             IsLoggedOn: IsSteamAuthenticated,
-                            Timestamp: DateTime.UtcNow))
+                            Timestamp: DateTime.UtcNow,
+                            ShowNotification: _depotRunShowNotification))
                     : _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete,
                         new DepotMappingComplete(
                             OperationId: operationId,
@@ -96,7 +109,8 @@ public partial class SteamKit2Service
                             Message: $"Depot mapping failed: {info.Error}",
                             Error: info.Error,
                             IsLoggedOn: IsSteamAuthenticated,
-                            Timestamp: DateTime.UtcNow))
+                            Timestamp: DateTime.UtcNow,
+                            ShowNotification: _depotRunShowNotification))
         );
         _currentPicsOperationId = operationId;
 
@@ -107,6 +121,7 @@ public partial class SteamKit2Service
             scanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full,
             message = incrementalOnly ? "Starting incremental depot mapping scan..." : "Starting full depot mapping scan...",
             isLoggedOn = IsSteamAuthenticated,
+            showNotification = _depotRunShowNotification,
             timestamp = DateTime.UtcNow
         });
 
@@ -1013,6 +1028,7 @@ public partial class SteamKit2Service
             isReconnecting,
             reconnectAttempt,
             maxReconnectAttempts = isReconnecting ? MaxBatchConnectionRetries : (int?)null,
+            showNotification = _depotRunShowNotification,
             message
         });
     }
@@ -1031,6 +1047,7 @@ public partial class SteamKit2Service
             totalBatches = _totalBatches,
             depotMappingsFound,
             isLoggedOn = IsSteamAuthenticated,
+            showNotification = _depotRunShowNotification,
             message
         });
     }

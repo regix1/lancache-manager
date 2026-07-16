@@ -30,7 +30,15 @@ public enum OperationType
     EvictionRemoval,
     CacheSizeScan,
     ScheduledPrefill,
-    StatusCheck
+    StatusCheck,
+    LogRotation,
+    GameImageFetch,
+    SteamServiceRefresh,
+    CacheSnapshot,
+    OperationHistoryCleanup,
+    PerformanceOptimization,
+    DashboardCacheWarmer,
+    XboxMapping
 }
 
 /// <summary>
@@ -91,6 +99,14 @@ public static class OperationTypeExtensions
         OperationType.CacheSizeScan => "cacheSizeScan",
         OperationType.ScheduledPrefill => "scheduledPrefill",
         OperationType.StatusCheck => "statusCheck",
+        OperationType.LogRotation => "logRotation",
+        OperationType.GameImageFetch => "gameImageFetch",
+        OperationType.SteamServiceRefresh => "steamServiceRefresh",
+        OperationType.CacheSnapshot => "cacheSnapshot",
+        OperationType.OperationHistoryCleanup => "operationHistoryCleanup",
+        OperationType.PerformanceOptimization => "performanceOptimization",
+        OperationType.DashboardCacheWarmer => "dashboardCacheWarmer",
+        OperationType.XboxMapping => "xboxMapping",
         _ => JsonNamingPolicy.CamelCase.ConvertName(type.ToString())
     };
 

@@ -1,4 +1,6 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Extensions;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Models;
@@ -16,6 +18,14 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly CacheManagementService _cacheService;
     private readonly StateService _stateService;
+    private readonly ISignalRNotificationService _notifications;
+    private readonly IUnifiedOperationTracker _operationTracker;
+
+    private const string StageBase = "signalr.scheduledRun.cacheSnapshot";
+    private static readonly ScheduledRunEventNames _eventNames = new(
+        SignalREvents.CacheSnapshotStarted,
+        SignalREvents.CacheSnapshotProgress,
+        SignalREvents.CacheSnapshotComplete);
 
     // Default: record snapshot every hour
     private readonly TimeSpan _snapshotInterval;
@@ -30,6 +40,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     protected override TimeSpan Interval => _snapshotInterval;
     public override bool DefaultRunOnStartup => false;
     protected override TimeSpan ErrorRetryDelay => TimeSpan.FromMinutes(5);
+    protected override bool SupportsNotifications => true;
 
     public override string ServiceKey => "cacheSnapshot";
 
@@ -39,12 +50,16 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
         CacheManagementService cacheService,
         StateService stateService,
         ILogger<CacheSnapshotService> logger,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        ISignalRNotificationService notifications,
+        IUnifiedOperationTracker operationTracker)
         : base(serviceProvider, logger, configuration)
     {
         _scopeFactory = scopeFactory;
         _cacheService = cacheService;
         _stateService = stateService;
+        _notifications = notifications;
+        _operationTracker = operationTracker;
 
         _snapshotInterval = TimeSpan.FromMinutes(
             configuration.GetValue<int>("CacheSnapshots:IntervalMinutes", 60));
@@ -62,7 +77,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
         await _stateService.WaitForSetupCompletedAsync(stoppingToken);
 
         // Take an initial snapshot at startup
-        await RecordSnapshotAsync();
+        await RecordSnapshotAsync(stoppingToken);
 
         // GetCacheInfoAsync above loads any persisted cache-size scan into memory. It deliberately
         // does not start a fresh full-disk walk; automatic scans belong to the dedicated schedule.
@@ -72,7 +87,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
-        await RecordSnapshotAsync();
+        await RecordSnapshotAsync(stoppingToken);
         _snapshotCount++;
 
         // Cleanup old snapshots periodically (every 24 intervals)
@@ -82,38 +97,50 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
         }
     }
 
-    private async Task RecordSnapshotAsync()
+    private async Task RecordSnapshotAsync(CancellationToken stoppingToken)
     {
-        try
+        var cacheInfo = await _cacheService.GetCacheInfoAsync();
+
+        // Skip if no valid data (e.g., on Windows development). Return before starting so a run with
+        // nothing to record never surfaces a card.
+        if (cacheInfo.TotalCacheSize == 0 && cacheInfo.UsedCacheSize == 0)
         {
-            var cacheInfo = await _cacheService.GetCacheInfoAsync();
-
-            // Skip if no valid data (e.g., on Windows development)
-            if (cacheInfo.TotalCacheSize == 0 && cacheInfo.UsedCacheSize == 0)
-            {
-                _logger.LogDebug("Skipping cache snapshot - no cache info available");
-                return;
-            }
-
-            using var scopedDb = _scopeFactory.CreateScopedDbContext();
-
-            var snapshot = new CacheSnapshot
-            {
-                TimestampUtc = DateTime.UtcNow,
-                UsedCacheSize = cacheInfo.UsedCacheSize,
-                TotalCacheSize = cacheInfo.TotalCacheSize
-            };
-
-            scopedDb.DbContext.CacheSnapshots.Add(snapshot);
-            await scopedDb.DbContext.SaveChangesAsync();
-
-            _logger.LogDebug("Recorded cache snapshot: {UsedSize} / {TotalSize}",
-                FormatBytes(cacheInfo.UsedCacheSize), FormatBytes(cacheInfo.TotalCacheSize));
+            _logger.LogDebug("Skipping cache snapshot - no cache info available");
+            return;
         }
-        catch (Exception ex)
+
+        var show = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        await using var reporter = new ScheduledRunReporter(
+            _notifications,
+            _operationTracker,
+            ServiceKey,
+            OperationType.CacheSnapshot,
+            _eventNames,
+            $"{StageBase}.complete",
+            show,
+            stoppingToken);
+
+        await reporter.StartAsync($"{StageBase}.starting");
+
+        // Writing one snapshot row is a single atomic action, so progress is stepped.
+        await reporter.ReportAsync(50, $"{StageBase}.running");
+
+        using var scopedDb = _scopeFactory.CreateScopedDbContext();
+
+        var snapshot = new CacheSnapshot
         {
-            _logger.LogError(ex, "Failed to record cache snapshot");
-        }
+            TimestampUtc = DateTime.UtcNow,
+            UsedCacheSize = cacheInfo.UsedCacheSize,
+            TotalCacheSize = cacheInfo.TotalCacheSize
+        };
+
+        scopedDb.DbContext.CacheSnapshots.Add(snapshot);
+        await scopedDb.DbContext.SaveChangesAsync(stoppingToken);
+
+        _logger.LogDebug("Recorded cache snapshot: {UsedSize} / {TotalSize}",
+            FormatBytes(cacheInfo.UsedCacheSize), FormatBytes(cacheInfo.TotalCacheSize));
+
+        await reporter.CompleteAsync(success: true);
     }
 
     private async Task CleanupOldSnapshotsAsync()

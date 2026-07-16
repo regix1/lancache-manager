@@ -160,6 +160,7 @@ public class CacheController : ControllerBase
             return Ok(new
             {
                 isProcessing = false,
+                showNotification = true,
                 status = OperationStatus.Completed,
                 percentComplete = 0.0,
                 message = string.Empty,
@@ -179,6 +180,7 @@ public class CacheController : ControllerBase
         return Ok(new
         {
             isProcessing = true,
+            showNotification = _cacheService.CurrentCacheSizeScanShowNotification ?? true,
             status = activeScan.Status,
             percentComplete = activeScan.PercentComplete,
             message = stageKey ?? "Scanning cache files...",

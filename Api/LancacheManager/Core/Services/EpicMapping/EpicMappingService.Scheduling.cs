@@ -9,6 +9,17 @@ public partial class EpicMappingService
 {
     public string ScheduleServiceKey => "epicMapping";
 
+    protected override bool SupportsNotifications => true;
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.All;
+
+    /// <summary>
+    /// Display flag for the run currently in flight, resolved once per ExecuteWorkAsync call from
+    /// CurrentRunTrigger so it stays stable across the whole refresh (TryStartRefresh/
+    /// RefreshCatalogAsync run later, on a background Task). Lifecycle events are ALWAYS emitted; the
+    /// frontend gates the card on this flag (display-flag pattern, not transport suppression).
+    /// </summary>
+    private bool _showNotification = true;
+
     /// <summary>
     /// Called by the ConfigurableScheduledService base class on each interval tick.
     /// Checks preconditions and triggers a catalog refresh if appropriate.
@@ -28,6 +39,8 @@ public partial class EpicMappingService
         // Skip if not authenticated (need valid tokens to refresh)
         if (!_isAuthenticated || _currentTokens == null)
             return;
+
+        _showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
 
         _logger.LogInformation("Starting scheduled Epic catalog refresh");
 
@@ -93,46 +106,44 @@ public partial class EpicMappingService
                 _currentOperationId = null;
                 _currentStatus = EpicMappingStatus.Idle;
             },
-            onTerminalEmit: info => info.Cancelled
-                ? _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
-                    new EpicMappingComplete(
-                        OperationId: _currentOperationId, Success: false,
-                        Status: OperationStatus.Completed,
-                        StageKey: "signalr.epicMapping.cancelled",
-                        PercentComplete: 100.0, GamesDiscovered: _gamesDiscovered,
-                        Cancelled: true, Context: new Dictionary<string, object?>()))
-                : info.Success
+            onTerminalEmit: info =>
+            {
+                // Always emit the terminal event; the display flag (not transport suppression)
+                // decides whether the frontend surfaces the card.
+                return info.Cancelled
                     ? _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
                         new EpicMappingComplete(
-                            OperationId: _currentOperationId, Success: true,
-                            Status: OperationStatus.Completed,
-                            StageKey: "signalr.epicMapping.completed",
-                            PercentComplete: 100.0, GamesDiscovered: _gamesDiscovered,
-                            Message: $"Epic catalog refresh completed - {_gamesDiscovered} games",
-                            Context: new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered }))
-                    : _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
-                        new EpicMappingComplete(
                             OperationId: _currentOperationId, Success: false,
-                            Status: OperationStatus.Failed,
-                            StageKey: "signalr.epicMapping.failed",
-                            PercentComplete: 0.0, GamesDiscovered: _gamesDiscovered,
-                            Error: info.Error,
-                            Context: new Dictionary<string, object?> { ["errorDetail"] = info.Error }))
+                            Status: OperationStatus.Completed,
+                            StageKey: "signalr.epicMapping.cancelled",
+                            PercentComplete: 100.0, GamesDiscovered: _gamesDiscovered,
+                            Cancelled: true, Context: new Dictionary<string, object?>(),
+                            ShowNotification: _showNotification))
+                    : info.Success
+                        ? _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
+                            new EpicMappingComplete(
+                                OperationId: _currentOperationId, Success: true,
+                                Status: OperationStatus.Completed,
+                                StageKey: "signalr.epicMapping.completed",
+                                PercentComplete: 100.0, GamesDiscovered: _gamesDiscovered,
+                                Message: $"Epic catalog refresh completed - {_gamesDiscovered} games",
+                                Context: new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered },
+                                ShowNotification: _showNotification))
+                        : _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
+                            new EpicMappingComplete(
+                                OperationId: _currentOperationId, Success: false,
+                                Status: OperationStatus.Failed,
+                                StageKey: "signalr.epicMapping.failed",
+                                PercentComplete: 0.0, GamesDiscovered: _gamesDiscovered,
+                                Error: info.Error,
+                                Context: new Dictionary<string, object?> { ["errorDetail"] = info.Error },
+                                ShowNotification: _showNotification));
+            }
         );
 
         _currentProgressPercent = 0;
         _lastNewGames = 0;
         _lastUpdatedGames = 0;
-
-        // Send start progress event (mirrors Steam's DepotMappingStarted)
-        _notifications.NotifyAllFireAndForget(SignalREvents.EpicMappingProgress, new
-        {
-            operationId = _currentOperationId,
-            status = "starting",
-            percentComplete = 0.0,
-            gamesDiscovered = _gamesDiscovered,
-            stageKey = "signalr.epicMapping.starting"
-        });
 
         _currentRefreshTask = Task.Run(async () =>
         {
@@ -141,6 +152,18 @@ public partial class EpicMappingService
 
             try
             {
+                // Always emit the initial 0% Started event and AWAIT it before any progress event so
+                // a slow Started send cannot land after the first 15% tick (the 0-after-15 race).
+                await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
+                {
+                    operationId = _currentOperationId,
+                    status = "starting",
+                    percentComplete = 0.0,
+                    gamesDiscovered = _gamesDiscovered,
+                    stageKey = "signalr.epicMapping.starting",
+                    showNotification = _showNotification
+                });
+
                 _currentStatus = EpicMappingStatus.RefreshingCatalog;
 
                 await RefreshCatalogAsync(_currentRefreshCts.Token);
@@ -290,7 +313,8 @@ public partial class EpicMappingService
             percentComplete = 15.0,
             gamesDiscovered = _gamesDiscovered,
             stageKey = "signalr.epicMapping.fetchingGames",
-            context = new Dictionary<string, object?>()
+            context = new Dictionary<string, object?>(),
+            showNotification = _showNotification
         });
 
         var games = await _epicApiClient.GetOwnedGamesAsync(_currentTokens.AccessToken, ct);
@@ -323,7 +347,8 @@ public partial class EpicMappingService
             percentComplete = 40.0,
             gamesDiscovered = _gamesDiscovered,
             stageKey = "signalr.epicMapping.refreshingCdn",
-            context = new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered }
+            context = new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered },
+            showNotification = _showNotification
         });
 
         try
@@ -351,7 +376,8 @@ public partial class EpicMappingService
             percentComplete = 60.0,
             gamesDiscovered = _gamesDiscovered,
             stageKey = "signalr.epicMapping.checkingFreeGames",
-            context = new Dictionary<string, object?>()
+            context = new Dictionary<string, object?>(),
+            showNotification = _showNotification
         });
 
         try
@@ -384,7 +410,8 @@ public partial class EpicMappingService
             percentComplete = 85.0,
             gamesDiscovered = _gamesDiscovered,
             stageKey = "signalr.epicMapping.applyingMappings",
-            context = new Dictionary<string, object?>()
+            context = new Dictionary<string, object?>(),
+            showNotification = _showNotification
         });
 
         try

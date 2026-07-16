@@ -55,7 +55,10 @@ import type {
 } from '../types';
 import type { StructuralScanMode } from '../types/corruptionScan';
 import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
-import type { ServiceScheduleInfo } from '../components/features/management/schedules/types';
+import type {
+  NotificationMode,
+  ServiceScheduleInfo
+} from '../components/features/management/schedules/types';
 import type {
   ScheduledPrefillConfigDto,
   ScheduledPrefillServiceScheduleDto
@@ -3017,6 +3020,26 @@ class ApiService {
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('setScheduleRunOnStartup error:', error);
+      throw error;
+    }
+  }
+
+  static async setScheduleNotificationMode(
+    serviceKey: string,
+    mode: NotificationMode
+  ): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/${serviceKey}/notificationMode`,
+        this.getFetchOptions({
+          method: 'PUT',
+          body: JSON.stringify(mode),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('setScheduleNotificationMode error:', error);
       throw error;
     }
   }

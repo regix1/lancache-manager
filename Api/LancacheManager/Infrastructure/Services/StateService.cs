@@ -156,6 +156,11 @@ public class StateService : IStateService
         // Whether the eviction scan shows the universal notification bar
         public bool EvictionScanNotifications { get; set; } = false;
 
+        // Marks that the one-time legacy-to-per-service notification-mode migration has run.
+        // Persisted so the migration never reruns on restart and cannot overwrite a mode the
+        // user later selected (or a Reset-to-Defaults that intentionally cleared the per-service key).
+        public bool EvictionNotificationsMigrated { get; set; } = false;
+
         // Whether the eviction scan also deletes orphaned downloads (rows with no log
         // entries - they produce no probe keys, so the scan can never verify them and
         // they linger in stats forever). Opt-in because clearing a service's logs also
@@ -173,6 +178,10 @@ public class StateService : IStateService
         // Per-service "run on startup" overrides (keyed by ServiceKey).
         // Absent key = use the service's hardcoded DefaultRunOnStartup.
         public Dictionary<string, bool> ServiceRunOnStartup { get; set; } = new();
+
+        // Per-service notification-mode overrides (keyed by ServiceKey).
+        // Absent key = use the service's hardcoded DefaultNotificationMode.
+        public Dictionary<string, NotificationMode> ServiceNotificationMode { get; set; } = new();
 
         // Scheduled prefill config (per-service settings + per-run runtime guards).
         // Nullable on disk so a pre-feature state.json deserializes to null and is migrated to a
@@ -293,7 +302,8 @@ public class StateService : IStateService
             // a recoverable state.json.
             var loadedState = _cachedState!;
             var anchorsSeeded = SeedInitialFirstRunAnchors(loadedState, DateTime.UtcNow);
-            if (anchorsSeeded && canPersistScheduledPrefillInit && !loadedWithSectionRecovery)
+            var notificationModeMigrated = MigrateEvictionNotificationsToServiceMode(loadedState);
+            if ((anchorsSeeded || notificationModeMigrated) && canPersistScheduledPrefillInit && !loadedWithSectionRecovery)
             {
                 SaveState(loadedState);
             }
@@ -891,6 +901,29 @@ public class StateService : IStateService
         });
     }
 
+    // Service NotificationMode Methods
+    public NotificationMode? GetServiceNotificationMode(string serviceKey)
+    {
+        var values = GetState().ServiceNotificationMode;
+        return values.TryGetValue(serviceKey, out var value) ? value : null;
+    }
+
+    public void SetServiceNotificationMode(string serviceKey, NotificationMode mode)
+    {
+        UpdateState(state =>
+        {
+            state.ServiceNotificationMode[serviceKey] = mode;
+        });
+    }
+
+    public void ClearServiceNotificationMode(string serviceKey)
+    {
+        UpdateState(state =>
+        {
+            state.ServiceNotificationMode.Remove(serviceKey);
+        });
+    }
+
     // Scheduled Prefill Config Methods
     public ScheduledPrefillConfigDto GetScheduledPrefillConfig()
     {
@@ -1006,6 +1039,39 @@ public class StateService : IStateService
             // schedule view must read "Never" for every service until its next real run.
             state.ScheduledPrefillServiceLastActualRunUtc.Clear();
         });
+    }
+
+    /// <summary>
+    /// One-time migration: seed the per-service notification mode for the cache-reconciliation
+    /// (eviction) schedule from the legacy global <c>EvictionScanNotifications</c> flag. Seeds only
+    /// when the legacy flag was explicitly turned on (true -> All): a user who once opted in keeps
+    /// that choice. When the flag is false - the legacy default, indistinguishable from "never
+    /// touched" - nothing is seeded, so the schedule falls back to its own hardcoded default (All)
+    /// instead of pinning every existing install to Manual.
+    /// Gated on <see cref="AppState.EvictionNotificationsMigrated"/>, NOT on the per-service key's
+    /// presence - Reset to Defaults removes the key to restore the hardcoded default, and re-running
+    /// this migration on the next load (key absent again) would silently undo that reset by
+    /// resurrecting the legacy flag's value. Returns true when the state changed, so the caller can
+    /// persist the marker (and any seeded entry).
+    /// </summary>
+    private static bool MigrateEvictionNotificationsToServiceMode(AppState state)
+    {
+        if (state.EvictionNotificationsMigrated)
+        {
+            return false;
+        }
+
+        // Must match the ServiceKey the cache-reconciliation schedule registers under (see
+        // ServiceScheduleRegistry's allowlist), so the seeded value is the one that service loads.
+        const string cacheReconciliationKey = "cacheReconciliation";
+
+        if (state.EvictionScanNotifications)
+        {
+            state.ServiceNotificationMode[cacheReconciliationKey] = NotificationMode.All;
+        }
+
+        state.EvictionNotificationsMigrated = true;
+        return true;
     }
 
     /// <summary>
@@ -1495,6 +1561,8 @@ public class StateService : IStateService
             EvictedDataMode = EvictedDataModeExtensions.TryParseWire(persisted.EvictedDataMode) ?? EvictedDataMode.Show,
             // Eviction scan on startup
             EvictionScanNotifications = persisted.EvictionScanNotifications,
+            // Restore the migration marker so the one-time seeding never reruns after a restart.
+            EvictionNotificationsMigrated = persisted.EvictionNotificationsMigrated,
             PruneOrphanedDownloads = persisted.PruneOrphanedDownloads,
             // Setup wizard state
             CurrentSetupStep = SetupStepExtensions.TryParseWire(persisted.CurrentSetupStep),
@@ -1504,6 +1572,8 @@ public class StateService : IStateService
             ServiceIntervals = persisted.ServiceIntervals ?? new Dictionary<string, double>(),
             // Per-service "run on startup" overrides
             ServiceRunOnStartup = persisted.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
+            // Per-service notification-mode overrides
+            ServiceNotificationMode = persisted.ServiceNotificationMode ?? new Dictionary<string, NotificationMode>(),
             // Scheduled prefill config: default-construct when missing (migration from pre-feature
             // state.json), migrate older versions (seeding per-service IntervalHours from the legacy
             // global value), and normalize an invalid persisted config back to defaults instead of
@@ -1601,6 +1671,8 @@ public class StateService : IStateService
             EvictedDataMode = state.EvictedDataMode.ToWireString(),
             // Eviction scan on startup
             EvictionScanNotifications = state.EvictionScanNotifications,
+            // Persist the migration marker so a restart never reruns the one-time seeding.
+            EvictionNotificationsMigrated = state.EvictionNotificationsMigrated,
             PruneOrphanedDownloads = state.PruneOrphanedDownloads,
             // Setup wizard state
             CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
@@ -1610,6 +1682,8 @@ public class StateService : IStateService
             ServiceIntervals = state.ServiceIntervals ?? new Dictionary<string, double>(),
             // Per-service "run on startup" overrides
             ServiceRunOnStartup = state.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
+            // Per-service notification-mode overrides
+            ServiceNotificationMode = state.ServiceNotificationMode ?? new Dictionary<string, NotificationMode>(),
             // Scheduled prefill config: validate (default-construct when missing) before persisting.
             // The in-memory config is already current-version, so Migrate is a no-op here.
             ScheduledPrefill = ResolveScheduledPrefillConfig(

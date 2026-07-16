@@ -20,15 +20,23 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
     private readonly IImageCacheService _imageCacheService;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private static readonly SemaphoreSlim _executionLock = new(1, 1);
 
     // Max concurrent HTTP requests for image fetching
     private static readonly SemaphoreSlim _httpThrottle = new(5, 5);
 
+    private const string StageBase = "signalr.scheduledRun.gameImageFetch";
+    private static readonly ScheduledRunEventNames _eventNames = new(
+        SignalREvents.GameImageFetchStarted,
+        SignalREvents.GameImageFetchProgress,
+        SignalREvents.GameImageFetchComplete);
+
     protected override string ServiceName => "GameImageFetch";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(30);
     public override bool DefaultRunOnStartup => false;
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
+    protected override bool SupportsNotifications => true;
 
     public override string ServiceKey => "gameImageFetch";
 
@@ -38,12 +46,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         IConfiguration configuration,
         IStateService stateService,
         ISignalRNotificationService notifications,
-        IImageCacheService imageCacheService)
+        IImageCacheService imageCacheService,
+        IUnifiedOperationTracker operationTracker)
         : base(serviceProvider, logger, configuration)
     {
         _stateService = stateService;
         _notifications = notifications;
         _imageCacheService = imageCacheService;
+        _operationTracker = operationTracker;
 
         LoadStateOverrides(stateService);
     }
@@ -61,20 +71,44 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
     /// <summary>
     /// Public trigger so other services can request an immediate image fetch
-    /// after ALL game detection, mapping, and DB saves are complete.
+    /// after ALL game detection, mapping, and DB saves are complete. This is a programmatic trigger
+    /// (not a scheduled run), so it does not surface a Schedules progress card.
     /// </summary>
     public async Task FetchImagesNowAsync(CancellationToken ct = default)
     {
         _logger.LogInformation("[GameImageFetch] Triggered by external service");
         using var scope = _serviceProvider.CreateScope();
-        await ExecuteWorkAsync(scope.ServiceProvider, ct);
+        await RunFetchAsync(scope.ServiceProvider, reporter: null, ct);
     }
 
     protected override async Task ExecuteWorkAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
-        // Prevent concurrent execution - FetchImagesNowAsync and scheduled runs can overlap
+        // Scheduled / startup / Run Now path: surface a progress card via a run reporter. The reporter
+        // only starts once real fetch work is confirmed (inside FetchImagesAsync), so a run with no
+        // downloads yet never shows a card.
+        var show = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        await using var reporter = new ScheduledRunReporter(
+            _notifications,
+            _operationTracker,
+            ServiceKey,
+            OperationType.GameImageFetch,
+            _eventNames,
+            $"{StageBase}.complete",
+            show,
+            stoppingToken);
+
+        await RunFetchAsync(scopedServices, reporter, stoppingToken);
+    }
+
+    private async Task RunFetchAsync(
+        IServiceProvider scopedServices,
+        ScheduledRunReporter? reporter,
+        CancellationToken stoppingToken)
+    {
+        // Prevent concurrent execution - FetchImagesNowAsync and scheduled runs can overlap. A run that
+        // loses this race did no work, so it returns before starting the reporter (no card).
         if (!await _executionLock.WaitAsync(0, stoppingToken))
         {
             _logger.LogDebug("[GameImageFetch] Skipping - another fetch is already running");
@@ -83,7 +117,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         try
         {
-            await FetchImagesAsync(scopedServices, stoppingToken);
+            await FetchImagesAsync(scopedServices, reporter, stoppingToken);
         }
         finally
         {
@@ -93,6 +127,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
     private async Task FetchImagesAsync(
         IServiceProvider scopedServices,
+        ScheduledRunReporter? reporter,
         CancellationToken stoppingToken)
     {
         var db = scopedServices.GetRequiredService<AppDbContext>();
@@ -105,6 +140,28 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         {
             _logger.LogInformation("[GameImageFetch] Downloads table is empty - log processing hasn't completed yet, will retry next cycle");
             return;
+        }
+
+        // There is work to do (downloads exist): start the run now so the "no downloads yet" retry never
+        // surfaces a card. Progress is real and monotonic across four equal-weight bands (Steam 0-25,
+        // Epic 25-50, name-keyed 50-75, stale refresh 75-100), reported per batch within each band.
+        if (reporter != null)
+        {
+            await reporter.StartAsync($"{StageBase}.starting");
+        }
+
+        async Task ReportPhaseAsync(double percent, int processed, int total)
+        {
+            if (reporter == null)
+            {
+                return;
+            }
+
+            await reporter.ReportAsync(percent, $"{StageBase}.running", new Dictionary<string, object?>
+            {
+                ["processed"] = processed,
+                ["total"] = total
+            });
         }
 
         var steamAppIds = await db.Downloads
@@ -205,6 +262,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 .GroupBy(x => x.AppId)
                 .ToDictionary(g => g.Key, g => g.Select(x => x.DepotId).ToList());
 
+            var steamDone = 0;
             foreach (var batch in missingSteamIds.Chunk(50))
             {
                 if (stoppingToken.IsCancellationRequested) return;
@@ -215,8 +273,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 await Task.WhenAll(tasks);
                 await db.SaveChangesAsync(stoppingToken);
                 db.ChangeTracker.Clear();
+
+                steamDone += batch.Length;
+                await ReportPhaseAsync(steamDone / (double)missingSteamIds.Count * 25, steamDone, missingSteamIds.Count);
             }
         }
+
+        // Steam phase done - advance the band even when there was nothing to fetch.
+        await ReportPhaseAsync(25, missingSteamIds.Count, missingSteamIds.Count);
 
         // 2. EPIC: Get all EpicGameMappings with ImageUrl that don't have a GameImage yet
         var epicMappings = await db.EpicGameMappings
@@ -234,6 +298,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             .Where(m => !existingEpicIds.Contains(m.AppId))
             .ToList();
 
+        var epicDone = 0;
         foreach (var batch in missingEpicMappings.Chunk(50))
         {
             if (stoppingToken.IsCancellationRequested) return;
@@ -244,7 +309,13 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             await Task.WhenAll(tasks);
             await db.SaveChangesAsync(stoppingToken);
             db.ChangeTracker.Clear();
+
+            epicDone += batch.Length;
+            await ReportPhaseAsync(25 + epicDone / (double)missingEpicMappings.Count * 25, epicDone, missingEpicMappings.Count);
         }
+
+        // Epic phase done - advance the band even when there was nothing to fetch.
+        await ReportPhaseAsync(50, missingEpicMappings.Count, missingEpicMappings.Count);
 
         // Backfill DisplayCatalog banner URLs for any XboxGameMapping that still has none before we
         // read the ImageUrl map below. The per-resolve fetch (EnsureBannerArtAsync) only runs for the
@@ -338,6 +409,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             .ToList();
 
         var newNameKeyedImages = 0;
+        var nameKeyedDone = 0;
         foreach (var batch in missingNameKeyedJobs.Chunk(50))
         {
             if (stoppingToken.IsCancellationRequested) return;
@@ -349,13 +421,20 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             newNameKeyedImages += added.Count(a => a);
             await db.SaveChangesAsync(stoppingToken);
             db.ChangeTracker.Clear();
+
+            nameKeyedDone += batch.Length;
+            await ReportPhaseAsync(50 + nameKeyedDone / (double)missingNameKeyedJobs.Count * 25, nameKeyedDone, missingNameKeyedJobs.Count);
         }
+
+        // Name-keyed phase done - advance the band even when there was nothing to fetch.
+        await ReportPhaseAsync(75, missingNameKeyedJobs.Count, missingNameKeyedJobs.Count);
 
         // 4. Re-fetch stale images (older than 7 days)
         var staleImages = await db.GameImages
             .Where(g => g.FetchedAtUtc < DateTime.UtcNow.AddDays(-7))
             .ToListAsync(stoppingToken);
 
+        var staleDone = 0;
         foreach (var batch in staleImages.Chunk(50))
         {
             if (stoppingToken.IsCancellationRequested) return;
@@ -366,6 +445,9 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             await Task.WhenAll(tasks);
             await db.SaveChangesAsync(stoppingToken);
             db.ChangeTracker.Clear();
+
+            staleDone += batch.Length;
+            await ReportPhaseAsync(75 + staleDone / (double)staleImages.Count * 25, staleDone, staleImages.Count);
         }
 
         _logger.LogInformation(
@@ -383,6 +465,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 newNameKeyedImages,
                 cacheGeneration = GameImagesController.CacheGeneration
             });
+        }
+
+        if (reporter != null)
+        {
+            await reporter.CompleteAsync(success: true);
         }
     }
 

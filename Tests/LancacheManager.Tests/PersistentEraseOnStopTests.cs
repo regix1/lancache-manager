@@ -1225,7 +1225,7 @@ public class PersistentEraseOnStopTests
         {
             ServiceId = steam.ServiceId,
             Enabled = steam.Enabled,
-            ShowNotification = steam.ShowNotification,
+            NotificationMode = steam.NotificationMode,
             IntervalHours = steam.IntervalHours,
             Preset = steam.Preset,
             TopCount = steam.TopCount,

@@ -175,6 +175,13 @@
         "evictionRemoval": "Eviction Removal",
         "cacheSizeScan": "Cache File Scan",
         "scheduledPrefill": "Scheduled Prefill",
+        "logRotation": "Log Rotation",
+        "gameImageFetch": "Game Image Fetch",
+        "steamServiceRefresh": "Steam Data Refresh",
+        "cacheSnapshot": "Cache Snapshot",
+        "operationHistoryCleanup": "Operation History Cleanup",
+        "performanceOptimization": "Performance Optimization",
+        "dashboardCacheWarmer": "Dashboard Cache Warmer",
         "bulkRemoval": "Bulk Removal"
       },
       "cacheFilesDeleted": "{{formattedCount}} cache file deleted",
@@ -3477,6 +3484,16 @@
       "runOnStartupTooltip": "When enabled, this service runs once when the app starts in addition to its scheduled interval.",
       "runOnStartupUpdated": "{{service}} run-on-startup updated",
       "runOnStartupFailed": "Failed to update run-on-startup for {{service}}",
+      "toggleOff": "Off",
+      "toggleOn": "On",
+      "notificationsLabel": "Notifications",
+      "notificationsHelp": "Choose when this service's run notifications appear: for every run, manual runs only, or never.",
+      "notificationModeFailed": "Failed to update notifications for {{service}}",
+      "notificationMode": {
+        "all": "All runs",
+        "manual": "Manual only",
+        "silent": "Silent"
+      },
       "gain": "More frequent",
       "loss": "Less frequent",
       "everyNMinutes": "Every {{count}} minutes",
@@ -3701,12 +3718,10 @@
               "maxConcurrencyValue": "Fixed connection count",
               "interval": "Run every",
               "intervalHelp": "How often this platform runs. Each platform schedules independently.",
-              "notifications": "Universal notifications",
-              "notificationsHelp": "Show this platform's prefill progress in the universal notification bar. Silent runs continue in the background.",
+              "notifications": "Notifications",
+              "notificationsHelp": "Choose when this platform's prefill progress appears in the notification bar: for every run, manual runs only, or never.",
               "persistenceModeOverride": "After a restart",
-              "persistenceModeOverrideHelp": "Overrides the global \"After a restart\" setting for this platform only. Leave as \"Use global setting\" to follow the default above.",
-              "visible": "Visible",
-              "silent": "Silent"
+              "persistenceModeOverrideHelp": "Overrides the global \"After a restart\" setting for this platform only. Leave as \"Use global setting\" to follow the default above."
             },
             "presets": {
               "all": "All",
@@ -3777,9 +3792,7 @@
           "description": "Compares your cache directory against the database to see what is still on disk vs. what nginx has evicted. Keeps the 'evicted' badges in the UI accurate.",
           "gain": "Eviction badges and cache status in the UI are more accurate and up to date",
           "loss": "The UI may show stale eviction status - items marked as cached might actually be evicted, or vice versa",
-          "viewManagement": "View Eviction Settings",
-          "notificationsLabel": "Show scheduled scan notifications",
-          "notificationsHelp": "Notifications are always shown for manual scans. Enable this to also show them for the automatic scan on startup and the recurring scheduled scan."
+          "viewManagement": "View Eviction Settings"
         },
         "cacheSizeScan": {
           "displayName": "Cache File Scan",
@@ -6783,6 +6796,43 @@
       "complete": "Cache file scan completed: {{totalFiles}} files, {{totalSize}}",
       "error": {
         "fatal": "Cache size scan failed: {{errorDetail}}"
+      }
+    },
+    "scheduledRun": {
+      "logRotation": {
+        "starting": "Starting log rotation...",
+        "running": "Rotating log files...",
+        "complete": "Log rotation complete"
+      },
+      "gameImageFetch": {
+        "starting": "Starting game image fetch...",
+        "running": "Fetching game images ({{processed}} of {{total}})...",
+        "complete": "Game images updated"
+      },
+      "steamService": {
+        "starting": "Refreshing Steam data...",
+        "running": "Refreshing Steam depot data...",
+        "complete": "Steam data refreshed"
+      },
+      "cacheSnapshot": {
+        "starting": "Starting cache snapshot...",
+        "running": "Capturing cache snapshot...",
+        "complete": "Cache snapshot complete"
+      },
+      "operationHistoryCleanup": {
+        "starting": "Starting operation history cleanup...",
+        "running": "Removing old operation history ({{processed}} of {{total}})...",
+        "complete": "Operation history cleaned up"
+      },
+      "performanceOptimization": {
+        "starting": "Starting performance optimization...",
+        "running": "Optimizing performance...",
+        "complete": "Performance optimization complete"
+      },
+      "dashboardCacheWarmer": {
+        "starting": "Warming dashboard cache...",
+        "running": "Warming dashboard cache...",
+        "complete": "Dashboard cache warmed"
       }
     },
     "gameDetect": {

@@ -474,6 +474,7 @@ public partial class SteamKit2Service
                                 totalMappings = totalDownloads,
                                 mappingsApplied = updated,
                                 isLoggedOn = IsSteamAuthenticated,
+                                showNotification = _depotRunShowNotification,
                                 stageKey = "signalr.depotMapping.applyingToDownloads",
                                 context = new Dictionary<string, object?> { ["processed"] = processed, ["totalDownloads"] = totalDownloads }
                             });
@@ -511,6 +512,7 @@ public partial class SteamKit2Service
                         totalMappings = totalDownloads,
                         mappingsApplied = updated,
                         isLoggedOn = IsSteamAuthenticated,
+                        showNotification = _depotRunShowNotification,
                         stageKey = "signalr.depotMapping.finalized",
                         context = new Dictionary<string, object?> { ["updated"] = updated }
                     });

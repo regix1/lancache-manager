@@ -175,6 +175,13 @@
         "evictionRemoval": "淘汰移除",
         "cacheSizeScan": "缓存文件扫描",
         "scheduledPrefill": "计划预填充",
+        "logRotation": "日志轮换",
+        "gameImageFetch": "游戏图片获取",
+        "steamServiceRefresh": "Steam 数据刷新",
+        "cacheSnapshot": "缓存快照",
+        "operationHistoryCleanup": "操作历史清理",
+        "performanceOptimization": "性能优化",
+        "dashboardCacheWarmer": "仪表盘缓存预热",
         "bulkRemoval": "批量移除"
       },
       "cacheFilesDeleted": "已删除 {{formattedCount}} 个缓存文件",
@@ -3477,6 +3484,16 @@
       "runOnStartupTooltip": "启用后，该服务除了按计划间隔运行外，还会在应用启动时运行一次。",
       "runOnStartupUpdated": "{{service}} 的启动时运行设置已更新",
       "runOnStartupFailed": "更新 {{service}} 的启动时运行设置失败",
+      "toggleOff": "关",
+      "toggleOn": "开",
+      "notificationsLabel": "通知",
+      "notificationsHelp": "选择此服务的运行通知何时显示：每次运行、仅手动运行，或从不显示。",
+      "notificationModeFailed": "更新 {{service}} 的通知设置失败",
+      "notificationMode": {
+        "all": "所有运行",
+        "manual": "仅手动",
+        "silent": "静默"
+      },
       "gain": "更频繁",
       "loss": "较低频率",
       "everyNMinutes": "每 {{count}} 分钟",
@@ -3701,12 +3718,10 @@
               "maxConcurrencyValue": "固定连接数",
               "interval": "运行频率",
               "intervalHelp": "该平台的运行频率。每个平台独立排程。",
-              "notifications": "通用通知",
-              "notificationsHelp": "在通用通知栏中显示此平台的预填充进度。静默运行仍会在后台继续。",
+              "notifications": "通知",
+              "notificationsHelp": "选择此平台的预填充进度何时显示在通知栏中：每次运行、仅手动运行，或从不显示。",
               "persistenceModeOverride": "重启后",
-              "persistenceModeOverrideHelp": "覆盖上方的全局“重启后”设置，仅适用于此平台。保持“使用全局设置”以遵循上方的默认值。",
-              "visible": "显示",
-              "silent": "静默"
+              "persistenceModeOverrideHelp": "覆盖上方的全局“重启后”设置，仅适用于此平台。保持“使用全局设置”以遵循上方的默认值。"
             },
             "presets": {
               "all": "全部",
@@ -3776,9 +3791,7 @@
           "description": "将缓存目录与数据库进行比较，查看哪些仍存在于磁盘上，哪些已被 nginx 淘汰。保持界面中的\"已驱逐\"徽章准确。",
           "gain": "界面中的淘汰徽章和缓存状态更准确和最新",
           "loss": "界面可能显示过时的淘汰状态 - 标记为已缓存的项目可能实际上已被驱逐，反之亦然",
-          "viewManagement": "查看淘汰设置",
-          "notificationsLabel": "显示计划扫描通知",
-          "notificationsHelp": "手动扫描始终显示通知。启用此选项也将在启动时的自动扫描和定期计划扫描时显示。"
+          "viewManagement": "查看淘汰设置"
         },
         "cacheSizeScan": {
           "displayName": "缓存文件扫描",
@@ -6751,6 +6764,43 @@
       "complete": "缓存文件扫描完成: {{totalFiles}} 个文件，{{totalSize}}",
       "error": {
         "fatal": "缓存大小扫描失败: {{errorDetail}}"
+      }
+    },
+    "scheduledRun": {
+      "logRotation": {
+        "starting": "正在启动日志轮换...",
+        "running": "正在轮换日志文件...",
+        "complete": "日志轮换完成"
+      },
+      "gameImageFetch": {
+        "starting": "正在启动游戏图片获取...",
+        "running": "正在获取游戏图片（{{processed}}/{{total}}）...",
+        "complete": "游戏图片已更新"
+      },
+      "steamService": {
+        "starting": "正在刷新 Steam 数据...",
+        "running": "正在刷新 Steam depot 数据...",
+        "complete": "Steam 数据已刷新"
+      },
+      "cacheSnapshot": {
+        "starting": "正在启动缓存快照...",
+        "running": "正在捕获缓存快照...",
+        "complete": "缓存快照完成"
+      },
+      "operationHistoryCleanup": {
+        "starting": "正在启动操作历史清理...",
+        "running": "正在删除旧的操作历史（{{processed}}/{{total}}）...",
+        "complete": "操作历史已清理"
+      },
+      "performanceOptimization": {
+        "starting": "正在启动性能优化...",
+        "running": "正在优化性能...",
+        "complete": "性能优化完成"
+      },
+      "dashboardCacheWarmer": {
+        "starting": "正在预热仪表盘缓存...",
+        "running": "正在预热仪表盘缓存...",
+        "complete": "仪表盘缓存已预热"
       }
     },
     "gameDetect": {

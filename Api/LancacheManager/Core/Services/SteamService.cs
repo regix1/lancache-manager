@@ -2,7 +2,10 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Extensions;
+using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -16,7 +19,15 @@ public class SteamService : ScopedScheduledBackgroundService
     private readonly HttpClient _httpClient;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IStateService _stateService;
+    private readonly ISignalRNotificationService _notifications;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private readonly SemaphoreSlim _apiSemaphore = new(5);
+
+    private const string StageBase = "signalr.scheduledRun.steamService";
+    private static readonly ScheduledRunEventNames _eventNames = new(
+        SignalREvents.SteamServiceRefreshStarted,
+        SignalREvents.SteamServiceRefreshProgress,
+        SignalREvents.SteamServiceRefreshComplete);
 
     // Fires once SteamKit2Service finishes its startup PICS/GitHub import. Subscribed in the
     // ctor so it is live before any hosted service's ExecuteAsync runs - the DI container
@@ -45,6 +56,7 @@ public class SteamService : ScopedScheduledBackgroundService
     protected override string ServiceName => "SteamService";
     protected override TimeSpan Interval => TimeSpan.FromHours(6);
     public override bool DefaultRunOnStartup => true;
+    protected override bool SupportsNotifications => true;
 
     public override string ServiceKey => "steamService";
 
@@ -76,13 +88,17 @@ public class SteamService : ScopedScheduledBackgroundService
         IConfiguration configuration,
         HttpClient httpClient,
         IServiceScopeFactory scopeFactory,
-        IStateService stateService)
+        IStateService stateService,
+        ISignalRNotificationService notifications,
+        IUnifiedOperationTracker operationTracker)
         : base(serviceProvider, logger, configuration)
     {
         _httpClient = httpClient;
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
         _scopeFactory = scopeFactory;
         _stateService = stateService;
+        _notifications = notifications;
+        _operationTracker = operationTracker;
 
         LoadStateOverrides(stateService);
 
@@ -109,14 +125,40 @@ public class SteamService : ScopedScheduledBackgroundService
         await WaitForDepotMappingStartupAsync(stoppingToken);
 
         // Run initial refresh during startup
-        await RefreshMappingsAsync();
+        await RefreshWithReportingAsync(stoppingToken);
     }
 
     protected override async Task ExecuteWorkAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
-        await RefreshMappingsAsync();
+        await RefreshWithReportingAsync(stoppingToken);
+    }
+
+    /// <summary>
+    /// Wraps a mappings refresh in a run lifecycle so the Schedules card shows progress. The refresh
+    /// reports whether it ended with usable data; the run's single completion is stamped with that
+    /// outcome here so a refresh that failed with no usable data surfaces a failure terminal instead
+    /// of a false success. The PICS refresh work is not countable at this level, so progress is stepped.
+    /// </summary>
+    private async Task RefreshWithReportingAsync(CancellationToken stoppingToken)
+    {
+        var show = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        await using var reporter = new ScheduledRunReporter(
+            _notifications,
+            _operationTracker,
+            ServiceKey,
+            OperationType.SteamServiceRefresh,
+            _eventNames,
+            $"{StageBase}.complete",
+            show,
+            stoppingToken);
+
+        await reporter.StartAsync($"{StageBase}.starting");
+        var refreshed = await RefreshMappingsAsync(reporter);
+        await reporter.CompleteAsync(
+            refreshed,
+            error: refreshed ? null : "Steam metadata refresh failed; no usable depot data is available");
     }
 
     private async Task WaitForDepotMappingStartupAsync(CancellationToken stoppingToken)
@@ -149,16 +191,26 @@ public class SteamService : ScopedScheduledBackgroundService
     #region Steam API Data Management
 
     /// <summary>
-    /// Refresh depot mappings and app info from Steam API
+    /// Refresh depot mappings and app info from Steam API. Reports a stepped progress milestone
+    /// through the supplied reporter (the run completion is owned by the caller). Returns whether the
+    /// refresh ended with usable data: <c>true</c> when the refresh's database read succeeded
+    /// (including the cached early return; a successful read with zero mappings still counts, since a
+    /// fresh database is legitimately empty), <c>false</c> when both the refresh and the database
+    /// fallback failed to read, leaving nothing usable to serve. The caller stamps the run terminal
+    /// with this outcome, so <c>false</c> means "failed / no usable data".
     /// </summary>
-    private async Task RefreshMappingsAsync()
+    private async Task<bool> RefreshMappingsAsync(ScheduledRunReporter reporter)
     {
         try
         {
             _logger.LogInformation("Refreshing Steam depot mappings and app info...");
 
-            // Load from database first
-            await LoadFromDatabaseAsync();
+            await reporter.ReportAsync(30, $"{StageBase}.running");
+
+            // Load from database first; the load reports whether its read succeeded.
+            var loaded = await LoadFromDatabaseAsync();
+
+            await reporter.ReportAsync(80, $"{StageBase}.running");
 
             // Check if we need to refresh from Steam API (daily refresh)
             if (DateTime.UtcNow - _lastRefresh < TimeSpan.FromDays(1) && _steamApps.Count > 0)
@@ -169,7 +221,16 @@ public class SteamService : ScopedScheduledBackgroundService
                     _depotMappings.Count,
                     _totalDepotMappingCount);
                 _isReady = true;
-                return;
+                return true;
+            }
+
+            if (!loaded)
+            {
+                // The database read failed, so this refresh produced nothing fresh. Only data left
+                // over from an earlier successful load is usable; without it the run must report
+                // failure and the service must not claim readiness.
+                _isReady = _steamApps.Count > 0;
+                return _isReady;
             }
 
             // App names are now provided by PICS data - no need to refresh from Steam Web API V2
@@ -183,18 +244,21 @@ public class SteamService : ScopedScheduledBackgroundService
                 _steamApps.Count,
                 _depotMappings.Count,
                 _totalDepotMappingCount);
+
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error refreshing Steam mappings");
 
-            // Try to load from database as fallback
-            if (_steamApps.Count == 0)
-            {
-                await LoadFromDatabaseAsync();
-            }
+            // Try to load from database as fallback. The fallback reports whether its read
+            // succeeded (skipped when in-memory data already exists); when the refresh failed AND
+            // the fallback read failed, nothing usable remains, so the run reports failure and the
+            // service does not claim readiness.
+            var fallbackLoaded = _steamApps.Count > 0 || await LoadFromDatabaseAsync();
 
-            _isReady = _steamApps.Count > 0;
+            _isReady = fallbackLoaded;
+            return _isReady;
         }
     }
 
@@ -203,7 +267,13 @@ public class SteamService : ScopedScheduledBackgroundService
 
     #region Database Operations
 
-    private async Task LoadFromDatabaseAsync()
+    /// <summary>
+    /// Loads depot mappings from the database into the in-memory maps. Returns whether the read
+    /// succeeded: a successful read that finds zero mappings still counts as success (a fresh
+    /// database is legitimately empty), while a read that threw returns false and leaves the
+    /// current in-memory maps untouched.
+    /// </summary>
+    private async Task<bool> LoadFromDatabaseAsync()
     {
         try
         {
@@ -235,10 +305,13 @@ public class SteamService : ScopedScheduledBackgroundService
                 "Loaded {DepotCount} depots with {MappingCount} mappings from database",
                 grouped.Count,
                 _totalDepotMappingCount);
+
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading depot mappings from database");
+            return false;
         }
     }
 

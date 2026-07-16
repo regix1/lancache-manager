@@ -118,8 +118,8 @@ export function ScheduledPrefillPlatformsPanel({
                 </span>
                 <span className="scheduled-prefill-platforms__nav-badges">
                   {/* Operational state stays color-coded (green = active, red = inactive), while
-                      notification visibility uses one purple hue: a filled pill = visible, a
-                      dotted outline = silent, so it reads as its own on/off axis. */}
+                      notification mode uses its own axis: filled purple = all runs, filled blue =
+                      manual runs only, dotted outline = silent. */}
                   <Badge
                     variant={serviceConfig.enabled ? 'success' : 'error'}
                     className="scheduled-prefill-platforms__nav-badge"
@@ -145,13 +145,17 @@ export function ScheduledPrefillPlatformsPanel({
                   </Badge>
                   <Badge
                     variant={
-                      serviceConfig.showNotification !== false ? 'waiting' : 'waiting-outline'
+                      serviceConfig.notificationMode === 'silent'
+                        ? 'waiting-outline'
+                        : serviceConfig.notificationMode === 'manual'
+                          ? 'info'
+                          : 'waiting'
                     }
                     className="scheduled-prefill-platforms__nav-badge"
                   >
-                    {serviceConfig.showNotification !== false
-                      ? t(`${baseKey}.platforms.status.visible`)
-                      : t(`${baseKey}.platforms.status.silent`)}
+                    {t(
+                      `management.schedules.notificationMode.${serviceConfig.notificationMode ?? 'all'}`
+                    )}
                   </Badge>
                 </span>
               </button>

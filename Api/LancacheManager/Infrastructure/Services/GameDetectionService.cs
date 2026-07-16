@@ -50,11 +50,15 @@ public class GameDetectionService : ScheduledBackgroundService
     /// </summary>
     private async Task QueueDetectionAsync(string runKind, CancellationToken ct)
     {
+        // Stamp the run-stable display flag from the effective mode and the trigger that produced this
+        // run; the detection service carries it verbatim through every lifecycle event.
+        var showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+
         async Task<Guid?> StartDetectionAsync()
         {
             try
             {
-                return await _detectionService.StartDetectionAsync(incremental: true);
+                return await _detectionService.StartDetectionAsync(incremental: true, showNotification: showNotification);
             }
             catch (InvalidOperationException ex)
             {
@@ -87,6 +91,8 @@ public class GameDetectionService : ScheduledBackgroundService
     }
 
     protected override string ServiceName => "GameDetection";
+
+    protected override bool SupportsNotifications => true;
 
     public override bool DefaultRunOnStartup => false;
 

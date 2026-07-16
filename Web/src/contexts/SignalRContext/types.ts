@@ -249,6 +249,29 @@ export const SIGNALR_EVENTS = [
   'ScheduledPrefillProgress',
   'ScheduledPrefillCompleted',
 
+  // Scheduled service runs (7 pipeline-less maintenance services)
+  'LogRotationStarted',
+  'LogRotationProgress',
+  'LogRotationComplete',
+  'GameImageFetchStarted',
+  'GameImageFetchProgress',
+  'GameImageFetchComplete',
+  'SteamServiceRefreshStarted',
+  'SteamServiceRefreshProgress',
+  'SteamServiceRefreshComplete',
+  'CacheSnapshotStarted',
+  'CacheSnapshotProgress',
+  'CacheSnapshotComplete',
+  'OperationHistoryCleanupStarted',
+  'OperationHistoryCleanupProgress',
+  'OperationHistoryCleanupComplete',
+  'PerformanceOptimizationStarted',
+  'PerformanceOptimizationProgress',
+  'PerformanceOptimizationComplete',
+  'DashboardCacheWarmerStarted',
+  'DashboardCacheWarmerProgress',
+  'DashboardCacheWarmerComplete',
+
   // Metrics Security
   'MetricsSecurityUpdated',
 
@@ -563,6 +586,7 @@ export interface GameDetectionStartedEvent {
   /** @deprecated use stageKey instead */
   message?: string;
   timestamp?: string;
+  showNotification?: boolean;
 }
 
 export interface GameDetectionProgressEvent {
@@ -577,6 +601,7 @@ export interface GameDetectionProgressEvent {
   servicesDetected?: number;
   gamesProcessed?: number;
   totalGames?: number;
+  showNotification?: boolean;
 }
 
 export interface GameDetectionCompleteEvent {
@@ -593,6 +618,7 @@ export interface GameDetectionCompleteEvent {
   totalServicesDetected?: number;
   newGamesCount?: number;
   timestamp?: string;
+  showNotification?: boolean;
 }
 
 // Database Reset Events
@@ -671,6 +697,7 @@ export interface DepotMappingStartedEvent {
   percentComplete?: number;
   progressPercent?: number;
   startTime?: string;
+  showNotification?: boolean;
 }
 
 export interface DepotMappingProgressEvent {
@@ -693,6 +720,7 @@ export interface DepotMappingProgressEvent {
   processedApps?: number;
   failedBatches?: number;
   remainingApps?: number[];
+  showNotification?: boolean;
 }
 
 export interface DepotMappingCompleteEvent {
@@ -710,6 +738,7 @@ export interface DepotMappingCompleteEvent {
   totalApps?: number;
   totalBatches?: number;
   depotMappingsFound?: number;
+  showNotification?: boolean;
 }
 
 export interface SteamSessionErrorEvent {
@@ -930,6 +959,7 @@ export interface EpicMappingProgressEvent {
   /** @deprecated use stageKey instead */
   message: string;
   cancelled?: boolean;
+  showNotification?: boolean;
 }
 
 export interface EpicGameMappingsUpdatedEvent {
@@ -955,6 +985,7 @@ export interface XboxMappingProgressEvent {
   cancelled?: boolean;
   /** True only on the final success/failure/cancel event; interim progress ticks are false. */
   isTerminal?: boolean;
+  showNotification?: boolean;
 }
 
 export interface ScheduledPrefillStartedEvent {
@@ -987,6 +1018,44 @@ export interface ScheduledPrefillCompletedEvent {
   showNotification?: boolean;
 }
 
+// ============================================================================
+// Scheduled Service Run Events
+// ============================================================================
+// One shared payload trio reused by every per-service event triple (log rotation,
+// game image fetch, Steam refresh, cache snapshot, operation-history cleanup,
+// performance optimization, dashboard cache warmer). Lifecycle events are ALWAYS
+// emitted; `showNotification` (stamped once per run from the effective mode + trigger)
+// gates whether the frontend displays a card.
+
+export interface ScheduledRunStartedEvent {
+  serviceKey: string;
+  operationId: string;
+  stageKey?: string;
+  context?: Record<string, string | number | boolean>;
+  showNotification?: boolean;
+}
+
+export interface ScheduledRunProgressEvent {
+  serviceKey: string;
+  operationId: string;
+  status: OperationStatus;
+  stageKey?: string;
+  context?: Record<string, string | number | boolean>;
+  percentComplete: number;
+  showNotification?: boolean;
+}
+
+export interface ScheduledRunCompleteEvent {
+  serviceKey: string;
+  operationId: string;
+  success: boolean;
+  stageKey?: string;
+  context?: Record<string, string | number | boolean>;
+  percentComplete: number;
+  error?: string;
+  showNotification?: boolean;
+}
+
 // Mirrors the backend payload emitted by XboxMappingService.MergeDaemonCatalogCoreAsync
 // ({ source, newMappings, newPatterns }). Xbox tracks newly discovered games (newMappings) and
 // newly stored CDN URL fragments (newPatterns); it does NOT compute a running total / updated count
@@ -1000,9 +1069,10 @@ export interface XboxGameMappingsUpdatedEvent {
 export interface EvictionScanStartedEvent {
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
-  /** @deprecated use stageKey instead */
-  message: string;
+  /** @deprecated use stageKey instead. The C# records never emit this. */
+  message?: string;
   operationId: string;
+  showNotification?: boolean;
 }
 
 export interface EvictionScanProgressEvent {
@@ -1010,13 +1080,14 @@ export interface EvictionScanProgressEvent {
   status: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
-  /** @deprecated use stageKey instead */
-  message: string;
+  /** @deprecated use stageKey instead. The C# records never emit this. */
+  message?: string;
   percentComplete: number;
   processed: number;
   totalEstimate: number;
   evicted: number;
   unEvicted: number;
+  showNotification?: boolean;
 }
 
 export interface EvictionScanCompleteEvent {
@@ -1024,19 +1095,21 @@ export interface EvictionScanCompleteEvent {
   operationId: string;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
-  /** @deprecated use stageKey instead */
-  message: string;
+  /** @deprecated use stageKey instead. The C# records never emit this. */
+  message?: string;
   processed: number;
   evicted: number;
   unEvicted: number;
   prunedOrphans?: number;
   error?: string;
+  showNotification?: boolean;
 }
 
 export interface CacheSizeScanStartedEvent {
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   operationId: string;
+  showNotification?: boolean;
 }
 
 export interface CacheSizeScanProgressEvent {
@@ -1049,6 +1122,7 @@ export interface CacheSizeScanProgressEvent {
   totalDirectories: number;
   totalFiles: number;
   totalBytes: number;
+  showNotification?: boolean;
 }
 
 export interface CacheSizeScanCompleteEvent {
@@ -1060,6 +1134,7 @@ export interface CacheSizeScanCompleteEvent {
   totalBytes: number;
   formattedSize?: string;
   error?: string;
+  showNotification?: boolean;
 }
 
 /**
@@ -1094,6 +1169,7 @@ export interface EvictionRemovalStartedEvent {
   gameName?: string;
   gameAppId?: string;
   epicAppId?: string;
+  showNotification?: boolean;
 }
 
 export interface EvictionRemovalProgressEvent {
@@ -1106,6 +1182,7 @@ export interface EvictionRemovalProgressEvent {
   percentComplete?: number;
   downloadsRemoved?: number;
   logEntriesRemoved?: number;
+  showNotification?: boolean;
 }
 
 export interface EvictionRemovalCompleteEvent {
@@ -1119,4 +1196,5 @@ export interface EvictionRemovalCompleteEvent {
   downloadsRemoved?: number;
   logEntriesRemoved?: number;
   error?: string;
+  showNotification?: boolean;
 }

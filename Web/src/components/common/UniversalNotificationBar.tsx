@@ -392,9 +392,9 @@ const renderProgressBar = ({ notification, t }: ContentRendererProps) => {
     return null;
   }
 
-  // Some types don't show progress bars. xbox_game_mapping (login + catalog resolve) is a
-  // quick operation with no meaningful granular progress, so it shows a status message only.
-  if (notification.type === 'service_removal' || notification.type === 'xbox_game_mapping') {
+  // Some types don't show a progress bar. service_removal reports status text only. Cards that
+  // carry no numeric progress still render no bar via the `progress === undefined` guard below.
+  if (notification.type === 'service_removal') {
     return null;
   }
 

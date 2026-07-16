@@ -54,7 +54,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         {
             ServiceId = platform,
             Enabled = true,
-            ShowNotification = false,
+            NotificationMode = NotificationMode.Silent,
             IntervalHours = 24,
             Preset = ScheduledPrefillPreset.All,
             TopCount = null,
@@ -71,9 +71,11 @@ public class ScheduledPrefillAnonymousRunPathTests
         var runServiceAsync = typeof(ScheduledPrefillService).GetMethod(
             "RunServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
+        // The run-level visibility flag is false here: the single due platform is Silent, so the OR
+        // across due platforms is false, and every relayed event must carry showNotification=false.
         var result = await (Task<ScheduledPrefillServiceRunResult>)runServiceAsync.Invoke(
             scheduledPrefillService,
-            new object?[] { serviceConfig, "op-1", daemonProvider, notifications, config, CancellationToken.None })!;
+            new object?[] { serviceConfig, "op-1", daemonProvider, notifications, config, false, CancellationToken.None })!;
 
         scheduledPrefillService.Dispose();
 

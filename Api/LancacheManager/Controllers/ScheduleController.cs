@@ -78,6 +78,49 @@ public class ScheduleController : ControllerBase
     }
 
     /// <summary>
+    /// Updates how the service surfaces its run notifications.
+    /// </summary>
+    [HttpPut("{serviceKey}/notificationMode")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<ActionResult> SetNotificationModeAsync(string serviceKey, [FromBody] NotificationMode mode)
+    {
+        var info = _registry.Get(serviceKey);
+        if (info == null)
+        {
+            return NotFound(ApiResponse.NotFound("Schedule"));
+        }
+
+        // A service that does not surface run notifications has no generic notification mode to set.
+        // Persisting one would be dead state, and scheduledPrefill (whose mode is per-platform, so it
+        // never opts in here) must be rejected rather than silently no-op'd.
+        if (!info.SupportsNotifications)
+        {
+            return Conflict(ApiResponse.Conflict("This schedule does not support run notifications."));
+        }
+
+        _registry.SetNotificationMode(serviceKey, mode);
+        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Returns the live run status for a service, used by the notification recovery pipeline to
+    /// rehydrate an in-progress card after a page refresh. Read-only, so it stays <see cref="AuthorizeAttribute"/>
+    /// (guest-readable) rather than AdminOnly, matching the other recovery status endpoints.
+    /// </summary>
+    [HttpGet("{serviceKey}/run-status")]
+    public ActionResult<ScheduleRunStatus> GetRunStatus(string serviceKey)
+    {
+        var status = _registry.GetRunStatus(serviceKey);
+        if (status == null)
+        {
+            return NotFound(ApiResponse.NotFound("Schedule"));
+        }
+
+        return Ok(status);
+    }
+
+    /// <summary>
     /// Triggers an immediate run of the service, bypassing the scheduled interval.
     /// </summary>
     [HttpPost("{serviceKey}/run")]

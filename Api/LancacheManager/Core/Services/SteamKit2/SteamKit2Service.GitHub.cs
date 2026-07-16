@@ -45,6 +45,7 @@ public partial class SteamKit2Service
                 stageKey = "signalr.depotMapping.github.downloading",
                 context = new Dictionary<string, object?>(),
                 isLoggedOn = IsSteamAuthenticated,
+                showNotification = _depotRunShowNotification,
                 timestamp = DateTime.UtcNow
             });
 
@@ -165,6 +166,7 @@ public partial class SteamKit2Service
                 context = new Dictionary<string, object?> { ["totalMappings"] = totalMappings },
                 totalMappings,
                 isLoggedOn = IsSteamAuthenticated,
+                showNotification = _depotRunShowNotification,
                 timestamp = DateTime.UtcNow
             });
 
@@ -206,6 +208,7 @@ public partial class SteamKit2Service
                 stageKey = "signalr.depotMapping.cancelled",
                 context = new Dictionary<string, object?>(),
                 isLoggedOn = IsSteamAuthenticated,
+                showNotification = _depotRunShowNotification,
                 timestamp = DateTime.UtcNow
             });
 
@@ -238,6 +241,7 @@ public partial class SteamKit2Service
             context = new Dictionary<string, object?> { ["errorDetail"] = errorMessage },
             error = errorMessage,
             isLoggedOn = IsSteamAuthenticated,
+            showNotification = _depotRunShowNotification,
             timestamp = DateTime.UtcNow
         });
     }
@@ -252,6 +256,7 @@ public partial class SteamKit2Service
             scanMode = DepotScanMode.Github,
             message,
             isLoggedOn = IsSteamAuthenticated,
+            showNotification = _depotRunShowNotification,
             timestamp = DateTime.UtcNow
         });
     }

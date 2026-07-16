@@ -122,6 +122,18 @@ public class AppState
     // this via the Schedules UI and the value is loaded by each service in its constructor.
     public Dictionary<string, bool> ServiceRunOnStartup { get; set; } = new();
 
+    // Per-service notification-mode overrides (keyed by ServiceKey).
+    // Absent key = use the service's hardcoded DefaultNotificationMode. The user controls this via
+    // the Schedules UI and the value is loaded by each service in its constructor.
+    public Dictionary<string, NotificationMode> ServiceNotificationMode { get; set; } = new();
+
+    // Set the first time the legacy EvictionScanNotifications flag is migrated into
+    // ServiceNotificationMode["cacheReconciliation"]. Absence of the per-service key alone can't
+    // tell "never migrated" apart from "user reset to defaults" - Reset to Defaults removes the
+    // key but must NOT be reinterpreted as an unmigrated install on the next load, or the legacy
+    // flag would keep resurrecting the old value every restart. Never cleared by a reset.
+    public bool EvictionNotificationsMigrated { get; set; } = false;
+
     // Scheduled prefill configuration (per-service settings + per-run runtime guards).
     // NOTE: the schedule INTERVAL itself is stored in ServiceIntervals["scheduledPrefill"]
     // (hours) like every other ConfigurableScheduledService; this object never holds the interval.

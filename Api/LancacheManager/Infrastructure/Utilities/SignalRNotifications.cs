@@ -258,7 +258,10 @@ public static class SignalRNotifications
         Dictionary<string, object?>? Context = null,
         // Additive terminal field (appended so positional callers are unaffected) — guarantees the
         // shared IOperationComplete contract on the failure path.
-        string? Error = null
+        string? Error = null,
+        // Run-stable display flag: the terminal carries the same visibility the run started with so a
+        // silent run's terminal cannot resurrect a card. Appended to keep positional callers safe.
+        bool ShowNotification = true
     ) : ICompletionNotification, IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;
@@ -416,7 +419,10 @@ public static class SignalRNotifications
         Models.DepotScanMode? ScanMode = null,
         bool IsLoggedOn = false,
         string? Error = null,
-        DateTime? Timestamp = null
+        DateTime? Timestamp = null,
+        // Run-stable display flag stamped from the service's notification mode + run trigger. The
+        // terminal event is always emitted; the frontend gates whether the card is shown.
+        bool ShowNotification = true
     ) : IOperationComplete
     {
         OperationStatus IOperationComplete.Status =>
@@ -443,7 +449,8 @@ public static class SignalRNotifications
         bool Cancelled = false,
         string? Error = null,
         Dictionary<string, object?>? Context = null,
-        string? Message = null
+        string? Message = null,
+        bool ShowNotification = true
     ) : IOperationComplete;
 
     /// <summary>

@@ -650,7 +650,12 @@ public class GamesController : ControllerBase
             return Ok(new ActiveDetectionResponse { IsProcessing = false, Operation = null });
         }
 
-        return Ok(new ActiveDetectionResponse { IsProcessing = true, Operation = activeOperation });
+        return Ok(new ActiveDetectionResponse
+        {
+            IsProcessing = true,
+            Operation = activeOperation,
+            ShowNotification = activeOperation.ShowNotification
+        });
     }
 
     /// <summary>

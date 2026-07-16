@@ -218,6 +218,32 @@ public static class SignalREvents
     public const string ScheduledPrefillProgress = "ScheduledPrefillProgress";
     public const string ScheduledPrefillCompleted = "ScheduledPrefillCompleted";
 
+    // Scheduled service runs (the pipeline-less maintenance services on the Schedules page).
+    // Each service owns its own event-name triple so lifecycle events stay operationId-scoped per
+    // service - the standard notification-handler path subscribes one entry per event name and a
+    // shared event name would let one running card consume a concurrent service's progress.
+    public const string LogRotationStarted = "LogRotationStarted";
+    public const string LogRotationProgress = "LogRotationProgress";
+    public const string LogRotationComplete = "LogRotationComplete";
+    public const string GameImageFetchStarted = "GameImageFetchStarted";
+    public const string GameImageFetchProgress = "GameImageFetchProgress";
+    public const string GameImageFetchComplete = "GameImageFetchComplete";
+    public const string SteamServiceRefreshStarted = "SteamServiceRefreshStarted";
+    public const string SteamServiceRefreshProgress = "SteamServiceRefreshProgress";
+    public const string SteamServiceRefreshComplete = "SteamServiceRefreshComplete";
+    public const string CacheSnapshotStarted = "CacheSnapshotStarted";
+    public const string CacheSnapshotProgress = "CacheSnapshotProgress";
+    public const string CacheSnapshotComplete = "CacheSnapshotComplete";
+    public const string OperationHistoryCleanupStarted = "OperationHistoryCleanupStarted";
+    public const string OperationHistoryCleanupProgress = "OperationHistoryCleanupProgress";
+    public const string OperationHistoryCleanupComplete = "OperationHistoryCleanupComplete";
+    public const string PerformanceOptimizationStarted = "PerformanceOptimizationStarted";
+    public const string PerformanceOptimizationProgress = "PerformanceOptimizationProgress";
+    public const string PerformanceOptimizationComplete = "PerformanceOptimizationComplete";
+    public const string DashboardCacheWarmerStarted = "DashboardCacheWarmerStarted";
+    public const string DashboardCacheWarmerProgress = "DashboardCacheWarmerProgress";
+    public const string DashboardCacheWarmerComplete = "DashboardCacheWarmerComplete";
+
     // Status Check (DNS diagnostics)
     public const string StatusCheckProgress = "StatusCheckProgress";
     public const string StatusCheckComplete = "StatusCheckComplete";

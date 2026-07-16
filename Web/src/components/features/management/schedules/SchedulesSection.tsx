@@ -7,7 +7,8 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import HighlightGlow from '@components/ui/HighlightGlow';
 import type { HighlightGlowVariant } from '@utils/highlightGlow';
-import { Checkbox } from '@components/ui/Checkbox';
+import { ToggleSwitch } from '@components/ui/ToggleSwitch';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { HelpPopover, HelpNote } from '@components/ui/HelpPopover';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
@@ -17,7 +18,7 @@ import ScheduleIntervalPicker from './ScheduleIntervalPicker';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useManagerLoading } from '@hooks/useManagerLoading';
-import type { ServiceScheduleInfo } from './types';
+import { isNotificationMode, type NotificationMode, type ServiceScheduleInfo } from './types';
 import { formatLastRun } from './scheduleFormatting';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
@@ -160,8 +161,7 @@ interface ScheduleCardProps {
   justCompleted: boolean;
   completedVariant: HighlightGlowVariant;
   onNavigateToEvictionSettings?: () => void;
-  evictionScanNotifications?: boolean;
-  onEvictionScanNotificationsChange?: (enabled: boolean) => Promise<void>;
+  onNotificationModeChange: (key: string, mode: NotificationMode) => Promise<void>;
   onNavigateToSteamApi?: () => void;
 }
 
@@ -178,8 +178,7 @@ const ScheduleCard = memo(function ScheduleCard({
   justCompleted,
   completedVariant,
   onNavigateToEvictionSettings,
-  evictionScanNotifications,
-  onEvictionScanNotificationsChange,
+  onNotificationModeChange,
   onNavigateToSteamApi
 }: ScheduleCardProps) {
   const { t } = useTranslation();
@@ -208,8 +207,8 @@ const ScheduleCard = memo(function ScheduleCard({
   }, [service.key, onRunNow]);
 
   const handleRunOnStartupChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      onRunOnStartupChange(service.key, e.target.checked);
+    (value: string) => {
+      onRunOnStartupChange(service.key, value === 'true');
     },
     [service.key, onRunOnStartupChange]
   );
@@ -221,11 +220,12 @@ const ScheduleCard = memo(function ScheduleCard({
     [onDepotScanModeChange]
   );
 
-  const handleEvictionScanNotificationsChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      void onEvictionScanNotificationsChange?.(e.target.checked);
+  const handleNotificationModeChange = useCallback(
+    (value: string) => {
+      if (!isNotificationMode(value)) return;
+      void onNotificationModeChange(service.key, value);
     },
-    [onEvictionScanNotificationsChange]
+    [service.key, onNotificationModeChange]
   );
 
   // NOTE: do NOT include a "saving" flag here. Toggling isDisabled on and off for the
@@ -370,29 +370,64 @@ const ScheduleCard = memo(function ScheduleCard({
           Also hidden for scheduled prefill, where startup-vs-interval is set per platform. */}
           {service.intervalHours !== -1 && !isScheduledPrefill && (
             <div className="schedule-startup-row">
-              <Checkbox
-                id={`run-on-startup-${service.key}`}
-                checked={service.runOnStartup}
-                disabled={isDisabled}
+              <span className="schedule-row-label">{t('management.schedules.runOnStartup')}</span>
+              <ToggleSwitch
+                options={[
+                  {
+                    value: 'false',
+                    label: t('management.schedules.toggleOff'),
+                    activeColor: 'default'
+                  },
+                  {
+                    value: 'true',
+                    label: t('management.schedules.toggleOn'),
+                    activeColor: 'success'
+                  }
+                ]}
+                value={service.runOnStartup ? 'true' : 'false'}
                 onChange={handleRunOnStartupChange}
+                disabled={isDisabled}
                 title={t('management.schedules.runOnStartupTooltip')}
-                label={t('management.schedules.runOnStartup')}
+                size="sm"
               />
             </div>
           )}
 
-          {/* Scheduled-scan notification toggle lives on this card (not the Storage
-          eviction settings) because it governs the scheduled runs configured here.
-          Saves immediately, like the other card toggles. */}
-          {isCacheReconciliation && onEvictionScanNotificationsChange && (
-            <div className="schedule-startup-row">
-              <Checkbox
-                id="eviction-scan-notifications"
-                checked={evictionScanNotifications ?? false}
-                disabled={isDisabled}
-                onChange={handleEvictionScanNotificationsChange}
-                title={t('management.schedules.services.cacheReconciliation.notificationsHelp')}
-                label={t('management.schedules.services.cacheReconciliation.notificationsLabel')}
+          {/* Notifications control lives on this card (not the Storage eviction
+          settings) because it governs the scheduled runs configured here. Only shown
+          for services with a real notification pipeline. Saves immediately, like the
+          other card toggles. */}
+          {service.supportsNotifications && (
+            <div
+              className="schedule-notifications-row"
+              title={t('management.schedules.notificationsHelp')}
+            >
+              <span className="schedule-row-label">
+                {t('management.schedules.notificationsLabel')}
+              </span>
+              <SegmentedControl
+                className="schedule-segment-uniform"
+                options={[
+                  {
+                    value: 'all',
+                    label: t('management.schedules.notificationMode.all'),
+                    disabled: isDisabled
+                  },
+                  {
+                    value: 'manual',
+                    label: t('management.schedules.notificationMode.manual'),
+                    disabled: isDisabled
+                  },
+                  {
+                    value: 'silent',
+                    label: t('management.schedules.notificationMode.silent'),
+                    disabled: isDisabled
+                  }
+                ]}
+                value={service.notificationMode}
+                onChange={handleNotificationModeChange}
+                showLabels
+                size="sm"
               />
             </div>
           )}
@@ -474,32 +509,6 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     }
   }, [t]);
 
-  // Eviction scan notification toggle (rendered on the cacheReconciliation card).
-  // Saves immediately like the other card toggles; the mode argument is omitted so
-  // the display mode configured in Storage stays untouched.
-  const [evictionScanNotifications, setEvictionScanNotifications] = useState(false);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    ApiService.getEvictionSettings(controller.signal)
-      .then((response) => setEvictionScanNotifications(response.evictionScanNotifications))
-      .catch(() => {
-        /* leave default; the toggle corrects itself on the next successful save/load */
-      });
-    return () => controller.abort();
-  }, []);
-
-  const handleEvictionScanNotificationsChange = useCallback(async (enabled: boolean) => {
-    setEvictionScanNotifications(enabled);
-    try {
-      const response = await ApiService.updateEvictionSettings(undefined, enabled);
-      setEvictionScanNotifications(response.evictionScanNotifications);
-    } catch {
-      // Revert silently - the server rejected the change
-      setEvictionScanNotifications(!enabled);
-    }
-  }, []);
-
   // Initial load
   useEffect(() => {
     setLoading(true);
@@ -562,6 +571,30 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           type: 'generic',
           status: 'failed',
           message: t('management.schedules.runOnStartupFailed', { service: displayName }),
+          details: { notificationType: 'error' }
+        });
+      }
+    },
+    [fetchSchedules, addNotification, t]
+  );
+
+  const handleNotificationModeChange = useCallback(
+    async (key: string, mode: NotificationMode) => {
+      const displayName = t(`management.schedules.services.${key}.displayName`);
+      // Optimistic update so the segmented control flips immediately even before the server responds
+      setSchedules((prev) =>
+        prev.map((s) => (s.key === key ? { ...s, notificationMode: mode } : s))
+      );
+      try {
+        await ApiService.setScheduleNotificationMode(key, mode);
+        await fetchSchedules();
+      } catch {
+        // Revert optimistic update by refetching authoritative state
+        await fetchSchedules();
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: t('management.schedules.notificationModeFailed', { service: displayName }),
           details: { notificationType: 'error' }
         });
       }
@@ -779,14 +812,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
               onNavigateToSteamApi={
                 service.key === 'depotMapping' ? onNavigateToSteamApi : undefined
               }
-              evictionScanNotifications={
-                service.key === 'cacheReconciliation' ? evictionScanNotifications : undefined
-              }
-              onEvictionScanNotificationsChange={
-                service.key === 'cacheReconciliation'
-                  ? handleEvictionScanNotificationsChange
-                  : undefined
-              }
+              onNotificationModeChange={handleNotificationModeChange}
             />
           </div>
         ))}

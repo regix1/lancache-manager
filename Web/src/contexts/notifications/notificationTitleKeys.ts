@@ -19,6 +19,13 @@ export const NOTIFICATION_TITLE_KEYS: Record<NotificationType, string | null> = 
   eviction_removal: 'common.notifications.titles.evictionRemoval',
   cache_size_scan: 'common.notifications.titles.cacheSizeScan',
   scheduled_prefill: 'common.notifications.titles.scheduledPrefill',
+  log_rotation: 'common.notifications.titles.logRotation',
+  game_image_fetch: 'common.notifications.titles.gameImageFetch',
+  steam_service_refresh: 'common.notifications.titles.steamServiceRefresh',
+  cache_snapshot: 'common.notifications.titles.cacheSnapshot',
+  operation_history_cleanup: 'common.notifications.titles.operationHistoryCleanup',
+  performance_optimization: 'common.notifications.titles.performanceOptimization',
+  dashboard_cache_warmer: 'common.notifications.titles.dashboardCacheWarmer',
   bulk_removal: 'common.notifications.titles.bulkRemoval',
   generic: null
 };

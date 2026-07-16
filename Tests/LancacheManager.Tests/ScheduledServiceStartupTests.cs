@@ -31,6 +31,7 @@ public class ScheduledServiceStartupTests
             stateService,
             CreateDefaultProxy<ISignalRNotificationService>(),
             CreateDefaultProxy<IImageCacheService>(),
+            CreateDefaultProxy<IUnifiedOperationTracker>(),
             calls);
 
         await service.InvokeStartupAsync(CancellationToken.None);
@@ -83,7 +84,9 @@ public class ScheduledServiceStartupTests
         var service = new TestOperationHistoryCleanupService(
             NullLogger<OperationHistoryCleanupService>.Instance,
             new ConfigurationBuilder().Build(),
-            stateService);
+            stateService,
+            CreateDefaultProxy<ISignalRNotificationService>(),
+            CreateDefaultProxy<IUnifiedOperationTracker>());
 
         await service.InvokeStartupAsync(CancellationToken.None);
 
@@ -105,7 +108,9 @@ public class ScheduledServiceStartupTests
         var service = new TestOperationHistoryCleanupService(
             NullLogger<OperationHistoryCleanupService>.Instance,
             new ConfigurationBuilder().Build(),
-            stateService);
+            stateService,
+            CreateDefaultProxy<ISignalRNotificationService>(),
+            CreateDefaultProxy<IUnifiedOperationTracker>());
 
         Assert.Equal(TimeSpan.FromMinutes(30), service.EffectiveInterval);
         Assert.False(service.RunOnStartup);
@@ -191,8 +196,10 @@ public class ScheduledServiceStartupTests
         public TestOperationHistoryCleanupService(
             ILogger<OperationHistoryCleanupService> logger,
             IConfiguration configuration,
-            IStateService stateService)
-            : base(logger, configuration, stateService)
+            IStateService stateService,
+            ISignalRNotificationService notifications,
+            IUnifiedOperationTracker operationTracker)
+            : base(logger, configuration, stateService, notifications, operationTracker)
         {
         }
 
@@ -211,8 +218,9 @@ public class ScheduledServiceStartupTests
             IStateService stateService,
             ISignalRNotificationService notifications,
             IImageCacheService imageCacheService,
+            IUnifiedOperationTracker operationTracker,
             ICollection<string> calls)
-            : base(serviceProvider, logger, configuration, stateService, notifications, imageCacheService)
+            : base(serviceProvider, logger, configuration, stateService, notifications, imageCacheService, operationTracker)
         {
             _calls = calls;
         }

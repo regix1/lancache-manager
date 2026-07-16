@@ -832,7 +832,7 @@ export function createDepotMappingCompletionHandler(
   };
 
   /** Handles depot mapping cancellation */
-  const handleCancelled = (): void => {
+  const handleCancelled = (allowCreate: boolean): void => {
     localStorage.removeItem(storageKey);
     const newStartedAt = new Date();
 
@@ -840,6 +840,9 @@ export function createDepotMappingCompletionHandler(
       const existing = prev.find((n) => n.id === notificationId);
 
       if (!existing) {
+        // A silent run streams its lifecycle events but must not create a card; only an already
+        // visible (e.g. recovered) card completes.
+        if (!allowCreate) return prev;
         // Fast completion - create notification for cancellation
         const newNotification: UnifiedNotification = {
           id: notificationId,
@@ -871,7 +874,7 @@ export function createDepotMappingCompletionHandler(
   };
 
   /** Handles successful depot mapping completion */
-  const handleSuccess = (event: DepotMappingCompleteEvent): void => {
+  const handleSuccess = (event: DepotMappingCompleteEvent, allowCreate: boolean): void => {
     const successMessage = event.stageKey
       ? i18n.t(event.stageKey, event.context ?? {})
       : i18n.t('signalr.depotMapping.finalized', { updated: event.downloadsUpdated ?? 0 });
@@ -889,6 +892,8 @@ export function createDepotMappingCompletionHandler(
         const notification = prev.find((n) => n.id === notificationId);
 
         if (!notification) {
+          // A silent run must not create a card; only an already visible card completes.
+          if (!allowCreate) return prev;
           // Fast completion - create completed notification
           const newNotification: UnifiedNotification = {
             id: notificationId,
@@ -920,6 +925,8 @@ export function createDepotMappingCompletionHandler(
         const existing = prev.find((n) => n.id === notificationId);
 
         if (!existing) {
+          // A silent run must not create a card; only an already visible card completes.
+          if (!allowCreate) return prev;
           // Fast completion - create completed notification
           const newNotification: UnifiedNotification = {
             id: notificationId,
@@ -952,7 +959,7 @@ export function createDepotMappingCompletionHandler(
   };
 
   /** Handles failed depot mapping with optional full scan modal trigger */
-  const handleFailure = (event: DepotMappingCompleteEvent): void => {
+  const handleFailure = (event: DepotMappingCompleteEvent, allowCreate: boolean): void => {
     const errorMessage =
       event.error ??
       (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
@@ -974,6 +981,8 @@ export function createDepotMappingCompletionHandler(
       const existing = prev.find((n) => n.id === notificationId);
 
       if (!existing) {
+        // A silent run must not create a card; only an already visible card completes.
+        if (!allowCreate) return prev;
         // Fast completion - create failed notification
         const newNotification: UnifiedNotification = {
           id: notificationId,
@@ -1005,12 +1014,15 @@ export function createDepotMappingCompletionHandler(
 
   // Return the main handler function
   return (event: DepotMappingCompleteEvent): void => {
+    // A run that opted out of notifications still emits its terminal; the flag only gates whether a
+    // card may be created. An existing (e.g. recovered) card always completes regardless of the flag.
+    const allowCreate = event.showNotification !== false;
     if (event.cancelled) {
-      handleCancelled();
+      handleCancelled(allowCreate);
     } else if (event.success) {
-      handleSuccess(event);
+      handleSuccess(event, allowCreate);
     } else {
-      handleFailure(event);
+      handleFailure(event, allowCreate);
     }
   };
 }

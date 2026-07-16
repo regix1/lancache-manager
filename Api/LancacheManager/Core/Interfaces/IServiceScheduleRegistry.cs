@@ -8,7 +8,15 @@ public interface IServiceScheduleRegistry
     ServiceScheduleInfo? Get(string serviceKey);
     void SetInterval(string serviceKey, double intervalHours);
     void SetRunOnStartup(string serviceKey, bool runOnStartup);
+    void SetNotificationMode(string serviceKey, NotificationMode mode);
     Task TriggerRunAsync(string serviceKey);
+
+    /// <summary>
+    /// Returns the live run status for a service by its key, or <c>null</c> when the key maps to no
+    /// tracked operation type (an unknown key). When the key is known but no operation is currently
+    /// active, the returned status reports <see cref="ScheduleRunStatus.IsRunning"/> = <c>false</c>.
+    /// </summary>
+    ScheduleRunStatus? GetRunStatus(string serviceKey);
 
     /// <summary>
     /// Triggers an immediate run of every registered service (both scheduled and configurable),

@@ -122,7 +122,10 @@ import type {
   EvictionRemovalCompleteEvent,
   ScheduledPrefillStartedEvent,
   ScheduledPrefillProgressEvent,
-  ScheduledPrefillCompletedEvent
+  ScheduledPrefillCompletedEvent,
+  ScheduledRunStartedEvent,
+  ScheduledRunProgressEvent,
+  ScheduledRunCompleteEvent
 } from '../SignalRContext/types';
 
 /**
@@ -228,6 +231,8 @@ interface DepotRebuildProgressResponse {
   processedMappings: number;
   isLoggedOn: boolean;
   operationId?: string;
+  /** Run-stable display flag; a silent run must not resurrect a card on reload mid-rebuild. */
+  showNotification?: boolean;
 }
 
 /** GET /api/logs/remove/status - RustServiceRemovalService.GetLogRemovalStatus() */
@@ -265,6 +270,11 @@ interface GameDetectionOperationInfo {
 interface GameDetectionStatusResponse {
   isProcessing: boolean;
   operation: GameDetectionOperationInfo | null;
+  /**
+   * Run-stable display flag for the active detection. A silent automatic run reports false so
+   * recovery can skip resurrecting a card instead of leaving it stuck once the silent terminal arrives.
+   */
+  showNotification?: boolean;
 }
 
 /**
@@ -431,6 +441,11 @@ interface EpicGameMappingScheduleResponse {
    * and prevent null from slipping into details.operationId.
    */
   operationId?: string;
+  /**
+   * Run-stable display flag for the active refresh. A silent automatic run reports false so
+   * recovery can skip resurrecting a card instead of leaving it stuck once the silent terminal arrives.
+   */
+  showNotification?: boolean;
   /** Additional fields from EpicScheduleStatus (not used by recovery handler) */
   refreshIntervalHours?: number;
   nextRefreshIn?: number;
@@ -453,6 +468,11 @@ interface EvictionScanStatusResponse {
 
 interface CacheSizeScanStatusResponse {
   isProcessing: boolean;
+  /**
+   * Run-stable display flag for the active scan. A silent automatic run reports false so
+   * recovery can skip resurrecting a card instead of leaving it stuck once the silent terminal arrives.
+   */
+  showNotification?: boolean;
   status: string;
   percentComplete: number;
   message: string;
@@ -485,6 +505,126 @@ const CANCEL_TOOLTIP = {
   xboxGameMapping: 'common.notifications.cancelXboxGameMapping',
   bulkRemoval: 'common.notifications.cancelBulkRemoval'
 } as const;
+
+// ============================================================================
+// Scheduled service run entries (7 pipeline-less maintenance services)
+// ============================================================================
+// Each of these services runs on a schedule (or via Run Now) and emits a
+// per-service lifecycle event triple carrying a run-stable `showNotification`
+// flag. Lifecycle events are ALWAYS emitted; the frontend honours the flag
+// through shouldDisplay gates, so a silent run streams events but renders no
+// card. Card identity is per service (per-type singleton id) because several of
+// these can run concurrently.
+
+/** GET /api/system/schedules/{serviceKey}/run-status - ScheduleRunStatus */
+interface ScheduledRunStatusResponse {
+  isRunning: boolean;
+  operationId?: string | null;
+  percentComplete: number;
+  stageKey?: string;
+  context?: StageContext;
+  showNotification: boolean;
+}
+
+interface ScheduledRunEntryOptions {
+  type: NotificationType;
+  id: string;
+  storageKey: string;
+  /** URL segment + backend serviceKey used for the run-status recovery endpoint. */
+  serviceKey: string;
+  /** SignalR event-name prefix, e.g. 'LogRotation' -> LogRotationStarted/Progress/Complete. */
+  eventPrefix: string;
+  /** i18n base, e.g. 'signalr.scheduledRun.logRotation'. */
+  i18nBase: string;
+  /** Countable services interpolate {{processed}}/{{total}} into their `.running` string. */
+  countable: boolean;
+  /** Plain fallback shown before the first stage-keyed message arrives. */
+  defaultMessage: string;
+  /** Plain terminal fallback for a run whose card outlived its terminal event. */
+  staleMessage: string;
+}
+
+function buildScheduledRunEntry(options: ScheduledRunEntryOptions): NotificationRegistryEntry {
+  const {
+    type,
+    id,
+    storageKey,
+    serviceKey,
+    eventPrefix,
+    i18nBase,
+    countable,
+    defaultMessage,
+    staleMessage
+  } = options;
+  return {
+    type,
+    id,
+    storageKey,
+    wiring: 'standard',
+    cancelKind: 'none',
+    recovery: {
+      kind: 'simple',
+      translationValidation: {
+        kind: 'stageKey',
+        cases: [
+          { stageKey: `${i18nBase}.starting`, context: {} },
+          {
+            stageKey: `${i18nBase}.running`,
+            context: countable ? { processed: 10, total: 100 } : {}
+          },
+          { stageKey: `${i18nBase}.complete`, context: {} }
+        ]
+      },
+      apiEndpoint: `/api/system/schedules/${serviceKey}/run-status`,
+      isProcessing: (data: ScheduledRunStatusResponse) => data.isRunning,
+      // A silent run must not resurrect a card when the page reloads mid-run. Only skip an ACTIVE
+      // silent run: an idle service reports showNotification=true so a persisted running card is
+      // stale-completed on reconnect, never deleted, after a missed terminal (mirrors scheduledPrefill).
+      shouldSkip: (data: ScheduledRunStatusResponse) =>
+        data.isRunning && data.showNotification === false,
+      createNotification: (data: ScheduledRunStatusResponse) => ({
+        message: translateRecoveryStage(data.stageKey, data.context, `${i18nBase}.starting`),
+        progress: data.percentComplete,
+        details: { operationId: data.operationId ?? undefined }
+      }),
+      staleMessage
+    } satisfies SimpleRecoveryConfig<ScheduledRunStatusResponse>,
+    events: {
+      started: `${eventPrefix}Started`,
+      progress: `${eventPrefix}Progress`,
+      complete: `${eventPrefix}Complete`
+    },
+    started: {
+      shouldDisplay: (event: ScheduledRunStartedEvent) => event.showNotification !== false,
+      defaultMessage,
+      getMessage: (event: ScheduledRunStartedEvent) =>
+        i18n.t(event.stageKey ?? `${i18nBase}.starting`, event.context ?? {}),
+      getDetails: (event: ScheduledRunStartedEvent) => ({ operationId: event.operationId })
+    },
+    progress: {
+      shouldDisplay: (event: ScheduledRunProgressEvent) => event.showNotification !== false,
+      getMessage: (event: ScheduledRunProgressEvent) =>
+        i18n.t(event.stageKey ?? `${i18nBase}.running`, event.context ?? {}),
+      getProgress: (event: ScheduledRunProgressEvent) =>
+        Math.min(ACTIVE_PROGRESS_PERCENT_CAP, event.percentComplete),
+      getStatus: (event: ScheduledRunProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: ScheduledRunProgressEvent) =>
+        i18n.t(event.stageKey ?? `${i18nBase}.complete`, event.context ?? {}),
+      getErrorMessage: (event: ScheduledRunProgressEvent) =>
+        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
+      getDetails: (event: ScheduledRunProgressEvent) => ({ operationId: event.operationId })
+    },
+    complete: {
+      shouldDisplay: (event: ScheduledRunCompleteEvent) => event.showNotification !== false,
+      getSuccessMessage: (event: ScheduledRunCompleteEvent) =>
+        i18n.t(event.stageKey ?? `${i18nBase}.complete`, event.context ?? {}),
+      getFailureMessage: (event: ScheduledRunCompleteEvent) =>
+        event.error ??
+        (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+        i18n.t(GENERIC_FAILURE_I18N_KEY)
+    }
+  };
+}
 
 export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   // ========== Log Processing ==========
@@ -849,7 +989,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/games/detect/active',
       isProcessing: (data: GameDetectionStatusResponse) =>
-        data.isProcessing && data.operation !== null,
+        data.isProcessing && data.operation !== null && data.showNotification !== false,
+      // A silent automatic run still emits its terminal (display-gated). Skip recovery so a page
+      // reload mid-run does not resurrect a visible card that the silent terminal can never clear.
+      shouldSkip: (data: GameDetectionStatusResponse) =>
+        data.isProcessing && data.operation !== null && data.showNotification === false,
       createNotification: (data: GameDetectionStatusResponse) => {
         // `isProcessing` guard above ensures `data.operation !== null` here.
         const op = data.operation!;
@@ -876,6 +1020,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       complete: 'GameDetectionComplete'
     },
     started: {
+      shouldDisplay: (event: GameDetectionStartedEvent) => event.showNotification !== false,
       defaultMessage: 'Detecting games and services...',
       getMessage: (event: GameDetectionStartedEvent) => formatGameDetectionStartedMessage(event),
       getDetails: (event: GameDetectionStartedEvent) => ({
@@ -884,6 +1029,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       })
     },
     progress: {
+      shouldDisplay: (event: GameDetectionProgressEvent) => event.showNotification !== false,
       getMessage: (event: GameDetectionProgressEvent) => formatGameDetectionProgressMessage(event),
       getProgress: (event: GameDetectionProgressEvent) => event.percentComplete,
       getStatus: (event: GameDetectionProgressEvent) => standardGetStatus(event),
@@ -899,6 +1045,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getDetails: (event: GameDetectionProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
+      shouldDisplay: (event: GameDetectionCompleteEvent) => event.showNotification !== false,
       getSuccessMessage: (event: GameDetectionCompleteEvent) =>
         formatGameDetectionCompleteMessage(event),
       getSuccessDetails: (event: GameDetectionCompleteEvent, existing) => ({
@@ -1203,12 +1350,14 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       complete: 'EvictionScanComplete'
     },
     started: {
+      shouldDisplay: (event: EvictionScanStartedEvent) => event.showNotification !== false,
       defaultMessage: 'Starting eviction scan...',
       getMessage: (event: EvictionScanStartedEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionScan.scanning', event.context ?? {}),
       getDetails: (event: EvictionScanStartedEvent) => ({ operationId: event.operationId })
     },
     progress: {
+      shouldDisplay: (event: EvictionScanProgressEvent) => event.showNotification !== false,
       getMessage: (event: EvictionScanProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionScan.progress', event.context ?? {}),
       getProgress: (event: EvictionScanProgressEvent) =>
@@ -1221,6 +1370,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getDetails: (event: EvictionScanProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
+      shouldDisplay: (event: EvictionScanCompleteEvent) => event.showNotification !== false,
       getSuccessMessage: (event: EvictionScanCompleteEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionScan.complete', event.context ?? {}),
       getFailureMessage: (event: EvictionScanCompleteEvent) =>
@@ -1259,7 +1409,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         ]
       },
       apiEndpoint: '/api/cache/size/scan/status',
-      isProcessing: (data: CacheSizeScanStatusResponse) => data.isProcessing,
+      isProcessing: (data: CacheSizeScanStatusResponse) =>
+        data.isProcessing && data.showNotification !== false,
+      // A silent automatic scan still emits its terminal (display-gated). Skip recovery so a page
+      // reload mid-run does not resurrect a visible card that the silent terminal can never clear.
+      shouldSkip: (data: CacheSizeScanStatusResponse) =>
+        data.isProcessing && data.showNotification === false,
       createNotification: (data: CacheSizeScanStatusResponse) => ({
         message: translateRecoveryStage(
           data.stageKey,
@@ -1279,12 +1434,14 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       complete: 'CacheSizeScanComplete'
     },
     started: {
+      shouldDisplay: (event: CacheSizeScanStartedEvent) => event.showNotification !== false,
       defaultMessage: 'Starting cache file scan...',
       getMessage: (event: CacheSizeScanStartedEvent) =>
         i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.starting', event.context ?? {}),
       getDetails: (event: CacheSizeScanStartedEvent) => ({ operationId: event.operationId })
     },
     progress: {
+      shouldDisplay: (event: CacheSizeScanProgressEvent) => event.showNotification !== false,
       getMessage: (event: CacheSizeScanProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.scanning', event.context ?? {}),
       getProgress: (event: CacheSizeScanProgressEvent) =>
@@ -1297,6 +1454,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getDetails: (event: CacheSizeScanProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
+      shouldDisplay: (event: CacheSizeScanCompleteEvent) => event.showNotification !== false,
       getSuccessMessage: (event: CacheSizeScanCompleteEvent) =>
         i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.complete', event.context ?? {}),
       getFailureMessage: (event: CacheSizeScanCompleteEvent) =>
@@ -1429,6 +1587,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       complete: 'EvictionRemovalComplete'
     },
     started: {
+      shouldDisplay: (event: EvictionRemovalStartedEvent) => event.showNotification !== false,
       defaultMessage: 'Removing evicted game data...',
       getMessage: (event: EvictionRemovalStartedEvent) =>
         event.gameName
@@ -1474,6 +1633,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }
     },
     progress: {
+      shouldDisplay: (event: EvictionRemovalProgressEvent) => event.showNotification !== false,
       getMessage: (event: EvictionRemovalProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionRemove.removingDownloads', event.context ?? {}),
       getProgress: (event: EvictionRemovalProgressEvent) => event.percentComplete || 0,
@@ -1497,6 +1657,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getDetails: (event: EvictionRemovalProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
+      shouldDisplay: (event: EvictionRemovalCompleteEvent) => event.showNotification !== false,
       getSuccessMessage: (event: EvictionRemovalCompleteEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionRemove.complete', event.context ?? {}),
       getFailureMessage: (event: EvictionRemovalCompleteEvent) =>
@@ -1509,6 +1670,85 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN);
     }
   },
+
+  // ========== Scheduled service runs (standard, built by factory) ==========
+  buildScheduledRunEntry({
+    type: 'log_rotation',
+    id: NOTIFICATION_IDS.LOG_ROTATION,
+    storageKey: NOTIFICATION_STORAGE_KEYS.LOG_ROTATION,
+    serviceKey: 'logRotation',
+    eventPrefix: 'LogRotation',
+    i18nBase: 'signalr.scheduledRun.logRotation',
+    countable: false,
+    defaultMessage: 'Starting log rotation...',
+    staleMessage: 'Log rotation complete'
+  }),
+  buildScheduledRunEntry({
+    type: 'game_image_fetch',
+    id: NOTIFICATION_IDS.GAME_IMAGE_FETCH,
+    storageKey: NOTIFICATION_STORAGE_KEYS.GAME_IMAGE_FETCH,
+    serviceKey: 'gameImageFetch',
+    eventPrefix: 'GameImageFetch',
+    i18nBase: 'signalr.scheduledRun.gameImageFetch',
+    countable: true,
+    defaultMessage: 'Starting game image fetch...',
+    staleMessage: 'Game images updated'
+  }),
+  buildScheduledRunEntry({
+    type: 'steam_service_refresh',
+    id: NOTIFICATION_IDS.STEAM_SERVICE_REFRESH,
+    storageKey: NOTIFICATION_STORAGE_KEYS.STEAM_SERVICE_REFRESH,
+    serviceKey: 'steamService',
+    eventPrefix: 'SteamServiceRefresh',
+    i18nBase: 'signalr.scheduledRun.steamService',
+    countable: false,
+    defaultMessage: 'Refreshing Steam data...',
+    staleMessage: 'Steam data refreshed'
+  }),
+  buildScheduledRunEntry({
+    type: 'cache_snapshot',
+    id: NOTIFICATION_IDS.CACHE_SNAPSHOT,
+    storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_SNAPSHOT,
+    serviceKey: 'cacheSnapshot',
+    eventPrefix: 'CacheSnapshot',
+    i18nBase: 'signalr.scheduledRun.cacheSnapshot',
+    countable: false,
+    defaultMessage: 'Starting cache snapshot...',
+    staleMessage: 'Cache snapshot complete'
+  }),
+  buildScheduledRunEntry({
+    type: 'operation_history_cleanup',
+    id: NOTIFICATION_IDS.OPERATION_HISTORY_CLEANUP,
+    storageKey: NOTIFICATION_STORAGE_KEYS.OPERATION_HISTORY_CLEANUP,
+    serviceKey: 'operationHistoryCleanup',
+    eventPrefix: 'OperationHistoryCleanup',
+    i18nBase: 'signalr.scheduledRun.operationHistoryCleanup',
+    countable: true,
+    defaultMessage: 'Starting operation history cleanup...',
+    staleMessage: 'Operation history cleaned up'
+  }),
+  buildScheduledRunEntry({
+    type: 'performance_optimization',
+    id: NOTIFICATION_IDS.PERFORMANCE_OPTIMIZATION,
+    storageKey: NOTIFICATION_STORAGE_KEYS.PERFORMANCE_OPTIMIZATION,
+    serviceKey: 'performanceOptimization',
+    eventPrefix: 'PerformanceOptimization',
+    i18nBase: 'signalr.scheduledRun.performanceOptimization',
+    countable: false,
+    defaultMessage: 'Starting performance optimization...',
+    staleMessage: 'Performance optimization complete'
+  }),
+  buildScheduledRunEntry({
+    type: 'dashboard_cache_warmer',
+    id: NOTIFICATION_IDS.DASHBOARD_CACHE_WARMER,
+    storageKey: NOTIFICATION_STORAGE_KEYS.DASHBOARD_CACHE_WARMER,
+    serviceKey: 'dashboardCacheWarmer',
+    eventPrefix: 'DashboardCacheWarmer',
+    i18nBase: 'signalr.scheduledRun.dashboardCacheWarmer',
+    countable: true,
+    defaultMessage: 'Warming dashboard cache...',
+    staleMessage: 'Dashboard cache warmed'
+  }),
 
   // ==========================================================================
   // Special-wiring entries (metadata-only)
@@ -1534,6 +1774,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/depots/rebuild/progress',
       isProcessing: (data: DepotRebuildProgressResponse) => data.isProcessing,
+      // A silent run must not resurrect a card when the page reloads mid-rebuild.
+      shouldSkip: (data: DepotRebuildProgressResponse) =>
+        data.isProcessing && data.showNotification === false,
       createNotification: (data: DepotRebuildProgressResponse) => {
         const detailMessage = formatDepotMappingRecoveryDetailMessage({
           processedBatches: data.processedBatches,
@@ -1627,7 +1870,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       kind: 'simple',
       translationValidation: { kind: 'dedicated' },
       apiEndpoint: '/api/epic/game-mappings/schedule',
-      isProcessing: (data: EpicGameMappingScheduleResponse) => data.isProcessing,
+      isProcessing: (data: EpicGameMappingScheduleResponse) =>
+        data.isProcessing && data.showNotification !== false,
+      // A silent automatic refresh still emits its terminal (display-gated). Skip recovery so a page
+      // reload mid-run does not resurrect a visible card that the silent terminal can never clear.
+      shouldSkip: (data: EpicGameMappingScheduleResponse) =>
+        data.isProcessing && data.showNotification === false,
       createNotification: (data: EpicGameMappingScheduleResponse) => ({
         // `statusMessage` is C# `string?` - only populated when processing.
         // Fall back to i18n key when null/undefined (e.g. during idle recovery poll).

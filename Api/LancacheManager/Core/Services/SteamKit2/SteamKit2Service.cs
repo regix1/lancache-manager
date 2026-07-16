@@ -405,6 +405,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             error = errorMessage,
             errorType,
             depotMappingsFound = _depotToAppMappings.Count,
+            showNotification = _depotRunShowNotification,
             timestamp = DateTime.UtcNow
         });
     }
@@ -745,7 +746,8 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             IsLoggedOn = _isLoggedOn && isAuthenticated, // Only true if both connected AND using authenticated mode
             ErrorMessage = _lastErrorMessage,
             IsWebApiAvailable = isWebApiAvailable, // True if V2 is active OR V1 is configured with API key
-            OperationId = _currentPicsOperationId
+            OperationId = _currentPicsOperationId,
+            ShowNotification = _depotRunShowNotification
         };
     }
 

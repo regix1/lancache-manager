@@ -6,6 +6,17 @@ public partial class SteamKit2Service
 {
     public string ScheduleServiceKey => "depotMapping";
 
+    // The depot-mapping pipeline already emits Started/Progress/Complete lifecycle events; opting in
+    // lets the Schedules UI expose the Notifications control and lets a run be gated to silent.
+    protected override bool SupportsNotifications => true;
+
+    // Run-stable display flag for the depot-mapping run currently executing. Stamped once per run
+    // inside TryStartRebuild (under the _rebuildActive single-flight guard, before any lifecycle
+    // event is emitted) from the effective notification mode + the run's trigger, then read by every
+    // DepotMapping lifecycle emit. Only one rebuild runs at a time, so a single field is safe.
+    // Defaults to visible as a backstop for any read that precedes the first rebuild.
+    private bool _depotRunShowNotification = true;
+
     /// <summary>
     /// Called by the ConfigurableScheduledService base class on each interval tick.
     /// Checks preconditions and triggers a PICS crawl if appropriate.
@@ -106,7 +117,7 @@ public partial class SteamKit2Service
                 }
             }
 
-            if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: IsIncrementalMode(_crawlIncrementalMode)))
+            if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: IsIncrementalMode(_crawlIncrementalMode), trigger: CurrentRunTrigger))
             {
                 // Await the background task so the base class sets LastRunUtc and fires
                 // ServiceWorkCompleted only after the actual PICS crawl finishes - not
