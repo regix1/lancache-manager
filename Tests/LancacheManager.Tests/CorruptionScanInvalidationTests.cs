@@ -10,10 +10,9 @@ namespace LancacheManager.Tests;
 public sealed class CorruptionScanInvalidationTests
 {
     [Theory]
-    [InlineData("LogEntries")]
     [InlineData("CachedCorruptionDetections")]
     [InlineData("CachedCorruptionScans")]
-    public void DatabaseReset_ExpandsEvidenceInvalidationToCandidateAndHeaderTables(
+    public void DatabaseReset_ExpandsExplicitCorruptionSelectionToCandidateAndHeaderTables(
         string requestedTable)
     {
         var tables = DatabaseService.ResolveResetTables([requestedTable, requestedTable, "invalid"]);
@@ -23,6 +22,14 @@ public sealed class CorruptionScanInvalidationTests
         Assert.Equal(1, tables.Count(table => table == "CachedCorruptionDetections"));
         Assert.Equal(1, tables.Count(table => table == "CachedCorruptionScans"));
         Assert.DoesNotContain("invalid", tables);
+    }
+
+    [Fact]
+    public void DatabaseReset_LogEntriesClearDoesNotDeleteCorruptionSnapshots()
+    {
+        var tables = DatabaseService.ResolveResetTables(["LogEntries", "invalid"]);
+
+        Assert.Equal(["LogEntries"], tables);
     }
 
     [Fact]
@@ -308,7 +315,7 @@ public sealed class CorruptionScanInvalidationTests
     [Theory]
     [InlineData(0)]
     [InlineData(2)]
-    public async Task EvictionSuccessBoundary_InvalidatesZeroResultAndCandidateBackedScansAsync(
+    public async Task EvictionSuccessBoundary_DemotesCurrentScanAndRetainsEvidenceAsync(
         int candidateCount)
     {
         await using var database = await TestDatabase.CreateAsync();
@@ -316,38 +323,63 @@ public sealed class CorruptionScanInvalidationTests
 
         await using (var context = new AppDbContext(database.Options))
         {
-            var deleted = await DatabaseService.InvalidateCachedCorruptionEvidenceAsync(
+            var demoted = await DatabaseService.DemoteCachedCorruptionEvidenceAsync(
                 context,
                 CancellationToken.None);
 
-            Assert.Equal(candidateCount, deleted.Candidates);
-            Assert.Equal(1, deleted.Scans);
+            Assert.Equal(1, demoted);
         }
 
-        await AssertScanCountsAsync(database.Options, scans: 0, candidates: 0);
+        await AssertScanCountsAsync(
+            database.Options,
+            scans: 1,
+            candidates: candidateCount,
+            currentScans: 0);
     }
 
     [Fact]
-    public async Task EvictionSuccessBoundary_InvalidatesAllMethodsAndRetainedHistoryAsync()
+    public async Task EvictionSuccessBoundary_DemotesEveryMethodAndKeepsRetainedHistoryAsync()
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedRetainedScansAsync(database.Options);
 
         await using (var context = new AppDbContext(database.Options))
         {
-            var deleted = await DatabaseService.InvalidateCachedCorruptionEvidenceAsync(
+            var demoted = await DatabaseService.DemoteCachedCorruptionEvidenceAsync(
                 context,
                 CancellationToken.None);
 
-            Assert.Equal(5, deleted.Candidates);
-            Assert.Equal(4, deleted.Scans);
+            Assert.Equal(2, demoted);
         }
 
-        await AssertScanCountsAsync(database.Options, scans: 0, candidates: 0);
+        await AssertScanCountsAsync(database.Options, scans: 4, candidates: 5, currentScans: 0);
     }
 
     [Fact]
-    public async Task EvictionSuccessBoundary_RollsBackCandidatesWhenHeaderDeletionFailsAsync()
+    public async Task LogClearBoundary_DemotesOnlyTheRepeatedMissCurrentScanAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedRetainedScansAsync(database.Options);
+
+        await using (var context = new AppDbContext(database.Options))
+        {
+            var demoted = await DatabaseService.DemoteCachedCorruptionEvidenceAsync(
+                context,
+                CancellationToken.None,
+                CorruptionDetectionMode.RepeatedMiss);
+
+            Assert.Equal(1, demoted);
+
+            var currentScan = await context.CachedCorruptionScans
+                .SingleAsync(scan => scan.IsCurrent);
+            Assert.Equal(CorruptionDetectionMode.Structural, currentScan.DetectionMode);
+        }
+
+        await AssertScanCountsAsync(database.Options, scans: 4, candidates: 5, currentScans: 1);
+    }
+
+    [Fact]
+    public async Task EvictionSuccessBoundary_KeepsCurrentScanWhenDemotionFailsAsync()
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedScanAsync(database.Options, candidateCount: 1);
@@ -356,10 +388,10 @@ public sealed class CorruptionScanInvalidationTests
         {
             await setup.Database.ExecuteSqlRawAsync(
                 """
-                CREATE TRIGGER "PreventEvictionCorruptionScanDelete"
-                BEFORE DELETE ON "CachedCorruptionScans"
+                CREATE TRIGGER "PreventEvictionCorruptionScanDemotion"
+                BEFORE UPDATE OF "IsCurrent" ON "CachedCorruptionScans"
                 BEGIN
-                    SELECT RAISE(ABORT, 'blocked eviction scan-header deletion');
+                    SELECT RAISE(ABORT, 'blocked eviction scan demotion');
                 END;
                 """);
         }
@@ -367,12 +399,12 @@ public sealed class CorruptionScanInvalidationTests
         await using (var context = new AppDbContext(database.Options))
         {
             await Assert.ThrowsAsync<SqliteException>(() =>
-                DatabaseService.InvalidateCachedCorruptionEvidenceAsync(
+                DatabaseService.DemoteCachedCorruptionEvidenceAsync(
                     context,
                     CancellationToken.None));
         }
 
-        await AssertScanCountsAsync(database.Options, scans: 1, candidates: 1);
+        await AssertScanCountsAsync(database.Options, scans: 1, candidates: 1, currentScans: 1);
     }
 
     [Fact]
@@ -386,12 +418,12 @@ public sealed class CorruptionScanInvalidationTests
         await using (var context = new AppDbContext(database.Options))
         {
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                DatabaseService.InvalidateCachedCorruptionEvidenceAsync(
+                DatabaseService.DemoteCachedCorruptionEvidenceAsync(
                     context,
                     cancellation.Token));
         }
 
-        await AssertScanCountsAsync(database.Options, scans: 1, candidates: 1);
+        await AssertScanCountsAsync(database.Options, scans: 1, candidates: 1, currentScans: 1);
     }
 
     private static async Task SeedScanAsync(
@@ -527,11 +559,18 @@ public sealed class CorruptionScanInvalidationTests
     private static async Task AssertScanCountsAsync(
         DbContextOptions<AppDbContext> options,
         int scans,
-        int candidates)
+        int candidates,
+        int? currentScans = null)
     {
         await using var context = new AppDbContext(options);
         Assert.Equal(scans, await context.CachedCorruptionScans.CountAsync());
         Assert.Equal(candidates, await context.CachedCorruptionDetections.CountAsync());
+        if (currentScans is { } expectedCurrent)
+        {
+            Assert.Equal(
+                expectedCurrent,
+                await context.CachedCorruptionScans.CountAsync(scan => scan.IsCurrent));
+        }
     }
 
     private sealed class TestDatabase : IAsyncDisposable

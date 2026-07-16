@@ -3,6 +3,7 @@ using LancacheManager.Controllers;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Data.Migrations;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -938,7 +939,7 @@ public sealed class CorruptionDetectionPersistenceTests
     }
 
     [Fact]
-    public async Task GlobalInvalidation_RemovesAllCurrentAndHistoricalSnapshotsAsync()
+    public async Task EvidenceDemotion_HidesCurrentDetectionsAndKeepsHistoryAsync()
     {
         await using var database = await TestDatabase.CreateAsync();
         var service = NewService(database.Factory);
@@ -958,11 +959,26 @@ public sealed class CorruptionDetectionPersistenceTests
                 ScanStartedUtc.AddSeconds(sequence));
         }
 
-        await service.InvalidateCacheAsync();
+        await using (var demoteContext = database.Factory.CreateDbContext())
+        {
+            Assert.Equal(
+                2,
+                await DatabaseService.DemoteCachedCorruptionEvidenceAsync(
+                    demoteContext,
+                    CancellationToken.None));
+        }
 
         await using var context = database.Factory.CreateDbContext();
-        Assert.Equal(0, await context.CachedCorruptionDetections.CountAsync());
-        Assert.Equal(0, await context.CachedCorruptionScans.CountAsync());
+        Assert.Equal(4, await context.CachedCorruptionScans.CountAsync());
+        Assert.Equal(0, await context.CachedCorruptionScans.CountAsync(scan => scan.IsCurrent));
+        Assert.True(await context.CachedCorruptionDetections.AnyAsync());
+
+        Assert.Null(await service.GetDetectionAsync(CorruptionDetectionMethod.RepeatedMiss));
+        Assert.Null(await service.GetDetectionAsync(CorruptionDetectionMethod.Structural));
+
+        var history = await service.GetHistoryAsync();
+        Assert.Equal(4, history.Count);
+        Assert.All(history, item => Assert.False(item.IsCurrent));
     }
 
     [Fact]

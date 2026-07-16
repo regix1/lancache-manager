@@ -1541,12 +1541,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     }));
             _logger.LogDebug("[EvictedRemoval] Detection cache refreshed after bulk removal");
 
-            // Current and historical corruption findings are snapshots of the cache files and access-log evidence this
-            // operation just changed. Invalidate the candidate/header pair only after every
+            // The current corruption scans are snapshots of cache files and access-log evidence
+            // this operation just changed, so they may no longer authorize removals. Demote them
+            // to view-only history (retained snapshots stay for reference) only after every
             // removal and derived-summary step has succeeded, immediately before publishing the
-            // successful terminal state. The helper owns one transaction, so failure or
-            // cancellation retains the previously authoritative scan.
-            await DatabaseService.InvalidateCachedCorruptionEvidenceAsync(context, stoppingToken);
+            // successful terminal state. The single atomic update means failure or cancellation
+            // retains the previously authoritative scan.
+            await DatabaseService.DemoteCachedCorruptionEvidenceAsync(context, stoppingToken);
 
             await CompleteRemovalAsync(
                 opId,
@@ -2331,10 +2332,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 }
             }
 
-            // Keep all current and historical corruption scans aligned with the targeted cache/log evidence mutation.
-            // This is deliberately the last fallible step before success is published; the
-            // transactional helper retains the prior scans if invalidation fails or is cancelled.
-            await DatabaseService.InvalidateCachedCorruptionEvidenceAsync(context, stoppingToken);
+            // The targeted cache/log mutation stales the current corruption scans, so demote them
+            // to view-only history; retained snapshots survive as reference. This is deliberately
+            // the last fallible step before success is published; the atomic update retains the
+            // prior current scans if it fails or is cancelled.
+            await DatabaseService.DemoteCachedCorruptionEvidenceAsync(context, stoppingToken);
 
             await CompleteRemovalAsync(
                 opId,

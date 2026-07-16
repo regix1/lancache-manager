@@ -1533,20 +1533,6 @@ public class CorruptionDetectionService
         return true;
     }
 
-    public async Task InvalidateCacheAsync(CancellationToken cancellationToken = default)
-    {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var strategy = dbContext.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
-        {
-            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-            await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync(cancellationToken);
-            await dbContext.CachedCorruptionScans.ExecuteDeleteAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        });
-        _logger.LogInformation("[CorruptionDetection] Persisted scan invalidated");
-    }
-
     internal static string SerializeCandidates(IReadOnlyList<CorruptionCandidate> candidates) =>
         JsonSerializer.Serialize(candidates, _candidateJsonOptions);
 

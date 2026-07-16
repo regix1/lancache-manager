@@ -755,6 +755,24 @@ public class DatabaseService : IDatabaseService
                     currentProgress += progressPerTable;
                 }
 
+                // Cleared log entries were the evidence behind the current Repeated-MISS scan:
+                // revoke its currentness so it can no longer gate removals, but keep completed
+                // snapshots as view-only history. An explicit corruption-table reset above
+                // already deleted everything, so there is nothing left to demote in that case.
+                if (tablesToClear.Contains("LogEntries") && !corruptionEvidenceCleared)
+                {
+                    var demotedScans = await DemoteCachedCorruptionEvidenceAsync(
+                        context,
+                        cancellationToken,
+                        CorruptionDetectionMode.RepeatedMiss);
+                    if (demotedScans > 0)
+                    {
+                        _logger.LogInformation(
+                            "Demoted {Scans:N0} current Repeated-MISS corruption scan(s) to history after log clear",
+                            demotedScans);
+                    }
+                }
+
                 // Clean up files if LogEntries or Downloads were cleared
                 if (tablesToClear.Contains("LogEntries") || tablesToClear.Contains("Downloads"))
                 {
@@ -964,9 +982,10 @@ public class DatabaseService : IDatabaseService
     }
 
     /// <summary>
-    /// Validates reset-table input and expands every corruption-evidence invalidation to the
-    /// candidate/header pair. Log entries are qualifying scan evidence, so clearing them also
-    /// invalidates every stored current and historical corruption snapshot.
+    /// Validates reset-table input and expands an explicit corruption-table selection to the
+    /// candidate/header pair (the rows are only meaningful together). Clearing log entries no
+    /// longer deletes corruption snapshots: retained scans are view-only history, so a log
+    /// clear merely demotes the current Repeated-MISS scan after the table loop.
     /// </summary>
     internal static List<string> ResolveResetTables(IEnumerable<string> tableNames)
     {
@@ -975,8 +994,7 @@ public class DatabaseService : IDatabaseService
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        if (tables.Contains("LogEntries", StringComparer.Ordinal) ||
-            tables.Contains(CachedCorruptionDetectionsTable, StringComparer.Ordinal) ||
+        if (tables.Contains(CachedCorruptionDetectionsTable, StringComparer.Ordinal) ||
             tables.Contains(CachedCorruptionScansTable, StringComparer.Ordinal))
         {
             if (!tables.Contains(CachedCorruptionDetectionsTable, StringComparer.Ordinal))
@@ -1031,32 +1049,26 @@ public class DatabaseService : IDatabaseService
     }
 
     /// <summary>
-    /// Invalidates all current and historical corruption snapshots in its own transaction. Callers use
-    /// this at a successful evidence-changing operation boundary so a failed or cancelled
-    /// invalidation retains both the scan header and all candidate rows.
+    /// Revokes currentness on stored corruption scans after cache or log evidence changed,
+    /// optionally scoped to one detection method. Completed snapshots and their candidate rows
+    /// are retained: history is view-only (it can never authorize a removal), so demotion keeps
+    /// the reference trail while <c>GetDetectionAsync</c>/removal gates stop honoring the scan.
+    /// The single UPDATE is atomic, so failure or cancellation retains the prior current scan.
     /// </summary>
-    internal static async Task<(int Candidates, int Scans)> InvalidateCachedCorruptionEvidenceAsync(
+    internal static async Task<int> DemoteCachedCorruptionEvidenceAsync(
         AppDbContext context,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CorruptionDetectionMode? detectionMode = null)
     {
-        var strategy = context.Database.CreateExecutionStrategy();
-        return await strategy.ExecuteAsync(async () =>
+        var currentScans = context.CachedCorruptionScans.Where(scan => scan.IsCurrent);
+        if (detectionMode is { } mode)
         {
-            await using var transaction = await context.Database.BeginTransactionAsync(
-                IsolationLevel.ReadCommitted,
-                cancellationToken);
-            try
-            {
-                var deleted = await DeleteCachedCorruptionEvidenceAsync(context, cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
-                return deleted;
-            }
-            catch
-            {
-                await transaction.RollbackAsync(CancellationToken.None);
-                throw;
-            }
-        });
+            currentScans = currentScans.Where(scan => scan.DetectionMode == mode);
+        }
+
+        return await currentScans.ExecuteUpdateAsync(
+            setters => setters.SetProperty(scan => scan.IsCurrent, false),
+            cancellationToken);
     }
 
     /// <summary>
