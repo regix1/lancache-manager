@@ -54,7 +54,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           <h3 className="integrations-group-label">
             {t('management.sections.integrations.steamIntegration')}
           </h3>
-          <HighlightGlow enabled={highlightSteamApi}>
+          <HighlightGlow enabled={highlightSteamApi} scrollIntoView>
             <SteamIntegrationCard
               authMode={authMode}
               mockMode={mockMode}
@@ -69,7 +69,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           <h3 className="integrations-group-label">
             {t('management.sections.integrations.epicIntegration')}
           </h3>
-          <HighlightGlow enabled={highlightEpic}>
+          <HighlightGlow enabled={highlightEpic} scrollIntoView>
             <EpicDaemonStatus
               authMode={authMode}
               mockMode={mockMode}
@@ -84,7 +84,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           <h3 className="integrations-group-label">
             {t('management.sections.integrations.battlenetIntegration', 'Battle.net Integration')}
           </h3>
-          <HighlightGlow enabled={highlightBattleNet}>
+          <HighlightGlow enabled={highlightBattleNet} scrollIntoView>
             <BattleNetDaemonStatus onError={onError} />
           </HighlightGlow>
         </section>
@@ -102,7 +102,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           <h3 className="integrations-group-label">
             {t('management.sections.integrations.xboxIntegration', 'Xbox Integration')}
           </h3>
-          <HighlightGlow enabled={highlightXbox}>
+          <HighlightGlow enabled={highlightXbox} scrollIntoView>
             <XboxDaemonStatus
               authMode={authMode}
               mockMode={mockMode}

@@ -113,7 +113,10 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
 
   return (
     <>
-      <Card>
+      {/* This component's root is a Fragment (Card + a sibling modal below), so
+          HighlightGlow's default first-child heuristic can't be trusted to always
+          land on the Card - mark it explicitly. */}
+      <Card className="highlight-glow-target">
         {/* Header: Epic icon + Title + HelpPopover */}
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-epic-subtle)] text-[var(--theme-epic)]">

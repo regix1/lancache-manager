@@ -3509,7 +3509,8 @@
           "loss": "已下架或新发布的游戏可能显示为\"未知游戏\"，直到下次映射刷新检测到它们",
           "scanModeLabel": "计划扫描模式",
           "scanModeHelp": "控制自动运行和此卡片的\"立即运行\"按钮。",
-          "scanModeFailed": "更新 {{service}} 的计划扫描模式失败"
+          "scanModeFailed": "更新 {{service}} 的计划扫描模式失败",
+          "configureSteamApi": "配置 Steam API"
         },
         "scheduledPrefill": {
           "displayName": "计划预填充",

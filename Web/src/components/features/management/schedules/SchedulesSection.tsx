@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import './SchedulesSection.css';
 import { useTranslation } from 'react-i18next';
-import { Sliders } from 'lucide-react';
+import { Sliders, ExternalLink } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import HighlightGlow from '@components/ui/HighlightGlow';
+import type { HighlightGlowVariant } from '@utils/highlightGlow';
 import { Checkbox } from '@components/ui/Checkbox';
 import { HelpPopover, HelpNote } from '@components/ui/HelpPopover';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -24,8 +25,8 @@ import { ScheduledPrefillScheduleDetail } from './scheduled-prefill/ScheduledPre
 
 interface SchedulesSectionProps {
   isAdmin: boolean;
-  highlightScheduleKey?: string | null;
   onNavigateToEvictionSettings?: () => void;
+  onNavigateToSteamApi?: () => void;
 }
 
 // Isolated countdown component - ticks every second without re-rendering the parent card
@@ -157,10 +158,11 @@ interface ScheduleCardProps {
   onRunNow: (key: string) => Promise<void>;
   runningKey: string | null;
   justCompleted: boolean;
-  completedVariant: 'navigate' | 'subtle';
+  completedVariant: HighlightGlowVariant;
   onNavigateToEvictionSettings?: () => void;
   evictionScanNotifications?: boolean;
   onEvictionScanNotificationsChange?: (enabled: boolean) => Promise<void>;
+  onNavigateToSteamApi?: () => void;
 }
 
 const ScheduleCard = memo(function ScheduleCard({
@@ -177,7 +179,8 @@ const ScheduleCard = memo(function ScheduleCard({
   completedVariant,
   onNavigateToEvictionSettings,
   evictionScanNotifications,
-  onEvictionScanNotificationsChange
+  onEvictionScanNotificationsChange,
+  onNavigateToSteamApi
 }: ScheduleCardProps) {
   const { t } = useTranslation();
   const formattedNextRun = useFormattedDateTime(service.nextRunUtc);
@@ -348,6 +351,20 @@ const ScheduleCard = memo(function ScheduleCard({
             </div>
           )}
 
+          {isDepotMapping && onNavigateToSteamApi && (
+            <div className="schedule-nav-row">
+              <Button
+                variant="filled"
+                color="blue"
+                size="sm"
+                onClick={onNavigateToSteamApi}
+                rightSection={<ExternalLink className="w-3.5 h-3.5" />}
+              >
+                {t('management.schedules.services.depotMapping.configureSteamApi')}
+              </Button>
+            </div>
+          )}
+
           {/* Run-on-startup toggle - hidden when interval is "Startup only" (-1) since the
           entire point of that schedule IS to run at startup, making the toggle redundant.
           Also hidden for scheduled prefill, where startup-vs-interval is set per platform. */}
@@ -408,8 +425,8 @@ const ScheduleCard = memo(function ScheduleCard({
 
 const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   isAdmin,
-  highlightScheduleKey,
-  onNavigateToEvictionSettings
+  onNavigateToEvictionSettings,
+  onNavigateToSteamApi
 }) => {
   const { t } = useTranslation();
   const [schedules, setSchedules] = useState<ServiceScheduleInfo[]>([]);
@@ -422,7 +439,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   // grab) used by Run Now and external View Schedule navigation. `subtle` is used by
   // Reset to Defaults where every card flashes at once and needs to feel like an
   // acknowledgement rather than an attention-grab.
-  const [completedKeys, setCompletedKeys] = useState<Record<string, 'navigate' | 'subtle'>>({});
+  const [completedKeys, setCompletedKeys] = useState<Record<string, HighlightGlowVariant>>({});
   const { on, off, connectionState } = useSignalR();
   const { addNotification } = useNotifications();
   const { progress: picsProgress, refreshProgress, updateProgress } = usePicsProgress();
@@ -505,50 +522,6 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       fetchSchedules();
     }
   }, [connectionState, fetchSchedules]);
-
-  // React to external navigation (e.g. from Data section cards): flash the target card
-  // border and scroll it into view. Uses the same completed-flash animation as Run Now.
-  //
-  // Why the retry loop: when the user clicks View Schedule, both `activeSection` and
-  // `highlightScheduleKey` flip in the same tick. The SchedulesSection mounts fresh and
-  // `schedules` starts empty while the initial fetch is in flight - so the target card
-  // does not exist in the DOM yet when this effect first runs. We retry the querySelector
-  // for up to ~2s so the scroll fires as soon as the card renders.
-  useEffect(() => {
-    if (!highlightScheduleKey) return;
-    const key = highlightScheduleKey;
-
-    setCompletedKeys((prev) => ({ ...prev, [key]: 'navigate' }));
-
-    let cancelled = false;
-    let attempts = 0;
-    const maxAttempts = 40; // 40 * 50ms = 2s
-    const tryScroll = () => {
-      if (cancelled) return;
-      const el = document.querySelector<HTMLElement>(`[data-schedule-key="${key}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return;
-      }
-      if (++attempts < maxAttempts) {
-        setTimeout(tryScroll, 50);
-      }
-    };
-    tryScroll();
-
-    const flashTimeoutId = setTimeout(() => {
-      setCompletedKeys((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-    }, 3000);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(flashTimeoutId);
-    };
-  }, [highlightScheduleKey]);
 
   const handleIntervalChange = useCallback(
     async (key: string, intervalHours: number) => {
@@ -649,8 +622,8 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       });
 
       // Flash all cards to confirm reset - subtle variant since every card glows at
-      // once. Duration matches HighlightGlow's SUBTLE_DEFAULT_DURATION so the
-      // enabled/class flip and the animation end happen on the same timeline.
+      // once. The 1400ms reset just re-arms the trigger; the glow itself ends on its
+      // own animationend.
       const flashed = Object.fromEntries(schedules.map((s) => [s.key, 'subtle' as const]));
       setCompletedKeys(flashed);
       setTimeout(() => setCompletedKeys({}), 1400);
@@ -802,6 +775,9 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
               completedVariant={completedKeys[service.key] ?? 'navigate'}
               onNavigateToEvictionSettings={
                 service.key === 'cacheReconciliation' ? onNavigateToEvictionSettings : undefined
+              }
+              onNavigateToSteamApi={
+                service.key === 'depotMapping' ? onNavigateToSteamApi : undefined
               }
               evictionScanNotifications={
                 service.key === 'cacheReconciliation' ? evictionScanNotifications : undefined

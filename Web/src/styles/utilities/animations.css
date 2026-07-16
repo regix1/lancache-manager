@@ -117,14 +117,16 @@
   }
 }
 
-/* Highlight glow animation - used to draw attention to a component */
+/* Highlight glow - draws the user's eye to an element. Apply .glow-pulse or
+   .glow-pulse-subtle to any element (or use flashHighlight in utils/highlightGlow.ts,
+   which also removes the class when the animation finishes). */
 @keyframes highlightGlowPulse {
   0%,
   100% {
-    box-shadow: 0 0 2px 0 var(--glow-color-soft, var(--theme-primary-strong));
+    box-shadow: 0 0 2px 0 var(--theme-primary-strong);
   }
   50% {
-    box-shadow: 0 0 16px 4px var(--glow-color-intense, var(--theme-glow-intense));
+    box-shadow: 0 0 16px 4px var(--theme-glow-intense);
   }
 }
 
@@ -136,6 +138,18 @@
     box-shadow: 0 0 0 0 transparent;
   }
   50% {
-    box-shadow: 0 0 8px 1px var(--glow-color-soft, var(--theme-primary-strong));
+    box-shadow: 0 0 8px 1px var(--theme-primary-strong);
   }
+}
+
+/* Two pulses for navigate-style jumps to a single target. */
+.glow-pulse {
+  animation: highlightGlowPulse 1000ms cubic-bezier(0.4, 0, 0.6, 1) 2;
+  will-change: box-shadow;
+}
+
+/* One quick pulse when many elements flash at once as an acknowledgement. */
+.glow-pulse-subtle {
+  animation: highlightGlowPulseSubtle 1400ms cubic-bezier(0.4, 0, 0.6, 1) 1;
+  will-change: box-shadow;
 }

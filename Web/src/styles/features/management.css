@@ -82,7 +82,8 @@
 
 /* Allow overflow when highlight glow is active so box-shadow is not clipped */
 @supports selector(:has(div)) {
-  .management-section:has(.highlight-glow-active) {
+  .management-section:has(.glow-pulse),
+  .management-section:has(.glow-pulse-subtle) {
     overflow: visible;
   }
 }
@@ -143,10 +144,6 @@
 
 .integrations-platform-card > .integrations-split .themed-card:not(.ed-trigger):hover {
   transform: none;
-}
-
-.integrations-platform-card > .integrations-split .highlight-glow-wrapper {
-  height: 100%;
 }
 
 /* Vertical divider between left/right sections on large screens */

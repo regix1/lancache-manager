@@ -1959,6 +1959,6 @@
   padding-top: 0.25rem;
 }
 
-/* The just-completed flash is now provided by the shared HighlightGlow component
-   (see overlays.css / animations.css), so the Schedules page uses the same pulse
-   animation as the Integrations-section Configure buttons. */
+/* The just-completed flash is provided by the shared HighlightGlow component
+   (see utils/highlightGlow.ts + animations.css), so the Schedules page uses the
+   same pulse animation as the Integrations-section navigation glow. */

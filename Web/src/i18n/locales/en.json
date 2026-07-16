@@ -3509,7 +3509,8 @@
           "loss": "Delisted or newly released games may show as 'Unknown Game' until the next mapping refresh detects them",
           "scanModeLabel": "Scheduled Scan Mode",
           "scanModeHelp": "Controls automatic runs and this card's Run Now button.",
-          "scanModeFailed": "Failed to update scheduled scan mode for {{service}}"
+          "scanModeFailed": "Failed to update scheduled scan mode for {{service}}",
+          "configureSteamApi": "Configure Steam API"
         },
         "scheduledPrefill": {
           "displayName": "Scheduled Prefill",

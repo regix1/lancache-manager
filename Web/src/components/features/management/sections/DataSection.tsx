@@ -11,35 +11,26 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
-import DepotMappingManager from '../depot/DepotMappingManager';
 import DataImporter from '../data/DataImporter';
 interface DataSectionProps {
   isAdmin: boolean;
   authMode: AuthMode;
-  steamAuthMode: 'anonymous' | 'authenticated';
   mockMode: boolean;
-  isProcessingLogs: boolean;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
   onDataRefresh: () => void;
-  onNavigateToSteamApi?: () => void;
   // Battle.net is anonymous (no login); this navigates to / highlights the
   // Battle.net daemon status card in the Integrations section.
   onNavigateToBattleNetLogin?: () => void;
-  onNavigateToSchedule?: (scheduleKey: string) => void;
 }
 
 const DataSection: React.FC<DataSectionProps> = ({
   isAdmin,
   authMode,
-  steamAuthMode,
   mockMode,
-  isProcessingLogs,
   onError,
   onSuccess,
-  onDataRefresh,
-  onNavigateToSteamApi,
-  onNavigateToSchedule
+  onDataRefresh
 }) => {
   const { t } = useTranslation();
 
@@ -48,9 +39,6 @@ const DataSection: React.FC<DataSectionProps> = ({
   const [showClearModal, setShowClearModal] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const clearInProgressRef = useRef(false);
-
-  // Depot Manager State
-  const [depotActionLoading, setDepotActionLoading] = useState(false);
 
   // Get table definitions from translations
   const tables = [
@@ -283,32 +271,6 @@ const DataSection: React.FC<DataSectionProps> = ({
       {/* Section Header */}
       <div className="mb-6">
         <p className="text-themed-secondary text-sm">{t('management.sections.data.subtitle')}</p>
-      </div>
-
-      {/* Subsection: Steam Depot Mapping */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-steam)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.data.steamDepotMapping')}
-          </h3>
-        </div>
-
-        <DepotMappingManager
-          isAdmin={isAdmin}
-          mockMode={mockMode}
-          steamAuthMode={steamAuthMode}
-          actionLoading={depotActionLoading}
-          setActionLoading={setDepotActionLoading}
-          isProcessingLogs={isProcessingLogs}
-          onError={onError}
-          onSuccess={onSuccess}
-          onDataRefresh={onDataRefresh}
-          onNavigateToSteamApi={onNavigateToSteamApi}
-          onNavigateToSchedule={
-            onNavigateToSchedule ? () => onNavigateToSchedule('depotMapping') : undefined
-          }
-        />
       </div>
 
       {/* Subsection: Data Import */}

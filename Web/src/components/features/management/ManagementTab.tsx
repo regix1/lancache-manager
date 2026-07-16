@@ -2,10 +2,8 @@ import React, { useState, useEffect, useCallback, useRef, useDeferredValue } fro
 import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
-import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
-import { useSteamAuth } from '@contexts/useSteamAuth';
 import operationStateService from '@services/operationState.service';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
@@ -32,7 +30,6 @@ const ManagementTab: React.FC = () => {
   const { addNotification } = useNotifications();
   const { mockMode } = useMockMode();
   const { isAdmin, authMode } = useAuth();
-  const { steamAuthMode } = useSteamAuth();
 
   // Active section state - persisted to localStorage
   const [activeSection, setActiveSection] = useState<ManagementSection>(() => {
@@ -46,11 +43,7 @@ const ManagementTab: React.FC = () => {
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
   const [highlightSteamApi, setHighlightSteamApi] = useState(false);
   const [highlightBattleNet, setHighlightBattleNet] = useState(false);
-  const [highlightScheduleKey, setHighlightScheduleKey] = useState<string | null>(null);
   const [highlightEviction, setHighlightEviction] = useState(false);
-
-  // Derive log processing state from notifications for DepotMappingManager
-  const isProcessingLogs = useOperationBusy({ types: ['log_processing'] });
 
   // Wrapper to refresh both stats and game cache
   const refreshStatsAndGameCache = useCallback(() => {
@@ -130,7 +123,7 @@ const ManagementTab: React.FC = () => {
   const handleNavigateToSteamApi = useCallback(() => {
     setActiveSection('integrations');
     setHighlightSteamApi(true);
-    // Clear highlight after animation completes
+    // Reset so a later click can re-trigger; the glow itself runs to completion on its own
     setTimeout(() => {
       setHighlightSteamApi(false);
     }, 2000);
@@ -141,28 +134,18 @@ const ManagementTab: React.FC = () => {
   const handleNavigateToBattleNetLogin = useCallback(() => {
     setActiveSection('integrations');
     setHighlightBattleNet(true);
-    // Clear highlight after animation completes
+    // Reset so a later click can re-trigger; the glow itself runs to completion on its own
     setTimeout(() => {
       setHighlightBattleNet(false);
     }, 2000);
   }, []);
 
-  // Handle navigation to a specific schedule card in the Schedules section
-  const handleNavigateToSchedule = useCallback((scheduleKey: string) => {
-    setActiveSection('schedules');
-    setHighlightScheduleKey(scheduleKey);
-    // Clear highlight after flash animation completes (matches schedule-completed-flash 3s)
-    setTimeout(() => {
-      setHighlightScheduleKey(null);
-    }, 3000);
-  }, []);
-
-  // Reverse of handleNavigateToSchedule: jump from the Eviction Scan schedule card to the
-  // Eviction Detection and Removal card in the Storage section and glow it into view.
+  // Jump from the Eviction Scan schedule card to the Eviction Detection and Removal card
+  // in the Storage section and glow it into view.
   const handleNavigateToEvictionSettings = useCallback(() => {
     setActiveSection('storage');
     setHighlightEviction(true);
-    // Clear highlight after the navigate-variant glow completes (HighlightGlow default 2s)
+    // Reset so a later click can re-trigger; the glow itself runs to completion on its own
     setTimeout(() => {
       setHighlightEviction(false);
     }, 3000);
@@ -233,15 +216,11 @@ const ManagementTab: React.FC = () => {
           <DataSection
             isAdmin={isAdmin}
             authMode={authMode}
-            steamAuthMode={steamAuthMode}
             mockMode={mockMode}
-            isProcessingLogs={isProcessingLogs}
             onError={addError}
             onSuccess={setSuccess}
             onDataRefresh={refreshStatsAndGameCache}
-            onNavigateToSteamApi={handleNavigateToSteamApi}
             onNavigateToBattleNetLogin={handleNavigateToBattleNetLogin}
-            onNavigateToSchedule={handleNavigateToSchedule}
           />
         );
 
@@ -249,8 +228,8 @@ const ManagementTab: React.FC = () => {
         return (
           <SchedulesSection
             isAdmin={isAdmin}
-            highlightScheduleKey={highlightScheduleKey}
             onNavigateToEvictionSettings={handleNavigateToEvictionSettings}
+            onNavigateToSteamApi={handleNavigateToSteamApi}
           />
         );
 
