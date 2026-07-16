@@ -98,8 +98,16 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
           </button>
         );
 
+        // The tooltip wrapper (not the button) becomes the container's flex item, so
+        // width-splitting styles (e.g. the segment-uniform recipes) must be able to
+        // target it - hence the stable segmented-control-slot class.
         return option.tooltip ? (
-          <Tooltip key={option.value} content={option.tooltip} strategy="overlay">
+          <Tooltip
+            key={option.value}
+            content={option.tooltip}
+            strategy="overlay"
+            className="inline-flex segmented-control-slot"
+          >
             {buttonElement}
           </Tooltip>
         ) : (

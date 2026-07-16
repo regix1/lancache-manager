@@ -3491,8 +3491,11 @@
       "notificationModeFailed": "更新 {{service}} 的通知设置失败",
       "notificationMode": {
         "all": "所有运行",
+        "allDescription": "每次运行（计划或手动）都显示通知。",
         "manual": "仅手动",
-        "silent": "静默"
+        "manualDescription": "仅在手动启动运行时显示通知。",
+        "silent": "静默",
+        "silentDescription": "从不显示运行通知。"
       },
       "gain": "更频繁",
       "loss": "较低频率",

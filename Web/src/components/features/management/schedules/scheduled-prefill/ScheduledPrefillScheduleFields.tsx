@@ -365,15 +365,22 @@ export function ScheduledPrefillScheduleFields({
           <SegmentedControl
             className="scheduled-prefill-segment-uniform"
             options={[
-              { value: 'all', label: t('management.schedules.notificationMode.all'), disabled },
+              {
+                value: 'all',
+                label: t('management.schedules.notificationMode.all'),
+                tooltip: t('management.schedules.notificationMode.allDescription'),
+                disabled
+              },
               {
                 value: 'manual',
                 label: t('management.schedules.notificationMode.manual'),
+                tooltip: t('management.schedules.notificationMode.manualDescription'),
                 disabled
               },
               {
                 value: 'silent',
                 label: t('management.schedules.notificationMode.silent'),
+                tooltip: t('management.schedules.notificationMode.silentDescription'),
                 disabled
               }
             ]}

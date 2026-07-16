@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import { Tooltip } from '@components/ui/Tooltip';
 import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -373,20 +374,34 @@ export function ScheduledPrefillPersistentCard({
                   {t('prefill.persistent.logOut')}
                 </Button>
               )}
-              <Button
-                type="button"
-                variant="filled"
-                color="gray"
-                size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                onClick={onSelectGames}
-                disabled={disabled || !isRunning || isGameSelectionBlocked}
-                loading={gameSelectionLoading}
-                title={
-                  isGameSelectionBlocked ? t('prefill.persistent.loginToSelectGames') : undefined
-                }
-              >
-                {t(`${baseKey}.actions.selectGames`)}
-              </Button>
+              {/* While game selection is blocked the button is disabled, so the shared
+              Tooltip wrapper (whose trigger div still receives hover) carries the
+              "log in first" hint instead of a native title attribute. */}
+              {(() => {
+                const selectGamesButton = (
+                  <Button
+                    type="button"
+                    variant="filled"
+                    color="gray"
+                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                    onClick={onSelectGames}
+                    disabled={disabled || !isRunning || isGameSelectionBlocked}
+                    loading={gameSelectionLoading}
+                  >
+                    {t(`${baseKey}.actions.selectGames`)}
+                  </Button>
+                );
+                return isGameSelectionBlocked ? (
+                  <Tooltip
+                    content={t('prefill.persistent.loginToSelectGames')}
+                    className="inline-flex scheduled-prefill-persistent-card__action-slot"
+                  >
+                    {selectGamesButton}
+                  </Tooltip>
+                ) : (
+                  selectGamesButton
+                );
+              })()}
               <Button
                 type="button"
                 variant="filled"

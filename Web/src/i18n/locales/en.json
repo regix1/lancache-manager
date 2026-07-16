@@ -3491,8 +3491,11 @@
       "notificationModeFailed": "Failed to update notifications for {{service}}",
       "notificationMode": {
         "all": "All runs",
+        "allDescription": "Show a notification for every run, scheduled or manual.",
         "manual": "Manual only",
-        "silent": "Silent"
+        "manualDescription": "Only show notifications for runs you start manually.",
+        "silent": "Silent",
+        "silentDescription": "Never show run notifications."
       },
       "gain": "More frequent",
       "loss": "Less frequent",

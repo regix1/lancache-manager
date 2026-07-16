@@ -10,6 +10,7 @@ import type { HighlightGlowVariant } from '@utils/highlightGlow';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { HelpPopover, HelpNote } from '@components/ui/HelpPopover';
+import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
@@ -334,125 +335,136 @@ const ScheduleCard = memo(function ScheduleCard({
           />
         )}
 
-        <div className={`schedule-card-body${isDimmed ? ' schedule-card-disabled' : ''}`}>
-          {/* Reverse of the management-side "View Schedule" button: jumps to the Eviction
-          Detection and Removal card in the Storage section and glows it into view. */}
-          {isCacheReconciliation && onNavigateToEvictionSettings && (
-            <div className="schedule-nav-row">
+        {/* Footer cluster: settings links, startup toggle, notifications control and
+        Run Now in one fixed zone order, pinned to the card's bottom edge (margin-top:
+        auto on .schedule-card-footer). The header + readout section above is the
+        flexible middle region, so every card in a row shows these controls at the
+        same position regardless of description length or how many info rows exist. */}
+        <div className="schedule-card-footer">
+          <div className={`schedule-card-body${isDimmed ? ' schedule-card-disabled' : ''}`}>
+            {/* Reverse of the management-side "View Schedule" button: jumps to the Eviction
+            Detection and Removal card in the Storage section and glows it into view. */}
+            {isCacheReconciliation && onNavigateToEvictionSettings && (
+              <div className="schedule-nav-row">
+                <Button
+                  variant="filled"
+                  color="blue"
+                  size="sm"
+                  onClick={onNavigateToEvictionSettings}
+                  rightSection={<Sliders className="w-3.5 h-3.5" />}
+                >
+                  {t('management.schedules.services.cacheReconciliation.viewManagement')}
+                </Button>
+              </div>
+            )}
+
+            {isDepotMapping && onNavigateToSteamApi && (
+              <div className="schedule-nav-row">
+                <Button
+                  variant="filled"
+                  color="blue"
+                  size="sm"
+                  onClick={onNavigateToSteamApi}
+                  rightSection={<ExternalLink className="w-3.5 h-3.5" />}
+                >
+                  {t('management.schedules.services.depotMapping.configureSteamApi')}
+                </Button>
+              </div>
+            )}
+
+            {/* Run-on-startup toggle - hidden when interval is "Startup only" (-1) since the
+            entire point of that schedule IS to run at startup, making the toggle redundant.
+            Also hidden for scheduled prefill, where startup-vs-interval is set per platform. */}
+            {service.intervalHours !== -1 && !isScheduledPrefill && (
+              <div className="schedule-startup-row">
+                <span className="schedule-row-label">{t('management.schedules.runOnStartup')}</span>
+                <ToggleSwitch
+                  options={[
+                    {
+                      value: 'false',
+                      label: t('management.schedules.toggleOff'),
+                      activeColor: 'default'
+                    },
+                    {
+                      value: 'true',
+                      label: t('management.schedules.toggleOn'),
+                      activeColor: 'success'
+                    }
+                  ]}
+                  value={service.runOnStartup ? 'true' : 'false'}
+                  onChange={handleRunOnStartupChange}
+                  disabled={isDisabled}
+                  title={t('management.schedules.runOnStartupTooltip')}
+                  size="sm"
+                />
+              </div>
+            )}
+
+            {/* Notifications control lives on this card (not the Storage eviction
+            settings) because it governs the scheduled runs configured here. Only shown
+            for services with a real notification pipeline. Saves immediately, like the
+            other card toggles. The label carries the general explanation and each mode
+            option its own, all via the shared Tooltip (never native title=). */}
+            {service.supportsNotifications && (
+              <div className="schedule-notifications-row">
+                <Tooltip
+                  content={t('management.schedules.notificationsHelp')}
+                  className="inline-flex flex-shrink-0"
+                >
+                  <span className="schedule-row-label">
+                    {t('management.schedules.notificationsLabel')}
+                  </span>
+                </Tooltip>
+                <SegmentedControl
+                  className="schedule-segment-uniform"
+                  options={[
+                    {
+                      value: 'all',
+                      label: t('management.schedules.notificationMode.all'),
+                      tooltip: t('management.schedules.notificationMode.allDescription'),
+                      disabled: isDisabled
+                    },
+                    {
+                      value: 'manual',
+                      label: t('management.schedules.notificationMode.manual'),
+                      tooltip: t('management.schedules.notificationMode.manualDescription'),
+                      disabled: isDisabled
+                    },
+                    {
+                      value: 'silent',
+                      label: t('management.schedules.notificationMode.silent'),
+                      tooltip: t('management.schedules.notificationMode.silentDescription'),
+                      disabled: isDisabled
+                    }
+                  ]}
+                  value={service.notificationMode}
+                  onChange={handleNotificationModeChange}
+                  showLabels
+                  size="sm"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Run Now closes the footer cluster at the bottom-right corner - the last
+          slot of the fixed zone order shared by every card. */}
+          {!isScheduledPrefill && (
+            <div className="schedule-card-actions">
               <Button
                 variant="filled"
-                color="blue"
+                color="green"
                 size="sm"
-                onClick={onNavigateToEvictionSettings}
-                rightSection={<Sliders className="w-3.5 h-3.5" />}
+                onClick={handleRunNow}
+                disabled={isDisabled || isDimmed}
+                loading={isRunningThis}
+                stableWidth
+                className="schedule-control-button"
               >
-                {t('management.schedules.services.cacheReconciliation.viewManagement')}
+                {t('management.schedules.runNow')}
               </Button>
-            </div>
-          )}
-
-          {isDepotMapping && onNavigateToSteamApi && (
-            <div className="schedule-nav-row">
-              <Button
-                variant="filled"
-                color="blue"
-                size="sm"
-                onClick={onNavigateToSteamApi}
-                rightSection={<ExternalLink className="w-3.5 h-3.5" />}
-              >
-                {t('management.schedules.services.depotMapping.configureSteamApi')}
-              </Button>
-            </div>
-          )}
-
-          {/* Run-on-startup toggle - hidden when interval is "Startup only" (-1) since the
-          entire point of that schedule IS to run at startup, making the toggle redundant.
-          Also hidden for scheduled prefill, where startup-vs-interval is set per platform. */}
-          {service.intervalHours !== -1 && !isScheduledPrefill && (
-            <div className="schedule-startup-row">
-              <span className="schedule-row-label">{t('management.schedules.runOnStartup')}</span>
-              <ToggleSwitch
-                options={[
-                  {
-                    value: 'false',
-                    label: t('management.schedules.toggleOff'),
-                    activeColor: 'default'
-                  },
-                  {
-                    value: 'true',
-                    label: t('management.schedules.toggleOn'),
-                    activeColor: 'success'
-                  }
-                ]}
-                value={service.runOnStartup ? 'true' : 'false'}
-                onChange={handleRunOnStartupChange}
-                disabled={isDisabled}
-                title={t('management.schedules.runOnStartupTooltip')}
-                size="sm"
-              />
-            </div>
-          )}
-
-          {/* Notifications control lives on this card (not the Storage eviction
-          settings) because it governs the scheduled runs configured here. Only shown
-          for services with a real notification pipeline. Saves immediately, like the
-          other card toggles. */}
-          {service.supportsNotifications && (
-            <div
-              className="schedule-notifications-row"
-              title={t('management.schedules.notificationsHelp')}
-            >
-              <span className="schedule-row-label">
-                {t('management.schedules.notificationsLabel')}
-              </span>
-              <SegmentedControl
-                className="schedule-segment-uniform"
-                options={[
-                  {
-                    value: 'all',
-                    label: t('management.schedules.notificationMode.all'),
-                    disabled: isDisabled
-                  },
-                  {
-                    value: 'manual',
-                    label: t('management.schedules.notificationMode.manual'),
-                    disabled: isDisabled
-                  },
-                  {
-                    value: 'silent',
-                    label: t('management.schedules.notificationMode.silent'),
-                    disabled: isDisabled
-                  }
-                ]}
-                value={service.notificationMode}
-                onChange={handleNotificationModeChange}
-                showLabels
-                size="sm"
-              />
             </div>
           )}
         </div>
-
-        {/* Run Now is a direct child of the card (not nested in either body wrapper)
-        with margin-top: auto, so it's forced to the card's true bottom-right corner
-        at a fixed position on every card - regardless of that card's own content
-        length or how tall its row got stretched to match a taller neighbor. */}
-        {!isScheduledPrefill && (
-          <div className="schedule-card-actions">
-            <Button
-              variant="filled"
-              color="green"
-              size="sm"
-              onClick={handleRunNow}
-              disabled={isDisabled || isDimmed}
-              loading={isRunningThis}
-              stableWidth
-              className="schedule-control-button"
-            >
-              {t('management.schedules.runNow')}
-            </Button>
-          </div>
-        )}
       </Card>
     </HighlightGlow>
   );

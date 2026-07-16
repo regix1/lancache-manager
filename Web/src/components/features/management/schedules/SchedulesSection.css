@@ -1904,6 +1904,18 @@
     flex: 1 1 auto;
   }
 
+  /* A tooltip-wrapped action (Select games while login is pending) swaps the group's
+     direct button child for the Tooltip trigger div, so the stretch above must apply
+     to the wrapper and the button must fill it to stay level with its siblings. */
+  .scheduled-prefill-persistent-card__action-group
+    > .scheduled-prefill-persistent-card__action-slot {
+    flex: 1 1 auto;
+  }
+
+  .scheduled-prefill-persistent-card__action-slot > button {
+    width: 100%;
+  }
+
   .scheduled-prefill-persistent-card__actions {
     flex-direction: column;
     align-items: stretch;
@@ -1964,14 +1976,40 @@
   flex: 1 1 0%;
 }
 
-/* Run Now sits at the card's true bottom-right corner, pinned there with
-   margin-top: auto regardless of how much content the card has above it or how
-   tall its row got stretched to match a taller neighbor - a fixed position on
-   every card, not one that drifts with content length. */
+/* When an option carries a tooltip, SegmentedControl wraps the button in a Tooltip
+   trigger div (.segmented-control-slot), which becomes the container's flex item in
+   the button's place - so the equal-split basis above must move to the wrapper and
+   the button fills it. Covers both uniform recipes (card + config modal). */
+.schedule-segment-uniform .segmented-control-slot,
+.scheduled-prefill-segment-uniform .segmented-control-slot {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+.schedule-segment-uniform .segmented-control-slot > .segmented-control-button,
+.scheduled-prefill-segment-uniform .segmented-control-slot > .segmented-control-button {
+  width: 100%;
+}
+
+/* Footer cluster: settings links, startup toggle, notifications control, Run Now.
+   One fixed zone order pinned to the card's bottom edge - margin-top: auto absorbs
+   the card's free space ABOVE the cluster, so on the equal-height cards of a grid
+   row every control lands at the same position regardless of how long each card's
+   description is or how many info rows it has. The auto margin lives here and ONLY
+   here: a second auto margin inside (e.g. on .schedule-card-actions) would split the
+   free space and open a gap in the middle of the cluster. */
+.schedule-card-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: auto;
+}
+
+/* Run Now sits at the card's true bottom-right corner as the footer cluster's last
+   row - a fixed position on every card, not one that drifts with content length. */
 .schedule-card-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: auto;
   padding-top: 0.25rem;
 }
 
