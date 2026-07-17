@@ -29,7 +29,8 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
 import {
   SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY,
-  MOBILE_FULL_CARD_CAP
+  MOBILE_FULL_CARD_CAP,
+  CONDENSED_STRIP_EXPAND_KEY
 } from '@contexts/notifications/constants';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import type { CancelKind } from '@contexts/notifications/types';
@@ -37,7 +38,7 @@ import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTit
 import { APP_EVENTS } from '@utils/constants';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import { useScheduleDisplayModes } from '@hooks/useScheduleDisplayModes';
-import { CondensedNotificationItem } from './CondensedNotificationItem';
+import { CondensedNotificationStrip } from './CondensedNotificationStrip';
 
 // ============================================================================
 // Cancellable Operation Types (derived from the registry — single source)
@@ -878,43 +879,38 @@ const UniversalNotificationBar: React.FC = () => {
           opacity: isAnimatingOut ? 0 : 1
         }}
       >
-        {/* Condensed lines span the bar edge to edge, flush under the navigation, so they read
-            as the nav's own bottom edge. Rendered only when present, so the default all-full
+        {/* One strip spans the bar edge to edge, flush under the navigation: every compacted
+            service keeps its status colour as a segment of the single line (the live run
+            outranks terminal toasts for each segment's colour, fill, and pulse), and the whole
+            line is one disclosure target. Rendered only when present, so the default all-full
             desktop path is the untouched full-card container below. */}
         {condensedGroups.size > 0 && (
-          <div className="condensed-notification-strip">
-            {[...condensedGroups.entries()].map(([groupKey, group]) => {
-              // The live run outranks terminal toasts for the line's colour, fill, and pulse:
-              // the line always wears the notification's status colour (blue running, green
-              // completed, red failed) and pulses softly while work is ongoing.
+          <CondensedNotificationStrip
+            segments={[...condensedGroups.entries()].map(([groupKey, group]) => {
               const representative =
                 group.find((n) => !isTerminalNotificationStatus(n.status)) ?? group[0];
-              const lineColor = getNotificationColor(representative);
-              return (
-                <CondensedNotificationItem
-                  key={groupKey}
-                  notification={representative}
-                  groupCount={group.length}
-                  color={lineColor}
-                  canHover={canHover}
-                  tapExpanded={expandedIds.has(groupKey)}
-                  onTapToggle={() => toggleExpanded(groupKey)}
-                >
-                  <div className="container mx-auto px-4 pb-2 space-y-2">
-                    {group.map((notification) => (
-                      <UnifiedNotificationItem
-                        key={notification.id}
-                        notification={notification}
-                        onDismiss={() => handleDismiss(notification.id)}
-                        onCancel={getCancelHandler(notification)}
-                        isAnimatingOut={dismissingIds.has(notification.id)}
-                      />
-                    ))}
-                  </div>
-                </CondensedNotificationItem>
-              );
+              return {
+                key: groupKey,
+                notification: representative,
+                color: getNotificationColor(representative)
+              };
             })}
-          </div>
+            canHover={canHover}
+            tapExpanded={expandedIds.has(CONDENSED_STRIP_EXPAND_KEY)}
+            onTapToggle={() => toggleExpanded(CONDENSED_STRIP_EXPAND_KEY)}
+          >
+            <div className="container mx-auto px-4 pb-2 space-y-2">
+              {[...condensedGroups.values()].flat().map((notification) => (
+                <UnifiedNotificationItem
+                  key={notification.id}
+                  notification={notification}
+                  onDismiss={() => handleDismiss(notification.id)}
+                  onCancel={getCancelHandler(notification)}
+                  isAnimatingOut={dismissingIds.has(notification.id)}
+                />
+              ))}
+            </div>
+          </CondensedNotificationStrip>
         )}
         {fullItems.length > 0 && (
           <div className="container mx-auto px-4 py-2 space-y-2">

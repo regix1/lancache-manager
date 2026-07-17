@@ -1,21 +1,15 @@
-/* Full-width condensed notification strip + its hover/tap-expand region. The visible line spans
-   the bar edge to edge flush under the navigation, reusing the shared .notification-progress-track /
-   .notification-progress-fill classes (utilities/animations.css) so the fill easing, sweep
-   animation, and reduced-motion handling stay identical to the full card's progress bar.
-   Overrides of shared-class properties are compounded (.notification-progress-track.condensed-...)
-   because same-specificity rules in different bundles resolve by chunk order, which differs
-   between dev and prod. */
-
-/* Stacked lines sit flush under the navigation edge with a hairline of bar background between. */
-.condensed-notification-strip {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1875rem;
-}
+/* Single full-width condensed strip + its hover/tap-expand region. One thin line stands in for
+   every compacted notification: each service keeps its status colour as a segment of the line,
+   and the whole strip is one disclosure target, so there is never a hunt for the right 2px row.
+   Segments reuse the shared .notification-progress-track / .notification-progress-fill classes
+   (utilities/animations.css) so the fill easing, sweep animation, and reduced-motion handling
+   stay identical to the full card's progress bar. Overrides of shared-class properties are
+   compounded (.notification-progress-track.condensed-...) because same-specificity rules in
+   different bundles resolve by chunk order, which differs between dev and prod. */
 
 .condensed-notification {
-  /* One hover zone spanning the line and its expanded card: moving the cursor from the line down
-     into the revealed card must not fire mouseleave and collapse it. */
+  /* One hover zone spanning the strip and its expanded panel: moving the cursor from the line
+     down into the revealed cards must not fire mouseleave and collapse it. */
   width: 100%;
 }
 
@@ -52,14 +46,25 @@
   outline-offset: 2px;
 }
 
-/* Edge-to-edge line: square corners and a lower profile than the in-card progress bar. The
-   whole line wears the status colour - the unfilled part is the same colour dimmed by the
-   ::before underlay - so a finished run reads as one solid colour, never the neutral track
-   grey, and the ends stay flush with the navigation. */
+/* Side-by-side status segments with a hairline seam between adjacent services. */
+.condensed-notification-segments {
+  display: flex;
+  width: 100%;
+  gap: 1px;
+}
+
+/* Edge-to-edge line: square corners and a low profile. Each segment wears its own status
+   colour - the unfilled part is the same colour dimmed by the ::before underlay - so a finished
+   run reads as one solid colour, never the neutral track grey, and the ends stay flush with the
+   navigation. The transition is what makes the hover glow ease in instead of popping. */
 .notification-progress-track.condensed-notification-track {
+  flex: 1 1 0%;
   height: 0.125rem;
   border-radius: 0;
   background: transparent;
+  transition:
+    box-shadow 0.4s ease-out,
+    opacity 0.3s ease-out;
 }
 
 .notification-progress-track.condensed-notification-track::before {
@@ -81,8 +86,8 @@
   border-radius: 0;
 }
 
-/* While the operation is ongoing the line breathes softly in its status colour; a terminal
-   line (instant completions included) holds steady instead. */
+/* While an operation is ongoing its segment breathes softly in its status colour; terminal
+   segments (instant completions included) hold steady instead. */
 @keyframes condensedStatusPulse {
   0%,
   100% {
@@ -97,28 +102,33 @@
   animation: condensedStatusPulse 2.2s ease-in-out infinite;
 }
 
-/* The glow appears only on hover or keyboard focus as the "ready to open" cue; pausing the
-   pulse at full strength doubles as the locked-on feedback. */
+/* The glow appears only on hover or keyboard focus, kept small so a 2px line does not balloon,
+   and eases in through the track transition. Pausing the pulse at full strength doubles as the
+   locked-on feedback. */
 @media (hover: hover) {
   .condensed-notification-line:hover .condensed-notification-track {
     animation: none;
     opacity: 1;
-    box-shadow: 0 0 12px 1px var(--notification-progress-color);
+    box-shadow: 0 0 5px 0 var(--notification-progress-color);
   }
 }
 
 .condensed-notification-line:focus-visible .condensed-notification-track {
   animation: none;
   opacity: 1;
-  box-shadow: 0 0 12px 1px var(--notification-progress-color);
+  box-shadow: 0 0 5px 0 var(--notification-progress-color);
 }
 
-/* Small gap above the revealed full card; collapses to nothing at 0 height. */
+/* Small gap above the revealed panel; collapses to nothing at 0 height. */
 .condensed-notification-expanded {
   padding-top: 0.375rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .notification-progress-track.condensed-notification-track {
+    transition: none;
+  }
+
   .condensed-notification-track.condensed-notification-pulse {
     animation: none;
   }
