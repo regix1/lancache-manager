@@ -83,6 +83,7 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
   children
 }) => {
   const { t } = useTranslation();
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   // Tap/keyboard expansion lives here, not in the bar: it must survive notification-list churn
   // while the strip is mounted (a finishing run must not snap a tapped-open panel shut), and it
@@ -110,6 +111,34 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
       setTapExpanded(true);
     }
   };
+
+  // A run finishing while the pointer is over the strip re-renders it and can swallow the wrapper's
+  // mouseleave, so `hovered` never clears and the panel stays open with the pointer long gone. While
+  // the panel is open on a hover device, track the pointer at the document level and close the moment
+  // it leaves the strip's box, so the panel cannot latch open regardless of whether mouseleave fired.
+  useEffect(() => {
+    if (!open || !canHover) {
+      return;
+    }
+    const handlePointerMove = (event: PointerEvent) => {
+      const el = wrapperRef.current;
+      if (!el) {
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const outside =
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom;
+      if (outside) {
+        setHovered(false);
+        setTapExpanded(false);
+      }
+    };
+    document.addEventListener('pointermove', handlePointerMove);
+    return () => document.removeEventListener('pointermove', handlePointerMove);
+  }, [open, canHover]);
 
   // The accessible name states the action the button will actually perform in its current state.
   const ariaLabel = open
@@ -151,6 +180,7 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
 
   return (
     <div
+      ref={wrapperRef}
       className="condensed-notification"
       onMouseEnter={canHover ? handleMouseEnter : undefined}
       onMouseLeave={canHover ? handleMouseLeave : undefined}

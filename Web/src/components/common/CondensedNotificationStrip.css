@@ -166,18 +166,6 @@
   padding-top: 0.375rem;
 }
 
-/* The collapse animation fades the panel's contents (CollapsibleRegion drops
-   .collapsible-region-inner to opacity 0 while the height is still shrinking), so for a moment the
-   panel is see-through while it still has height. Behind it is the bar wrapper, which is the
-   navigation colour, so that moment reads as a grey band under the strip line that lingers until
-   the next interaction. The fix is an opaque page-coloured backing on the grid wrapper, which does
-   NOT fade (only its inner child carries the opacity), so the fading panel reveals the page colour
-   (i.e. nothing) instead of the navigation colour. Scoped to the strip so other CollapsibleRegion
-   users are untouched. */
-.condensed-notification .collapsible-region {
-  background: var(--theme-bg-primary);
-}
-
 /* Reduced motion: the glow still appears on hover/focus, just without the fade, and the
    running pulse holds steady. Selectors mirror the interactive rules so the tie breaks here. */
 @media (prefers-reduced-motion: reduce) {
