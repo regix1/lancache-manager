@@ -92,53 +92,41 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
 
   const open = tapExpanded || (canHover && hovered);
 
-  const handleMouseEnter = () => {
-    setHovered(true);
-  };
-
-  const handleMouseLeave = () => {
-    // Leaving the area closes the panel immediately on hover-capable devices: the tap/pin state
-    // is a guard against mid-interaction collapse, never a latch. Touch devices never attach
-    // these handlers, so a tapped-open panel stays open there until tapped again.
-    setHovered(false);
-    setTapExpanded(false);
-  };
-
-  // A press inside the revealed panel (cancel, dismiss, a tooltip trigger) pins it open, so the
-  // hover zone's mouseleave cannot collapse the panel out from under an interaction in progress.
-  const pinExpanded = () => {
-    if (open && !tapExpanded) {
-      setTapExpanded(true);
-    }
-  };
-
-  // A run finishing while the pointer is over the strip re-renders it and can swallow the wrapper's
-  // mouseleave, so `hovered` never clears and the panel stays open with the pointer long gone. While
-  // the panel is open on a hover device, track the pointer at the document level and close the moment
-  // it leaves the strip's box, so the panel cannot latch open regardless of whether mouseleave fired.
+  // Whether the pointer is over the strip is read from the browser's own :hover state via a
+  // DOCUMENT-level pointermove, not from the wrapper's onMouseEnter/onMouseLeave. A run finishing
+  // while the pointer is over the strip re-renders it and can swallow an element-level mouseleave,
+  // which left `hovered` stuck true and the panel latched fully open after the pointer had gone. A
+  // document listener cannot be orphaned by the strip re-rendering, and matches(':hover') stays
+  // accurate through the ::after hit overlay, so `hovered` always tracks reality and cannot stick.
   useEffect(() => {
-    if (!open || !canHover) {
+    if (!canHover) {
       return;
     }
-    const handlePointerMove = (event: PointerEvent) => {
+    const syncHover = () => {
       const el = wrapperRef.current;
       if (!el) {
         return;
       }
-      const rect = el.getBoundingClientRect();
-      const outside =
-        event.clientX < rect.left ||
-        event.clientX > rect.right ||
-        event.clientY < rect.top ||
-        event.clientY > rect.bottom;
-      if (outside) {
-        setHovered(false);
+      const isHovering = el.matches(':hover');
+      setHovered(isHovering);
+      if (!isHovering) {
+        // On a hover device a tap/press pin must never outlive the pointer, or the panel latches.
         setTapExpanded(false);
       }
     };
-    document.addEventListener('pointermove', handlePointerMove);
-    return () => document.removeEventListener('pointermove', handlePointerMove);
-  }, [open, canHover]);
+    document.addEventListener('pointermove', syncHover);
+    return () => document.removeEventListener('pointermove', syncHover);
+  }, [canHover]);
+
+  // A press inside the revealed panel (cancel, dismiss, a tooltip trigger) pins it open so a hover
+  // zone leaving cannot collapse the panel mid-interaction. TOUCH ONLY: on a hover device the
+  // pointer-sync above owns open/closed, and pinning here would re-introduce the latch it prevents.
+  const pinExpanded = () => {
+    if (canHover || !open || tapExpanded) {
+      return;
+    }
+    setTapExpanded(true);
+  };
 
   // The accessible name states the action the button will actually perform in its current state.
   const ariaLabel = open
@@ -179,12 +167,7 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
   }, [segments, open, t]);
 
   return (
-    <div
-      ref={wrapperRef}
-      className="condensed-notification"
-      onMouseEnter={canHover ? handleMouseEnter : undefined}
-      onMouseLeave={canHover ? handleMouseLeave : undefined}
-    >
+    <div ref={wrapperRef} className="condensed-notification">
       <span
         className="sr-only"
         role={liveAssertive ? 'alert' : 'status'}
