@@ -127,6 +127,11 @@ public class AppState
     // the Schedules UI and the value is loaded by each service in its constructor.
     public Dictionary<string, NotificationMode> ServiceNotificationMode { get; set; } = new();
 
+    // Per-service notification-DISPLAY-mode overrides (keyed by ServiceKey): full card vs condensed
+    // status line in the universal notification bar. Absent key = Full. Pure UI display state - no
+    // service reads this, so it has no per-service compiled default to fall back to.
+    public Dictionary<string, NotificationDisplayMode> ServiceNotificationDisplayMode { get; set; } = new();
+
     // Set the first time the legacy EvictionScanNotifications flag is migrated into
     // ServiceNotificationMode["cacheReconciliation"]. Absence of the per-service key alone can't
     // tell "never migrated" apart from "user reset to defaults" - Reset to Defaults removes the

@@ -32,6 +32,40 @@ export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, Notificati
 };
 
 /**
+ * Scheduled-run notification type -> the Schedules-page serviceKey that owns its display setting.
+ * Closed list covering EVERY schedule card's run notifications: the buildScheduledRunEntry({ type })
+ * calls in notificationRegistry.ts, the hand-wired scheduled_prefill entry, and the cards whose runs
+ * ride an existing operation pipeline (their card notification type comes from the backend
+ * ServiceScheduleRegistry serviceKey -> OperationType map, so a manual run of the same operation
+ * shares the card and therefore the display setting). A notification whose type is absent here has
+ * no per-card display setting and always renders as a full card. Keep in lockstep with the backend
+ * registry: a new scheduled service adds one line here.
+ */
+export const SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: Partial<Record<NotificationType, string>> =
+  {
+    log_rotation: 'logRotation',
+    game_image_fetch: 'gameImageFetch',
+    steam_service_refresh: 'steamService',
+    cache_snapshot: 'cacheSnapshot',
+    operation_history_cleanup: 'operationHistoryCleanup',
+    performance_optimization: 'performanceOptimization',
+    dashboard_cache_warmer: 'dashboardCacheWarmer',
+    scheduled_prefill: 'scheduledPrefill',
+    eviction_scan: 'cacheReconciliation',
+    cache_size_scan: 'cacheSizeScan',
+    game_detection: 'gameDetection',
+    depot_mapping: 'depotMapping',
+    epic_game_mapping: 'epicMapping',
+    xbox_game_mapping: 'xboxMapping'
+  };
+
+/**
+ * Below this viewport width the notification bar renders at most this many full cards; the rest
+ * auto-condense to thin lines so a burst of concurrent runs cannot bury the page on a phone.
+ */
+export const MOBILE_FULL_CARD_CAP = 3;
+
+/**
  * Cancel state that lives ONLY in this browser session and that no server payload can know:
  * the X button's two-stage soft-cancel -> force-kill intent (`cancelRequested`/`cancelSent`,
  * read by UniversalNotificationBar's cancel handler and deferred-cancel watchdog) and the

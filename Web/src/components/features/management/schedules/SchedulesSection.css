@@ -1950,7 +1950,8 @@
 /* Run-on-startup and Notifications rows sit between the controls row and the bottom
    action row, sharing one rhythm so a card with both stacks them identically. */
 .schedule-startup-row,
-.schedule-notifications-row {
+.schedule-notifications-row,
+.schedule-notification-style-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;

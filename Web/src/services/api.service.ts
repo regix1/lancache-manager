@@ -57,6 +57,7 @@ import type { StructuralScanMode } from '../types/corruptionScan';
 import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
 import type {
   NotificationMode,
+  NotificationDisplayMode,
   ServiceScheduleInfo
 } from '../components/features/management/schedules/types';
 import type {
@@ -3040,6 +3041,26 @@ class ApiService {
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('setScheduleNotificationMode error:', error);
+      throw error;
+    }
+  }
+
+  static async setScheduleNotificationDisplayMode(
+    serviceKey: string,
+    displayMode: NotificationDisplayMode
+  ): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/${serviceKey}/notificationDisplayMode`,
+        this.getFetchOptions({
+          method: 'PUT',
+          body: JSON.stringify(displayMode),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('setScheduleNotificationDisplayMode error:', error);
       throw error;
     }
   }

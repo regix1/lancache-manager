@@ -94,6 +94,65 @@ public class ScheduleControllerNotificationModeTests
     }
 
     [Fact]
+    public async Task SetNotificationDisplayModeAsync_UnknownService_ReturnsNotFound()
+    {
+        var registry = new FakeScheduleRegistry { InfoForGet = null };
+        var controller = CreateController(registry);
+
+        var result = await controller.SetNotificationDisplayModeAsync("does-not-exist", NotificationDisplayMode.Condensed);
+
+        Assert.IsType<NotFoundObjectResult>(result);
+        Assert.Equal(0, registry.SetNotificationDisplayModeCalls);
+    }
+
+    [Fact]
+    public async Task SetNotificationDisplayModeAsync_KnownService_ReturnsNoContentAndPersists()
+    {
+        var registry = new FakeScheduleRegistry
+        {
+            InfoForGet = new ServiceScheduleInfo { Key = "cacheReconciliation", SupportsNotifications = true }
+        };
+        var controller = CreateController(registry);
+
+        var result = await controller.SetNotificationDisplayModeAsync("cacheReconciliation", NotificationDisplayMode.Condensed);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal(1, registry.SetNotificationDisplayModeCalls);
+        Assert.Equal(NotificationDisplayMode.Condensed, registry.LastDisplayModeSet);
+    }
+
+    [Fact]
+    public async Task SetNotificationDisplayModeAsync_ScheduledPrefill_ReturnsNoContent()
+    {
+        // Unlike SetNotificationModeAsync, display mode is card-level (not per-platform) and carries no
+        // SupportsNotifications gate, so scheduledPrefill must be accepted rather than rejected.
+        var registry = new FakeScheduleRegistry
+        {
+            InfoForGet = new ServiceScheduleInfo { Key = "scheduledPrefill", SupportsNotifications = false }
+        };
+        var controller = CreateController(registry);
+
+        var result = await controller.SetNotificationDisplayModeAsync("scheduledPrefill", NotificationDisplayMode.Full);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal(1, registry.SetNotificationDisplayModeCalls);
+    }
+
+    [Fact]
+    public void SetNotificationDisplayModeAction_CarriesAdminOnlyPolicy()
+    {
+        var method = typeof(ScheduleController).GetMethod(nameof(ScheduleController.SetNotificationDisplayModeAsync));
+        Assert.NotNull(method);
+
+        var authorize = method!
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .SingleOrDefault(a => a.Policy == "AdminOnly");
+
+        Assert.NotNull(authorize);
+    }
+
+    [Fact]
     public void GetRunStatus_UnknownServiceKey_ReturnsNotFound()
     {
         var registry = new FakeScheduleRegistry { RunStatus = null };
@@ -236,6 +295,8 @@ public class ScheduleControllerNotificationModeTests
         public ScheduleRunStatus? RunStatus { get; set; }
         public int SetNotificationModeCalls { get; private set; }
         public NotificationMode? LastModeSet { get; private set; }
+        public int SetNotificationDisplayModeCalls { get; private set; }
+        public NotificationDisplayMode? LastDisplayModeSet { get; private set; }
 
         public IReadOnlyList<ServiceScheduleInfo> GetAll() => Array.Empty<ServiceScheduleInfo>();
         public ServiceScheduleInfo? Get(string serviceKey) => InfoForGet;
@@ -246,6 +307,12 @@ public class ScheduleControllerNotificationModeTests
         {
             SetNotificationModeCalls++;
             LastModeSet = mode;
+        }
+
+        public void SetNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode)
+        {
+            SetNotificationDisplayModeCalls++;
+            LastDisplayModeSet = mode;
         }
 
         public Task TriggerRunAsync(string serviceKey) => Task.CompletedTask;

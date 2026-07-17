@@ -19,7 +19,13 @@ import ScheduleIntervalPicker from './ScheduleIntervalPicker';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useManagerLoading } from '@hooks/useManagerLoading';
-import { isNotificationMode, type NotificationMode, type ServiceScheduleInfo } from './types';
+import {
+  isNotificationMode,
+  isNotificationDisplayMode,
+  type NotificationMode,
+  type NotificationDisplayMode,
+  type ServiceScheduleInfo
+} from './types';
 import { formatLastRun } from './scheduleFormatting';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
@@ -163,6 +169,7 @@ interface ScheduleCardProps {
   completedVariant: HighlightGlowVariant;
   onNavigateToEvictionSettings?: () => void;
   onNotificationModeChange: (key: string, mode: NotificationMode) => Promise<void>;
+  onNotificationDisplayModeChange: (key: string, mode: NotificationDisplayMode) => Promise<void>;
   onNavigateToSteamApi?: () => void;
 }
 
@@ -180,6 +187,7 @@ const ScheduleCard = memo(function ScheduleCard({
   completedVariant,
   onNavigateToEvictionSettings,
   onNotificationModeChange,
+  onNotificationDisplayModeChange,
   onNavigateToSteamApi
 }: ScheduleCardProps) {
   const { t } = useTranslation();
@@ -227,6 +235,14 @@ const ScheduleCard = memo(function ScheduleCard({
       void onNotificationModeChange(service.key, value);
     },
     [service.key, onNotificationModeChange]
+  );
+
+  const handleNotificationDisplayModeChange = useCallback(
+    (value: string) => {
+      if (!isNotificationDisplayMode(value)) return;
+      void onNotificationDisplayModeChange(service.key, value);
+    },
+    [service.key, onNotificationDisplayModeChange]
   );
 
   // NOTE: do NOT include a "saving" flag here. Toggling isDisabled on and off for the
@@ -444,6 +460,46 @@ const ScheduleCard = memo(function ScheduleCard({
                 />
               </div>
             )}
+
+            {/* Notification style pairs with the mode control above: how this service's run
+            notifications render in the universal bar (a full card or a thin status-coloured line
+            that expands on hover/tap). Card-level for every card, including scheduled prefill:
+            its per-platform notification modes leave supportsNotifications false, but display
+            style is card-level state the backend PUT accepts for it, so it gets its own gate.
+            Saves immediately, like the other card toggles. */}
+            {(service.supportsNotifications || isScheduledPrefill) && (
+              <div className="schedule-notification-style-row">
+                <Tooltip
+                  content={t('management.schedules.notificationStyleHelp')}
+                  className="inline-flex flex-shrink-0"
+                >
+                  <span className="schedule-row-label">
+                    {t('management.schedules.notificationStyleLabel')}
+                  </span>
+                </Tooltip>
+                <SegmentedControl
+                  className="schedule-segment-uniform"
+                  options={[
+                    {
+                      value: 'full',
+                      label: t('management.schedules.notificationStyle.full'),
+                      tooltip: t('management.schedules.notificationStyle.fullDescription'),
+                      disabled: isDisabled
+                    },
+                    {
+                      value: 'condensed',
+                      label: t('management.schedules.notificationStyle.condensed'),
+                      tooltip: t('management.schedules.notificationStyle.condensedDescription'),
+                      disabled: isDisabled
+                    }
+                  ]}
+                  value={service.notificationDisplayMode}
+                  onChange={handleNotificationDisplayModeChange}
+                  showLabels
+                  size="sm"
+                />
+              </div>
+            )}
           </div>
 
           {/* Run Now closes the footer cluster at the bottom-right corner - the last
@@ -607,6 +663,30 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           type: 'generic',
           status: 'failed',
           message: t('management.schedules.notificationModeFailed', { service: displayName }),
+          details: { notificationType: 'error' }
+        });
+      }
+    },
+    [fetchSchedules, addNotification, t]
+  );
+
+  const handleNotificationDisplayModeChange = useCallback(
+    async (key: string, mode: NotificationDisplayMode) => {
+      const displayName = t(`management.schedules.services.${key}.displayName`);
+      // Optimistic update so the segmented control flips immediately even before the server responds
+      setSchedules((prev) =>
+        prev.map((s) => (s.key === key ? { ...s, notificationDisplayMode: mode } : s))
+      );
+      try {
+        await ApiService.setScheduleNotificationDisplayMode(key, mode);
+        await fetchSchedules();
+      } catch {
+        // Revert optimistic update by refetching authoritative state
+        await fetchSchedules();
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: t('management.schedules.notificationStyleFailed', { service: displayName }),
           details: { notificationType: 'error' }
         });
       }
@@ -825,6 +905,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
                 service.key === 'depotMapping' ? onNavigateToSteamApi : undefined
               }
               onNotificationModeChange={handleNotificationModeChange}
+              onNotificationDisplayModeChange={handleNotificationDisplayModeChange}
             />
           </div>
         ))}

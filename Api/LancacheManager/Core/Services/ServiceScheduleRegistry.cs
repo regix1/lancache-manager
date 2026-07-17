@@ -244,6 +244,19 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
     }
 
+    public void SetNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode)
+    {
+        if (!_scheduledServices.ContainsKey(serviceKey) && !_configurableServices.ContainsKey(serviceKey))
+        {
+            return;
+        }
+
+        // Unlike SetNotificationMode, no live service instance reads this value (MapScheduledService/
+        // MapConfigurableService resolve it straight from state at read time), so persistence here is
+        // the entire write path.
+        _stateService.SetServiceNotificationDisplayMode(serviceKey, mode);
+    }
+
     public void ResetToDefaults()
     {
         foreach (var (key, service) in _scheduledServices)
@@ -254,6 +267,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             _stateService.ClearServiceInterval(key);
             _stateService.ClearServiceRunOnStartup(key);
             _stateService.ClearServiceNotificationMode(key);
+            _stateService.ClearServiceNotificationDisplayMode(key);
         }
 
         foreach (var (key, service) in _configurableServices)
@@ -264,6 +278,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             _stateService.ClearServiceInterval(key);
             _stateService.ClearServiceRunOnStartup(key);
             _stateService.ClearServiceNotificationMode(key);
+            _stateService.ClearServiceNotificationDisplayMode(key);
         }
 
         // Scheduled prefill keeps its cadence per-service in the config DTO + durable last-run map
@@ -375,7 +390,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         return Task.FromResult(count);
     }
 
-    private static ServiceScheduleInfo MapScheduledService(ScheduledBackgroundService service)
+    private ServiceScheduleInfo MapScheduledService(ScheduledBackgroundService service)
     {
         return new ServiceScheduleInfo
         {
@@ -383,6 +398,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             IntervalHours = service.EffectiveInterval.TotalHours,
             RunOnStartup = service.RunOnStartup,
             NotificationMode = service.EffectiveNotificationMode,
+            NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(service.ServiceKey) ?? NotificationDisplayMode.Full,
             SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
             IsRunning = service.IsCurrentlyExecuting,
             LastRunUtc = service.LastRunUtc,
@@ -448,6 +464,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     IntervalHours = 0,
                     RunOnStartup = service.RunOnStartup,
                     NotificationMode = service.EffectiveNotificationMode,
+                    NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(key) ?? NotificationDisplayMode.Full,
                     SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
                     IsRunning = service.IsCurrentlyExecuting,
                     LastRunUtc = latestLastRun,
@@ -474,6 +491,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     IntervalHours = -1d,
                     RunOnStartup = service.RunOnStartup,
                     NotificationMode = service.EffectiveNotificationMode,
+                    NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(key) ?? NotificationDisplayMode.Full,
                     SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
                     IsRunning = service.IsCurrentlyExecuting,
                     LastRunUtc = latestLastRun,
@@ -489,6 +507,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 IntervalHours = service.ConfiguredInterval.TotalHours,
                 RunOnStartup = service.RunOnStartup,
                 NotificationMode = service.EffectiveNotificationMode,
+                NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(key) ?? NotificationDisplayMode.Full,
                 SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
                 IsRunning = service.IsCurrentlyExecuting,
                 LastRunUtc = latestLastRun,
@@ -502,6 +521,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             IntervalHours = service.ConfiguredInterval.TotalHours,
             RunOnStartup = service.RunOnStartup,
             NotificationMode = service.EffectiveNotificationMode,
+            NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(key) ?? NotificationDisplayMode.Full,
             SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
             IsRunning = service.IsCurrentlyExecuting,
             LastRunUtc = service.LastRunUtc,

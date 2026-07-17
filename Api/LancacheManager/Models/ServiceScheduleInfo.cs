@@ -10,6 +10,7 @@ public class ServiceScheduleInfo
     public DateTime? NextRunUtc { get; set; }
     public NotificationMode NotificationMode { get; set; }
     public bool SupportsNotifications { get; set; }
+    public NotificationDisplayMode NotificationDisplayMode { get; set; }
 }
 
 /// <summary>

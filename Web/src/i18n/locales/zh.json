@@ -221,6 +221,20 @@
       "logEntriesRemoved_other": "已移除 {{formattedCount}} 条日志条目",
       "progressComplete": "已完成 {{value}}%",
       "remaining": "剩余 {{value}}",
+      "condensedToggle": "{{title}}，{{status}}。选择以展开。",
+      "condensedToggleWithPercent": "{{title}}，{{status}}，已完成 {{percent}}%。选择以展开。",
+      "condensedCollapse": "{{title}}，{{status}}。选择以收起。",
+      "condensedCollapseWithPercent": "{{title}}，{{status}}，已完成 {{percent}}%。选择以收起。",
+      "condensedLive": "{{title}}，{{status}}",
+      "condensedStatus": {
+        "running": "运行中",
+        "waiting": "等待中",
+        "completed": "已完成",
+        "failed": "失败",
+        "cancelled": "已取消",
+        "cancelling": "取消中",
+        "pending": "待处理"
+      },
       "steamAnonymous": "Steam 匿名",
       "steamAuthenticated": "Steam 已验证",
       "webApiKey": "Web API 密钥"
@@ -3496,6 +3510,15 @@
         "manualDescription": "仅在手动启动运行时显示通知。",
         "silent": "静默",
         "silentDescription": "从不显示运行通知。"
+      },
+      "notificationStyleLabel": "通知样式",
+      "notificationStyleHelp": "选择此服务的运行通知在通知栏中的显示方式：完整卡片，或悬停或点击即可展开的细状态条。",
+      "notificationStyleFailed": "更新 {{service}} 的通知样式失败",
+      "notificationStyle": {
+        "full": "完整卡片",
+        "fullDescription": "显示包含所有详情的完整通知卡片。",
+        "condensed": "紧凑条",
+        "condensedDescription": "显示细状态色条；悬停或点击即可展开。"
       },
       "gain": "更频繁",
       "loss": "较低频率",

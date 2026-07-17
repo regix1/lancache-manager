@@ -104,6 +104,28 @@ public class ScheduleController : ControllerBase
     }
 
     /// <summary>
+    /// Updates how the service's run notifications render in the notification bar (full card vs a
+    /// condensed status line). Unlike notification mode this is pure UI display state that no service
+    /// behavior reads, so it carries no SupportsNotifications-style capability gate - every known
+    /// service key is accepted, including scheduledPrefill (whose notification MODE is per-platform
+    /// and therefore rejected above, but whose display mode is card-level).
+    /// </summary>
+    [HttpPut("{serviceKey}/notificationDisplayMode")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<ActionResult> SetNotificationDisplayModeAsync(string serviceKey, [FromBody] NotificationDisplayMode mode)
+    {
+        var info = _registry.Get(serviceKey);
+        if (info == null)
+        {
+            return NotFound(ApiResponse.NotFound("Schedule"));
+        }
+
+        _registry.SetNotificationDisplayMode(serviceKey, mode);
+        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
+        return NoContent();
+    }
+
+    /// <summary>
     /// Returns the live run status for a service, used by the notification recovery pipeline to
     /// rehydrate an in-progress card after a page refresh. Read-only, so it stays <see cref="AuthorizeAttribute"/>
     /// (guest-readable) rather than AdminOnly, matching the other recovery status endpoints.

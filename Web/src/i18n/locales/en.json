@@ -221,6 +221,20 @@
       "logEntriesRemoved_other": "{{formattedCount}} log entries removed",
       "progressComplete": "{{value}}% complete",
       "remaining": "{{value}} remaining",
+      "condensedToggle": "{{title}}, {{status}}. Select to expand.",
+      "condensedToggleWithPercent": "{{title}}, {{status}}, {{percent}}% complete. Select to expand.",
+      "condensedCollapse": "{{title}}, {{status}}. Select to collapse.",
+      "condensedCollapseWithPercent": "{{title}}, {{status}}, {{percent}}% complete. Select to collapse.",
+      "condensedLive": "{{title}}, {{status}}",
+      "condensedStatus": {
+        "running": "running",
+        "waiting": "waiting",
+        "completed": "completed",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "cancelling": "cancelling",
+        "pending": "pending"
+      },
       "steamAnonymous": "Steam Anonymous",
       "steamAuthenticated": "Steam Authenticated",
       "webApiKey": "Web API Key"
@@ -3496,6 +3510,15 @@
         "manualDescription": "Only show notifications for runs you start manually.",
         "silent": "Silent",
         "silentDescription": "Never show run notifications."
+      },
+      "notificationStyleLabel": "Notification style",
+      "notificationStyleHelp": "Choose how this service's run notifications appear in the notification bar: a full card, or a thin status bar that expands on hover or tap.",
+      "notificationStyleFailed": "Failed to update notification style for {{service}}",
+      "notificationStyle": {
+        "full": "Full card",
+        "fullDescription": "Show the full notification card with all details.",
+        "condensed": "Compact bar",
+        "condensedDescription": "Show a thin status-coloured bar; hover or tap to expand it."
       },
       "gain": "More frequent",
       "loss": "Less frequent",

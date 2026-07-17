@@ -183,6 +183,10 @@ public class StateService : IStateService
         // Absent key = use the service's hardcoded DefaultNotificationMode.
         public Dictionary<string, NotificationMode> ServiceNotificationMode { get; set; } = new();
 
+        // Per-service notification-DISPLAY-mode overrides (keyed by ServiceKey): full card vs condensed
+        // status line. Absent key = Full - pure UI display state, no per-service compiled default.
+        public Dictionary<string, NotificationDisplayMode> ServiceNotificationDisplayMode { get; set; } = new();
+
         // Scheduled prefill config (per-service settings + per-run runtime guards).
         // Nullable on disk so a pre-feature state.json deserializes to null and is migrated to a
         // default-constructed config on load. The schedule INTERVAL is NOT here; it lives in
@@ -924,6 +928,29 @@ public class StateService : IStateService
         });
     }
 
+    // Service NotificationDisplayMode Methods
+    public NotificationDisplayMode? GetServiceNotificationDisplayMode(string serviceKey)
+    {
+        var values = GetState().ServiceNotificationDisplayMode;
+        return values.TryGetValue(serviceKey, out var value) ? value : null;
+    }
+
+    public void SetServiceNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode)
+    {
+        UpdateState(state =>
+        {
+            state.ServiceNotificationDisplayMode[serviceKey] = mode;
+        });
+    }
+
+    public void ClearServiceNotificationDisplayMode(string serviceKey)
+    {
+        UpdateState(state =>
+        {
+            state.ServiceNotificationDisplayMode.Remove(serviceKey);
+        });
+    }
+
     // Scheduled Prefill Config Methods
     public ScheduledPrefillConfigDto GetScheduledPrefillConfig()
     {
@@ -1574,6 +1601,8 @@ public class StateService : IStateService
             ServiceRunOnStartup = persisted.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
             // Per-service notification-mode overrides
             ServiceNotificationMode = persisted.ServiceNotificationMode ?? new Dictionary<string, NotificationMode>(),
+            // Per-service notification-display-mode overrides
+            ServiceNotificationDisplayMode = persisted.ServiceNotificationDisplayMode ?? new Dictionary<string, NotificationDisplayMode>(),
             // Scheduled prefill config: default-construct when missing (migration from pre-feature
             // state.json), migrate older versions (seeding per-service IntervalHours from the legacy
             // global value), and normalize an invalid persisted config back to defaults instead of
@@ -1684,6 +1713,8 @@ public class StateService : IStateService
             ServiceRunOnStartup = state.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
             // Per-service notification-mode overrides
             ServiceNotificationMode = state.ServiceNotificationMode ?? new Dictionary<string, NotificationMode>(),
+            // Per-service notification-display-mode overrides
+            ServiceNotificationDisplayMode = state.ServiceNotificationDisplayMode ?? new Dictionary<string, NotificationDisplayMode>(),
             // Scheduled prefill config: validate (default-construct when missing) before persisting.
             // The in-memory config is already current-version, so Migrate is a no-op here.
             ScheduledPrefill = ResolveScheduledPrefillConfig(

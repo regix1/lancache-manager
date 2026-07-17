@@ -9,6 +9,14 @@ public interface IServiceScheduleRegistry
     void SetInterval(string serviceKey, double intervalHours);
     void SetRunOnStartup(string serviceKey, bool runOnStartup);
     void SetNotificationMode(string serviceKey, NotificationMode mode);
+
+    /// <summary>
+    /// Sets how the service's run notifications render in the notification bar (full card vs a
+    /// condensed status line). Pure UI display state - no live service instance reads it, unlike
+    /// <see cref="SetNotificationMode"/>.
+    /// </summary>
+    void SetNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode);
+
     Task TriggerRunAsync(string serviceKey);
 
     /// <summary>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   CheckCircle,
@@ -27,10 +27,17 @@ import themeService from '@services/theme.service';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
+import {
+  SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY,
+  MOBILE_FULL_CARD_CAP
+} from '@contexts/notifications/constants';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import type { CancelKind } from '@contexts/notifications/types';
 import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
 import { APP_EVENTS } from '@utils/constants';
+import { useMediaQuery } from '@hooks/useMediaQuery';
+import { useScheduleDisplayModes } from '@hooks/useScheduleDisplayModes';
+import { CondensedNotificationItem } from './CondensedNotificationItem';
 
 // ============================================================================
 // Cancellable Operation Types (derived from the registry — single source)
@@ -639,6 +646,49 @@ const UniversalNotificationBar: React.FC = () => {
   const [shouldRender, setShouldRender] = useState(false);
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set());
 
+  // Per-service display preference (full | condensed), live from the Schedules page. Empty until
+  // seeded; an absent key resolves to full, so this drives display only and never the transport.
+  const displayModes = useScheduleDisplayModes();
+  // 768px anchors the established table/tile split; below it the bar caps full cards.
+  const isMobile = useMediaQuery('(max-width: 767px)');
+  // Hover-expand keys off pointer capability, not viewport width: a mouse-driven window between
+  // the mobile boundary and a desktop breakpoint can still hover, while a large touch screen
+  // cannot (its compatibility mouse events would latch a hover open with no way to unhover).
+  const canHover = useMediaQuery('(hover: hover) and (pointer: fine)');
+  // Ephemeral per-notification expand state for condensed lines (tap/keyboard on the thin bar);
+  // deliberately not persisted, matching that no notification card persists its expand state.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  // Prune expanded ids once their notifications are gone so the set can't leak across a session.
+  useEffect(() => {
+    setExpandedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const currentIds = new Set(notifications.map((n) => n.id));
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (currentIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [notifications]);
+
   // Tracks notifications where a deferred cancel has already been fired, so the
   // watchdog effect below never fires the same cancel twice when notifications
   // re-render. Pruned as notifications disappear.
@@ -766,6 +816,37 @@ const UniversalNotificationBar: React.FC = () => {
     return null;
   }
 
+  const statusOrder: Partial<Record<NotificationStatus, number>> = {
+    completed: 0,
+    failed: 1,
+    cancelled: 1,
+    running: 2,
+    cancelling: 2,
+    waiting: 3,
+    pending: 4
+  };
+  // Completed/failed first, then running (comparator unchanged from the original single-list render).
+  const sorted = [...notifications].sort(
+    (a, b) => (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4)
+  );
+
+  // Classify each notification (in the sorted order) as condensed or full. A notification
+  // condenses when its service is set to condensed, OR on mobile once the full-card cap is
+  // reached. Expansion never changes membership: a tap-expanded item stays in the condensed
+  // group and reveals its card in place via CollapsibleRegion, so its toggle line keeps focus
+  // and remains available to collapse it. The comparator above is untouched; only grouping
+  // changes.
+  let fullOrder = 0;
+  const classified = sorted.map((notification) => {
+    const serviceKey = SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY[notification.type];
+    const condensedByService = serviceKey !== undefined && displayModes[serviceKey] === 'condensed';
+    const orderAmongFull = condensedByService ? -1 : fullOrder++;
+    const condensedByCap = isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
+    return { notification, condensed: condensedByService || condensedByCap };
+  });
+  const condensedItems = classified.filter((item) => item.condensed);
+  const fullItems = classified.filter((item) => !item.condensed);
+
   return (
     <div className={`w-full ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}>
       <div
@@ -776,29 +857,38 @@ const UniversalNotificationBar: React.FC = () => {
         }}
       >
         <div className="container mx-auto px-4 py-2 space-y-2">
-          {/* Unified Notifications - completed/failed first, then running */}
-          {[...notifications]
-            .sort((a, b) => {
-              const statusOrder: Partial<Record<NotificationStatus, number>> = {
-                completed: 0,
-                failed: 1,
-                cancelled: 1,
-                running: 2,
-                cancelling: 2,
-                waiting: 3,
-                pending: 4
-              };
-              return (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4);
-            })
-            .map((notification) => (
-              <UnifiedNotificationItem
-                key={notification.id}
-                notification={notification}
-                onDismiss={() => handleDismiss(notification.id)}
-                onCancel={getCancelHandler(notification)}
-                isAnimatingOut={dismissingIds.has(notification.id)}
-              />
-            ))}
+          {/* Condensed lines as one contiguous group above the full cards. Rendered only when
+              present, so the default all-full desktop path is the untouched full-card map below. */}
+          {condensedItems.length > 0 && (
+            <div className="space-y-1.5">
+              {condensedItems.map(({ notification }) => (
+                <CondensedNotificationItem
+                  key={notification.id}
+                  notification={notification}
+                  color={getNotificationColor(notification)}
+                  canHover={canHover}
+                  tapExpanded={expandedIds.has(notification.id)}
+                  onTapToggle={() => toggleExpanded(notification.id)}
+                >
+                  <UnifiedNotificationItem
+                    notification={notification}
+                    onDismiss={() => handleDismiss(notification.id)}
+                    onCancel={getCancelHandler(notification)}
+                    isAnimatingOut={dismissingIds.has(notification.id)}
+                  />
+                </CondensedNotificationItem>
+              ))}
+            </div>
+          )}
+          {fullItems.map(({ notification }) => (
+            <UnifiedNotificationItem
+              key={notification.id}
+              notification={notification}
+              onDismiss={() => handleDismiss(notification.id)}
+              onCancel={getCancelHandler(notification)}
+              isAnimatingOut={dismissingIds.has(notification.id)}
+            />
+          ))}
         </div>
       </div>
     </div>

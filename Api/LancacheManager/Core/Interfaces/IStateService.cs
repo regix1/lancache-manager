@@ -77,6 +77,12 @@ public interface IStateService
     void SetServiceNotificationMode(string serviceKey, NotificationMode mode);
     void ClearServiceNotificationMode(string serviceKey);
 
+    // Service NotificationDisplayMode Methods (absent key = Full; unlike NotificationMode there is no
+    // per-service compiled default to resolve against, so the registry mapper resolves the absent case)
+    NotificationDisplayMode? GetServiceNotificationDisplayMode(string serviceKey);
+    void SetServiceNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode);
+    void ClearServiceNotificationDisplayMode(string serviceKey);
+
     // Scheduled Prefill Config Methods
     // Get returns a validated, default-constructed-if-missing config; Set validates before persisting
     // (both throw ScheduledPrefillConfigValidationException on invalid config).

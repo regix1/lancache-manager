@@ -159,6 +159,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
     [InlineData("ServiceIntervals", "ServiceIntervals")]
     [InlineData("ServiceRunOnStartup", "ServiceRunOnStartup")]
     [InlineData("ServiceNotificationMode", "ServiceNotificationMode")]
+    [InlineData("ServiceNotificationDisplayMode", "ServiceNotificationDisplayMode")]
     [InlineData("ScheduledPrefillServiceLastRunUtc", "ScheduledPrefillServiceLastRunUtc")]
     [InlineData("ScheduledPrefillServiceLastActualRunUtc", "ScheduledPrefillServiceLastActualRunUtc")]
     [InlineData("LogProcessing", "LogProcessing")]
@@ -502,6 +503,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         ServiceIntervals = new() { ["steam"] = 4.0, ["epic"] = 8.0 },
         ServiceRunOnStartup = new() { ["steam"] = true },
         ServiceNotificationMode = new() { ["cacheReconciliation"] = NotificationMode.Silent },
+        ServiceNotificationDisplayMode = new() { ["cacheReconciliation"] = NotificationDisplayMode.Condensed },
         EvictionNotificationsMigrated = true,
         ScheduledPrefillServiceLastRunUtc = new()
         {
@@ -566,6 +568,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
             case "ServiceIntervals":
             case "ServiceRunOnStartup":
             case "ServiceNotificationMode":
+            case "ServiceNotificationDisplayMode":
             case "ScheduledPrefillServiceLastRunUtc":
             case "ScheduledPrefillServiceLastActualRunUtc":
                 root[sectionKey]!.AsObject()["__corrupt__"] = "not-a-valid-value";
