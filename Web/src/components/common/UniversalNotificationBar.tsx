@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   CheckCircle,
@@ -29,8 +29,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
 import {
   SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY,
-  MOBILE_FULL_CARD_CAP,
-  CONDENSED_STRIP_EXPAND_KEY
+  MOBILE_FULL_CARD_CAP
 } from '@contexts/notifications/constants';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import type { CancelKind } from '@contexts/notifications/types';
@@ -657,43 +656,6 @@ const UniversalNotificationBar: React.FC = () => {
   // the mobile boundary and a desktop breakpoint can still hover, while a large touch screen
   // cannot (its compatibility mouse events would latch a hover open with no way to unhover).
   const canHover = useMediaQuery('(hover: hover) and (pointer: fine)');
-  // Ephemeral per-notification expand state for condensed lines (tap/keyboard on the thin bar);
-  // deliberately not persisted, matching that no notification card persists its expand state.
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-
-  const toggleExpanded = useCallback((id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }, []);
-
-  // Prune expanded ids once their notifications are gone so the set can't leak across a session.
-  // The strip key is NOT a notification id, so it is exempt while any notifications remain: a
-  // completion or progress event must never snap a deliberately opened strip shut. It resets
-  // once the bar empties entirely.
-  useEffect(() => {
-    setExpandedIds((prev) => {
-      if (prev.size === 0) return prev;
-      const currentIds = new Set(notifications.map((n) => n.id));
-      let changed = false;
-      const next = new Set<string>();
-      prev.forEach((id) => {
-        if (currentIds.has(id) || (id === CONDENSED_STRIP_EXPAND_KEY && notifications.length > 0)) {
-          next.add(id);
-        } else {
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
-    });
-  }, [notifications]);
-
   // Tracks notifications where a deferred cancel has already been fired, so the
   // watchdog effect below never fires the same cancel twice when notifications
   // re-render. Pruned as notifications disappear.
@@ -900,8 +862,6 @@ const UniversalNotificationBar: React.FC = () => {
               };
             })}
             canHover={canHover}
-            tapExpanded={expandedIds.has(CONDENSED_STRIP_EXPAND_KEY)}
-            onTapToggle={() => toggleExpanded(CONDENSED_STRIP_EXPAND_KEY)}
           >
             <div className="container mx-auto px-4 pb-2">
               {/* On a phone the opened panel caps at roughly two cards and scrolls for the rest,

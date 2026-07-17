@@ -66,12 +66,6 @@ export const SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: Partial<Record<Notifica
 export const MOBILE_FULL_CARD_CAP = 3;
 
 /**
- * Expanded-state key for the single condensed strip: all compacted notifications share one
- * disclosure, so the bar's ephemeral expanded-id set tracks the strip under one stable key.
- */
-export const CONDENSED_STRIP_EXPAND_KEY = 'condensed-strip';
-
-/**
  * Cancel state that lives ONLY in this browser session and that no server payload can know:
  * the X button's two-stage soft-cancel -> force-kill intent (`cancelRequested`/`cancelSent`,
  * read by UniversalNotificationBar's cancel handler and deferred-cancel watchdog) and the

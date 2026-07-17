@@ -5,14 +5,6 @@ import type { UnifiedNotification } from '@contexts/notifications';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import './CondensedNotificationStrip.css';
 
-/**
- * Grace period between the pointer leaving the hover zone and the panel collapsing. Tooltip
- * content inside the expanded cards portals to document.body, so hovering it fires mouseleave
- * here even though the pointer is visually still on a card; the delay absorbs that transit
- * so the panel does not collapse mid-interaction.
- */
-const HOVER_COLLAPSE_DELAY_MS = 200;
-
 interface CondensedStripSegment {
   /** Stable per-service group key; also the live-region transition identity. */
   key: string;
@@ -27,10 +19,6 @@ interface CondensedNotificationStripProps {
   segments: CondensedStripSegment[];
   /** Fine hover-capable pointers reveal on hover; touch and keyboard reveal via the tap toggle. */
   canHover: boolean;
-  /** True when the user has explicitly expanded the strip (tap or Enter/Space). */
-  tapExpanded: boolean;
-  /** Toggles tapExpanded in the bar's ephemeral expanded-id set. */
-  onTapToggle: () => void;
   /** Every compacted UnifiedNotificationItem, revealed together on expand. */
   children: React.ReactNode;
 }
@@ -77,47 +65,34 @@ const StripSegment: React.FC<{ segment: CondensedStripSegment }> = ({ segment })
 export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProps> = ({
   segments,
   canHover,
-  tapExpanded,
-  onTapToggle,
   children
 }) => {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
-  const hoverCollapseTimerRef = useRef<number | null>(null);
+  // Tap/keyboard expansion lives here, not in the bar: it must survive notification-list churn
+  // while the strip is mounted (a finishing run must not snap a tapped-open panel shut), and it
+  // resets automatically when the last compacted notification goes away and the strip unmounts.
+  const [tapExpanded, setTapExpanded] = useState(false);
 
   const open = tapExpanded || (canHover && hovered);
 
   const handleMouseEnter = () => {
-    if (hoverCollapseTimerRef.current !== null) {
-      window.clearTimeout(hoverCollapseTimerRef.current);
-      hoverCollapseTimerRef.current = null;
-    }
     setHovered(true);
   };
 
   const handleMouseLeave = () => {
-    if (hoverCollapseTimerRef.current !== null) {
-      window.clearTimeout(hoverCollapseTimerRef.current);
-    }
-    hoverCollapseTimerRef.current = window.setTimeout(() => {
-      hoverCollapseTimerRef.current = null;
-      setHovered(false);
-    }, HOVER_COLLAPSE_DELAY_MS);
+    // Leaving the area closes the panel immediately on hover-capable devices: the tap/pin state
+    // is a guard against mid-interaction collapse, never a latch. Touch devices never attach
+    // these handlers, so a tapped-open panel stays open there until tapped again.
+    setHovered(false);
+    setTapExpanded(false);
   };
-
-  useEffect(() => {
-    return () => {
-      if (hoverCollapseTimerRef.current !== null) {
-        window.clearTimeout(hoverCollapseTimerRef.current);
-      }
-    };
-  }, []);
 
   // A press inside the revealed panel (cancel, dismiss, a tooltip trigger) pins it open, so the
   // hover zone's mouseleave cannot collapse the panel out from under an interaction in progress.
   const pinExpanded = () => {
     if (open && !tapExpanded) {
-      onTapToggle();
+      setTapExpanded(true);
     }
   };
 
@@ -178,7 +153,7 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
         className="condensed-notification-line"
         aria-expanded={open}
         aria-label={ariaLabel}
-        onClick={onTapToggle}
+        onClick={() => setTapExpanded((previous) => !previous)}
       >
         <span className="condensed-notification-segments">
           {segments.map((segment) => (
