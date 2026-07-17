@@ -108,21 +108,23 @@
   animation: condensedStatusPulse 2.2s ease-in-out infinite;
 }
 
-/* The glow appears only on hover or keyboard focus, kept small so a 2px line does not balloon,
-   and eases in through the track transition. Pausing the pulse at full strength doubles as the
-   locked-on feedback. */
+/* The glow appears only on hover or keyboard focus and eases in through the track transition.
+   It casts DOWNWARD only (offset >= blur + spread keeps zero bleed above): the line sits flush
+   under the navigation, so an all-around halo would spill into the nav. The hover zone is the
+   whole .condensed-notification wrapper, so the glow also holds while the pointer is inside the
+   opened panel. Pausing the pulse at full strength doubles as the locked-on feedback. */
 @media (hover: hover) {
-  .condensed-notification-line:hover .condensed-notification-track {
+  .condensed-notification:hover .condensed-notification-track {
     animation: none;
     opacity: 1;
-    box-shadow: 0 0 5px 0 var(--notification-progress-color);
+    box-shadow: 0 3px 5px -2px var(--notification-progress-color);
   }
 }
 
 .condensed-notification-line:focus-visible .condensed-notification-track {
   animation: none;
   opacity: 1;
-  box-shadow: 0 0 5px 0 var(--notification-progress-color);
+  box-shadow: 0 3px 5px -2px var(--notification-progress-color);
 }
 
 /* Small gap above the revealed panel; collapses to nothing at 0 height. */
