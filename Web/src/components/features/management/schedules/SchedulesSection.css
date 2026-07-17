@@ -256,15 +256,10 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* Safety net for the Notifications row's 3-option control: the button labels are kept
-     short (<=11 chars) so they fit one line at this width, but nowrap text still imposes a
-     min-content width floor on each flex-shrink button - if the floor ever exceeds the
-     available row width the row overflows instead of clipping gracefully. Allowing wrap
-     removes that floor with no visible effect when the label already fits on one line. */
-  .schedule-segment-uniform .segmented-control-button {
-    white-space: normal;
-    text-align: center;
-  }
+  /* The Notifications control needs no width safety net here: its row wraps the control onto its
+     own full-width line before this width is reached, which is far more room than the options
+     need. Letting the labels wrap instead (the old net) traded a horizontal overflow for a
+     vertical one, since a second line of text cannot fit the control's fixed 2rem height. */
 }
 
 .schedule-timing-item {
@@ -1953,6 +1948,10 @@
 .schedule-notifications-row,
 .schedule-notification-style-row {
   display: flex;
+  /* The control drops onto its own full-width line once it can no longer fit beside the fixed
+     label column, which is the only way a 3-option control keeps readable labels inside a narrow
+     phone-width card. Demand-driven, so the wide cards keep the control on the label's line. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   padding-top: 0.5rem;
@@ -1973,7 +1972,12 @@
    width, which overflows a narrow grid card. The card body is a fresh CSS context from the
    config modal, so this class is added fresh rather than assumed inherited. */
 .schedule-segment-uniform {
-  width: 100%;
+  /* Takes the rest of the row, but measured from its own content rather than a 100% basis:
+     the row wraps (see .schedule-notifications-row) only once the options genuinely stop
+     fitting beside the label column. A 100% basis is always wider than the space left next to
+     the label, so it would drop the control onto its own line at EVERY width, including the
+     desktop cards that have room to spare. */
+  flex: 1 1 auto;
 }
 
 .schedule-segment-uniform .segmented-control-button {
@@ -1983,11 +1987,28 @@
 /* When an option carries a tooltip, SegmentedControl wraps the button in a Tooltip
    trigger div (.segmented-control-slot), which becomes the container's flex item in
    the button's place - so the equal-split basis above must move to the wrapper and
-   the button fills it. Covers both uniform recipes (card + config modal). */
+   the button fills it. Covers both uniform recipes (card + config modal).
+
+   The floor here is deliberately left at the default min-width: auto. A `min-width: 0` waives
+   each option's min-content floor, which reads as a harmless "let it shrink" but is what lets a
+   0% basis crush the longest label until its text spills past its own padding and collides with
+   the neighbouring option. It also silently zeroes what these options contribute to the config
+   modal's auto-sized actions column, so that track measures narrower than the control it is
+   supposed to be sized by. Equal thirds are still the outcome wherever the row can afford them:
+   the floor only binds when it cannot, and then the options size to their labels instead. */
 .schedule-segment-uniform .segmented-control-slot,
 .scheduled-prefill-segment-uniform .segmented-control-slot {
   flex: 1 1 0%;
-  min-width: 0;
+}
+
+/* Roomier than the shared sm control's px-2: these labels are whole words ("Manual only") rather
+   than the one-word options the base padding was tuned for, so they need the extra breathing
+   room on both sides to stop reading as one mashed-together string. Compounded with the recipe
+   class so it outranks the size class the component sets inline. */
+.schedule-segment-uniform .segmented-control-button,
+.scheduled-prefill-segment-uniform .segmented-control-button {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
 }
 
 .schedule-segment-uniform .segmented-control-slot > .segmented-control-button,
