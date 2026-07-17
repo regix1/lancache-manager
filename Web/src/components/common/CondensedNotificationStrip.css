@@ -41,6 +41,12 @@
   }
 }
 
+/* While the panel is open the downward overlay would hang over the first revealed card and
+   steal its taps (closing the strip the user just opened), so it retracts to a slim zone. */
+.condensed-notification-line[aria-expanded='true']::after {
+  inset: -0.375rem 0;
+}
+
 .condensed-notification-line:focus-visible {
   outline: 2px solid var(--theme-info);
   outline-offset: 2px;

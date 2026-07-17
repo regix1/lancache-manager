@@ -39,6 +39,7 @@ import { APP_EVENTS } from '@utils/constants';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import { useScheduleDisplayModes } from '@hooks/useScheduleDisplayModes';
 import { CondensedNotificationStrip } from './CondensedNotificationStrip';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 
 // ============================================================================
 // Cancellable Operation Types (derived from the registry — single source)
@@ -673,6 +674,9 @@ const UniversalNotificationBar: React.FC = () => {
   }, []);
 
   // Prune expanded ids once their notifications are gone so the set can't leak across a session.
+  // The strip key is NOT a notification id, so it is exempt while any notifications remain: a
+  // completion or progress event must never snap a deliberately opened strip shut. It resets
+  // once the bar empties entirely.
   useEffect(() => {
     setExpandedIds((prev) => {
       if (prev.size === 0) return prev;
@@ -680,7 +684,7 @@ const UniversalNotificationBar: React.FC = () => {
       let changed = false;
       const next = new Set<string>();
       prev.forEach((id) => {
-        if (currentIds.has(id)) {
+        if (currentIds.has(id) || (id === CONDENSED_STRIP_EXPAND_KEY && notifications.length > 0)) {
           next.add(id);
         } else {
           changed = true;
@@ -899,16 +903,38 @@ const UniversalNotificationBar: React.FC = () => {
             tapExpanded={expandedIds.has(CONDENSED_STRIP_EXPAND_KEY)}
             onTapToggle={() => toggleExpanded(CONDENSED_STRIP_EXPAND_KEY)}
           >
-            <div className="container mx-auto px-4 pb-2 space-y-2">
-              {[...condensedGroups.values()].flat().map((notification) => (
-                <UnifiedNotificationItem
-                  key={notification.id}
-                  notification={notification}
-                  onDismiss={() => handleDismiss(notification.id)}
-                  onCancel={getCancelHandler(notification)}
-                  isAnimatingOut={dismissingIds.has(notification.id)}
-                />
-              ))}
+            <div className="container mx-auto px-4 pb-2">
+              {/* On a phone the opened panel caps at roughly two cards and scrolls for the rest,
+                  so a burst of compacted runs cannot push the page out of reach. Desktop keeps
+                  the full-height panel. radius none: cards sit flush against the viewport and a
+                  rounded clip would shave their corners. */}
+              {isMobile ? (
+                <CustomScrollbar maxHeight="12rem" paddingMode="compact" radius="none">
+                  <div className="space-y-2">
+                    {[...condensedGroups.values()].flat().map((notification) => (
+                      <UnifiedNotificationItem
+                        key={notification.id}
+                        notification={notification}
+                        onDismiss={() => handleDismiss(notification.id)}
+                        onCancel={getCancelHandler(notification)}
+                        isAnimatingOut={dismissingIds.has(notification.id)}
+                      />
+                    ))}
+                  </div>
+                </CustomScrollbar>
+              ) : (
+                <div className="space-y-2">
+                  {[...condensedGroups.values()].flat().map((notification) => (
+                    <UnifiedNotificationItem
+                      key={notification.id}
+                      notification={notification}
+                      onDismiss={() => handleDismiss(notification.id)}
+                      onCancel={getCancelHandler(notification)}
+                      isAnimatingOut={dismissingIds.has(notification.id)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           </CondensedNotificationStrip>
         )}
