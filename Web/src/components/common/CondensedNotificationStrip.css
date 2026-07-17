@@ -52,15 +52,11 @@
   outline-offset: 2px;
 }
 
-/* Side-by-side status segments with a hairline seam between adjacent services. The clip lets
-   shadows escape only downward: the glow must not spill into the navigation above or wrap the
-   line's square ends. (A negative shadow spread cannot do this - it collapses to nothing on an
-   element this short.) */
+/* Side-by-side status segments with a hairline seam between adjacent services. */
 .condensed-notification-segments {
   display: flex;
   width: 100%;
   gap: 1px;
-  clip-path: inset(0 0 -20px 0);
 }
 
 /* Edge-to-edge line: square corners and a low profile. Each segment wears its own status
@@ -110,34 +106,59 @@
   animation: condensedStatusPulse 2.2s ease-in-out infinite;
 }
 
-/* The glow appears only on hover or keyboard focus; the segments clip above keeps it below the
-   line. It eases in through a one-shot keyframe animation rather than a box-shadow transition:
-   notification churn rewrites --notification-progress-color, and every rewrite RETARGETS a
-   running box-shadow transition back to its transparent start, so a transitioned glow never
-   finished appearing. The animation also replaces the pulse while hovered, which doubles as the
-   locked-on feedback. The hover zone is the whole .condensed-notification wrapper, so the glow
-   holds while the pointer is inside the opened panel; leaving switches it off instantly. */
-@keyframes condensedGlowIn {
-  from {
-    box-shadow: 0 4px 8px 6px transparent;
+/* The glow is a dedicated row of per-segment shadow casters occupying exactly the line's own box,
+   so each caster inherits its segment's width and the light lands under the segment that emits it.
+   It shows only on hover or keyboard focus and fades via opacity, which notification churn cannot
+   retarget the way it retargets a box-shadow transition (a transitioned glow never finished
+   appearing - every --notification-progress-color rewrite restarted it from transparent). The
+   hover zone is the whole .condensed-notification wrapper, so the glow holds while the pointer is
+   inside the opened panel. */
+.condensed-notification-glow {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  /* Same track geometry as .condensed-notification-segments: each caster stays registered with
+     the line segment above it, seam included. */
+  gap: 1px;
+  pointer-events: none;
+  /* Keep only the light cast BELOW the line. The top inset rides the caster's own height, so it
+     always lands exactly on the line's bottom edge: the glow never washes over the line it is
+     lighting, and never bleeds up into the navigation. Sides stay square so the light reaches the
+     page edges instead of rounding off, and the bottom is free for the falloff. */
+  clip-path: inset(100% 0 -1.25rem 0);
+  opacity: 0;
+  transition: opacity 0.35s ease-out;
+}
+
+/* Blur alone, NO spread. Spread inflates the caster into a hard-edged slab of near-full-alpha
+   colour several times thicker than the 2.5px line, which reads as a second fat bar rather than
+   light coming off the first; the blur's falloff is what makes it a glow. The shadow is centred
+   on the line and the clip above keeps its lower half, so the brightest pixel sits against the
+   line and fades to nothing within ~10px. */
+.condensed-notification-glow-segment {
+  flex: 1 1 0%;
+  box-shadow: 0 0 0.625rem 0 var(--condensed-glow-color);
+}
+
+/* Hovering also pauses the running pulse at full strength - the locked-on feedback. */
+@media (hover: hover) {
+  .condensed-notification:hover .condensed-notification-glow {
+    opacity: 1;
   }
-  to {
-    box-shadow: 0 4px 8px 6px var(--notification-progress-color);
+
+  .condensed-notification:hover .condensed-notification-track {
+    animation: none;
+    opacity: 1;
   }
 }
 
-@media (hover: hover) {
-  .condensed-notification:hover .condensed-notification-track {
-    animation: condensedGlowIn 0.35s ease-out;
-    opacity: 1;
-    box-shadow: 0 4px 8px 6px var(--notification-progress-color);
-  }
+.condensed-notification-line:focus-visible .condensed-notification-glow {
+  opacity: 1;
 }
 
 .condensed-notification-line:focus-visible .condensed-notification-track {
-  animation: condensedGlowIn 0.35s ease-out;
+  animation: none;
   opacity: 1;
-  box-shadow: 0 4px 8px 6px var(--notification-progress-color);
 }
 
 /* Small gap above the revealed panel; collapses to nothing at 0 height. */
@@ -145,12 +166,13 @@
   padding-top: 0.375rem;
 }
 
-/* Reduced motion: the glow still appears on hover/focus, just without the ease-in, and the
+/* Reduced motion: the glow still appears on hover/focus, just without the fade, and the
    running pulse holds steady. Selectors mirror the interactive rules so the tie breaks here. */
 @media (prefers-reduced-motion: reduce) {
   .notification-progress-track.condensed-notification-track,
   .condensed-notification:hover .condensed-notification-track,
-  .condensed-notification-line:focus-visible .condensed-notification-track {
+  .condensed-notification-line:focus-visible .condensed-notification-track,
+  .condensed-notification-glow {
     transition: none;
     animation: none;
   }

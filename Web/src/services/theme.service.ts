@@ -649,6 +649,13 @@ class ThemeService {
     // Helper: use theme override if provided, else computed value
     const v = (key: string, computed: string): string => colors[key] || computed;
 
+    // Status glow tone: the light a status colour casts, not a surface it paints. One alpha for
+    // every status - the -strong ladder cannot be reused here because its alpha varies by status
+    // (success 0.4, the rest 0.3), which makes a green segment outshine a red one on the same
+    // condensed strip. Tuned against the 2.5px line: the blur halves it, so the brightest visible
+    // pixel lands near 0.22.
+    const glowAlpha = 0.45;
+
     // Generate event tier vars for all 8 event colors
     const eventVars = ev
       .map((ec, i) => {
@@ -722,25 +729,30 @@ class ThemeService {
       --theme-success-subtle: ${v('successSubtle', rgba(success, 0.15))};
       --theme-success-muted: ${v('successMuted', rgba(success, 0.2))};
       --theme-success-strong: ${v('successStrong', rgba(success, 0.4))};
+      --theme-success-glow: ${v('successGlow', rgba(success, glowAlpha))};
 
       /* Warning */
       --theme-warning-faint: ${v('warningFaint', rgba(warning, 0.08))};
       --theme-warning-subtle: ${v('warningSubtle', rgba(warning, 0.15))};
       --theme-warning-muted: ${v('warningMuted', rgba(warning, 0.2))};
       --theme-warning-strong: ${v('warningStrong', rgba(warning, 0.3))};
+      --theme-warning-glow: ${v('warningGlow', rgba(warning, glowAlpha))};
 
       /* Error */
       --theme-error-faint: ${v('errorFaint', rgba(error, 0.1))};
       --theme-error-subtle: ${v('errorSubtle', rgba(error, 0.15))};
       --theme-error-muted: ${v('errorMuted', rgba(error, 0.2))};
       --theme-error-strong: ${v('errorStrong', rgba(error, 0.3))};
+      --theme-error-glow: ${v('errorGlow', rgba(error, glowAlpha))};
 
       /* Info */
       --theme-info-subtle: ${v('infoSubtle', rgba(info, 0.15))};
       --theme-info-muted: ${v('infoMuted', rgba(info, 0.2))};
+      --theme-info-glow: ${v('infoGlow', rgba(info, glowAlpha))};
 
       /* Waiting (purple notification-visibility tone) */
       --theme-waiting-muted: ${v('waitingMuted', rgba(waiting, 0.2))};
+      --theme-waiting-glow: ${v('waitingGlow', rgba(waiting, glowAlpha))};
 
       /* Accent */
       --theme-accent-faint: ${v('accentFaint', rgba(accent, 0.06))};

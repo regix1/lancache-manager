@@ -5,6 +5,21 @@ import type { UnifiedNotification } from '@contexts/notifications';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import './CondensedNotificationStrip.css';
 
+/**
+ * Each segment casts light in its own status colour, so a glance at the strip reads the same
+ * green/red/blue story as the cards it stands in for. Solid colours from getNotificationColor map
+ * to their theme -glow tone, which carries one shared alpha across every status so no segment
+ * outshines its neighbour. Anything unmapped falls back to the line colour itself: still the right
+ * hue, only brighter than a mapped segment.
+ */
+const GLOW_COLOR_BY_STATUS_COLOR: Record<string, string> = {
+  'var(--theme-success)': 'var(--theme-success-glow)',
+  'var(--theme-error)': 'var(--theme-error-glow)',
+  'var(--theme-warning)': 'var(--theme-warning-glow)',
+  'var(--theme-info)': 'var(--theme-info-glow)',
+  'var(--theme-waiting)': 'var(--theme-waiting-glow)'
+};
+
 interface CondensedStripSegment {
   /** Stable per-service group key; also the live-region transition identity. */
   key: string;
@@ -158,6 +173,20 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
         <span className="condensed-notification-segments">
           {segments.map((segment) => (
             <StripSegment key={segment.key} segment={segment} />
+          ))}
+        </span>
+        <span className="condensed-notification-glow" aria-hidden="true">
+          {segments.map((segment) => (
+            <span
+              key={segment.key}
+              className="condensed-notification-glow-segment"
+              style={
+                {
+                  '--condensed-glow-color':
+                    GLOW_COLOR_BY_STATUS_COLOR[segment.color] ?? segment.color
+                } as React.CSSProperties
+              }
+            />
           ))}
         </span>
       </button>
