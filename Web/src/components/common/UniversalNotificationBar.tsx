@@ -838,7 +838,10 @@ const UniversalNotificationBar: React.FC = () => {
   // changes.
   let fullOrder = 0;
   const classified = sorted.map((notification) => {
-    const serviceKey = SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY[notification.type];
+    // Generic toasts (Run Now acknowledgments) carry their owning serviceKey in details.
+    const serviceKey =
+      SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY[notification.type] ??
+      notification.details?.serviceKey;
     const condensedByService = serviceKey !== undefined && displayModes[serviceKey] === 'condensed';
     const orderAmongFull = condensedByService ? -1 : fullOrder++;
     const condensedByCap = isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;

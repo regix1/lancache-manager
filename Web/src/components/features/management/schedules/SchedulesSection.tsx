@@ -817,14 +817,14 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           type: 'generic',
           status: 'completed',
           message: t('management.schedules.runNowTriggered', { service: displayName }),
-          details: { notificationType: 'success' }
+          details: { notificationType: 'success', serviceKey: key }
         });
       } catch {
         addNotification({
           type: 'generic',
           status: 'failed',
           message: t('management.schedules.runNowFailed', { service: displayName }),
-          details: { notificationType: 'error' }
+          details: { notificationType: 'error', serviceKey: key }
         });
       } finally {
         setRunningKey(null);

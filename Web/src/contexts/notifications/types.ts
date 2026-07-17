@@ -162,6 +162,11 @@ export interface UnifiedNotification {
 
     // For generic notifications
     notificationType?: NotificationVariant;
+    /**
+     * Schedules-page serviceKey that owns this toast (e.g. the Run Now acknowledgment), so the
+     * card's notification style applies to it the same as to the run's own lifecycle events.
+     */
+    serviceKey?: string;
 
     // For data_import
     recordsImported?: number;
