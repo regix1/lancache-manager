@@ -870,7 +870,9 @@ const UniversalNotificationBar: React.FC = () => {
   return (
     <div className={`w-full ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}>
       <div
-        className="w-full border-b shadow-sm bg-[var(--theme-nav-bg)] border-[var(--theme-nav-border)] transition duration-300 ease-out motion-reduce:transition-none"
+        className={`w-full bg-[var(--theme-nav-bg)] transition duration-300 ease-out motion-reduce:transition-none ${
+          fullItems.length > 0 ? 'border-b shadow-sm border-[var(--theme-nav-border)]' : ''
+        }`}
         style={{
           transform: isAnimatingOut ? 'translateY(-100%)' : 'translateY(0)',
           opacity: isAnimatingOut ? 0 : 1
@@ -882,14 +884,12 @@ const UniversalNotificationBar: React.FC = () => {
         {condensedGroups.size > 0 && (
           <div className="condensed-notification-strip">
             {[...condensedGroups.entries()].map(([groupKey, group]) => {
-              // The live run outranks terminal toasts for the line's fill and progress. While
-              // work is ongoing the line wears the theme accent so it stands out as the bar's
-              // interactive edge; only a terminal outcome recolors it (green/red).
+              // The live run outranks terminal toasts for the line's colour, fill, and pulse:
+              // the line always wears the notification's status colour (blue running, green
+              // completed, red failed) and pulses softly while work is ongoing.
               const representative =
                 group.find((n) => !isTerminalNotificationStatus(n.status)) ?? group[0];
-              const lineColor = isTerminalNotificationStatus(representative.status)
-                ? getNotificationColor(representative)
-                : 'var(--theme-primary)';
+              const lineColor = getNotificationColor(representative);
               return (
                 <CondensedNotificationItem
                   key={groupKey}

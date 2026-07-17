@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import type { UnifiedNotification } from '@contexts/notifications';
+import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import './CondensedNotificationItem.css';
 
 /**
@@ -20,7 +21,7 @@ interface CondensedNotificationItemProps {
   notification: UnifiedNotification;
   /** Total notifications this line discloses; >1 folds a service's toast and run into one line. */
   groupCount?: number;
-  /** Line colour resolved by the bar: theme accent while work is live, status colour terminal. */
+  /** Status colour from getNotificationColor, resolved once by the bar and passed down. */
   color: string;
   /** Fine hover-capable pointers reveal on hover; touch and keyboard reveal via the tap toggle. */
   canHover: boolean;
@@ -167,7 +168,9 @@ export const CondensedNotificationItem: React.FC<CondensedNotificationItemProps>
         onClick={onTapToggle}
       >
         <span
-          className="notification-progress-track condensed-notification-track"
+          className={`notification-progress-track condensed-notification-track${
+            isTerminalNotificationStatus(notification.status) ? '' : ' condensed-notification-pulse'
+          }`}
           style={trackStyle}
         >
           {isIndeterminate ? (
