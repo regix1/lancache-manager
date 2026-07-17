@@ -1963,6 +1963,9 @@
 .schedule-row-label {
   color: var(--theme-text-secondary);
   flex-shrink: 0;
+  /* Fixed label column sized to the longest label, so every row's control starts at the same
+     left edge instead of drifting with each label's own width. */
+  min-width: 8rem;
 }
 
 /* Equal-split width recipe (mirrors .scheduled-prefill-segment-uniform) so the 3-option

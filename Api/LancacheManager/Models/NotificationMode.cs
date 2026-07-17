@@ -36,14 +36,15 @@ internal sealed class NotificationModeJsonConverter : JsonStringEnumConverter<No
 /// </summary>
 public static class NotificationModeExtensions
 {
-    // No discard arm: covering every declared NotificationMode member by name lets the compiler's
-    // enum-exhaustiveness check flag both a future unhandled member AND an out-of-range numeric
-    // value cast to this enum (CS8524) - a `_ => true` fallback would silently always-notify for
-    // either case instead.
+    // The discard arm throws instead of picking a behavior: an out-of-range value cast to this
+    // enum can only come from corrupted state, and silently treating it as "always notify" (or
+    // "never") would mask that corruption. The lenient JSON converter already normalizes every
+    // persisted shape to a named member, so this path is unreachable in practice.
     public static bool AllowsTrigger(this NotificationMode mode, RunTrigger trigger) => mode switch
     {
         NotificationMode.All => true,
         NotificationMode.Manual => trigger == RunTrigger.Manual,
-        NotificationMode.Silent => false
+        NotificationMode.Silent => false,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
     };
 }
