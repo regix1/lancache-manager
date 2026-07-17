@@ -59,7 +59,7 @@
    navigation. The transition is what makes the hover glow ease in instead of popping. */
 .notification-progress-track.condensed-notification-track {
   flex: 1 1 0%;
-  height: 0.1875rem;
+  height: 0.15625rem;
   border-radius: 0;
   background: transparent;
   transition:
