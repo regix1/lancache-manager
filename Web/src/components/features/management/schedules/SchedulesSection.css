@@ -849,8 +849,8 @@
 .scheduled-prefill-config-modal__global-help {
   grid-column: 1 / -1;
   margin: 0;
-  font-size: var(--font-size-sm);
-  line-height: 1.45;
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
   color: var(--theme-text-muted);
 }
 

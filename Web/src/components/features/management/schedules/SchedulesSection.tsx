@@ -463,11 +463,10 @@ const ScheduleCard = memo(function ScheduleCard({
 
             {/* Notification style pairs with the mode control above: how this service's run
             notifications render in the universal bar (a full card or a thin status-coloured line
-            that expands on hover/tap). Card-level for every card, including scheduled prefill:
-            its per-platform notification modes leave supportsNotifications false, but display
-            style is card-level state the backend PUT accepts for it, so it gets its own gate.
-            Saves immediately, like the other card toggles. */}
-            {(service.supportsNotifications || isScheduledPrefill) && (
+            that expands on hover/tap). Scheduled prefill is excluded on purpose: its
+            notification settings are per-platform inside the Configure modal, and its runs keep
+            the full card. Saves immediately, like the other card toggles. */}
+            {service.supportsNotifications && (
               <div className="schedule-notification-style-row">
                 <Tooltip
                   content={t('management.schedules.notificationStyleHelp')}
