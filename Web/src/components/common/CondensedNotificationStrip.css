@@ -80,12 +80,8 @@
 }
 
 /* Fill width rides an inline custom property so no dynamic status class is needed. The line is
-   never rounded in its condensed form, so the fill and sweep drop the inherited pill radius.
-   Positioned so the fill paints ABOVE the ::before underlay: the underlay is absolute, and a
-   positioned box outranks in-flow content no matter which came first, so a static fill would be
-   washed out by the very dimming meant to sit behind it. */
+   never rounded in its condensed form, so the fill and sweep drop the inherited pill radius. */
 .condensed-notification-track .notification-progress-fill {
-  position: relative;
   width: var(--condensed-fill, 100%);
 }
 

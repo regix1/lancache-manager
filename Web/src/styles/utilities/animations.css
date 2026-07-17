@@ -61,11 +61,6 @@
 /* Determinate: the width is set per render from the operation's percentage, so it is
    eased rather than snapped - server checkpoints land every few hundred ms. */
 .notification-progress-fill {
-  /* Blockified here rather than left to the caller: width and height are the whole point of this
-     class and both are ignored on an inline box, so a <span> fill silently collapses to 0x0 and
-     the track shows nothing but its own backing. The sibling -indeterminate class never hit this
-     because `position: absolute` blockifies it for free. */
-  display: block;
   height: 100%;
   border-radius: inherit;
   background: var(--notification-progress-color, var(--theme-info));
