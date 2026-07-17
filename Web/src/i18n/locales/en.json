@@ -226,6 +226,8 @@
       "condensedCollapse": "{{title}}, {{status}}. Select to collapse.",
       "condensedCollapseWithPercent": "{{title}}, {{status}}, {{percent}}% complete. Select to collapse.",
       "condensedLive": "{{title}}, {{status}}",
+      "condensedGroupSuffix": "Includes {{count}} more notification.",
+      "condensedGroupSuffix_other": "Includes {{count}} more notifications.",
       "condensedStatus": {
         "running": "running",
         "waiting": "waiting",

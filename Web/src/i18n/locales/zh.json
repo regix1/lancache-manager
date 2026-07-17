@@ -226,6 +226,8 @@
       "condensedCollapse": "{{title}}，{{status}}。选择以收起。",
       "condensedCollapseWithPercent": "{{title}}，{{status}}，已完成 {{percent}}%。选择以收起。",
       "condensedLive": "{{title}}，{{status}}",
+      "condensedGroupSuffix": "包含另外 {{count}} 条通知。",
+      "condensedGroupSuffix_other": "包含另外 {{count}} 条通知。",
       "condensedStatus": {
         "running": "运行中",
         "waiting": "等待中",

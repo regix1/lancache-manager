@@ -845,9 +845,26 @@ const UniversalNotificationBar: React.FC = () => {
     const condensedByService = serviceKey !== undefined && displayModes[serviceKey] === 'condensed';
     const orderAmongFull = condensedByService ? -1 : fullOrder++;
     const condensedByCap = isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
-    return { notification, condensed: condensedByService || condensedByCap };
+    return { notification, serviceKey, condensed: condensedByService || condensedByCap };
   });
-  const condensedItems = classified.filter((item) => item.condensed);
+  // One line per service in the condensed group: a manual run's acknowledgment toast and the
+  // run's own lifecycle notification fold into a single disclosure instead of stacking a line
+  // per notification. Notifications without a serviceKey keep a line each. Map preserves the
+  // sorted order via first insertion.
+  const condensedGroups = new Map<string, UnifiedNotification[]>();
+  for (const item of classified) {
+    if (!item.condensed) {
+      continue;
+    }
+    const groupKey =
+      item.serviceKey !== undefined ? `svc:${item.serviceKey}` : `id:${item.notification.id}`;
+    const group = condensedGroups.get(groupKey);
+    if (group) {
+      group.push(item.notification);
+    } else {
+      condensedGroups.set(groupKey, [item.notification]);
+    }
+  }
   const fullItems = classified.filter((item) => !item.condensed);
 
   return (
@@ -862,25 +879,36 @@ const UniversalNotificationBar: React.FC = () => {
         <div className="container mx-auto px-4 py-2 space-y-2">
           {/* Condensed lines as one contiguous group above the full cards. Rendered only when
               present, so the default all-full desktop path is the untouched full-card map below. */}
-          {condensedItems.length > 0 && (
+          {condensedGroups.size > 0 && (
             <div className="space-y-1.5">
-              {condensedItems.map(({ notification }) => (
-                <CondensedNotificationItem
-                  key={notification.id}
-                  notification={notification}
-                  color={getNotificationColor(notification)}
-                  canHover={canHover}
-                  tapExpanded={expandedIds.has(notification.id)}
-                  onTapToggle={() => toggleExpanded(notification.id)}
-                >
-                  <UnifiedNotificationItem
-                    notification={notification}
-                    onDismiss={() => handleDismiss(notification.id)}
-                    onCancel={getCancelHandler(notification)}
-                    isAnimatingOut={dismissingIds.has(notification.id)}
-                  />
-                </CondensedNotificationItem>
-              ))}
+              {[...condensedGroups.entries()].map(([groupKey, group]) => {
+                // The live run outranks terminal toasts for the line's colour and fill.
+                const representative =
+                  group.find((n) => !isTerminalNotificationStatus(n.status)) ?? group[0];
+                return (
+                  <CondensedNotificationItem
+                    key={groupKey}
+                    notification={representative}
+                    groupCount={group.length}
+                    color={getNotificationColor(representative)}
+                    canHover={canHover}
+                    tapExpanded={expandedIds.has(groupKey)}
+                    onTapToggle={() => toggleExpanded(groupKey)}
+                  >
+                    <div className="space-y-2">
+                      {group.map((notification) => (
+                        <UnifiedNotificationItem
+                          key={notification.id}
+                          notification={notification}
+                          onDismiss={() => handleDismiss(notification.id)}
+                          onCancel={getCancelHandler(notification)}
+                          isAnimatingOut={dismissingIds.has(notification.id)}
+                        />
+                      ))}
+                    </div>
+                  </CondensedNotificationItem>
+                );
+              })}
             </div>
           )}
           {fullItems.map(({ notification }) => (

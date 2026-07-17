@@ -13,8 +13,13 @@ import './CondensedNotificationItem.css';
 const HOVER_COLLAPSE_DELAY_MS = 200;
 
 interface CondensedNotificationItemProps {
-  /** The notification this line represents; used for the status/percent aria-label and fill. */
+  /**
+   * Representative notification for the line's aria-label, colour, and fill. When the line
+   * discloses a service's whole group, this is the live run if one exists.
+   */
   notification: UnifiedNotification;
+  /** Total notifications this line discloses; >1 folds a service's toast and run into one line. */
+  groupCount?: number;
   /** Status colour from getNotificationColor, resolved once by the bar and passed down. */
   color: string;
   /** Fine hover-capable pointers reveal on hover; touch and keyboard reveal via the tap toggle. */
@@ -35,6 +40,7 @@ interface CondensedNotificationItemProps {
  */
 export const CondensedNotificationItem: React.FC<CondensedNotificationItemProps> = ({
   notification,
+  groupCount = 1,
   color,
   canHover,
   tapExpanded,
@@ -100,13 +106,19 @@ export const CondensedNotificationItem: React.FC<CondensedNotificationItemProps>
     ...(percentText !== null ? { percent: percentText } : {})
   };
   // The accessible name states the action the button will actually perform in its current state.
-  const ariaLabel = open
+  const baseAriaLabel = open
     ? percentText !== null
       ? t('common.notifications.condensedCollapseWithPercent', labelParams)
       : t('common.notifications.condensedCollapse', labelParams)
     : percentText !== null
       ? t('common.notifications.condensedToggleWithPercent', labelParams)
       : t('common.notifications.condensedToggle', labelParams);
+  // Expanding a grouped line reveals more than the representative card, so the name says so.
+  const extraCount = Math.max(0, groupCount - 1);
+  const ariaLabel =
+    extraCount > 0
+      ? `${baseAriaLabel} ${t('common.notifications.condensedGroupSuffix', { count: extraCount })}`
+      : baseAriaLabel;
 
   // While collapsed, the full card's own live region is unmounted, so the line keeps its own.
   // It speaks only on status transitions (never progress ticks), and stays silent while the
