@@ -1,7 +1,10 @@
 /* Full-width condensed notification strip + its hover/tap-expand region. The visible line spans
    the bar edge to edge flush under the navigation, reusing the shared .notification-progress-track /
    .notification-progress-fill classes (utilities/animations.css) so the fill easing, sweep
-   animation, and reduced-motion handling stay identical to the full card's progress bar. */
+   animation, and reduced-motion handling stay identical to the full card's progress bar.
+   Overrides of shared-class properties are compounded (.notification-progress-track.condensed-...)
+   because same-specificity rules in different bundles resolve by chunk order, which differs
+   between dev and prod. */
 
 /* Stacked lines sit flush under the navigation edge with a hairline of bar background between. */
 .condensed-notification-strip {
@@ -49,49 +52,65 @@
   outline-offset: 2px;
 }
 
-/* Edge-to-edge line: flat corners and a lower profile than the in-card progress bar. The steady
-   glow marks the line as interactive; it lives on the track because the track clips its children
-   (overflow: hidden for the indeterminate sweep), which would swallow a glow on the fill. */
-.condensed-notification-track {
-  height: 0.25rem;
+/* Edge-to-edge line: square corners and a lower profile than the in-card progress bar. The
+   whole line wears the status colour - the unfilled part is the same colour dimmed by the
+   ::before underlay - so a finished run reads as one solid colour, never the neutral track
+   grey, and the ends stay flush with the navigation. */
+.notification-progress-track.condensed-notification-track {
+  height: 0.125rem;
   border-radius: 0;
-  box-shadow: 0 0 8px 0 var(--notification-progress-color);
-  transition: box-shadow 0.15s ease-out;
+  background: transparent;
 }
 
-/* Fill width rides an inline custom property so no dynamic status class is needed. */
+.notification-progress-track.condensed-notification-track::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--notification-progress-color);
+  opacity: 0.25;
+}
+
+/* Fill width rides an inline custom property so no dynamic status class is needed. The line is
+   never rounded in its condensed form, so the fill and sweep drop the inherited pill radius. */
 .condensed-notification-track .notification-progress-fill {
   width: var(--condensed-fill, 100%);
 }
 
-/* While the operation is ongoing the glow breathes softly in the status colour; a terminal line
-   (instant completions included) holds the steady glow in its outcome colour instead. */
-@keyframes condensedGlowPulse {
+.notification-progress-track.condensed-notification-track .notification-progress-fill,
+.notification-progress-track.condensed-notification-track .notification-progress-indeterminate {
+  border-radius: 0;
+}
+
+/* While the operation is ongoing the line breathes softly in its status colour; a terminal
+   line (instant completions included) holds steady instead. */
+@keyframes condensedStatusPulse {
   0%,
   100% {
-    box-shadow: 0 0 5px 0 var(--notification-progress-color);
+    opacity: 1;
   }
   50% {
-    box-shadow: 0 0 14px 2px var(--notification-progress-color);
+    opacity: 0.65;
   }
 }
 
 .condensed-notification-track.condensed-notification-pulse {
-  animation: condensedGlowPulse 2.2s ease-in-out infinite;
+  animation: condensedStatusPulse 2.2s ease-in-out infinite;
 }
 
-/* Hover and keyboard focus answer with a strong steady glow; pausing the pulse doubles as the
-   "locked on" feedback that the line is ready to open. */
+/* The glow appears only on hover or keyboard focus as the "ready to open" cue; pausing the
+   pulse at full strength doubles as the locked-on feedback. */
 @media (hover: hover) {
   .condensed-notification-line:hover .condensed-notification-track {
     animation: none;
-    box-shadow: 0 0 14px 2px var(--notification-progress-color);
+    opacity: 1;
+    box-shadow: 0 0 12px 1px var(--notification-progress-color);
   }
 }
 
 .condensed-notification-line:focus-visible .condensed-notification-track {
   animation: none;
-  box-shadow: 0 0 14px 2px var(--notification-progress-color);
+  opacity: 1;
+  box-shadow: 0 0 12px 1px var(--notification-progress-color);
 }
 
 /* Small gap above the revealed full card; collapses to nothing at 0 height. */
@@ -100,10 +119,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .condensed-notification-track {
-    transition: none;
-  }
-
   .condensed-notification-track.condensed-notification-pulse {
     animation: none;
   }
