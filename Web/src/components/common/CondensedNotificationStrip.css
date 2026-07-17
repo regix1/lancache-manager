@@ -168,14 +168,6 @@
 /* Small gap above the revealed panel; collapses to nothing at 0 height. */
 .condensed-notification-expanded {
   padding-top: 0.375rem;
-  /* The panel reads as a dropdown belonging to the PAGE, not as more of the navigation bar. That
-     is also what stops the grey band: the bar wrapper behind the strip is the navigation colour,
-     and any moment the panel is open without a fully opaque card in front of it - the last card
-     mid auto-dismiss fading to zero opacity, a card just removed leaving only the panel's own
-     padding, a collapse animation caught part way - that navigation colour shows through as a
-     ~15px band under the line that lingers until the next interaction. Painting the panel with
-     the page background instead means those same moments show the page colour, i.e. nothing. */
-  background: var(--theme-bg-primary);
 }
 
 /* Reduced motion: the glow still appears on hover/focus, just without the fade, and the
