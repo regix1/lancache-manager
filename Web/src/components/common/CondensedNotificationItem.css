@@ -1,6 +1,14 @@
-/* Thin condensed notification line + its hover/tap-expand region. The visible bar reuses the
-   shared .notification-progress-track / .notification-progress-fill classes (utilities/animations.css)
-   so the colour and reduced-motion handling stay identical to the full card's progress bar. */
+/* Full-width condensed notification strip + its hover/tap-expand region. The visible line spans
+   the bar edge to edge under the navigation, reusing the shared .notification-progress-track /
+   .notification-progress-fill classes (utilities/animations.css) so the fill easing, sweep
+   animation, and reduced-motion handling stay identical to the full card's progress bar. */
+
+/* Stacked lines sit flush under the navigation edge with a hairline of bar background between. */
+.condensed-notification-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+}
 
 .condensed-notification {
   /* One hover zone spanning the line and its expanded card: moving the cursor from the line down
@@ -12,18 +20,12 @@
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 0.4375rem 0.5rem;
+  /* The padding is an invisible pointer target around the thin line, not visual spacing. */
+  padding: 0.25rem 0;
   border: none;
-  border-radius: 0.5rem;
+  border-radius: 0;
   background: transparent;
   cursor: pointer;
-  transition: background-color 0.15s ease-out;
-}
-
-@media (hover: hover) {
-  .condensed-notification-line:hover {
-    background: var(--theme-bg-secondary);
-  }
 }
 
 .condensed-notification-line:focus-visible {
@@ -39,10 +41,37 @@
   }
 }
 
-/* Fill width rides an inline custom property so no dynamic status class is needed; the track
-   already carries width/height/radius from the shared class. */
+/* Edge-to-edge line: flat corners and a lower profile than the in-card progress bar. */
+.condensed-notification-track {
+  height: 0.25rem;
+  border-radius: 0;
+}
+
+/* Fill width rides an inline custom property so no dynamic status class is needed. The steady
+   glow marks the line as interactive before the pointer ever reaches it. */
+.condensed-notification-track .notification-progress-fill,
+.condensed-notification-track .notification-progress-indeterminate {
+  box-shadow: 0 0 8px 0 var(--notification-progress-color);
+}
+
 .condensed-notification-track .notification-progress-fill {
   width: var(--condensed-fill, 100%);
+  transition:
+    width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.15s ease-out;
+}
+
+/* Hover and keyboard focus answer with a stronger glow instead of a background block. */
+@media (hover: hover) {
+  .condensed-notification-line:hover .notification-progress-fill,
+  .condensed-notification-line:hover .notification-progress-indeterminate {
+    box-shadow: 0 0 14px 2px var(--notification-progress-color);
+  }
+}
+
+.condensed-notification-line:focus-visible .notification-progress-fill,
+.condensed-notification-line:focus-visible .notification-progress-indeterminate {
+  box-shadow: 0 0 14px 2px var(--notification-progress-color);
 }
 
 /* Small gap above the revealed full card; collapses to nothing at 0 height. */
@@ -50,8 +79,9 @@
   padding-top: 0.375rem;
 }
 
+/* The compound selector above outranks the shared reduced-motion reset, so restate it here. */
 @media (prefers-reduced-motion: reduce) {
-  .condensed-notification-line {
+  .condensed-notification-track .notification-progress-fill {
     transition: none;
   }
 }

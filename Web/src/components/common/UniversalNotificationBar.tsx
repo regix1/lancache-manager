@@ -876,51 +876,59 @@ const UniversalNotificationBar: React.FC = () => {
           opacity: isAnimatingOut ? 0 : 1
         }}
       >
-        <div className="container mx-auto px-4 py-2 space-y-2">
-          {/* Condensed lines as one contiguous group above the full cards. Rendered only when
-              present, so the default all-full desktop path is the untouched full-card map below. */}
-          {condensedGroups.size > 0 && (
-            <div className="space-y-1.5">
-              {[...condensedGroups.entries()].map(([groupKey, group]) => {
-                // The live run outranks terminal toasts for the line's colour and fill.
-                const representative =
-                  group.find((n) => !isTerminalNotificationStatus(n.status)) ?? group[0];
-                return (
-                  <CondensedNotificationItem
-                    key={groupKey}
-                    notification={representative}
-                    groupCount={group.length}
-                    color={getNotificationColor(representative)}
-                    canHover={canHover}
-                    tapExpanded={expandedIds.has(groupKey)}
-                    onTapToggle={() => toggleExpanded(groupKey)}
-                  >
-                    <div className="space-y-2">
-                      {group.map((notification) => (
-                        <UnifiedNotificationItem
-                          key={notification.id}
-                          notification={notification}
-                          onDismiss={() => handleDismiss(notification.id)}
-                          onCancel={getCancelHandler(notification)}
-                          isAnimatingOut={dismissingIds.has(notification.id)}
-                        />
-                      ))}
-                    </div>
-                  </CondensedNotificationItem>
-                );
-              })}
-            </div>
-          )}
-          {fullItems.map(({ notification }) => (
-            <UnifiedNotificationItem
-              key={notification.id}
-              notification={notification}
-              onDismiss={() => handleDismiss(notification.id)}
-              onCancel={getCancelHandler(notification)}
-              isAnimatingOut={dismissingIds.has(notification.id)}
-            />
-          ))}
-        </div>
+        {/* Condensed lines span the bar edge to edge, flush under the navigation, so they read
+            as the nav's own bottom edge. Rendered only when present, so the default all-full
+            desktop path is the untouched full-card container below. */}
+        {condensedGroups.size > 0 && (
+          <div className="condensed-notification-strip">
+            {[...condensedGroups.entries()].map(([groupKey, group]) => {
+              // The live run outranks terminal toasts for the line's fill and progress. While
+              // work is ongoing the line wears the theme accent so it stands out as the bar's
+              // interactive edge; only a terminal outcome recolors it (green/red).
+              const representative =
+                group.find((n) => !isTerminalNotificationStatus(n.status)) ?? group[0];
+              const lineColor = isTerminalNotificationStatus(representative.status)
+                ? getNotificationColor(representative)
+                : 'var(--theme-primary)';
+              return (
+                <CondensedNotificationItem
+                  key={groupKey}
+                  notification={representative}
+                  groupCount={group.length}
+                  color={lineColor}
+                  canHover={canHover}
+                  tapExpanded={expandedIds.has(groupKey)}
+                  onTapToggle={() => toggleExpanded(groupKey)}
+                >
+                  <div className="container mx-auto px-4 pb-2 space-y-2">
+                    {group.map((notification) => (
+                      <UnifiedNotificationItem
+                        key={notification.id}
+                        notification={notification}
+                        onDismiss={() => handleDismiss(notification.id)}
+                        onCancel={getCancelHandler(notification)}
+                        isAnimatingOut={dismissingIds.has(notification.id)}
+                      />
+                    ))}
+                  </div>
+                </CondensedNotificationItem>
+              );
+            })}
+          </div>
+        )}
+        {fullItems.length > 0 && (
+          <div className="container mx-auto px-4 py-2 space-y-2">
+            {fullItems.map(({ notification }) => (
+              <UnifiedNotificationItem
+                key={notification.id}
+                notification={notification}
+                onDismiss={() => handleDismiss(notification.id)}
+                onCancel={getCancelHandler(notification)}
+                isAnimatingOut={dismissingIds.has(notification.id)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

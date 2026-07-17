@@ -20,7 +20,7 @@ interface CondensedNotificationItemProps {
   notification: UnifiedNotification;
   /** Total notifications this line discloses; >1 folds a service's toast and run into one line. */
   groupCount?: number;
-  /** Status colour from getNotificationColor, resolved once by the bar and passed down. */
+  /** Line colour resolved by the bar: theme accent while work is live, status colour terminal. */
   color: string;
   /** Fine hover-capable pointers reveal on hover; touch and keyboard reveal via the tap toggle. */
   canHover: boolean;
