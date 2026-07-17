@@ -35,6 +35,10 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
     public override string ServiceKey => "logRotation";
     protected override bool SupportsNotifications => true;
 
+    // Routine background chore: scheduled runs stay quiet by default; manually triggered runs
+    // still notify.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
+
     public NginxLogRotationHostedService(
         NginxLogRotationService rotationService,
         IConfiguration configuration,

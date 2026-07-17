@@ -43,6 +43,10 @@ public class GcScheduledService : ConfigurableScheduledService, IConditionallyVi
 
     protected override bool SupportsNotifications => true;
 
+    // Routine background chore: scheduled runs stay quiet by default; manually triggered runs
+    // still notify.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
+
     public GcScheduledService(
         ILogger<GcScheduledService> logger,
         SettingsService settingsService,

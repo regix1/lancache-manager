@@ -42,6 +42,10 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     protected override TimeSpan ErrorRetryDelay => TimeSpan.FromMinutes(5);
     protected override bool SupportsNotifications => true;
 
+    // Routine background chore: scheduled runs stay quiet by default; manually triggered runs
+    // still notify.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
+
     public override string ServiceKey => "cacheSnapshot";
 
     public CacheSnapshotService(

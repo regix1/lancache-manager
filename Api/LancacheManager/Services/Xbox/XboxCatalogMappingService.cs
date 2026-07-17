@@ -65,6 +65,10 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
     // The base default mode (All) applies unless the user overrides it.
     protected override bool SupportsNotifications => true;
 
+    // A failed scheduled refresh usually means the Xbox login expired and needs the user, so
+    // scheduled runs stay visible.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.All;
+
     public XboxCatalogMappingService(
         ILogger<XboxCatalogMappingService> logger,
         IServiceScopeFactory scopeFactory,

@@ -391,6 +391,13 @@ public abstract class ScheduledBackgroundService : BackgroundService
     protected virtual NotificationMode DefaultNotificationMode => NotificationMode.All;
 
     /// <summary>
+    /// How this service's notifications render in the universal bar when the user has not
+    /// picked a style: maintenance chores default to the condensed line so routine runs stay
+    /// out of the way; a service whose runs deserve the full card overrides this.
+    /// </summary>
+    public virtual NotificationDisplayMode DefaultNotificationDisplayMode => NotificationDisplayMode.Condensed;
+
+    /// <summary>
     /// User-controlled override for the notification mode (null = use DefaultNotificationMode).
     /// </summary>
     private NotificationMode? _notificationModeOverride;

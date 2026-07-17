@@ -28,6 +28,10 @@ public class DashboardCacheWarmerService : ScheduledBackgroundService
     public override bool DefaultRunOnStartup => true;
     protected override bool SupportsNotifications => true;
 
+    // Routine background chore: scheduled runs stay quiet by default; manually triggered runs
+    // still notify.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
+
     protected override string ServiceName => "DashboardCacheWarmer";
     protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(5);
     protected override TimeSpan Interval => TimeSpan.FromHours(1);

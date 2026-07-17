@@ -63,6 +63,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// </summary>
     public override bool DefaultRunOnStartup => false;
 
+    // Prefill runs are long and carry rich per-platform progress, so they keep the full card.
+    public override NotificationDisplayMode DefaultNotificationDisplayMode => NotificationDisplayMode.Full;
+
     public ScheduledPrefillService(
         ILogger<ScheduledPrefillService> logger,
         IServiceScopeFactory scopeFactory,

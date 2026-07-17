@@ -1,4 +1,5 @@
 using LancacheManager.Hubs;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services.SteamKit2;
 
@@ -9,6 +10,10 @@ public partial class SteamKit2Service
     // The depot-mapping pipeline already emits Started/Progress/Complete lifecycle events; opting in
     // lets the Schedules UI expose the Notifications control and lets a run be gated to silent.
     protected override bool SupportsNotifications => true;
+
+    // Routine background chore: scheduled runs stay quiet by default; manually triggered runs
+    // still notify.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
 
     // Run-stable display flag for the depot-mapping run currently executing. Stamped once per run
     // inside TryStartRebuild (under the _rebuildActive single-flight guard, before any lifecycle

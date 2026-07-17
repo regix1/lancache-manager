@@ -29,6 +29,10 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
     public override string ServiceKey => "operationHistoryCleanup";
     protected override bool SupportsNotifications => true;
 
+    // Routine background chore: scheduled runs stay quiet by default; manually triggered runs
+    // still notify.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
+
     public OperationHistoryCleanupService(
         ILogger<OperationHistoryCleanupService> logger,
         IConfiguration configuration,

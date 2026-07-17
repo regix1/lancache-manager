@@ -58,6 +58,10 @@ public class SteamService : ScopedScheduledBackgroundService
     public override bool DefaultRunOnStartup => true;
     protected override bool SupportsNotifications => true;
 
+    // Routine background chore: scheduled runs stay quiet by default; manually triggered runs
+    // still notify.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
+
     public override string ServiceKey => "steamService";
 
     public class GameInfo

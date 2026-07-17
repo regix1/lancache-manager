@@ -10,7 +10,9 @@ public partial class EpicMappingService
     public string ScheduleServiceKey => "epicMapping";
 
     protected override bool SupportsNotifications => true;
-    protected override NotificationMode DefaultNotificationMode => NotificationMode.All;
+    // Anonymous catalog refresh that self-heals on the next run: scheduled runs stay quiet by
+    // default; manually triggered runs still notify.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
 
     /// <summary>
     /// Display flag for the run currently in flight, resolved once per ExecuteWorkAsync call from
