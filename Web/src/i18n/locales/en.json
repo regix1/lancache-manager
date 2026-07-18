@@ -6968,6 +6968,7 @@
     "logProcessor": {
       "starting": "Starting log processing...",
       "complete": "Processing complete",
+      "cancelled": "Log processing cancelled",
       "error": {
         "fatal": "Log processing failed: {{errorDetail}}"
       }

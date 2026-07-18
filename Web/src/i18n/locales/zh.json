@@ -6936,6 +6936,7 @@
     "logProcessor": {
       "starting": "开始日志处理...",
       "complete": "处理完成",
+      "cancelled": "日志处理已取消",
       "error": {
         "fatal": "日志处理失败: {{errorDetail}}"
       }
