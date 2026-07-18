@@ -20,6 +20,14 @@ public partial class CacheManagementService
         Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null,
         Guid? operationId = null)
     {
+        // Per-game cache removal requires an unambiguous key scheme; fail closed across
+        // every datasource rather than partially deleting a mixed or unknown fleet.
+        var keyCapabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (keyCapabilityDenial != null)
+        {
+            throw new InvalidOperationException(keyCapabilityDenial);
+        }
+
         // Sanitize both user-provided arguments to prevent process argument injection
         service = RustProcessHelper.SanitizeProcessArgument(service);
         gameName = RustProcessHelper.SanitizeProcessArgument(gameName);
@@ -52,17 +60,18 @@ public partial class CacheManagementService
                 // Rust positional args (LOCKED CONTRACT): log_dir cache_dir game_name output_json progress_json.
                 // The owning service is pinned by the per-service binary (cache_{service}_remove), so it is
                 // NOT passed as a positional arg — the contract matches the Epic remover.
-                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                    rustBinaryPath,
-                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{gameName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress");
-
-                _logger.LogInformation("[NamedGameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
-                    datasource.Name, rustBinaryPath, startInfo.Arguments);
-
                 var dsReport = await RunRustRemovalProcessAsync<GameRemovalProgressData, GameCacheRemovalReport>(
                     "[NamedGameRemoval]",
                     execution,
-                    startInfo,
+                    () =>
+                    {
+                        var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                            rustBinaryPath,
+                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{gameName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}");
+                        _logger.LogInformation("[NamedGameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
+                            datasource.Name, rustBinaryPath, startInfo.Arguments);
+                        return startInfo;
+                    },
                     Path.GetFileNameWithoutExtension(rustBinaryPath),
                     cancellationToken,
                     operationId,
@@ -146,4 +155,5 @@ public partial class CacheManagementService
             _cacheLock.Release();
         }
     }
+
 }

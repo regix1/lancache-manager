@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, Row};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -55,6 +55,9 @@ RETURNING "DownloadId"
 struct Args {
     #[command(subcommand)]
     command: Commands,
+    /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
+    #[arg(long = "key-scheme", default_value = "monolithic", global = true)]
+    key_scheme: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -189,8 +192,14 @@ struct ValidatedRemovalEvidence {
     threshold: usize,
     datasource: String,
     candidates: Vec<CorruptionCandidate>,
-    exact_paths: Vec<PathBuf>,
+    exact_paths: Vec<ExactRemovalPath>,
     observations: Vec<ExactLogObservation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExactRemovalPath {
+    path: PathBuf,
+    expected_key: Option<String>,
 }
 
 #[derive(Debug)]
@@ -205,6 +214,7 @@ struct StructuralRemovalOutcome {
     deleted_files: usize,
     already_missing: usize,
     healed: usize,
+    key_verification_skipped: usize,
     bytes_freed: u64,
 }
 
@@ -212,6 +222,7 @@ struct StructuralRemovalOutcome {
 struct ExactPathRemovalOutcome {
     deleted_files: usize,
     already_missing: usize,
+    key_verification_skipped: usize,
     bytes_freed: u64,
 }
 
@@ -286,6 +297,24 @@ fn parse_evidence_timestamp(value: &str) -> Result<DateTime<Utc>> {
         .with_timezone(&Utc))
 }
 
+fn structural_expected_key(
+    evidence: &cache_corruption_detector::StructuralEvidence,
+) -> Option<String> {
+    if evidence.cache_key_encoding != "hex" || !evidence.cache_key.len().is_multiple_of(2) {
+        return None;
+    }
+    let bytes = evidence
+        .cache_key
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let pair = std::str::from_utf8(pair).ok()?;
+            u8::from_str_radix(pair, 16).ok()
+        })
+        .collect::<Option<Vec<_>>>()?;
+    String::from_utf8(bytes).ok()
+}
+
 fn observed_range_header(range: &ObservedByteRange) -> String {
     match range {
         ObservedByteRange::NoRange => String::new(),
@@ -293,7 +322,17 @@ fn observed_range_header(range: &ObservedByteRange) -> String {
     }
 }
 
-fn slice_is_mapped(candidate_slice: &CacheSliceKind, mapped_slice: &CacheSliceKind) -> bool {
+fn slice_is_mapped(
+    service: &str,
+    key_scheme: cache_utils::CacheKeyScheme,
+    candidate_slice: &CacheSliceKind,
+    mapped_slice: &CacheSliceKind,
+) -> bool {
+    if key_scheme == cache_utils::CacheKeyScheme::BareMetal
+        && !cache_utils::bare_metal_service_slices(service)
+    {
+        return *candidate_slice == CacheSliceKind::Noslice;
+    }
     match candidate_slice {
         // A no-range observation can retain both no-range and ::noslice exact alternatives.
         CacheSliceKind::NoRange => {
@@ -309,7 +348,7 @@ fn slice_is_mapped(candidate_slice: &CacheSliceKind, mapped_slice: &CacheSliceKi
 fn expected_paths_for_candidate(
     cache_dir: &Path,
     candidate: &CorruptionCandidate,
-) -> Result<HashSet<PathBuf>> {
+) -> Result<Vec<cache_corruption_detector::RepeatedMissCachePath>> {
     let CorruptionEvidence::RepeatedMiss {
         raw_url,
         normalized_uri,
@@ -331,15 +370,25 @@ fn expected_paths_for_candidate(
     if mapping.normalized_uri != *normalized_uri {
         bail!("candidate normalized URI does not match its raw URL");
     }
-
-    let paths: HashSet<PathBuf> = mapping
+    let key_scheme = cache_utils::active_key_scheme();
+    if !mapping
         .slices
-        .into_iter()
-        .filter(|slice| slice_is_mapped(cache_slice, &slice.kind))
-        .map(|slice| slice.exact_path)
-        .collect();
-    if paths.is_empty() {
+        .iter()
+        .any(|slice| slice_is_mapped(&candidate.service, key_scheme, cache_slice, &slice.kind))
+    {
         bail!("candidate cache slice is not covered by its observed range");
+    }
+
+    let paths = cache_corruption_detector::repeated_miss_cache_paths(
+        cache_dir,
+        &candidate.service,
+        raw_url,
+        normalized_uri,
+        cache_slice,
+        key_scheme,
+    );
+    if paths.is_empty() {
+        bail!("candidate service has no cache-key mapping under the active key scheme");
     }
     Ok(paths)
 }
@@ -350,6 +399,7 @@ fn validate_observation(
     observation: &cache_corruption_detector::CandidateObservation,
 ) -> Result<ExactLogObservation> {
     let CorruptionEvidence::RepeatedMiss {
+        raw_url,
         normalized_uri,
         cache_slice,
         ..
@@ -396,13 +446,38 @@ fn validate_observation(
         raw_range,
     )
     .context("candidate observation contains an unsupported range")?;
+    let key_scheme = cache_utils::active_key_scheme();
     if mapping.normalized_uri != *normalized_uri
         || !mapping
             .slices
             .iter()
-            .any(|slice| slice_is_mapped(cache_slice, &slice.kind))
+            .any(|slice| slice_is_mapped(&candidate.service, key_scheme, cache_slice, &slice.kind))
     {
         bail!("candidate observation does not map to the stored physical slice");
+    }
+    let candidate_paths = cache_corruption_detector::repeated_miss_cache_paths(
+        cache_dir,
+        &candidate.service,
+        raw_url,
+        normalized_uri,
+        cache_slice,
+        key_scheme,
+    );
+    let observation_paths = cache_corruption_detector::repeated_miss_cache_paths(
+        cache_dir,
+        &candidate.service,
+        &observation.raw_url,
+        &mapping.normalized_uri,
+        cache_slice,
+        key_scheme,
+    );
+    if !candidate_paths.iter().any(|candidate_path| {
+        observation_paths.iter().any(|observation_path| {
+            candidate_path.path == observation_path.path
+                && candidate_path.expected_key == observation_path.expected_key
+        })
+    }) {
+        bail!("candidate observation does not map to the stored cache key");
     }
 
     Ok(exact)
@@ -448,7 +523,7 @@ fn load_and_validate_removal_evidence(
         .with_context(|| format!("cache root is not accessible: {}", cache_dir.display()))?;
 
     let mut ids = HashSet::new();
-    let mut paths = BTreeSet::new();
+    let mut paths = BTreeMap::new();
     let mut observations = Vec::new();
     let mut candidates = Vec::with_capacity(envelope.candidates.len());
 
@@ -498,10 +573,16 @@ fn load_and_validate_removal_evidence(
         let expected_paths = expected_paths_for_candidate(cache_dir, &candidate)?;
         for exact_path in &candidate.exact_paths {
             let exact_path = PathBuf::from(exact_path);
-            if !expected_paths.contains(&exact_path) {
+            let Some(expected_path) = expected_paths
+                .iter()
+                .find(|expected| expected.path == exact_path)
+            else {
                 bail!("stored exact path does not match the candidate slice under this cache root");
-            }
-            if !paths.insert(exact_path.clone()) {
+            };
+            if paths
+                .insert(exact_path.clone(), expected_path.expected_key.clone())
+                .is_some()
+            {
                 bail!("duplicate exact path appears in removal evidence");
             }
 
@@ -588,16 +669,20 @@ fn load_and_validate_removal_evidence(
         threshold,
         datasource: envelope.datasource,
         candidates,
-        exact_paths: paths.into_iter().collect(),
+        exact_paths: paths
+            .into_iter()
+            .map(|(path, expected_key)| ExactRemovalPath { path, expected_key })
+            .collect(),
         observations,
     })
 }
 
 fn delete_exact_paths_with<F>(
     cache_dir: &Path,
-    paths: &[PathBuf],
+    paths: &[ExactRemovalPath],
     progress_path: &Path,
     reporter: &ProgressReporter,
+    key_scheme: cache_utils::CacheKeyScheme,
     mut remove_file: F,
 ) -> Result<ExactPathRemovalOutcome>
 where
@@ -606,7 +691,8 @@ where
     let mut outcome = ExactPathRemovalOutcome::default();
     let mut parent_dirs = HashSet::new();
 
-    for (index, path) in paths.iter().enumerate() {
+    for (index, candidate) in paths.iter().enumerate() {
+        let path = &candidate.path;
         if cancel::is_cancelled() {
             bail!("corruption removal cancelled before all exact paths were processed");
         }
@@ -638,6 +724,17 @@ where
         if !metadata.is_file() {
             bail!("exact path is not a regular file: {}", path.display());
         }
+        let key_matches = candidate
+            .expected_key
+            .as_deref()
+            .and_then(|expected_key| cache_utils::cache_file_key_matches(path, expected_key));
+        if (key_scheme == cache_utils::CacheKeyScheme::BareMetal
+            || candidate.expected_key.is_some())
+            && key_matches != Some(true)
+        {
+            outcome.key_verification_skipped += 1;
+            continue;
+        }
 
         remove_file(path)
             .with_context(|| format!("failed to delete exact cache path {}", path.display()))?;
@@ -654,13 +751,28 @@ where
 
 fn delete_exact_paths(
     cache_dir: &Path,
-    paths: &[PathBuf],
+    paths: &[ExactRemovalPath],
     progress_path: &Path,
     reporter: &ProgressReporter,
 ) -> Result<ExactPathRemovalOutcome> {
-    delete_exact_paths_with(cache_dir, paths, progress_path, reporter, |path| {
-        std::fs::remove_file(path)
-    })
+    delete_exact_paths_with(
+        cache_dir,
+        paths,
+        progress_path,
+        reporter,
+        cache_utils::active_key_scheme(),
+        |path| std::fs::remove_file(path),
+    )
+}
+
+fn completed_exact_removal_count(outcome: &ExactPathRemovalOutcome) -> Result<usize> {
+    if outcome.key_verification_skipped > 0 {
+        bail!(
+            "{} exact cache path(s) failed key verification; access-log and database evidence were retained",
+            outcome.key_verification_skipped
+        );
+    }
+    Ok(outcome.deleted_files)
 }
 
 fn stored_log_url(raw_url: &str) -> String {
@@ -919,6 +1031,7 @@ fn run_structural_remove(
                     "files": 0,
                     "alreadyMissing": outcome.already_missing,
                     "healed": outcome.healed,
+                    "keyVerificationSkipped": outcome.key_verification_skipped,
                     "bytesFreed": 0,
                 }),
             );
@@ -937,6 +1050,7 @@ fn run_structural_remove(
                         "files": 0,
                         "alreadyMissing": outcome.already_missing,
                         "healed": outcome.healed,
+                        "keyVerificationSkipped": outcome.key_verification_skipped,
                         "bytesFreed": 0,
                     }),
                 );
@@ -958,6 +1072,7 @@ fn run_structural_remove(
                     "files": outcome.deleted_files,
                     "alreadyMissing": outcome.already_missing,
                     "healed": outcome.healed,
+                    "keyVerificationSkipped": outcome.key_verification_skipped,
                     "bytesFreed": outcome.bytes_freed,
                 }),
             );
@@ -994,6 +1109,7 @@ fn run_structural_remove(
                         "files": outcome.deleted_files,
                         "alreadyMissing": outcome.already_missing,
                         "healed": outcome.healed,
+                        "keyVerificationSkipped": outcome.key_verification_skipped,
                         "bytesFreed": outcome.bytes_freed,
                     }),
                 );
@@ -1010,6 +1126,17 @@ fn run_structural_remove(
                         "structural candidate changed immediately before unlink: {}",
                         path.display()
                     );
+                }
+                if cache_utils::active_key_scheme() == cache_utils::CacheKeyScheme::BareMetal {
+                    let matches_expected_key = structural_expected_key(&evidence)
+                        .as_deref()
+                        .and_then(|expected_key| {
+                            cache_utils::cache_file_key_matches(&path, expected_key)
+                        });
+                    if matches_expected_key != Some(true) {
+                        outcome.key_verification_skipped += 1;
+                        continue;
+                    }
                 }
                 std::fs::remove_file(&path).with_context(|| {
                     format!("failed to delete structural cache path {}", path.display())
@@ -1034,6 +1161,7 @@ fn run_structural_remove(
             "files": outcome.deleted_files,
             "alreadyMissing": outcome.already_missing,
             "healed": outcome.healed,
+            "keyVerificationSkipped": outcome.key_verification_skipped,
             "bytesFreed": outcome.bytes_freed
         }),
         100.0,
@@ -1093,6 +1221,7 @@ async fn run_remove(
     )?;
     let cache_outcome =
         delete_exact_paths(cache_dir, &evidence.exact_paths, progress_path, reporter)?;
+    let removed_count = completed_exact_removal_count(&cache_outcome)?;
 
     write_progress(
         progress_path,
@@ -1151,10 +1280,11 @@ async fn run_remove(
         "completed",
         "signalr.corruptionRemove.complete",
         json!({
-            "count": evidence.candidates.len(),
+            "count": removed_count,
             "service": service,
             "files": cache_outcome.deleted_files,
             "alreadyMissing": cache_outcome.already_missing,
+            "keyVerificationSkipped": cache_outcome.key_verification_skipped,
             "bytesFreed": cache_outcome.bytes_freed,
             "logLines": log_outcome.lines_removed,
             "downloads": downloads_deleted,
@@ -1171,6 +1301,9 @@ async fn run_remove(
 async fn main() -> Result<()> {
     cancel::install();
     let args = Args::parse();
+    cache_utils::set_active_key_scheme(cache_utils::CacheKeyScheme::from_config_str(
+        &args.key_scheme,
+    ));
 
     match args.command {
         Commands::Detect {
@@ -1627,6 +1760,8 @@ mod tests {
                 "30",
                 "--scan-started-utc",
                 "2024-01-01T00:00:00Z",
+                "--key-scheme",
+                "bare_metal",
                 "--progress",
             ]);
             assert!(Args::try_parse_from(args).is_ok());
@@ -1662,6 +1797,8 @@ mod tests {
             "/tmp/progress.json",
             "--evidence-file",
             "/server/evidence.json",
+            "--key-scheme",
+            "bare_metal",
         ])
         .is_ok());
         assert!(Args::try_parse_from([
@@ -1755,7 +1892,13 @@ mod tests {
         let evidence =
             load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam").unwrap();
         assert_eq!(evidence.threshold, 3);
-        assert_eq!(evidence.exact_paths, vec![exact_path]);
+        assert_eq!(
+            evidence.exact_paths,
+            vec![ExactRemovalPath {
+                path: exact_path,
+                expected_key: None,
+            }]
+        );
         assert_eq!(evidence.observations.len(), 3);
         assert!(evidence
             .observations
@@ -2027,11 +2170,16 @@ mod tests {
         std::fs::write(&unrelated, b"unrelated").unwrap();
 
         let progress = fixture.path().join("progress.json");
+        let exact_candidate = ExactRemovalPath {
+            path: exact.clone(),
+            expected_key: None,
+        };
         let outcome = delete_exact_paths_with(
             &cache_dir,
-            std::slice::from_ref(&exact),
+            std::slice::from_ref(&exact_candidate),
             &progress,
             &ProgressReporter::new(false),
+            cache_utils::CacheKeyScheme::Monolithic,
             |path| std::fs::remove_file(path),
         )
         .unwrap();
@@ -2039,6 +2187,125 @@ mod tests {
         assert!(!exact.exists());
         assert_eq!(std::fs::read(&sibling).unwrap(), b"sibling");
         assert_eq!(std::fs::read(&unrelated).unwrap(), b"unrelated");
+    }
+
+    #[test]
+    fn bare_metal_key_header_mismatch_is_counted_and_not_deleted() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let expected_key = "lancache-steam/depot/1/chunk/abcdef";
+        let mapped = cache_corruption_detector::repeated_miss_cache_paths(
+            &cache_dir,
+            "steam",
+            "/depot/1/chunk/abcdef",
+            "/depot/1/chunk/abcdef",
+            &CacheSliceKind::Ranged {
+                start: 0,
+                end: cache_utils::DEFAULT_SLICE_SIZE - 1,
+            },
+            cache_utils::CacheKeyScheme::BareMetal,
+        );
+        let path = mapped[0].path.clone();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut contents = vec![0x03u8, 0x00, 0x00, 0x00, b'\n'];
+        contents.extend_from_slice(b"KEY: lancache-steam/different-object\n");
+        contents.extend_from_slice(b"HTTP/1.1 200 OK\r\nbody");
+        std::fs::write(&path, contents).unwrap();
+
+        let outcome = delete_exact_paths_with(
+            &cache_dir,
+            &[ExactRemovalPath {
+                path: path.clone(),
+                expected_key: Some(expected_key.to_string()),
+            }],
+            &fixture.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            cache_utils::CacheKeyScheme::BareMetal,
+            |candidate_path| std::fs::remove_file(candidate_path),
+        )
+        .unwrap();
+
+        assert_eq!(outcome.deleted_files, 0);
+        assert_eq!(outcome.key_verification_skipped, 1);
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn bare_metal_missing_expected_key_is_counted_and_not_deleted() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let path = cache_dir.join("candidate");
+        std::fs::write(&path, b"cache file without trusted expected key").unwrap();
+        let remove_calls = AtomicUsize::new(0);
+
+        let outcome = delete_exact_paths_with(
+            &cache_dir,
+            &[ExactRemovalPath {
+                path: path.clone(),
+                expected_key: None,
+            }],
+            &fixture.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            cache_utils::CacheKeyScheme::BareMetal,
+            |candidate_path| {
+                remove_calls.fetch_add(1, Ordering::SeqCst);
+                std::fs::remove_file(candidate_path)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(outcome.deleted_files, 0);
+        assert_eq!(outcome.key_verification_skipped, 1);
+        assert_eq!(remove_calls.load(Ordering::SeqCst), 0);
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn skipped_key_verification_blocks_history_cleanup_and_count_is_deleted_files() {
+        let skipped = ExactPathRemovalOutcome {
+            deleted_files: 1,
+            key_verification_skipped: 1,
+            ..ExactPathRemovalOutcome::default()
+        };
+        let error = completed_exact_removal_count(&skipped).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("access-log and database evidence were retained"));
+
+        let completed = ExactPathRemovalOutcome {
+            deleted_files: 2,
+            already_missing: 3,
+            ..ExactPathRemovalOutcome::default()
+        };
+        assert_eq!(completed_exact_removal_count(&completed).unwrap(), 2);
+    }
+
+    #[test]
+    fn bare_metal_unsliced_identity_accepts_ranged_request_mapping() {
+        let ranged = CacheSliceKind::Ranged {
+            start: 0,
+            end: cache_utils::DEFAULT_SLICE_SIZE - 1,
+        };
+        assert!(slice_is_mapped(
+            "steam",
+            cache_utils::CacheKeyScheme::BareMetal,
+            &CacheSliceKind::Noslice,
+            &ranged,
+        ));
+        assert!(!slice_is_mapped(
+            "steam",
+            cache_utils::CacheKeyScheme::BareMetal,
+            &ranged,
+            &ranged,
+        ));
+        assert!(!slice_is_mapped(
+            "blizzard",
+            cache_utils::CacheKeyScheme::BareMetal,
+            &CacheSliceKind::Noslice,
+            &ranged,
+        ));
     }
 
     #[test]
@@ -2068,9 +2335,19 @@ mod tests {
         let calls = AtomicUsize::new(0);
         let result = delete_exact_paths_with(
             &cache_dir,
-            &[first_path.clone(), second_path.clone()],
+            &[
+                ExactRemovalPath {
+                    path: first_path.clone(),
+                    expected_key: None,
+                },
+                ExactRemovalPath {
+                    path: second_path.clone(),
+                    expected_key: None,
+                },
+            ],
             &fixture.path().join("progress.json"),
             &ProgressReporter::new(false),
+            cache_utils::CacheKeyScheme::Monolithic,
             |path| {
                 if calls.fetch_add(1, Ordering::SeqCst) == 0 {
                     std::fs::remove_file(path)

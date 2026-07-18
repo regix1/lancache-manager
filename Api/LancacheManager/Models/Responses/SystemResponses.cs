@@ -73,6 +73,27 @@ public class DatasourceInfoDto
     /// Whether this datasource is enabled.
     /// </summary>
     public bool Enabled { get; set; }
+
+    /// <summary>
+    /// Presentation-only source layout: monolithic | bare_metal | mixed.
+    /// </summary>
+    public string Layout { get; set; } = "monolithic";
+
+    /// <summary>
+    /// Number of logical access-log sources currently on disk.
+    /// </summary>
+    public int SourceCount { get; set; }
+
+    /// <summary>
+    /// Object-scoped disk features (game/service removal, corruption mapping, eviction)
+    /// are available when current evidence selects one unambiguous cache-key scheme.
+    /// </summary>
+    public bool CanMapLogicalObjects { get; set; }
+
+    /// <summary>
+    /// Whole-root cache clear needs no key knowledge and stays available everywhere.
+    /// </summary>
+    public bool CanClearWholeCacheRoot { get; set; }
 }
 
 /// <summary>

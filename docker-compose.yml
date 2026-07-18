@@ -14,6 +14,8 @@ services:
 
       # Required: LANCache log directory
       # Add :ro for read-only (recommended for monitoring-only setups)
+      # Bare-metal (zeropingheroes/lancache-bare-metal): use /srv/lancache/logs/http here
+      # and /srv/lancache/data for the cache mount below
       - /mnt/lancache/logs:/logs:ro
 
       # Required: LANCache cache directory

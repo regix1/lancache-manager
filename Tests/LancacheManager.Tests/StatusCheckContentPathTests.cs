@@ -706,7 +706,9 @@ public sealed class StatusCheckContentPathTests
                 new[] { new CacheDomainService { Name = "steam" } },
                 CancellationToken.None);
 
-            Assert.Equal("available", report.Availability);
+            // A readable log with zero recognizable samples is the typed "noSamples"
+            // state, never "available" with nothing behind it - and still no network.
+            Assert.Equal("noSamples", report.Availability);
             Assert.Empty(report.Paths);
             Assert.Equal(0, resolveCalls);
             Assert.Equal(0, probeCalls);

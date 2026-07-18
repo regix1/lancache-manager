@@ -63,10 +63,7 @@ impl LogFileReader {
     }
 
     fn build(path: &Path, source: Box<dyn Read>) -> Result<Self> {
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         // Reduced buffer sizes from 8MB to 512KB for better memory efficiency
         // 512KB is still large enough for good I/O performance while reducing memory footprint
@@ -107,7 +104,6 @@ impl LogFileReader {
             .read_until(b'\n', buf)
             .context("Failed to read line bytes from log file")
     }
-
 }
 
 /// Opens a file for reading with proper sharing on Windows
@@ -127,7 +123,6 @@ fn open_file_shared_read(path: &Path) -> Result<File> {
     #[cfg(not(target_os = "windows"))]
     {
         // On Unix, File::open already allows sharing
-        File::open(path)
-            .with_context(|| format!("Failed to open file: {}", path.display()))
+        File::open(path).with_context(|| format!("Failed to open file: {}", path.display()))
     }
 }

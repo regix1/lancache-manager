@@ -19,6 +19,14 @@ public interface IStateService
     // Per-datasource total line count methods
     long GetLogTotalLines(string datasourceName);
     void SetLogTotalLines(string datasourceName, long totalLines);
+    // Per-datasource, per-source-stem series offsets (bare-metal / mixed layouts)
+    Dictionary<string, long> GetLogSourcePositions(string datasourceName);
+    void SetLogSourcePositions(string datasourceName, Dictionary<string, long> positions);
+    void ClearLogSourcePositions(string datasourceName, IEnumerable<string> stems);
+    // Per-datasource ingestion diagnostics (typed counters + missing-source warning)
+    LogIngestDiagnostics? GetLogIngestDiagnostics(string datasourceName);
+    void SetLogIngestDiagnostics(string datasourceName, LogIngestDiagnostics diagnostics);
+    void SetLogMissingSourcesWarning(string datasourceName, string? message);
 
     // Cache Clear Operations Methods (stored in data/operations/cache_operations.json)
     List<CacheClearOperation> GetCacheClearOperations();

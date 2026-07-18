@@ -27,6 +27,8 @@ import { useOptimisticPending } from '@/hooks/useOptimisticPending';
 import { useSelectionSet } from '@/hooks/useSelectionSet';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
+import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
+import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { showPermissionBlock } from '@utils/permissionUi';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
@@ -78,6 +80,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const { isDockerAvailable } = useDockerSocket();
   const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
     useDirectoryPermissionsContext();
+  // Corruption detection and removal map cache files back to logical objects, which needs the
+  // monolithic cache-key recipe; an all bare-metal fleet cannot do this, so the backend rejects
+  // both scan and removal. Disable them here with an explanation.
+  const diskObjectsAvailable = useDiskObjectCapability();
 
   const isScanningFromNotification = useOperationBusy({
     types: ['corruption_detection'],
@@ -966,41 +972,48 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
         {(close) => (
           <>
-            {displayedDetectionMethod === 'structural' ? (
-              <>
+            <DiskObjectActionGate
+              available={diskObjectsAvailable}
+              tooltip={t('management.capability.diskObjectsUnavailable')}
+              position="left"
+              className="block w-full"
+            >
+              {displayedDetectionMethod === 'structural' ? (
+                <>
+                  <ActionMenuItem
+                    icon={<Search className="w-3.5 h-3.5" />}
+                    disabled={scanBlocked || !diskObjectsAvailable}
+                    onClick={() => {
+                      void startScan('full');
+                      close();
+                    }}
+                  >
+                    {t('management.corruption.fullScan')}
+                  </ActionMenuItem>
+                  <ActionMenuItem
+                    icon={<Zap className="w-3.5 h-3.5" />}
+                    disabled={scanBlocked || !diskObjectsAvailable}
+                    onClick={() => {
+                      void startScan('incremental');
+                      close();
+                    }}
+                  >
+                    {t('management.corruption.incrementalScan')}
+                  </ActionMenuItem>
+                </>
+              ) : (
                 <ActionMenuItem
                   icon={<Search className="w-3.5 h-3.5" />}
-                  disabled={scanBlocked}
+                  disabled={scanBlocked || !diskObjectsAvailable}
                   onClick={() => {
-                    void startScan('full');
+                    void startScan();
                     close();
                   }}
                 >
-                  {t('management.corruption.fullScan')}
+                  {t('common.scan')}
                 </ActionMenuItem>
-                <ActionMenuItem
-                  icon={<Zap className="w-3.5 h-3.5" />}
-                  disabled={scanBlocked}
-                  onClick={() => {
-                    void startScan('incremental');
-                    close();
-                  }}
-                >
-                  {t('management.corruption.incrementalScan')}
-                </ActionMenuItem>
-              </>
-            ) : (
-              <ActionMenuItem
-                icon={<Search className="w-3.5 h-3.5" />}
-                disabled={scanBlocked}
-                onClick={() => {
-                  void startScan();
-                  close();
-                }}
-              >
-                {t('common.scan')}
-              </ActionMenuItem>
-            )}
+              )}
+            </DiskObjectActionGate>
             <ActionMenuItem
               icon={<RefreshCw className="w-3.5 h-3.5" />}
               disabled={isRefreshing || isScanBusy || isAnyRemovalRunning || corruptionRemovalBusy}
@@ -1012,36 +1025,50 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               {t('common.load')}
             </ActionMenuItem>
             <ActionMenuDivider />
-            <ActionMenuDangerItem
-              icon={<Trash2 className="w-3.5 h-3.5" />}
-              disabled={removalBlocked || selectedServices.length === 0}
-              onClick={() => {
-                setPendingRemoveSelected(true);
-                close();
-              }}
+            <DiskObjectActionGate
+              available={diskObjectsAvailable}
+              tooltip={t('management.capability.diskObjectsUnavailable')}
+              position="left"
+              className="block w-full"
             >
-              {t(
-                detectionMethod === 'structural'
-                  ? 'management.corruption.removeSelectedInvalid'
-                  : 'management.corruption.removeSelectedSuspects'
-              )}
-            </ActionMenuDangerItem>
-            <ActionMenuDangerItem
-              icon={<Trash2 className="w-3.5 h-3.5" />}
-              disabled={removalBlocked}
-              onClick={() => {
-                setPendingRemoveAll(true);
-                close();
-              }}
+              <ActionMenuDangerItem
+                icon={<Trash2 className="w-3.5 h-3.5" />}
+                disabled={removalBlocked || selectedServices.length === 0 || !diskObjectsAvailable}
+                onClick={() => {
+                  setPendingRemoveSelected(true);
+                  close();
+                }}
+              >
+                {t(
+                  detectionMethod === 'structural'
+                    ? 'management.corruption.removeSelectedInvalid'
+                    : 'management.corruption.removeSelectedSuspects'
+                )}
+              </ActionMenuDangerItem>
+            </DiskObjectActionGate>
+            <DiskObjectActionGate
+              available={diskObjectsAvailable}
+              tooltip={t('management.capability.diskObjectsUnavailable')}
+              position="left"
+              className="block w-full"
             >
-              {startingRemoveAll
-                ? t('management.corruption.removing')
-                : t(
-                    detectionMethod === 'structural'
-                      ? 'management.corruption.removeAllInvalid'
-                      : 'management.corruption.removeAllSuspects'
-                  )}
-            </ActionMenuDangerItem>
+              <ActionMenuDangerItem
+                icon={<Trash2 className="w-3.5 h-3.5" />}
+                disabled={removalBlocked || !diskObjectsAvailable}
+                onClick={() => {
+                  setPendingRemoveAll(true);
+                  close();
+                }}
+              >
+                {startingRemoveAll
+                  ? t('management.corruption.removing')
+                  : t(
+                      detectionMethod === 'structural'
+                        ? 'management.corruption.removeAllInvalid'
+                        : 'management.corruption.removeAllSuspects'
+                    )}
+              </ActionMenuDangerItem>
+            </DiskObjectActionGate>
           </>
         )}
       </SectionActionsMenu>
@@ -1245,24 +1272,33 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                               <ChevronDown className="w-4 h-4" />
                             )}
                           </Button>
-                          <Button
-                            onClick={() => requestServiceRemoval(service)}
-                            awaitPermissions
-                            loading={isRemoving}
-                            disabled={removalBlocked || loadingDetailsServices.has(service)}
-                            variant="filled"
-                            color="red"
-                            size="xs"
-                            stableWidth
+                          <DiskObjectActionGate
+                            available={diskObjectsAvailable}
+                            tooltip={t('management.capability.diskObjectsUnavailable')}
                           >
-                            {isRemoving
-                              ? t('management.corruption.removing')
-                              : t(
-                                  detectionMethod === 'structural'
-                                    ? 'management.corruption.removeInvalid'
-                                    : 'management.corruption.removeSuspect'
-                                )}
-                          </Button>
+                            <Button
+                              onClick={() => requestServiceRemoval(service)}
+                              awaitPermissions
+                              loading={isRemoving}
+                              disabled={
+                                removalBlocked ||
+                                loadingDetailsServices.has(service) ||
+                                !diskObjectsAvailable
+                              }
+                              variant="filled"
+                              color="red"
+                              size="xs"
+                              stableWidth
+                            >
+                              {isRemoving
+                                ? t('management.corruption.removing')
+                                : t(
+                                    detectionMethod === 'structural'
+                                      ? 'management.corruption.removeInvalid'
+                                      : 'management.corruption.removeSuspect'
+                                  )}
+                            </Button>
+                          </DiskObjectActionGate>
                         </div>
                       </div>
                       <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">

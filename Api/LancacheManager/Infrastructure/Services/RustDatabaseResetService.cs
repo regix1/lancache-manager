@@ -17,6 +17,8 @@ public class RustDatabaseResetService
     private readonly CacheManagementService _cacheManagementService;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly IStateService _stateService;
+    private readonly DatasourceService _datasourceService;
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
     private readonly SemaphoreSlim _startLock = new(1, 1);
@@ -33,7 +35,9 @@ public class RustDatabaseResetService
         ISignalRNotificationService notifications,
         CacheManagementService cacheManagementService,
         RustProcessHelper rustProcessHelper,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        IStateService stateService,
+        DatasourceService datasourceService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -41,6 +45,24 @@ public class RustDatabaseResetService
         _cacheManagementService = cacheManagementService;
         _rustProcessHelper = rustProcessHelper;
         _operationTracker = operationTracker;
+        _stateService = stateService;
+        _datasourceService = datasourceService;
+    }
+
+    /// <summary>
+    /// A full reset empties the log-derived tables, so every log checkpoint (per-stem
+    /// maps included — they win over the zero scalar via the positions file) must clear
+    /// with them or the next run silently skips all history.
+    /// </summary>
+    private void ResetLogCheckpoints()
+    {
+        foreach (var ds in _datasourceService.GetDatasources())
+        {
+            _stateService.SetLogSourcePositions(ds.Name, new Dictionary<string, long>());
+            _stateService.SetLogPosition(ds.Name, 0);
+            _stateService.SetLogTotalLines(ds.Name, 0);
+        }
+        _stateService.SetLogPosition(0);
     }
 
     private sealed record ResetCurrentProgress(
@@ -311,6 +333,8 @@ public class RustDatabaseResetService
                             Timestamp = DateTime.UtcNow
                         });
                     }
+
+                    ResetLogCheckpoints();
 
                     if (_currentTrackerOperationId.HasValue)
                     {

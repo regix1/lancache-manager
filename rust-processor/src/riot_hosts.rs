@@ -34,15 +34,30 @@ mod tests {
 
     #[test]
     fn resolves_known_hosts() {
-        assert_eq!(resolve_riot_host("lol.dyn.riotcdn.net"), Some("League of Legends"));
-        assert_eq!(resolve_riot_host("valorant.dyn.riotcdn.net"), Some("Valorant"));
-        assert_eq!(resolve_riot_host("bacon.dyn.riotcdn.net"), Some("Legends of Runeterra"));
+        assert_eq!(
+            resolve_riot_host("lol.dyn.riotcdn.net"),
+            Some("League of Legends")
+        );
+        assert_eq!(
+            resolve_riot_host("valorant.dyn.riotcdn.net"),
+            Some("Valorant")
+        );
+        assert_eq!(
+            resolve_riot_host("bacon.dyn.riotcdn.net"),
+            Some("Legends of Runeterra")
+        );
     }
 
     #[test]
     fn is_case_insensitive() {
-        assert_eq!(resolve_riot_host("LOL.DYN.RIOTCDN.NET"), Some("League of Legends"));
-        assert_eq!(resolve_riot_host("Valorant.Dyn.Riotcdn.Net"), Some("Valorant"));
+        assert_eq!(
+            resolve_riot_host("LOL.DYN.RIOTCDN.NET"),
+            Some("League of Legends")
+        );
+        assert_eq!(
+            resolve_riot_host("Valorant.Dyn.Riotcdn.Net"),
+            Some("Valorant")
+        );
     }
 
     #[test]

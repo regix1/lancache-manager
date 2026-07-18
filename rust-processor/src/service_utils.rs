@@ -15,9 +15,7 @@ pub const MANAGER_PROBE_USER_AGENT: &str = "lancache-manager-status-check";
 /// explicit probe User-Agent marker below.
 #[allow(dead_code)]
 pub fn should_skip_url(url: &str) -> bool {
-    url.contains("/lancache-heartbeat") ||
-    url.contains("/health") ||
-    url.contains("/ping")
+    url.contains("/lancache-heartbeat") || url.contains("/health") || url.contains("/ping")
 }
 
 /// True when an access-log line's quoted tail (referer/user-agent/... fields) carries the
@@ -42,7 +40,10 @@ pub fn normalize_service_name(service: &str) -> String {
     // If it looks like an IP address (has dots and numbers), group as "ip-address"
     if service_lower.contains('.') && service_lower.chars().any(|c| c.is_numeric()) {
         // Check if it's mostly numbers and dots (likely an IP)
-        let non_ip_chars = service_lower.chars().filter(|c| !c.is_numeric() && *c != '.').count();
+        let non_ip_chars = service_lower
+            .chars()
+            .filter(|c| !c.is_numeric() && *c != '.')
+            .count();
         if non_ip_chars == 0 {
             return "ip-address".to_string();
         }
@@ -50,7 +51,10 @@ pub fn normalize_service_name(service: &str) -> String {
 
     // If it looks like an IPv6 address (contains colons and hex digits), group as "ip-address"
     if service_lower.contains(':') {
-        let non_ipv6_chars = service_lower.chars().filter(|c| !c.is_ascii_hexdigit() && *c != ':').count();
+        let non_ipv6_chars = service_lower
+            .chars()
+            .filter(|c| !c.is_ascii_hexdigit() && *c != ':')
+            .count();
         if non_ipv6_chars == 0 {
             return "ip-address".to_string();
         }

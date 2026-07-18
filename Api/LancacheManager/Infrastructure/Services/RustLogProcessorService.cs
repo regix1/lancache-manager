@@ -182,6 +182,23 @@ public class RustLogProcessorService
             return false;
         }
 
+        // Same atomic gate the single-datasource path takes: without it the batch could
+        // race a live-monitor start and overwrite the singleton's CTS/operation fields.
+        await _startLock.WaitAsync();
+        try
+        {
+            if (IsProcessing)
+            {
+                _logger.LogWarning("Rust log processor is already running; batch start rejected");
+                return false;
+            }
+            IsProcessing = true;
+        }
+        finally
+        {
+            _startLock.Release();
+        }
+
         var batchOperationId = BeginOperation();
         try
         {
@@ -309,9 +326,11 @@ public class RustLogProcessorService
     /// </summary>
     public void ResetLogPosition()
     {
-        // Reset all datasource positions
+        // Reset all datasource positions, including every per-source-stem checkpoint —
+        // leaving stale stem offsets behind would resurrect them via the positions file.
         foreach (var ds in _datasourceService.GetDatasources())
         {
+            _stateService.SetLogSourcePositions(ds.Name, new Dictionary<string, long>());
             _stateService.SetLogPosition(ds.Name, 0);
         }
         // Also reset legacy position for backward compatibility
@@ -324,6 +343,7 @@ public class RustLogProcessorService
     /// </summary>
     public void ResetLogPosition(string datasourceName)
     {
+        _stateService.SetLogSourcePositions(datasourceName, new Dictionary<string, long>());
         _stateService.SetLogPosition(datasourceName, 0);
         _logger.LogInformation("Log position reset to 0 for datasource '{DatasourceName}'", datasourceName);
     }
@@ -471,7 +491,64 @@ public class RustLogProcessorService
 
         [System.Text.Json.Serialization.JsonPropertyName("errors")]
         public List<string> Errors { get; set; } = new();
+
+        /// <summary>Contract version of the polled progress file (0 = pre-contract writer).</summary>
+        [System.Text.Json.Serialization.JsonPropertyName("schema_version")]
+        public int SchemaVersion { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("run_id")]
+        public string RunId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Empty while running; on the final write one of completed | completed_with_warnings |
+        /// partial | failed | cancelled. This polled file is the single authority: exit code 0
+        /// without a valid terminal checkpoint is treated as a failure.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("terminal_status")]
+        public string TerminalStatus { get; set; } = string.Empty;
+
+        /// <summary>Presentation-only source layout: monolithic | bare_metal | mixed.</summary>
+        [System.Text.Json.Serialization.JsonPropertyName("layout")]
+        public string Layout { get; set; } = string.Empty;
+
+        /// <summary>Per-source-stem series line counts as consumed by this run.</summary>
+        [System.Text.Json.Serialization.JsonPropertyName("source_positions")]
+        public Dictionary<string, long> SourcePositions { get; set; } = new();
+
+        [System.Text.Json.Serialization.JsonPropertyName("unparsed_lines")]
+        public long UnparsedLines { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("hintless_http_detailed_lines")]
+        public long HintlessHttpDetailedLines { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("skipped_fallback_lines")]
+        public long SkippedFallbackLines { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("invalid_encoding_lines")]
+        public long InvalidEncodingLines { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("recognized_ignored_lines")]
+        public long RecognizedIgnoredLines { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("incomplete_final_records")]
+        public long IncompleteFinalRecords { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("files_with_errors")]
+        public List<string> FilesWithErrors { get; set; } = new();
     }
+
+    private static readonly string[] _validTerminalStatuses =
+    {
+        "completed", "completed_with_warnings", "partial", "failed", "cancelled"
+    };
+
+    /// <summary>
+    /// True when the final progress file is a valid terminal checkpoint from the new
+    /// contract writer: known schema version and a recognized terminal status.
+    /// </summary>
+    private static bool IsValidTerminalCheckpoint(ProgressData? progress) =>
+        progress is { SchemaVersion: 1 } &&
+        _validTerminalStatuses.Contains(progress.TerminalStatus);
 
     public async Task<bool> StartProcessingAsync(
         string logFilePath,
@@ -547,6 +624,29 @@ public class RustLogProcessorService
             var progressPath = Path.Combine(operationsDir, $"rust_progress_{datasourceName}.json");
             var rustExecutablePath = _pathResolver.GetRustLogProcessorPath();
 
+            // Per-source positions file: the single source of stem offsets for this run
+            // (the CLI start position is ignored by the multi-source processor). When no
+            // per-source checkpoint exists yet (pre-upgrade state), migrate the legacy
+            // aggregate position onto the access.log stem so monolithic behavior is
+            // unchanged; other stems default to 0 inside the processor.
+            var sourcePositions = _stateService.GetLogSourcePositions(datasourceName);
+            if (sourcePositions.Count == 0)
+            {
+                var legacyPosition = _stateService.GetLogPosition(datasourceName);
+                if (legacyPosition > 0)
+                {
+                    sourcePositions[LogSourceLayout.MonolithicStem] = legacyPosition;
+                }
+            }
+            var startPositions = new Dictionary<string, long>(sourcePositions);
+            var positionsPath = Path.Combine(operationsDir, $"rust_positions_{datasourceName}.json");
+            var positionsJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                schema_version = 1,
+                sources = sourcePositions
+            });
+            await File.WriteAllTextAsync(positionsPath, positionsJson);
+
             // Determine if logFilePath is a directory or file path
             // If it's already a directory, use it directly; otherwise extract directory from file path
             var logDirectory = Directory.Exists(logFilePath)
@@ -604,7 +704,7 @@ public class RustLogProcessorService
             var autoMapDepots = 1;
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                 rustExecutablePath,
-                $"\"{logDirectory}\" \"{progressPath}\" {startPosition} {autoMapDepots} \"{datasourceName}\"",
+                $"\"{logDirectory}\" \"{progressPath}\" {startPosition} {autoMapDepots} \"{datasourceName}\" \"{positionsPath}\"",
                 Path.GetDirectoryName(rustExecutablePath));
 
             // Pass TZ environment variable to Rust processor so it uses the correct timezone
@@ -616,6 +716,11 @@ public class RustLogProcessorService
             }
 
             var startTime = DateTime.UtcNow;
+
+            // Snapshotted inside the run callback BEFORE the monitor-stopping Cancel() call
+            // below poisons the token: "cancelled" is an intent this host expressed, and the
+            // terminal checkpoint alone must not be able to claim it (C# owns intent).
+            var cancelRequestedDuringRun = false;
 
             var exitCode = await _rustProcessHelper.RunTrackedProcessAsync(
                 startInfo,
@@ -653,6 +758,11 @@ public class RustLogProcessorService
                         }
                     });
 
+                    // The progress monitor gets its OWN linked token: cancelling the shared
+                    // operation CTS after a child exits used to make a multi-datasource batch
+                    // abort before its remaining datasources ever ran.
+                    using var monitorCts = CancellationTokenSource.CreateLinkedTokenSource(processingToken);
+
                     if (!silentMode)
                     {
                         await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
@@ -669,19 +779,18 @@ public class RustLogProcessorService
                             MbTotal = 0.0
                         });
 
-                        _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, processingToken));
+                        _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, monitorCts.Token));
                     }
 
                     await process.WaitForExitAsync(processingToken);
+
+                    cancelRequestedDuringRun = processingToken.IsCancellationRequested;
 
                     _logger.LogInformation("Rust processor exited with code {ExitCode}", process.ExitCode);
 
                     await _rustProcessHelper.AwaitOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
 
-                    if (_cancellationTokenSource != null)
-                    {
-                        _cancellationTokenSource.Cancel();
-                    }
+                    monitorCts.Cancel();
                     if (_progressMonitorTask != null)
                     {
                         try
@@ -698,11 +807,15 @@ public class RustLogProcessorService
                 },
                 processLabel: "log_processor");
 
-            // Check if this was a cancellation by looking at exit code and progress
-            // Exit code 1 typically indicates cancellation or error
+            // The polled progress file is the single authority on the run outcome. The
+            // typed terminal_status decides success/warning/partial/failure; "cancelled"
+            // additionally requires that this host actually requested cancellation.
             var finalProgress = await ReadProgressFileAsync(progressPath);
-            var wasCancelled = finalProgress?.Status == OperationStatus.Cancelled.ToWireString() ||
-                              (exitCode != 0 && finalProgress?.PercentComplete < 100);
+            var hasTerminalCheckpoint = IsValidTerminalCheckpoint(finalProgress);
+            var wasCancelled = cancelRequestedDuringRun &&
+                ((hasTerminalCheckpoint && finalProgress!.TerminalStatus == "cancelled") ||
+                 finalProgress?.Status == OperationStatus.Cancelled.ToWireString() ||
+                 exitCode != 0);
 
             if (wasCancelled)
             {
@@ -730,9 +843,10 @@ public class RustLogProcessorService
             {
                 // Check if Rust reported a failure status despite exit code 0
                 // This catches edge cases where errors were logged but the process still exited cleanly
-                if (finalProgress?.Status == OperationStatus.Failed.ToWireString())
+                if (finalProgress?.Status == OperationStatus.Failed.ToWireString() ||
+                    (hasTerminalCheckpoint && finalProgress!.TerminalStatus == "failed"))
                 {
-                    _logger.LogError("Rust processor exited with code 0 but reported failure: {StageKey}", finalProgress.StageKey);
+                    _logger.LogError("Rust processor exited with code 0 but reported failure: {StageKey}", finalProgress!.StageKey);
 
                     // Snapshot failure metrics for the onTerminalEmit closure, then complete the op
                     // (CompleteOperation fires the single terminal LogProcessingComplete event).
@@ -750,13 +864,96 @@ public class RustLogProcessorService
                     return false;
                 }
 
+                // Exit code 0 without a valid terminal checkpoint means the processor died
+                // between its last progress tick and its terminal write (or an incompatible
+                // binary is installed). Positions must NOT be persisted from a non-terminal
+                // snapshot, so this is a failure, not a quiet success.
+                if (!hasTerminalCheckpoint)
+                {
+                    _logger.LogError(
+                        "Rust processor exited with code 0 but left no valid terminal checkpoint (schema {Schema}, terminal '{Terminal}')",
+                        finalProgress?.SchemaVersion ?? 0, finalProgress?.TerminalStatus ?? "<none>");
+                    if (_currentOperationId.HasValue && shouldFinalizeOperation)
+                    {
+                        _terminalMetrics = new LogProcessingTerminalMetrics(
+                            EntriesProcessed: finalProgress?.EntriesSaved ?? 0,
+                            LinesProcessed: finalProgress?.LinesParsed ?? 0,
+                            Elapsed: null,
+                            Message: "Log processing ended without a valid completion checkpoint",
+                            StageKey: null);
+                        _operationTracker.CompleteOperation(_currentOperationId.Value, false,
+                            "Log processing ended without a valid completion checkpoint");
+                    }
+                    return false;
+                }
+
+                PersistIngestDiagnostics(datasourceName!, finalProgress!, startPositions);
+
+                // A partial run saved what it could but hit per-file errors: positions are
+                // NOT persisted (the next run re-reads; dedup absorbs the overlap) and the
+                // operation surfaces as failed-with-detail, never plain success.
+                if (finalProgress!.TerminalStatus == "partial")
+                {
+                    var partialMessage =
+                        $"Log processing finished with {finalProgress.FilesWithErrors.Count} file error(s); " +
+                        $"{finalProgress.EntriesSaved} entries were saved";
+                    _logger.LogError("{Message}: {Files}", partialMessage,
+                        string.Join("; ", finalProgress.FilesWithErrors));
+                    if (_currentOperationId.HasValue && shouldFinalizeOperation)
+                    {
+                        _terminalMetrics = new LogProcessingTerminalMetrics(
+                            EntriesProcessed: finalProgress.EntriesSaved,
+                            LinesProcessed: finalProgress.LinesParsed,
+                            Elapsed: null,
+                            Message: partialMessage,
+                            StageKey: null);
+                        _operationTracker.CompleteOperation(_currentOperationId.Value, false, partialMessage);
+                    }
+                    return false;
+                }
+
+                // Success is an ALLOWLIST, not "anything that wasn't rejected": a checkpoint
+                // that says cancelled without this host having requested cancellation (or any
+                // future terminal value) must never persist positions or report success.
+                if (finalProgress.TerminalStatus is not ("completed" or "completed_with_warnings"))
+                {
+                    var unexpectedMessage =
+                        $"Log processing ended with unexpected status '{finalProgress.TerminalStatus}'";
+                    _logger.LogError("{Message}", unexpectedMessage);
+                    if (_currentOperationId.HasValue && shouldFinalizeOperation)
+                    {
+                        _terminalMetrics = new LogProcessingTerminalMetrics(
+                            EntriesProcessed: finalProgress.EntriesSaved,
+                            LinesProcessed: finalProgress.LinesParsed,
+                            Elapsed: null,
+                            Message: unexpectedMessage,
+                            StageKey: null);
+                        _operationTracker.CompleteOperation(_currentOperationId.Value, false, unexpectedMessage);
+                    }
+                    return false;
+                }
+
                 // Normal completion - send completion with actual data
                 if (finalProgress != null)
                 {
-                    // Save position AND total lines per-datasource for multi-datasource support
-                    // Total lines comes from Rust to avoid C# recounting all log files
-                    _stateService.SetLogPosition(datasourceName!, finalProgress.LinesParsed);
-                    _stateService.SetLogTotalLines(datasourceName!, finalProgress.TotalLines);
+                    // Persist the per-stem checkpoints atomically from the validated terminal
+                    // checkpoint (never from a mid-run snapshot). The terminal map is MERGED
+                    // over existing state: a stem whose files were briefly absent this run must
+                    // keep its old checkpoint, not replay from zero when it reopens. Explicit
+                    // lifecycle paths (service removal, delete-file, resets) are the only
+                    // places checkpoints are removed. The legacy aggregate position is kept in
+                    // sync inside SetLogSourcePositions; total lines comes from Rust to avoid
+                    // C# recounting all log files.
+                    if (finalProgress.SourcePositions.Count > 0)
+                    {
+                        var mergedPositions = _stateService.GetLogSourcePositions(datasourceName!);
+                        foreach (var (stem, offset) in finalProgress.SourcePositions)
+                        {
+                            mergedPositions[stem] = offset;
+                        }
+                        _stateService.SetLogSourcePositions(datasourceName!, mergedPositions);
+                        _stateService.SetLogTotalLines(datasourceName!, finalProgress.TotalLines);
+                    }
 
                     // Mark that logs have been processed at least once to enable guest mode
                     _stateService.SetHasProcessedLogs(true);
@@ -932,11 +1129,16 @@ public class RustLogProcessorService
                     // onTerminalEmit closure (the single terminal event fires from CompleteOperation
                     // below, after the min-display-duration delay so UI visibility is preserved).
                     var finalElapsed = DateTime.UtcNow - startTime;
+                    var completionMessage = finalProgress?.TerminalStatus == "completed_with_warnings"
+                        ? $"Log processing completed with warnings: {finalProgress.UnparsedLines} unrecognized line(s), " +
+                          $"{finalProgress.HintlessHttpDetailedLines} line(s) without a service, " +
+                          $"{finalProgress.InvalidEncodingLines} line(s) with invalid encoding"
+                        : "Log processing completed successfully";
                     _terminalMetrics = new LogProcessingTerminalMetrics(
                         EntriesProcessed: finalProgress?.EntriesSaved ?? 0,
                         LinesProcessed: finalProgress?.LinesParsed ?? 0,
                         Elapsed: Math.Round(finalElapsed.TotalMinutes, 1),
-                        Message: "Log processing completed successfully",
+                        Message: completionMessage,
                         StageKey: "signalr.logProcessing.complete");
                 }
                 else if (shouldFinalizeOperation)
@@ -1104,6 +1306,49 @@ public class RustLogProcessorService
     private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)
     {
         return await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
+    }
+
+    /// <summary>
+    /// Persists the run's diagnostic counters. Warning-clear rule: an anomaly-free run
+    /// only overwrites (and thereby clears) previous warnings when it examined meaningful
+    /// new input — a no-op run must never launder away a standing warning. "New input" is
+    /// judged per stem (one stem growing while another shrinks must still count), and an
+    /// incomplete final record is a real observation worth recording too.
+    /// </summary>
+    private void PersistIngestDiagnostics(
+        string datasourceName, ProgressData progress, Dictionary<string, long> startPositions)
+    {
+        var examinedNewInput = progress.SourcePositions.Count > 0
+            ? progress.SourcePositions.Any(kvp =>
+                kvp.Value > startPositions.GetValueOrDefault(kvp.Key, 0))
+            : progress.LinesParsed > startPositions.Values.Sum();
+        // IncompleteFinalRecords is deliberately NOT an anomaly trigger: a live file is
+        // mid-line almost every tick, and letting that overwrite counters would clear a
+        // standing warning without meaningful new input. It still persists (and displays)
+        // whenever a run qualifies through the conditions below.
+        var hasAnomalies = progress.UnparsedLines > 0
+            || progress.HintlessHttpDetailedLines > 0
+            || progress.InvalidEncodingLines > 0
+            || progress.FilesWithErrors.Count > 0;
+
+        if (!hasAnomalies && !examinedNewInput)
+        {
+            return;
+        }
+
+        _stateService.SetLogIngestDiagnostics(datasourceName, new LogIngestDiagnostics
+        {
+            Layout = progress.Layout,
+            TerminalStatus = progress.TerminalStatus,
+            UnparsedLines = progress.UnparsedLines,
+            HintlessHttpDetailedLines = progress.HintlessHttpDetailedLines,
+            SkippedFallbackLines = progress.SkippedFallbackLines,
+            InvalidEncodingLines = progress.InvalidEncodingLines,
+            RecognizedIgnoredLines = progress.RecognizedIgnoredLines,
+            IncompleteFinalRecords = progress.IncompleteFinalRecords,
+            FilesWithErrors = new List<string>(progress.FilesWithErrors),
+            LastRunUtc = DateTime.UtcNow
+        });
     }
 
         /// <summary>

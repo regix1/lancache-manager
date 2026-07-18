@@ -38,6 +38,10 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
     body = <p className="status-check-content-state">{t(`${keys}.logMissing`)}</p>;
   } else if (report.availability === 'unreadable') {
     body = <p className="status-check-content-state">{t(`${keys}.unreadable`)}</p>;
+  } else if (report.availability === 'unsupportedFormat') {
+    body = <p className="status-check-content-state">{t(`${keys}.unsupportedFormat`)}</p>;
+  } else if (report.availability === 'noSamples') {
+    body = <p className="status-check-content-state">{t(`${keys}.noSamples`)}</p>;
   } else if ((report.paths ?? []).length === 0) {
     body = (
       <div className="status-check-content-state status-check-content-state--stacked">

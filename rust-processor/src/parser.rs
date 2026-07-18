@@ -28,7 +28,7 @@ impl LogParser {
         }
     }
 
-    fn normalize_url(url: &str) -> String {
+    pub(crate) fn normalize_url(url: &str) -> String {
         // Fast path: the overwhelming majority of URLs contain no consecutive
         // slashes, so skip the char-walk entirely when no "//" pair exists.
         if !url.as_bytes().windows(2).any(|pair| pair == b"//") {
@@ -141,62 +141,7 @@ impl LogParser {
     }
 
     fn parse_timestamp(&self, time_str: &str) -> Option<NaiveDateTime> {
-        // Extract timezone offset if present (e.g., " -0600" or " +0000")
-        let (time_without_tz, tz_offset) = if let Some(pos) = time_str.rfind(['+', '-']) {
-            let tz_str = time_str[pos..].trim();
-            // Parse timezone like "+0000" or "-0600"
-            let offset = if tz_str.len() >= 5 {
-                let sign = if tz_str.starts_with('-') { -1 } else { 1 };
-                let hours: i32 = tz_str[1..3].parse().ok()?;
-                let minutes: i32 = tz_str[3..5].parse().ok()?;
-                Some(sign * (hours * 3600 + minutes * 60))
-            } else {
-                None
-            };
-            (time_str[..pos].trim(), offset)
-        } else {
-            (time_str, None)
-        };
-
-        // Try format: dd/MMM/yyyy:HH:mm:ss (most common for nginx/lancache logs)
-        if let Ok(naive_dt) = NaiveDateTime::parse_from_str(time_without_tz, "%d/%b/%Y:%H:%M:%S") {
-            return Some(self.convert_to_utc(naive_dt, tz_offset));
-        }
-
-        // Try format: yyyy-MM-dd HH:mm:ss
-        if let Ok(naive_dt) = NaiveDateTime::parse_from_str(time_without_tz, "%Y-%m-%d %H:%M:%S") {
-            return Some(self.convert_to_utc(naive_dt, tz_offset));
-        }
-
-        // Try format: yyyy-MM-ddTHH:mm:ss
-        if let Ok(naive_dt) = NaiveDateTime::parse_from_str(time_without_tz, "%Y-%m-%dT%H:%M:%S") {
-            return Some(self.convert_to_utc(naive_dt, tz_offset));
-        }
-
-        None
-    }
-
-    fn convert_to_utc(
-        &self,
-        naive_dt: NaiveDateTime,
-        tz_offset_secs: Option<i32>,
-    ) -> NaiveDateTime {
-        if let Some(offset_secs) = tz_offset_secs {
-            // Create a DateTime with the timezone offset
-            if let Some(offset) = FixedOffset::east_opt(offset_secs) {
-                if let Some(dt_with_tz) = offset.from_local_datetime(&naive_dt).earliest() {
-                    // Convert to UTC and return as NaiveDateTime
-                    return dt_with_tz.with_timezone(&Utc).naive_utc();
-                }
-            }
-        }
-        // If no timezone info, it's in local time - convert to UTC
-        // The nginx log timestamp is in the server's local timezone
-        if let Some(local_dt) = self.local_tz.from_local_datetime(&naive_dt).earliest() {
-            return local_dt.with_timezone(&Utc).naive_utc();
-        }
-        // Fallback: assume UTC if conversion fails
-        naive_dt
+        parse_nginx_timestamp(time_str, self.local_tz)
     }
 
     /// Extract the Nth quoted field from the rest string (1-indexed).
@@ -246,6 +191,68 @@ impl LogParser {
             .and_then(|cap| cap.get(1))
             .and_then(|m| m.as_str().parse::<u32>().ok())
     }
+}
+
+/// Parse an nginx access-log timestamp (`dd/MMM/yyyy:HH:mm:ss [+-]HHMM` and the ISO-ish
+/// fallbacks) into a UTC NaiveDateTime. Shared by every log parser so cachelog and
+/// http-detailed records with the same timestamp produce the same instant.
+pub(crate) fn parse_nginx_timestamp(time_str: &str, local_tz: Tz) -> Option<NaiveDateTime> {
+    // Extract timezone offset if present (e.g., " -0600" or " +0000")
+    let (time_without_tz, tz_offset) = if let Some(pos) = time_str.rfind(['+', '-']) {
+        let tz_str = time_str[pos..].trim();
+        // Parse timezone like "+0000" or "-0600"
+        let offset = if tz_str.len() >= 5 {
+            let sign = if tz_str.starts_with('-') { -1 } else { 1 };
+            let hours: i32 = tz_str[1..3].parse().ok()?;
+            let minutes: i32 = tz_str[3..5].parse().ok()?;
+            Some(sign * (hours * 3600 + minutes * 60))
+        } else {
+            None
+        };
+        (time_str[..pos].trim(), offset)
+    } else {
+        (time_str, None)
+    };
+
+    // Try format: dd/MMM/yyyy:HH:mm:ss (most common for nginx/lancache logs)
+    if let Ok(naive_dt) = NaiveDateTime::parse_from_str(time_without_tz, "%d/%b/%Y:%H:%M:%S") {
+        return Some(convert_to_utc(naive_dt, tz_offset, local_tz));
+    }
+
+    // Try format: yyyy-MM-dd HH:mm:ss
+    if let Ok(naive_dt) = NaiveDateTime::parse_from_str(time_without_tz, "%Y-%m-%d %H:%M:%S") {
+        return Some(convert_to_utc(naive_dt, tz_offset, local_tz));
+    }
+
+    // Try format: yyyy-MM-ddTHH:mm:ss
+    if let Ok(naive_dt) = NaiveDateTime::parse_from_str(time_without_tz, "%Y-%m-%dT%H:%M:%S") {
+        return Some(convert_to_utc(naive_dt, tz_offset, local_tz));
+    }
+
+    None
+}
+
+fn convert_to_utc(
+    naive_dt: NaiveDateTime,
+    tz_offset_secs: Option<i32>,
+    local_tz: Tz,
+) -> NaiveDateTime {
+    if let Some(offset_secs) = tz_offset_secs {
+        // Create a DateTime with the timezone offset
+        if let Some(offset) = FixedOffset::east_opt(offset_secs) {
+            if let Some(dt_with_tz) = offset.from_local_datetime(&naive_dt).earliest() {
+                // Convert to UTC and return as NaiveDateTime
+                return dt_with_tz.with_timezone(&Utc).naive_utc();
+            }
+        }
+    }
+    // If no timezone info, it's in local time - convert to UTC
+    // The nginx log timestamp is in the server's local timezone
+    if let Some(local_dt) = local_tz.from_local_datetime(&naive_dt).earliest() {
+        return local_dt.with_timezone(&Utc).naive_utc();
+    }
+    // Fallback: assume UTC if conversion fails
+    naive_dt
 }
 
 #[cfg(test)]

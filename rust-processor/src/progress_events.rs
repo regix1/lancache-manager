@@ -115,7 +115,12 @@ impl ProgressReporter {
     /// * `percent_complete` - Progress percentage (0-100)
     /// * `stage_key` - Semantic i18n stage key
     /// * `context` - Interpolation variables as JSON object
-    pub fn emit_progress(&self, percent_complete: f64, stage_key: &str, context: serde_json::Value) {
+    pub fn emit_progress(
+        &self,
+        percent_complete: f64,
+        stage_key: &str,
+        context: serde_json::Value,
+    ) {
         if !self.enabled {
             return;
         }

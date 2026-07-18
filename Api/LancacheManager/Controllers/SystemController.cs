@@ -30,6 +30,7 @@ public class SystemController : ControllerBase
     private readonly DatasourceService _datasourceService;
     private readonly ISignalRNotificationService _notifications;
     private readonly UserPreferencesService _userPreferencesService;
+    private readonly DatasourceCapabilityService _capabilityService;
 
     public SystemController(
         StateService stateService,
@@ -40,8 +41,10 @@ public class SystemController : ControllerBase
         SteamKit2Service steamKit2Service,
         DatasourceService datasourceService,
         ISignalRNotificationService notifications,
-        UserPreferencesService userPreferencesService)
+        UserPreferencesService userPreferencesService,
+        DatasourceCapabilityService capabilityService)
     {
+        _capabilityService = capabilityService;
         _stateService = stateService;
         _configuration = configuration;
         _logger = logger;
@@ -79,15 +82,23 @@ public class SystemController : ControllerBase
             // Use cached permission flags maintained by DirectoryPermissionMonitor.
             CacheWritable = defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable(),
             LogsWritable = defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsWritable(),
-            // Include all datasources
-            DataSources = datasources.Select(ds => new DatasourceInfoDto
+            // Include all datasources with their layout + capability evidence
+            DataSources = datasources.Select(ds =>
             {
-                Name = ds.Name,
-                CachePath = ds.CachePath,
-                LogsPath = ds.LogPath,
-                CacheWritable = ds.CacheWritable,
-                LogsWritable = ds.LogsWritable,
-                Enabled = ds.Enabled
+                var capabilities = _capabilityService.GetCapabilities(ds);
+                return new DatasourceInfoDto
+                {
+                    Name = ds.Name,
+                    CachePath = ds.CachePath,
+                    LogsPath = ds.LogPath,
+                    CacheWritable = ds.CacheWritable,
+                    LogsWritable = ds.LogsWritable,
+                    Enabled = ds.Enabled,
+                    Layout = ds.Layout,
+                    SourceCount = ds.LogSourceStems.Count,
+                    CanMapLogicalObjects = capabilities.CanMapLogicalObjects,
+                    CanClearWholeCacheRoot = capabilities.CanClearWholeCacheRoot
+                };
             }).ToList()
         });
     }

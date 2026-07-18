@@ -59,10 +59,12 @@ public sealed class ContentPathCheckService : IContentPathCheckService
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         ContentPathScanResult scan;
+        var datasources = _datasourceProvider()
+            .Where(datasource => datasource.Enabled)
+            .ToList();
         try
         {
-            var logPaths = _datasourceProvider()
-                .Where(datasource => datasource.Enabled)
+            var logPaths = datasources
                 .Select(datasource => datasource.LogFilePath)
                 .ToList();
             scan = await _scanner.ScanAsync(logPaths, knownServices, now, cancellationToken);
@@ -83,13 +85,35 @@ public sealed class ContentPathCheckService : IContentPathCheckService
             };
         }
 
+        // Typed states instead of truthful-looking empty success: a readable log with zero
+        // recognizable samples is "noSamples", and when the datasource's sources are
+        // per-service (bare-metal http-detailed) files this sampler cannot read yet, the
+        // honest state is "unsupportedFormat" — never "available" with nothing behind it.
+        var availability = scan.Availability;
+        if ((availability == "available" && scan.Samples.Count == 0) || availability == "logMissing")
+        {
+            var hasPerServiceSources = datasources.Any(datasource =>
+            {
+                datasource.RefreshLogSources();
+                return datasource.LogSourceStems.Any(LogSourceLayout.IsPerServiceStem);
+            });
+            if (hasPerServiceSources)
+            {
+                availability = "unsupportedFormat";
+            }
+            else if (availability == "available")
+            {
+                availability = "noSamples";
+            }
+        }
+
         var report = new StatusCheckContentReport
         {
-            Availability = scan.Availability,
+            Availability = availability,
             ScanTruncated = scan.ScanTruncated,
             ScannedBytes = scan.ScannedBytes
         };
-        if (scan.Availability != "available" || scan.Samples.Count == 0)
+        if (availability != "available" || scan.Samples.Count == 0)
         {
             report.CheckedAtUtc = _timeProvider.GetUtcNow();
             return report;

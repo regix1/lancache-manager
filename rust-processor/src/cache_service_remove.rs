@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use sqlx::PgPool;
-use sqlx::Row;
 use serde::Serialize;
 use serde_json::json;
+use sqlx::PgPool;
+use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,8 +12,8 @@ mod cache_utils;
 mod cancel;
 mod db;
 mod log_discovery;
-mod log_reader;
 mod log_purge;
+mod log_reader;
 mod models;
 mod parser;
 mod progress_events;
@@ -44,6 +44,14 @@ struct Args {
     /// Path to progress JSON file
     progress_json: String,
 
+    /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
+    #[arg(
+        long = "key-scheme",
+        default_value = "monolithic",
+        value_parser = ["monolithic", "bare_metal"]
+    )]
+    key_scheme: String,
+
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
@@ -62,6 +70,60 @@ struct ProgressData {
     #[serde(rename = "totalFiles")]
     total_files: usize,
     timestamp: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RemovalReport {
+    service_name: String,
+    cache_files_deleted: usize,
+    total_bytes_freed: u64,
+    log_entries_removed: u64,
+    database_entries_deleted: u64,
+}
+
+impl RemovalReport {
+    fn partial(service: &str, cache_files_deleted: usize, total_bytes_freed: u64) -> Self {
+        Self {
+            service_name: service.to_string(),
+            cache_files_deleted,
+            total_bytes_freed,
+            log_entries_removed: 0,
+            database_entries_deleted: 0,
+        }
+    }
+}
+
+fn write_removal_report(path: &Path, report: &RemovalReport) -> Result<()> {
+    fs::write(path, serde_json::to_string_pretty(report)?)?;
+    Ok(())
+}
+
+/// Keep access-log and database provenance when any bare-metal candidate could not prove
+/// its recipe-computed key. Otherwise a skipped cache file would become undiscoverable.
+fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> {
+    if verification_skips == 0 {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Cache deletion safety verification failed for {} file(s); skipped files, access logs, and database records were left intact",
+        verification_skips
+    )
+}
+
+fn cache_candidate_verified_for_deletion(
+    scheme: cache_utils::CacheKeyScheme,
+    cache_path: &Path,
+    expected_key: Option<&str>,
+) -> bool {
+    match scheme {
+        cache_utils::CacheKeyScheme::Monolithic => true,
+        cache_utils::CacheKeyScheme::BareMetal => {
+            expected_key
+                .and_then(|expected| cache_utils::cache_file_key_matches(cache_path, expected))
+                == Some(true)
+        }
+    }
 }
 
 fn write_progress(
@@ -94,7 +156,10 @@ fn write_progress(
         "starting" => reporter.emit_started(stage_key, emit_context),
         "completed" => reporter.emit_complete(stage_key, emit_context),
         "failed" => {
-            let error_detail = emit_context.get("errorDetail").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let error_detail = emit_context
+                .get("errorDetail")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             reporter.emit_failed(stage_key, emit_context, error_detail);
         }
         _ => reporter.emit_progress(percent_complete, stage_key, emit_context),
@@ -116,7 +181,7 @@ async fn get_service_urls_from_db(pool: &PgPool, service: &str) -> Result<HashMa
         FROM \"LogEntries\"
         WHERE LOWER(\"Service\") = $1
         AND \"Url\" IS NOT NULL
-        GROUP BY \"Url\""
+        GROUP BY \"Url\"",
     )
     .bind(&service_lower)
     .fetch_all(pool)
@@ -142,7 +207,9 @@ fn remove_cache_files_for_service(
     urls: &HashMap<String, i64>,
     progress_path: &Path,
     reporter: &ProgressReporter,
-) -> Result<(usize, u64, usize)> {  // Returns (deleted_count, bytes_freed, permission_errors)
+    scheme: cache_utils::CacheKeyScheme,
+) -> Result<(usize, u64, usize, usize)> {
+    // Returns (deleted_count, bytes_freed, permission_errors, verification_skips).
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
@@ -155,12 +222,25 @@ fn remove_cache_files_for_service(
     // file-name digests - a steam-sized service is millions of slices, and holding a full
     // PathBuf per slice peaked at hundreds of MB. The canonical path is rebuilt per digest
     // at deletion time (the same layout the existence probe below uses).
-    let digests_to_delete: Vec<u128> = urls
+    let digests_to_delete: Vec<(u128, Option<String>)> = urls
         .par_iter()
-        .flat_map(|(url, _total_bytes)| {
-            cache_utils::existing_cache_digests_for_url(service, url, |digest| {
-                cache_utils::cache_path_for_digest(cache_dir, digest).exists()
-            })
+        .flat_map(|(url, _total_bytes)| match scheme {
+            cache_utils::CacheKeyScheme::Monolithic => {
+                cache_utils::existing_cache_digests_for_url(service, url, |digest| {
+                    cache_utils::cache_path_for_digest(cache_dir, digest).exists()
+                })
+                .into_iter()
+                .map(|digest| (digest, None))
+                .collect::<Vec<_>>()
+            }
+            cache_utils::CacheKeyScheme::BareMetal => {
+                cache_utils::existing_bare_metal_keyed_digests_for_url(service, url, |digest| {
+                    cache_utils::cache_path_for_digest(cache_dir, digest).exists()
+                })
+                .into_iter()
+                .map(|(digest, key)| (digest, Some(key)))
+                .collect::<Vec<_>>()
+            }
         })
         .collect();
 
@@ -170,12 +250,13 @@ fn remove_cache_files_for_service(
     let deleted_files = AtomicUsize::new(0);
     let bytes_freed = AtomicU64::new(0);
     let permission_errors = AtomicUsize::new(0);
+    let verification_skips = AtomicUsize::new(0);
     // Track how many paths have been checked for progress (not just deleted)
     let paths_checked = AtomicUsize::new(0);
     // Track last reported percent to avoid writing progress too frequently
     let last_reported_percent = AtomicUsize::new(0);
 
-    digests_to_delete.par_iter().for_each(|digest| {
+    digests_to_delete.par_iter().for_each(|(digest, expected_key)| {
         // Cooperative cancellation: skip remaining files if cancel was requested.
         // Already-deleted files stay deleted — consistent partial state that C# reconciles.
         if cancel::is_cancelled() {
@@ -188,26 +269,43 @@ fn remove_cache_files_for_service(
         if cache_path.exists() {
             match cache_utils::safe_path_under_root(cache_dir, &cache_path) {
                 Ok(_) => {
-                    if let Ok(metadata) = fs::metadata(&cache_path) {
-                        bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
-                    }
-
-                    match fs::remove_file(&cache_path) {
-                        Ok(_) => {
-                            let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
-                            if count.is_multiple_of(100) {
-                                eprintln!("  Deleted {} cache files ({:.2} MB freed)...",
-                                    count, bytes_freed.load(Ordering::Relaxed) as f64 / 1_048_576.0);
-                            }
+                    // Bare-metal deletion gate: the file must prove it holds the
+                    // recipe-computed key. A missing expected key, unreadable header,
+                    // or mismatch all fail closed. Monolithic keeps its legacy no-header path.
+                    if !cache_candidate_verified_for_deletion(
+                        scheme,
+                        &cache_path,
+                        expected_key.as_deref(),
+                    ) {
+                        let skips = verification_skips.fetch_add(1, Ordering::Relaxed) + 1;
+                        if skips <= 5 {
+                            eprintln!(
+                                "  skipping {}: embedded KEY did not verify against the computed key",
+                                cache_path.display()
+                            );
                         }
-                        Err(e) => {
-                            if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                let err_count = permission_errors.fetch_add(1, Ordering::Relaxed) + 1;
-                                if err_count <= 5 {
-                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
+                    } else {
+                        if let Ok(metadata) = fs::metadata(&cache_path) {
+                            bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
+                        }
+
+                        match fs::remove_file(&cache_path) {
+                            Ok(_) => {
+                                let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
+                                if count.is_multiple_of(100) {
+                                    eprintln!("  Deleted {} cache files ({:.2} MB freed)...",
+                                        count, bytes_freed.load(Ordering::Relaxed) as f64 / 1_048_576.0);
                                 }
-                            } else {
-                                eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                            }
+                            Err(e) => {
+                                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                                    let err_count = permission_errors.fetch_add(1, Ordering::Relaxed) + 1;
+                                    if err_count <= 5 {
+                                        eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
+                                    }
+                                } else {
+                                    eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                                }
                             }
                         }
                     }
@@ -246,14 +344,33 @@ fn remove_cache_files_for_service(
     let final_deleted = deleted_files.load(Ordering::Relaxed);
     let final_bytes = bytes_freed.load(Ordering::Relaxed);
     let final_permission_errors = permission_errors.load(Ordering::Relaxed);
+    let final_verification_skips = verification_skips.load(Ordering::Relaxed);
 
     if final_permission_errors > 5 {
-        eprintln!("  ... and {} more permission errors", final_permission_errors - 5);
+        eprintln!(
+            "  ... and {} more permission errors",
+            final_permission_errors - 5
+        );
     }
-    eprintln!("Deleted {} cache files ({:.2} GB freed), {} permission errors",
-        final_deleted, final_bytes as f64 / 1_073_741_824.0, final_permission_errors);
+    eprintln!(
+        "Deleted {} cache files ({:.2} GB freed), {} permission errors",
+        final_deleted,
+        final_bytes as f64 / 1_073_741_824.0,
+        final_permission_errors
+    );
+    if final_verification_skips > 0 {
+        eprintln!(
+            "Left {} file(s) untouched because their embedded KEY did not verify against the computed key",
+            final_verification_skips
+        );
+    }
 
-    Ok((final_deleted, final_bytes, final_permission_errors))
+    Ok((
+        final_deleted,
+        final_bytes,
+        final_permission_errors,
+        final_verification_skips,
+    ))
 }
 
 async fn delete_service_from_database(pool: &PgPool, service: &str) -> Result<u64> {
@@ -284,9 +401,12 @@ async fn delete_service_from_database(pool: &PgPool, service: &str) -> Result<u6
 async fn main() -> Result<()> {
     cancel::install();
     let args = Args::parse();
+    let key_scheme = cache_utils::CacheKeyScheme::from_config_str(&args.key_scheme);
+    cache_utils::set_active_key_scheme(key_scheme);
 
     let log_dir = PathBuf::from(&args.log_dir);
     let cache_dir = PathBuf::from(&args.cache_dir);
+    let output_json = PathBuf::from(&args.output_json);
     let service = &args.service;
     let progress_path = PathBuf::from(&args.progress_json);
     let reporter = ProgressReporter::new(args.progress);
@@ -317,7 +437,19 @@ async fn main() -> Result<()> {
     // Step 2: Remove cache files
     let url_count = urls.len();
     write_progress(&progress_path, &reporter, "removing_cache", "signalr.serviceRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, url_count)?;
-    let (cache_files_deleted, total_bytes_freed, cache_permission_errors) = remove_cache_files_for_service(&cache_dir, service, &urls, &progress_path, &reporter)?;
+    let (
+        cache_files_deleted,
+        total_bytes_freed,
+        cache_permission_errors,
+        verification_skips,
+    ) = remove_cache_files_for_service(
+        &cache_dir,
+        service,
+        &urls,
+        &progress_path,
+        &reporter,
+        key_scheme,
+    )?;
 
     // After cache removal: if cancellation arrived, flush partial progress and exit 0.
     // C# re-runs reconciliation/detection after a cancelled remove.
@@ -334,6 +466,15 @@ async fn main() -> Result<()> {
             url_count,
         );
         return Ok(());
+    }
+
+    // A failed bare-metal KEY check leaves the cache candidate untouched. Preserve its
+    // access-log and database provenance, write the successfully completed cache portion,
+    // and fail the logical removal so the caller can surface and retry it.
+    if let Err(error) = ensure_cache_deletions_verified(verification_skips) {
+        let report = RemovalReport::partial(service, cache_files_deleted, total_bytes_freed);
+        write_removal_report(&output_json, &report)?;
+        return Err(error);
     }
 
     // Step 3: Remove log entries
@@ -375,4 +516,115 @@ async fn main() -> Result<()> {
     }.await;
     progress_events::finish_or_exit(&reporter, "signalr.serviceRemove.error.fatal", result);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_cache_file(path: &Path, embedded_key: Option<&str>) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut contents = b"\0\n".to_vec();
+        if let Some(key) = embedded_key {
+            contents.extend_from_slice(format!("KEY: {key}\n").as_bytes());
+        } else {
+            contents.extend_from_slice(b"cache header without a key\n");
+        }
+        contents.extend_from_slice(b"body");
+        fs::write(path, contents).unwrap();
+    }
+
+    #[test]
+    fn bare_metal_requires_an_expected_key_while_monolithic_keeps_legacy_behavior() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("cache-file");
+        write_cache_file(&path, Some("expected"));
+
+        assert!(cache_candidate_verified_for_deletion(
+            cache_utils::CacheKeyScheme::Monolithic,
+            &path,
+            None,
+        ));
+        assert!(!cache_candidate_verified_for_deletion(
+            cache_utils::CacheKeyScheme::BareMetal,
+            &path,
+            None,
+        ));
+        assert!(cache_candidate_verified_for_deletion(
+            cache_utils::CacheKeyScheme::BareMetal,
+            &path,
+            Some("expected"),
+        ));
+    }
+
+    #[test]
+    fn verification_skip_is_counted_and_still_completes_progress_accounting() {
+        let temp = tempfile::tempdir().unwrap();
+        let service = "steam";
+        let url = "/depot/1/chunk/abcdef";
+        let expected_key = cache_utils::bare_metal_object_key_base(service, url).unwrap();
+        let cache_path = cache_utils::cache_path_for_digest(
+            temp.path(),
+            cache_utils::calculate_md5_digest(&expected_key),
+        );
+        write_cache_file(&cache_path, Some("wrong-key"));
+
+        let progress_path = temp.path().join("progress.json");
+        let urls = HashMap::from([(url.to_string(), 0_i64)]);
+        let (deleted, bytes, permission_errors, verification_skips) =
+            remove_cache_files_for_service(
+                temp.path(),
+                service,
+                &urls,
+                &progress_path,
+                &ProgressReporter::new(false),
+                cache_utils::CacheKeyScheme::BareMetal,
+            )
+            .unwrap();
+
+        assert!(cache_path.exists(), "unverified file must remain untouched");
+        assert_eq!(
+            (deleted, bytes, permission_errors, verification_skips),
+            (0, 0, 0, 1)
+        );
+        let progress: serde_json::Value =
+            serde_json::from_slice(&fs::read(progress_path).unwrap()).unwrap();
+        assert_eq!(progress["percentComplete"].as_f64(), Some(70.0));
+        assert_eq!(progress["totalFiles"].as_u64(), Some(1));
+    }
+
+    #[test]
+    fn verification_skips_write_a_partial_report_and_block_log_and_database_removal() {
+        assert!(ensure_cache_deletions_verified(0).is_ok());
+        let error = ensure_cache_deletions_verified(2).unwrap_err().to_string();
+        assert!(error.contains("2 file(s)"));
+        assert!(error.contains("access logs, and database records were left intact"));
+
+        let temp = tempfile::tempdir().unwrap();
+        let report_path = temp.path().join("report.json");
+        write_removal_report(&report_path, &RemovalReport::partial("steam", 3, 4096)).unwrap();
+        let report: serde_json::Value =
+            serde_json::from_slice(&fs::read(report_path).unwrap()).unwrap();
+        assert_eq!(report["service_name"], "steam");
+        assert_eq!(report["cache_files_deleted"], 3);
+        assert_eq!(report["total_bytes_freed"], 4096);
+        assert_eq!(report["log_entries_removed"], 0);
+        assert_eq!(report["database_entries_deleted"], 0);
+    }
+
+    #[test]
+    fn key_scheme_argument_rejects_unknown_values() {
+        let args = [
+            "cache_service_remove",
+            "logs",
+            "cache",
+            "steam",
+            "report.json",
+            "progress.json",
+            "--key-scheme",
+            "unknown",
+        ];
+        let error = Args::try_parse_from(args).unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
+    }
 }

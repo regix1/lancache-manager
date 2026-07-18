@@ -27,6 +27,17 @@ public class GamesController : ControllerBase
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
+    private readonly DatasourceCapabilityService _capabilityService;
+
+    /// <summary>
+    /// Presentation-side duplicate of the capability guard: per-game cache removal is
+    /// key-recipe-dependent, and the removal services revalidate again at execution time.
+    /// </summary>
+    private BadRequestObjectResult? DenyIfKeyDependentUnavailable()
+    {
+        var denial = _capabilityService.CheckAllCanMapLogicalObjects();
+        return denial == null ? null : BadRequest(new ErrorResponse { Error = denial });
+    }
 
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
@@ -36,8 +47,10 @@ public class GamesController : ControllerBase
         IPathResolver pathResolver,
         IUnifiedOperationTracker operationTracker,
         IOperationConflictChecker conflictChecker,
-        IOperationQueue operationQueue)
+        IOperationQueue operationQueue,
+        DatasourceCapabilityService capabilityService)
     {
+        _capabilityService = capabilityService;
         _gameCacheDetectionService = gameCacheDetectionService;
         _cacheManagementService = cacheManagementService;
         _notifications = notifications;
@@ -126,6 +139,12 @@ public class GamesController : ControllerBase
     [HttpDelete("{appId}")]
     public async Task<IActionResult> RemoveGameFromCacheAsync(long appId, CancellationToken cancellationToken)
     {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
         // CRITICAL: Check write permissions BEFORE starting the operation
         var permissionError = EnsureDirectoriesWritable("remove game from cache");
         if (permissionError != null)
@@ -184,6 +203,12 @@ public class GamesController : ControllerBase
     [HttpDelete("epic/{gameName}")]
     public async Task<IActionResult> RemoveEpicGameFromCacheAsync(string gameName, CancellationToken cancellationToken)
     {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
         // Check write permissions before starting
         var permissionError = EnsureDirectoriesWritable("remove Epic game from cache");
         if (permissionError != null)
@@ -246,6 +271,12 @@ public class GamesController : ControllerBase
     [HttpDelete("named/{service}/{gameName}")]
     public async Task<IActionResult> RemoveNamedGameFromCacheAsync(string service, string gameName, CancellationToken cancellationToken)
     {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
         // Check write permissions before starting
         var permissionError = EnsureDirectoriesWritable("remove game from cache");
         if (permissionError != null)
@@ -586,24 +617,21 @@ public class GamesController : ControllerBase
     [HttpPost("detect")]
     public async Task<IActionResult> DetectGamesAsync([FromQuery] bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
         // forceRefresh=true means full scan (incremental=false)
         // forceRefresh=false means quick scan (incremental=true)
         var incremental = !forceRefresh;
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        // The service throws InvalidOperationException on its internal already-running race;
-        // map that to null so the queue treats it as "already running" instead of faulting.
-        async Task<Guid?> StartDetectionCoreAsync()
-        {
-            try
-            {
-                return await _gameCacheDetectionService.StartDetectionAsync(incremental);
-            }
-            catch (InvalidOperationException)
-            {
-                return null;
-            }
-        }
+        // StartDetectionAsync returns null only for the already-running race; capability
+        // refusals remain failures so queue promotion cannot misclassify them as an active scan.
+        Task<Guid?> StartDetectionCoreAsync() =>
+            _gameCacheDetectionService.StartDetectionAsync(incremental);
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.GameDetection,

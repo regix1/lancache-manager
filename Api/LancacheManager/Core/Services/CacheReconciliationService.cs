@@ -21,6 +21,7 @@ namespace LancacheManager.Core.Services;
 public class CacheReconciliationService : ScopedScheduledBackgroundService
 {
     private readonly DatasourceService _datasourceService;
+    private readonly DatasourceCapabilityService _capabilityService;
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
@@ -189,9 +190,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         GameCacheDetectionService gameCacheDetectionService,
         EvictedDetectionPreservationService evictedDetectionPreservationService,
         IOperationQueue operationQueue,
-        IHostApplicationLifetime applicationLifetime)
+        IHostApplicationLifetime applicationLifetime,
+        DatasourceCapabilityService capabilityService)
         : base(serviceProvider, logger, configuration)
     {
+        _capabilityService = capabilityService;
         _datasourceService = datasourceService;
         _stateService = stateService;
         _notifications = notifications;
@@ -336,6 +339,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         CancellationToken stoppingToken,
         bool silent = false)
     {
+        // Execution-time capability revalidation prevents a queued scan from running after
+        // the fleet changes to mixed or unknown key evidence. Fail closed across the whole
+        // fleet because a partial scan would mark false evictions.
+        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (capabilityDenial != null)
+        {
+            _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", capabilityDenial);
+            return new EvictionScanRunOutcome(Success: false, Error: capabilityDenial);
+        }
+
         // In Remove mode the scan phase is display-silent (manual or automatic): the user-visible
         // feedback for a Remove-mode run is the removal bar, not the scan bar. The incoming
         // <paramref name="silent"/> flag is run-silence (notification mode); scanSilent layers the
@@ -374,7 +387,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             {
                 name = ds.Name,
                 cachePath = ds.CachePath,
-                isDefault = ds == _datasourceService.GetDefaultDatasource()
+                isDefault = ds == _datasourceService.GetDefaultDatasource(),
+                keyScheme = _capabilityService.GetKeySchemeWireValue(ds)
             }).ToArray();
             var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
             await File.WriteAllTextAsync(datasourceConfigPath, JsonSerializer.Serialize(datasourceConfig, jsonOptions), stoppingToken);
@@ -1368,6 +1382,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// </summary>
     public async Task RemoveEvictedRecordsAsync(AppDbContext context, CancellationToken stoppingToken, Guid? operationId = null, bool silent = false)
     {
+        // Revalidate immediately before mutation (never trust an earlier check): evicted-record
+        // removal purges logs and deletes rows based on recipe-derived eviction evidence.
+        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (capabilityDenial != null)
+        {
+            throw new InvalidOperationException(capabilityDenial);
+        }
+
         CancellationTokenSource? cts = null;
 
         // Deliberately not using TrackedRemovalOperationRunner: this service can start from the background scan path without a controller HTTP lifecycle.
@@ -1949,6 +1971,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         Guid? operationId = null,
         string? namedGameName = null)
     {
+        // Revalidate immediately before mutation, same as the bulk path.
+        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (capabilityDenial != null)
+        {
+            throw new InvalidOperationException(capabilityDenial);
+        }
+
         // Npgsql cannot translate string.Equals(..., StringComparison.OrdinalIgnoreCase);
         // service names are already stored lowercase, so lowercasing `key` once here lets
         // the EvictionScope.Service / EvictionScope.Named branches use plain `==` in the LINQ

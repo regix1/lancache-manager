@@ -53,6 +53,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   const [progress, setProgress] = useState<ProcessingProgress | null>(null);
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [formatWarning, setFormatWarning] = useState(false);
 
   // Multi-datasource state
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
@@ -282,6 +283,37 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
 
     return () => clearInterval(watchdog);
   }, [processing, lastEventAt]);
+
+  // When a run finishes having imported nothing, the log format may not be recognized.
+  // Surface a hint only if the datasource diagnostics confirm unrecognized/misplaced lines.
+  useEffect(() => {
+    if (!complete) {
+      setFormatWarning(false);
+      return;
+    }
+    if ((progress?.entriesProcessed ?? 0) > 0) {
+      setFormatWarning(false);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const positions = await ApiService.getLogPositions();
+        if (cancelled) return;
+        const hasWarning = positions.some(
+          (p) => (p.unparsedLines ?? 0) > 0 || (p.hintlessHttpDetailedLines ?? 0) > 0
+        );
+        setFormatWarning(hasWarning);
+      } catch {
+        // Background check only; without a positive signal the hint stays hidden.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [complete, progress?.entriesProcessed]);
 
   const toggleExpanded = (name: string) => {
     setExpandedDatasources((prev) => {
@@ -637,6 +669,12 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
             {t('initialization.logProcessing.complete')}
           </p>
         </div>
+      )}
+
+      {complete && formatWarning && (
+        <p className="text-sm text-themed-muted text-center">
+          {t('initialization.logProcessing.formatHint')}
+        </p>
       )}
 
       {/* Error */}

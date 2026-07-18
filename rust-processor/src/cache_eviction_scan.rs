@@ -3,12 +3,12 @@ use clap::Parser;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::{Postgres, Transaction, Row};
+use sqlx::{Postgres, Row, Transaction};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-mod cache_utils;
 mod cache_eviction_paths;
+mod cache_utils;
 mod cancel;
 mod db;
 mod progress_events;
@@ -39,6 +39,9 @@ struct DatasourceConfig {
     name: String,
     cache_path: String,
     is_default: bool,
+    /// Cache-key recipe for this datasource: "monolithic" (default) | "bare_metal".
+    #[serde(default)]
+    key_scheme: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,32 +70,31 @@ struct ScanResult {
     error: Option<String>,
 }
 
-/// What to do with a download whose files could NOT be positively verified this scan
-/// (none of its probe keys resolved to an on-disk indexed datasource root).
+/// What to do after every probe missed but the key set cannot safely prove absence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UnverifiableAction {
-    /// Orphaned shape: the download produced NO probe keys at all (no usable log entries —
-    /// no rows, or every row's Service/Url was NULL). A stale `IsEvicted` flag here is an
-    /// artifact (e.g. a shared-depot removal rewrote its lines out of access.log), so we
-    /// clear it to self-heal.
+    /// The download produced no probe keys, or a bare-metal key has no supported recipe. A
+    /// pre-existing `IsEvicted` flag cannot be substantiated for either shape, so clear it.
     ClearStaleFlag,
-    /// Offline-mount shape: the download HAS probe keys, but every key resolves to a
-    /// datasource cache root that isn't indexed right now (relocated / offline / removed
-    /// mount). We have no evidence either way, so we leave the flag untouched. It resolves
-    /// via the normal positive-evidence path once the root returns. Also the no-op outcome
-    /// for a not-currently-evicted download.
+    /// The download has probe keys, but an indexed root or unambiguous datasource resolution is
+    /// unavailable. We have no evidence either way, so leave its flag untouched. Also the no-op
+    /// outcome for a not-currently-evicted download.
     Abstain,
 }
 
-/// Pure classification for the unverifiable branch of the eviction scan. Splitting the two
-/// unverifiable shapes here (instead of blindly clearing every unverifiable flag) kills the
-/// badge-flap during a transient mount outage while preserving the orphan self-heal.
+/// Pure classification for the unverifiable branch of the eviction scan. Offline mounts and
+/// unresolved datasources abstain to avoid badge-flap. Orphans and unsupported bare-metal recipes
+/// clear stale flags because they have no future absence recipe that could self-heal the flag.
 ///
 /// `has_probe_keys` is true when the download produced at least one (service, url) probe key
-/// this scan; `is_evicted` is its current DB flag. This is only consulted when the download is
-/// NOT verifiable, so a `true`/`true` here always means the offline-mount shape.
-fn classify_unverifiable(has_probe_keys: bool, is_evicted: bool) -> UnverifiableAction {
-    if !has_probe_keys && is_evicted {
+/// this scan; `has_unknown_recipe` means at least one resolved bare-metal key has no stock recipe;
+/// `is_evicted` is its current DB flag. This is only consulted after every on-disk probe missed.
+fn classify_unverifiable(
+    has_probe_keys: bool,
+    has_unknown_recipe: bool,
+    is_evicted: bool,
+) -> UnverifiableAction {
+    if is_evicted && (!has_probe_keys || has_unknown_recipe) {
         UnverifiableAction::ClearStaleFlag
     } else {
         UnverifiableAction::Abstain
@@ -120,17 +122,75 @@ enum VerifiableAction {
 /// `has_cache_file` is the ANY-probe-key on-disk result; `is_evicted` is the current DB flag;
 /// `was_cached` is true when nginx actually served bytes for the download (HIT or MISS - a
 /// lancache MISS writes the content to cache, so both prove the content landed on disk).
-fn classify_verifiable(has_cache_file: bool, is_evicted: bool, was_cached: bool) -> VerifiableAction {
+fn classify_verifiable(
+    has_cache_file: bool,
+    is_evicted: bool,
+    was_cached: bool,
+) -> VerifiableAction {
     if has_cache_file {
         // Content present on disk → never evicted; clear any stale flag (re-cached).
-        if is_evicted { VerifiableAction::Unevict } else { VerifiableAction::NoOp }
+        if is_evicted {
+            VerifiableAction::Unevict
+        } else {
+            VerifiableAction::NoOp
+        }
     } else if was_cached {
         // Absent AND was once cached → genuine nginx eviction.
-        if !is_evicted { VerifiableAction::Evict } else { VerifiableAction::NoOp }
+        if !is_evicted {
+            VerifiableAction::Evict
+        } else {
+            VerifiableAction::NoOp
+        }
     } else {
         // Absent AND never cached (zero bytes served - aborted / metadata-only) → NOT an
         // eviction. Heal a pre-existing false-positive flag.
-        if is_evicted { VerifiableAction::Unevict } else { VerifiableAction::NoOp }
+        if is_evicted {
+            VerifiableAction::Unevict
+        } else {
+            VerifiableAction::NoOp
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DownloadAction {
+    Evict,
+    Unevict,
+    ClearUnverifiable,
+    NoOp,
+}
+
+/// Classifies the complete probe result. Presence is intentionally evaluated before absence
+/// verifiability: a positive digest hit is conclusive even when another key has an offline root,
+/// unresolved datasource, or unsupported bare-metal recipe. The strict all-keys policy is only
+/// allowed to gate an absent/Evict decision.
+fn classify_download(
+    has_cache_file: bool,
+    can_verify_absence: bool,
+    has_probe_keys: bool,
+    has_unknown_recipe: bool,
+    is_evicted: bool,
+    was_cached: bool,
+) -> DownloadAction {
+    if has_cache_file {
+        return match classify_verifiable(true, is_evicted, was_cached) {
+            VerifiableAction::Unevict => DownloadAction::Unevict,
+            VerifiableAction::NoOp => DownloadAction::NoOp,
+            VerifiableAction::Evict => unreachable!("present content cannot be evicted"),
+        };
+    }
+
+    if !can_verify_absence {
+        return match classify_unverifiable(has_probe_keys, has_unknown_recipe, is_evicted) {
+            UnverifiableAction::ClearStaleFlag => DownloadAction::ClearUnverifiable,
+            UnverifiableAction::Abstain => DownloadAction::NoOp,
+        };
+    }
+
+    match classify_verifiable(false, is_evicted, was_cached) {
+        VerifiableAction::Evict => DownloadAction::Evict,
+        VerifiableAction::Unevict => DownloadAction::Unevict,
+        VerifiableAction::NoOp => DownloadAction::NoOp,
     }
 }
 
@@ -161,7 +221,10 @@ async fn main() -> Result<()> {
         0,
         0,
     ) {
-        eprintln!("[EvictionScan] Warning: failed to seed progress file: {:#}", e);
+        eprintln!(
+            "[EvictionScan] Warning: failed to seed progress file: {:#}",
+            e
+        );
     }
     reporter.emit_started("signalr.evictionScan.scanning", json!({}));
 
@@ -171,7 +234,8 @@ async fn main() -> Result<()> {
     // error) is handed to finish_or_exit, the ONE place that emits the structured `failed`
     // event + errorDetail, so a business failure and a `?`-propagated one are no longer two
     // different failure shapes.
-    let result = run_scan_and_report(&args.datasource_config, progress_path.as_deref(), &reporter).await;
+    let result =
+        run_scan_and_report(&args.datasource_config, progress_path.as_deref(), &reporter).await;
     progress_events::finish_or_exit(&reporter, "signalr.evictionScan.error.fatal", result);
     Ok(())
 }
@@ -224,10 +288,18 @@ async fn run_scan_and_report(
     }
 }
 
-async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, reporter: &ProgressReporter) -> Result<ScanResult> {
+async fn run_scan(
+    datasource_config_path: &str,
+    progress_path: Option<&Path>,
+    reporter: &ProgressReporter,
+) -> Result<ScanResult> {
     // Step 1: Read datasource configuration
-    let config_content = std::fs::read_to_string(datasource_config_path)
-        .with_context(|| format!("Failed to read datasource config: {}", datasource_config_path))?;
+    let config_content = std::fs::read_to_string(datasource_config_path).with_context(|| {
+        format!(
+            "Failed to read datasource config: {}",
+            datasource_config_path
+        )
+    })?;
     let datasources: Vec<DatasourceConfig> = serde_json::from_str(&config_content)
         .with_context(|| "Failed to parse datasource config JSON")?;
 
@@ -297,21 +369,27 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
     }
 
     let total_files = files_on_disk.len();
-    eprintln!("[EvictionScan] Found {} cache files on disk across {} datasource(s)", total_files, datasources.len());
+    eprintln!(
+        "[EvictionScan] Found {} cache files on disk across {} datasource(s)",
+        total_files,
+        datasources.len()
+    );
 
     // Step 3: Connect to database
     let pool = db::create_pool().await?;
 
     // Count total inactive downloads for progress estimation
-    let total_estimate: i64 = sqlx::query_scalar(
-        r#"SELECT COUNT(*) FROM "Downloads" WHERE "IsActive" = false"#
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|e| {
-        eprintln!("[EvictionScan] Warning: failed to estimate total downloads: {}", e);
-        0
-    });
+    let total_estimate: i64 =
+        sqlx::query_scalar(r#"SELECT COUNT(*) FROM "Downloads" WHERE "IsActive" = false"#)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| {
+                eprintln!(
+                    "[EvictionScan] Warning: failed to estimate total downloads: {}",
+                    e
+                );
+                0
+            });
 
     let total_estimate = total_estimate as usize;
 
@@ -324,8 +402,9 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
 
     // Scan-wide probe memo: many downloads share the same (service, url, datasource)
     // tuple, and the on-disk file-name index is immutable for the whole scan, so each
-    // unique tuple is hashed and probed exactly once. Keyed by ProbeKey::memo_key (the
-    // md5 digest of the tuple) so the memo holds 16 bytes + bool per unique tuple instead
+    // unique tuple is hashed and probed exactly once. Keyed by ProbeKey::memo_key (the md5
+    // digest of the resolved root + key scheme + service + URL) so the memo holds 16 bytes +
+    // bool per unique tuple instead
     // of owning the tuple's strings - the old shape grew unbounded into hundreds of MB on
     // large libraries.
     let mut probe_memo: HashMap<u128, bool> = HashMap::new();
@@ -340,7 +419,7 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
             WHERE "IsActive" = false AND "Id" > $1
             ORDER BY "Id"
             LIMIT $2
-            "#
+            "#,
         )
         .bind(last_processed_id)
         .bind(batch_size)
@@ -353,7 +432,8 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
         }
 
         let download_ids: Vec<i64> = download_rows.iter().map(|r| r.get("download_id")).collect();
-        let download_evicted: HashMap<i64, bool> = download_rows.iter()
+        let download_evicted: HashMap<i64, bool> = download_rows
+            .iter()
             .map(|r| (r.get("download_id"), r.get("is_evicted")))
             .collect();
         // Positive cache evidence per download: any bytes actually served (HIT or MISS). A
@@ -362,7 +442,8 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
         // CacheHitBytes alone made every game downloaded exactly once (pure-MISS, the common
         // case) permanently undetectable as evicted. Zero-byte rows (aborted transfers /
         // metadata-only sessions where nothing was ever written) remain excluded.
-        let download_served_bytes: HashMap<i64, i64> = download_rows.iter()
+        let download_served_bytes: HashMap<i64, i64> = download_rows
+            .iter()
             .map(|r| {
                 let hit: i64 = r.get("cache_hit_bytes");
                 let miss: i64 = r.get("cache_miss_bytes");
@@ -404,16 +485,15 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
             // MAX() is typed nullable; NULL means no usable size → 0 → probe-chunk floor.
             let bytes_served: Option<i64> = row.get("bytes_served");
 
-            download_keys
-                .entry(download_id)
-                .or_default()
-                .push(cache_eviction_paths::ProbeKey::new(
+            download_keys.entry(download_id).or_default().push(
+                cache_eviction_paths::ProbeKey::new(
                     &service,
                     url,
                     datasource.as_deref(),
                     bytes_served.unwrap_or(0),
                     &datasource_roots,
-                ));
+                ),
+            );
         }
 
         // Probe each not-yet-memoized unique key once, in parallel (pure CPU over the
@@ -434,14 +514,14 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
 
         // Decide each download's eviction state from POSITIVE disk evidence only.
         //
-        // A download is only "verifiable" when it has at least one probe key whose
-        // datasource cache root was actually indexed this scan (the directory existed
-        // and was walked). We assert IsEvicted=true ONLY for a verifiable download whose
-        // files are confirmed absent. When a download is NOT verifiable we have zero
-        // evidence either way, so we must never evict it — and we proactively CLEAR any
-        // stale flag so it self-heals instead of being stuck "Evicted" forever.
+        // A positive hit from any probe key proves presence regardless of whether the remaining
+        // keys can prove absence. Only an all-miss result consults the absence policy: resolved
+        // Monolithic keys retain the shipped any-indexed-root rule, while BareMetal requires
+        // every key's root and recipe to be checkable. We assert IsEvicted=true ONLY for a
+        // download whose files are confirmed absent. Unverifiable absence never creates a new
+        // eviction; it either abstains or conservatively clears a stale flag as described below.
         //
-        // Two unverifiable shapes both used to stamp false "Evicted" badges on games
+        // Unverifiable shapes that must not stamp false "Evicted" badges on games
         // whose files are still on disk:
         //   1. No usable log entries (no rows, or every row had a NULL Service/Url and
         //      was filtered out by the Step B query) → no (service, url) to hash. The
@@ -452,6 +532,8 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
         //   2. Every key resolves to a datasource cache root that isn't on disk right
         //      now (relocated/offline/removed mount). `has_cache_file` returns false for
         //      an unindexed root, but that means "we didn't look here", not "it's gone".
+        //   3. A bare-metal key has no supported per-vhost recipe, or any of its roots is
+        //      offline. An empty candidate iterator is not proof that the file is gone.
         //
         // The verified branch below still evicts downloads whose files are genuinely
         // missing, so legitimate nginx evictions are unaffected. Clearing stale flags
@@ -464,58 +546,50 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
         for download_id in &download_ids {
             let is_evicted = download_evicted.get(download_id).copied().unwrap_or(false);
             let keys = download_keys.get(download_id);
-
-            // Verifiable iff at least one key could actually be checked against an
-            // indexed on-disk root this scan.
-            let has_probe_keys = keys.map(|ks| !ks.is_empty()).unwrap_or(false);
-            let verifiable = keys
-                .map(|ks| ks.iter().any(|key| key.root_is_indexed(&files_on_disk)))
-                .unwrap_or(false);
-
-            if !verifiable {
-                // Split the two unverifiable shapes: clear a stale flag ONLY for the orphaned
-                // (no-probe-keys) shape; ABSTAIN for the offline-mount shape (has keys but no
-                // indexed root) so a transient mount outage does not flap the badge. The
-                // offline case self-heals via the positive-evidence branch when the root returns.
-                match classify_unverifiable(has_probe_keys, is_evicted) {
-                    UnverifiableAction::ClearStaleFlag => {
-                        ids_to_unevict.push(*download_id);
-                        unverifiable_cleared += 1;
-                    }
-                    UnverifiableAction::Abstain => {}
-                }
-                continue;
-            }
-
-            let keys_for_probe = keys
-                .ok_or_else(|| anyhow::anyhow!("verifiable implies the download has probe keys"))?;
+            let keys_for_probe: &[cache_eviction_paths::ProbeKey] =
+                keys.map(Vec::as_slice).unwrap_or(&[]);
             let mut has_cache_file = false;
             for key in keys_for_probe {
-                let cached = probe_memo
-                    .get(&key.memo_key)
-                    .copied()
-                    .ok_or_else(|| anyhow::anyhow!("probe memo must contain every key collected this batch"))?;
+                let cached = probe_memo.get(&key.memo_key).copied().ok_or_else(|| {
+                    anyhow::anyhow!("probe memo must contain every key collected this batch")
+                })?;
                 if cached {
                     has_cache_file = true;
                     break;
                 }
             }
 
-            // Gate the evict decision on POSITIVE cache evidence: only content nginx actually
-            // served bytes for (HIT or MISS - a MISS writes to cache too) can be "evicted".
-            // Absent content with zero served bytes (never written) is healed of any stale
-            // flag, not freshly flagged.
+            // A positive memo hit is conclusive presence and is classified first. Absence is
+            // verifiable only when the complete key set satisfies its scheme policy; unsupported
+            // bare-metal recipes clear stale flags, while offline/unresolved keys abstain.
+            let has_probe_keys = !keys_for_probe.is_empty();
+            let can_verify_absence =
+                cache_eviction_paths::keys_can_verify_absence(keys_for_probe, &files_on_disk);
+            let has_unknown_recipe = keys_for_probe
+                .iter()
+                .any(cache_eviction_paths::ProbeKey::has_unknown_recipe);
             let was_cached = download_served_bytes.get(download_id).copied().unwrap_or(0) > 0;
-            match classify_verifiable(has_cache_file, is_evicted, was_cached) {
-                VerifiableAction::Evict => ids_to_evict.push(*download_id),
-                VerifiableAction::Unevict => ids_to_unevict.push(*download_id),
-                VerifiableAction::NoOp => {}
+            match classify_download(
+                has_cache_file,
+                can_verify_absence,
+                has_probe_keys,
+                has_unknown_recipe,
+                is_evicted,
+                was_cached,
+            ) {
+                DownloadAction::Evict => ids_to_evict.push(*download_id),
+                DownloadAction::Unevict => ids_to_unevict.push(*download_id),
+                DownloadAction::ClearUnverifiable => {
+                    ids_to_unevict.push(*download_id);
+                    unverifiable_cleared += 1;
+                }
+                DownloadAction::NoOp => {}
             }
         }
 
         if unverifiable_cleared > 0 {
             eprintln!(
-                "[EvictionScan] Cleared stale IsEvicted on {} orphaned download(s) with no service/url to probe (refusing to keep an Evicted badge we can't verify). Offline-mount downloads (keys present, root not indexed) are left untouched to avoid badge-flap.",
+                "[EvictionScan] Cleared stale IsEvicted on {} unverifiable download(s) with no probe keys or no supported bare-metal recipe. Offline-mount and unresolved-datasource downloads are left untouched to avoid badge-flap.",
                 unverifiable_cleared
             );
         }
@@ -523,7 +597,10 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
         // rust-3: wrap both evict/unevict UPDATEs for this batch in a single transaction
         // so a kill mid-batch cannot partially flag a batch.
         if !ids_to_evict.is_empty() || !ids_to_unevict.is_empty() {
-            let mut tx = pool.begin().await.with_context(|| "Failed to begin eviction batch transaction")?;
+            let mut tx = pool
+                .begin()
+                .await
+                .with_context(|| "Failed to begin eviction batch transaction")?;
             if !ids_to_evict.is_empty() {
                 update_download_eviction_state_tx(&mut tx, &ids_to_evict, true).await?;
                 total_evicted += ids_to_evict.len();
@@ -532,7 +609,9 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
                 update_download_eviction_state_tx(&mut tx, &ids_to_unevict, false).await?;
                 total_un_evicted += ids_to_unevict.len();
             }
-            tx.commit().await.with_context(|| "Failed to commit eviction batch transaction")?;
+            tx.commit()
+                .await
+                .with_context(|| "Failed to commit eviction batch transaction")?;
         }
 
         total_processed += batch_count;
@@ -697,13 +776,28 @@ fn write_progress_file(
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_unverifiable, classify_verifiable, UnverifiableAction, VerifiableAction};
+    use super::{
+        cache_utils, classify_download, classify_unverifiable, classify_verifiable,
+        DatasourceConfig, DownloadAction, UnverifiableAction, VerifiableAction,
+    };
+
+    #[test]
+    fn omitted_key_scheme_keeps_monolithic_default() {
+        let config: DatasourceConfig =
+            serde_json::from_str(r#"{"name":"default","cachePath":"cache","isDefault":true}"#)
+                .unwrap();
+
+        assert_eq!(
+            cache_utils::CacheKeyScheme::from_config_str(&config.key_scheme),
+            cache_utils::CacheKeyScheme::Monolithic
+        );
+    }
 
     #[test]
     fn orphaned_evicted_download_clears_stale_flag() {
         // Shape (a): no probe keys at all + currently evicted → self-heal by clearing.
         assert_eq!(
-            classify_unverifiable(false, true),
+            classify_unverifiable(false, false, true),
             UnverifiableAction::ClearStaleFlag
         );
     }
@@ -712,7 +806,7 @@ mod tests {
     fn orphaned_not_evicted_download_abstains() {
         // No keys but not evicted: nothing to clear.
         assert_eq!(
-            classify_unverifiable(false, false),
+            classify_unverifiable(false, false, false),
             UnverifiableAction::Abstain
         );
     }
@@ -723,7 +817,7 @@ mod tests {
         // NOT be flapped off during a transient mount outage — abstain and let the
         // positive-evidence path resolve it when the root returns.
         assert_eq!(
-            classify_unverifiable(true, true),
+            classify_unverifiable(true, false, true),
             UnverifiableAction::Abstain
         );
     }
@@ -731,8 +825,34 @@ mod tests {
     #[test]
     fn offline_mount_not_evicted_download_abstains() {
         assert_eq!(
-            classify_unverifiable(true, false),
+            classify_unverifiable(true, false, false),
             UnverifiableAction::Abstain
+        );
+    }
+
+    #[test]
+    fn unsupported_bare_metal_recipe_clears_preexisting_evicted_flag() {
+        assert_eq!(
+            classify_unverifiable(true, true, true),
+            UnverifiableAction::ClearStaleFlag
+        );
+        assert_eq!(
+            classify_unverifiable(true, true, false),
+            UnverifiableAction::Abstain
+        );
+    }
+
+    #[test]
+    fn positive_hit_overrides_strict_mixed_key_absence_policy() {
+        // One key hit is conclusive presence even though another bare-metal key makes an
+        // all-keys absence decision unverifiable.
+        assert_eq!(
+            classify_download(true, false, true, true, true, true),
+            DownloadAction::Unevict
+        );
+        assert_eq!(
+            classify_download(true, false, true, true, false, true),
+            DownloadAction::NoOp
         );
     }
 

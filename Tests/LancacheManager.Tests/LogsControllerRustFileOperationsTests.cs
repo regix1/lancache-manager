@@ -54,7 +54,7 @@ public sealed class LogsControllerRustFileOperationsTests
     {
         using var fixture = new ControllerFixture();
         fixture.RustHelper.CountHandler = (path, _) => Task.FromResult(
-            new LogLineCountResult(path == fixture.AlphaLogPath ? 3 : 5, 1));
+            new LogLineCountResult(path == fixture.AlphaLogPath ? 3 : 5, 1, new Dictionary<string, long>()));
 
         var result = await fixture.Controller.ResetLogPositionAsync(request: null);
 
@@ -92,7 +92,7 @@ public sealed class LogsControllerRustFileOperationsTests
         fixture.RustHelper.CountHandler = (_, cancellationToken) =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(new LogLineCountResult(0, 0));
+            return Task.FromResult(new LogLineCountResult(0, 0, new Dictionary<string, long>()));
         };
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
@@ -117,7 +117,7 @@ public sealed class LogsControllerRustFileOperationsTests
         {
             if (path == fixture.AlphaLogPath)
             {
-                return Task.FromResult(new LogLineCountResult(4, 1));
+                return Task.FromResult(new LogLineCountResult(4, 1, new Dictionary<string, long>()));
             }
 
             throw new RustProcessException("log_service_manager", 1, "fixture failure", "count-lines");
@@ -137,7 +137,7 @@ public sealed class LogsControllerRustFileOperationsTests
     {
         using var fixture = new ControllerFixture();
         fixture.RustHelper.CountHandler = (path, _) => Task.FromResult(
-            new LogLineCountResult(path == fixture.AlphaLogPath ? 2 : 6, 1));
+            new LogLineCountResult(path == fixture.AlphaLogPath ? 2 : 6, 1, new Dictionary<string, long>()));
 
         var result = await fixture.Controller.GetLogPositionsAsync();
 
@@ -330,7 +330,7 @@ public sealed class LogsControllerRustFileOperationsTests
         public List<string> DeleteRequests { get; } = new();
 
         public Func<string, CancellationToken, Task<LogLineCountResult>> CountHandler { get; set; } =
-            (_, _) => Task.FromResult(new LogLineCountResult(0, 0));
+            (_, _) => Task.FromResult(new LogLineCountResult(0, 0, new Dictionary<string, long>()));
 
         public Func<string, CancellationToken, Task<LogFileDeletionResult>> DeleteHandler { get; set; } =
             (_, _) => Task.FromResult(new LogFileDeletionResult(0));

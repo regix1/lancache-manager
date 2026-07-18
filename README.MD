@@ -39,6 +39,7 @@ It also acts on the cache. Prefill games before guests arrive, by hand or on per
 - [Choosing an Image and Database Mode](#image-variants)
 - [Configuration Reference](#configuration)
 - [Recipes](#recipes)
+- [Bare-Metal LANCache](#bare-metal)
 - [Troubleshooting](#troubleshooting)
 - [Custom Themes](#custom-themes)
 - [Building from Source](#building-from-source)
@@ -1068,6 +1069,44 @@ increase(lancache_cache_hit_bytes_total[24h])
 # Cache usage in GB
 lancache_cache_used_bytes / 1024 / 1024 / 1024
 ```
+
+-----
+
+<a id="bare-metal"></a>
+## Bare-Metal LANCache
+
+[zeropingheroes/lancache-bare-metal](https://github.com/zeropingheroes/lancache-bare-metal) runs the cache directly on the host instead of in Docker, and it logs differently than the standard container: per-service files (`steam-access.log`, `blizzard-access.log`, `epicgames-access.log`, `riot-access.log`, `windows-update-access.log`, plus `fallback-access.log`) under `/srv/lancache/logs/http/`, in an `http-detailed` format with no service tag on each line. LANCache Manager reads this setup natively — point it at the log directory and traffic appears without touching the nginx config:
+
+```yaml
+    volumes:
+      - ./data:/data
+      # Bare-metal log and cache locations
+      - /srv/lancache/logs/http:/logs:ro
+      - /srv/lancache/data:/cache:ro
+```
+
+Mounting `/srv/lancache/logs` (the parent folder) also works — the manager finds the `http/` folder on its own.
+
+**What works:** live activity, the dashboard, download history, game naming (Steam depots, Blizzard products, Riot hosts), client and service stats, per-service log counts and log removal, deleting log files, disk-level game and service removal, repeated-miss corruption scanning, eviction tracking, and clearing the whole cache. On bare-metal caches, every deletion double-checks the file's own embedded cache key before removing it.
+
+**A note on hit rates:** the Blizzard and Windows Update sites serve files in 1 MB slices, and nginx logs the cache status of only the first requested slice of each download. For those two services the hit/miss ratio shown is an approximation; downloaded byte counts are always exact. This is a property of nginx slicing, not of bare-metal specifically, so a standard container install slices those services the same way and shows the same approximation.
+
+### Alternative: switch bare-metal to the standard log format
+
+If you prefer the container-style combined log, you can patch the bare-metal nginx config instead. Add the standard format to the `http {}` block of `nginx.conf`:
+
+```nginx
+log_format cachelog '[$cacheidentifier] $remote_addr / - - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$upstream_cache_status" "$host" "$http_range"';
+```
+
+Then in each site file under `caches-available/`, set the service name and switch the access log (one shared file for every site):
+
+```nginx
+set $cacheidentifier steam;   # blizzard / epicgames / riot / wsus per site
+access_log /srv/lancache/logs/http/access.log cachelog;
+```
+
+Reload with `sudo nginx -s reopen` (or `systemctl reload nginx`) and mount `/srv/lancache/logs/http` as above. This restores every log-based feature. After applying this compatibility patch, disk-level features are off-limits: the on-disk cache keys still use the bare-metal layout, but the combined log makes the manager identify the setup as a container install. Those disk-level actions will no longer be blocked, so leave them alone on a patched bare-metal cache.
 
 -----
 

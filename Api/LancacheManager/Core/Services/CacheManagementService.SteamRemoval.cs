@@ -14,6 +14,14 @@ public partial class CacheManagementService
         Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null,
         Guid? operationId = null)
     {
+        // Per-game cache removal requires an unambiguous key scheme; fail closed across
+        // every datasource rather than partially deleting a mixed or unknown fleet.
+        var keyCapabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (keyCapabilityDenial != null)
+        {
+            throw new InvalidOperationException(keyCapabilityDenial);
+        }
+
         await _cacheLock.WaitAsync(cancellationToken);
         try
         {
@@ -67,17 +75,18 @@ public partial class CacheManagementService
             {
                 var datasource = execution.Datasource;
 
-                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                    rustBinaryPath,
-                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" {gameAppId} \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\"{skipFileProbeArg} --progress");
-
-                _logger.LogInformation("[GameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
-                    datasource.Name, rustBinaryPath, startInfo.Arguments);
-
                 var dsReport = await RunRustRemovalProcessAsync<GameRemovalProgressData, GameCacheRemovalReport>(
                     "[GameRemoval]",
                     execution,
-                    startInfo,
+                    () =>
+                    {
+                        var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                            rustBinaryPath,
+                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" {gameAppId} \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\"{skipFileProbeArg} --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}");
+                        _logger.LogInformation("[GameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
+                            datasource.Name, rustBinaryPath, startInfo.Arguments);
+                        return startInfo;
+                    },
                     "game_cache_remover",
                     cancellationToken,
                     operationId,

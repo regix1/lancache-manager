@@ -606,6 +606,441 @@ pub fn service_name_lowercase(service: &str) -> String {
     service.to_lowercase()
 }
 
+// ---------------------------------------------------------------------------
+// Bare-metal (zeropingheroes/lancache-bare-metal) cache-key scheme support.
+//
+// Bare-metal nginx keys its cache per vhost instead of with the shared
+// `$cacheidentifier$uri$slice_range` recipe:
+//   steam                `lancache-steam$uri`                       (no slicing)
+//   epicgames            `lancache-epicgames$request_uri`           (query KEPT, no slicing)
+//   riot                 `lancache-riot$request_uri`                (query KEPT, no slicing)
+//   blizzard             `lancache-blizzard$uri$slice_range`        (1 MiB slices)
+//   windows-update       `lancache-windows-update$uri$slice_range`  (1 MiB slices; manager
+//                                                                    service key is `wsus`)
+//
+// Deletion safety does NOT rest on these recipes alone: every bare-metal candidate
+// carries its expected literal key, and mutating callers must confirm the file's
+// embedded `KEY:` header matches before unlinking (see `cache_file_key_matches`).
+// A customized vhost therefore degrades to "file not found / not verified", never
+// to deleting the wrong object. Riot's key omits $host, but per-game riot removal
+// still works the same as monolithic (whose riot key is also host-blind): the game's
+// URLs are partitioned per game in the database at ingest, so removal targets those
+// URLs and the key need not encode the host.
+// ---------------------------------------------------------------------------
+
+/// Which cache-key recipe a datasource's cache was filled with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum CacheKeyScheme {
+    /// Container lancache: `$cacheidentifier$uri[$slice_range|::noslice]`.
+    Monolithic,
+    /// zeropingheroes/lancache-bare-metal per-vhost `lancache-*` keys.
+    BareMetal,
+}
+
+#[allow(dead_code)]
+impl CacheKeyScheme {
+    /// Compatibility parser for the datasource-config wire value
+    /// (`"monolithic"` | `"bare_metal"`). Empty values remain Monolithic because
+    /// the serde default relies on that behavior; unknown values also retain the
+    /// legacy Monolithic fallback. CLI bins must reject unknown explicit values at
+    /// parse time by checking [`is_valid_scheme_str`] before calling this parser.
+    pub fn from_config_str(value: &str) -> Self {
+        if value.eq_ignore_ascii_case("bare_metal") {
+            CacheKeyScheme::BareMetal
+        } else {
+            CacheKeyScheme::Monolithic
+        }
+    }
+}
+
+/// Whether a cache-key scheme string is accepted by the datasource-config wire
+/// format. The empty string is valid and means Monolithic for serde-defaulted
+/// configuration; CLI bins can use this to reject other unknown explicit values.
+#[allow(dead_code)]
+pub fn is_valid_scheme_str(value: &str) -> bool {
+    value.is_empty()
+        || value.eq_ignore_ascii_case("monolithic")
+        || value.eq_ignore_ascii_case("bare_metal")
+}
+
+/// Process-wide active scheme for the single-datasource disk binaries (each removal /
+/// detection / corruption invocation targets exactly one datasource). Set once from the
+/// bin's `--key-scheme` argument; unset means Monolithic, matching every legacy launch.
+/// The multi-datasource eviction scan does NOT use this — it carries the scheme per
+/// datasource in its config file.
+#[allow(dead_code)]
+static ACTIVE_KEY_SCHEME: std::sync::OnceLock<CacheKeyScheme> = std::sync::OnceLock::new();
+
+fn set_key_scheme_once(cell: &std::sync::OnceLock<CacheKeyScheme>, scheme: CacheKeyScheme) {
+    if let Err(attempted) = cell.set(scheme) {
+        if let Some(active) = cell.get() {
+            if *active != attempted {
+                eprintln!(
+                    "warning: active cache-key scheme is already {:?}; ignoring conflicting attempt to set {:?}",
+                    active, attempted
+                );
+            }
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub fn set_active_key_scheme(scheme: CacheKeyScheme) {
+    set_key_scheme_once(&ACTIVE_KEY_SCHEME, scheme);
+}
+
+#[allow(dead_code)]
+pub fn active_key_scheme() -> CacheKeyScheme {
+    *ACTIVE_KEY_SCHEME
+        .get()
+        .unwrap_or(&CacheKeyScheme::Monolithic)
+}
+
+/// The `lancache-*` key prefix a manager service maps to, or None for services the
+/// stock bare-metal config has no vhost for (⇒ no candidates, fail closed).
+#[allow(dead_code)]
+pub fn bare_metal_prefix(service: &str) -> Option<&'static str> {
+    match service.to_lowercase().as_str() {
+        "steam" => Some("lancache-steam"),
+        "epicgames" => Some("lancache-epicgames"),
+        "blizzard" => Some("lancache-blizzard"),
+        "riot" => Some("lancache-riot"),
+        // The vhost is named windows-update; the manager has always keyed this
+        // traffic as wsus. `xbox` rides the same vhost (DO-client traffic).
+        "wsus" | "windows-update" | "xbox" | "xboxlive" => Some("lancache-windows-update"),
+        _ => None,
+    }
+}
+
+/// True when the service's bare-metal vhost uses the slice module (1 MiB slices,
+/// `$slice_range` in the key). Verified against the stock caches-available tree:
+/// only blizzard.conf and windows-update.conf slice.
+#[allow(dead_code)]
+pub fn bare_metal_service_slices(service: &str) -> bool {
+    matches!(
+        bare_metal_prefix(service),
+        Some("lancache-blizzard") | Some("lancache-windows-update")
+    )
+}
+
+/// True when the service's bare-metal key uses `$request_uri` (query string and
+/// original escaping KEPT) instead of `$uri`.
+#[allow(dead_code)]
+pub fn bare_metal_service_uses_request_uri(service: &str) -> bool {
+    matches!(
+        bare_metal_prefix(service),
+        Some("lancache-epicgames") | Some("lancache-riot")
+    )
+}
+
+/// A cache-file candidate that knows the literal key it was derived from, so a
+/// mutating caller can verify the file's embedded `KEY:` header before acting.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct KeyedCachePath {
+    pub path: PathBuf,
+    pub key: String,
+}
+
+#[allow(dead_code)]
+fn hash_to_path(cache_dir: &Path, hash: &str) -> PathBuf {
+    let len = hash.len();
+    if len < 4 {
+        return cache_dir.join(hash);
+    }
+    let last_2 = &hash[len - 2..];
+    let middle_2 = &hash[len - 4..len - 2];
+    cache_dir.join(last_2).join(middle_2).join(hash)
+}
+
+/// The bare-metal object identifier for (service, url): the key text that follows
+/// the `lancache-*` prefix. `$request_uri` services keep the stored URL verbatim
+/// (query, escaping — only the ingestion parser's slash normalization applies).
+/// Consequently, if an Epic or Riot request originally contained doubled slashes,
+/// the database contains only the collapsed form and the raw nginx `$request_uri`
+/// key cannot be reconstructed. Such an object is an unavoidable MISS here; do not
+/// emit guessed variants. The literal-key check on deletion candidates ensures this
+/// limitation can never delete the wrong object. `$uri` services go through the same
+/// `nginx_cache_uri` transform the monolithic recipe uses. Returns None for services
+/// without a stock vhost.
+#[allow(dead_code)]
+pub fn bare_metal_object_key_base(service: &str, url: &str) -> Option<String> {
+    let prefix = bare_metal_prefix(service)?;
+    let identifier = if bare_metal_service_uses_request_uri(service) {
+        url.to_string()
+    } else {
+        nginx_cache_uri(url).into_owned()
+    };
+    Some(format!("{}{}", prefix, identifier))
+}
+
+/// Enumerate every EXISTING bare-metal cache file for (service, url), with its
+/// expected literal key. Mirrors the monolithic walk shape: the unsliced key is
+/// probed first, then (for sliced vhosts) 1 MiB slice keys with the same
+/// consecutive-miss-bounded walk that tolerates partial-eviction holes.
+#[allow(dead_code)]
+pub fn existing_bare_metal_keyed_paths_for_url(
+    cache_dir: &Path,
+    service: &str,
+    url: &str,
+) -> Vec<KeyedCachePath> {
+    let Some(base) = bare_metal_object_key_base(service, url) else {
+        return Vec::new();
+    };
+    let mut hits: Vec<KeyedCachePath> = Vec::new();
+
+    let unsliced_path = hash_to_path(cache_dir, &calculate_md5(&base));
+    if unsliced_path.exists() {
+        hits.push(KeyedCachePath {
+            path: unsliced_path,
+            key: base.clone(),
+        });
+    }
+
+    if !bare_metal_service_slices(service) {
+        return hits;
+    }
+
+    let mut consecutive_misses = 0usize;
+    let mut chunk = 0usize;
+    while chunk < MAX_PROBE_CHUNKS {
+        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
+        let key = format!("{}bytes={}-{}", base, start, chunk_end(start));
+        let path = hash_to_path(cache_dir, &calculate_md5(&key));
+        if path.exists() {
+            hits.push(KeyedCachePath { path, key });
+            consecutive_misses = 0;
+        } else {
+            consecutive_misses += 1;
+            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
+                break;
+            }
+        }
+        chunk += 1;
+    }
+
+    hits
+}
+
+/// Index twin of [`existing_bare_metal_keyed_paths_for_url`]: yields the md5-hex
+/// hash plus expected key for every candidate the `exists` probe accepts.
+#[allow(dead_code)]
+pub fn existing_bare_metal_keyed_hashes_for_url<F>(
+    service: &str,
+    url: &str,
+    mut exists: F,
+) -> Vec<(String, String)>
+where
+    F: FnMut(&str) -> bool,
+{
+    let Some(base) = bare_metal_object_key_base(service, url) else {
+        return Vec::new();
+    };
+    let mut hits: Vec<(String, String)> = Vec::new();
+
+    let unsliced = calculate_md5(&base);
+    if exists(&unsliced) {
+        hits.push((unsliced, base.clone()));
+    }
+
+    if !bare_metal_service_slices(service) {
+        return hits;
+    }
+
+    let mut consecutive_misses = 0usize;
+    let mut chunk = 0usize;
+    while chunk < MAX_PROBE_CHUNKS {
+        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
+        let key = format!("{}bytes={}-{}", base, start, chunk_end(start));
+        let hash = calculate_md5(&key);
+        if exists(&hash) {
+            hits.push((hash, key));
+            consecutive_misses = 0;
+        } else {
+            consecutive_misses += 1;
+            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
+                break;
+            }
+        }
+        chunk += 1;
+    }
+
+    hits
+}
+
+/// Digest twin of the keyed walks for index-based probes: every bare-metal cache-key
+/// md5 digest that could hold (service, url), unsliced first, then up to `max_chunks`
+/// 1 MiB slices for the sliced vhosts. Empty for services without a stock vhost.
+#[allow(dead_code)]
+pub fn bare_metal_digest_candidates_iter(
+    service: &str,
+    url: &str,
+    max_chunks: usize,
+) -> Box<dyn Iterator<Item = u128>> {
+    let Some(base) = bare_metal_object_key_base(service, url) else {
+        return Box::new(std::iter::empty());
+    };
+    let unsliced = calculate_md5_digest(&base);
+    if !bare_metal_service_slices(service) {
+        return Box::new(std::iter::once(unsliced));
+    }
+    let slices = (0..max_chunks).map(move |chunk| {
+        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
+        calculate_md5_digest(&format!("{}bytes={}-{}", base, start, chunk_end(start)))
+    });
+    Box::new(std::iter::once(unsliced).chain(slices))
+}
+
+/// u128-digest twin of [`existing_bare_metal_keyed_hashes_for_url`] for the digest-indexed
+/// deletion walks: (digest, expected key) for every candidate the probe accepts.
+#[allow(dead_code)]
+pub fn existing_bare_metal_keyed_digests_for_url<F>(
+    service: &str,
+    url: &str,
+    mut exists: F,
+) -> Vec<(u128, String)>
+where
+    F: FnMut(u128) -> bool,
+{
+    let Some(base) = bare_metal_object_key_base(service, url) else {
+        return Vec::new();
+    };
+    let mut hits: Vec<(u128, String)> = Vec::new();
+
+    let unsliced = calculate_md5_digest(&base);
+    if exists(unsliced) {
+        hits.push((unsliced, base.clone()));
+    }
+
+    if !bare_metal_service_slices(service) {
+        return hits;
+    }
+
+    let mut consecutive_misses = 0usize;
+    let mut chunk = 0usize;
+    while chunk < MAX_PROBE_CHUNKS {
+        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
+        let key = format!("{}bytes={}-{}", base, start, chunk_end(start));
+        let digest = calculate_md5_digest(&key);
+        if exists(digest) {
+            hits.push((digest, key));
+            consecutive_misses = 0;
+        } else {
+            consecutive_misses += 1;
+            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
+                break;
+            }
+        }
+        chunk += 1;
+    }
+
+    hits
+}
+
+/// Scheme dispatcher for deletion enumeration: every existing on-disk candidate for
+/// (service, url) plus, under bare-metal, the literal key each candidate must prove
+/// it holds before a caller may delete it. Monolithic candidates carry None and keep
+/// their shipped delete-without-header-read behavior.
+#[allow(dead_code)]
+pub fn existing_keyed_paths_for_url_with_scheme(
+    scheme: CacheKeyScheme,
+    cache_dir: &Path,
+    service: &str,
+    url: &str,
+) -> Vec<(PathBuf, Option<String>)> {
+    match scheme {
+        CacheKeyScheme::Monolithic => existing_cache_paths_for_url(cache_dir, service, url)
+            .into_iter()
+            .map(|path| (path, None))
+            .collect(),
+        CacheKeyScheme::BareMetal => {
+            existing_bare_metal_keyed_paths_for_url(cache_dir, service, url)
+                .into_iter()
+                .map(|candidate| (candidate.path, Some(candidate.key)))
+                .collect()
+        }
+    }
+}
+
+/// Read the literal `KEY: <value>` line embedded in an nginx cache file's header.
+/// Locates a marker beginning in the first 8 KiB (including one straddling that
+/// boundary), then reads up to 64 KiB of key bytes so a valid long request URI that
+/// crosses the initial read boundary remains verifiable.
+/// Returns None when the file is unreadable, the key is unreasonably long, or there
+/// is no complete KEY line — mutating callers must treat None as "do not touch"
+/// under the bare-metal scheme.
+#[allow(dead_code)]
+pub fn read_cache_file_key(path: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    read_cache_file_key_from_reader(&mut file)
+}
+
+fn read_cache_file_key_from_reader<R: std::io::Read>(reader: &mut R) -> Option<String> {
+    use std::io::ErrorKind;
+
+    const MARKER_SCAN_BYTES: usize = 8192;
+    const MAX_KEY_BYTES: usize = 64 * 1024;
+    const MARKER: &[u8] = b"KEY: ";
+
+    // Keep enough lookahead to recognize a marker whose first byte is still inside
+    // the scan window but whose remaining bytes cross its boundary.
+    let mut buf = vec![0u8; MARKER_SCAN_BYTES + MARKER.len() - 1];
+    let mut filled = 0usize;
+    while filled < buf.len() {
+        match reader.read(&mut buf[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(_) => return None,
+        }
+    }
+    let haystack = &buf[..filled];
+    let mut idx = 0usize;
+    while idx < MARKER_SCAN_BYTES && idx + MARKER.len() <= haystack.len() {
+        let at_line_start = idx == 0 || haystack[idx - 1] == b'\n';
+        if at_line_start && &haystack[idx..idx + MARKER.len()] == MARKER {
+            let value_start = idx + MARKER.len();
+            let mut value = haystack[value_start..].to_vec();
+            loop {
+                if let Some(value_end) = value.iter().position(|&b| b == b'\n') {
+                    value.truncate(value_end);
+                    return String::from_utf8(value).ok();
+                }
+                if value.len() > MAX_KEY_BYTES {
+                    return None;
+                }
+
+                let old_len = value.len();
+                // Read one byte beyond the key limit so an exactly-MAX_KEY_BYTES key
+                // can still prove that its next byte is the required line terminator.
+                let read_len = (MAX_KEY_BYTES + 1 - old_len).min(MARKER_SCAN_BYTES);
+                value.resize(old_len + read_len, 0);
+                match reader.read(&mut value[old_len..]) {
+                    Ok(0) => return None,
+                    Ok(n) => value.truncate(old_len + n),
+                    Err(error) if error.kind() == ErrorKind::Interrupted => {
+                        value.truncate(old_len);
+                        continue;
+                    }
+                    Err(_) => return None,
+                }
+            }
+        }
+        idx += 1;
+    }
+    None
+}
+
+/// Pre-mutation verification for bare-metal deletions: does the file's embedded
+/// key equal the recipe-computed one? None = header unreadable/absent (never
+/// mutate on None). Monolithic deletions keep their shipped behavior and do not
+/// go through this gate.
+#[allow(dead_code)]
+pub fn cache_file_key_matches(path: &Path, expected_key: &str) -> Option<bool> {
+    read_cache_file_key(path).map(|actual| actual == expected_key)
+}
+
 #[allow(dead_code)]
 pub fn sorted_sample_urls<I, S>(urls: I, limit: usize) -> Vec<String>
 where
@@ -1705,6 +2140,249 @@ mod tests {
             "size-derived candidates ({}) must be fewer than the {} real slices — the under-delete §12 Q1 fixes",
             old_candidates.len(),
             written.len()
+        );
+    }
+}
+
+#[cfg(test)]
+mod bare_metal_key_tests {
+    use super::*;
+
+    #[test]
+    fn prefix_map_covers_stock_vhosts_and_fails_closed_elsewhere() {
+        assert_eq!(bare_metal_prefix("steam"), Some("lancache-steam"));
+        assert_eq!(bare_metal_prefix("epicgames"), Some("lancache-epicgames"));
+        assert_eq!(bare_metal_prefix("blizzard"), Some("lancache-blizzard"));
+        assert_eq!(bare_metal_prefix("riot"), Some("lancache-riot"));
+        assert_eq!(bare_metal_prefix("wsus"), Some("lancache-windows-update"));
+        assert_eq!(bare_metal_prefix("WSUS"), Some("lancache-windows-update"));
+        assert_eq!(bare_metal_prefix("xbox"), Some("lancache-windows-update"));
+        assert_eq!(bare_metal_prefix("nintendo"), None);
+        assert_eq!(bare_metal_prefix(""), None);
+    }
+
+    #[test]
+    fn scheme_parses_wire_values_with_monolithic_fallback() {
+        assert!(is_valid_scheme_str(""));
+        assert!(is_valid_scheme_str("monolithic"));
+        assert!(is_valid_scheme_str("MONOLITHIC"));
+        assert!(is_valid_scheme_str("bare_metal"));
+        assert!(is_valid_scheme_str("BARE_METAL"));
+        assert!(!is_valid_scheme_str("garbage"));
+        assert!(!is_valid_scheme_str(" bare_metal"));
+
+        assert_eq!(
+            CacheKeyScheme::from_config_str("bare_metal"),
+            CacheKeyScheme::BareMetal
+        );
+        assert_eq!(
+            CacheKeyScheme::from_config_str("BARE_METAL"),
+            CacheKeyScheme::BareMetal
+        );
+        assert_eq!(
+            CacheKeyScheme::from_config_str("monolithic"),
+            CacheKeyScheme::Monolithic
+        );
+        assert_eq!(
+            CacheKeyScheme::from_config_str(""),
+            CacheKeyScheme::Monolithic
+        );
+        assert_eq!(
+            CacheKeyScheme::from_config_str("garbage"),
+            CacheKeyScheme::Monolithic
+        );
+    }
+
+    #[test]
+    fn conflicting_scheme_set_keeps_the_first_value() {
+        let cell = std::sync::OnceLock::new();
+        set_key_scheme_once(&cell, CacheKeyScheme::BareMetal);
+        set_key_scheme_once(&cell, CacheKeyScheme::Monolithic);
+        assert_eq!(cell.get(), Some(&CacheKeyScheme::BareMetal));
+    }
+
+    #[test]
+    fn request_uri_services_keep_query_and_never_strip_bytes() {
+        // Adversarial: a query literally containing bytes=0-9 must survive verbatim -
+        // $request_uri recipes keep the query and never treat it as a slice range.
+        let key = bare_metal_object_key_base("epicgames", "/Builds/o-1/chunk?x=bytes=0-9").unwrap();
+        assert_eq!(key, "lancache-epicgames/Builds/o-1/chunk?x=bytes=0-9");
+        let riot =
+            bare_metal_object_key_base("riot", "/channels/public/x.bundle?sig=a%2Fb").unwrap();
+        assert_eq!(riot, "lancache-riot/channels/public/x.bundle?sig=a%2Fb");
+    }
+
+    #[test]
+    fn uri_services_strip_query_like_nginx_uri() {
+        // Steam is a $uri recipe: the query is not part of the key.
+        let with_query = bare_metal_object_key_base("steam", "/depot/1/chunk/ab?token=zz").unwrap();
+        let without = bare_metal_object_key_base("steam", "/depot/1/chunk/ab").unwrap();
+        assert_eq!(with_query, without);
+        assert_eq!(without, "lancache-steam/depot/1/chunk/ab");
+    }
+
+    #[test]
+    fn path_literally_ending_in_bytes_range_is_not_a_slice() {
+        // A PATH ending "bytes=0-9" is data, not a range; the unsliced steam key keeps it.
+        let key = bare_metal_object_key_base("steam", "/weird/bytes=0-9").unwrap();
+        assert_eq!(key, "lancache-steam/weird/bytes=0-9");
+    }
+
+    #[test]
+    fn sliced_flags_match_the_stock_tree() {
+        assert!(bare_metal_service_slices("blizzard"));
+        assert!(bare_metal_service_slices("wsus"));
+        assert!(!bare_metal_service_slices("steam"));
+        assert!(!bare_metal_service_slices("epicgames"));
+        assert!(!bare_metal_service_slices("riot"));
+        assert!(!bare_metal_service_slices("unknown"));
+    }
+
+    #[test]
+    fn keyed_hash_walk_enumerates_blizzard_slices_and_stops_on_misses() {
+        // Simulate an index holding the unsliced key plus slices 0 and 2 (hole at 1).
+        let base = bare_metal_object_key_base("blizzard", "/tpr/wow/data/ab/cd/ef").unwrap();
+        let slice_key = |n: u64| {
+            format!(
+                "{}bytes={}-{}",
+                base,
+                n * DEFAULT_SLICE_SIZE,
+                chunk_end(n * DEFAULT_SLICE_SIZE)
+            )
+        };
+        let present: std::collections::HashSet<String> = [
+            calculate_md5(&base),
+            calculate_md5(&slice_key(0)),
+            calculate_md5(&slice_key(2)),
+        ]
+        .into_iter()
+        .collect();
+
+        let hits =
+            existing_bare_metal_keyed_hashes_for_url("blizzard", "/tpr/wow/data/ab/cd/ef", |h| {
+                present.contains(h)
+            });
+        let keys: Vec<&str> = hits.iter().map(|(_, k)| k.as_str()).collect();
+        assert_eq!(
+            keys,
+            vec![base.as_str(), slice_key(0).as_str(), slice_key(2).as_str()]
+        );
+    }
+
+    #[test]
+    fn unknown_service_enumerates_nothing() {
+        let hits = existing_bare_metal_keyed_hashes_for_url("nintendo", "/x", |_| true);
+        assert!(hits.is_empty());
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(existing_bare_metal_keyed_paths_for_url(tmp.path(), "nintendo", "/x").is_empty());
+    }
+
+    #[test]
+    fn key_header_roundtrip_and_mismatch_detection() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("aabbccdd");
+        // Minimal nginx cache-file shape: binary header bytes, then the KEY line.
+        let mut contents = vec![0x03u8, 0x00, 0x00, 0x00, b'\n'];
+        contents.extend_from_slice(b"KEY: lancache-steam/depot/1/chunk/ab\n");
+        contents.extend_from_slice(b"HTTP/1.1 200 OK\r\nbody bytes follow");
+        std::fs::write(&file, &contents).unwrap();
+
+        assert_eq!(
+            read_cache_file_key(&file).as_deref(),
+            Some("lancache-steam/depot/1/chunk/ab")
+        );
+        assert_eq!(
+            cache_file_key_matches(&file, "lancache-steam/depot/1/chunk/ab"),
+            Some(true)
+        );
+        assert_eq!(
+            cache_file_key_matches(&file, "steam/depot/1/chunk/ab"),
+            Some(false)
+        );
+
+        // No KEY line at a line start => None (mutating callers must not touch it).
+        let bare = tmp.path().join("nokey");
+        std::fs::write(&bare, b"not a cache file; mentions KEY: inline only").unwrap();
+        assert_eq!(read_cache_file_key(&bare), None);
+        assert_eq!(
+            cache_file_key_matches(&tmp.path().join("missing"), "x"),
+            None
+        );
+    }
+
+    #[test]
+    fn key_header_value_may_cross_initial_read_boundary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("long-key");
+        let expected = format!("lancache-epicgames/{}", "x".repeat(9000));
+        let mut contents = vec![0x03u8, 0x00, 0x00, 0x00, b'\n'];
+        contents.extend_from_slice(b"KEY: ");
+        contents.extend_from_slice(expected.as_bytes());
+        contents.extend_from_slice(b"\nHTTP/1.1 200 OK\r\nbody");
+        std::fs::write(&file, contents).unwrap();
+
+        assert_eq!(
+            read_cache_file_key(&file).as_deref(),
+            Some(expected.as_str())
+        );
+        assert_eq!(cache_file_key_matches(&file, &expected), Some(true));
+    }
+
+    #[test]
+    fn key_header_marker_may_straddle_initial_read_boundary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let expected = "lancache-epicgames/builds/chunk";
+
+        for marker_start in 8188..=8191 {
+            let file = tmp.path().join(format!("marker-{marker_start}"));
+            let mut contents = vec![b'x'; marker_start];
+            contents[marker_start - 1] = b'\n';
+            contents.extend_from_slice(b"KEY: ");
+            contents.extend_from_slice(expected.as_bytes());
+            contents.extend_from_slice(b"\nHTTP/1.1 200 OK\r\nbody");
+            std::fs::write(&file, contents).unwrap();
+
+            assert_eq!(
+                read_cache_file_key(&file).as_deref(),
+                Some(expected),
+                "marker beginning at byte {marker_start} must be detected"
+            );
+        }
+    }
+
+    #[test]
+    fn interrupted_reads_are_retried_during_scan_and_key_continuation() {
+        struct InterruptingReader<R> {
+            inner: R,
+            calls: usize,
+        }
+
+        impl<R: std::io::Read> std::io::Read for InterruptingReader<R> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let call = self.calls;
+                self.calls += 1;
+                if call == 0 || call == 2 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Interrupted,
+                        "synthetic interruption",
+                    ));
+                }
+                self.inner.read(buf)
+            }
+        }
+
+        let expected = format!("lancache-epicgames/{}", "x".repeat(9000));
+        let mut contents = b"\nKEY: ".to_vec();
+        contents.extend_from_slice(expected.as_bytes());
+        contents.push(b'\n');
+        let mut reader = InterruptingReader {
+            inner: std::io::Cursor::new(contents),
+            calls: 0,
+        };
+
+        assert_eq!(
+            read_cache_file_key_from_reader(&mut reader).as_deref(),
+            Some(expected.as_str())
         );
     }
 }

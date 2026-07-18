@@ -526,6 +526,7 @@ builder.Services.AddSingleton<SteamWebApiService>();
 
 // Register DatasourceService for multi-datasource support
 builder.Services.AddSingleton<DatasourceService>();
+builder.Services.AddSingleton<DatasourceCapabilityService>();
 
 // Register services (repositories already registered above)
 builder.Services.AddSingleton<CacheManagementService>();

@@ -483,7 +483,8 @@ public sealed class ScheduledHeavyOperationQueueTests
                 gameCacheDetectionService: null!,
                 evictedDetectionPreservationService: null!,
                 operationQueue,
-                CreateProxy<IHostApplicationLifetime>((method, _) => DefaultReturn(method.ReturnType)))
+                CreateProxy<IHostApplicationLifetime>((method, _) => DefaultReturn(method.ReturnType)),
+                capabilityService: null!)
         {
         }
 

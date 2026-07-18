@@ -486,6 +486,133 @@ public class StateService : IStateService
     }
 
     /// <summary>
+    /// Gets the per-source-stem series offsets for a datasource (a copy). Empty when no
+    /// per-source checkpoint has ever been persisted (pre-upgrade state or fresh install).
+    /// </summary>
+    public Dictionary<string, long> GetLogSourcePositions(string datasourceName)
+    {
+        // Copy under the state lock: ClearLogSourcePositions mutates the inner map in
+        // place under the same lock, and enumerating it unlocked can throw mid-copy.
+        lock (_lock)
+        {
+            var state = GetState();
+            return state.LogProcessing.DatasourceSourcePositions.TryGetValue(datasourceName, out var positions)
+                ? new Dictionary<string, long>(positions)
+                : new Dictionary<string, long>();
+        }
+    }
+
+    /// <summary>
+    /// Atomically replaces the per-source-stem series offsets for a datasource and keeps
+    /// the legacy aggregate position in sync (aggregate = sum of stems, presentation only).
+    /// </summary>
+    public void SetLogSourcePositions(string datasourceName, Dictionary<string, long> positions)
+    {
+        UpdateState(state =>
+        {
+            state.LogProcessing.DatasourceSourcePositions[datasourceName] =
+                new Dictionary<string, long>(positions);
+            state.LogProcessing.DatasourcePositions[datasourceName] = positions.Values.Sum();
+            state.LogProcessing.LastUpdated = DateTime.UtcNow;
+            if (datasourceName == "default")
+            {
+                state.LogProcessing.Position = positions.Values.Sum();
+            }
+        });
+    }
+
+    /// <summary>
+    /// Clears the checkpoints for specific stems of a datasource (after a per-service
+    /// log removal deletes those file series). Missing stems are ignored.
+    /// </summary>
+    public void ClearLogSourcePositions(string datasourceName, IEnumerable<string> stems)
+    {
+        UpdateState(state =>
+        {
+            if (!state.LogProcessing.DatasourceSourcePositions.TryGetValue(datasourceName, out var positions))
+            {
+                return;
+            }
+            foreach (var stem in stems)
+            {
+                positions.Remove(stem);
+            }
+            state.LogProcessing.DatasourcePositions[datasourceName] = positions.Values.Sum();
+            state.LogProcessing.LastUpdated = DateTime.UtcNow;
+            if (datasourceName == "default")
+            {
+                state.LogProcessing.Position = positions.Values.Sum();
+            }
+        });
+    }
+
+    /// <summary>
+    /// Gets the persisted ingestion diagnostics for a datasource, or null.
+    /// </summary>
+    public LogIngestDiagnostics? GetLogIngestDiagnostics(string datasourceName)
+    {
+        // Returned as a copy taken under the state lock: the stored object is mutated in
+        // place by SetLogMissingSourcesWarning, and callers must never see a torn read.
+        lock (_lock)
+        {
+            var state = GetState();
+            if (!state.LogProcessing.DatasourceDiagnostics.TryGetValue(datasourceName, out var diagnostics))
+            {
+                return null;
+            }
+            return new LogIngestDiagnostics
+            {
+                Layout = diagnostics.Layout,
+                TerminalStatus = diagnostics.TerminalStatus,
+                UnparsedLines = diagnostics.UnparsedLines,
+                HintlessHttpDetailedLines = diagnostics.HintlessHttpDetailedLines,
+                SkippedFallbackLines = diagnostics.SkippedFallbackLines,
+                InvalidEncodingLines = diagnostics.InvalidEncodingLines,
+                RecognizedIgnoredLines = diagnostics.RecognizedIgnoredLines,
+                IncompleteFinalRecords = diagnostics.IncompleteFinalRecords,
+                FilesWithErrors = new List<string>(diagnostics.FilesWithErrors),
+                MissingSourcesMessage = diagnostics.MissingSourcesMessage,
+                LastRunUtc = diagnostics.LastRunUtc
+            };
+        }
+    }
+
+    /// <summary>
+    /// Persists ingestion diagnostics for a datasource, preserving any live
+    /// missing-sources warning (that flag is owned by the live monitor).
+    /// </summary>
+    public void SetLogIngestDiagnostics(string datasourceName, LogIngestDiagnostics diagnostics)
+    {
+        UpdateState(state =>
+        {
+            if (state.LogProcessing.DatasourceDiagnostics.TryGetValue(datasourceName, out var existing))
+            {
+                diagnostics.MissingSourcesMessage = existing.MissingSourcesMessage;
+            }
+            state.LogProcessing.DatasourceDiagnostics[datasourceName] = diagnostics;
+            state.LogProcessing.LastUpdated = DateTime.UtcNow;
+        });
+    }
+
+    /// <summary>
+    /// Sets or clears the live monitor's missing-sources warning for a datasource without
+    /// touching the run counters.
+    /// </summary>
+    public void SetLogMissingSourcesWarning(string datasourceName, string? message)
+    {
+        UpdateState(state =>
+        {
+            if (!state.LogProcessing.DatasourceDiagnostics.TryGetValue(datasourceName, out var diagnostics))
+            {
+                diagnostics = new LogIngestDiagnostics();
+                state.LogProcessing.DatasourceDiagnostics[datasourceName] = diagnostics;
+            }
+            diagnostics.MissingSourcesMessage = message;
+            state.LogProcessing.LastUpdated = DateTime.UtcNow;
+        });
+    }
+
+    /// <summary>
     /// Generic load-from-JSON helper shared by both operation-list getters.
     /// Must be called <em>inside</em> the caller's lock — it does not acquire any lock itself.
     /// Returns the cached list (populating it on first call) and invokes <paramref name="cleanup"/>

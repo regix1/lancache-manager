@@ -32,7 +32,8 @@ public sealed class CacheSizeQueueTests
             dbContextFactory: null!,
             reconciliationService: null!,
             conflictChecker: null!,
-            operationQueue: queue);
+            operationQueue: queue,
+            capabilityService: null!);
 
         var result = await controller.GetCacheSizeAsync(
             datasource: null,

@@ -851,7 +851,8 @@ public partial class RustProcessHelper
 
         return new LogLineCountResult(
             progress.LinesProcessed,
-            progress.FilesProcessed);
+            progress.FilesProcessed,
+            progress.SourceLineCounts ?? new Dictionary<string, long>());
     }
 
     /// <summary>
@@ -951,6 +952,10 @@ public partial class RustProcessHelper
 
         [System.Text.Json.Serialization.JsonPropertyName("bytes_deleted")]
         public required long BytesDeleted { get; init; }
+
+        /// <summary>Complete-record counts per logical source stem (count-lines only).</summary>
+        [System.Text.Json.Serialization.JsonPropertyName("source_line_counts")]
+        public Dictionary<string, long>? SourceLineCounts { get; init; }
     }
 
     /// <summary>
@@ -960,6 +965,7 @@ public partial class RustProcessHelper
         string command,
         string logsPath,
         string cachePath,
+        string keyScheme,
         string? service = null,
         string? evidenceFile = null,
         string? progressFile = null,
@@ -970,6 +976,7 @@ public partial class RustProcessHelper
             command,
             logsPath,
             cachePath,
+            keyScheme,
             service,
             evidenceFile,
             progressFile,
@@ -981,6 +988,7 @@ public partial class RustProcessHelper
         string command,
         string logsPath,
         string cachePath,
+        string keyScheme,
         string? service,
         string? evidenceFile,
         string? progressFile,
@@ -1017,7 +1025,8 @@ public partial class RustProcessHelper
                 cachePath,
                 service,
                 evidenceFile,
-                progressArg);
+                progressArg,
+                keyScheme);
 
             _logger.LogInformation("[corruption_manager] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
@@ -1104,17 +1113,20 @@ public partial class RustProcessHelper
         string cachePath,
         string? service,
         string? evidenceFile,
-        string? progressFile) => command switch
+        string? progressFile,
+        string keyScheme) => command switch
         {
             "remove" when !string.IsNullOrEmpty(service)
                 && !string.IsNullOrEmpty(cachePath)
                 && !string.IsNullOrEmpty(evidenceFile)
-                && !string.IsNullOrEmpty(progressFile) =>
-                $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress",
+                && !string.IsNullOrEmpty(progressFile)
+                && !string.IsNullOrEmpty(keyScheme) =>
+                $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}",
             "remove-structural" when !string.IsNullOrEmpty(cachePath)
                 && !string.IsNullOrEmpty(evidenceFile)
-                && !string.IsNullOrEmpty(progressFile) =>
-                $"remove-structural \"{cachePath}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress",
+                && !string.IsNullOrEmpty(progressFile)
+                && !string.IsNullOrEmpty(keyScheme) =>
+                $"remove-structural \"{cachePath}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}",
             _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
         };
 
@@ -1306,7 +1318,10 @@ public class RustExecutionResult
 
 
 /// <summary>Final line/file totals produced by log_service_manager count-lines.</summary>
-public sealed record LogLineCountResult(long LinesProcessed, long FilesProcessed);
+public sealed record LogLineCountResult(
+    long LinesProcessed,
+    long FilesProcessed,
+    Dictionary<string, long> SourceLineCounts);
 
 /// <summary>Pre-delete byte count produced by log_service_manager delete-file.</summary>
 public sealed record LogFileDeletionResult(long BytesDeleted);

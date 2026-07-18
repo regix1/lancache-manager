@@ -46,6 +46,10 @@ struct Args {
     /// Path to progress JSON file
     progress_json: String,
 
+    /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
+    #[arg(long = "key-scheme", default_value = "monolithic")]
+    key_scheme: String,
+
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
@@ -112,6 +116,20 @@ fn complete_context(
 /// without a live database.
 fn normalize_service(service: &str) -> String {
     service.to_lowercase()
+}
+
+/// Stop the logical removal when a bare-metal candidate could not prove its
+/// recipe-computed key. Keeping the access-log and database rows makes the skipped
+/// object discoverable for a corrected retry; deleting those rows would orphan it.
+fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> {
+    if verification_skips == 0 {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Cache deletion safety verification failed for {} file(s); skipped files, access logs, and database records were left intact",
+        verification_skips
+    )
 }
 
 /// Primary URL query: $1 = GameName, $2 = lowercased owning service. Gates identity on
@@ -266,6 +284,7 @@ async fn delete_named_game_from_database(
 /// `removal_core`.
 pub async fn run(service: &str) -> Result<()> {
     let args = Args::parse();
+    cache_utils::set_active_key_scheme(cache_utils::CacheKeyScheme::from_config_str(&args.key_scheme));
 
     let log_dir = PathBuf::from(&args.log_dir);
     let cache_dir = PathBuf::from(&args.cache_dir);
@@ -289,6 +308,13 @@ pub async fn run(service: &str) -> Result<()> {
     eprintln!("  Service: {}", service);
     eprintln!("  Game name: {}", game_name);
 
+    // Per-game Riot removal works the same on bare-metal as on monolithic: the game -> URL
+    // mapping is materialized in the database at ingest (the CDN host names the game, the
+    // rows record its URLs), so removal targets that game's URLs by joining GameName -> URLs
+    // and computing the per-URL cache key. The cache key need not encode the host. Bundles
+    // shared byte-for-byte across Riot titles are a rare content-dedup case that affects
+    // monolithic identically; the bare-metal KEY-header verification only ever prevents a
+    // wrong delete, never causes one.
     if !log_dir.exists() {
         let msg = format!("Log directory not found: {}", log_dir.display());
         anyhow::bail!("{}", msg);
@@ -338,6 +364,7 @@ pub async fn run(service: &str) -> Result<()> {
         &reporter,
         &NAMED_STAGE_KEYS,
         ProgressCadence::OnPercentAdvance,
+        cache_utils::active_key_scheme(),
     )?;
 
     // If cancellation arrived during cache removal, do directory cleanup and exit 0.
@@ -351,6 +378,22 @@ pub async fn run(service: &str) -> Result<()> {
     removal_core::write_progress(&progress_path, &reporter, "cleaning_directories", "signalr.gameRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
     eprintln!("\nCleaning up empty directories...");
     let empty_dirs_removed = cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
+
+    // A failed bare-metal KEY check is not a successful removal. The cache helper
+    // correctly left the candidate untouched; preserve its URL provenance as well
+    // so a corrected retry can still find it instead of turning it into an orphan.
+    if let Err(error) = ensure_cache_deletions_verified(outcome.verification_skips) {
+        let report = RemovalReport {
+            game_name: game_name.to_string(),
+            cache_files_deleted: outcome.deleted_files,
+            total_bytes_freed: outcome.bytes_freed,
+            empty_dirs_removed,
+            log_entries_removed: 0,
+        };
+        let json = serde_json::to_string_pretty(&report)?;
+        fs::write(&output_json, json)?;
+        return Err(error);
+    }
 
     // Step 3: Remove log entries from access log text files
     removal_core::write_progress(&progress_path, &reporter, "removing_logs", "signalr.gameRemove.logs.removing", json!({}), 80.0, 0, 0)?;
@@ -444,6 +487,18 @@ mod tests {
         // Defensive: any casing collapses to the gate form.
         assert_eq!(normalize_service("Blizzard"), "blizzard");
         assert_eq!(normalize_service("XBOX"), "xbox");
+    }
+
+    /// A bare-metal KEY mismatch/unreadable header must stop the logical tail of
+    /// removal, or the still-present file loses the DB/log provenance needed to
+    /// discover it on a corrected retry.
+    #[test]
+    fn verification_skips_block_log_and_database_removal() {
+        assert!(ensure_cache_deletions_verified(0).is_ok());
+
+        let error = ensure_cache_deletions_verified(2).unwrap_err().to_string();
+        assert!(error.contains("2 file(s)"));
+        assert!(error.contains("access logs, and database records were left intact"));
     }
 
     /// Primary query gates identity on the Download side (`LOWER(d."Service") = $2`) and selects

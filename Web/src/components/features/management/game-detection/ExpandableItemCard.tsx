@@ -11,6 +11,7 @@ import { GameImage } from '../../../common/GameImage';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
+import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 
 export interface ExpandableItemStat {
   icon: React.ComponentType<{ className?: string }>;
@@ -74,6 +75,9 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   // Any running/queued removal in the game-cache domain disables every per-item
   // Remove button - single removes and Remove All gate together.
   const isCacheRemovalActive = useCacheRemovalActive();
+  // Disk-level object removal needs the monolithic cache-key recipe; an all-bare-metal fleet
+  // cannot map a game/service to files, so the backend rejects these calls.
+  const diskObjectsAvailable = useDiskObjectCapability();
   const [imageError, setImageError] = useState(false);
   const availableImages = useAvailableGameImages();
 
@@ -163,12 +167,22 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             </div>
           </div>
         </div>
-        <Tooltip content={removeTooltip}>
+        <Tooltip
+          content={
+            diskObjectsAvailable ? removeTooltip : t('management.capability.diskObjectsUnavailable')
+          }
+        >
           <Button
             onClick={onRemove}
             awaitPermissions
             loading={isRemoving}
-            disabled={!isAdmin || cacheReadOnly || !dockerSocketAvailable || isCacheRemovalActive}
+            disabled={
+              !isAdmin ||
+              cacheReadOnly ||
+              !dockerSocketAvailable ||
+              isCacheRemovalActive ||
+              !diskObjectsAvailable
+            }
             variant="filled"
             color="red"
             size="sm"

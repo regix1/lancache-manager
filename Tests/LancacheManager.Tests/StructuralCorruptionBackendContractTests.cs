@@ -54,7 +54,8 @@ public sealed class StructuralCorruptionBackendContractTests : IDisposable
             "2026-07-12T18:00:00Z",
             StructuralScanMode.Incremental,
             statePath,
-            scope);
+            scope,
+            "bare_metal");
 
         Assert.Equal(
             [
@@ -68,7 +69,9 @@ public sealed class StructuralCorruptionBackendContractTests : IDisposable
                 "--state-db",
                 statePath,
                 "--state-scope",
-                scope
+                scope,
+                "--key-scheme",
+                "bare_metal"
             ],
             arguments);
 

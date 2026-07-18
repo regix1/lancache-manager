@@ -196,7 +196,44 @@ public class LogProcessingState
     /// </summary>
     public Dictionary<string, long> DatasourceTotalLines { get; set; } = new();
 
+    /// <summary>
+    /// Per-datasource, per-source-stem series offsets (outer key: datasource name; inner
+    /// key: logical stem like "access.log" or "steam-access.log"). Each value is one
+    /// offset into that stem's oldest-to-newest rotation series. Persisted only from a
+    /// validated completed / completed_with_warnings terminal checkpoint.
+    /// </summary>
+    public Dictionary<string, Dictionary<string, long>> DatasourceSourcePositions { get; set; } = new();
+
+    /// <summary>
+    /// Per-datasource ingestion diagnostics from the most recent run that examined
+    /// meaningful new input (warnings are never cleared by a no-op run).
+    /// </summary>
+    public Dictionary<string, LogIngestDiagnostics> DatasourceDiagnostics { get; set; } = new();
+
     public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Diagnostic counters from one Rust log-processor run, persisted per datasource so the
+/// UI can explain a zero-ingest run instead of reporting truthful-looking empty success.
+/// </summary>
+public class LogIngestDiagnostics
+{
+    public string Layout { get; set; } = string.Empty;
+    public string TerminalStatus { get; set; } = string.Empty;
+    public long UnparsedLines { get; set; }
+    public long HintlessHttpDetailedLines { get; set; }
+    public long SkippedFallbackLines { get; set; }
+    public long InvalidEncodingLines { get; set; }
+    public long RecognizedIgnoredLines { get; set; }
+    public long IncompleteFinalRecords { get; set; }
+    public List<string> FilesWithErrors { get; set; } = new();
+    /// <summary>
+    /// Set by the live monitor while a datasource directory has no access-log sources at
+    /// all; cleared when a source reopens successfully. Independent of run counters.
+    /// </summary>
+    public string? MissingSourcesMessage { get; set; }
+    public DateTime LastRunUtc { get; set; }
 }
 
 /// <summary>

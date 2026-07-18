@@ -192,7 +192,7 @@ pub struct CorruptionDetectionProgress {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct EvidenceKey {
     service_id: u32,
-    normalized_uri_id: u32,
+    cache_identity_id: u32,
     cache_slice: CacheSliceKind,
 }
 
@@ -274,6 +274,102 @@ pub struct CorruptionDetector {
     cache_dir: PathBuf,
     lookback_days: u32,
     scan_started_utc: DateTime<Utc>,
+    key_scheme: cache_utils::CacheKeyScheme,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RepeatedMissCachePath {
+    pub cache_slice: CacheSliceKind,
+    pub path: PathBuf,
+    /// Present only for bare-metal paths, whose literal key must be verified before unlinking.
+    pub expected_key: Option<String>,
+}
+
+fn cache_path_for_key(cache_dir: &Path, key: &str) -> PathBuf {
+    let hash = cache_utils::calculate_md5(key);
+    let len = hash.len();
+    if len < 4 {
+        return cache_dir.join(hash);
+    }
+    cache_dir
+        .join(&hash[len - 2..])
+        .join(&hash[len - 4..len - 2])
+        .join(hash)
+}
+
+/// Maps one repeated-MISS physical-slice identity to the configured cache recipe.
+/// The raw log URL is normalized exactly as ingestion normalizes it before it is passed
+/// to the bare-metal helper; this preserves query strings for `$request_uri` vhosts.
+pub(crate) fn repeated_miss_cache_paths(
+    cache_dir: &Path,
+    service: &str,
+    raw_url: &str,
+    normalized_uri: &str,
+    cache_slice: &CacheSliceKind,
+    key_scheme: cache_utils::CacheKeyScheme,
+) -> Vec<RepeatedMissCachePath> {
+    if key_scheme == cache_utils::CacheKeyScheme::BareMetal {
+        let persisted_url = LogParser::normalize_url(raw_url);
+        let Some(base_key) = cache_utils::bare_metal_object_key_base(service, &persisted_url)
+        else {
+            return Vec::new();
+        };
+        let cache_slice = if cache_utils::bare_metal_service_slices(service) {
+            cache_slice.clone()
+        } else {
+            CacheSliceKind::Noslice
+        };
+        let expected_key = match &cache_slice {
+            CacheSliceKind::Ranged { start, end }
+                if cache_utils::bare_metal_service_slices(service) =>
+            {
+                format!("{base_key}bytes={start}-{end}")
+            }
+            // Bare-metal has no `::noslice` key. Unsliced requests, and every request
+            // for a non-sliced vhost, resolve to the one whole-object cache key.
+            _ => base_key,
+        };
+        return vec![RepeatedMissCachePath {
+            cache_slice,
+            path: cache_path_for_key(cache_dir, &expected_key),
+            expected_key: Some(expected_key),
+        }];
+    }
+
+    match cache_slice {
+        CacheSliceKind::NoRange => vec![
+            RepeatedMissCachePath {
+                cache_slice: CacheSliceKind::NoRange,
+                path: cache_utils::calculate_cache_path_no_range(
+                    cache_dir,
+                    service,
+                    normalized_uri,
+                ),
+                expected_key: None,
+            },
+            RepeatedMissCachePath {
+                cache_slice: CacheSliceKind::Noslice,
+                path: cache_utils::calculate_cache_path_noslice(cache_dir, service, normalized_uri),
+                expected_key: None,
+            },
+        ],
+        CacheSliceKind::Noslice => vec![RepeatedMissCachePath {
+            cache_slice: CacheSliceKind::Noslice,
+            path: cache_utils::calculate_cache_path_noslice(cache_dir, service, normalized_uri),
+            expected_key: None,
+        }],
+        CacheSliceKind::Ranged { start, end } => vec![RepeatedMissCachePath {
+            cache_slice: cache_slice.clone(),
+            path: cache_utils::calculate_cache_path(
+                cache_dir,
+                service,
+                normalized_uri,
+                *start,
+                *end,
+            ),
+            expected_key: None,
+        }],
+    }
 }
 
 impl CorruptionDetector {
@@ -288,7 +384,14 @@ impl CorruptionDetector {
             cache_dir: cache_dir.as_ref().to_path_buf(),
             lookback_days,
             scan_started_utc,
+            key_scheme: cache_utils::active_key_scheme(),
         }
+    }
+
+    #[cfg(test)]
+    fn with_key_scheme(mut self, key_scheme: cache_utils::CacheKeyScheme) -> Self {
+        self.key_scheme = key_scheme;
+        self
     }
 
     pub fn generate_report<P: AsRef<Path>>(
@@ -475,7 +578,17 @@ impl CorruptionDetector {
 
                 let service = cache_utils::service_name_lowercase(&entry.service);
                 let service_id = interner.intern(&service)?;
-                let normalized_uri_id = interner.intern(&mapping.normalized_uri)?;
+                // Bare-metal Epic/Riot vhosts key on `$request_uri`, so their evidence must
+                // also be grouped by the ingestion-normalized URL (query and escaping kept),
+                // not nginx's query-free `$uri` form.
+                let cache_identity = if self.key_scheme == cache_utils::CacheKeyScheme::BareMetal
+                    && cache_utils::bare_metal_service_uses_request_uri(&service)
+                {
+                    entry.url.as_str()
+                } else {
+                    mapping.normalized_uri.as_str()
+                };
+                let cache_identity_id = interner.intern(cache_identity)?;
                 let client_id = interner.intern(&entry.client_ip)?;
                 let raw_url_id = interner.intern(&entry.raw_url)?;
                 let raw_range_id = if entry.http_range.is_empty() {
@@ -492,19 +605,28 @@ impl CorruptionDetector {
                     raw_range_id,
                     observed_range: mapping.observed_range.clone(),
                 };
-                let slice_kinds: Vec<CacheSliceKind> = match observation.observed_range {
-                    ObservedByteRange::NoRange => vec![CacheSliceKind::NoRange],
-                    ObservedByteRange::Inclusive { .. } => mapping
-                        .slices
-                        .iter()
-                        .map(|slice| slice.kind.clone())
-                        .collect(),
+                let slice_kinds: Vec<CacheSliceKind> = if self.key_scheme
+                    == cache_utils::CacheKeyScheme::BareMetal
+                    && !cache_utils::bare_metal_service_slices(&service)
+                {
+                    // These vhosts always key one whole object. Record each request exactly
+                    // once under that identity even when its Range header spans slices.
+                    vec![CacheSliceKind::Noslice]
+                } else {
+                    match observation.observed_range {
+                        ObservedByteRange::NoRange => vec![CacheSliceKind::NoRange],
+                        ObservedByteRange::Inclusive { .. } => mapping
+                            .slices
+                            .iter()
+                            .map(|slice| slice.kind.clone())
+                            .collect(),
+                    }
                 };
                 for cache_slice in slice_kinds {
                     trackers
                         .entry(EvidenceKey {
                             service_id,
-                            normalized_uri_id,
+                            cache_identity_id,
                             cache_slice,
                         })
                         .or_default()
@@ -606,7 +728,6 @@ impl CorruptionDetector {
         F: FnMut(&Path) -> bool,
     {
         let service = interner.get(key.service_id)?.to_string();
-        let normalized_uri = interner.get(key.normalized_uri_id)?.to_string();
         let first_internal = winning
             .first()
             .context("qualified corruption evidence had no observations")?;
@@ -615,12 +736,13 @@ impl CorruptionDetector {
             Ordering::Equal
         );
         let raw_url = interner.get(first_internal.raw_url_id)?.to_string();
+        let normalized_uri = cache_utils::nginx_cache_uri(&raw_url).into_owned();
         let observed_range = first_internal.observed_range.clone();
 
         let present = self
-            .paths_for_slice(&service, &normalized_uri, &key.cache_slice)
+            .paths_for_slice(&service, &raw_url, &normalized_uri, &key.cache_slice)
             .into_iter()
-            .filter(|(_, path)| path_is_safe_regular(path))
+            .filter(|candidate| path_is_safe_regular(&candidate.path))
             .collect::<Vec<_>>();
         if present.is_empty() {
             return Ok(Vec::new());
@@ -656,21 +778,21 @@ impl CorruptionDetector {
             .clone();
         Ok(present
             .into_iter()
-            .map(|(cache_slice, path)| CorruptionCandidate {
+            .map(|candidate| CorruptionCandidate {
                 candidate_id: stable_candidate_id(
                     self.miss_threshold,
                     &service,
                     &normalized_uri,
-                    &cache_slice,
+                    &candidate.cache_slice,
                     &observations,
                 ),
                 service: service.clone(),
-                exact_paths: vec![path.display().to_string()],
+                exact_paths: vec![candidate.path.display().to_string()],
                 evidence: CorruptionEvidence::RepeatedMiss {
                     raw_url: raw_url.clone(),
                     normalized_uri: normalized_uri.clone(),
                     observed_range: observed_range.clone(),
-                    cache_slice,
+                    cache_slice: candidate.cache_slice,
                     evidence_count: observations.len(),
                     first_seen: first_seen.clone(),
                     last_seen: last_seen.clone(),
@@ -683,43 +805,18 @@ impl CorruptionDetector {
     fn paths_for_slice(
         &self,
         service: &str,
+        raw_url: &str,
         normalized_uri: &str,
         cache_slice: &CacheSliceKind,
-    ) -> Vec<(CacheSliceKind, PathBuf)> {
-        match cache_slice {
-            CacheSliceKind::NoRange => vec![
-                (
-                    CacheSliceKind::NoRange,
-                    cache_utils::calculate_cache_path_no_range(
-                        &self.cache_dir,
-                        service,
-                        normalized_uri,
-                    ),
-                ),
-                (
-                    CacheSliceKind::Noslice,
-                    cache_utils::calculate_cache_path_noslice(
-                        &self.cache_dir,
-                        service,
-                        normalized_uri,
-                    ),
-                ),
-            ],
-            CacheSliceKind::Noslice => vec![(
-                CacheSliceKind::Noslice,
-                cache_utils::calculate_cache_path_noslice(&self.cache_dir, service, normalized_uri),
-            )],
-            CacheSliceKind::Ranged { start, end } => vec![(
-                cache_slice.clone(),
-                cache_utils::calculate_cache_path(
-                    &self.cache_dir,
-                    service,
-                    normalized_uri,
-                    *start,
-                    *end,
-                ),
-            )],
-        }
+    ) -> Vec<RepeatedMissCachePath> {
+        repeated_miss_cache_paths(
+            &self.cache_dir,
+            service,
+            raw_url,
+            normalized_uri,
+            cache_slice,
+            self.key_scheme,
+        )
     }
 
     fn build_report(&self, candidates: Vec<CorruptionCandidate>) -> CorruptionReport {
@@ -951,8 +1048,20 @@ mod tests {
         url: &str,
         range: Option<&str>,
     ) -> String {
+        service_log_line("steam", at, method, status, cache, url, range)
+    }
+
+    fn service_log_line(
+        service: &str,
+        at: DateTime<Utc>,
+        method: &str,
+        status: i32,
+        cache: &str,
+        url: &str,
+        range: Option<&str>,
+    ) -> String {
         format!(
-            "[steam] 192.0.2.10 / - - - [{} +0000] \"{method} {url} HTTP/1.1\" {status} 1024 \"-\" \"Test\" \"{cache}\" \"cdn.test\" \"{}\"",
+            "[{service}] 192.0.2.10 / - - - [{} +0000] \"{method} {url} HTTP/1.1\" {status} 1024 \"-\" \"Test\" \"{cache}\" \"cdn.test\" \"{}\"",
             at.format("%d/%b/%Y:%H:%M:%S"),
             range.unwrap_or("-")
         )
@@ -970,6 +1079,14 @@ mod tests {
 
     fn ranged_path(cache_dir: &Path, url: &str) -> PathBuf {
         cache_utils::calculate_cache_path(cache_dir, "steam", url, 0, 1_048_575)
+    }
+
+    fn path_for_literal_key(cache_dir: &Path, key: &str) -> PathBuf {
+        let hash = cache_utils::calculate_md5(key);
+        cache_dir
+            .join(&hash[hash.len() - 2..])
+            .join(&hash[hash.len() - 4..hash.len() - 2])
+            .join(hash)
     }
 
     fn report(
@@ -1234,6 +1351,196 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["/depot/file.bin", "//depot//file.bin", "/depot/file.bin"]
         );
+    }
+
+    #[test]
+    fn bare_metal_blizzard_ranged_evidence_maps_to_vhost_slice_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let log_dir = temp.path().join("logs");
+        let url = "/tpr/wow/data/ab/cd/ef";
+        let expected_key = format!("lancache-blizzard{url}bytes=0-1048575");
+        let expected_path = path_for_literal_key(&cache_dir, &expected_key);
+        write_slice(&expected_path);
+        write_log(
+            &log_dir,
+            &(0..3)
+                .map(|second| {
+                    service_log_line(
+                        "blizzard",
+                        scan_start() - Duration::seconds(2 - second),
+                        "GET",
+                        206,
+                        "MISS",
+                        url,
+                        Some("bytes=0-1048575"),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
+            .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
+            .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+            .unwrap();
+
+        assert_eq!(result.total, 1);
+        assert_eq!(
+            result.candidates[0].exact_paths,
+            [expected_path.display().to_string()]
+        );
+        assert_eq!(
+            repeated(&result.candidates[0]).3,
+            &CacheSliceKind::Ranged {
+                start: 0,
+                end: 1_048_575
+            }
+        );
+    }
+
+    #[test]
+    fn bare_metal_steam_ranged_evidence_maps_to_single_unsliced_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let log_dir = temp.path().join("logs");
+        let url = "/depot/1/chunk/abcdef";
+        let expected_key = format!("lancache-steam{url}");
+        let expected_path = path_for_literal_key(&cache_dir, &expected_key);
+        write_slice(&expected_path);
+        write_log(
+            &log_dir,
+            &(0..3)
+                .map(|second| {
+                    service_log_line(
+                        "steam",
+                        scan_start() - Duration::seconds(2 - second),
+                        "GET",
+                        206,
+                        "MISS",
+                        url,
+                        Some("bytes=0-1048575"),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
+            .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
+            .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+            .unwrap();
+
+        assert_eq!(result.total, 1);
+        assert_eq!(
+            result.candidates[0].exact_paths,
+            [expected_path.display().to_string()]
+        );
+        assert_eq!(repeated(&result.candidates[0]).3, &CacheSliceKind::Noslice);
+    }
+
+    #[test]
+    fn bare_metal_unsliced_services_combine_distinct_range_headers() {
+        let ranges = [
+            "bytes=0-1048575",
+            "bytes=1048576-2097151",
+            "bytes=2097152-3145727",
+        ];
+
+        for (service, url) in [
+            ("steam", "/depot/1/chunk/abcdef"),
+            ("epicgames", "/Builds/o-1/chunk"),
+            ("riot", "/releases/live/package"),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let cache_dir = temp.path().join("cache");
+            let log_dir = temp.path().join("logs");
+            let expected_key = format!("lancache-{service}{url}");
+            let expected_path = path_for_literal_key(&cache_dir, &expected_key);
+            write_slice(&expected_path);
+            write_log(
+                &log_dir,
+                &ranges
+                    .iter()
+                    .enumerate()
+                    .map(|(index, range)| {
+                        service_log_line(
+                            service,
+                            scan_start() - Duration::seconds(2 - index as i64),
+                            "GET",
+                            206,
+                            "MISS",
+                            url,
+                            Some(range),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            );
+
+            let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
+                .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
+                .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+                .unwrap();
+
+            assert_eq!(result.total, 1, "{service}");
+            assert_eq!(
+                result.candidates[0].exact_paths,
+                [expected_path.display().to_string()],
+                "{service}"
+            );
+            assert_eq!(
+                repeated(&result.candidates[0]).3,
+                &CacheSliceKind::Noslice,
+                "{service}"
+            );
+            assert_eq!(
+                repeated(&result.candidates[0])
+                    .5
+                    .iter()
+                    .map(|observation| observation.raw_range.as_deref().unwrap())
+                    .collect::<Vec<_>>(),
+                ranges,
+                "{service}"
+            );
+        }
+    }
+
+    #[test]
+    fn bare_metal_request_uri_service_keeps_query_and_ingestion_normalization() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let log_dir = temp.path().join("logs");
+        let raw_url = "/Builds//o-1/chunk?token=a%2Fb";
+        let expected_key = "lancache-epicgames/Builds/o-1/chunk?token=a%2Fb";
+        let expected_path = path_for_literal_key(&cache_dir, expected_key);
+        write_slice(&expected_path);
+        write_log(
+            &log_dir,
+            &(0..3)
+                .map(|second| {
+                    service_log_line(
+                        "epicgames",
+                        scan_start() - Duration::seconds(2 - second),
+                        "GET",
+                        206,
+                        "MISS",
+                        raw_url,
+                        Some("bytes=0-1048575"),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
+            .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
+            .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+            .unwrap();
+
+        assert_eq!(result.total, 1);
+        assert_eq!(
+            result.candidates[0].exact_paths,
+            [expected_path.display().to_string()]
+        );
+        assert_eq!(repeated(&result.candidates[0]).0, raw_url);
+        assert_eq!(repeated(&result.candidates[0]).1, "/Builds/o-1/chunk");
     }
 
     #[test]

@@ -1287,7 +1287,8 @@ public sealed class CorruptionDetectionPersistenceTests
             datasourceService: null!,
             dbContextFactory: factory,
             operationStateService: null!,
-            operationTracker: null!);
+            operationTracker: null!,
+            capabilityService: null!);
 
     private sealed class TestDatabase : IAsyncDisposable
     {

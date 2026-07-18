@@ -15,6 +15,7 @@ import { isTerminalNotificationStatus } from '@contexts/notifications/notificati
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useDockerSocket } from '@contexts/useDockerSocket';
+import { useConfig } from '@contexts/useConfig';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   LogRemovalStartedEvent,
@@ -31,12 +32,13 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { showPermissionBlock } from '@utils/permissionUi';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
+import { Tooltip } from '@components/ui/Tooltip';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { formatCount } from '@utils/formatters';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
-import type { DatasourceServiceCounts } from '@/types';
+import type { DatasourceInfo, DatasourceServiceCounts } from '@/types';
 
 /** One (datasource, service) pair queued for sequential log removal. */
 interface LogBatchEntry {
@@ -74,6 +76,7 @@ const ServiceRow: React.FC<{
   onSelectToggle: () => void;
   selectLabel: string;
   selectDisabled: boolean;
+  clearTooltip?: string;
 }> = ({
   service,
   count,
@@ -87,8 +90,23 @@ const ServiceRow: React.FC<{
   selected,
   onSelectToggle,
   selectLabel,
-  selectDisabled
+  selectDisabled,
+  clearTooltip
 }) => {
+  const clearButton = (
+    <Button
+      onClick={onClick}
+      awaitPermissions
+      disabled={isDisabled}
+      variant="filled"
+      color="red"
+      size="sm"
+      loading={isRemoving}
+    >
+      {isRemoving ? removingLabel : clearLabel}
+    </Button>
+  );
+
   return (
     <div className="mgmt-row mgmt-row--interactive">
       {selectable && (
@@ -110,17 +128,13 @@ const ServiceRow: React.FC<{
         </p>
       </div>
       <div className="mgmt-row__actions">
-        <Button
-          onClick={onClick}
-          awaitPermissions
-          disabled={isDisabled}
-          variant="filled"
-          color="red"
-          size="sm"
-          loading={isRemoving}
-        >
-          {isRemoving ? removingLabel : clearLabel}
-        </Button>
+        {clearTooltip ? (
+          <Tooltip content={clearTooltip} position="top">
+            {clearButton}
+          </Tooltip>
+        ) : (
+          clearButton
+        )}
       </div>
     </div>
   );
@@ -138,7 +152,15 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     useNotifications();
   const { on, off } = useSignalR();
   const { isDockerAvailable } = useDockerSocket();
+  const { config } = useConfig();
   const { logsReadOnly, logsExist, checkingPermissions } = useDirectoryPermissionsContext();
+
+  // The per-datasource service-count endpoint does not carry the source layout, so join it
+  // from the config datasource list by name to drive the bare-metal displays below.
+  const datasourceInfoByName = useMemo<Map<string, DatasourceInfo>>(
+    () => new Map((config.dataSources ?? []).map((ds) => [ds.name, ds])),
+    [config.dataSources]
+  );
 
   // State
   const [datasourceCounts, setDatasourceCounts] = useState<DatasourceServiceCounts[]>([]);
@@ -722,6 +744,14 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                     const isExpanded = expandedDatasources.has(ds.datasource);
                     const totalEntries = Object.values(ds.serviceCounts).reduce((a, b) => a + b, 0);
                     const hasEntries = totalEntries > 0;
+                    const layout = datasourceInfoByName.get(ds.datasource)?.layout;
+                    const isBareMetalLayout = layout === 'bare_metal' || layout === 'mixed';
+                    const layoutLabel =
+                      layout === 'bare_metal'
+                        ? t('management.datasources.layout.bareMetal')
+                        : layout === 'mixed'
+                          ? t('management.datasources.layout.mixed')
+                          : null;
 
                     return (
                       <DatasourceListItem
@@ -732,9 +762,23 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                         onToggle={() => toggleDatasourceExpanded(ds.datasource)}
                         enabled={ds.enabled && ds.logsWritable}
                         statusBadge={`${formatCount(totalEntries)} entries`}
+                        statusIcons={
+                          layoutLabel ? (
+                            <span className="px-2 py-0.5 text-xs rounded font-medium bg-themed-tertiary text-themed-muted">
+                              {layoutLabel}
+                            </span>
+                          ) : undefined
+                        }
                       >
                         {hasEntries ? (
                           <div className="space-y-3 pt-3">
+                            {isBareMetalLayout && (
+                              <Alert color="blue">
+                                <p className="text-sm">
+                                  {t('management.logRemoval.bareMetal.note')}
+                                </p>
+                              </Alert>
+                            )}
                             <div className="mgmt-list">
                               {displayed.map((service) => {
                                 const key = `${ds.datasource}:${service}`;
@@ -769,6 +813,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                       name: getServiceDisplayName(service)
                                     })}
                                     selectDisabled={rowDisabled || isBatchRunning}
+                                    clearTooltip={
+                                      isBareMetalLayout
+                                        ? t('management.logRemoval.bareMetal.clearTooltip')
+                                        : undefined
+                                    }
                                   />
                                 );
                               })}

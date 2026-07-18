@@ -40,6 +40,7 @@ public class CorruptionDetectionService
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly OperationStateService _operationStateService;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly DatasourceCapabilityService _capabilityService;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
     public CorruptionDetectionService(
@@ -50,8 +51,10 @@ public class CorruptionDetectionService
         DatasourceService datasourceService,
         IDbContextFactory<AppDbContext> dbContextFactory,
         OperationStateService operationStateService,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        DatasourceCapabilityService capabilityService)
     {
+        _capabilityService = capabilityService;
         _logger = logger;
         _pathResolver = pathResolver;
         _rustProcessHelper = rustProcessHelper;
@@ -72,6 +75,14 @@ public class CorruptionDetectionService
     {
         scanMode = NormalizeStructuralScanMode(detectionMethod, scanMode);
         ValidateScanInput(threshold, lookbackDays, detectionMethod, scanMode);
+
+        // Corruption scanning requires one unambiguous key scheme across every datasource;
+        // fail closed here too because the controller gate is only the presentation check.
+        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (capabilityDenial != null)
+        {
+            throw new InvalidOperationException(capabilityDenial);
+        }
 
         await _startLock.WaitAsync(cancellationToken);
         try
@@ -179,7 +190,8 @@ public class CorruptionDetectionService
         string scanStartedUtc,
         StructuralScanMode scanMode,
         string stateDatabasePath,
-        string stateScope) =>
+        string stateScope,
+        string keyScheme) =>
         [
             "structural-summary",
             cacheDir,
@@ -191,7 +203,9 @@ public class CorruptionDetectionService
             "--state-db",
             stateDatabasePath,
             "--state-scope",
-            stateScope
+            stateScope,
+            "--key-scheme",
+            keyScheme
         ];
 
     internal static string DetectionOperationName(
@@ -335,6 +349,16 @@ public class CorruptionDetectionService
             return;
         }
 
+        // Execution-time revalidation: this can run from queue promotion long after the
+        // start-time check, and the evidence may have changed in between.
+        var executionDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (executionDenial != null)
+        {
+            _logger.LogWarning("[CorruptionDetection] Aborting scan: {Reason}", executionDenial);
+            _operationTracker.CompleteOperation(operationId, false, executionDenial);
+            return;
+        }
+
         try
         {
             var datasourceReports = new List<DatasourceCorruptionReport>();
@@ -360,6 +384,7 @@ public class CorruptionDetectionService
                     rustBinaryPath,
                     operationId,
                     datasource.Name,
+                    datasource,
                     threshold,
                     lookbackDays,
                     detectionMethod,
@@ -446,6 +471,7 @@ public class CorruptionDetectionService
         string rustBinaryPath,
         Guid operationId,
         string datasourceName,
+        ResolvedDatasource datasource,
         int threshold,
         int lookbackDays,
         CorruptionDetectionMethod detectionMethod,
@@ -467,36 +493,6 @@ public class CorruptionDetectionService
             {
                 ResetStructuralProgressMetrics(metadata);
             }
-
-            var startInfo = detectionMethod switch
-            {
-                CorruptionDetectionMethod.RepeatedMiss =>
-                    _rustProcessHelper.CreateProcessStartInfo(
-                        rustBinaryPath,
-                        [
-                            "summary",
-                            logDir,
-                            cacheDir,
-                            progressFile,
-                            timezone,
-                            threshold.ToString(CultureInfo.InvariantCulture),
-                            "--lookback-days",
-                            lookbackDays.ToString(CultureInfo.InvariantCulture),
-                            "--scan-started-utc",
-                            scanStartedUtc
-                        ]),
-                CorruptionDetectionMethod.Structural =>
-                    _rustProcessHelper.CreateProcessStartInfo(
-                        rustBinaryPath,
-                        BuildStructuralProcessArguments(
-                            cacheDir,
-                            progressFile,
-                            scanStartedUtc,
-                            scanMode ?? throw new ValidationException("Structural scan mode is required"),
-                            _pathResolver.GetStructuralCorruptionStateDatabasePath(datasourceName, cacheDir),
-                            stateScope)),
-                _ => throw new ValidationException("Unsupported corruption detection method")
-            };
 
             var relay = new CorruptionProgressRelay(
                 metadata,
@@ -523,6 +519,43 @@ public class CorruptionDetectionService
                     ? repeatedMissStderrObserver.Observe
                     : null;
             var rustCancellationReported = 0;
+
+            // The starting notification above is awaited and may allow cache-layout evidence
+            // to change. Resolve the guarded wire value only now, immediately before launch.
+            var keyScheme = _capabilityService.GetKeySchemeWireValue(datasource);
+            var startInfo = detectionMethod switch
+            {
+                CorruptionDetectionMethod.RepeatedMiss =>
+                    _rustProcessHelper.CreateProcessStartInfo(
+                        rustBinaryPath,
+                        [
+                            "summary",
+                            logDir,
+                            cacheDir,
+                            progressFile,
+                            timezone,
+                            threshold.ToString(CultureInfo.InvariantCulture),
+                            "--lookback-days",
+                            lookbackDays.ToString(CultureInfo.InvariantCulture),
+                            "--scan-started-utc",
+                            scanStartedUtc,
+                            "--key-scheme",
+                            keyScheme
+                        ]),
+                CorruptionDetectionMethod.Structural =>
+                    _rustProcessHelper.CreateProcessStartInfo(
+                        rustBinaryPath,
+                        BuildStructuralProcessArguments(
+                            cacheDir,
+                            progressFile,
+                            scanStartedUtc,
+                            scanMode ?? throw new ValidationException("Structural scan mode is required"),
+                            _pathResolver.GetStructuralCorruptionStateDatabasePath(datasourceName, cacheDir),
+                            stateScope,
+                            keyScheme)),
+                _ => throw new ValidationException("Unsupported corruption detection method")
+            };
+
             ProcessExecutionResult result;
             try
             {

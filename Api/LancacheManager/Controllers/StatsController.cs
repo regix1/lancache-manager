@@ -33,6 +33,7 @@ public class StatsController : ControllerBase
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
     private readonly IServiceScheduleRegistry _scheduleRegistry;
+    private readonly DatasourceCapabilityService _capabilityService;
 
     public StatsController(
         AppDbContext context,
@@ -45,8 +46,10 @@ public class StatsController : ControllerBase
         IUnifiedOperationTracker operationTracker,
         IOperationConflictChecker conflictChecker,
         IOperationQueue operationQueue,
-        IServiceScheduleRegistry scheduleRegistry)
+        IServiceScheduleRegistry scheduleRegistry,
+        DatasourceCapabilityService capabilityService)
     {
+        _capabilityService = capabilityService;
         _context = context;
         _clientGroupsRepository = clientGroupsRepository;
         _cacheSnapshotService = cacheSnapshotService;
@@ -432,6 +435,17 @@ public class StatsController : ControllerBase
             });
         }
 
+        // Remove mode auto-starts a destructive, key-recipe-dependent eviction removal;
+        // reject it up front when any datasource's cache keys cannot be computed.
+        if (request.EvictedDataMode == EvictedDataMode.Remove.ToWireString())
+        {
+            var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+            if (capabilityDenial != null)
+            {
+                return BadRequest(new ErrorResponse { Error = capabilityDenial });
+            }
+        }
+
         if (!string.IsNullOrEmpty(request.EvictedDataMode))
         {
             _stateRepository.SetEvictedDataMode(request.EvictedDataMode);
@@ -499,6 +513,14 @@ public class StatsController : ControllerBase
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> ReconcileAsync(CancellationToken cancellationToken)
     {
+        // The eviction scan requires one unambiguous key scheme across every datasource;
+        // reject mixed or unknown evidence before the scan, which also revalidates.
+        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (capabilityDenial != null)
+        {
+            return BadRequest(new ErrorResponse { Error = capabilityDenial });
+        }
+
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         Task<Guid?> StartManualScanAsync() => Task.FromResult(_reconciliationService.RunManualAsync());
 

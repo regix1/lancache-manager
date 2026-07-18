@@ -1615,6 +1615,8 @@
           "oldSnapshot": "This saved result is from before download checks existed. DNS results are still shown, but whether downloads used the cache is unknown.",
           "logMissing": "The cache access log was not found, so recent downloads could not be checked. DNS results are still shown.",
           "unreadable": "The cache access log could not be read, so recent downloads could not be checked. DNS results are still shown.",
+          "unsupportedFormat": "The cache access log is in a format that isn't recognized, so recent downloads could not be checked. DNS results are still shown.",
+          "noSamples": "No recent downloads were found in the cache access log to check. DNS results are still shown.",
           "noPaths": "No recent downloads were found to check.",
           "noPathsHelp": "Only real, recent download entries can be checked, and none were available.",
           "summary": {
@@ -2800,6 +2802,9 @@
         "searchServices": "Search services..."
       }
     },
+    "capability": {
+      "diskObjectsUnavailable": "Disk-level game and service actions aren't available for bare-metal caches yet. Clearing the whole cache still works."
+    },
     "datasources": {
       "title": "Log Processing",
       "summary": "Reads new access.log entries into the download history database.",
@@ -2808,6 +2813,16 @@
       "subtitleSingle": "Import historical data or monitor new downloads",
       "loadingDatasources": "Loading datasources...",
       "reposition": "Reposition",
+      "layout": {
+        "bareMetal": "Bare metal",
+        "mixed": "Mixed logs"
+      },
+      "diagnostics": {
+        "unparsed": "{{count}} line could not be recognized.",
+        "unparsed_other": "{{count}} lines could not be recognized.",
+        "hintless": "{{count}} line looks like a per-service log but is in access.log, so it can't be assigned to a service.",
+        "hintless_other": "{{count}} lines look like per-service logs but are in access.log, so they can't be assigned to a service."
+      },
       "position": {
         "unknown": "Unknown",
         "noLogFile": "No log file",
@@ -2946,6 +2961,10 @@
         "removeLogs": "Remove Logs",
         "showMore": "Show More ({{count}} more)",
         "showLess": "Show Less ({{count}} hidden)"
+      },
+      "bareMetal": {
+        "note": "This datasource keeps a separate log file for each service. Clearing a service deletes that service's whole log file, including rotated copies, along with its download history.",
+        "clearTooltip": "Clearing removes this service's entire log file, including rotated copies, not just matching lines."
       },
       "loading": {
         "scanning": "Scanning log files for services...",
@@ -6328,7 +6347,8 @@
       "skipForNow": "Skip for Now",
       "continue": "Continue",
       "failedToProcess": "Failed to start log processing",
-      "failedToProcessDatasource": "Failed to start processing"
+      "failedToProcessDatasource": "Failed to start processing",
+      "formatHint": "No downloads were read from your logs. The log format may not be recognized. Open the datasource details in Management to see what happened."
     },
     "importHistorical": {
       "title": "Import Historical Data",

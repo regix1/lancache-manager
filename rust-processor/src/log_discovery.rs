@@ -20,10 +20,7 @@ impl LogFile {
     ///   - access.log.10.zst -> rotation_number = Some(10), is_compressed = true
     pub fn from_path<P: AsRef<Path>>(path: P) -> Self {
         let path = path.as_ref();
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         // Check for compression extensions
         let is_compressed = file_name.ends_with(".gz") || file_name.ends_with(".zst");
@@ -87,7 +84,10 @@ impl Ord for LogFile {
 
 /// Discover all log files matching a base pattern
 /// Returns files sorted from oldest to newest
-pub fn discover_log_files<P: AsRef<Path>>(log_directory: P, base_name: &str) -> Result<Vec<LogFile>> {
+pub fn discover_log_files<P: AsRef<Path>>(
+    log_directory: P,
+    base_name: &str,
+) -> Result<Vec<LogFile>> {
     let log_dir = log_directory.as_ref();
 
     if !log_dir.exists() {
@@ -108,10 +108,7 @@ pub fn discover_log_files<P: AsRef<Path>>(log_directory: P, base_name: &str) -> 
             continue;
         }
 
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         // Match files like:
         // - access.log (current file)
@@ -123,7 +120,10 @@ pub fn discover_log_files<P: AsRef<Path>>(log_directory: P, base_name: &str) -> 
         // - .old files (access.log.old)
         // - .backup files (access.log.backup)
         // - Any non-numeric suffixes
-        if file_name.starts_with(base_name) && !file_name.ends_with(".bak") && !file_name.contains(".tmp") {
+        if file_name.starts_with(base_name)
+            && !file_name.ends_with(".bak")
+            && !file_name.contains(".tmp")
+        {
             // Ensure it's either exact match or followed by '.' (to avoid matching "access.logfoo")
             let suffix = &file_name[base_name.len()..];
             if suffix.is_empty() {
@@ -132,22 +132,23 @@ pub fn discover_log_files<P: AsRef<Path>>(log_directory: P, base_name: &str) -> 
             } else if suffix.starts_with('.') {
                 // Has a suffix like .1, .2.gz, .10.zst
                 // Strip compression extensions first
-                let name_without_compression = if file_name.ends_with(".gz") || file_name.ends_with(".zst") {
-                    if let Some(pos) = file_name.rfind('.') {
-                        &file_name[..pos]
+                let name_without_compression =
+                    if file_name.ends_with(".gz") || file_name.ends_with(".zst") {
+                        if let Some(pos) = file_name.rfind('.') {
+                            &file_name[..pos]
+                        } else {
+                            file_name
+                        }
                     } else {
                         file_name
-                    }
-                } else {
-                    file_name
-                };
+                    };
 
                 // Now check if the suffix after base_name is a valid rotation number
                 let rotation_suffix = &name_without_compression[base_name.len()..];
                 if rotation_suffix.starts_with('.') {
                     let number_part = &rotation_suffix[1..]; // Skip the '.'
-                    // Only accept if it's a valid number (e.g., "1", "2", "10")
-                    // This excludes .old, .backup, etc.
+                                                             // Only accept if it's a valid number (e.g., "1", "2", "10")
+                                                             // This excludes .old, .backup, etc.
                     if !number_part.is_empty() && number_part.chars().all(|c| c.is_ascii_digit()) {
                         log_files.push(LogFile::from_path(path));
                     }

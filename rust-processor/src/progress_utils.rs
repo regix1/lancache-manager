@@ -50,7 +50,10 @@ pub fn write_progress_with_retry<T: Serialize>(
         // Use atomic write-and-rename to avoid race conditions
         match NamedTempFile::new_in(parent_dir) {
             Ok(mut temp_file) => {
-                match temp_file.write_all(json.as_bytes()).and_then(|_| temp_file.flush()) {
+                match temp_file
+                    .write_all(json.as_bytes())
+                    .and_then(|_| temp_file.flush())
+                {
                     Ok(_) => {
                         // Close file handle and persist atomically
                         let temp_path = temp_file.into_temp_path();

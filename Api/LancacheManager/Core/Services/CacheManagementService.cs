@@ -17,6 +17,7 @@ namespace LancacheManager.Core.Services;
 public partial class CacheManagementService
 {
     private readonly ILogger<CacheManagementService> _logger;
+    private readonly DatasourceCapabilityService _capabilityService;
     private readonly IPathResolver _pathResolver;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
@@ -87,8 +88,10 @@ public partial class CacheManagementService
         IUnifiedOperationTracker operationTracker,
         ISignalRNotificationService notifications,
         ILancacheEnvFileReader envFileReader,
-        IOperationConflictChecker conflictChecker)
+        IOperationConflictChecker conflictChecker,
+        DatasourceCapabilityService capabilityService)
     {
+        _capabilityService = capabilityService;
         _logger = logger;
         _pathResolver = pathResolver;
         _rustProcessHelper = rustProcessHelper;
@@ -919,7 +922,7 @@ public partial class CacheManagementService
     private async Task<TReport> RunRustRemovalProcessAsync<TProgress, TReport>(
         string logPrefix,
         RemovalDatasourceContext execution,
-        ProcessStartInfo startInfo,
+        Func<ProcessStartInfo> createStartInfo,
         string failedProcessDescription,
         CancellationToken cancellationToken,
         Guid? operationId,
@@ -927,6 +930,21 @@ public partial class CacheManagementService
         Func<RustRemovalProcessResult, Task<TReport>> buildReportAsync)
         where TProgress : class
     {
+        // Last-line revalidation shared by every removal flavor (game, Epic, named,
+        // service): the early per-method checks run before lock waits, and the evidence
+        // can change while the lock is held. This is the check immediately before the
+        // native mutation launches.
+        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (capabilityDenial != null)
+        {
+            throw new InvalidOperationException(capabilityDenial);
+        }
+
+        // Resolve all evidence-dependent launch arguments only after the shared guard.
+        // The factory is synchronous so no queue/lock wait can stale the selected scheme
+        // before ProcessStartInfo is handed to the process helper.
+        var startInfo = createStartInfo();
+
         var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
             startInfo,
             operationId,

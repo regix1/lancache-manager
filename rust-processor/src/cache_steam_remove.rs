@@ -59,6 +59,10 @@ struct Args {
     #[arg(long)]
     skip_file_probe: bool,
 
+    /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
+    #[arg(long = "key-scheme", default_value = "monolithic")]
+    key_scheme: String,
+
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
@@ -80,6 +84,20 @@ struct RemovalReport {
     empty_dirs_removed: usize,
     log_entries_removed: u64,
     depot_ids: Vec<u32>,
+}
+
+/// Preserve URL provenance when a bare-metal candidate's recipe-computed key
+/// could not be verified. The cache helper leaves that file untouched, so the
+/// access-log and database rows must remain available for a corrected retry.
+fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> {
+    if verification_skips == 0 {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Cache deletion safety verification failed for {} file(s); skipped files, access logs, and database records were left intact",
+        verification_skips
+    )
 }
 
 async fn get_game_name_from_db(pool: &PgPool, game_app_id: u32) -> Result<String> {
@@ -322,6 +340,9 @@ async fn delete_game_from_database(pool: &PgPool, game_app_id: u32) -> Result<u6
 async fn main() -> Result<()> {
     cancel::install();
     let args = Args::parse();
+    cache_utils::set_active_key_scheme(cache_utils::CacheKeyScheme::from_config_str(
+        &args.key_scheme,
+    ));
 
     let log_dir = PathBuf::from(&args.log_dir);
     let cache_dir = PathBuf::from(&args.cache_dir);
@@ -419,11 +440,17 @@ async fn main() -> Result<()> {
     // Skipped when `--skip-file-probe` is set (caller already knows every row for
     // this game is IsEvicted, so the lancache has nothing to delete on disk).
     // The log rewrite and DB cleanup below still run unconditionally.
-    let (deleted_files, bytes_freed, empty_dirs_removed, cache_permission_errors) = if args.skip_file_probe {
+    let (
+        deleted_files,
+        bytes_freed,
+        empty_dirs_removed,
+        cache_permission_errors,
+        verification_skips,
+    ) = if args.skip_file_probe {
         eprintln!("\nSkipping cache file probe for {} URLs (fully evicted game)", url_data.len());
         removal_core::write_progress(&progress_path, &reporter, "removing_cache", "signalr.gameRemove.cache.skippedEvicted", json!({}), 10.0, 0, 0)?;
         removal_core::write_progress(&progress_path, &reporter, "cleaning_directories", "signalr.gameRemove.dirs.skippedEvicted", json!({}), 70.0, 0, 0)?;
-        (0usize, 0u64, 0usize, 0usize)
+        (0usize, 0u64, 0usize, 0usize, 0usize)
     } else {
         let count = url_data.len();
         removal_core::write_progress(&progress_path, &reporter, "removing_cache", "signalr.gameRemove.cache.removing", json!({ "count": count }), 10.0, 0, 0)?;
@@ -444,6 +471,7 @@ async fn main() -> Result<()> {
             &reporter,
             &STEAM_STAGE_KEYS,
             ProgressCadence::OnPercentAdvanceOrEveryEighth,
+            cache_utils::active_key_scheme(),
         )?;
 
         // If cancellation arrived during cache removal, finish directory cleanup of dirs
@@ -457,8 +485,29 @@ async fn main() -> Result<()> {
         removal_core::write_progress(&progress_path, &reporter, "cleaning_directories", "signalr.gameRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
         eprintln!("\nCleaning up empty directories...");
         let empty_dirs = cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
-        (outcome.deleted_files, outcome.bytes_freed, empty_dirs, outcome.permission_errors)
+        (
+            outcome.deleted_files,
+            outcome.bytes_freed,
+            empty_dirs,
+            outcome.permission_errors,
+            outcome.verification_skips,
+        )
     };
+
+    if let Err(error) = ensure_cache_deletions_verified(verification_skips) {
+        let report = RemovalReport {
+            game_app_id,
+            game_name: game_name.to_string(),
+            cache_files_deleted: deleted_files,
+            total_bytes_freed: bytes_freed,
+            empty_dirs_removed,
+            log_entries_removed: 0,
+            depot_ids: vec![],
+        };
+        let json = serde_json::to_string_pretty(&report)?;
+        fs::write(&output_json, json)?;
+        return Err(error);
+    }
 
     // Remove log entries for this game. Per-file progress fills the 80-90% band
     // so fast --skip-file-probe runs still surface visible stages.
@@ -598,5 +647,14 @@ mod tests {
         let shared = set(&[1, 2, 3]);
         let safe = compute_safe_depot_ids(&valid, &shared);
         assert!(safe.is_empty());
+    }
+
+    #[test]
+    fn verification_skips_block_log_and_database_removal() {
+        assert!(ensure_cache_deletions_verified(0).is_ok());
+
+        let error = ensure_cache_deletions_verified(3).unwrap_err().to_string();
+        assert!(error.contains("3 file(s)"));
+        assert!(error.contains("access logs, and database records were left intact"));
     }
 }

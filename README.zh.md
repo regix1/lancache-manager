@@ -47,6 +47,7 @@
 - [选择镜像与数据库模式](#image-variants)
 - [配置参考](#configuration)
 - [常见场景](#recipes)
+- [裸机版 LANCache](#bare-metal)
 - [故障排除](#troubleshooting)
 - [自定义主题](#custom-themes)
 - [从源码构建](#building-from-source)
@@ -1076,6 +1077,44 @@ increase(lancache_cache_hit_bytes_total[24h])
 # 缓存使用量（GB）
 lancache_cache_used_bytes / 1024 / 1024 / 1024
 ```
+
+-----
+
+<a id="bare-metal"></a>
+## 裸机版 LANCache
+
+[zeropingheroes/lancache-bare-metal](https://github.com/zeropingheroes/lancache-bare-metal) 直接在宿主机上运行缓存（不使用 Docker），其日志方式与标准容器不同：在 `/srv/lancache/logs/http/` 下按服务分文件记录（`steam-access.log`、`blizzard-access.log`、`epicgames-access.log`、`riot-access.log`、`windows-update-access.log`，以及 `fallback-access.log`），使用不带服务标签的 `http-detailed` 格式。LANCache Manager 原生支持这种布局 —— 只需挂载日志目录，无需改动 nginx 配置：
+
+```yaml
+    volumes:
+      - ./data:/data
+      # 裸机版的日志与缓存位置
+      - /srv/lancache/logs/http:/logs:ro
+      - /srv/lancache/data:/cache:ro
+```
+
+挂载上一级目录 `/srv/lancache/logs` 也可以 —— 管理器会自动找到其中的 `http/` 文件夹。
+
+**可用功能：** 实时活动、仪表盘、下载历史、游戏识别（Steam depot、暴雪产品、Riot 域名）、客户端与服务统计、按服务统计和删除日志、删除日志文件、磁盘级按游戏和按服务删除缓存、重复未命中损坏扫描、逐出跟踪，以及清空整个缓存。在裸机缓存上，每次删除文件前都会再次核对文件自身嵌入的缓存键。
+
+**关于命中率：** 暴雪与 Windows 更新站点按 1 MB 分片提供文件，而 nginx 只记录每次下载第一个分片的缓存状态。因此这两个服务显示的命中率是近似值；下载字节数始终是精确的。这是 nginx 分片机制的固有特性，与裸机无关，标准容器版对这两个服务同样分片，也会显示相同的近似值。
+
+### 备选方案：把裸机版切换到标准日志格式
+
+如果你希望使用容器风格的合并日志，也可以修改裸机版 nginx 配置。在 `nginx.conf` 的 `http {}` 块中添加标准格式：
+
+```nginx
+log_format cachelog '[$cacheidentifier] $remote_addr / - - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$upstream_cache_status" "$host" "$http_range"';
+```
+
+然后在 `caches-available/` 下的每个站点文件中设置服务名并切换访问日志（所有站点共用一个文件）：
+
+```nginx
+set $cacheidentifier steam;   # 各站点分别为 blizzard / epicgames / riot / wsus
+access_log /srv/lancache/logs/http/access.log cachelog;
+```
+
+执行 `sudo nginx -s reopen`（或 `systemctl reload nginx`）重新加载，并按上文挂载 `/srv/lancache/logs/http`。这样即可恢复全部基于日志的功能。应用这个兼容性补丁后，请勿使用磁盘级功能：磁盘缓存键仍采用裸机布局，但合并日志会让管理器把该环境识别为容器安装，因此不会再拦截这些磁盘级操作。请不要在打过补丁的裸机缓存上使用它们。
 
 -----
 

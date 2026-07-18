@@ -17,6 +17,16 @@ public partial class CacheManagementService
         // Sanitize user-provided service name to prevent process argument injection
         serviceName = RustProcessHelper.SanitizeProcessArgument(serviceName);
 
+        // Service-scoped cache removal requires an unambiguous key scheme; fail closed
+        // across every datasource rather than partially deleting a mixed or unknown fleet. The
+        // shared launch helper revalidates again after the lock wait, immediately before
+        // each native mutation.
+        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (capabilityDenial != null)
+        {
+            throw new InvalidOperationException(capabilityDenial);
+        }
+
         await _cacheLock.WaitAsync(cancellationToken);
         try
         {
@@ -41,17 +51,18 @@ public partial class CacheManagementService
             {
                 var datasource = execution.Datasource;
 
-                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                    rustBinaryPath,
-                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress");
-
-                _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
-                    datasource.Name, rustBinaryPath, startInfo.Arguments);
-
                 var dsReport = await RunRustRemovalProcessAsync<ServiceRemovalProgressData, ServiceCacheRemovalReport>(
                     "[ServiceRemoval]",
                     execution,
-                    startInfo,
+                    () =>
+                    {
+                        var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                            rustBinaryPath,
+                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}");
+                        _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
+                            datasource.Name, rustBinaryPath, startInfo.Arguments);
+                        return startInfo;
+                    },
                     "service_remover",
                     cancellationToken,
                     operationId,

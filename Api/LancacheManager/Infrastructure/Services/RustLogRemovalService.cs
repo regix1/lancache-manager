@@ -22,6 +22,7 @@ public class RustLogRemovalService
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly IStateService _stateService;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private Guid? _currentTrackerOperationId;
@@ -125,7 +126,8 @@ public class RustLogRemovalService
         NginxLogRotationService nginxLogRotationService,
         IDbContextFactory<AppDbContext> dbContextFactory,
         DatasourceService datasourceService,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        IStateService stateService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -136,6 +138,7 @@ public class RustLogRemovalService
         _dbContextFactory = dbContextFactory;
         _datasourceService = datasourceService;
         _operationTracker = operationTracker;
+        _stateService = stateService;
     }
 
     /// <summary>
@@ -522,6 +525,14 @@ public class RustLogRemovalService
                     _logger.LogWarning("Log removal failed for datasource '{DatasourceName}', continuing with remaining datasources",
                         datasource.Name);
                 }
+                else
+                {
+                    // Bare-metal removal deletes the service's whole source file series; the
+                    // deleted stems' checkpoints must not survive the files.
+                    _stateService.ClearLogSourcePositions(
+                        datasource.Name,
+                        LancacheManager.Core.Services.LogSourceLayout.StemsForService(service));
+                }
 
                 datasourcesProcessed++;
             }
@@ -876,6 +887,12 @@ public class RustLogRemovalService
 
                 if (exitCode == 0)
                 {
+                    // Bare-metal removal deletes the service's whole source file series; the
+                    // deleted stems' checkpoints must not survive the files.
+                    _stateService.ClearLogSourcePositions(
+                        datasourceName,
+                        LancacheManager.Core.Services.LogSourceLayout.StemsForService(service));
+
                     await _cacheManagementService.InvalidateServiceCountsAsync();
                     await _nginxLogRotationService.ReopenNginxLogsAsync();
 

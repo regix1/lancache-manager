@@ -289,6 +289,14 @@ export interface DatasourceInfo {
   cacheWritable: boolean;
   logsWritable: boolean;
   enabled: boolean;
+  /** Presentation-only source layout. Absent on legacy responses (treat as monolithic). */
+  layout?: 'monolithic' | 'bare_metal' | 'mixed';
+  /** Number of logical access-log sources currently on disk. */
+  sourceCount?: number;
+  /** Object-scoped disk features (game/service removal, corruption mapping, eviction) available. */
+  canMapLogicalObjects?: boolean;
+  /** Whole-root cache clear stays available everywhere. */
+  canClearWholeCacheRoot?: boolean;
 }
 
 export interface DatasourceLogPosition {
@@ -297,6 +305,27 @@ export interface DatasourceLogPosition {
   totalLines: number;
   logPath: string;
   enabled: boolean;
+  layout?: 'monolithic' | 'bare_metal' | 'mixed';
+  sourceCount?: number;
+  /** Per-source read positions keyed by source stem. */
+  sourcePositions?: Record<string, number>;
+  /** Lines the parser could not recognize in the last run. */
+  unparsedLines?: number;
+  /** Lines that look like per-service logs but were found in access.log. */
+  hintlessHttpDetailedLines?: number;
+  invalidEncodingLines?: number;
+  skippedFallbackLines?: number;
+  incompleteFinalRecords?: number;
+  filesWithErrors?: string[];
+  lastRunTerminalStatus?:
+    | ''
+    | 'completed'
+    | 'completed_with_warnings'
+    | 'partial'
+    | 'failed'
+    | 'cancelled';
+  /** Human-readable message set while the log directory has no access-log sources at all. */
+  missingSourcesMessage?: string | null;
 }
 
 export interface DatasourceServiceCounts {

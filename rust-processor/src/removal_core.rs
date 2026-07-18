@@ -10,8 +10,8 @@
 //! each bin owns its head and hands the tail a `RemovalPlan`.
 //!
 //! Behavior is byte-identical to the pre-consolidation bins:
-//!   * `remove_cache_files` walks every on-disk slice via
-//!     `cache_utils::existing_cache_paths_for_url` (the §12 Q1 all-slice fix),
+//!   * `remove_cache_files` walks every on-disk slice via the scheme-aware
+//!     `cache_utils::existing_keyed_paths_for_url_with_scheme` dispatcher,
 //!   * progress is emitted in the 10%-70% band using each service's own stage keys,
 //!   * the `ProgressCadence` enum reproduces the two existing emit cadences verbatim
 //!     (Steam = every integer-percent advance OR every 8th probe; Epic/named =
@@ -85,7 +85,10 @@ pub fn write_progress(
         "starting" => reporter.emit_started(stage_key, emit_context),
         "completed" => reporter.emit_complete(stage_key, emit_context),
         "failed" => {
-            let error_detail = emit_context.get("errorDetail").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let error_detail = emit_context
+                .get("errorDetail")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             reporter.emit_failed(stage_key, emit_context, error_detail);
         }
         _ => reporter.emit_progress(percent_complete, stage_key, emit_context),
@@ -142,6 +145,10 @@ pub struct CacheRemovalOutcome {
     pub bytes_freed: u64,
     pub parent_dirs: HashSet<PathBuf>,
     pub permission_errors: usize,
+    /// Bare-metal candidates whose embedded KEY header did not match (or could not be
+    /// read): left untouched. Some bins consume this to stop before deleting provenance.
+    #[allow(dead_code)]
+    pub verification_skips: usize,
 }
 
 /// Parallel cache-file deletion with progress reporting (the 10%-70% band).
@@ -158,6 +165,7 @@ pub fn remove_cache_files(
     reporter: &ProgressReporter,
     keys: &RemovalStageKeys,
     cadence: ProgressCadence,
+    scheme: cache_utils::CacheKeyScheme,
 ) -> Result<CacheRemovalOutcome> {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -166,6 +174,7 @@ pub fn remove_cache_files(
     let deleted_files = AtomicUsize::new(0);
     let bytes_freed = AtomicU64::new(0);
     let permission_errors = AtomicUsize::new(0);
+    let verification_skips = AtomicUsize::new(0);
     let parent_dirs = Mutex::new(HashSet::new());
 
     eprintln!("Collecting cache file paths for deletion...");
@@ -173,12 +182,13 @@ pub fn remove_cache_files(
     // Collect all paths to delete. All-slice existence walk (matches detection
     // coverage) instead of the size-derived candidate list, so range-served objects
     // that log each ~1 MiB range as a separate row are fully enumerated rather than
-    // truncated to slice 0. `existing_cache_paths_for_url` stat-walks every on-disk
-    // slice for the URL, so `total_bytes` is no longer needed here.
-    let paths_to_check: Vec<_> = url_data
+    // truncated to slice 0. The walk stat-probes every on-disk slice for the URL, so
+    // `total_bytes` is no longer needed here. Under the bare-metal scheme each
+    // candidate carries the literal key it must prove before deletion.
+    let paths_to_check: Vec<(std::path::PathBuf, Option<String>)> = url_data
         .par_iter()
         .flat_map(|(url, (service, _total_bytes))| {
-            cache_utils::existing_cache_paths_for_url(cache_dir, service, url)
+            cache_utils::existing_keyed_paths_for_url_with_scheme(scheme, cache_dir, service, url)
         })
         .collect();
 
@@ -189,7 +199,7 @@ pub fn remove_cache_files(
     let last_reported_percent = AtomicUsize::new(0);
 
     // Parallel deletion with progress reporting
-    paths_to_check.par_iter().for_each(|path| {
+    paths_to_check.par_iter().for_each(|(path, expected_key)| {
         // Cooperative cancellation: skip remaining files if cancel was requested.
         // Already-deleted files stay deleted — consistent partial state that C# reconciles.
         if cancel::is_cancelled() {
@@ -205,39 +215,63 @@ pub fn remove_cache_files(
                 return;
             }
 
-            if let Ok(metadata) = fs::metadata(path) {
-                bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
-            }
+            // Bare-metal deletion gate: the file itself must prove it holds the
+            // recipe-computed key. A mismatch, unreadable header, or unexpectedly
+            // absent expected key means the recipe and disk disagree (customized
+            // vhost, Vary variant, foreign file) — never delete on doubt. Keep going
+            // to the progress block after a skip so a fully skipped batch can still
+            // report that every candidate was processed.
+            let verified_for_deletion = match scheme {
+                cache_utils::CacheKeyScheme::Monolithic => true,
+                cache_utils::CacheKeyScheme::BareMetal => expected_key
+                    .as_deref()
+                    .and_then(|expected| cache_utils::cache_file_key_matches(path, expected))
+                    == Some(true),
+            };
 
-            match fs::remove_file(path) {
-                Ok(_) => {
-                    let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
+            if !verified_for_deletion {
+                let skips = verification_skips.fetch_add(1, Ordering::Relaxed) + 1;
+                if skips <= 5 {
+                    eprintln!(
+                        "  skipping {}: embedded KEY did not verify against the computed key",
+                        path.display()
+                    );
+                }
+            } else {
+                if let Ok(metadata) = fs::metadata(path) {
+                    bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
+                }
 
-                    if let Some(parent) = path.parent() {
-                        match parent_dirs.lock() {
-                            Ok(mut dirs) => {
-                                dirs.insert(parent.to_path_buf());
-                            }
-                            Err(err) => {
-                                eprintln!("  Warning: failed to track parent directory after delete: {}", err);
+                match fs::remove_file(path) {
+                    Ok(_) => {
+                        let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
+
+                        if let Some(parent) = path.parent() {
+                            match parent_dirs.lock() {
+                                Ok(mut dirs) => {
+                                    dirs.insert(parent.to_path_buf());
+                                }
+                                Err(err) => {
+                                    eprintln!("  Warning: failed to track parent directory after delete: {}", err);
+                                }
                             }
                         }
-                    }
 
-                    if count % 100 == 0 {
-                        let bytes = bytes_freed.load(Ordering::Relaxed);
-                        eprintln!(
-                            "  Deleted {} cache files... ({:.2} MB freed)",
-                            count,
-                            bytes as f64 / 1_048_576.0
-                        );
+                        if count % 100 == 0 {
+                            let bytes = bytes_freed.load(Ordering::Relaxed);
+                            eprintln!(
+                                "  Deleted {} cache files... ({:.2} MB freed)",
+                                count,
+                                bytes as f64 / 1_048_576.0
+                            );
+                        }
                     }
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::PermissionDenied {
-                        let err_count = permission_errors.fetch_add(1, Ordering::Relaxed) + 1;
-                        if err_count <= 5 {
-                            eprintln!("  ERROR: Permission denied deleting {}: {}", path.display(), e);
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::PermissionDenied {
+                            let err_count = permission_errors.fetch_add(1, Ordering::Relaxed) + 1;
+                            if err_count <= 5 {
+                                eprintln!("  ERROR: Permission denied deleting {}: {}", path.display(), e);
+                            }
                         }
                     }
                 }
@@ -297,17 +331,29 @@ pub fn remove_cache_files(
     let final_dirs = match parent_dirs.into_inner() {
         Ok(dirs) => dirs,
         Err(err) => {
-            eprintln!("  Warning: parent directory tracker was poisoned; continuing with recovered set");
+            eprintln!(
+                "  Warning: parent directory tracker was poisoned; continuing with recovered set"
+            );
             err.into_inner()
         }
     };
     let final_permission_errors = permission_errors.load(Ordering::Relaxed);
 
     if final_permission_errors > 5 {
-        eprintln!("  ... and {} more permission errors", final_permission_errors - 5);
+        eprintln!(
+            "  ... and {} more permission errors",
+            final_permission_errors - 5
+        );
     }
     if final_permission_errors > 0 {
         eprintln!("  Total permission errors: {}", final_permission_errors);
+    }
+    let final_verification_skips = verification_skips.load(Ordering::Relaxed);
+    if final_verification_skips > 0 {
+        eprintln!(
+            "  Left {} file(s) untouched because their embedded KEY did not verify against the computed key",
+            final_verification_skips
+        );
     }
 
     // After the parallel deletion phase: flush partial progress on cancel.
@@ -319,7 +365,8 @@ pub fn remove_cache_files(
             "removing_cache",
             keys.cache_file_progress,
             json!({ "n": final_deleted, "total": total_paths }),
-            10.0 + (paths_checked.load(Ordering::Relaxed) as f64 / total_paths.max(1) as f64) * 60.0,
+            10.0 + (paths_checked.load(Ordering::Relaxed) as f64 / total_paths.max(1) as f64)
+                * 60.0,
             final_deleted,
             total_paths,
         );
@@ -330,6 +377,7 @@ pub fn remove_cache_files(
         bytes_freed: final_bytes,
         parent_dirs: final_dirs,
         permission_errors: final_permission_errors,
+        verification_skips: final_verification_skips,
     })
 }
 
@@ -368,4 +416,122 @@ pub fn permission_error_message(
         Cache permission errors: {}, Log permission errors: {}",
         total_permission_errors, puid, pgid, cache_permission_errors, log_permission_errors
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static TEST_STAGE_KEYS: RemovalStageKeys = RemovalStageKeys {
+        cache_file_progress: "test.cache.remove",
+    };
+
+    fn write_cache_file(path: &Path, embedded_key: Option<&str>) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut contents = b"\0\n".to_vec();
+        if let Some(key) = embedded_key {
+            contents.extend_from_slice(format!("KEY: {key}\n").as_bytes());
+        } else {
+            contents.extend_from_slice(b"cache header without a key\n");
+        }
+        contents.extend_from_slice(b"body");
+        fs::write(path, contents).unwrap();
+    }
+
+    fn remove_one(
+        cache_dir: &Path,
+        service: &str,
+        url: &str,
+        scheme: cache_utils::CacheKeyScheme,
+        progress_path: &Path,
+    ) -> CacheRemovalOutcome {
+        let url_data = HashMap::from([(url.to_string(), (service.to_string(), 0_i64))]);
+        remove_cache_files(
+            cache_dir,
+            &url_data,
+            progress_path,
+            &ProgressReporter::new(false),
+            &TEST_STAGE_KEYS,
+            ProgressCadence::OnPercentAdvance,
+            scheme,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn bare_metal_mismatch_or_unreadable_key_is_skipped_and_progress_completes() {
+        for embedded_key in [Some("wrong-key"), None] {
+            let temp = tempfile::tempdir().unwrap();
+            let url = "/depot/1/chunk/abcdef";
+            let expected_key = cache_utils::bare_metal_object_key_base("steam", url).unwrap();
+            let cache_path = cache_utils::cache_path_for_digest(
+                temp.path(),
+                cache_utils::calculate_md5_digest(&expected_key),
+            );
+            write_cache_file(&cache_path, embedded_key);
+
+            let progress_path = temp.path().join("progress.json");
+            let outcome = remove_one(
+                temp.path(),
+                "steam",
+                url,
+                cache_utils::CacheKeyScheme::BareMetal,
+                &progress_path,
+            );
+
+            assert!(cache_path.exists(), "unverified file must remain untouched");
+            assert_eq!(outcome.deleted_files, 0);
+            assert_eq!(outcome.bytes_freed, 0);
+            assert_eq!(outcome.verification_skips, 1);
+
+            let progress: serde_json::Value =
+                serde_json::from_slice(&fs::read(&progress_path).unwrap()).unwrap();
+            assert_eq!(progress["percentComplete"].as_f64(), Some(70.0));
+            assert_eq!(progress["totalFiles"].as_u64(), Some(1));
+        }
+    }
+
+    #[test]
+    fn bare_metal_exact_key_match_allows_deletion() {
+        let temp = tempfile::tempdir().unwrap();
+        let url = "/depot/1/chunk/abcdef";
+        let expected_key = cache_utils::bare_metal_object_key_base("steam", url).unwrap();
+        let cache_path = cache_utils::cache_path_for_digest(
+            temp.path(),
+            cache_utils::calculate_md5_digest(&expected_key),
+        );
+        write_cache_file(&cache_path, Some(&expected_key));
+
+        let outcome = remove_one(
+            temp.path(),
+            "steam",
+            url,
+            cache_utils::CacheKeyScheme::BareMetal,
+            &temp.path().join("progress.json"),
+        );
+
+        assert!(!cache_path.exists());
+        assert_eq!(outcome.deleted_files, 1);
+        assert_eq!(outcome.verification_skips, 0);
+    }
+
+    #[test]
+    fn monolithic_deletion_does_not_require_key_header() {
+        let temp = tempfile::tempdir().unwrap();
+        let url = "/depot/1/chunk/abcdef";
+        let cache_path = cache_utils::calculate_cache_path_no_range(temp.path(), "steam", url);
+        write_cache_file(&cache_path, None);
+
+        let outcome = remove_one(
+            temp.path(),
+            "steam",
+            url,
+            cache_utils::CacheKeyScheme::Monolithic,
+            &temp.path().join("progress.json"),
+        );
+
+        assert!(!cache_path.exists());
+        assert_eq!(outcome.deleted_files, 1);
+        assert_eq!(outcome.verification_skips, 0);
+    }
 }

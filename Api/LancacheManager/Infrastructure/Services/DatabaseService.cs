@@ -407,10 +407,14 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation($"Cleared {logEntriesDeleted:N0} log entries");
                             deletedRows += logEntriesDeleted;
 
-                            // Reset log positions for all datasources so the log processor knows to start from beginning
+                            // Reset log positions for all datasources so the log processor knows to start from beginning.
+                            // Per-stem checkpoints must clear too: they win over the zero scalar
+                            // via the positions file, and a stale map would skip all history
+                            // against the now-empty table.
                             _logger.LogInformation("Resetting log positions for all datasources");
                             foreach (var ds in _datasourceService.GetDatasources())
                             {
+                                _stateRepository.SetLogSourcePositions(ds.Name, new Dictionary<string, long>());
                                 _stateRepository.SetLogPosition(ds.Name, 0);
                                 _stateRepository.SetLogTotalLines(ds.Name, 0);
                             }

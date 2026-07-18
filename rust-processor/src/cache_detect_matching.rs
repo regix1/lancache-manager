@@ -135,9 +135,19 @@ fn match_files_with_index_tracked(
             // objects) and instead walk slice indices, collecting all that exist in the index —
             // safe because non-existent candidates are simply not returned. The all-miss cost is
             // bounded by CONSECUTIVE_MISS_LIMIT, not MAX_PROBE_CHUNKS (see existing_cache_digests_for_url).
-            let digests = cache_utils::existing_cache_digests_for_url(service, url, |digest| {
-                cache_files_index.contains_key(&digest)
-            });
+            let digests =
+                if cache_utils::active_key_scheme() == cache_utils::CacheKeyScheme::BareMetal {
+                    cache_utils::existing_bare_metal_keyed_digests_for_url(service, url, |digest| {
+                        cache_files_index.contains_key(&digest)
+                    })
+                    .into_iter()
+                    .map(|(digest, _key)| digest)
+                    .collect()
+                } else {
+                    cache_utils::existing_cache_digests_for_url(service, url, |digest| {
+                        cache_files_index.contains_key(&digest)
+                    })
+                };
             counter.fetch_add(1, Ordering::Relaxed);
             // The outer HashSet dedups physical files shared across URLs.
             digests.into_iter()
@@ -161,7 +171,17 @@ fn match_files_in_cache_tracked(
             // Filesystem twin of the index path: collect EVERY existing slice on disk for this URL,
             // not just the first. `bytes_served` (MAX per URL) is ignored — see the index-side
             // comment above. The all-miss cost is bounded by CONSECUTIVE_MISS_LIMIT.
-            let paths = cache_utils::existing_cache_paths_for_url(cache_dir, service, url);
+            let paths = match cache_utils::active_key_scheme() {
+                cache_utils::CacheKeyScheme::Monolithic => {
+                    cache_utils::existing_cache_paths_for_url(cache_dir, service, url)
+                }
+                cache_utils::CacheKeyScheme::BareMetal => {
+                    cache_utils::existing_bare_metal_keyed_paths_for_url(cache_dir, service, url)
+                        .into_iter()
+                        .map(|candidate| candidate.path)
+                        .collect()
+                }
+            };
             counter.fetch_add(1, Ordering::Relaxed);
             // The outer HashSet dedups physical files shared across URLs.
             paths.into_iter()

@@ -23,6 +23,7 @@ public partial class GameCacheDetectionService : IDisposable
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
+    private readonly DatasourceCapabilityService _capabilityService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private CancellationTokenSource? _cancellationTokenSource;
@@ -106,6 +107,7 @@ public partial class GameCacheDetectionService : IDisposable
         RustProcessHelper rustProcessHelper,
         ISignalRNotificationService notifications,
         DatasourceService datasourceService,
+        DatasourceCapabilityService capabilityService,
         IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
@@ -118,6 +120,7 @@ public partial class GameCacheDetectionService : IDisposable
         _rustProcessHelper = rustProcessHelper;
         _notifications = notifications;
         _datasourceService = datasourceService;
+        _capabilityService = capabilityService;
         _operationTracker = operationTracker;
 
         _logger.LogInformation("GameCacheDetectionService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
@@ -128,6 +131,14 @@ public partial class GameCacheDetectionService : IDisposable
 
     public async Task<Guid?> StartDetectionAsync(bool incremental = true, bool showNotification = true)
     {
+        // Game detection derives logical objects from cache keys, so ambiguous datasource
+        // evidence must be rejected even when this service is called without a controller.
+        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (capabilityDenial != null)
+        {
+            throw new InvalidOperationException(capabilityDenial);
+        }
+
         await _startLock.WaitAsync();
         try
         {
@@ -359,6 +370,14 @@ public partial class GameCacheDetectionService : IDisposable
             // Check for cancellation at start
             cancellationToken.ThrowIfCancellationRequested();
 
+            // Queue promotion and worker scheduling can delay execution after the start-time
+            // check, so refresh the evidence before any cache-key-dependent processing launches.
+            var executionDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+            if (executionDenial != null)
+            {
+                throw new InvalidOperationException(executionDenial);
+            }
+
             // Smart pre-check: If incremental scan and we have 3+ unknown games, try applying mappings first
             if (incremental)
             {
@@ -455,12 +474,13 @@ public partial class GameCacheDetectionService : IDisposable
                 // Add --incremental flag for quick scans to skip the expensive cache directory scan
                 var incrementalFlag = incremental ? " --incremental" : "";
                 var skipServiceScanFlag = skipServiceScan ? " --skip-service-scan" : "";
+                var keyScheme = _capabilityService.GetKeySchemeWireValue(datasource);
                 // --progress (distinct from --progress-file) enables cache_game_detect.rs's live
                 // stdout progress events, which the hybrid callback below waits on; without it
                 // ProgressReporter.is_enabled() is false and no events flow.
                 string arguments = !string.IsNullOrEmpty(excludedIdsPath)
-                    ? $"\"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\" --progress"
-                    : $"\"{cachePath}\" \"{outputJson}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\" --progress";
+                    ? $"\"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\" --progress --key-scheme {keyScheme}"
+                    : $"\"{cachePath}\" \"{outputJson}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\" --progress --key-scheme {keyScheme}";
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 

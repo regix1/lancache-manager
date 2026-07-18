@@ -3725,7 +3725,12 @@ export interface StatusCheckCacheNodeInfo {
   ips: string[];
 }
 
-export type StatusCheckContentAvailability = 'available' | 'logMissing' | 'unreadable';
+export type StatusCheckContentAvailability =
+  | 'available'
+  | 'logMissing'
+  | 'unreadable'
+  | 'unsupportedFormat'
+  | 'noSamples';
 
 export type StatusCheckProtocolStatus =
   | 'notRun'

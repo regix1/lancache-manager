@@ -43,6 +43,19 @@ public class CacheController : ControllerBase
     private readonly CacheReconciliationService _reconciliationService;
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
+    private readonly DatasourceCapabilityService _capabilityService;
+
+    /// <summary>
+    /// Duplicate of the service-level capability guard for UX: key-dependent endpoints
+    /// (corruption detection/removal, service cache removal, eviction removal) reject with
+    /// a clear message instead of failing deep inside the operation. The mutating services
+    /// revalidate again at execution time — this check is presentation, not the safety net.
+    /// </summary>
+    private BadRequestObjectResult? DenyIfKeyDependentUnavailable()
+    {
+        var denial = _capabilityService.CheckAllCanMapLogicalObjects();
+        return denial == null ? null : BadRequest(new ErrorResponse { Error = denial });
+    }
 
     public CacheController(
         CacheManagementService cacheService,
@@ -58,8 +71,10 @@ public class CacheController : ControllerBase
         IDbContextFactory<AppDbContext> dbContextFactory,
         CacheReconciliationService reconciliationService,
         IOperationConflictChecker conflictChecker,
-        IOperationQueue operationQueue)
+        IOperationQueue operationQueue,
+        DatasourceCapabilityService capabilityService)
     {
+        _capabilityService = capabilityService;
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
         _corruptionDetectionService = corruptionDetectionService;
@@ -539,6 +554,12 @@ public class CacheController : ControllerBase
         [FromQuery] string? scanMode = null,
         CancellationToken cancellationToken = default)
     {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
         var method = detectionMethod == null
             ? CorruptionDetectionMethod.RepeatedMiss
             : CorruptionDetectionMethodExtensions.TryParseWire(detectionMethod, out var parsed)
@@ -673,6 +694,12 @@ public class CacheController : ControllerBase
         [FromQuery] Guid scanId,
         [FromQuery] string? candidateIds = null)
     {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
         if (!_serviceNameRegex.IsMatch(service))
         {
             throw new ValidationException("Invalid service name");
@@ -802,6 +829,12 @@ public class CacheController : ControllerBase
         [FromQuery] Guid scanId,
         [FromQuery] string? services = null)
     {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
         if (scanId == Guid.Empty)
         {
             throw new ValidationException("A corruption scan ID is required");
@@ -1329,6 +1362,15 @@ public class CacheController : ControllerBase
         Action<Guid>? onRegistered = null,
         BulkCorruptionRemovalState? bulk = null)
     {
+        // Execution-time revalidation: this core can run from queue promotion long after
+        // the endpoint's check, and it deletes cache files located via the key recipe.
+        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (capabilityDenial != null)
+        {
+            _logger.LogWarning("[CorruptionRemoval] Aborting removal: {Reason}", capabilityDenial);
+            return false;
+        }
+
         var service = selection.Service;
         // Create CancellationTokenSource and register with unified operation tracker for cancel support
         var cts = new CancellationTokenSource();
@@ -1505,6 +1547,7 @@ public class CacheController : ControllerBase
                         service: service,
                         evidenceFile: evidenceFilePath,
                         progressFile: progressFilePath,
+                        keyScheme: _capabilityService.GetKeySchemeWireValue(datasource),
                         cancellationToken: cts.Token,
                         operationId: operationId,
                         onProgressEvent: async _ =>
@@ -1767,6 +1810,12 @@ public class CacheController : ControllerBase
     [HttpDelete("services/{name}")]
     public async Task<IActionResult> ClearServiceCacheAsync(string name, CancellationToken requestCt)
     {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
         // CRITICAL: Check write permissions BEFORE starting the operation
         // This prevents operations from failing partway through due to permission issues
         var permissionError = EnsureDirectoriesWritable(
@@ -2103,6 +2152,12 @@ public class CacheController : ControllerBase
     [HttpDelete("evicted")]
     public async Task<IActionResult> RemoveAllEvictedAsync(CancellationToken cancellationToken = default)
     {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
         var permissionError = EnsureDirectoriesWritable("remove evicted data", "[EvictedRemoval] bulk:");
         if (permissionError != null)
         {
@@ -2146,6 +2201,12 @@ public class CacheController : ControllerBase
     [HttpDelete("evicted/{scope}")]
     public async Task<IActionResult> RemoveEvictedForEntityAsync(string scope, [FromQuery] string? key, CancellationToken cancellationToken = default)
     {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
         // Validate key parameter.
         if (string.IsNullOrWhiteSpace(key))
         {
@@ -2279,6 +2340,12 @@ public class CacheController : ControllerBase
     [HttpDelete("evicted/named/{service}/{gameName}")]
     public async Task<IActionResult> RemoveEvictedForNamedGameAsync(string service, string gameName, CancellationToken cancellationToken = default)
     {
+        var capabilityError = DenyIfKeyDependentUnavailable();
+        if (capabilityError != null)
+        {
+            return capabilityError;
+        }
+
         if (string.IsNullOrWhiteSpace(service))
         {
             return BadRequest(new ErrorResponse { Error = "Route parameter 'service' is required and must not be empty." });

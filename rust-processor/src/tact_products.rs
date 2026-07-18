@@ -77,8 +77,7 @@ fn catalog() -> &'static Catalog {
             games.insert(code.to_lowercase(), name);
         }
 
-        let shared: HashSet<String> =
-            raw.shared.into_iter().map(|s| s.to_lowercase()).collect();
+        let shared: HashSet<String> = raw.shared.into_iter().map(|s| s.to_lowercase()).collect();
 
         Catalog {
             shared_label: raw.shared_label,
@@ -215,6 +214,9 @@ mod tests {
 
     #[test]
     fn resolve_unknown_returns_unknown() {
-        assert_eq!(resolve_tact_segment("notarealcode"), TactResolution::Unknown);
+        assert_eq!(
+            resolve_tact_segment("notarealcode"),
+            TactResolution::Unknown
+        );
     }
 }

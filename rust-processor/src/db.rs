@@ -24,7 +24,11 @@ pub async fn create_pool() -> Result<PgPool> {
 fn redact_database_url(database_url: &str) -> String {
     if let Some(at_pos) = database_url.find('@') {
         if let Some(colon_pos) = database_url[..at_pos].rfind(':') {
-            return format!("{}:***{}", &database_url[..colon_pos], &database_url[at_pos..]);
+            return format!(
+                "{}:***{}",
+                &database_url[..colon_pos],
+                &database_url[at_pos..]
+            );
         }
     }
 
@@ -122,12 +126,23 @@ fn read_credentials_file() -> Option<CredentialsFile> {
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
 
     Some(CredentialsFile {
-        username: json.get("username").and_then(|v| v.as_str()).map(String::from),
-        password: json.get("password").and_then(|v| v.as_str()).map(String::from),
+        username: json
+            .get("username")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        password: json
+            .get("password")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         host: json.get("host").and_then(|v| v.as_str()).map(String::from),
-        port: json
-            .get("port")
-            .and_then(|v| v.as_u64().map(|n| n as u16).or_else(|| v.as_str().and_then(|s| s.parse().ok()))),
-        database: json.get("database").and_then(|v| v.as_str()).map(String::from),
+        port: json.get("port").and_then(|v| {
+            v.as_u64()
+                .map(|n| n as u16)
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        }),
+        database: json
+            .get("database")
+            .and_then(|v| v.as_str())
+            .map(String::from),
     })
 }

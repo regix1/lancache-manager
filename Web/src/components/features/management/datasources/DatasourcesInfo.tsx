@@ -7,6 +7,7 @@ import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
+import { Alert } from '@components/ui/Alert';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -344,6 +345,16 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
             {datasources.map((ds) => {
               const position = getPositionForDatasource(ds.name);
               const isDatasourceExpanded = expandedDatasources.has(ds.name);
+              const layoutBadge =
+                ds.layout === 'bare_metal'
+                  ? t('management.datasources.layout.bareMetal')
+                  : ds.layout === 'mixed'
+                    ? t('management.datasources.layout.mixed')
+                    : undefined;
+              const unparsed = position?.unparsedLines ?? 0;
+              const hintless = position?.hintlessHttpDetailedLines ?? 0;
+              const hasDiagnostics =
+                Boolean(position?.missingSourcesMessage) || unparsed > 0 || hintless > 0;
 
               return (
                 <DatasourceListItem
@@ -353,6 +364,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                   isExpanded={isDatasourceExpanded}
                   onToggle={() => toggleExpanded(ds.name)}
                   enabled={ds.enabled}
+                  statusBadge={layoutBadge}
                 >
                   {/* Expanded content - Position info */}
                   <div className="mgmt-list mt-3">
@@ -407,6 +419,24 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                       </div>
                     </div>
                   </div>
+
+                  {hasDiagnostics && (
+                    <Alert color="yellow" className="mt-3">
+                      <div className="space-y-1">
+                        {position?.missingSourcesMessage && <p>{position.missingSourcesMessage}</p>}
+                        {hintless > 0 && (
+                          <p>
+                            {t('management.datasources.diagnostics.hintless', { count: hintless })}
+                          </p>
+                        )}
+                        {unparsed > 0 && (
+                          <p>
+                            {t('management.datasources.diagnostics.unparsed', { count: unparsed })}
+                          </p>
+                        )}
+                      </div>
+                    </Alert>
+                  )}
                 </DatasourceListItem>
               );
             })}

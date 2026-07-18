@@ -67,6 +67,10 @@ struct Args {
     #[arg(long = "progress-file")]
     progress_file: Option<String>,
 
+    /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
+    #[arg(long = "key-scheme", default_value = "monolithic")]
+    key_scheme: String,
+
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
@@ -208,6 +212,9 @@ async fn main() -> Result<()> {
     cancel::install();
 
     let args = Args::parse();
+    cache_utils::set_active_key_scheme(cache_utils::CacheKeyScheme::from_config_str(
+        &args.key_scheme,
+    ));
     let reporter = Arc::new(ProgressReporter::new(args.progress));
 
     let cache_dir = PathBuf::from(&args.cache_dir);

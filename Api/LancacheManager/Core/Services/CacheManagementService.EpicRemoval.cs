@@ -17,6 +17,14 @@ public partial class CacheManagementService
         Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null,
         Guid? operationId = null)
     {
+        // Per-game cache removal requires an unambiguous key scheme; fail closed across
+        // every datasource rather than partially deleting a mixed or unknown fleet.
+        var keyCapabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (keyCapabilityDenial != null)
+        {
+            throw new InvalidOperationException(keyCapabilityDenial);
+        }
+
         // Sanitize user-provided game name to prevent process argument injection
         gameName = RustProcessHelper.SanitizeProcessArgument(gameName);
 
@@ -45,17 +53,18 @@ public partial class CacheManagementService
             {
                 var datasource = execution.Datasource;
 
-                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                    rustBinaryPath,
-                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{gameName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress");
-
-                _logger.LogInformation("[EpicGameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
-                    datasource.Name, rustBinaryPath, startInfo.Arguments);
-
                 var dsReport = await RunRustRemovalProcessAsync<GameRemovalProgressData, GameCacheRemovalReport>(
                     "[EpicGameRemoval]",
                     execution,
-                    startInfo,
+                    () =>
+                    {
+                        var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                            rustBinaryPath,
+                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{gameName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}");
+                        _logger.LogInformation("[EpicGameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
+                            datasource.Name, rustBinaryPath, startInfo.Arguments);
+                        return startInfo;
+                    },
                     "cache_epic_remove",
                     cancellationToken,
                     operationId,

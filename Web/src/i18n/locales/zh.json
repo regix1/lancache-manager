@@ -1615,6 +1615,8 @@
           "oldSnapshot": "此保存结果早于内容路径检查。DNS 结果仍然可用；传输协议未知。",
           "logMissing": "未找到 LANCache 访问日志。DNS 结果仍然可用；无法观察内容路径。",
           "unreadable": "无法读取 LANCache 访问日志。DNS 结果仍然可用；不会猜测传输状态。",
+          "unsupportedFormat": "缓存访问日志的格式无法识别，因此无法检查最近的下载。DNS 结果仍会显示。",
+          "noSamples": "在缓存访问日志中未找到可检查的最近下载。DNS 结果仍会显示。",
           "noPaths": "未观察到真实内容路径；传输协议未知。",
           "noPathsHelp": "仅使用近期日志窗口中真实、无查询参数且安全的路径；当前没有可用路径。",
           "summary": {
@@ -2800,6 +2802,9 @@
         "searchServices": "搜索服务..."
       }
     },
+    "capability": {
+      "diskObjectsUnavailable": "裸机缓存暂不支持磁盘级的游戏和服务操作。清除整个缓存仍然可用。"
+    },
     "datasources": {
       "title": "日志处理",
       "summary": "将新的 access.log 记录读入下载历史数据库。",
@@ -2808,6 +2813,16 @@
       "subtitleSingle": "导入历史数据或监控新下载",
       "loadingDatasources": "正在加载数据源...",
       "reposition": "重新定位",
+      "layout": {
+        "bareMetal": "裸机",
+        "mixed": "混合日志"
+      },
+      "diagnostics": {
+        "unparsed": "有 {{count}} 行无法识别。",
+        "unparsed_other": "有 {{count}} 行无法识别。",
+        "hintless": "有 {{count}} 行看起来是按服务拆分的日志，但出现在 access.log 中，因此无法归属到具体服务。",
+        "hintless_other": "有 {{count}} 行看起来是按服务拆分的日志，但出现在 access.log 中，因此无法归属到具体服务。"
+      },
       "position": {
         "unknown": "未知",
         "noLogFile": "无日志文件",
@@ -2946,6 +2961,10 @@
         "removeLogs": "移除日志",
         "showMore": "显示更多（还有 {{count}} 条）",
         "showLess": "显示较少（隐藏 {{count}} 条）"
+      },
+      "bareMetal": {
+        "note": "此数据源为每个服务保留单独的日志文件。清除某个服务会删除该服务的整个日志文件（包括轮换的副本）及其下载历史。",
+        "clearTooltip": "清除会删除该服务的整个日志文件（包括轮换的副本），而不仅仅是匹配的行。"
       },
       "loading": {
         "scanning": "正在扫描日志文件中的服务...",
@@ -6297,7 +6316,8 @@
       "skipForNow": "暂不处理",
       "continue": "继续",
       "failedToProcess": "启动日志处理失败",
-      "failedToProcessDatasource": "启动处理失败"
+      "failedToProcessDatasource": "启动处理失败",
+      "formatHint": "没有从日志中读取到任何下载记录。日志格式可能无法识别。请在“管理”中打开数据源详情查看具体情况。"
     },
     "importHistorical": {
       "title": "导入历史数据",

@@ -50,6 +50,10 @@ struct Args {
     /// Path to progress JSON file
     progress_json: String,
 
+    /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
+    #[arg(long = "key-scheme", default_value = "monolithic")]
+    key_scheme: String,
+
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
@@ -69,6 +73,20 @@ struct RemovalReport {
     total_bytes_freed: u64,
     empty_dirs_removed: usize,
     log_entries_removed: u64,
+}
+
+/// Preserve URL provenance when a bare-metal candidate's recipe-computed key
+/// could not be verified. The cache helper leaves that file untouched, so the
+/// access-log and database rows must remain available for a corrected retry.
+fn ensure_cache_deletions_verified(verification_skips: usize) -> Result<()> {
+    if verification_skips == 0 {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Cache deletion safety verification failed for {} file(s); skipped files, access logs, and database records were left intact",
+        verification_skips
+    )
 }
 
 /// Query the database for all URLs associated with an Epic game.
@@ -169,6 +187,9 @@ async fn delete_epic_game_from_database(pool: &PgPool, game_name: &str) -> Resul
 async fn main() -> Result<()> {
     cancel::install();
     let args = Args::parse();
+    cache_utils::set_active_key_scheme(cache_utils::CacheKeyScheme::from_config_str(
+        &args.key_scheme,
+    ));
 
     let log_dir = PathBuf::from(&args.log_dir);
     let cache_dir = PathBuf::from(&args.cache_dir);
@@ -235,6 +256,7 @@ async fn main() -> Result<()> {
         &reporter,
         &EPIC_STAGE_KEYS,
         ProgressCadence::OnPercentAdvance,
+        cache_utils::active_key_scheme(),
     )?;
 
     // If cancellation arrived during cache removal, do directory cleanup and exit 0.
@@ -248,6 +270,19 @@ async fn main() -> Result<()> {
     removal_core::write_progress(&progress_path, &reporter, "cleaning_directories", "signalr.epicRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
     eprintln!("\nCleaning up empty directories...");
     let empty_dirs_removed = cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
+
+    if let Err(error) = ensure_cache_deletions_verified(outcome.verification_skips) {
+        let report = RemovalReport {
+            game_name: game_name.to_string(),
+            cache_files_deleted: outcome.deleted_files,
+            total_bytes_freed: outcome.bytes_freed,
+            empty_dirs_removed,
+            log_entries_removed: 0,
+        };
+        let json = serde_json::to_string_pretty(&report)?;
+        fs::write(&output_json, json)?;
+        return Err(error);
+    }
 
     // Step 3: Remove log entries from access log text files
     removal_core::write_progress(&progress_path, &reporter, "removing_logs", "signalr.epicRemove.logs.removing", json!({}), 80.0, 0, 0)?;
@@ -309,4 +344,18 @@ async fn main() -> Result<()> {
     }.await;
     progress_events::finish_or_exit(&reporter, "signalr.epicRemove.error.fatal", result);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verification_skips_block_log_and_database_removal() {
+        assert!(ensure_cache_deletions_verified(0).is_ok());
+
+        let error = ensure_cache_deletions_verified(2).unwrap_err().to_string();
+        assert!(error.contains("2 file(s)"));
+        assert!(error.contains("access logs, and database records were left intact"));
+    }
 }

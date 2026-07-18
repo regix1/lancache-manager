@@ -133,6 +133,15 @@ public class GameDetectionVisibilityRaceTests
             var datasourceService = new DatasourceService(
                 configuration, pathResolver, NullLogger<DatasourceService>.Instance);
 
+            // These lifecycle tests exercise operation races rather than datasource discovery,
+            // so provide one unambiguous monolithic log source for the required safety check.
+            var datasource = Assert.Single(datasourceService.GetDatasources());
+            Directory.CreateDirectory(datasource.LogPath);
+            File.WriteAllText(Path.Combine(datasource.LogPath, "access.log"), string.Empty);
+
+            var capabilityService = new DatasourceCapabilityService(
+                datasourceService, NullLogger<DatasourceCapabilityService>.Instance);
+
             Notifications = (RecordingNotificationsProxy)DispatchProxy
                 .Create<ISignalRNotificationService, RecordingNotificationsProxy>();
             Tracker = (FakeTrackerProxy)DispatchProxy
@@ -149,6 +158,7 @@ public class GameDetectionVisibilityRaceTests
                 rustProcessHelper: null!,
                 (ISignalRNotificationService)(object)Notifications,
                 datasourceService,
+                capabilityService,
                 (IUnifiedOperationTracker)(object)Tracker);
         }
 

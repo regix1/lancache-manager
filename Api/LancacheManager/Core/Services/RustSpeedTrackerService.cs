@@ -18,6 +18,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private readonly DatasourceService _datasourceService;
     private readonly ISignalRNotificationService _notifications;
     private readonly ProcessManager _processManager;
+    private readonly DatasourceCapabilityService _capabilityService;
+    private bool _loggedNoTrackableDatasources;
     private string? _rustExecutablePath;
     private Process? _rustProcess;
     private DownloadSpeedSnapshot _currentSnapshot = new() { WindowSeconds = 2 };
@@ -36,13 +38,15 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         IPathResolver pathResolver,
         DatasourceService datasourceService,
         ISignalRNotificationService notifications,
-        ProcessManager processManager)
+        ProcessManager processManager,
+        DatasourceCapabilityService capabilityService)
         : base(logger, configuration)
     {
         _pathResolver = pathResolver;
         _datasourceService = datasourceService;
         _notifications = notifications;
         _processManager = processManager;
+        _capabilityService = capabilityService;
     }
 
     /// <summary>
@@ -113,15 +117,24 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         IReadOnlyList<ResolvedDatasource> datasources,
         CancellationToken stoppingToken)
     {
-        // Build log directory arguments
+        // Build log directory arguments. The tracker tails the monolithic cachelog format,
+        // so datasources whose sources are per-service http-detailed files are skipped
+        // (their lines would only inflate the tracker's unparsed noise).
         var logDirs = datasources
-            .Where(d => d.Enabled)
+            .Where(d => d.Enabled && _capabilityService.GetCapabilities(d).CanTrackLiveSpeed)
             .Select(d => $"\"{d.LogPath}\"")
             .ToList();
 
         if (logDirs.Count == 0)
         {
-            _logger.LogWarning("No enabled datasources, speed tracking disabled");
+            if (!_loggedNoTrackableDatasources)
+            {
+                _loggedNoTrackableDatasources = true;
+                _logger.LogInformation(
+                    "No datasource with monolithic access.log sources; live speed tracking is idle");
+            }
+            // Idle without error spam; re-check periodically in case a source appears.
+            await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
             return;
         }
 

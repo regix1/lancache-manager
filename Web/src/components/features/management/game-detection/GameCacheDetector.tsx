@@ -28,6 +28,8 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useBulkRemoval, type BulkQueueEntry } from '@contexts/BulkRemovalContext';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
+import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
+import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { useSelectionSet, type SelectionSet } from '@/hooks/useSelectionSet';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useConfig } from '@contexts/useConfig';
@@ -101,6 +103,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // disables Remove All - single removes and Remove All gate together. Removals
   // from unrelated cards (corruption/logs/cache) still enqueue.
   const isCacheRemovalActive = useCacheRemovalActive();
+  // Disk-level game/service cache removal needs the monolithic cache-key recipe; an all
+  // bare-metal fleet cannot map objects to files, so these bulk actions are disabled.
+  const diskObjectsAvailable = useDiskObjectCapability();
 
   // Track local starting state for immediate UI feedback before SignalR events arrive
   const [isStartingDetection, setIsStartingDetection] = useState(false);
@@ -798,44 +803,60 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             {isAdmin && (
               <>
                 <ActionMenuDivider />
-                <ActionMenuDangerItem
-                  icon={<Trash2 className="w-3.5 h-3.5" />}
-                  disabled={
-                    selectedCombinedCount === 0 ||
-                    loading ||
-                    mockMode ||
-                    cacheReadOnly ||
-                    checkingPermissions ||
-                    isCacheRemovalActive ||
-                    isBulkRemovalRunning
-                  }
-                  onClick={() => {
-                    setConfirmRemoveSelected(true);
-                    close();
-                  }}
+                <DiskObjectActionGate
+                  available={diskObjectsAvailable}
+                  tooltip={t('management.capability.diskObjectsUnavailable')}
+                  position="left"
+                  className="block w-full"
                 >
-                  {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
-                </ActionMenuDangerItem>
+                  <ActionMenuDangerItem
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                    disabled={
+                      selectedCombinedCount === 0 ||
+                      loading ||
+                      mockMode ||
+                      cacheReadOnly ||
+                      checkingPermissions ||
+                      isCacheRemovalActive ||
+                      isBulkRemovalRunning ||
+                      !diskObjectsAvailable
+                    }
+                    onClick={() => {
+                      setConfirmRemoveSelected(true);
+                      close();
+                    }}
+                  >
+                    {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
+                  </ActionMenuDangerItem>
+                </DiskObjectActionGate>
 
-                <ActionMenuDangerItem
-                  icon={<Trash2 className="w-3.5 h-3.5" />}
-                  disabled={
-                    actionsPending ||
-                    loading ||
-                    mockMode ||
-                    cacheReadOnly ||
-                    checkingPermissions ||
-                    isCacheRemovalActive ||
-                    removeAllRunning ||
-                    isBulkRemovalRunning
-                  }
-                  onClick={() => {
-                    setShowRemoveAllConfirm(true);
-                    close();
-                  }}
+                <DiskObjectActionGate
+                  available={diskObjectsAvailable}
+                  tooltip={t('management.capability.diskObjectsUnavailable')}
+                  position="left"
+                  className="block w-full"
                 >
-                  {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
-                </ActionMenuDangerItem>
+                  <ActionMenuDangerItem
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                    disabled={
+                      actionsPending ||
+                      loading ||
+                      mockMode ||
+                      cacheReadOnly ||
+                      checkingPermissions ||
+                      isCacheRemovalActive ||
+                      removeAllRunning ||
+                      isBulkRemovalRunning ||
+                      !diskObjectsAvailable
+                    }
+                    onClick={() => {
+                      setShowRemoveAllConfirm(true);
+                      close();
+                    }}
+                  >
+                    {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
+                  </ActionMenuDangerItem>
+                </DiskObjectActionGate>
               </>
             )}
           </>

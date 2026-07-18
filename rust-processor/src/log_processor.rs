@@ -7,7 +7,8 @@ use sqlx::PgPool;
 use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::path::PathBuf;
+use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -16,9 +17,11 @@ mod cache_utils;
 mod cancel;
 mod db;
 mod log_discovery;
+mod log_layout;
 mod log_reader;
 mod models;
 mod parser;
+mod parser_http_detailed;
 mod progress_events;
 mod progress_utils;
 mod riot_hosts;
@@ -49,16 +52,121 @@ struct Args {
     #[arg(default_value = "default")]
     datasource_name: Option<String>,
 
+    /// Path to the per-source positions JSON ("" = legacy monolithic mode: only the
+    /// access.log series is processed and start_position applies to it exactly as before)
+    #[arg(default_value = "")]
+    positions_path: String,
+
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
 }
 
-use log_discovery::{discover_log_files, LogFile};
+use log_discovery::LogFile;
+use log_layout::{discover_log_sources, IgnoredReason, LogSource, ParseOutcome, SourceKind};
 use log_reader::LogFileReader;
 use models::*;
 use parser::LogParser;
+use parser_http_detailed::HttpDetailedParser;
 use session::SessionTracker;
+use std::collections::BTreeMap;
+
+/// Version of the positions-file and progress-file contract.
+const CHECKPOINT_SCHEMA_VERSION: u32 = 1;
+
+/// Per-source-stem series offsets, written by the C# host. Each value is one offset into
+/// that stem's oldest -> newest rotation series (the same aggregate line-count semantics
+/// the monolithic path has always used, per stem — never per physical file name).
+#[derive(serde::Deserialize, Debug)]
+struct PositionsFile {
+    schema_version: u32,
+    sources: HashMap<String, u64>,
+}
+
+/// Classify one raw record. `complete` is false only for a final record with no trailing
+/// newline. Classification is structural and never depends on a DB outcome; probe and
+/// heartbeat checks run BEFORE parsing so synthetic traffic never counts as unparsed.
+fn classify_record(
+    parser: &LogParser,
+    detailed_parser: &HttpDetailedParser,
+    raw: &[u8],
+    complete: bool,
+    kind: &SourceKind,
+) -> ParseOutcome {
+    if !complete {
+        return ParseOutcome::Incomplete;
+    }
+
+    let had_invalid_utf8 = std::str::from_utf8(raw).is_err();
+    let lossy = String::from_utf8_lossy(raw);
+    let line = lossy.trim();
+
+    if line.is_empty() {
+        return ParseOutcome::RecognizedIgnored(IgnoredReason::Blank);
+    }
+    if matches!(kind, SourceKind::Fallback) {
+        return ParseOutcome::RecognizedIgnored(IgnoredReason::Fallback);
+    }
+    if service_utils::is_manager_probe(line) {
+        return ParseOutcome::RecognizedIgnored(IgnoredReason::Probe);
+    }
+
+    // The cachelog parser runs first everywhere: an explicit `[service]` tag always
+    // wins over a filename hint. (An http-detailed record can never match its regex.)
+    if let Some(entry) = parser.parse_line(line) {
+        if service_utils::should_skip_url(&entry.url) {
+            return ParseOutcome::RecognizedIgnored(IgnoredReason::Heartbeat);
+        }
+        return ParseOutcome::Parsed(entry);
+    }
+
+    match kind {
+        SourceKind::Service(service) => {
+            if let Some(entry) = detailed_parser.parse_line(line, service) {
+                if service_utils::should_skip_url(&entry.url) {
+                    return ParseOutcome::RecognizedIgnored(IgnoredReason::Heartbeat);
+                }
+                return ParseOutcome::Parsed(entry);
+            }
+        }
+        SourceKind::Monolithic => {
+            // The reporting-user case: http-detailed content in access.log. The
+            // format is recognized but there is no service attribution.
+            if detailed_parser.recognizes(line) {
+                return ParseOutcome::RecognizedIgnored(IgnoredReason::Hintless);
+            }
+        }
+        SourceKind::Fallback => {}
+    }
+
+    if had_invalid_utf8 {
+        ParseOutcome::InvalidEncoding
+    } else {
+        ParseOutcome::Unrecognized
+    }
+}
+
+/// Load and validate a supplied positions file. A supplied-but-invalid file is a hard
+/// failure BEFORE any database work: silently defaulting every source to offset 0 would
+/// re-ingest the full history.
+fn load_positions(path: &str) -> Result<HashMap<String, u64>> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("positions file {} unreadable: {}", path, e))?;
+    if raw.trim().is_empty() {
+        return Err(anyhow::anyhow!("positions file {} is empty", path));
+    }
+    let parsed: PositionsFile = serde_json::from_str(&raw)
+        .map_err(|e| anyhow::anyhow!("positions file {} malformed: {}", path, e))?;
+    if parsed.schema_version != CHECKPOINT_SCHEMA_VERSION {
+        return Err(anyhow::anyhow!(
+            "positions file {} has unsupported schema_version {} (expected {})",
+            path,
+            parsed.schema_version,
+            CHECKPOINT_SCHEMA_VERSION
+        ));
+    }
+    Ok(parsed.sources)
+}
 
 const BULK_BATCH_SIZE: usize = 5_000;
 const SESSION_GAP_MINUTES: i64 = 5;
@@ -103,15 +211,113 @@ struct Progress {
     timestamp: String,
     // NOTE: warnings/errors removed - they're only used for C# logging (stderr capture)
     // and are NOT displayed in UI. Keeping them caused unbounded memory growth.
+    /// Contract version of this file. The C# host rejects checkpoints it does not know.
+    schema_version: u32,
+    /// Unique id of this processor run; lets the host match a terminal checkpoint to the
+    /// process it actually launched.
+    run_id: String,
+    /// Empty while running. On the final write: completed | completed_with_warnings |
+    /// partial | failed | cancelled. This polled file is the single authority — process
+    /// exit 0 without a valid terminal checkpoint is treated as failure by the host.
+    terminal_status: String,
+    /// Presentation-only source layout: monolithic | bare_metal | mixed ("" until known).
+    layout: String,
+    /// Per-source-stem series line counts as consumed by this run. Only authoritative on
+    /// a completed / completed_with_warnings terminal write.
+    source_positions: BTreeMap<String, u64>,
+    /// Complete records no recognizer accepted.
+    unparsed_lines: u64,
+    /// http-detailed records found in a hint-less file (e.g. a renamed access.log):
+    /// recognized but unattributable, so they cannot ingest.
+    hintless_http_detailed_lines: u64,
+    /// Records in fallback-access.log: position advances, never ingested.
+    skipped_fallback_lines: u64,
+    /// Records with invalid UTF-8 that no recognizer accepted even after lossy decoding.
+    invalid_encoding_lines: u64,
+    /// Manager probes, heartbeats and blank records — recognized synthetic traffic,
+    /// never a warning signal.
+    recognized_ignored_lines: u64,
+    /// Unterminated final records (writer mid-line at EOF); never counted toward positions.
+    incomplete_final_records: u64,
+    /// "path: error" for every file that failed mid-run. Non-empty ⇒ terminal is at best
+    /// `partial`, never plain `completed`.
+    files_with_errors: Vec<String>,
+}
+
+fn seed_progress(run_id: &str, status: &str, terminal_status: &str, message: &str) -> Progress {
+    Progress {
+        total_lines: 0,
+        lines_parsed: 0,
+        entries_saved: 0,
+        bytes_processed: 0,
+        total_bytes: 0,
+        percent_complete: 0.0,
+        status: status.to_string(),
+        message: message.to_string(),
+        timestamp: progress_utils::current_timestamp(),
+        schema_version: CHECKPOINT_SCHEMA_VERSION,
+        run_id: run_id.to_string(),
+        terminal_status: terminal_status.to_string(),
+        layout: String::new(),
+        source_positions: BTreeMap::new(),
+        unparsed_lines: 0,
+        hintless_http_detailed_lines: 0,
+        skipped_fallback_lines: 0,
+        invalid_encoding_lines: 0,
+        recognized_ignored_lines: 0,
+        incomplete_final_records: 0,
+        files_with_errors: Vec::new(),
+    }
+}
+
+fn write_seed_failure_terminal(progress_path: &Path, run_id: &str, message: &str) -> Result<()> {
+    let failed = seed_progress(run_id, "failed", "failed", message);
+    progress_utils::write_progress_with_retry(progress_path, &failed, 5)
+}
+
+async fn create_pool_or_write_terminal<F, Fut>(
+    progress_path: &Path,
+    run_id: &str,
+    create_pool: F,
+) -> Result<PgPool>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<PgPool>>,
+{
+    match create_pool().await {
+        Ok(pool) => Ok(pool),
+        Err(error) => {
+            let message = format!("Failed to create database pool: {error:#}");
+            if let Err(write_error) = write_seed_failure_terminal(progress_path, run_id, &message) {
+                eprintln!("Warning: failed to write failure checkpoint: {write_error:#}");
+            }
+            Err(anyhow::anyhow!(message))
+        }
+    }
 }
 
 struct Processor {
     pool: PgPool,
     log_dir: PathBuf,
-    log_base_name: String,
     progress_path: PathBuf,
     start_position: u64,
+    /// Per-stem start offsets from the positions file. None = legacy monolithic mode
+    /// (only the access.log series, start_position applies to it exactly as before).
+    positions: Option<HashMap<String, u64>>,
+    run_id: String,
+    /// Presentation-only layout of the discovered sources ("" until discovery runs).
+    layout: String,
+    /// Live per-stem series line counts (skipped + processed complete records).
+    source_positions: BTreeMap<String, u64>,
+    unparsed_lines: u64,
+    hintless_http_detailed_lines: u64,
+    skipped_fallback_lines: u64,
+    invalid_encoding_lines: u64,
+    recognized_ignored_lines: u64,
+    incomplete_final_records: u64,
+    files_with_errors: Vec<String>,
     parser: LogParser,
+    detailed_parser: HttpDetailedParser,
     session_tracker: SessionTracker,
     total_lines: AtomicU64,
     lines_parsed: AtomicU64,
@@ -158,15 +364,31 @@ struct Processor {
     xbox_url_positive: HashMap<u128, (String, String)>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProcessingOutcome {
+    Completed,
+    Cancelled,
+}
+
+/// A file result is deliberately typed so cooperative cancellation can never be folded
+/// into the same branch as a fully consumed file by a future caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileProcessingOutcome {
+    Completed,
+    SourceBlockedByIncompleteRecord,
+    Cancelled,
+}
+
 impl Processor {
     fn new(
         pool: PgPool,
         log_dir: PathBuf,
-        log_base_name: String,
         progress_path: PathBuf,
         start_position: u64,
         auto_map_depots: bool,
         datasource_name: String,
+        positions: Option<HashMap<String, u64>>,
+        run_id: String,
     ) -> Self {
         // Get timezone from environment variable (same as C# uses)
         let tz_str = env::var("TZ").unwrap_or_else(|_| "UTC".to_string());
@@ -178,10 +400,21 @@ impl Processor {
         Self {
             pool,
             log_dir,
-            log_base_name,
             progress_path,
             start_position,
+            positions,
+            run_id,
+            layout: String::new(),
+            source_positions: BTreeMap::new(),
+            unparsed_lines: 0,
+            hintless_http_detailed_lines: 0,
+            skipped_fallback_lines: 0,
+            invalid_encoding_lines: 0,
+            recognized_ignored_lines: 0,
+            incomplete_final_records: 0,
+            files_with_errors: Vec::new(),
             parser: LogParser::new(local_tz),
+            detailed_parser: HttpDetailedParser::new(local_tz),
             session_tracker: SessionTracker::new(Duration::from_secs(
                 SESSION_GAP_MINUTES as u64 * 60,
             )),
@@ -243,93 +476,150 @@ impl Processor {
         }
     }
 
-    fn write_progress(&self, status: &str, message: &str) -> Result<()> {
-        let parsed = self.lines_parsed.load(Ordering::Relaxed);
-        let saved = self.entries_saved.load(Ordering::Relaxed);
-
-        let progress = Progress {
+    fn make_progress(&self, status: &str, terminal_status: &str, message: &str) -> Progress {
+        Progress {
             total_lines: self.total_lines.load(Ordering::Relaxed),
-            lines_parsed: parsed,
-            entries_saved: saved,
+            lines_parsed: self.lines_parsed.load(Ordering::Relaxed),
+            entries_saved: self.entries_saved.load(Ordering::Relaxed),
             bytes_processed: self.bytes_processed(),
             total_bytes: self.total_bytes,
             percent_complete: self.percent_complete(),
             status: status.to_string(),
             message: message.to_string(),
             timestamp: progress_utils::current_timestamp(),
-        };
+            schema_version: CHECKPOINT_SCHEMA_VERSION,
+            run_id: self.run_id.clone(),
+            terminal_status: terminal_status.to_string(),
+            layout: self.layout.clone(),
+            source_positions: self.source_positions.clone(),
+            unparsed_lines: self.unparsed_lines,
+            hintless_http_detailed_lines: self.hintless_http_detailed_lines,
+            skipped_fallback_lines: self.skipped_fallback_lines,
+            invalid_encoding_lines: self.invalid_encoding_lines,
+            recognized_ignored_lines: self.recognized_ignored_lines,
+            incomplete_final_records: self.incomplete_final_records,
+            files_with_errors: self.files_with_errors.clone(),
+        }
+    }
 
+    fn write_progress(&self, status: &str, message: &str) -> Result<()> {
+        let progress = self.make_progress(status, "", message);
         // Use shared progress writing utility with retry logic
         progress_utils::write_progress_with_retry(&self.progress_path, &progress, 5)
     }
 
-    async fn process(&mut self) -> Result<()> {
+    /// The initial informational tick must not prevent the processor from reaching an
+    /// authoritative terminal checkpoint. Later terminal writes remain mandatory.
+    fn write_starting_progress_best_effort(&self, message: &str) {
+        if let Err(error) = self.write_progress("starting", message) {
+            eprintln!("Warning: failed to write starting progress: {error:#}");
+        }
+    }
+
+    /// Final authoritative checkpoint. `terminal_status` carries the typed outcome; the
+    /// legacy `status` field keeps its historical vocabulary for anything still reading it.
+    fn write_terminal(&self, terminal_status: &str, status: &str, message: &str) -> Result<()> {
+        let progress = self.make_progress(status, terminal_status, message);
+        progress_utils::write_progress_with_retry(&self.progress_path, &progress, 5)
+    }
+
+    fn write_cancelled_terminal(&self) -> Result<()> {
+        let parsed = self.lines_parsed.load(Ordering::Relaxed);
+        let saved = self.entries_saved.load(Ordering::Relaxed);
+        self.write_terminal(
+            "cancelled",
+            "cancelled",
+            &format!(
+                "Cancelled: {} lines parsed, {} entries saved",
+                parsed, saved
+            ),
+        )
+    }
+
+    fn classify_record(&self, raw: &[u8], complete: bool, kind: &SourceKind) -> ParseOutcome {
+        classify_record(&self.parser, &self.detailed_parser, raw, complete, kind)
+    }
+
+    async fn process(&mut self) -> Result<ProcessingOutcome> {
         eprintln!("Starting log processing...");
         eprintln!("Log directory: {}", self.log_dir.display());
-        eprintln!("Log base name: {}", self.log_base_name);
 
-        // Discover all log files (access.log, access.log.1, access.log.2.gz, etc.)
-        let log_files = discover_log_files(&self.log_dir, &self.log_base_name)?;
+        // Discover every source: the access.log stem AND every *-access.log stem
+        // (with the logs/ -> logs/http descent for the bare-metal parent-dir shape).
+        let source_set = match discover_log_sources(&self.log_dir) {
+            Ok(source_set) => source_set,
+            Err(error) => {
+                let message = format!("Failed to discover log sources: {error:#}");
+                if let Err(write_error) = self.write_terminal("failed", "failed", &message) {
+                    eprintln!("Warning: failed to write failure checkpoint: {write_error:#}");
+                }
+                return Err(anyhow::anyhow!(message));
+            }
+        };
+        self.layout = source_set.layout().to_string();
 
-        if log_files.is_empty() {
-            eprintln!(
-                "No log files found matching pattern: {}",
-                self.log_base_name
-            );
-            self.write_progress("completed", "No log files found")?;
-            return Ok(());
+        // Legacy mode (no positions file) processes ONLY the monolithic access.log
+        // series, with start_position applying to it exactly as it always has.
+        // A positions file activates every discovered source; the CLI start_position
+        // is ignored entirely (it cannot be meaningful across parallel streams).
+        let sources: Vec<LogSource> = if self.positions.is_none() {
+            source_set
+                .sources
+                .iter()
+                .filter(|s| s.kind == SourceKind::Monolithic)
+                .cloned()
+                .collect()
+        } else {
+            source_set.sources.clone()
+        };
+
+        if sources.is_empty() {
+            eprintln!("No log files found in {}", source_set.dir.display());
+            self.write_terminal("completed_with_warnings", "completed", "No log files found")?;
+            return Ok(ProcessingOutcome::Completed);
         }
 
-        eprintln!("Found {} log file(s):", log_files.len());
-        for log_file in &log_files {
-            let compression_info = if log_file.is_compressed {
-                " (compressed)"
-            } else {
-                ""
-            };
-            let rotation_info = match log_file.rotation_number {
-                Some(num) => format!(" [rotation {}]", num),
-                None => " [current]".to_string(),
-            };
-            eprintln!(
-                "  - {}{}{}",
-                log_file.path.display(),
-                rotation_info,
-                compression_info
-            );
+        eprintln!("Layout: {} — {} source(s):", self.layout, sources.len());
+        let mut file_sizes: Vec<Vec<u64>> = Vec::with_capacity(sources.len());
+        for source in &sources {
+            eprintln!("  - {} ({} file(s))", source.stem, source.files.len());
+            // Progress denominator: sum of on-disk file sizes (instant). This replaces
+            // the old line-counting pre-pass that read and decompressed every file twice.
+            let sizes: Vec<u64> = source
+                .files
+                .iter()
+                .map(|log_file| {
+                    std::fs::metadata(&log_file.path)
+                        .map(|m| m.len())
+                        .unwrap_or_else(|e| {
+                            eprintln!(
+                                "WARNING: Failed to read size of {}: {} (treating as 0 bytes)",
+                                log_file.path.display(),
+                                e
+                            );
+                            0
+                        })
+                })
+                .collect();
+            file_sizes.push(sizes);
         }
-
-        // Progress denominator: sum of on-disk file sizes (instant). This replaces
-        // the old line-counting pre-pass that read and decompressed every file twice.
-        let file_sizes: Vec<u64> = log_files
-            .iter()
-            .map(|log_file| {
-                std::fs::metadata(&log_file.path)
-                    .map(|m| m.len())
-                    .unwrap_or_else(|e| {
-                        eprintln!(
-                            "WARNING: Failed to read size of {}: {} (treating as 0 bytes)",
-                            log_file.path.display(),
-                            e
-                        );
-                        0
-                    })
-            })
-            .collect();
-        self.total_bytes = file_sizes.iter().sum();
+        self.total_bytes = file_sizes.iter().flatten().sum();
         eprintln!("Total size across all files: {} bytes", self.total_bytes);
 
-        self.write_progress(
-            "starting",
-            &format!(
-                "Processing {} file(s), {} bytes total",
-                log_files.len(),
-                self.total_bytes
-            ),
-        )?;
+        self.write_starting_progress_best_effort(&format!(
+            "Processing {} source(s), {} bytes total",
+            sources.len(),
+            self.total_bytes
+        ));
 
         // Check if this is a fresh database - skip dedup for maximum speed
-        if self.start_position == 0 {
+        let starts_at_zero = match &self.positions {
+            None => self.start_position == 0,
+            Some(map) => sources
+                .iter()
+                .all(|s| map.get(&s.stem).copied().unwrap_or(0) == 0),
+        };
+        if starts_at_zero {
             let is_empty: bool =
                 sqlx::query_scalar(r#"SELECT NOT EXISTS(SELECT 1 FROM "LogEntries" LIMIT 1)"#)
                     .fetch_one(&self.pool)
@@ -350,66 +640,130 @@ impl Processor {
         // LogEntries table already exists from C# migrations
         // Index IX_LogEntries_DuplicateCheck on (ClientIp, Service, Timestamp, Url, BytesServed) exists
 
-        // Process each log file in order (oldest to newest)
-        let mut lines_to_skip = self.start_position;
+        // Process each source's file series in order (oldest to newest).
+        'sources: for (source_index, source) in sources.iter().enumerate() {
+            let start_offset = match &self.positions {
+                None => self.start_position,
+                Some(map) => map.get(&source.stem).copied().unwrap_or(0),
+            };
+            let mut lines_to_skip = start_offset;
+            // Complete records consumed across this stem's series (skipped + processed).
+            // This IS the stem's position: an offset into the ordered rotation series.
+            let mut records_consumed: u64 = 0;
+            // Once a physical member errors, keep ingesting newer members but freeze the
+            // published position at the prefix before that member. `count-lines` stops at
+            // the same boundary. Partial terminals are already never persisted by the host,
+            // but reporting a clean prefix keeps the checkpoint truthful and future-proof.
+            let mut frozen_source_position: Option<u64> = None;
 
-        let mut files_with_errors = Vec::new();
+            for (file_index, log_file) in source.files.iter().enumerate() {
+                eprintln!(
+                    "\nProcessing {} file {}/{}: {}",
+                    source.stem,
+                    file_index + 1,
+                    source.files.len(),
+                    log_file.path.display()
+                );
 
-        for (file_index, log_file) in log_files.iter().enumerate() {
-            eprintln!(
-                "\nProcessing file {}/{}: {}",
-                file_index + 1,
-                log_files.len(),
-                log_file.path.display()
-            );
+                let file_size = file_sizes[source_index][file_index];
+                let position_before_file = records_consumed;
+                let file_result = self
+                    .process_single_file(
+                        log_file,
+                        file_size,
+                        &mut lines_to_skip,
+                        &source.kind,
+                        &mut records_consumed,
+                    )
+                    .await;
 
-            let file_size = file_sizes[file_index];
-            let file_result = self
-                .process_single_file(log_file, file_size, &mut lines_to_skip)
-                .await;
+                if file_result.is_err() && frozen_source_position.is_none() {
+                    frozen_source_position = Some(position_before_file);
+                }
 
-            // Whether the file completed or was skipped with an error, its bytes are
-            // consumed work: fold them into the completed total so percent stays monotone.
-            self.bytes_completed.fetch_add(file_size, Ordering::Relaxed);
-            self.current_file_bytes.store(0, Ordering::Relaxed);
-            self.current_file_size.store(0, Ordering::Relaxed);
+                self.source_positions.insert(
+                    source.stem.clone(),
+                    frozen_source_position.unwrap_or(records_consumed),
+                );
 
-            // Cooperative cancel: process_single_file already wrote/emitted the "cancelled"
-            // progress event before returning early; stop the file loop here instead of
-            // silently moving on to process the next file.
-            if cancel::is_cancelled() {
-                return Ok(());
-            }
+                // Check cancellation before folding the whole file into bytes_completed: an
+                // interrupted file must retain its real in-flight byte count in the terminal
+                // checkpoint rather than being reported as fully consumed.
+                if matches!(&file_result, Ok(FileProcessingOutcome::Cancelled))
+                    || cancel::is_cancelled()
+                {
+                    // Cancellation can arrive after the file's final read/batch flush but
+                    // before this caller-side check, so the caller owns the terminal write.
+                    self.write_cancelled_terminal()?;
+                    self.current_file_bytes.store(0, Ordering::Relaxed);
+                    self.current_file_size.store(0, Ordering::Relaxed);
+                    return Ok(ProcessingOutcome::Cancelled);
+                }
 
-            if let Err(e) = file_result {
-                let error_str = format!("{}", e);
-                // Classify the error: IO/decompression errors are "corrupted file",
-                // database errors are infrastructure failures that should not be silenced
-                let is_db_error = error_str.contains("error returned from database")
-                    || error_str.contains("pool timed out")
-                    || error_str.contains("connection refused")
-                    || error_str.contains("operator does not exist");
+                // Whether the file completed or was skipped with an error, its bytes are
+                // consumed work: fold them into the completed total so percent stays monotone.
+                self.bytes_completed.fetch_add(file_size, Ordering::Relaxed);
+                self.current_file_bytes.store(0, Ordering::Relaxed);
+                self.current_file_size.store(0, Ordering::Relaxed);
 
-                if is_db_error {
-                    eprintln!(
-                        "ERROR: Database error processing {}: {}",
-                        log_file.path.display(),
-                        e
-                    );
-                    files_with_errors.push((log_file.path.display().to_string(), error_str));
-                    // Database errors affect ALL files, no point continuing
-                    break;
-                } else {
-                    eprintln!(
-                        "⚠ Warning: Skipping corrupted file {}: {}",
-                        log_file.path.display(),
-                        e
-                    );
-                    eprintln!("  Continuing with remaining files...");
-                    files_with_errors.push((log_file.path.display().to_string(), error_str));
-                    continue;
+                match file_result {
+                    Ok(FileProcessingOutcome::Completed) => {}
+                    Ok(FileProcessingOutcome::SourceBlockedByIncompleteRecord) => {
+                        // Unterminated record: the rest of this source's series stays
+                        // unread this run so the persisted position is a clean prefix.
+                        // Only the live current file normally ends mid-line, so this
+                        // costs nothing in the common case.
+                        break;
+                    }
+                    Ok(FileProcessingOutcome::Cancelled) => {
+                        unreachable!("cancellation is handled before completed-byte folding")
+                    }
+                    Err(e) => {
+                        let error_str = format!("{}", e);
+                        // Classify the error: IO/decompression errors are "corrupted file",
+                        // database errors are infrastructure failures that should not be silenced
+                        let is_db_error = error_str.contains("error returned from database")
+                            || error_str.contains("pool timed out")
+                            || error_str.contains("connection refused")
+                            || error_str.contains("operator does not exist");
+
+                        self.files_with_errors.push(format!(
+                            "{}: {}",
+                            log_file.path.display(),
+                            error_str
+                        ));
+
+                        if is_db_error {
+                            eprintln!(
+                                "ERROR: Database error processing {}: {}",
+                                log_file.path.display(),
+                                e
+                            );
+                            // Database errors affect ALL files and sources, no point continuing
+                            break 'sources;
+                        } else {
+                            eprintln!(
+                                "⚠ Warning: Skipping corrupted file {}: {}",
+                                log_file.path.display(),
+                                e
+                            );
+                            eprintln!("  Continuing with remaining files...");
+                            // Any file error caps the terminal at `partial`. Keep ingesting
+                            // fresh files so a permanent corrupt rotation cannot starve live
+                            // traffic; dedup absorbs their re-read while the published source
+                            // position remains frozen at the clean prefix above.
+                            continue;
+                        }
+                    }
                 }
             }
+        }
+
+        // Close the final-file race: a CANCEL arriving after the last file result but before
+        // terminal resolution must still produce an authoritative cancelled checkpoint.
+        if cancel::is_cancelled() {
+            self.write_cancelled_terminal()?;
+            return Ok(ProcessingOutcome::Cancelled);
         }
 
         let entries_saved = self.entries_saved.load(Ordering::Relaxed);
@@ -421,43 +775,100 @@ impl Processor {
         self.total_lines.store(final_line_count, Ordering::Relaxed);
 
         // If we had errors and processed zero entries, this is a failure
-        if !files_with_errors.is_empty() && entries_saved == 0 && self.total_bytes > 0 {
-            let error_summary: Vec<String> = files_with_errors
-                .iter()
-                .map(|(path, err)| format!("{}: {}", path, err))
-                .collect();
+        if !self.files_with_errors.is_empty() && entries_saved == 0 && self.total_bytes > 0 {
             let msg = format!(
                 "Log processing failed - 0 entries processed from {} parsed lines. Errors: {}",
                 final_line_count,
-                error_summary.join("; ")
+                self.files_with_errors.join("; ")
             );
             eprintln!("{}", msg);
-            self.write_progress("failed", &msg)?;
+            self.write_terminal("failed", "failed", &msg)?;
             return Err(anyhow::anyhow!(msg));
         }
 
-        if files_with_errors.is_empty() {
-            eprintln!("\nAll files processed successfully!");
-        } else {
-            eprintln!(
-                "\nProcessing completed with {} error(s) in {} file(s), {} entries saved",
-                files_with_errors.len(),
-                files_with_errors.len(),
+        let (terminal, message) = Self::resolve_terminal_outcome(
+            &self.files_with_errors,
+            self.unparsed_lines,
+            self.hintless_http_detailed_lines,
+            self.invalid_encoding_lines,
+        );
+        match terminal {
+            "partial" => eprintln!(
+                "\nProcessing completed with {} file error(s), {} entries saved",
+                self.files_with_errors.len(),
                 entries_saved
-            );
+            ),
+            "completed_with_warnings" => eprintln!("\n{}", message),
+            _ => eprintln!("\nAll files processed successfully!"),
         }
-        self.write_progress("completed", "Log processing finished")?;
+        self.write_terminal(terminal, "completed", &message)?;
 
-        Ok(())
+        Ok(ProcessingOutcome::Completed)
     }
 
-    /// Process a single log file
+    /// Typed terminal outcome for a run that reached the end of its file loop. Any file
+    /// error caps the outcome at `partial` — never plain `completed` — and parse-level
+    /// anomalies surface as `completed_with_warnings` so a zero-ingest run can never
+    /// masquerade as healthy success.
+    fn resolve_terminal_outcome(
+        files_with_errors: &[String],
+        unparsed: u64,
+        hintless: u64,
+        invalid_encoding: u64,
+    ) -> (&'static str, String) {
+        if !files_with_errors.is_empty() {
+            return (
+                "partial",
+                format!(
+                    "Log processing finished with {} file error(s)",
+                    files_with_errors.len()
+                ),
+            );
+        }
+        if unparsed > 0 || hintless > 0 || invalid_encoding > 0 {
+            return (
+                "completed_with_warnings",
+                format!(
+                    "Log processing finished: {} unrecognized line(s), {} http-detailed line(s) without a service hint, {} line(s) with invalid encoding",
+                    unparsed, hintless, invalid_encoding
+                ),
+            );
+        }
+        ("completed", "Log processing finished".to_string())
+    }
+
+    /// Process a single log file belonging to one source's rotation series.
     async fn process_single_file(
         &mut self,
         log_file: &LogFile,
         file_size: u64,
         lines_to_skip: &mut u64,
-    ) -> Result<()> {
+        kind: &SourceKind,
+        records_consumed: &mut u64,
+    ) -> Result<FileProcessingOutcome> {
+        self.process_single_file_with_cancel(
+            log_file,
+            file_size,
+            lines_to_skip,
+            kind,
+            records_consumed,
+            cancel::is_cancelled,
+        )
+        .await
+    }
+
+    async fn process_single_file_with_cancel<F>(
+        &mut self,
+        log_file: &LogFile,
+        file_size: u64,
+        lines_to_skip: &mut u64,
+        kind: &SourceKind,
+        records_consumed: &mut u64,
+        is_cancelled: F,
+    ) -> Result<FileProcessingOutcome>
+    where
+        F: Fn() -> bool,
+    {
         // Track raw (compressed) bytes consumed from this file for byte-based progress.
         let byte_counter = Arc::new(AtomicU64::new(0));
         self.current_file_bytes = byte_counter.clone();
@@ -466,32 +877,40 @@ impl Processor {
         // Open log file with automatic compression detection
         let mut reader = LogFileReader::open_with_byte_counter(&log_file.path, byte_counter)?;
 
-        // Skip lines if we haven't reached the start position yet
+        // Records are read as raw bytes: one invalid byte must never abort a file, and
+        // UTF-8 lossiness is confined to the classifier's text handling.
+        let mut record_buf: Vec<u8> = Vec::with_capacity(LINE_BUFFER_CAPACITY);
+
+        // Skip records if we haven't reached the start position for this stem yet
         if *lines_to_skip > 0 {
             eprintln!(
                 "Skipping {} lines in this file to reach start position",
                 lines_to_skip
             );
-            let mut line = String::new();
-            let mut skipped = 0u64;
-
-            while skipped < *lines_to_skip {
-                line.clear();
-                let bytes_read = reader.read_line(&mut line)?;
+            while *lines_to_skip > 0 {
+                if is_cancelled() {
+                    return Ok(FileProcessingOutcome::Cancelled);
+                }
+                record_buf.clear();
+                let bytes_read = reader.read_until_newline(&mut record_buf)?;
                 if bytes_read == 0 {
                     // Reached EOF before skipping all lines - this file is exhausted
-                    *lines_to_skip -= skipped;
-                    return Ok(());
+                    return Ok(FileProcessingOutcome::Completed);
                 }
-                skipped += 1;
+                if !record_buf.ends_with(b"\n") {
+                    // Unterminated final record: the writer is mid-line. It was never
+                    // counted toward the position, so it is not skippable either — and
+                    // the source stops here so the position stays a clean prefix.
+                    self.incomplete_final_records += 1;
+                    return Ok(FileProcessingOutcome::SourceBlockedByIncompleteRecord);
+                }
+                *lines_to_skip -= 1;
+                *records_consumed += 1;
                 self.lines_parsed.fetch_add(1, Ordering::Relaxed);
             }
-
-            *lines_to_skip = 0; // We've skipped enough, process remaining files normally
         }
 
         let mut batch = Vec::with_capacity(BULK_BATCH_SIZE);
-        let mut line_buffer = String::with_capacity(LINE_BUFFER_CAPACITY);
 
         self.write_progress(
             "processing",
@@ -499,8 +918,19 @@ impl Processor {
         )?;
 
         loop {
-            line_buffer.clear();
-            let bytes_read = reader.read_line(&mut line_buffer)?;
+            // Poll independently of parse outcomes. Bare-metal fallback files and stretches
+            // of ignored/unrecognized records may never fill a DB batch, but must remain
+            // cooperatively cancellable. Flush parsed work before publishing cancellation.
+            if is_cancelled() {
+                if !batch.is_empty() {
+                    self.process_batch(&batch).await?;
+                    batch.clear();
+                }
+                return Ok(FileProcessingOutcome::Cancelled);
+            }
+
+            record_buf.clear();
+            let bytes_read = reader.read_until_newline(&mut record_buf)?;
 
             if bytes_read == 0 {
                 // EOF - process remaining batch
@@ -512,65 +942,83 @@ impl Processor {
                 break;
             }
 
-            self.lines_parsed.fetch_add(1, Ordering::Relaxed);
+            let complete = record_buf.ends_with(b"\n");
+            let outcome = self.classify_record(&record_buf, complete, kind);
 
-            // Parse the line (trim to remove newline)
-            let trimmed_line = line_buffer.trim();
-            if let Some(entry) = self.parser.parse_line(trimmed_line) {
-                // Skip health check/heartbeat endpoints
-                if service_utils::should_skip_url(&entry.url) {
-                    continue;
-                }
-
-                batch.push(entry);
-
-                // Process batch when it reaches BULK_BATCH_SIZE
-                if batch.len() >= BULK_BATCH_SIZE {
+            if matches!(outcome, ParseOutcome::Incomplete) {
+                // Never counted toward the position; a later run ingests the completed
+                // line exactly once. Flush what we have and stop the SOURCE here so the
+                // stem's position describes one clean prefix of its series.
+                self.incomplete_final_records += 1;
+                if !batch.is_empty() {
                     self.process_batch(&batch).await?;
                     batch.clear();
-                    // Don't shrink here - we'll reuse the capacity for the next batch
+                    batch.shrink_to_fit();
+                }
+                return Ok(FileProcessingOutcome::SourceBlockedByIncompleteRecord);
+            }
 
-                    let parsed = self.lines_parsed.load(Ordering::Relaxed);
-                    let saved = self.entries_saved.load(Ordering::Relaxed);
-                    let percent = self.percent_complete();
-                    let current_percent_bucket = (percent / 5.0).floor() as u64 * 5; // Round down to nearest 5%
-                    let last_logged = self.last_logged_percent.load(Ordering::Relaxed);
+            *records_consumed += 1;
+            self.lines_parsed.fetch_add(1, Ordering::Relaxed);
 
-                    // Only log when we cross a 5% boundary
-                    if current_percent_bucket > last_logged {
-                        self.last_logged_percent
-                            .store(current_percent_bucket, Ordering::Relaxed);
-                        eprintln!(
-                            "Progress: {} lines ({:.1}%), {} entries saved",
-                            parsed, percent, saved
-                        );
-                    }
+            match outcome {
+                ParseOutcome::Parsed(entry) => {
+                    batch.push(entry);
 
-                    self.write_progress(
-                        "processing",
-                        &format!("{} lines parsed, {} entries saved", parsed, saved),
-                    )?;
+                    // Process batch when it reaches BULK_BATCH_SIZE
+                    if batch.len() >= BULK_BATCH_SIZE {
+                        self.process_batch(&batch).await?;
+                        batch.clear();
+                        // Don't shrink here - we'll reuse the capacity for the next batch
 
-                    // Cooperative cancel: check after each flushed batch (clean DB-transaction boundary)
-                    if cancel::is_cancelled() {
-                        eprintln!("Cancel requested — stopping after batch flush ({} lines, {} entries saved)", parsed, saved);
+                        let parsed = self.lines_parsed.load(Ordering::Relaxed);
+                        let saved = self.entries_saved.load(Ordering::Relaxed);
+                        let percent = self.percent_complete();
+                        let current_percent_bucket = (percent / 5.0).floor() as u64 * 5; // Round down to nearest 5%
+                        let last_logged = self.last_logged_percent.load(Ordering::Relaxed);
+
+                        // Only log when we cross a 5% boundary
+                        if current_percent_bucket > last_logged {
+                            self.last_logged_percent
+                                .store(current_percent_bucket, Ordering::Relaxed);
+                            eprintln!(
+                                "Progress: {} lines ({:.1}%), {} entries saved",
+                                parsed, percent, saved
+                            );
+                        }
+
                         self.write_progress(
-                            "cancelled",
-                            &format!(
-                                "Cancelled: {} lines parsed, {} entries saved",
-                                parsed, saved
-                            ),
+                            "processing",
+                            &format!("{} lines parsed, {} entries saved", parsed, saved),
                         )?;
-                        // Return cleanly instead of force-exiting the whole process from
-                        // mid-stack; the caller's file loop (see `process()`) checks
-                        // cancel::is_cancelled() right after this call returns and stops there.
-                        return Ok(());
+
+                        // Cooperative cancel: check after each flushed batch (clean DB-transaction boundary)
+                        if is_cancelled() {
+                            eprintln!("Cancel requested — stopping after batch flush ({} lines, {} entries saved)", parsed, saved);
+                            return Ok(FileProcessingOutcome::Cancelled);
+                        }
                     }
                 }
+                ParseOutcome::RecognizedIgnored(IgnoredReason::Fallback) => {
+                    self.skipped_fallback_lines += 1;
+                }
+                ParseOutcome::RecognizedIgnored(IgnoredReason::Hintless) => {
+                    self.hintless_http_detailed_lines += 1;
+                }
+                ParseOutcome::RecognizedIgnored(_) => {
+                    self.recognized_ignored_lines += 1;
+                }
+                ParseOutcome::InvalidEncoding => {
+                    self.invalid_encoding_lines += 1;
+                }
+                ParseOutcome::Unrecognized => {
+                    self.unparsed_lines += 1;
+                }
+                ParseOutcome::Incomplete => unreachable!("handled above"),
             }
         }
 
-        Ok(())
+        Ok(FileProcessingOutcome::Completed)
     }
 
     /// Extract a path prefix from an Epic CDN URL to use as a session discriminator.
@@ -1560,6 +2008,14 @@ impl Processor {
     }
 }
 
+fn write_processor_failure_terminal(processor: &Processor, error: &anyhow::Error) -> Result<()> {
+    processor.write_terminal(
+        "failed",
+        "failed",
+        &format!("Log processing failed: {error:#}"),
+    )
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     cancel::install();
@@ -1575,32 +2031,54 @@ async fn main() -> Result<()> {
         .datasource_name
         .unwrap_or_else(|| "default".to_string());
 
-    // Log file base name (hardcoded for now, could be made configurable)
-    let log_base_name = "access.log".to_string();
+    let run_id = uuid::Uuid::new_v4().to_string();
 
     // File-write-before-stdout-emit invariant: seed the progress file before the "started"
     // event so an event-triggered C# read never sees an empty/stale file. Real counters are
     // unknown yet; the processor's own ticks overwrite this as soon as processing begins.
-    let starting = Progress {
-        total_lines: 0,
-        lines_parsed: 0,
-        entries_saved: 0,
-        bytes_processed: 0,
-        total_bytes: 0,
-        percent_complete: 0.0,
-        status: "starting".to_string(),
-        message: "Starting log processing".to_string(),
-        timestamp: progress_utils::current_timestamp(),
-    };
+    let starting = seed_progress(&run_id, "starting", "", "Starting log processing");
     if let Err(e) = progress_utils::write_progress_with_retry(&progress_path, &starting, 5) {
         eprintln!("Warning: failed to seed progress file: {:#}", e);
     }
+
+    // A supplied positions file must validate BEFORE any database work: silently treating
+    // a missing/malformed file as "all sources at 0" would re-ingest the entire history.
+    let positions = if args.positions_path.is_empty() {
+        None
+    } else {
+        match load_positions(&args.positions_path) {
+            Ok(map) => Some(map),
+            Err(e) => {
+                let msg = format!("Invalid positions file: {e:#}");
+                eprintln!("{msg}");
+                if let Err(write_err) = write_seed_failure_terminal(&progress_path, &run_id, &msg) {
+                    eprintln!("Warning: failed to write failure checkpoint: {write_err:#}");
+                }
+                reporter.emit_failed(
+                    "signalr.logProcessor.error.fatal",
+                    serde_json::json!({}),
+                    Some(msg.clone()),
+                );
+                return Err(anyhow::anyhow!(msg));
+            }
+        }
+    };
 
     // Emit started event
     reporter.emit_started("signalr.logProcessor.starting", serde_json::json!({}));
     reporter.emit_progress(0.0, "signalr.logProcessor.starting", serde_json::json!({}));
 
-    let pool = db::create_pool().await?;
+    let pool = match create_pool_or_write_terminal(&progress_path, &run_id, db::create_pool).await {
+        Ok(pool) => pool,
+        Err(error) => {
+            reporter.emit_failed(
+                "signalr.logProcessor.error.fatal",
+                serde_json::json!({}),
+                Some(format!("{error:#}")),
+            );
+            return Err(error);
+        }
+    };
 
     // Depot mappings are resolved lazily per depot inside the processor (one indexed SELECT
     // per new depot). The old whole-table preload ran on every spawn - once per second on a
@@ -1608,19 +2086,27 @@ async fn main() -> Result<()> {
     let mut processor = Processor::new(
         pool,
         log_dir,
-        log_base_name,
         progress_path,
         start_position,
         auto_map_depots,
         datasource_name,
+        positions,
+        run_id,
     );
 
     match processor.process().await {
-        Ok(()) => {
+        Ok(ProcessingOutcome::Completed) => {
             reporter.emit_complete("signalr.logProcessor.complete", serde_json::json!({}));
             Ok(())
         }
+        Ok(ProcessingOutcome::Cancelled) => {
+            reporter.emit_cancelled("signalr.logProcessor.cancelled", serde_json::json!({}));
+            Ok(())
+        }
         Err(e) => {
+            if let Err(write_error) = write_processor_failure_terminal(&processor, &e) {
+                eprintln!("Warning: failed to write failure checkpoint: {write_error:#}");
+            }
             reporter.emit_failed(
                 "signalr.logProcessor.error.fatal",
                 serde_json::json!({}),
@@ -1628,6 +2114,347 @@ async fn main() -> Result<()> {
             );
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod classification_tests {
+    use super::*;
+
+    fn test_pool() -> PgPool {
+        sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:password@127.0.0.1/lancache_test")
+            .expect("create lazy test pool")
+    }
+
+    fn test_processor(
+        log_dir: PathBuf,
+        progress_path: PathBuf,
+        positions: Option<HashMap<String, u64>>,
+    ) -> Processor {
+        Processor::new(
+            test_pool(),
+            log_dir,
+            progress_path,
+            0,
+            false,
+            "test".to_string(),
+            positions,
+            "test-run".to_string(),
+        )
+    }
+
+    fn read_progress(path: &Path) -> serde_json::Value {
+        let contents = std::fs::read_to_string(path).expect("read progress checkpoint");
+        serde_json::from_str(&contents).expect("parse progress checkpoint")
+    }
+
+    fn parsers() -> (LogParser, HttpDetailedParser) {
+        (
+            LogParser::new(chrono_tz::UTC),
+            HttpDetailedParser::new(chrono_tz::UTC),
+        )
+    }
+
+    fn classify(raw: &[u8], complete: bool, kind: &SourceKind) -> ParseOutcome {
+        let (p, d) = parsers();
+        classify_record(&p, &d, raw, complete, kind)
+    }
+
+    const CACHELOG_LINE: &[u8] = b"[steam] 192.168.1.50 / - - - [01/Jan/2024:00:00:00 +0000] \"GET /depot/123/chunk/ab HTTP/1.1\" 200 1024 \"-\" \"Valve/Steam\" \"HIT\" \"-\" \"-\"";
+    const DETAILED_LINE: &[u8] = b"[01/Jan/2024:00:00:00 +0000] 192.168.1.50 GET \"/depot/123/chunk/ab\" - HTTP/1.1 200 \"-\" 512 1040 1024 0.005 1024 HIT lancache.steamcontent.com 200 0.004 \"Valve/Steam\"";
+
+    #[test]
+    fn garbage_is_unrecognized_never_silently_dropped() {
+        let out = classify(
+            b"complete garbage that is not a log line\n",
+            true,
+            &SourceKind::Monolithic,
+        );
+        assert!(matches!(out, ParseOutcome::Unrecognized));
+    }
+
+    #[test]
+    fn probe_lines_classify_recognized_ignored_never_unparsed() {
+        let probe = b"[steam] 172.20.0.5 / - - - [01/Jan/2024:00:00:00 +0000] \"GET / HTTP/1.1\" 301 162 \"-\" \"lancache-manager-status-check/1.0\" \"MISS\" \"h\" \"-\"\n";
+        assert!(matches!(
+            classify(probe, true, &SourceKind::Monolithic),
+            ParseOutcome::RecognizedIgnored(IgnoredReason::Probe)
+        ));
+        // Same probe UA inside an http-detailed record in a per-service file.
+        let probe_detailed = b"[01/Jan/2024:00:00:00 +0000] 172.20.0.5 GET \"/\" - HTTP/1.1 301 \"-\" 512 162 162 0.001 162 MISS h 301 0.001 \"lancache-manager-status-check/1.0\"\n";
+        assert!(matches!(
+            classify(probe_detailed, true, &SourceKind::Service("steam".into())),
+            ParseOutcome::RecognizedIgnored(IgnoredReason::Probe)
+        ));
+    }
+
+    #[test]
+    fn heartbeat_classifies_recognized_ignored() {
+        let hb = b"[steam] 10.0.0.1 / - - - [01/Jan/2024:00:00:00 +0000] \"GET /lancache-heartbeat HTTP/1.1\" 204 0 \"-\" \"ua\" \"-\" \"-\" \"-\"\n";
+        assert!(matches!(
+            classify(hb, true, &SourceKind::Monolithic),
+            ParseOutcome::RecognizedIgnored(IgnoredReason::Heartbeat)
+        ));
+    }
+
+    #[test]
+    fn hintless_http_detailed_in_monolithic_file() {
+        // The reporting-user case: bare-metal http-detailed content renamed to access.log.
+        let out = classify(DETAILED_LINE, true, &SourceKind::Monolithic);
+        assert!(matches!(
+            out,
+            ParseOutcome::RecognizedIgnored(IgnoredReason::Hintless)
+        ));
+    }
+
+    #[test]
+    fn detailed_line_in_service_file_parses_with_hint() {
+        match classify(
+            DETAILED_LINE,
+            true,
+            &SourceKind::Service("steam".to_string()),
+        ) {
+            ParseOutcome::Parsed(entry) => {
+                assert_eq!(entry.service, "steam");
+                assert_eq!(entry.bytes_served, 1024);
+                assert_eq!(entry.depot_id, Some(123));
+            }
+            other => panic!("expected Parsed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cachelog_tag_wins_inside_a_service_file() {
+        // A cachelog record inside blizzard-access.log keeps its own [steam] tag.
+        match classify(
+            CACHELOG_LINE,
+            true,
+            &SourceKind::Service("blizzard".to_string()),
+        ) {
+            ParseOutcome::Parsed(entry) => assert_eq!(entry.service, "steam"),
+            other => panic!("expected Parsed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fallback_lines_always_skip_even_when_parseable() {
+        assert!(matches!(
+            classify(DETAILED_LINE, true, &SourceKind::Fallback),
+            ParseOutcome::RecognizedIgnored(IgnoredReason::Fallback)
+        ));
+        assert!(matches!(
+            classify(b"garbage\n", true, &SourceKind::Fallback),
+            ParseOutcome::RecognizedIgnored(IgnoredReason::Fallback)
+        ));
+    }
+
+    #[test]
+    fn blank_records_are_recognized_ignored() {
+        assert!(matches!(
+            classify(b"\n", true, &SourceKind::Monolithic),
+            ParseOutcome::RecognizedIgnored(IgnoredReason::Blank)
+        ));
+    }
+
+    #[test]
+    fn invalid_utf8_that_parses_no_recognizer_counts_invalid_encoding() {
+        let raw = b"\xff\xfe garbage \xff\n";
+        assert!(matches!(
+            classify(raw, true, &SourceKind::Monolithic),
+            ParseOutcome::InvalidEncoding
+        ));
+    }
+
+    #[test]
+    fn invalid_utf8_confined_to_text_fields_still_parses() {
+        // A cachelog line with a bad byte inside the user-agent field: lossy decoding
+        // confines the damage and the record still ingests.
+        let mut raw = Vec::new();
+        raw.extend_from_slice(b"[steam] 192.168.1.50 / - - - [01/Jan/2024:00:00:00 +0000] \"GET /depot/1/chunk/a HTTP/1.1\" 200 10 \"-\" \"Va\xfflve\" \"HIT\" \"-\" \"-\"\n");
+        assert!(matches!(
+            classify(&raw, true, &SourceKind::Monolithic),
+            ParseOutcome::Parsed(_)
+        ));
+    }
+
+    #[test]
+    fn unterminated_final_record_is_incomplete() {
+        assert!(matches!(
+            classify(CACHELOG_LINE, false, &SourceKind::Monolithic),
+            ParseOutcome::Incomplete
+        ));
+    }
+
+    #[test]
+    fn terminal_outcome_rules() {
+        // Clean run.
+        let (t, _) = Processor::resolve_terminal_outcome(&[], 0, 0, 0);
+        assert_eq!(t, "completed");
+        // Parse anomalies are warnings, never silent success.
+        let (t, msg) = Processor::resolve_terminal_outcome(&[], 5, 0, 0);
+        assert_eq!(t, "completed_with_warnings");
+        assert!(msg.contains("5 unrecognized"));
+        let (t, _) = Processor::resolve_terminal_outcome(&[], 0, 3, 0);
+        assert_eq!(t, "completed_with_warnings");
+        let (t, _) = Processor::resolve_terminal_outcome(&[], 0, 0, 2);
+        assert_eq!(t, "completed_with_warnings");
+        // Any file error caps at partial, even with zero parse anomalies.
+        let (t, _) = Processor::resolve_terminal_outcome(&["a.log: boom".to_string()], 0, 0, 0);
+        assert_eq!(t, "partial");
+    }
+
+    #[tokio::test]
+    async fn corrupt_member_freezes_position_but_newer_file_is_still_processed() {
+        let tmp = tempfile::tempdir().expect("create fixture directory");
+        std::fs::write(
+            tmp.path().join("fallback-access.log.1.gz"),
+            b"not a gzip stream",
+        )
+        .expect("write corrupt rotation");
+        std::fs::write(tmp.path().join("fallback-access.log"), b"one\ntwo\n")
+            .expect("write live log");
+        let progress_path = tmp.path().join("progress.json");
+        let mut positions = HashMap::new();
+        positions.insert("fallback-access.log".to_string(), 1);
+        let mut processor = test_processor(
+            tmp.path().to_path_buf(),
+            progress_path.clone(),
+            Some(positions),
+        );
+        // Keep the fixture in the normal partial-terminal path without requiring a DB insert.
+        processor.entries_saved.store(1, Ordering::Relaxed);
+
+        let outcome = processor.process().await.expect("finish partial run");
+
+        assert_eq!(outcome, ProcessingOutcome::Completed);
+        let progress = read_progress(&progress_path);
+        assert_eq!(progress["terminal_status"], "partial");
+        assert_eq!(progress["source_positions"]["fallback-access.log"], 0);
+        assert_eq!(progress["lines_parsed"], 2);
+        assert_eq!(progress["files_with_errors"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn discovery_failure_writes_failed_terminal() {
+        let tmp = tempfile::tempdir().expect("create fixture directory");
+        let not_a_directory = tmp.path().join("access.log");
+        std::fs::write(&not_a_directory, b"line\n").expect("write file path fixture");
+        let progress_path = tmp.path().join("progress.json");
+        let mut processor = test_processor(not_a_directory, progress_path.clone(), None);
+
+        let error = processor
+            .process()
+            .await
+            .expect_err("file path discovery must fail");
+
+        assert!(format!("{error:#}").contains("Failed to discover log sources"));
+        let progress = read_progress(&progress_path);
+        assert_eq!(progress["status"], "failed");
+        assert_eq!(progress["terminal_status"], "failed");
+    }
+
+    #[tokio::test]
+    async fn starting_progress_failure_is_best_effort() {
+        let tmp = tempfile::tempdir().expect("create fixture directory");
+        let processor = test_processor(tmp.path().to_path_buf(), tmp.path().to_path_buf(), None);
+
+        processor.write_starting_progress_best_effort("starting fixture");
+
+        assert!(tmp.path().is_dir());
+    }
+
+    #[tokio::test]
+    async fn pool_creation_failure_writes_failed_terminal() {
+        let tmp = tempfile::tempdir().expect("create fixture directory");
+        let progress_path = tmp.path().join("progress.json");
+
+        let error = create_pool_or_write_terminal(&progress_path, "pool-run", || async {
+            Err::<PgPool, _>(anyhow::anyhow!("pool unavailable"))
+        })
+        .await
+        .expect_err("pool creation must fail");
+
+        assert!(format!("{error:#}").contains("pool unavailable"));
+        let progress = read_progress(&progress_path);
+        assert_eq!(progress["run_id"], "pool-run");
+        assert_eq!(progress["terminal_status"], "failed");
+        assert!(progress["message"]
+            .as_str()
+            .unwrap()
+            .contains("Failed to create database pool"));
+    }
+
+    #[tokio::test]
+    async fn generic_processor_error_writes_failed_terminal() {
+        let tmp = tempfile::tempdir().expect("create fixture directory");
+        let progress_path = tmp.path().join("progress.json");
+        let processor = test_processor(tmp.path().to_path_buf(), progress_path.clone(), None);
+
+        write_processor_failure_terminal(&processor, &anyhow::anyhow!("generic failure"))
+            .expect("write failed terminal");
+
+        let progress = read_progress(&progress_path);
+        assert_eq!(progress["terminal_status"], "failed");
+        assert!(progress["message"]
+            .as_str()
+            .unwrap()
+            .contains("generic failure"));
+    }
+
+    #[tokio::test]
+    async fn single_file_cancellation_has_typed_outcome() {
+        let tmp = tempfile::tempdir().expect("create fixture directory");
+        let log_path = tmp.path().join("fallback-access.log");
+        std::fs::write(&log_path, b"one\n").expect("write log fixture");
+        let progress_path = tmp.path().join("progress.json");
+        let mut processor = test_processor(tmp.path().to_path_buf(), progress_path, None);
+        let log_file = LogFile::from_path(log_path);
+        let mut lines_to_skip = 0;
+        let mut records_consumed = 0;
+
+        let outcome = processor
+            .process_single_file_with_cancel(
+                &log_file,
+                4,
+                &mut lines_to_skip,
+                &SourceKind::Fallback,
+                &mut records_consumed,
+                || true,
+            )
+            .await
+            .expect("return cancellation outcome");
+
+        assert_eq!(outcome, FileProcessingOutcome::Cancelled);
+        assert_eq!(records_consumed, 0);
+    }
+
+    #[test]
+    fn positions_file_validation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("positions.json");
+        let path_str = path.to_str().unwrap();
+
+        // Missing file
+        assert!(load_positions(path_str).is_err());
+        // Empty file
+        std::fs::write(&path, "").unwrap();
+        assert!(load_positions(path_str).is_err());
+        // Malformed JSON
+        std::fs::write(&path, "{not json").unwrap();
+        assert!(load_positions(path_str).is_err());
+        // Wrong schema version
+        std::fs::write(&path, r#"{"schema_version": 99, "sources": {}}"#).unwrap();
+        assert!(load_positions(path_str).is_err());
+        // Valid
+        std::fs::write(
+            &path,
+            r#"{"schema_version": 1, "sources": {"access.log": 42, "steam-access.log": 7}}"#,
+        )
+        .unwrap();
+        let map = load_positions(path_str).unwrap();
+        assert_eq!(map.get("access.log"), Some(&42));
+        assert_eq!(map.get("steam-access.log"), Some(&7));
     }
 }
 

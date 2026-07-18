@@ -38,6 +38,8 @@ import { buildSeededRunningNotification } from '@contexts/notifications/seedOper
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
+import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
+import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { useSelectionSet, type SelectionSet, type SelectionAdapter } from '@/hooks/useSelectionSet';
 import { useBulkRemoval, type EvictedQueueEntry } from '@contexts/BulkRemovalContext';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
@@ -146,6 +148,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const [evictedServices, setEvictedServices] = useState<ServiceCacheInfo[]>([]);
 
   const isAnyEvictedRemovalRunning = useCacheRemovalActive();
+  // Eviction removal deletes evicted cache files, which needs the monolithic cache-key recipe;
+  // an all bare-metal fleet cannot map objects to files, so these actions are disabled.
+  const diskObjectsAvailable = useDiskObjectCapability();
 
   // Managed setTimeout for post-SignalR eviction refetch; cancels on unmount.
   const scheduleEvictedItemsRefresh = useTimeoutCallback(CACHED_DETECTION_RELOAD_DELAY_MS);
@@ -836,43 +841,59 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
                         {isAdmin && (
                           <>
-                            <ActionMenuDangerItem
-                              icon={<Trash2 className="w-3.5 h-3.5" />}
-                              disabled={
-                                selectedEvictedCount === 0 ||
-                                removeAllRunning ||
-                                removeSelectedEvictedRunning ||
-                                isEvictedRemovalRunning ||
-                                isAnyEvictedRemovalRunning ||
-                                cacheReadOnly ||
-                                checkingPermissions
-                              }
-                              onClick={() => {
-                                setConfirmRemoveSelectedEvicted(true);
-                                close();
-                              }}
+                            <DiskObjectActionGate
+                              available={diskObjectsAvailable}
+                              tooltip={t('management.capability.diskObjectsUnavailable')}
+                              position="left"
+                              className="block w-full"
                             >
-                              {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
-                            </ActionMenuDangerItem>
+                              <ActionMenuDangerItem
+                                icon={<Trash2 className="w-3.5 h-3.5" />}
+                                disabled={
+                                  selectedEvictedCount === 0 ||
+                                  removeAllRunning ||
+                                  removeSelectedEvictedRunning ||
+                                  isEvictedRemovalRunning ||
+                                  isAnyEvictedRemovalRunning ||
+                                  cacheReadOnly ||
+                                  checkingPermissions ||
+                                  !diskObjectsAvailable
+                                }
+                                onClick={() => {
+                                  setConfirmRemoveSelectedEvicted(true);
+                                  close();
+                                }}
+                              >
+                                {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
+                              </ActionMenuDangerItem>
+                            </DiskObjectActionGate>
 
-                            <ActionMenuDangerItem
-                              icon={<Trash2 className="w-3.5 h-3.5" />}
-                              disabled={
-                                evictedGames.length + evictedServices.length === 0 ||
-                                removeAllRunning ||
-                                removeSelectedEvictedRunning ||
-                                isEvictionRemovalRunning ||
-                                isAnyEvictedRemovalRunning ||
-                                cacheReadOnly ||
-                                checkingPermissions
-                              }
-                              onClick={() => {
-                                setShowRemoveAllConfirm(true);
-                                close();
-                              }}
+                            <DiskObjectActionGate
+                              available={diskObjectsAvailable}
+                              tooltip={t('management.capability.diskObjectsUnavailable')}
+                              position="left"
+                              className="block w-full"
                             >
-                              {t('management.sections.data.evictionRemoveAll', 'Remove All')}
-                            </ActionMenuDangerItem>
+                              <ActionMenuDangerItem
+                                icon={<Trash2 className="w-3.5 h-3.5" />}
+                                disabled={
+                                  evictedGames.length + evictedServices.length === 0 ||
+                                  removeAllRunning ||
+                                  removeSelectedEvictedRunning ||
+                                  isEvictionRemovalRunning ||
+                                  isAnyEvictedRemovalRunning ||
+                                  cacheReadOnly ||
+                                  checkingPermissions ||
+                                  !diskObjectsAvailable
+                                }
+                                onClick={() => {
+                                  setShowRemoveAllConfirm(true);
+                                  close();
+                                }}
+                              >
+                                {t('management.sections.data.evictionRemoveAll', 'Remove All')}
+                              </ActionMenuDangerItem>
+                            </DiskObjectActionGate>
                           </>
                         )}
                       </>

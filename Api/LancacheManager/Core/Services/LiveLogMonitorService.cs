@@ -1,5 +1,6 @@
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -17,12 +18,20 @@ public class LiveLogMonitorService : ScheduledBackgroundService
     private readonly StateService _stateService;
     private readonly DatasourceService _datasourceService;
     private readonly IOperationConflictChecker _conflictChecker;
-    private readonly Dictionary<string, long> _lastFileSizes = new(); // Per-datasource file sizes
+    private readonly RustProcessHelper _rustProcessHelper;
+    // Per-source watermarks keyed "<datasource>::<stem>": on-disk size of each stem's
+    // CURRENT file at the last successful processing pass (rotations never grow).
+    private readonly Dictionary<string, long> _lastFileSizes = new();
     private bool _isProcessing = false;
 
     // Per-datasource permission error tracking for exponential backoff
     private readonly Dictionary<string, int> _consecutivePermissionErrors = new();
     private readonly Dictionary<string, DateTime> _lastPermissionErrorLogTime = new();
+
+    // Per-datasource missing-source warning state (backoff-throttled, clears on reopen)
+    private readonly Dictionary<string, DateTime> _lastMissingSourcesWarnTime = new();
+    private readonly HashSet<string> _missingSourcesWarned = new();
+    private static readonly TimeSpan _missingSourcesWarnInterval = TimeSpan.FromMinutes(5);
 
     // Static pause mechanism for log file operations (corruption removal, etc.)
     private static readonly SemaphoreSlim _pauseLock = new SemaphoreSlim(1, 1);
@@ -78,7 +87,8 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         RustLogRemovalService rustLogRemovalService,
         StateService stateService,
         DatasourceService datasourceService,
-        IOperationConflictChecker conflictChecker)
+        IOperationConflictChecker conflictChecker,
+        RustProcessHelper rustProcessHelper)
         : base(logger, configuration)
     {
         _rustLogProcessorService = rustLogProcessorService;
@@ -86,54 +96,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         _stateService = stateService;
         _datasourceService = datasourceService;
         _conflictChecker = conflictChecker;
-    }
-
-    /// <summary>
-    /// Counts lines in a file with proper file sharing to allow other processes to delete/modify the file.
-    /// Includes retry logic to handle transient file locks from other processes (e.g., Rust log processor).
-    /// </summary>
-    private long CountLinesWithSharing(string filePath)
-    {
-        const int maxRetries = 5;
-        const int baseDelayMs = 100;
-
-        for (int attempt = 0; attempt < maxRetries; attempt++)
-        {
-            try
-            {
-                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                using var reader = new StreamReader(fileStream);
-
-                long lineCount = 0;
-                while (reader.ReadLine() != null)
-                {
-                    lineCount++;
-                }
-                return lineCount;
-            }
-            catch (IOException) when (attempt < maxRetries - 1)
-            {
-                // File is locked by another process, wait and retry with exponential backoff
-                var delayMs = baseDelayMs * (int)Math.Pow(2, attempt);
-                Thread.Sleep(delayMs);
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // Permission denied - don't retry, propagate immediately for proper backoff handling
-                throw;
-            }
-        }
-
-        // If all retries failed, throw the exception
-        using var finalStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var finalReader = new StreamReader(finalStream);
-
-        long finalCount = 0;
-        while (finalReader.ReadLine() != null)
-        {
-            finalCount++;
-        }
-        return finalCount;
+        _rustProcessHelper = rustProcessHelper;
     }
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
@@ -152,7 +115,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         // Check if logs have been processed before (to distinguish fresh install from manual reset)
         var hasProcessedLogs = _stateService.HasProcessedLogs();
 
-        // Initialize file sizes for each datasource
+        // Initialize per-source watermarks for each datasource
         foreach (var ds in datasources)
         {
             // Validate log directory exists before monitoring
@@ -162,27 +125,45 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                 continue;
             }
 
-            // Initialize access.log monitoring
-            var logFile = Path.Combine(ds.LogPath, "access.log");
-            if (File.Exists(logFile))
+            ds.RefreshLogSources();
+            foreach (var filePath in ds.LogFilePaths)
             {
-                var fileInfo = new FileInfo(logFile);
-                _lastFileSizes[ds.Name] = fileInfo.Length;
-                _logger.LogInformation("Datasource '{Name}': Initial access.log size: {Size:N0} bytes", ds.Name, fileInfo.Length);
-
-                // Only auto-initialize to end of file on fresh install (never processed logs before)
-                // If position is 0 but logs have been processed, user intentionally reset to beginning
-                var currentPosition = _stateService.GetLogPosition(ds.Name);
-                if (currentPosition == 0 && !hasProcessedLogs)
-                {
-                    var lineCount = CountLinesWithSharing(logFile);
-                    _stateService.SetLogPosition(ds.Name, lineCount);
-                    _logger.LogInformation("Datasource '{Name}': Fresh install - initialized log position to end of file (line {LineCount})", ds.Name, lineCount);
-                }
+                var fileInfo = new FileInfo(filePath);
+                _lastFileSizes[WatermarkKey(ds.Name, Path.GetFileName(filePath))] = fileInfo.Length;
+                _logger.LogInformation("Datasource '{Name}': Initial {Stem} size: {Size:N0} bytes",
+                    ds.Name, Path.GetFileName(filePath), fileInfo.Length);
             }
-            else
+
+            // Only auto-initialize to end of file on fresh install (never processed logs before).
+            // If positions are 0 but logs have been processed, the user intentionally reset to
+            // beginning. EOF-seed covers EVERY source stem (access.log AND per-service files),
+            // series-wide, at the last complete record of each stem.
+            var sourcePositions = _stateService.GetLogSourcePositions(ds.Name);
+            var legacyPosition = _stateService.GetLogPosition(ds.Name);
+            // Stem set, not current-file list: a source caught between rename and reopen
+            // (rotations only on disk) still needs its series seeded to EOF.
+            if (!hasProcessedLogs && sourcePositions.Count == 0 && legacyPosition == 0 &&
+                ds.LogSourceStems.Count > 0)
             {
-                _lastFileSizes[ds.Name] = 0;
+                try
+                {
+                    var count = await _rustProcessHelper.CountLogLinesAsync(ds.LogPath, stoppingToken);
+                    _stateService.SetLogSourcePositions(ds.Name, count.SourceLineCounts);
+                    _stateService.SetLogTotalLines(ds.Name, count.LinesProcessed);
+                    _logger.LogInformation(
+                        "Datasource '{Name}': Fresh install - initialized {SourceCount} source position(s) to end of file ({LineCount} lines total)",
+                        ds.Name, count.SourceLineCounts.Count, count.LinesProcessed);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Datasource '{Name}': Failed to seed fresh-install positions; sources start at 0 (dedup absorbs any overlap)",
+                        ds.Name);
+                }
             }
         }
 
@@ -219,6 +200,66 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         }
     }
 
+    private static string WatermarkKey(string datasourceName, string stem) => $"{datasourceName}::{stem}";
+
+    /// <summary>
+    /// Missing-source handling: when a datasource directory holds NO access-log sources at
+    /// all, warn once (then backoff-throttled), naming the path and the *.log files that ARE
+    /// present; persist the warning for the UI. Clears (with an info line) when a source
+    /// reopens. Returns true when sources are present.
+    /// </summary>
+    internal bool CheckDatasourceSources(ResolvedDatasource datasource)
+    {
+        datasource.RefreshLogSources();
+
+        if (datasource.LogFilePaths.Count > 0)
+        {
+            // Clear the persisted warning too when it survived a restart (the source may
+            // have reopened while the manager was down; the in-memory set alone cannot
+            // know that).
+            var hadPersistedWarning =
+                _stateService.GetLogIngestDiagnostics(datasource.Name)?.MissingSourcesMessage != null;
+            if (_missingSourcesWarned.Remove(datasource.Name) || hadPersistedWarning)
+            {
+                _lastMissingSourcesWarnTime.Remove(datasource.Name);
+                _stateService.SetLogMissingSourcesWarning(datasource.Name, null);
+                _logger.LogInformation("Datasource '{Name}': Log source(s) now exist. Resuming live monitoring.", datasource.Name);
+            }
+            return true;
+        }
+
+        var now = DateTime.UtcNow;
+        var lastWarn = _lastMissingSourcesWarnTime.GetValueOrDefault(datasource.Name, DateTime.MinValue);
+        if (now - lastWarn >= _missingSourcesWarnInterval)
+        {
+            string[] otherLogFiles;
+            try
+            {
+                otherLogFiles = Directory.GetFiles(datasource.LogPath, "*.log", SearchOption.TopDirectoryOnly)
+                    .Select(f => Path.GetFileName(f)!)
+                    .ToArray();
+            }
+            catch
+            {
+                otherLogFiles = Array.Empty<string>();
+            }
+
+            var found = otherLogFiles.Length > 0
+                ? $"found only: {string.Join(", ", otherLogFiles)}"
+                : "no .log files present";
+            var message =
+                $"No access-log source found in '{datasource.LogPath}' ({found}). " +
+                "Expected access.log or per-service files like steam-access.log.";
+
+            _logger.LogWarning("Datasource '{Name}': {Message}", datasource.Name, message);
+            _lastMissingSourcesWarnTime[datasource.Name] = now;
+            _missingSourcesWarned.Add(datasource.Name);
+            _stateService.SetLogMissingSourcesWarning(datasource.Name, message);
+        }
+
+        return false;
+    }
+
     private async Task ProcessDatasourceAsync(ResolvedDatasource datasource, CancellationToken stoppingToken)
     {
         // Skip if already processing
@@ -227,24 +268,9 @@ public class LiveLogMonitorService : ScheduledBackgroundService
             return;
         }
 
-        var logFilePath = Path.Combine(datasource.LogPath, "access.log");
-
-        // Check if log file exists - if not, skip monitoring (only rotated files exist)
-        if (!File.Exists(logFilePath))
+        if (!CheckDatasourceSources(datasource))
         {
-            // Only log once per service start to avoid spam
-            if (!_lastFileSizes.ContainsKey(datasource.Name) || _lastFileSizes[datasource.Name] == 0)
-            {
-                _lastFileSizes[datasource.Name] = -1; // Mark as logged
-            }
             return;
-        }
-
-        // Reset size tracker if file reappeared after being missing
-        if (_lastFileSizes.TryGetValue(datasource.Name, out var lastSize) && lastSize == -1)
-        {
-            _lastFileSizes[datasource.Name] = 0;
-            _logger.LogInformation("Datasource '{Name}': Log file now exists. Resuming live monitoring.", datasource.Name);
         }
 
         // Check if we should skip this datasource due to permission error backoff
@@ -261,17 +287,25 @@ public class LiveLogMonitorService : ScheduledBackgroundService
 
         try
         {
-            // Check file size (very fast operation)
-            var fileInfo = new FileInfo(logFilePath);
-            var currentFileSize = fileInfo.Length;
+            // Per-source watermark check (fast: one FileInfo per current source file).
+            // A shrunken current file means a rename rotation happened: its whole new
+            // content is pending. Growth on ANY source triggers one processing pass.
+            long sizeIncrease = 0;
+            var currentSizes = new Dictionary<string, long>();
+            foreach (var filePath in datasource.LogFilePaths)
+            {
+                var stem = Path.GetFileName(filePath);
+                var key = WatermarkKey(datasource.Name, stem);
+                var currentFileSize = new FileInfo(filePath).Length;
+                currentSizes[key] = currentFileSize;
 
-            // Get last known file size for this datasource
-            _lastFileSizes.TryGetValue(datasource.Name, out var lastFileSize);
+                var lastFileSize = _lastFileSizes.GetValueOrDefault(key, 0);
+                sizeIncrease += currentFileSize >= lastFileSize
+                    ? currentFileSize - lastFileSize
+                    : currentFileSize;
+            }
 
-            // Calculate size increase
-            var sizeIncrease = currentFileSize - lastFileSize;
-
-            // Only process if file has grown by at least the threshold
+            // Only process if the source set has grown by at least the threshold
             if (sizeIncrease >= _minFileSizeIncrease)
             {
                 // Rate limiting: Don't process if we just processed recently
@@ -323,28 +357,22 @@ public class LiveLogMonitorService : ScheduledBackgroundService
 
                 try
                 {
-                    // Get the stored position for this datasource
-                    var lastPosition = _stateService.GetLogPosition(datasource.Name);
-
-                    // Count total lines in the file to get the current end position
-                    var currentLineCount = CountLinesWithSharing(logFilePath);
-
-                    // If stored position is less than current file size, use stored position
-                    // Otherwise use current line count (file might have been truncated/rotated)
-                    var startPosition = Math.Min(lastPosition, currentLineCount);
-
-                    // Start Rust processor from last processed position in SILENT MODE
-                    // Pass the datasource name so the position is saved correctly
+                    // Start the Rust processor in SILENT MODE. Per-stem offsets come from the
+                    // positions file the processor service writes from persisted checkpoints;
+                    // the legacy start position argument is ignored in multi-source mode.
                     var success = await _rustLogProcessorService.StartProcessingAsync(
                         datasource.LogPath,
-                        startPosition,
+                        startPosition: 0,
                         silentMode: true,
                         datasourceName: datasource.Name);
 
                     if (success)
                     {
-                        // Update file size tracker after successful processing
-                        _lastFileSizes[datasource.Name] = currentFileSize;
+                        // Update per-source watermarks after successful processing
+                        foreach (var (key, size) in currentSizes)
+                        {
+                            _lastFileSizes[key] = size;
+                        }
                     }
                     else
                     {

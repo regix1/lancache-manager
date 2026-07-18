@@ -323,29 +323,25 @@ public class DatasourceService
     }
 
     /// <summary>
-    /// Check if there's a log file at the root level of the logs directory.
-    /// Looks for common log file patterns: access.log, *.log, etc.
-    /// Returns false both when no matching file exists AND when the directory scan fails
-    /// (logged as a warning) - the two cases are indistinguishable to the caller by design.
+    /// Check whether the logs directory actually holds access-log SOURCES: the monolithic
+    /// access.log series, bare-metal per-service *-access.log series, or a bare-metal
+    /// parent whose http/ child carries the per-service topology. A bare nginx-error.log
+    /// or stream log is never evidence — the old any-*.log rule accepted the bare-metal
+    /// parent dir and then reported zero-work success forever.
+    /// Returns false both when no source exists AND when the directory scan fails.
     /// </summary>
     private bool HasRootLevelLogFile(string logsPath)
     {
         try
         {
-            // Common log file patterns
-            var logPatterns = new[] { "access.log", "*.log" };
-
-            foreach (var pattern in logPatterns)
+            var resolved = LogSourceLayout.ResolveAccessLogDirectory(logsPath);
+            var stems = LogSourceLayout.EnumerateStems(resolved);
+            if (stems.Count > 0)
             {
-                var files = Directory.GetFiles(logsPath, pattern, SearchOption.TopDirectoryOnly);
-                if (files.Length > 0)
-                {
-                    _logger.LogDebug("Found root-level log file(s) in {Path}: {Files}",
-                        logsPath, string.Join(", ", files.Select(Path.GetFileName)));
-                    return true;
-                }
+                _logger.LogDebug("Found access-log source(s) in {Path}: {Stems}",
+                    resolved, string.Join(", ", stems));
+                return true;
             }
-
             return false;
         }
         catch (Exception ex)
@@ -536,16 +532,22 @@ public class DatasourceService
                 logDir = Path.GetDirectoryName(logPath) ?? logPath;
             }
 
-            return new ResolvedDatasource
+            var datasource = new ResolvedDatasource
             {
                 Name = config.Name,
                 CachePath = cachePath,
+                ConfiguredLogPath = logDir,
                 LogPath = logDir,
                 LogFilePath = Path.Combine(logDir, "access.log"),
                 Enabled = config.Enabled,
                 CacheWritable = _pathResolver.IsDirectoryWritable(cachePath),
                 LogsWritable = _pathResolver.IsDirectoryWritable(logDir)
             };
+            // RefreshLogSources performs the bare-metal <logs> -> <logs>/http descent from
+            // the configured root; doing it per refresh (not once here) means an http/
+            // folder that appears after startup is still discovered.
+            datasource.RefreshLogSources();
+            return datasource;
         }
         catch (Exception ex)
         {
@@ -610,14 +612,20 @@ public class DatasourceService
     /// </summary>
     public List<DatasourceInfo> GetDatasourceInfos()
     {
-        return _datasources.Select(d => new DatasourceInfo
+        return _datasources.Select(d =>
         {
-            Name = d.Name,
-            CachePath = d.CachePath,
-            LogsPath = d.LogPath,
-            CacheWritable = d.CacheWritable,
-            LogsWritable = d.LogsWritable,
-            Enabled = d.Enabled
+            d.RefreshLogSources();
+            return new DatasourceInfo
+            {
+                Name = d.Name,
+                CachePath = d.CachePath,
+                LogsPath = d.LogPath,
+                CacheWritable = d.CacheWritable,
+                LogsWritable = d.LogsWritable,
+                Enabled = d.Enabled,
+                Layout = d.Layout,
+                SourceCount = d.LogSourceStems.Count
+            };
         }).ToList();
     }
 
@@ -631,6 +639,7 @@ public class DatasourceService
         {
             ds.CacheWritable = _pathResolver.IsDirectoryWritable(ds.CachePath);
             ds.LogsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath);
+            ds.RefreshLogSources();
         }
     }
 
@@ -684,6 +693,63 @@ public class ResolvedDatasource
     /// Whether the logs directory is writable.
     /// </summary>
     public bool LogsWritable { get; set; }
+
+    /// <summary>
+    /// Presentation-only source layout: monolithic | bare_metal | mixed. Derived from the
+    /// stems on disk at the last refresh; never drives capability decisions by itself.
+    /// </summary>
+    public string Layout { get; set; } = LogSourceLayout.LayoutMonolithic;
+
+    /// <summary>
+    /// Logical source stems present at the last refresh (access.log, steam-access.log, ...).
+    /// </summary>
+    public IReadOnlyList<string> LogSourceStems { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Current (non-rotated) file paths for every source stem at the last refresh.
+    /// LogFilePath above stays the legacy access.log path.
+    /// </summary>
+    public IReadOnlyList<string> LogFilePaths { get; set; } = Array.Empty<string>();
+
+    private readonly object _refreshLock = new();
+
+    /// <summary>
+    /// The log directory exactly as configured, BEFORE any bare-metal http/ descent.
+    /// Descent re-resolves from here on every refresh so the chosen directory never
+    /// freezes on a stale answer.
+    /// </summary>
+    public string ConfiguredLogPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Re-enumerates the source stems on disk, re-running the http/ descent from the
+    /// configured root first. Cheap (one or two directory listings); called at resolve
+    /// time and by consumers that need current sources (live monitor, API infos).
+    /// Serialized so concurrent refreshes from different singleton services cannot
+    /// interleave their writes; all properties are always derived from ONE listing.
+    /// </summary>
+    public void RefreshLogSources()
+    {
+        lock (_refreshLock)
+        {
+            var root = string.IsNullOrEmpty(ConfiguredLogPath) ? LogPath : ConfiguredLogPath;
+            var resolvedDir = LogSourceLayout.ResolveAccessLogDirectory(root);
+            if (!string.Equals(resolvedDir, LogPath, StringComparison.Ordinal))
+            {
+                LogPath = resolvedDir;
+                LogFilePath = Path.Combine(resolvedDir, "access.log");
+            }
+
+            var stems = LogSourceLayout.EnumerateStems(LogPath)
+                .OrderBy(s => s, StringComparer.Ordinal)
+                .ToList();
+            LogSourceStems = stems;
+            Layout = LogSourceLayout.DeriveLayout(stems);
+            LogFilePaths = stems
+                .Select(stem => Path.Combine(LogPath, stem))
+                .Where(File.Exists)
+                .ToList();
+        }
+    }
 }
 
 /// <summary>
@@ -697,6 +763,10 @@ public class DatasourceInfo
     public bool CacheWritable { get; set; }
     public bool LogsWritable { get; set; }
     public bool Enabled { get; set; }
+    /// <summary>Presentation-only source layout: monolithic | bare_metal | mixed.</summary>
+    public string Layout { get; set; } = LogSourceLayout.LayoutMonolithic;
+    /// <summary>Number of logical access-log sources currently on disk.</summary>
+    public int SourceCount { get; set; }
 }
 
 /// <summary>

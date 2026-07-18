@@ -64,15 +64,33 @@ public sealed class CorruptionRemovalContractTests
             "C:/cache",
             "steam",
             "C:/ops/evidence.json",
-            "C:/ops/progress.json");
+            "C:/ops/progress.json",
+            "bare_metal");
 
         Assert.Equal(
-            "remove-structural \"C:/cache\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress",
+            "remove-structural \"C:/cache\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme bare_metal",
             arguments);
         Assert.DoesNotContain("logs-secret", arguments, StringComparison.Ordinal);
         Assert.DoesNotContain("steam", arguments, StringComparison.Ordinal);
         Assert.Throws<ArgumentException>(() => RustProcessHelper.BuildCorruptionManagerArguments(
-            "remove-structural", "", "", null, "evidence", "progress"));
+            "remove-structural", "", "", null, "evidence", "progress", "bare_metal"));
+    }
+
+    [Fact]
+    public void RustRepeatedMissRemovalCommand_UsesMonolithicKeyScheme()
+    {
+        var arguments = RustProcessHelper.BuildCorruptionManagerArguments(
+            "remove",
+            "C:/logs",
+            "C:/cache",
+            "steam",
+            "C:/ops/evidence.json",
+            "C:/ops/progress.json",
+            "monolithic");
+
+        Assert.Equal(
+            "remove \"C:/logs\" \"C:/cache\" \"steam\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme monolithic",
+            arguments);
     }
 
     [Fact]

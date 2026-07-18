@@ -205,13 +205,28 @@ public class LogsController : ControllerBase
                 totalLines = countResult.LinesProcessed;
             }
 
+            ds.RefreshLogSources();
+            var diagnostics = _stateRepository.GetLogIngestDiagnostics(ds.Name);
+            var sourcePositions = _stateRepository.GetLogSourcePositions(ds.Name);
+
             positions.Add(new
             {
                 datasource = ds.Name,
                 position,
                 totalLines,
                 logPath = ds.LogPath,
-                enabled = ds.Enabled
+                enabled = ds.Enabled,
+                layout = ds.Layout,
+                sourceCount = ds.LogSourceStems.Count,
+                sourcePositions,
+                unparsedLines = diagnostics?.UnparsedLines ?? 0,
+                hintlessHttpDetailedLines = diagnostics?.HintlessHttpDetailedLines ?? 0,
+                invalidEncodingLines = diagnostics?.InvalidEncodingLines ?? 0,
+                skippedFallbackLines = diagnostics?.SkippedFallbackLines ?? 0,
+                incompleteFinalRecords = diagnostics?.IncompleteFinalRecords ?? 0,
+                filesWithErrors = diagnostics?.FilesWithErrors ?? new List<string>(),
+                lastRunTerminalStatus = diagnostics?.TerminalStatus ?? string.Empty,
+                missingSourcesMessage = diagnostics?.MissingSourcesMessage
             });
         }
 
@@ -397,12 +412,23 @@ public class LogsController : ControllerBase
     /// When <paramref name="datasourceName"/> is null, operates across all datasources.
     /// If <paramref name="requestedPosition"/> is 0, resets to beginning; otherwise resets to end of file.
     /// </summary>
-    private async Task<OkObjectResult> ResetPositionCoreAsync(
+    private async Task<IActionResult> ResetPositionCoreAsync(
         string? datasourceName,
         long? requestedPosition,
         CancellationToken cancellationToken)
     {
         var isSingleDatasource = datasourceName != null;
+
+        // A reset while a processor is running would be silently undone when that run's
+        // terminal checkpoint persists its snapshotted positions; make the user stop (or
+        // wait out) processing first instead of returning a success that does not stick.
+        if (_rustLogProcessorService.IsProcessing)
+        {
+            return Conflict(new ErrorResponse
+            {
+                Error = "Log processing is currently running. Stop it or let it finish, then reset the position."
+            });
+        }
 
         // Position == 0 -> reset to beginning. This remains state-only and deliberately does not
         // launch the Rust line counter.
@@ -437,11 +463,14 @@ public class LogsController : ControllerBase
         {
             // Persist only after this datasource's Rust process has completed successfully. A
             // failure or cancellation therefore cannot overwrite its state with a fallback zero.
+            // The count inventories EVERY source series (access.log AND per-service files) and
+            // reports complete-record counts per stem, which seed the per-stem checkpoints.
             var countResult = await _rustProcessHelper.CountLogLinesAsync(
                 ds.LogPath,
                 cancellationToken);
             var lineCount = countResult.LinesProcessed;
 
+            _stateRepository.SetLogSourcePositions(ds.Name, countResult.SourceLineCounts);
             _stateRepository.SetLogPosition(ds.Name, lineCount);
             _stateRepository.SetLogTotalLines(ds.Name, lineCount);
             totalLines += lineCount;
@@ -648,25 +677,34 @@ public class LogsController : ControllerBase
             return BadRequest(ApiResponse.Invalid($"Logs directory is read-only for datasource '{datasourceName}'"));
         }
 
+        datasource.RefreshLogSources();
+
+        // A monolithic-only datasource keeps the original single-file delete. When
+        // per-service sources exist (bare-metal / mixed layouts), the whole source SET is
+        // the log file: Rust deletes every source series (rotations included) and every
+        // stem checkpoint clears below.
+        var hasPerServiceSources = datasource.LogSourceStems.Any(LogSourceLayout.IsPerServiceStem);
         var accessLogPath = Path.Combine(datasource.LogPath, "access.log");
-        if (!System.IO.File.Exists(accessLogPath))
+        var deleteTarget = hasPerServiceSources ? datasource.LogPath : accessLogPath;
+        if (!hasPerServiceSources && !System.IO.File.Exists(accessLogPath))
         {
             return NotFound(new NotFoundResponse { Error = $"Log file not found: {accessLogPath}" });
         }
 
         // C# retains authorization, datasource/read-only validation, state, and nginx
-        // orchestration. Rust performs only the validated leaf-file mutation.
+        // orchestration. Rust performs only the validated leaf mutation.
         var deletion = await _rustProcessHelper.DeleteLogFileAsync(
-            accessLogPath,
+            deleteTarget,
             cancellationToken);
 
+        _stateRepository.SetLogSourcePositions(datasourceName, new Dictionary<string, long>());
         _stateRepository.SetLogPosition(datasourceName, 0);
         _stateRepository.SetLogTotalLines(datasourceName, 0);
 
         _logger.LogInformation(
-            "Deleted log file for datasource '{Datasource}': {Path} ({Size} bytes)",
+            "Deleted log file(s) for datasource '{Datasource}': {Path} ({Size} bytes)",
             datasourceName,
-            accessLogPath,
+            deleteTarget,
             deletion.BytesDeleted);
 
         // Reopening nginx remains best-effort after a successful deletion.
