@@ -1,19 +1,20 @@
-/* Single full-width condensed strip + its hover/tap-expand region. One thin line stands in for
-   every compacted notification: each service keeps its status colour as a segment of the line,
-   and the whole strip is one disclosure target, so there is never a hunt for the right 2px row.
-   Segments reuse the shared .notification-progress-track / .notification-progress-fill classes
-   (utilities/animations.css) so the fill easing, sweep animation, and reduced-motion handling
-   stay identical to the full card's progress bar. Overrides of shared-class properties are
-   compounded (.notification-progress-track.condensed-...) because same-specificity rules in
-   different bundles resolve by chunk order, which differs between dev and prod. */
+/* Condensed notification strip: a full-bleed thin line under the navigation, one status-coloured
+   segment per compacted service, with an overlay dropdown panel revealing the real cards.
 
-.condensed-notification {
-  /* One hover zone spanning the strip and its expanded panel: moving the cursor from the line
-     down into the revealed cards must not fire mouseleave and collapse it. */
+   The panel is position: absolute. The strip's layout height therefore equals the line's height
+   at ALL times - opening does not push the page, and no interrupted animation can ever leave
+   residual height painting the bar's background as a band under the line. The only animation is
+   the panel's entrance keyframe; closing is an unmount and has nothing to animate or freeze.
+
+   Every class here is self-contained (no shared progress-track classes): same-specificity rules
+   in different bundles resolve by chunk order, which differs between dev and prod. */
+
+.condensed-strip {
+  position: relative;
   width: 100%;
 }
 
-.condensed-notification-line {
+.condensed-strip-line {
   position: relative;
   display: flex;
   align-items: center;
@@ -27,72 +28,91 @@
 
 /* The line hugs the navigation edge with zero layout padding, so the pointer target is an
    invisible absolutely-positioned overlay instead: it adds no height to the layout. */
-.condensed-notification-line::after {
+.condensed-strip-line::after {
   content: '';
   position: absolute;
   inset: -0.375rem 0;
 }
 
-/* Touch pointers need a finger-sized target (~44px): extend mostly downward so the overlay
-   steals as little of the navigation above as possible. */
+/* Touch pointers need a finger-sized target. The navigation above owns hit-testing over its
+   own area, so upward extension is dead space: all usable size comes from below the line, and
+   the zone reaches ~36px down (the page area directly under a 2.5px line, worth borrowing).
+   While the panel is open the zone retracts so the first revealed card keeps its own taps;
+   closing needs no big target of its own, because any tap outside the panel closes it. */
 @media (pointer: coarse) {
-  .condensed-notification-line::after {
-    inset: -0.75rem 0 -1.75rem 0;
+  .condensed-strip-line::after {
+    inset: -0.75rem 0 -2.25rem 0;
+  }
+
+  .condensed-strip-line[aria-expanded='true']::after {
+    inset: -0.75rem 0 -0.375rem 0;
   }
 }
 
-/* While the panel is open the downward overlay would hang over the first revealed card and
-   steal its taps (closing the strip the user just opened), so it retracts to a slim zone. */
-.condensed-notification-line[aria-expanded='true']::after {
-  inset: -0.375rem 0;
-}
-
-.condensed-notification-line:focus-visible {
+.condensed-strip-line:focus-visible {
   outline: 2px solid var(--theme-info);
   outline-offset: 2px;
 }
 
 /* Side-by-side status segments with a hairline seam between adjacent services. */
-.condensed-notification-segments {
+.condensed-strip-segments {
   display: flex;
   width: 100%;
   gap: 1px;
 }
 
-/* Edge-to-edge line: square corners and a low profile. Each segment wears its own status
-   colour - the unfilled part is the same colour dimmed by the ::before underlay - so a finished
-   run reads as one solid colour, never the neutral track grey, and the ends stay flush with the
-   navigation. The transition is what makes the hover glow ease in instead of popping. */
-.notification-progress-track.condensed-notification-track {
+/* Edge-to-edge line: square corners and a low profile. Each segment wears its own status colour;
+   the unfilled part is the same colour dimmed by the ::before underlay, so a finished run reads
+   as one solid colour, never a neutral track grey. */
+.condensed-strip-seg {
+  position: relative;
   flex: 1 1 0%;
   height: 0.15625rem;
-  border-radius: 0;
-  background: transparent;
-  transition: opacity 0.3s ease-out;
+  overflow: hidden;
 }
 
-.notification-progress-track.condensed-notification-track::before {
+.condensed-strip-seg::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--notification-progress-color);
+  background: var(--seg-color);
   opacity: 0.25;
 }
 
-/* Fill width rides an inline custom property so no dynamic status class is needed. The line is
-   never rounded in its condensed form, so the fill and sweep drop the inherited pill radius. */
-.condensed-notification-track .notification-progress-fill {
-  width: var(--condensed-fill, 100%);
+/* display: block matters: width/height are ignored on an inline span, which leaves only the
+   dimmed underlay visible and the line looking washed out. position keeps it above ::before. */
+.condensed-strip-fill {
+  display: block;
+  position: relative;
+  height: 100%;
+  width: var(--seg-fill, 100%);
+  background: var(--seg-color);
+  transition: width 0.3s ease-out;
 }
 
-.notification-progress-track.condensed-notification-track .notification-progress-fill,
-.notification-progress-track.condensed-notification-track .notification-progress-indeterminate {
-  border-radius: 0;
+/* Indeterminate: a bright band sweeping the dimmed track while a run reports no numeric
+   progress. A keyframe, not a transition: churn rewrites segment styles every tick and a
+   retargeted transition restarts from its interpolated state, but keyframes hold. */
+.condensed-strip-sweep {
+  display: block;
+  position: relative;
+  height: 100%;
+  width: 40%;
+  background: var(--seg-color);
+  animation: condensedStripSweep 1.4s ease-in-out infinite;
 }
 
-/* While an operation is ongoing its segment breathes softly in its status colour; terminal
-   segments (instant completions included) hold steady instead. */
-@keyframes condensedStatusPulse {
+@keyframes condensedStripSweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+/* While an operation is ongoing its segment breathes softly; terminal segments hold steady. */
+@keyframes condensedStripPulse {
   0%,
   100% {
     opacity: 1;
@@ -102,77 +122,107 @@
   }
 }
 
-.condensed-notification-track.condensed-notification-pulse {
-  animation: condensedStatusPulse 2.2s ease-in-out infinite;
+.condensed-strip-seg-live {
+  animation: condensedStripPulse 2.2s ease-in-out infinite;
 }
 
-/* The glow is a dedicated row of per-segment shadow casters occupying exactly the line's own box,
-   so each caster inherits its segment's width and the light lands under the segment that emits it.
-   It shows only on hover or keyboard focus and fades via opacity, which notification churn cannot
-   retarget the way it retargets a box-shadow transition (a transitioned glow never finished
-   appearing - every --notification-progress-color rewrite restarted it from transparent). The
-   hover zone is the whole .condensed-notification wrapper, so the glow holds while the pointer is
-   inside the opened panel. */
-.condensed-notification-glow {
+/* The glow is a dedicated row of per-segment shadow casters occupying exactly the line's own
+   box, so each caster inherits its segment's width and the light lands under the segment that
+   emits it. Blur only, NO spread: spread inflates the caster into a hard-edged slab thicker
+   than the line, which reads as a second fat bar rather than light coming off the first. The
+   clip keeps only the light cast BELOW the line (top inset rides the caster's own height), the
+   sides stay square so the light reaches the page edges, and the bottom is free for falloff. */
+.condensed-strip-glow {
   position: absolute;
   inset: 0;
   display: flex;
-  /* Same track geometry as .condensed-notification-segments: each caster stays registered with
-     the line segment above it, seam included. */
   gap: 1px;
   pointer-events: none;
-  /* Keep only the light cast BELOW the line. The top inset rides the caster's own height, so it
-     always lands exactly on the line's bottom edge: the glow never washes over the line it is
-     lighting, and never bleeds up into the navigation. Sides stay square so the light reaches the
-     page edges instead of rounding off, and the bottom is free for the falloff. */
   clip-path: inset(100% 0 -1.25rem 0);
   opacity: 0;
   transition: opacity 0.35s ease-out;
 }
 
-/* Blur alone, NO spread. Spread inflates the caster into a hard-edged slab of near-full-alpha
-   colour several times thicker than the 2.5px line, which reads as a second fat bar rather than
-   light coming off the first; the blur's falloff is what makes it a glow. The shadow is centred
-   on the line and the clip above keeps its lower half, so the brightest pixel sits against the
-   line and fades to nothing within ~10px. */
-.condensed-notification-glow-segment {
+.condensed-strip-glow-seg {
   flex: 1 1 0%;
-  box-shadow: 0 0 0.625rem 0 var(--condensed-glow-color);
+  box-shadow: 0 0 0.625rem 0 var(--seg-glow-color);
 }
 
-/* Hovering also pauses the running pulse at full strength - the locked-on feedback. */
+/* Hovering lights the glow. The running pulse and sweep keep playing while hovered: pausing
+   them snapped a mid-breath segment to full brightness and then held it frozen, which read as
+   the line refreshing and no longer updating. */
 @media (hover: hover) {
-  .condensed-notification:hover .condensed-notification-glow {
-    opacity: 1;
-  }
-
-  .condensed-notification:hover .condensed-notification-track {
-    animation: none;
+  .condensed-strip:hover .condensed-strip-glow {
     opacity: 1;
   }
 }
 
-.condensed-notification-line:focus-visible .condensed-notification-glow {
+.condensed-strip-line:focus-visible .condensed-strip-glow {
   opacity: 1;
 }
 
-.condensed-notification-line:focus-visible .condensed-notification-track {
-  animation: none;
-  opacity: 1;
-}
-
-/* Small gap above the revealed panel; collapses to nothing at 0 height. */
-.condensed-notification-expanded {
+/* The overlay panel: anchored under the line, spanning the strip's full width, painted the
+   bar's own colour so the revealed cards keep their familiar backdrop. It floats above the
+   page (and above any full-size cards below the line) instead of pushing them down. */
+.condensed-strip-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
   padding-top: 0.375rem;
+  background: var(--theme-nav-bg);
+  border-bottom: 1px solid var(--theme-nav-border);
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.25);
+  /* House motion at dropdown speed, unfolding DOWNWARD: scaleY from the pinned top edge, so
+     no frame of the animation can place any part of the panel above the line it hangs from
+     (a translate-from-above entrance poked over the line into the navigation as it landed).
+     Keyframes rather than transitions: churn rewrites styles every tick and a retargeted
+     transition restarts from its interpolated state, but keyframes hold. */
+  transform-origin: top center;
+  animation: condensedStripPanelIn 0.22s cubic-bezier(0.33, 1, 0.68, 1);
 }
 
-/* Reduced motion: the glow still appears on hover/focus, just without the fade, and the
-   running pulse holds steady. Selectors mirror the interactive rules so the tie breaks here. */
+/* The exit mirrors the entrance. `forwards` holds the faded-out end state until the unmount
+   timeout runs, so a lagging frame can never flash the panel back at full opacity, and a
+   leaving panel stops taking pointer events so it cannot eat clicks aimed at the page (or
+   re-arm hover) while fading. */
+.condensed-strip-panel.is-leaving {
+  animation: condensedStripPanelOut 0.2s cubic-bezier(0.33, 1, 0.68, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes condensedStripPanelIn {
+  from {
+    opacity: 0;
+    transform: scaleY(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes condensedStripPanelOut {
+  from {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  to {
+    opacity: 0;
+    transform: scaleY(0.96);
+  }
+}
+
+/* Reduced motion: no entrance or exit motion, no sweep, no pulse; the glow still appears on
+   hover/focus, just without the fade. The leaving panel simply unmounts at the timeout. */
 @media (prefers-reduced-motion: reduce) {
-  .notification-progress-track.condensed-notification-track,
-  .condensed-notification:hover .condensed-notification-track,
-  .condensed-notification-line:focus-visible .condensed-notification-track,
-  .condensed-notification-glow {
+  .condensed-strip-panel,
+  .condensed-strip-panel.is-leaving,
+  .condensed-strip-sweep,
+  .condensed-strip-seg-live,
+  .condensed-strip-glow,
+  .condensed-strip-fill {
     transition: none;
     animation: none;
   }
