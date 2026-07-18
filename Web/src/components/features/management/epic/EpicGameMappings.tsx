@@ -168,12 +168,11 @@ const EpicGameMappings: React.FC = () => {
         minWidth: 140,
         flexible: true,
         render: (mapping: EpicGameMappingDto) => (
-          <span
-            className="block truncate text-xs font-medium text-themed-primary"
-            title={mapping.name}
-          >
-            {mapping.name}
-          </span>
+          <Tooltip content={mapping.name} position="top" className="block min-w-0">
+            <span className="block truncate text-xs font-medium text-themed-primary">
+              {mapping.name}
+            </span>
+          </Tooltip>
         )
       },
       {
@@ -182,12 +181,11 @@ const EpicGameMappings: React.FC = () => {
         defaultWidth: 190,
         minWidth: 100,
         render: (mapping: EpicGameMappingDto) => (
-          <span
-            className="block truncate font-mono text-xs text-themed-secondary"
-            title={mapping.appId}
-          >
-            {mapping.appId}
-          </span>
+          <Tooltip content={mapping.appId} position="top" className="block min-w-0">
+            <span className="block truncate font-mono text-xs text-themed-secondary">
+              {mapping.appId}
+            </span>
+          </Tooltip>
         )
       },
       {
@@ -280,6 +278,7 @@ const EpicGameMappings: React.FC = () => {
                 maxHeight="400px"
                 accentColor={() => 'var(--theme-epic)'}
                 resizable
+                striped
                 storageKey="epic-game-mappings-column-widths-v2"
                 compact
               />

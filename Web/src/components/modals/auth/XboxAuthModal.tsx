@@ -195,9 +195,7 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
               {/* The device user code the user types at the verification URL */}
               {deviceUserCode && (
                 <div className="text-center">
-                  <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-                    {t('modals.xboxAuth.userCodeLabel')}
-                  </label>
+                  <label className="form-field-label">{t('modals.xboxAuth.userCodeLabel')}</label>
                   <div className="px-3 py-2.5 rounded-lg bg-themed-tertiary font-mono text-xl font-bold tracking-widest text-themed-primary select-all">
                     {deviceUserCode}
                   </div>

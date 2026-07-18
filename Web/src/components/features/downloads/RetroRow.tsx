@@ -217,12 +217,14 @@ const RetroRow: React.FC<RetroRowProps> = memo(
               {/* Timestamp - stacked start / end lines, never truncated mid-range */}
               {showTimestamps && (
                 <div className="px-2 min-w-0 overflow-hidden" data-cell>
-                  <div className="retro-time" title={timeRangeTitle}>
-                    <span className="truncate">{timeLines[0]}</span>
-                    {timeLines[1] && (
-                      <span className="retro-time-end truncate">{timeLines[1]}</span>
-                    )}
-                  </div>
+                  <Tooltip content={timeRangeTitle} position="top" className="block min-w-0">
+                    <div className="retro-time">
+                      <span className="truncate">{timeLines[0]}</span>
+                      {timeLines[1] && (
+                        <span className="retro-time-end truncate">{timeLines[1]}</span>
+                      )}
+                    </div>
+                  </Tooltip>
                 </div>
               )}
 
@@ -251,12 +253,15 @@ const RetroRow: React.FC<RetroRowProps> = memo(
               {/* App name */}
               <div className="px-2 min-w-0 overflow-hidden" data-cell>
                 <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
-                  <span
-                    className="text-sm font-medium text-[var(--theme-text-primary)] truncate"
-                    title={data.gameName || data.service}
+                  <Tooltip
+                    content={data.gameName || data.service}
+                    position="top"
+                    className="flex min-w-0"
                   >
-                    {data.gameName || data.service}
-                  </span>
+                    <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
+                      {data.gameName || data.service}
+                    </span>
+                  </Tooltip>
                   <BadgesRow
                     service={data.service}
                     datasource={data.datasource}
@@ -277,12 +282,15 @@ const RetroRow: React.FC<RetroRowProps> = memo(
               {/* Datasource - only shown when multiple datasources exist */}
               {showDatasourceColumn && (
                 <div className="px-2 min-w-0 overflow-hidden text-center" data-cell>
-                  <span
-                    className="themed-badge status-badge-neutral inline-block truncate max-w-full"
-                    title={data.datasource}
+                  <Tooltip
+                    content={data.datasource || t('downloads.tab.retro.notAvailable')}
+                    position="top"
+                    className="block min-w-0"
                   >
-                    {data.datasource || t('downloads.tab.retro.notAvailable')}
-                  </span>
+                    <span className="themed-badge status-badge-neutral inline-block truncate max-w-full">
+                      {data.datasource || t('downloads.tab.retro.notAvailable')}
+                    </span>
+                  </Tooltip>
                 </div>
               )}
 
@@ -298,16 +306,19 @@ const RetroRow: React.FC<RetroRowProps> = memo(
               {/* Depot */}
               <div className="px-2 min-w-0 overflow-hidden text-right" data-cell>
                 {data.depotsSet.size > 1 ? (
-                  <span
-                    className="retro-mono-value text-[var(--theme-text-muted)] truncate block"
-                    title={t('downloads.tab.retro.depotCount', {
+                  <Tooltip
+                    content={t('downloads.tab.retro.depotCount', {
                       count: data.depotsSet.size
                     })}
+                    position="top"
+                    className="block min-w-0"
                   >
-                    {t('downloads.tab.retro.depotCount', {
-                      count: data.depotsSet.size
-                    })}
-                  </span>
+                    <span className="retro-mono-value text-[var(--theme-text-muted)] truncate block">
+                      {t('downloads.tab.retro.depotCount', {
+                        count: data.depotsSet.size
+                      })}
+                    </span>
+                  </Tooltip>
                 ) : data.depotId ? (
                   <a
                     href={`https://steamdb.info/depot/${data.depotId}/`}
@@ -327,16 +338,19 @@ const RetroRow: React.FC<RetroRowProps> = memo(
               {/* Client */}
               <div className="px-2 min-w-0 overflow-hidden text-right" data-cell>
                 {data.clientsSet.size > 1 ? (
-                  <span
-                    className="retro-mono-value text-[var(--theme-text-primary)] truncate block"
-                    title={t('downloads.tab.retro.clientCount', {
+                  <Tooltip
+                    content={t('downloads.tab.retro.clientCount', {
                       count: data.clientsSet.size
                     })}
+                    position="top"
+                    className="block min-w-0"
                   >
-                    {t('downloads.tab.retro.clientCount', {
-                      count: data.clientsSet.size
-                    })}
-                  </span>
+                    <span className="retro-mono-value text-[var(--theme-text-primary)] truncate block">
+                      {t('downloads.tab.retro.clientCount', {
+                        count: data.clientsSet.size
+                      })}
+                    </span>
+                  </Tooltip>
                 ) : (
                   <span className="retro-mono-value text-[var(--theme-text-primary)] block truncate">
                     <ClientIpDisplay clientIp={data.clientIp} className="inline" />

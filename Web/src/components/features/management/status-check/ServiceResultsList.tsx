@@ -121,7 +121,7 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
                   <span className={`font-medium ${getServiceColorClass(service.service)}`}>
                     {formatServiceLabel(service.service)}
                   </span>
-                  <span className="text-themed-muted"> — {service.description}</span>
+                  <span className="text-themed-muted">: {service.description}</span>
                 </p>
               )}
               {service.status === 'disabled' ? (

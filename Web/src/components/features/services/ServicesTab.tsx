@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
+import { EmptyState } from '@components/ui/ManagerCard';
 import { CacheInfoTooltip } from '@components/ui/Tooltip';
 import { getServiceColorClass } from '@utils/serviceColors';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -23,7 +24,7 @@ const ServiceRow: React.FC<ServiceRowProps> = ({ service }) => {
   const formattedLastActivity = useFormattedDateTime(service.lastActivityUtc);
 
   return (
-    <tr className="border-t border-themed-secondary">
+    <tr className="transition-colors hover:bg-[var(--theme-bg-hover)] [&:nth-child(even)]:bg-[var(--theme-bg-tertiary-muted)] [&:nth-child(even)]:hover:bg-[var(--theme-bg-tertiary-strong)]">
       <td className={`py-3 font-medium text-sm ${getServiceColorClass(service.service)}`}>
         {service.service}
       </td>
@@ -85,8 +86,8 @@ const ServicesTab: React.FC = () => {
                 serviceStats.map((service, idx) => <ServiceRow key={idx} service={service} />)
               ) : (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-themed-muted">
-                    {t('services.empty')}
+                  <td colSpan={7}>
+                    <EmptyState title={t('services.empty')} />
                   </td>
                 </tr>
               )}

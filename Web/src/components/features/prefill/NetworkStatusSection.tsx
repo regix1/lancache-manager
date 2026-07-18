@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Card } from '../../ui/Card';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
+import { Tooltip } from '../../ui/Tooltip';
 import type { NetworkDiagnostics } from '@services/api.service';
 
 interface NetworkStatusSectionProps {
@@ -279,9 +280,9 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                       <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
                     )}
                     <Server className="h-4 w-4 text-themed-muted flex-shrink-0" />
-                    <span className="text-sm text-themed-primary break-all" title={result.domain}>
-                      {result.domain}
-                    </span>
+                    <Tooltip content={result.domain} position="top" className="flex min-w-0">
+                      <span className="text-sm text-themed-primary break-all">{result.domain}</span>
+                    </Tooltip>
                   </div>
                   {!result.success && (
                     <span className="text-xs text-[var(--theme-error)]">

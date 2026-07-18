@@ -404,4 +404,19 @@
     align-items: center;
     gap: 0.375rem;
   }
+
+  /* Canonical form field label — ONE style for every field label sitting above
+     an input (text, select, textarea, dropdown): ~11px, weight 600, uppercase,
+     muted. Promoted from .session-filter-label so form labels read as one system
+     app-wide. NOT for wrapped checkbox/toggle labels (a distinct control pattern)
+     nor for stat/readout captions (mgmt-stat__label, dash-readout-label, etc.). */
+  .form-field-label {
+    display: block;
+    font-size: var(--font-size-2xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--theme-text-muted);
+    margin-bottom: 0.375rem;
+  }
 }

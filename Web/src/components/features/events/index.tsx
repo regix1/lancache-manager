@@ -5,7 +5,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
+import { getEventColorStyles } from '@utils/eventColors';
 import EventCalendar from './EventCalendar';
 import EventModal from './EventModal';
 import EventList from './EventList';
@@ -60,9 +60,6 @@ const EventsTab: React.FC = () => {
           </div>
           <div>
             <h2 className="text-xl font-semibold text-[var(--theme-text-primary)]">Events</h2>
-            <p className="text-sm text-[var(--theme-text-secondary)]">
-              Schedule and manage LAN events. Track downloads during events.
-            </p>
           </div>
         </div>
 
@@ -108,7 +105,6 @@ const EventsTab: React.FC = () => {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-2 h-2 rounded-full bg-[var(--theme-status-success)] animate-pulse" />
                 <span className="text-sm font-medium text-[var(--theme-status-success)]">
                   {activeEvents.length} active event{activeEvents.length > 1 ? 's' : ''} in progress
                 </span>
@@ -121,10 +117,6 @@ const EventsTab: React.FC = () => {
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-sm rounded-full font-medium transition hover:scale-105"
                     style={getEventColorStyles(event.colorIndex)}
                   >
-                    <span
-                      className="w-1.5 h-1.5 rounded-full animate-pulse"
-                      style={{ backgroundColor: getEventColorVar(event.colorIndex) }}
-                    />
                     {event.name}
                   </button>
                 ))}

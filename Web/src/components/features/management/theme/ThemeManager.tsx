@@ -3,7 +3,6 @@ import {
   Palette,
   Download,
   RefreshCw,
-  Lock,
   Plus,
   Sparkles,
   Layers,
@@ -12,7 +11,8 @@ import {
   FileText,
   Settings2,
   Moon,
-  Sun
+  Sun,
+  MoreVertical
 } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 import themeService from '@services/theme.service';
@@ -29,11 +29,11 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { API_BASE } from '@utils/constants';
 import { Tooltip } from '@components/ui/Tooltip';
+import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import { ThemeCard } from './ThemeCard';
 import CreateThemeModal from '@components/modals/theme/CreateThemeModal';
 import EditThemeModal from '@components/modals/theme/EditThemeModal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useManagerLoading } from '@hooks/useManagerLoading';
 import { CommunityThemeImporter } from './CommunityThemeImporter';
 import { colorGroups } from './constants';
@@ -61,6 +61,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
   const [activeTab, setActiveTab] = useState<'themes' | 'customize'>('themes');
   const [themeActionMenu, setThemeActionMenu] = useState<string | null>(null);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
 
   const [editedTheme, setEditedTheme] = useState<EditableTheme>({
     name: '',
@@ -601,39 +602,54 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {isAdmin ? (
-              <>
-                <Tooltip content={t('management.themes.createNewTheme')} position="bottom">
-                  <Button variant="default" size="sm" onClick={openCreateModal}>
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </Tooltip>
-                <Tooltip content={t('management.themes.deleteAllCustom')} position="bottom">
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={cleanupThemes}
-                    disabled={isLoading || customThemes.length === 0}
-                  >
-                    <Sparkles className="w-4 h-4" />
-                  </Button>
-                </Tooltip>
-              </>
+              <Button variant="filled" color="blue" size="md" onClick={openCreateModal}>
+                {t('management.themes.createNewTheme')}
+              </Button>
             ) : (
               <Tooltip content={t('common.authRequired')} position="bottom">
-                <Button variant="default" size="sm" disabled>
-                  <Lock className="w-4 h-4" />
+                <Button variant="default" size="md" disabled>
+                  {t('management.themes.createNewTheme')}
                 </Button>
               </Tooltip>
             )}
-            <Tooltip content={t('management.themes.refreshThemes')} position="bottom">
-              <Button variant="default" size="sm" onClick={() => loadThemes()} disabled={isLoading}>
-                {isLoading ? (
-                  <LoadingSpinner inline size="sm" />
-                ) : (
-                  <RefreshCw className="w-4 h-4" />
-                )}
-              </Button>
-            </Tooltip>
+            <ActionMenu
+              isOpen={headerMenuOpen}
+              onClose={() => setHeaderMenuOpen(false)}
+              align="right"
+              trigger={
+                <Button
+                  variant="default"
+                  size="md"
+                  onClick={() => setHeaderMenuOpen((prev) => !prev)}
+                  aria-label={t('common.moreActions', 'More actions')}
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </Button>
+              }
+            >
+              {isAdmin && (
+                <ActionMenuItem
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    cleanupThemes();
+                  }}
+                  icon={<Sparkles className="w-4 h-4" />}
+                  disabled={isLoading || customThemes.length === 0}
+                >
+                  {t('management.themes.deleteAllCustom')}
+                </ActionMenuItem>
+              )}
+              <ActionMenuItem
+                onClick={() => {
+                  setHeaderMenuOpen(false);
+                  loadThemes();
+                }}
+                icon={<RefreshCw className="w-4 h-4" />}
+                disabled={isLoading}
+              >
+                {t('management.themes.refreshThemes')}
+              </ActionMenuItem>
+            </ActionMenu>
           </div>
         </div>
 

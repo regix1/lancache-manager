@@ -182,7 +182,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
                     ),
                     description: t(
                       'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.description',
-                      'Xbox requires a Microsoft account login to discover your game library. Sign-in uses a device code entered in your own browser — no password ever enters the server.'
+                      'Xbox requires a Microsoft account login to discover your game library. Sign-in uses a device code entered in your own browser. No password ever enters the server.'
                     )
                   },
                   {
@@ -201,7 +201,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
             <HelpNote type="info">
               {t(
                 'management.sections.integrations.xboxDaemonStatus.help.note',
-                'Sign in to enable Xbox game discovery. Docker is not required — authentication runs directly in the manager.'
+                'Sign in to enable Xbox game discovery. Docker is not required. Authentication runs directly in the manager.'
               )}
             </HelpNote>
           </HelpPopover>
@@ -252,7 +252,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
                 {isAuthenticated
                   ? t(
                       'management.sections.integrations.xboxDaemonStatus.connectedDesc',
-                      'Library synced — game detection is active.'
+                      'Library synced. Game detection is active.'
                     )
                   : t(
                       'management.sections.integrations.xboxDaemonStatus.notConnectedDesc',

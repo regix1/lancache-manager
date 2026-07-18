@@ -52,13 +52,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
       id="panel-settings"
       aria-labelledby="tab-settings"
     >
-      {/* Section Header */}
-      <div className="mb-6">
-        <p className="text-themed-secondary text-sm">
-          {t('management.sections.settings.subtitle')}
-        </p>
-      </div>
-
       <div className="space-y-4">
         {/* Authentication Card */}
         <Card>
@@ -70,9 +63,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
               <h3 className="text-lg font-semibold text-themed-primary">
                 {t('management.sections.settings.apiAuth')}
               </h3>
-              <p className="text-xs text-themed-muted">
-                {t('management.sections.settings.apiAuthDesc')}
-              </p>
             </div>
           </div>
           <AuthenticationManager onError={handleError} onSuccess={handleSuccess} />
@@ -88,9 +78,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
               <h3 className="text-lg font-semibold text-themed-primary">
                 {t('management.sections.settings.demoMode')}
               </h3>
-              <p className="text-xs text-themed-muted">
-                {t('management.sections.settings.demoModeDesc')}
-              </p>
             </div>
           </div>
           <div className="p-4 rounded-lg bg-themed-tertiary">
@@ -98,9 +85,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
               <div className="flex-1">
                 <p className="text-themed-primary text-sm font-medium">
                   {t('management.sections.settings.mockData')}
-                </p>
-                <p className="text-xs text-themed-muted mt-1">
-                  {t('management.sections.settings.mockDataDesc')}
                 </p>
               </div>
               <Button
@@ -141,9 +125,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
               <h3 className="text-lg font-semibold text-themed-primary">
                 {t('management.sections.settings.displayPreferences')}
               </h3>
-              <p className="text-xs text-themed-muted">
-                {t('management.sections.settings.displayPreferencesDesc')}
-              </p>
             </div>
           </div>
           <DisplayPreferences />
@@ -161,9 +142,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
               <h3 className="text-lg font-semibold text-themed-primary">
                 {t('management.sections.settings.performanceOptimizations')}
               </h3>
-              <p className="text-xs text-themed-muted">
-                {t('management.sections.settings.performanceOptimizationsDesc')}
-              </p>
             </div>
           </div>
           {optimizationsEnabled ? (

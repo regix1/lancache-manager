@@ -74,7 +74,6 @@ const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups }) => {
 
   return (
     <Card>
-      <p className="text-xs text-themed-muted mb-3">{t(`${keys}.testLaneDesc`)}</p>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <EnhancedDropdown
           options={options}

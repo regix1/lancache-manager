@@ -129,6 +129,38 @@
     border: 1px dotted var(--theme-waiting);
   }
 
+  /* Outline treatment — the DEFAULT for status badges emitted by the <Badge>
+   * component (error / warning / success / info). Transparent fill, status-text
+   * colour, 1px border in the status-bg tone, so dense rows of badges read as
+   * quiet outlines instead of a wall of saturated fills. The filled
+   * status-badge-* base is kept for the emphasis opt-in (<Badge emphasis>) and
+   * for raw non-component spans. The neutral count chips and the notification
+   * waiting pills are separate axes and never take this treatment. Compound
+   * selectors (.status-badge-x.badge-outline) so the override beats the fill. */
+  .status-badge-error.badge-outline {
+    background-color: transparent;
+    color: var(--theme-error-text);
+    border: 1px solid var(--theme-error-bg);
+  }
+
+  .status-badge-warning.badge-outline {
+    background-color: transparent;
+    color: var(--theme-warning-text);
+    border: 1px solid var(--theme-warning-bg);
+  }
+
+  .status-badge-success.badge-outline {
+    background-color: transparent;
+    color: var(--theme-success-text);
+    border: 1px solid var(--theme-success-bg);
+  }
+
+  .status-badge-info.badge-outline {
+    background-color: transparent;
+    color: var(--theme-info-text);
+    border: 1px solid var(--theme-info-bg);
+  }
+
   /* Numeric count indicator — THE canonical look for every count/number badge
    * across the app (nav counts, section-header counts, selection counts, etc.).
    * Square box with lightly rounded corners (inherits themed-badge's 3px radius,

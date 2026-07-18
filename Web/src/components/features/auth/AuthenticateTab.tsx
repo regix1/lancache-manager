@@ -70,7 +70,6 @@ const AuthenticateTab: React.FC = () => {
             <h1 className="text-xl sm:text-2xl font-bold text-themed-primary">
               {t('auth.header.title')}
             </h1>
-            <p className="text-xs sm:text-sm text-themed-secondary">{t('auth.header.subtitle')}</p>
           </div>
         </div>
 
@@ -79,9 +78,7 @@ const AuthenticateTab: React.FC = () => {
           <div className="p-6 space-y-6">
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2 text-themed-secondary">
-                  {t('auth.form.label')}
-                </label>
+                <label className="form-field-label">{t('auth.form.label')}</label>
                 <input
                   type="password"
                   value={apiKey}

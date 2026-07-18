@@ -140,9 +140,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
 
         {/* Authorization Code Input */}
         <div>
-          <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-            {t('initialization.epicAuth.codeLabel')}
-          </label>
+          <label className="form-field-label">{t('initialization.epicAuth.codeLabel')}</label>
           <input
             type="password"
             value={state.authorizationCode}

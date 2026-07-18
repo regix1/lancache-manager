@@ -287,7 +287,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`msd-dropdown absolute z-[250] ${dropdownWidth || ''} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_10px_20px_-5px_rgba(0,0,0,0.2),0_20px_40px_-10px_rgba(0,0,0,0.15),inset_0_1px_0_0_var(--theme-glint-white)]`}
+            className={`msd-dropdown absolute z-[250] ${dropdownWidth || ''} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2),inset_0_1px_0_0_var(--theme-glint-white)]`}
             style={{
               top: dropdownStyle.top,
               left: dropdownStyle.left,
@@ -330,7 +330,6 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
 
             {minSelections > 0 && (
               <div className="px-4 py-3 text-xs border-t border-themed-secondary flex items-center gap-2 text-themed-muted bg-themed-tertiary">
-                <div className="w-1.5 h-1.5 rounded-full bg-[var(--theme-warning)]" />
                 <span>{t('ui.multiSelect.minimumSelections', { count: minSelections })}</span>
               </div>
             )}

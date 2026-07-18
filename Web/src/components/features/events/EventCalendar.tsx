@@ -426,12 +426,11 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
         className={`grid gap-1 mb-2 rounded-lg p-2 bg-[var(--theme-bg-tertiary)] ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
       >
         {settings.showWeekNumbers && (
-          <div
-            className="text-center text-xs font-semibold py-2 text-[var(--theme-text-muted)]"
-            title={t('events.calendar.weekNumber')}
-          >
-            {t('events.calendar.weekAbbrev')}
-          </div>
+          <Tooltip content={t('events.calendar.weekNumber')} position="top" className="block">
+            <div className="text-center text-xs font-semibold py-2 text-[var(--theme-text-muted)]">
+              {t('events.calendar.weekAbbrev')}
+            </div>
+          </Tooltip>
         )}
         {weekDays.map((day) => (
           <div

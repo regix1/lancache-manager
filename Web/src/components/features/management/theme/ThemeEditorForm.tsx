@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { Layers, Layout, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import { Tooltip } from '@components/ui/Tooltip';
 import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
 import { type ColorGroup } from './types';
@@ -156,26 +157,29 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
 
       {/* Page Selector (when in page mode) */}
       <CollapsibleRegion open={organizationMode === 'page'} contentClassName="mt-4">
-        <label className="block text-sm font-medium text-themed-primary mb-2">
-          {t('modals.theme.organization.selectPage')}
-        </label>
+        <label className="form-field-label">{t('modals.theme.organization.selectPage')}</label>
         <div className="grid grid-cols-3 gap-2">
           {pageDefinitions.map((page) => {
             const Icon = page.icon;
             return (
-              <button
+              <Tooltip
                 key={page.name}
-                onClick={() => setSelectedPage(page.name)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition duration-200 flex items-center gap-2 ${
-                  selectedPage === page.name
-                    ? 'bg-primary text-themed-button'
-                    : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
-                }`}
-                title={getPageDescription(page)}
+                content={getPageDescription(page)}
+                position="top"
+                className="block"
               >
-                <Icon className="w-4 h-4" />
-                {getPageLabel(page)}
-              </button>
+                <button
+                  onClick={() => setSelectedPage(page.name)}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition duration-200 flex items-center gap-2 ${
+                    selectedPage === page.name
+                      ? 'bg-primary text-themed-button'
+                      : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {getPageLabel(page)}
+                </button>
+              </Tooltip>
             );
           })}
         </div>
@@ -268,9 +272,7 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
 
       {/* Custom CSS */}
       <div>
-        <label className="block text-sm font-medium mb-1 text-themed-secondary">
-          {t('modals.theme.form.customCss')}
-        </label>
+        <label className="form-field-label">{t('modals.theme.form.customCss')}</label>
         <textarea
           value={(themeData.customCSS as string) || ''}
           onChange={(e) => onMetaChange('customCSS', e.target.value)}

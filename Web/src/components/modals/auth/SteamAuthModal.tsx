@@ -273,7 +273,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
             !waitingForMobileConfirmation && (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-themed-secondary mb-1.5">
+                  <label className="form-field-label">
                     {t('modals.steamAuth.labels.username')}
                   </label>
                   <input
@@ -288,7 +288,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-themed-secondary mb-1.5">
+                  <label className="form-field-label">
                     {t('modals.steamAuth.labels.password')}
                   </label>
                   <input

@@ -340,9 +340,6 @@ const StatusCheckSection: React.FC = () => {
       id="panel-status-check"
       aria-labelledby="tab-status-check"
     >
-      <div className="mb-6">
-        <p className="text-themed-secondary text-sm">{t(`${keys}.subtitle`)}</p>
-      </div>
       {children}
     </div>
   );
@@ -412,7 +409,6 @@ const StatusCheckSection: React.FC = () => {
             <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
               <div>
                 <h3 className="integrations-group-label">{t(`${keys}.serverLane`)}</h3>
-                <p className="text-xs text-themed-muted">{t(`${keys}.serverLaneDesc`)}</p>
               </div>
               {lastResult && (
                 <TogglePill

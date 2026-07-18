@@ -126,9 +126,6 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
           <Palette className="w-5 h-5 text-themed-accent" />
           {t('user.guest.sections.appearanceDisplay')}
         </h3>
-        <p className="text-sm mt-1 text-themed-muted">
-          {t('user.guest.sections.appearanceDisplaySubtitle')}
-        </p>
       </div>
 
       <div className="p-4 sm:p-5 space-y-4">

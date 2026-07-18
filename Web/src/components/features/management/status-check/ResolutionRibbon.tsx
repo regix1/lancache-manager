@@ -25,7 +25,7 @@ const ResolutionRibbon: React.FC<ResolutionRibbonProps> = ({
       aria-label={t('management.sections.statusCheck.ribbonLabel')}
     >
       {segments.map((segment) => {
-        const label = `${formatServiceLabel(segment.service)} — ${t(
+        const label = `${formatServiceLabel(segment.service)}: ${t(
           `management.sections.statusCheck.segmentStatus.${segment.status}`
         )}`;
         return (

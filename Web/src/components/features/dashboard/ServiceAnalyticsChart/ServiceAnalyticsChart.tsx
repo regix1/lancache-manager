@@ -114,7 +114,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
           return scanMayBeStale
             ? t(
                 'dashboard.serviceAnalytics.descriptions.gamesStale',
-                'Scan data may be outdated — re-run Game Cache Detection for accurate sizes.'
+                'Scan data may be outdated. Re-run Game Cache Detection for accurate sizes.'
               )
             : t(
                 'dashboard.serviceAnalytics.descriptions.games',
@@ -222,7 +222,9 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             <h3>{t('dashboard.serviceAnalytics.title')}</h3>
             <p>{activeDescription}</p>
             {activeTab === 'games' && scanMayBeStale ? (
-              <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
+              <Badge variant="warning" emphasis>
+                {t('dashboard.cards.staleScanData')}
+              </Badge>
             ) : null}
           </div>
 

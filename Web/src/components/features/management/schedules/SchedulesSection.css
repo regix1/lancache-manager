@@ -560,12 +560,22 @@
     gap: 0.75rem;
     align-items: center;
     padding: 0.625rem 0.875rem;
-    border-top: 1px solid var(--theme-border-secondary);
     transition: background-color 0.15s ease;
+  }
+
+  /* Zebra striping (matches the shared DataTable striped mode). The __head is the
+     first child, so data rows are child 2 onward; stripe alternating rows toward
+     the card tone, hover one step above. No divider; the stripe separates rows. */
+  .scheduled-prefill-schedule-table__row:nth-child(even) {
+    background: var(--theme-bg-tertiary-muted);
   }
 
   .scheduled-prefill-schedule-table__row:hover {
     background: var(--theme-bg-hover);
+  }
+
+  .scheduled-prefill-schedule-table__row:nth-child(even):hover {
+    background: var(--theme-bg-tertiary-strong);
   }
 
   .scheduled-prefill-schedule-table__row:last-child {

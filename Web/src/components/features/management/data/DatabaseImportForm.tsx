@@ -111,7 +111,7 @@ export function DatabaseImportForm({
           <>
             <div className="database-import-form__field-row">
               <div className="database-import-form__field">
-                <label className="block text-sm font-medium text-themed-secondary">
+                <label className="form-field-label">
                   {t('initialization.importHistorical.host')}
                 </label>
                 <input
@@ -127,7 +127,7 @@ export function DatabaseImportForm({
                 />
               </div>
               <div className="database-import-form__field">
-                <label className="block text-sm font-medium text-themed-secondary">
+                <label className="form-field-label">
                   {t('initialization.importHistorical.port')}
                 </label>
                 <input
@@ -145,7 +145,7 @@ export function DatabaseImportForm({
             </div>
 
             <div className="database-import-form__field">
-              <label className="block text-sm font-medium text-themed-secondary">
+              <label className="form-field-label">
                 {t('initialization.importHistorical.database')}
               </label>
               <input
@@ -163,7 +163,7 @@ export function DatabaseImportForm({
 
             <div className="database-import-form__field-row">
               <div className="database-import-form__field">
-                <label className="block text-sm font-medium text-themed-secondary">
+                <label className="form-field-label">
                   {t('initialization.importHistorical.username')}
                 </label>
                 <input
@@ -179,7 +179,7 @@ export function DatabaseImportForm({
                 />
               </div>
               <div className="database-import-form__field">
-                <label className="block text-sm font-medium text-themed-secondary">
+                <label className="form-field-label">
                   {t('initialization.importHistorical.password')}
                 </label>
                 <input
@@ -200,7 +200,7 @@ export function DatabaseImportForm({
 
         {showRawConnectionString && (
           <div className="database-import-form__field">
-            <label className="block text-sm font-medium text-themed-secondary">
+            <label className="form-field-label">
               {t('initialization.importHistorical.connectionString')}
             </label>
             <input

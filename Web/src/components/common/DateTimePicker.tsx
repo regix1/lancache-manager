@@ -445,7 +445,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
                   setShowMonthDropdown(false);
                   setShowYearDropdown(false);
                 }}
-                className="px-3 py-1.5 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg border border-[var(--theme-border-primary)] hover:border-[var(--theme-primary)] transition-colors min-w-[60px] text-center"
+                className="px-3 py-1.5 text-sm bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg border border-[var(--theme-border-primary)] hover:border-[var(--theme-primary)] transition-colors min-w-[60px] text-center"
               >
                 {displayHour.toString().padStart(2, '0')}
               </button>
@@ -501,7 +501,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
                   setShowMonthDropdown(false);
                   setShowYearDropdown(false);
                 }}
-                className="px-3 py-1.5 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg border border-[var(--theme-border-primary)] hover:border-[var(--theme-primary)] transition-colors min-w-[60px] text-center"
+                className="px-3 py-1.5 text-sm bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg border border-[var(--theme-border-primary)] hover:border-[var(--theme-primary)] transition-colors min-w-[60px] text-center"
               >
                 {minutes.toString().padStart(2, '0')}
               </button>

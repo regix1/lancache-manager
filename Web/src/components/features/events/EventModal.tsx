@@ -212,9 +212,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-              {t('events.modal.labels.name')} *
-            </label>
+            <label className="form-field-label">{t('events.modal.labels.name')} *</label>
             <input
               type="text"
               value={name}
@@ -227,9 +225,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-              {t('events.modal.labels.description')}
-            </label>
+            <label className="form-field-label">{t('events.modal.labels.description')}</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -242,9 +238,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
           {/* Date/Time */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-                {t('events.modal.labels.startDateTime')} *
-              </label>
+              <label className="form-field-label">{t('events.modal.labels.startDateTime')} *</label>
               <button
                 type="button"
                 onClick={() => setShowStartPicker(true)}
@@ -257,9 +251,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
               </button>
             </div>
             <div>
-              <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-                {t('events.modal.labels.endDateTime')} *
-              </label>
+              <label className="form-field-label">{t('events.modal.labels.endDateTime')} *</label>
               <button
                 type="button"
                 onClick={() => setShowEndPicker(true)}
@@ -275,9 +267,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
           {/* Color */}
           <div>
-            <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-2">
-              {t('events.modal.labels.color')}
-            </label>
+            <label className="form-field-label">{t('events.modal.labels.color')}</label>
             <div className="flex flex-wrap gap-2">
               {COLOR_INDEXES.map((idx) => {
                 const isSelected = colorIndex === idx;

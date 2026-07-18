@@ -14,6 +14,7 @@ import { buildSeededRunningNotification } from '@contexts/notifications/seedOper
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import { Tooltip } from '@components/ui/Tooltip';
 import { showPermissionBlock } from '@utils/permissionUi';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
@@ -593,9 +594,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 <div key={ds.name} className="flex items-center gap-2 text-xs">
                   <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
                   <span className="font-medium text-themed-primary">{ds.name}:</span>
-                  <code className="text-themed-secondary truncate" title={ds.cachePath}>
-                    {ds.cachePath}
-                  </code>
+                  <Tooltip content={ds.cachePath} position="top" className="flex min-w-0">
+                    <code className="text-themed-secondary truncate">{ds.cachePath}</code>
+                  </Tooltip>
                 </div>
               ))}
             </div>

@@ -5,6 +5,7 @@ import {
   Play,
   StopCircle,
   Ban,
+  MoreVertical,
   Shield,
   AlertTriangle,
   Clock,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
+import { ActionMenu, ActionMenuDangerItem } from '@components/ui/ActionMenu';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -276,6 +278,7 @@ const SessionCard: React.FC<{
   onHistoryPageChange
 }) => {
   const { t } = useTranslation();
+  const [menuOpen, setMenuOpen] = useState(false);
   const historyPageSize = 5;
 
   // Normalize session data between DaemonSessionDto and PrefillSessionDto
@@ -463,43 +466,48 @@ const SessionCard: React.FC<{
           <div className="prefill-session-actions">
             {/* Action buttons — destructive actions first, expand/collapse chevron last (far right) */}
             <div className="prefill-action-buttons">
-              {isAdmin && isLive && (
-                <>
+              {isAdmin && isLive && (onBan || onTerminate) && (
+                <ActionMenu
+                  isOpen={menuOpen}
+                  onClose={() => setMenuOpen(false)}
+                  align="right"
+                  trigger={
+                    <Button
+                      variant="filled"
+                      color="gray"
+                      size="md"
+                      onClick={() => setMenuOpen((prev) => !prev)}
+                      aria-label={t('common.moreActions', 'More actions')}
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
+                  }
+                >
                   {onBan && (
-                    <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
-                      <Button
-                        variant="filled"
-                        size="md"
-                        color="red"
-                        onClick={onBan}
-                        disabled={isBanning}
-                      >
-                        {isBanning ? (
-                          <LoadingSpinner inline size="sm" />
-                        ) : (
-                          <Ban className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </Tooltip>
+                    <ActionMenuDangerItem
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onBan();
+                      }}
+                      icon={<Ban className="w-4 h-4" />}
+                      disabled={isBanning}
+                    >
+                      {t('management.prefillSessions.tooltips.banUser')}
+                    </ActionMenuDangerItem>
                   )}
                   {onTerminate && (
-                    <Tooltip content={t('management.prefillSessions.tooltips.terminateSession')}>
-                      <Button
-                        variant="filled"
-                        size="md"
-                        color="red"
-                        onClick={onTerminate}
-                        disabled={isTerminating}
-                      >
-                        {isTerminating ? (
-                          <LoadingSpinner inline size="sm" />
-                        ) : (
-                          <StopCircle className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </Tooltip>
+                    <ActionMenuDangerItem
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onTerminate();
+                      }}
+                      icon={<StopCircle className="w-4 h-4" />}
+                      disabled={isTerminating}
+                    >
+                      {t('management.prefillSessions.tooltips.terminateSession')}
+                    </ActionMenuDangerItem>
                   )}
-                </>
+                </ActionMenu>
               )}
 
               <Button

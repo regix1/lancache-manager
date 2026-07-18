@@ -110,9 +110,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
 
         {/* API Key Input */}
         <div>
-          <label className="block text-sm font-medium text-themed-secondary mb-2">
-            {t('modals.steamWebApi.labels.apiKey')}
-          </label>
+          <label className="form-field-label">{t('modals.steamWebApi.labels.apiKey')}</label>
           <input
             type="password"
             value={apiKey}

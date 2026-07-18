@@ -4,6 +4,7 @@ import { Shield } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
@@ -128,9 +129,6 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
           <Shield className="w-5 h-5 text-themed-accent" />
           {t('user.guest.sections.accessSecurity')}
         </h3>
-        <p className="text-sm mt-1 text-themed-muted">
-          {t('user.guest.sections.accessSecuritySubtitle')}
-        </p>
       </div>
 
       <div className="p-4 sm:p-5">
@@ -146,19 +144,36 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
                 <LoadingSpinner inline size="sm" />
               ) : (
                 <>
-                  <span className="user-settings-dropdown" title={dropdownTitle}>
-                    <EnhancedDropdown
-                      options={durationOptions}
-                      value={state.durationHours.toString()}
-                      onChange={handleDurationChange}
-                      disabled={dropdownDisabled}
-                      size="md"
-                      className="w-40"
-                    />
-                    {isSaving && (
-                      <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
-                    )}
-                  </span>
+                  {(() => {
+                    const durationControl = (
+                      <span className="user-settings-dropdown">
+                        <EnhancedDropdown
+                          options={durationOptions}
+                          value={state.durationHours.toString()}
+                          onChange={handleDurationChange}
+                          disabled={dropdownDisabled}
+                          size="md"
+                          className="w-40"
+                        />
+                        {isSaving && (
+                          <LoadingSpinner
+                            inline
+                            size="sm"
+                            className="user-settings-inline-spinner"
+                          />
+                        )}
+                      </span>
+                    );
+                    // Wrap in a Tooltip only when there is an explanatory title
+                    // (non-admins); an empty title would render a blank hover box.
+                    return dropdownTitle ? (
+                      <Tooltip content={dropdownTitle} position="top">
+                        {durationControl}
+                      </Tooltip>
+                    ) : (
+                      durationControl
+                    );
+                  })()}
                   {isAdmin && (
                     <Button
                       variant="filled"

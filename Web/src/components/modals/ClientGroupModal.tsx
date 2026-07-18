@@ -194,10 +194,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
         {/* Nickname */}
         <div>
-          <label
-            htmlFor="nickname"
-            className="block text-sm font-medium text-themed-secondary mb-1"
-          >
+          <label htmlFor="nickname" className="form-field-label">
             {t('modals.clientGroup.labels.nickname')} <span className="text-themed-error">*</span>
           </label>
           <input
@@ -214,10 +211,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
         {/* Description */}
         <div>
-          <label
-            htmlFor="description"
-            className="block text-sm font-medium text-themed-secondary mb-1"
-          >
+          <label htmlFor="description" className="form-field-label">
             {t('modals.clientGroup.labels.description')}{' '}
             <span className="text-themed-muted">({t('modals.clientGroup.labels.optional')})</span>
           </label>
@@ -234,7 +228,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
         {/* Current members (edit mode) */}
         {isEditing && (
           <div>
-            <label className="block text-sm font-medium text-themed-secondary mb-2">
+            <label className="form-field-label">
               {t('modals.clientGroup.labels.currentIps')}{' '}
               <span className="themed-badge status-badge-neutral badge-count">
                 {group.memberIps.length}
@@ -255,7 +249,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
         {/* IP selection */}
         <div>
-          <label className="block text-sm font-medium text-themed-secondary mb-2">
+          <label className="form-field-label">
             {isEditing ? (
               <>
                 {t('modals.clientGroup.labels.ipsToAdd')}{' '}

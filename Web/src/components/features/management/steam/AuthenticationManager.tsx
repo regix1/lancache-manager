@@ -379,9 +379,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
           </p>
 
           <div>
-            <label className="block text-sm font-medium text-themed-secondary mb-2">
-              {t('management.auth.modal.apiKeyLabel')}
-            </label>
+            <label className="form-field-label">{t('management.auth.modal.apiKeyLabel')}</label>
             <input
               type="password"
               value={apiKey}

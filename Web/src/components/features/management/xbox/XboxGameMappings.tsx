@@ -4,6 +4,7 @@ import { Gamepad2, Search } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { Alert } from '@components/ui/Alert';
+import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
@@ -126,12 +127,11 @@ const XboxGameMappings: React.FC = () => {
         minWidth: 140,
         flexible: true,
         render: (mapping: XboxGameMappingDto) => (
-          <span
-            className="block truncate text-xs font-medium text-themed-primary"
-            title={mapping.title}
-          >
-            {mapping.title}
-          </span>
+          <Tooltip content={mapping.title} position="top" className="block min-w-0">
+            <span className="block truncate text-xs font-medium text-themed-primary">
+              {mapping.title}
+            </span>
+          </Tooltip>
         )
       },
       {
@@ -140,12 +140,11 @@ const XboxGameMappings: React.FC = () => {
         defaultWidth: 200,
         minWidth: 100,
         render: (mapping: XboxGameMappingDto) => (
-          <span
-            className="block truncate font-mono text-xs text-themed-secondary"
-            title={mapping.productId}
-          >
-            {mapping.productId}
-          </span>
+          <Tooltip content={mapping.productId} position="top" className="block min-w-0">
+            <span className="block truncate font-mono text-xs text-themed-secondary">
+              {mapping.productId}
+            </span>
+          </Tooltip>
         )
       },
       {
@@ -230,6 +229,7 @@ const XboxGameMappings: React.FC = () => {
                 maxHeight="400px"
                 accentColor={() => 'var(--theme-xbox)'}
                 resizable
+                striped
                 storageKey="xbox-game-mappings-column-widths-v1"
                 compact
               />

@@ -63,7 +63,7 @@
     font-family: inherit;
     margin: 0;
     text-align: left;
-    background-color: var(--theme-bg-primary);
+    background-color: var(--theme-bg-tertiary);
     padding: 1rem;
     border-radius: 0.25rem;
     border: 1px solid var(--theme-border-primary);

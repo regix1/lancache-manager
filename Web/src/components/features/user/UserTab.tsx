@@ -226,7 +226,6 @@ const UserTab: React.FC = () => {
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-themed-primary">
             {t('user.title')}
           </h1>
-          <p className="text-sm text-themed-muted">{t('user.subtitle')}</p>
         </div>
       </div>
 

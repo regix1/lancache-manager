@@ -56,9 +56,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
           </h4>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1 text-themed-secondary">
-                {t('modals.theme.form.themeName')}
-              </label>
+              <label className="form-field-label">{t('modals.theme.form.themeName')}</label>
               <input
                 type="text"
                 value={newTheme.name}
@@ -68,9 +66,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1 text-themed-secondary">
-                {t('modals.theme.form.author')}
-              </label>
+              <label className="form-field-label">{t('modals.theme.form.author')}</label>
               <input
                 type="text"
                 value={newTheme.author}
@@ -81,9 +77,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1 text-themed-secondary">
-              {t('modals.theme.form.description')}
-            </label>
+            <label className="form-field-label">{t('modals.theme.form.description')}</label>
             <input
               type="text"
               value={newTheme.description}

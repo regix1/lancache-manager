@@ -1085,7 +1085,6 @@ function ServicePrefillPanel({
                       ? t('prefill.titleXbox')
                       : t('prefill.title')}
             </h1>
-            <p className="text-sm text-themed-muted">{t('prefill.subtitle')}</p>
           </div>
         </div>
 
@@ -1253,7 +1252,6 @@ function ServicePrefillPanel({
                 <h3 className="text-base font-semibold text-themed-primary">
                   {t('prefill.activityLog.title')}
                 </h3>
-                <p className="text-xs text-themed-muted">{t('prefill.activityLog.subtitle')}</p>
               </div>
             </div>
             <CardContent className="p-0">

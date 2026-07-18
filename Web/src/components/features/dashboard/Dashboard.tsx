@@ -607,7 +607,9 @@ const Dashboard: React.FC = () => {
           .filter(Boolean)
           .join(' • '),
         badge: cacheInfo?.scanMayBeStale ? (
-          <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
+          <Badge variant="warning" emphasis>
+            {t('dashboard.cards.staleScanData')}
+          </Badge>
         ) : undefined,
         icon: Files,
         color: 'teal' as const,
@@ -635,10 +637,12 @@ const Dashboard: React.FC = () => {
           cacheInfo?.scanMayBeStale || gamesOnDiskStats?.includesEvicted ? (
             <>
               {cacheInfo?.scanMayBeStale ? (
-                <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
+                <Badge variant="warning" emphasis>
+                  {t('dashboard.cards.staleScanData')}
+                </Badge>
               ) : null}
               {gamesOnDiskStats?.includesEvicted ? (
-                <Badge variant="warning">
+                <Badge variant="warning" emphasis>
                   {t('dashboard.cards.evictedIncluded', { count: gamesOnDiskStats.evictedCount })}
                 </Badge>
               ) : null}
@@ -897,14 +901,19 @@ const Dashboard: React.FC = () => {
                 <Trans i18nKey="dashboard.dragHint" components={{ strong: <strong /> }} />
               </span>
             </div>
-            <button
-              onClick={hideDragHint}
-              className="ml-2 p-1 themed-border-radius hover:bg-themed-hover transition-colors flex-shrink-0 text-themed-muted"
-              title={t('dashboard.hideThisHint')}
-              aria-label={t('dashboard.hideThisHint')}
+            <Tooltip
+              content={t('dashboard.hideThisHint')}
+              position="top"
+              className="inline-flex flex-shrink-0"
             >
-              <X className="w-4 h-4" />
-            </button>
+              <button
+                onClick={hideDragHint}
+                className="ml-2 p-1 themed-border-radius hover:bg-themed-hover transition-colors flex-shrink-0 text-themed-muted"
+                aria-label={t('dashboard.hideThisHint')}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </Tooltip>
           </div>
         </div>
       )}

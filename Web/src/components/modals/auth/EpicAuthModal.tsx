@@ -186,7 +186,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
 
               {/* Code Input */}
               <div>
-                <label className="block text-sm font-medium text-themed-secondary mb-1.5">
+                <label className="form-field-label">
                   {t('modals.epicAuth.authorizationCodeLabel')}
                 </label>
                 <input

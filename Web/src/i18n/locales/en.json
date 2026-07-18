@@ -210,7 +210,7 @@
       "forceKillOperationFailed": "Failed to force kill operation",
       "cancelling": "Cancelling...",
       "operationWaiting": "Waiting for another process to complete...",
-      "operationWaitingNamed": "{{name}} — waiting for another process to complete...",
+      "operationWaitingNamed": "{{name}}: waiting for another process to complete...",
       "operationWaitingCancelled": "Cancelled while waiting in queue",
       "willQueueBehindCurrent": "Will start after the current operation finishes",
       "corruptedChunksRemoved": "Suspect cache files successfully removed",
@@ -553,7 +553,7 @@
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
-        "description": "Size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once using actual file sizes computed when the scan completes. Service-level cache (Windows Update, etc.) and unidentified cache files are not included here — they appear in the unmapped cache portion when a cache file scan is available."
+        "description": "Size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once using actual file sizes computed when the scan completes. Service-level cache (Windows Update, etc.) and unidentified cache files are not included here. They appear in the unmapped cache portion when a cache file scan is available."
       },
       "unmappedCache": "{{size}} unmapped cache"
     },
@@ -670,7 +670,7 @@
         "bandwidth": "Bandwidth your cache saved per service. Larger slices = services most often served from cache instead of the internet.",
         "misses": "Data each service downloaded fresh from the internet. Larger slices = services with more new content. First-time downloads are normal.",
         "games": "Review detected game installs and their on-disk footprint.",
-        "gamesStale": "Scan data may be outdated — re-run Game Cache Detection for accurate sizes."
+        "gamesStale": "Scan data may be outdated. Re-run Game Cache Detection for accurate sizes."
       },
       "footer": {
         "totalData": "Total Data",
@@ -2276,8 +2276,8 @@
           "source": "Discovery Method",
           "image": "",
           "imageUrl": "Cover Art",
-          "gamesInLibrary_one": "{{count}} game in library — collected from connected accounts, user prefill sessions, and the free-games catalog",
-          "gamesInLibrary_other": "{{count}} games in library — collected from connected accounts, user prefill sessions, and the free-games catalog",
+          "gamesInLibrary_one": "{{count}} game in library, collected from connected accounts, user prefill sessions, and the free-games catalog",
+          "gamesInLibrary_other": "{{count}} games in library, collected from connected accounts, user prefill sessions, and the free-games catalog",
           "noResults": "No games match your search",
           "never": "Never",
           "sourceDescriptions": {
@@ -2301,8 +2301,8 @@
           "name": "Game",
           "discovered": "First Seen",
           "lastSeen": "Last Seen",
-          "gamesInLibrary_one": "{{count}} game in library — collected from connected accounts and user prefill sessions",
-          "gamesInLibrary_other": "{{count}} games in library — collected from connected accounts and user prefill sessions",
+          "gamesInLibrary_one": "{{count}} game in library, collected from connected accounts and user prefill sessions",
+          "gamesInLibrary_other": "{{count}} games in library, collected from connected accounts and user prefill sessions",
           "noResults": "No games match your search"
         }
       },
@@ -3390,6 +3390,7 @@
       "scrapeIntervalRate": "Prometheus Scrape Interval",
       "scrapeIntervalRateDesc": "How often Prometheus pulls data from the /metrics endpoint",
       "scrapeIntervalRateFooter": "Set this in your prometheus.yml scrape_interval",
+      "pollingRates": "Refresh and scrape rates",
       "prometheusConfig": "Prometheus Configuration",
       "prometheusConfigSecured": "Authentication required - include authorization header",
       "prometheusConfigPublic": "Public access - no authentication needed",
@@ -3904,7 +3905,7 @@
       },
       "description": {
         "authenticated": "Management features enabled",
-        "disabled": "Authentication disabled via Security:EnableAuthentication — all access granted, no login required",
+        "disabled": "Authentication disabled via Security:EnableAuthentication. All access granted, no login required",
         "guest": "View-only access active",
         "expired": "Authentication required to continue",
         "requiresKeyOrGuest": "Management features require API key or guest access",
@@ -4012,7 +4013,7 @@
       "labels": {
         "unauthorizedAccount": "Unauthorized Steam account",
         "notLoggedInSession": "Not logged in session",
-        "anonymousAccount": "Battle.net — no login required",
+        "anonymousAccount": "Battle.net, no login required",
         "persistentContainer": "Persistent container",
         "persistentBadge": "Persistent",
         "loading": "Loading...",
@@ -6892,7 +6893,7 @@
       },
       "complete": {
         "default": "Detection complete",
-        "newGames": "Incremental scan complete — {{newGamesCount}} new game(s) found ({{totalGamesDetected}} total on disk)",
+        "newGames": "Incremental scan complete. {{newGamesCount}} new game(s) found ({{totalGamesDetected}} total on disk)",
         "noNewGames": "No new games detected ({{totalGamesDetected}} total with cache files)",
         "full": "Detected {{totalGamesDetected}} games with cache files"
       },
@@ -6957,7 +6958,7 @@
       },
       "logs": {
         "removing": "Removing log entries",
-        "fileProgress": "Removing log entries — file {{n}} of {{total}}"
+        "fileProgress": "Removing log entries, file {{n}} of {{total}}"
       }
     },
     "logProcessing": {
@@ -6990,7 +6991,7 @@
       "progressWithCount": "Removing {{service}} entries ({{linesRemoved}} removed)...",
       "removing": "Removing {{service}} entries from logs...",
       "complete": "Removed {{service}} entries from logs.",
-      "completeNoFiles": "No matching log entries found — nothing to remove",
+      "completeNoFiles": "No matching log entries found, nothing to remove",
       "starting": {
         "default": "Starting removal of {{service}} entries from logs...",
         "multi": "Starting removal of {{service}} entries from {{datasourceCount}} datasource(s)...",

@@ -292,9 +292,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           {/* API Key Form */}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-themed-primary mb-2">
-                {t('modals.auth.labels.apiKey')}
-              </label>
+              <label className="form-field-label">{t('modals.auth.labels.apiKey')}</label>
               <input
                 type="text"
                 value={apiKey}

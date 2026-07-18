@@ -193,7 +193,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
 
       {/* Username Input */}
       <div>
-        <label className="block text-sm font-medium text-themed-secondary mb-1.5">Username</label>
+        <label className="form-field-label">Username</label>
         <input
           type="text"
           value={form.username}
@@ -208,7 +208,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
 
       {/* Password Input */}
       <div>
-        <label className="block text-sm font-medium text-themed-secondary mb-1.5">Password</label>
+        <label className="form-field-label">Password</label>
         <div className="relative">
           <input
             type={showPassword ? 'text' : 'password'}
@@ -263,9 +263,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
 
       {/* Confirm Password Input */}
       <div>
-        <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-          Confirm Password
-        </label>
+        <label className="form-field-label">Confirm Password</label>
         <div className="relative">
           <input
             type={showConfirmPassword ? 'text' : 'password'}

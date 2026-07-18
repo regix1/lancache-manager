@@ -268,11 +268,6 @@ const DataSection: React.FC<DataSectionProps> = ({
       id="panel-data"
       aria-labelledby="tab-data"
     >
-      {/* Section Header */}
-      <div className="mb-6">
-        <p className="text-themed-secondary text-sm">{t('management.sections.data.subtitle')}</p>
-      </div>
-
       {/* Subsection: Data Import */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">

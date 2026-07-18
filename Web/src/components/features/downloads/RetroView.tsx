@@ -780,7 +780,7 @@ const RetroView = memo(
           <div ref={fadeContainerRef} className="page-content-transition relative z-0">
             <div
               ref={containerRef}
-              className="rounded-lg border border-[var(--theme-border-primary)] overflow-x-auto retro-table-container bg-[var(--theme-card-bg)]"
+              className="rounded-lg border border-[var(--theme-border-primary)] overflow-x-auto overflow-y-hidden retro-table-container bg-[var(--theme-card-bg)]"
               style={{ '--retro-grid-cols': gridTemplate } as React.CSSProperties}
             >
               <div>

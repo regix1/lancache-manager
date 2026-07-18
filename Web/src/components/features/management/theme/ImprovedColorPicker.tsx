@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { HexColorPicker, HexColorInput } from 'react-colorful';
 import { Percent, Copy, Check, RotateCcw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Tooltip } from '@components/ui/Tooltip';
 
 interface ImprovedColorPickerProps {
   value: string;
@@ -173,7 +174,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
     <div className="grid grid-cols-[1fr_auto] gap-4 items-start">
       {/* Label and description */}
       <div>
-        {label && <label className="block text-sm font-medium text-themed-primary">{label}</label>}
+        {label && <label className="form-field-label">{label}</label>}
         {description && <p className="text-xs text-themed-muted">{description}</p>}
         {affects.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
@@ -193,14 +194,15 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
       <div className="flex items-center gap-2">
         {/* Color preview button */}
         <div className="relative">
-          <button
-            ref={buttonRef}
-            type="button"
-            onClick={handlePickerToggle}
-            className="w-12 h-8 rounded border-2 cursor-pointer transition hover:scale-105 border-themed-secondary"
-            style={{ backgroundColor: value }}
-            title={t('modals.theme.colorPicker.pickColor')}
-          />
+          <Tooltip content={t('modals.theme.colorPicker.pickColor')} position="top">
+            <button
+              ref={buttonRef}
+              type="button"
+              onClick={handlePickerToggle}
+              className="w-12 h-8 rounded border-2 cursor-pointer transition hover:scale-105 border-themed-secondary"
+              style={{ backgroundColor: value }}
+            />
+          </Tooltip>
 
           {/* Color picker popover - rendered via portal */}
           {showPicker &&
@@ -237,15 +239,20 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
                   {supportsAlpha && (
                     <div className="flex items-center gap-2">
                       <Percent className="w-3 h-3 text-themed-muted" />
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={Math.round(alpha * 100)}
-                        onChange={(e) => handleAlphaChange(parseInt(e.target.value) / 100)}
-                        className="flex-1"
-                        title={`${t('modals.theme.colorPicker.opacity')} ${Math.round(alpha * 100)}%`}
-                      />
+                      <Tooltip
+                        content={`${t('modals.theme.colorPicker.opacity')} ${Math.round(alpha * 100)}%`}
+                        position="top"
+                        className="flex flex-1"
+                      >
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={Math.round(alpha * 100)}
+                          onChange={(e) => handleAlphaChange(parseInt(e.target.value) / 100)}
+                          className="flex-1"
+                        />
+                      </Tooltip>
                       <span className="text-xs text-themed-muted w-10 text-right">
                         {Math.round(alpha * 100)}%
                       </span>
@@ -269,35 +276,40 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
 
         {/* Action buttons */}
         {onCopy && (
-          <button
-            type="button"
-            onClick={() => onCopy(value)}
-            className="p-[10px] rounded-lg hover:bg-opacity-50 bg-themed-hover"
-            title={t('modals.theme.colorPicker.copyColor')}
-          >
-            {copiedColor === value ? (
-              <Check className="w-3 h-3 icon-success" />
-            ) : (
-              <Copy className="w-3 h-3 text-themed-muted" />
-            )}
-          </button>
+          <Tooltip content={t('modals.theme.colorPicker.copyColor')} position="top">
+            <button
+              type="button"
+              onClick={() => onCopy(value)}
+              className="p-[10px] rounded-lg hover:bg-opacity-50 bg-themed-hover"
+            >
+              {copiedColor === value ? (
+                <Check className="w-3 h-3 icon-success" />
+              ) : (
+                <Copy className="w-3 h-3 text-themed-muted" />
+              )}
+            </button>
+          </Tooltip>
         )}
 
         {/* Restore button - always visible */}
         {onRestore && (
-          <button
-            type="button"
-            onClick={onRestore}
-            disabled={!hasHistory}
-            className="p-[10px] rounded-lg hover:bg-opacity-50 bg-themed-hover disabled:opacity-30 disabled:cursor-not-allowed transition-none"
-            title={
+          <Tooltip
+            content={
               hasHistory
                 ? t('modals.theme.colorPicker.restorePrevious')
                 : t('modals.theme.colorPicker.noHistory')
             }
+            position="top"
           >
-            <RotateCcw className="w-3 h-3 text-themed-muted" />
-          </button>
+            <button
+              type="button"
+              onClick={onRestore}
+              disabled={!hasHistory}
+              className="p-[10px] rounded-lg hover:bg-opacity-50 bg-themed-hover disabled:opacity-30 disabled:cursor-not-allowed transition-none"
+            >
+              <RotateCcw className="w-3 h-3 text-themed-muted" />
+            </button>
+          </Tooltip>
         )}
       </div>
     </div>

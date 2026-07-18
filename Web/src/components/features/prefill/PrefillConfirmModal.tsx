@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
+import { Tooltip } from '../../ui/Tooltip';
 import { AlertCircle } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type CommandType, formatBytes } from './types';
@@ -87,37 +88,52 @@ export function PrefillConfirmModal({
                       {t('prefill.confirm.breakdown', { count: estimatedSize.apps.length })}:
                     </div>
                     <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {estimatedSize.apps.map((app) => (
-                        <div
-                          key={app.appId}
-                          className={`flex items-center justify-between text-xs ${
-                            app.isUnsupportedOs ? 'opacity-50' : ''
-                          }`}
-                        >
-                          <span
-                            className={`truncate mr-2 max-w-[200px] ${
-                              app.isUnsupportedOs
-                                ? 'text-themed-muted line-through'
-                                : 'text-themed-secondary'
-                            }`}
-                            title={app.unavailableReason || app.name}
-                          >
-                            {app.name}
-                          </span>
+                      {estimatedSize.apps.map((app) => {
+                        const sizeSpan = (
                           <span
                             className={`whitespace-nowrap ${
                               app.isUnsupportedOs
                                 ? 'text-[var(--theme-warning)]'
                                 : 'text-themed-muted'
                             }`}
-                            title={app.unavailableReason}
                           >
                             {app.isUnsupportedOs
                               ? app.unavailableReason || t('prefill.confirm.unsupportedOs')
                               : formatBytes(app.downloadSize)}
                           </span>
-                        </div>
-                      ))}
+                        );
+                        return (
+                          <div
+                            key={app.appId}
+                            className={`flex items-center justify-between text-xs ${
+                              app.isUnsupportedOs ? 'opacity-50' : ''
+                            }`}
+                          >
+                            <Tooltip
+                              content={app.unavailableReason || app.name}
+                              position="top"
+                              className="flex min-w-0"
+                            >
+                              <span
+                                className={`truncate mr-2 max-w-[200px] ${
+                                  app.isUnsupportedOs
+                                    ? 'text-themed-muted line-through'
+                                    : 'text-themed-secondary'
+                                }`}
+                              >
+                                {app.name}
+                              </span>
+                            </Tooltip>
+                            {app.unavailableReason ? (
+                              <Tooltip content={app.unavailableReason} position="top">
+                                {sizeSpan}
+                              </Tooltip>
+                            ) : (
+                              sizeSpan
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

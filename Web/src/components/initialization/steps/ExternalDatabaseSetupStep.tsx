@@ -156,7 +156,7 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="sm:col-span-2">
-          <label className="block text-xs font-medium text-themed-secondary mb-1">
+          <label className="form-field-label">
             {t('initialization.externalDb.fields.host', 'Host')}
           </label>
           <input
@@ -170,7 +170,7 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
           {errors.host && <p className="text-xs text-themed-error mt-1">{errors.host}</p>}
         </div>
         <div>
-          <label className="block text-xs font-medium text-themed-secondary mb-1">
+          <label className="form-field-label">
             {t('initialization.externalDb.fields.port', 'Port')}
           </label>
           <input
@@ -187,7 +187,7 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-themed-secondary mb-1">
+        <label className="form-field-label">
           {t('initialization.externalDb.fields.database', 'Database')}
         </label>
         <input
@@ -202,7 +202,7 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-themed-secondary mb-1">
+        <label className="form-field-label">
           {t('initialization.externalDb.fields.username', 'Username')}
         </label>
         <input
@@ -217,7 +217,7 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-themed-secondary mb-1">
+        <label className="form-field-label">
           {t('initialization.externalDb.fields.password', 'Password')}
         </label>
         <div className="relative">

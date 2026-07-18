@@ -13,6 +13,7 @@ import {
   CalendarRange
 } from 'lucide-react';
 import { useCalendarSettings } from '@contexts/useCalendarSettings';
+import { Tooltip } from '@components/ui/Tooltip';
 import type {
   WeekStartDay,
   EventOpacity,
@@ -233,20 +234,21 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
 
   return (
     <>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="rounded-md border w-8 h-8 flex items-center justify-center"
-        title={t('events.calendar.settings.title')}
-        style={{
-          backgroundColor: isOpen ? 'var(--theme-primary-subtle)' : 'transparent',
-          borderColor: isOpen ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
-          color: isOpen ? 'var(--theme-primary)' : 'var(--theme-text-secondary)'
-        }}
-      >
-        <Settings className="w-4 h-4" />
-      </button>
+      <Tooltip content={t('events.calendar.settings.title')} position="top">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="rounded-md border w-8 h-8 flex items-center justify-center"
+          style={{
+            backgroundColor: isOpen ? 'var(--theme-primary-subtle)' : 'transparent',
+            borderColor: isOpen ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
+            color: isOpen ? 'var(--theme-primary)' : 'var(--theme-text-secondary)'
+          }}
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+      </Tooltip>
 
       {isOpen &&
         popoverPos &&
@@ -273,19 +275,20 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                   {t('events.calendar.settings.title')}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  resetSettings();
-                }}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)] text-[var(--theme-text-muted)]"
-                title={t('events.calendar.settings.resetToDefaults')}
-              >
-                <RotateCcw className="w-3 h-3" />
-                {t('events.calendar.settings.reset')}
-              </button>
+              <Tooltip content={t('events.calendar.settings.resetToDefaults')} position="top">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    resetSettings();
+                  }}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)] text-[var(--theme-text-muted)]"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  {t('events.calendar.settings.reset')}
+                </button>
+              </Tooltip>
             </div>
 
             {/* Settings */}

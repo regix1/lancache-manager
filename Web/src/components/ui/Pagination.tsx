@@ -320,35 +320,37 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
 
           {/* Navigation */}
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-              onPointerDown={handlePrevPointerDown}
-              onPointerUp={resolvedHoldEnd}
-              onPointerCancel={resolvedHoldEnd}
-              onLostPointerCapture={resolvedLostCapture}
-              disabled={prevDisabled}
-              className="p-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
-              title={prevTitle}
-            >
-              <ChevronLeft size={14} />
-            </button>
+            <Tooltip content={prevTitle} position="top">
+              <button
+                onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                onPointerDown={handlePrevPointerDown}
+                onPointerUp={resolvedHoldEnd}
+                onPointerCancel={resolvedHoldEnd}
+                onLostPointerCapture={resolvedLostCapture}
+                disabled={prevDisabled}
+                className="p-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
+              >
+                <ChevronLeft size={14} />
+              </button>
+            </Tooltip>
 
             <span className="text-xs font-medium px-2 tabular-nums text-themed-primary">
               {currentPage}/{totalPages}
             </span>
 
-            <button
-              onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-              onPointerDown={handleNextPointerDown}
-              onPointerUp={resolvedHoldEnd}
-              onPointerCancel={resolvedHoldEnd}
-              onLostPointerCapture={resolvedLostCapture}
-              disabled={nextDisabled}
-              className="p-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
-              title={nextTitle}
-            >
-              <ChevronRight size={14} />
-            </button>
+            <Tooltip content={nextTitle} position="top">
+              <button
+                onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                onPointerDown={handleNextPointerDown}
+                onPointerUp={resolvedHoldEnd}
+                onPointerCancel={resolvedHoldEnd}
+                onLostPointerCapture={resolvedLostCapture}
+                disabled={nextDisabled}
+                className="p-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </Tooltip>
           </div>
         </div>
       );
@@ -397,26 +399,28 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
         {/* Navigation Controls */}
         <div className="flex items-center gap-2">
           {/* First Page */}
-          <button
-            onClick={() => onPageChange(1)}
-            disabled={currentPage === 1}
-            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
-            title={t('ui.pagination.firstPage')}
-            aria-label={t('ui.pagination.goToFirstPage')}
-          >
-            <ChevronsLeft size={16} />
-          </button>
+          <Tooltip content={t('ui.pagination.firstPage')} position="top">
+            <button
+              onClick={() => onPageChange(1)}
+              disabled={currentPage === 1}
+              className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
+              aria-label={t('ui.pagination.goToFirstPage')}
+            >
+              <ChevronsLeft size={16} />
+            </button>
+          </Tooltip>
 
           {/* Previous Page */}
-          <button
-            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
-            title={t('ui.pagination.previousPage')}
-            aria-label={t('ui.pagination.goToPreviousPage')}
-          >
-            <ChevronLeft size={16} />
-          </button>
+          <Tooltip content={t('ui.pagination.previousPage')} position="top">
+            <button
+              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
+              className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
+              aria-label={t('ui.pagination.goToPreviousPage')}
+            >
+              <ChevronLeft size={16} />
+            </button>
+          </Tooltip>
 
           {/* Page Numbers Container */}
           <div className="flex items-center gap-1 px-2">
@@ -470,19 +474,20 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
                 </button>
 
                 {currentPage > 3 && (
-                  <button
-                    onClick={() => onPageChange(Math.max(1, currentPage - 5))}
-                    className="min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 hover:bg-opacity-80 cursor-pointer"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                      color: 'var(--theme-text-secondary)',
-                      border: '1px solid var(--theme-border-secondary)'
-                    }}
-                    title={t('ui.pagination.jumpBack', { count: 5 })}
-                    aria-label={t('ui.pagination.jumpBack', { count: 5 })}
-                  >
-                    •••
-                  </button>
+                  <Tooltip content={t('ui.pagination.jumpBack', { count: 5 })} position="top">
+                    <button
+                      onClick={() => onPageChange(Math.max(1, currentPage - 5))}
+                      className="min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 hover:bg-opacity-80 cursor-pointer"
+                      style={{
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        color: 'var(--theme-text-secondary)',
+                        border: '1px solid var(--theme-border-secondary)'
+                      }}
+                      aria-label={t('ui.pagination.jumpBack', { count: 5 })}
+                    >
+                      •••
+                    </button>
+                  </Tooltip>
                 )}
 
                 {Array.from({ length: 5 }, (_, i) => {
@@ -518,19 +523,20 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
                 }).filter(Boolean)}
 
                 {currentPage < totalPages - 2 && (
-                  <button
-                    onClick={() => onPageChange(Math.min(totalPages, currentPage + 5))}
-                    className="min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 hover:bg-opacity-80 cursor-pointer"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                      color: 'var(--theme-text-secondary)',
-                      border: '1px solid var(--theme-border-secondary)'
-                    }}
-                    title={t('ui.pagination.jumpForward', { count: 5 })}
-                    aria-label={t('ui.pagination.jumpForward', { count: 5 })}
-                  >
-                    •••
-                  </button>
+                  <Tooltip content={t('ui.pagination.jumpForward', { count: 5 })} position="top">
+                    <button
+                      onClick={() => onPageChange(Math.min(totalPages, currentPage + 5))}
+                      className="min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 hover:bg-opacity-80 cursor-pointer"
+                      style={{
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        color: 'var(--theme-text-secondary)',
+                        border: '1px solid var(--theme-border-secondary)'
+                      }}
+                      aria-label={t('ui.pagination.jumpForward', { count: 5 })}
+                    >
+                      •••
+                    </button>
+                  </Tooltip>
                 )}
 
                 <button
@@ -562,26 +568,28 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
           </div>
 
           {/* Next Page */}
-          <button
-            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
-            title={t('ui.pagination.nextPage')}
-            aria-label={t('ui.pagination.goToNextPage')}
-          >
-            <ChevronRight size={16} />
-          </button>
+          <Tooltip content={t('ui.pagination.nextPage')} position="top">
+            <button
+              onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages}
+              className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
+              aria-label={t('ui.pagination.goToNextPage')}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </Tooltip>
 
           {/* Last Page */}
-          <button
-            onClick={() => onPageChange(totalPages)}
-            disabled={currentPage === totalPages}
-            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
-            title={t('ui.pagination.lastPage')}
-            aria-label={t('ui.pagination.goToLastPage')}
-          >
-            <ChevronsRight size={16} />
-          </button>
+          <Tooltip content={t('ui.pagination.lastPage')} position="top">
+            <button
+              onClick={() => onPageChange(totalPages)}
+              disabled={currentPage === totalPages}
+              className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
+              aria-label={t('ui.pagination.goToLastPage')}
+            >
+              <ChevronsRight size={16} />
+            </button>
+          </Tooltip>
 
           {/* Quick Page Jump (for many pages) */}
           {totalPages > 10 && (

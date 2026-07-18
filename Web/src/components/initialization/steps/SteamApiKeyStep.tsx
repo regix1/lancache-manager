@@ -75,9 +75,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
 
       {/* API Key Input */}
       <div>
-        <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-          {t('initialization.steamWebApiKey.label')}
-        </label>
+        <label className="form-field-label">{t('initialization.steamWebApiKey.label')}</label>
         <input
           type="password"
           value={apiKey}

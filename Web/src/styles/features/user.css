@@ -126,7 +126,7 @@
   font-size: var(--font-size-2xs);
   font-weight: 500;
   line-height: 1.4;
-  border-radius: 999px;
+  border-radius: 3px;
 }
 
 .session-you {

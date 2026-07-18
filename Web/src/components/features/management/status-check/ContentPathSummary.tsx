@@ -125,7 +125,6 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
     >
       <div className="status-check-content-summary-head">
         <h4 id="status-check-content-summary-title">{t(`${keys}.title`)}</h4>
-        <p>{t(`${keys}.summaryHelp`)}</p>
       </div>
       {body}
     </section>

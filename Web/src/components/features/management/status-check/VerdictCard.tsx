@@ -376,7 +376,6 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
           {glyph}
           <div className="min-w-0">
             <h3 className="status-check-scope-title">{t(`${keys}.scopeTitle`)}</h3>
-            <p className="status-check-scope-description">{t(`${keys}.scopeDescription`)}</p>
             <p className="font-medium text-themed-primary tabular-nums">{verdictLine}</p>
             {!isRunning && cantVerify && (
               <p className="text-sm text-themed-secondary">{t(`${keys}.verdictUnverifiedHint`)}</p>

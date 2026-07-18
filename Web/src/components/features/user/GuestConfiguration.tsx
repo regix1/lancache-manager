@@ -886,9 +886,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
             <Download className="w-5 h-5 text-themed-accent" />
             {t('user.guest.prefill.sectionTitle')}
           </h3>
-          <p className="text-sm mt-1 text-themed-muted">
-            {t('user.guest.prefill.sectionSubtitle')}
-          </p>
         </div>
         <div className="p-4 sm:p-5 space-y-4">
           <p className="text-xs text-themed-muted">{t('user.guest.prefill.existingGuestsNote')}</p>

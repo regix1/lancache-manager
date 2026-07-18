@@ -8,12 +8,13 @@ import {
   History,
   CalendarClock,
   Pencil,
-  BarChart3
+  BarChart3,
+  MoreVertical
 } from 'lucide-react';
 import { useTimezone } from '@contexts/useTimezone';
 import { useTimeFilter } from '@contexts/useTimeFilter';
-import { Tooltip } from '@components/ui/Tooltip';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes } from '@utils/formatters';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
@@ -81,6 +82,7 @@ const EventCard = React.memo(
     formatDurationBetweenDates
   }: EventCardProps) => {
     const { t } = useTranslation();
+    const [menuOpen, setMenuOpen] = useState(false);
     const isLoading = isExpanded && (cacheEntry?.loading || false);
     const groupedDownloads = useMemo(() => {
       const downloads = cacheEntry?.downloads || [];
@@ -140,12 +142,6 @@ const EventCard = React.memo(
                   className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase tracking-wide"
                   style={getEventColorStyles(event.colorIndex)}
                 >
-                  {status === 'active' && (
-                    <span
-                      className="w-1.5 h-1.5 rounded-full animate-pulse"
-                      style={{ backgroundColor: colorVar }}
-                    />
-                  )}
                   {status === 'active'
                     ? t('events.list.status.live')
                     : status === 'upcoming'
@@ -178,30 +174,46 @@ const EventCard = React.memo(
               </div>
             </div>
 
-            {/* Action buttons */}
-            <div className="flex gap-2 flex-shrink-0">
-              <Tooltip content={t('events.list.tooltips.viewStats')} position="top">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
+            {/* Row actions collapsed into a single kebab menu instead of two
+                always-visible icon buttons, so the row reads calm. */}
+            <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+              <ActionMenu
+                isOpen={menuOpen}
+                onClose={() => setMenuOpen(false)}
+                align="right"
+                trigger={
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuOpen((prev) => !prev);
+                    }}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]"
+                    aria-label={t('events.list.actionsMenuLabel', 'Event actions')}
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                }
+              >
+                <ActionMenuItem
+                  onClick={() => {
+                    setMenuOpen(false);
                     onViewStatsClick(event);
                   }}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
+                  icon={<BarChart3 className="w-4 h-4" />}
                 >
-                  <BarChart3 className="w-4 h-4 text-[var(--theme-text-secondary)]" />
-                </button>
-              </Tooltip>
-              <Tooltip content={t('events.list.tooltips.edit')} position="top">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
+                  {t('events.list.tooltips.viewStats')}
+                </ActionMenuItem>
+                <ActionMenuItem
+                  onClick={() => {
+                    setMenuOpen(false);
                     onEditClick(event);
                   }}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
+                  icon={<Pencil className="w-4 h-4" />}
                 >
-                  <Pencil className="w-4 h-4 text-[var(--theme-text-secondary)]" />
-                </button>
-              </Tooltip>
+                  {t('events.list.tooltips.edit')}
+                </ActionMenuItem>
+              </ActionMenu>
             </div>
           </div>
         </div>
@@ -417,8 +429,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
     title: string;
     count: number;
     color: string;
-    pulse?: boolean;
-  }> = ({ icon, title, count, color, pulse }) => (
+  }> = ({ icon, title, count, color }) => (
     <div className="flex items-center gap-2 mb-3">
       <div
         className="w-6 h-6 rounded-md flex items-center justify-center"
@@ -427,9 +438,6 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
         {icon}
       </div>
       <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color }}>
-        {pulse && (
-          <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: color }} />
-        )}
         {title}
         <span
           className="themed-badge badge-count"
@@ -470,7 +478,6 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
             title={t('events.list.sections.active')}
             count={groupedEvents.active.length}
             color="var(--theme-status-success)"
-            pulse
           />
           <div className="space-y-3">
             {groupedEvents.active.map((event) => (

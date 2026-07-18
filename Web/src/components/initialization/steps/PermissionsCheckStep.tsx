@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { Tooltip } from '@components/ui/Tooltip';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 
 interface PermissionsCheckStepProps {
@@ -240,12 +241,11 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
 
             {/* Path (if exists) */}
             {check.path && (
-              <code
-                className="text-xs px-2 py-1 rounded bg-themed-secondary text-themed-muted truncate mt-auto"
-                title={check.path}
-              >
-                {check.path}
-              </code>
+              <Tooltip content={check.path} position="top" className="block min-w-0 mt-auto">
+                <code className="block text-xs px-2 py-1 rounded bg-themed-secondary text-themed-muted truncate">
+                  {check.path}
+                </code>
+              </Tooltip>
             )}
 
             {/* Impact message (if exists) */}

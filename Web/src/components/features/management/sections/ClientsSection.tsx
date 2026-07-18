@@ -382,7 +382,6 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                 </span>
               )}
             </div>
-            <p className="text-xs text-themed-muted">{t('management.sections.clients.subtitle')}</p>
           </div>
           {isAdmin && (
             <Button size="sm" onClick={handleCreateGroup}>

@@ -688,12 +688,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     >
       {/* Section Header */}
       <div className="mb-4 sm:mb-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-themed-secondary text-sm">
-              {t('management.sections.storage.subtitle')}
-            </p>
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-3">
           {hasPermissionIssues && (
             <Button
               variant="filled"

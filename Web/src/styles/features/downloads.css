@@ -1517,7 +1517,8 @@
     color: var(--theme-text-secondary);
   }
 
-  /* Body rows: hairline divider + efficiency accent stripe + zebra tint */
+  /* Body rows: efficiency accent stripe + zebra tint (no divider; the zebra
+     stripe separates rows, matching the shared DataTable's striped mode) */
   .retro-body-row {
     padding: 0.625rem 1rem;
   }
@@ -1525,7 +1526,6 @@
   .retro-row {
     position: relative;
     width: 100%;
-    border-bottom: 1px solid var(--theme-border-secondary);
     transition: background-color 0.15s ease;
   }
 
@@ -1553,11 +1553,15 @@
   }
 
   .retro-row-alt {
-    background-color: var(--theme-bg-primary);
+    background-color: var(--theme-bg-tertiary-muted);
   }
 
   .retro-row:hover {
     background-color: var(--theme-bg-hover);
+  }
+
+  .retro-row-alt:hover {
+    background-color: var(--theme-bg-tertiary-strong);
   }
 
   .retro-row-evicted {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import EventBadge from './EventBadge';
+import { Tooltip } from '@components/ui/Tooltip';
 import type { EventSummary } from '../../../types';
 
 interface DownloadBadgesProps {
@@ -39,12 +40,9 @@ const DownloadBadges: React.FC<DownloadBadgesProps> = ({
 
       {/* Hidden count indicator */}
       {hiddenCount > 0 && (
-        <span
-          className="themed-badge status-badge-neutral badge-count"
-          title={t('downloads.tab.badges.more', { count: hiddenCount })}
-        >
-          +{hiddenCount}
-        </span>
+        <Tooltip content={t('downloads.tab.badges.more', { count: hiddenCount })} position="top">
+          <span className="themed-badge status-badge-neutral badge-count">+{hiddenCount}</span>
+        </Tooltip>
       )}
     </div>
   );

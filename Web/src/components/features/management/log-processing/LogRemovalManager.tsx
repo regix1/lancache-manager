@@ -712,6 +712,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
             <>
               {isLoading ? (
                 <LoadingState
+                  variant="spinner"
                   message={t('management.logRemoval.loading.scanning')}
                   submessage={t('management.logRemoval.loading.mayTakeMinutes')}
                 />

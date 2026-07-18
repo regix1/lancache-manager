@@ -65,9 +65,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
           </h4>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1 text-themed-secondary">
-                {t('modals.theme.form.themeName')}
-              </label>
+              <label className="form-field-label">{t('modals.theme.form.themeName')}</label>
               <input
                 type="text"
                 value={editedTheme.name || ''}
@@ -77,9 +75,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1 text-themed-secondary">
-                {t('modals.theme.form.author')}
-              </label>
+              <label className="form-field-label">{t('modals.theme.form.author')}</label>
               <input
                 type="text"
                 value={editedTheme.author || ''}
@@ -90,9 +86,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1 text-themed-secondary">
-              {t('modals.theme.form.description')}
-            </label>
+            <label className="form-field-label">{t('modals.theme.form.description')}</label>
             <input
               type="text"
               value={editedTheme.description || ''}

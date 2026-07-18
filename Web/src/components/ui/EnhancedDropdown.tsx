@@ -625,52 +625,57 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                     </div>
                   ) : option.submenu && option.submenu.length > 0 ? (
                     <React.Fragment key={option.value}>
-                      <button
-                        type="button"
-                        onClick={(e) => handleSubmenuToggle(option.value, e.currentTarget)}
-                        className={`ed-option w-full ${compactMode ? 'px-2 py-1 text-xs' : 'px-3 py-2.5 text-sm'} text-left cursor-pointer ${value.startsWith(option.value + ':') || expandedSubmenu === option.value ? 'ed-option-selected' : ''}`}
-                        title={option.description || option.label}
+                      <Tooltip
+                        content={option.description || option.label}
+                        position="top"
+                        className="w-full"
                       >
-                        <div className="flex items-start gap-3">
-                          {!cleanStyle && option.icon && (
-                            <option.icon
-                              className={`flex-shrink-0 mt-0.5 ${
-                                value.startsWith(option.value + ':')
-                                  ? 'text-[var(--theme-primary)]'
-                                  : 'text-themed-secondary'
-                              }`}
-                              size={16}
-                            />
-                          )}
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <span
-                              className={`font-medium truncate ${value.startsWith(option.value + ':') ? 'text-[var(--theme-primary)]' : 'text-themed-primary'}`}
-                            >
-                              {option.label}
-                            </span>
-                            {option.description && (
-                              <span className="text-xs mt-0.5 leading-relaxed text-themed-secondary">
-                                {option.description}
+                        <button
+                          type="button"
+                          onClick={(e) => handleSubmenuToggle(option.value, e.currentTarget)}
+                          className={`ed-option w-full ${compactMode ? 'px-2 py-1 text-xs' : 'px-3 py-2.5 text-sm'} text-left cursor-pointer ${value.startsWith(option.value + ':') || expandedSubmenu === option.value ? 'ed-option-selected' : ''}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            {!cleanStyle && option.icon && (
+                              <option.icon
+                                className={`flex-shrink-0 mt-0.5 ${
+                                  value.startsWith(option.value + ':')
+                                    ? 'text-[var(--theme-primary)]'
+                                    : 'text-themed-secondary'
+                                }`}
+                                size={16}
+                              />
+                            )}
+                            <div className="flex flex-col flex-1 min-w-0">
+                              <span
+                                className={`font-medium truncate ${value.startsWith(option.value + ':') ? 'text-[var(--theme-primary)]' : 'text-themed-primary'}`}
+                              >
+                                {option.label}
+                              </span>
+                              {option.description && (
+                                <span className="text-xs mt-0.5 leading-relaxed text-themed-secondary">
+                                  {option.description}
+                                </span>
+                              )}
+                            </div>
+                            {option.rightLabel && (
+                              <span
+                                className={`flex-shrink-0 text-xs font-medium ${
+                                  value.startsWith(option.value + ':')
+                                    ? 'text-[var(--theme-primary)]'
+                                    : 'text-themed-secondary'
+                                }`}
+                              >
+                                {option.rightLabel}
                               </span>
                             )}
+                            <ChevronRight
+                              size={16}
+                              className={`flex-shrink-0 mt-0.5 transition-transform duration-200 text-themed-muted ${expandedSubmenu === option.value ? (submenuPosition?.openLeft ? '-rotate-90' : 'rotate-90') : ''}`}
+                            />
                           </div>
-                          {option.rightLabel && (
-                            <span
-                              className={`flex-shrink-0 text-xs font-medium ${
-                                value.startsWith(option.value + ':')
-                                  ? 'text-[var(--theme-primary)]'
-                                  : 'text-themed-secondary'
-                              }`}
-                            >
-                              {option.rightLabel}
-                            </span>
-                          )}
-                          <ChevronRight
-                            size={16}
-                            className={`flex-shrink-0 mt-0.5 transition-transform duration-200 text-themed-muted ${expandedSubmenu === option.value ? (submenuPosition?.openLeft ? '-rotate-90' : 'rotate-90') : ''}`}
-                          />
-                        </div>
-                      </button>
+                        </button>
+                      </Tooltip>
 
                       {expandedSubmenu === option.value &&
                         submenuPosition &&

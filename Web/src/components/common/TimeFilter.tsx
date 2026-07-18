@@ -17,6 +17,7 @@ import type { TimeRange } from '@contexts/TimeFilterContext.types';
 import { useEvents } from '@contexts/useEvents';
 import DateRangePicker from './DateRangePicker';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { Tooltip } from '@components/ui/Tooltip';
 import { getEventColorVar } from '@utils/eventColors';
 import { formatEventDateRange } from '@utils/formatters';
 import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
@@ -376,13 +377,11 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                   <div className="py-1">
                     {timeOptions.map((option) => {
                       const isSelected = option.value === timeRange;
-                      return (
+                      const optionButton = (
                         <button
-                          key={option.value}
                           type="button"
                           onClick={() => handleTimeRangeChange(option.value)}
                           className={`ed-option w-full px-3 py-2.5 text-left text-sm cursor-pointer ${isSelected ? 'ed-option-selected' : ''}`}
-                          title={option.description}
                         >
                           <div className="flex items-start gap-3">
                             <div className="flex flex-col flex-1 min-w-0">
@@ -406,6 +405,22 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                             )}
                           </div>
                         </button>
+                      );
+                      // Only wrap in a Tooltip when there is a description; a falsy
+                      // content renders an empty hover box.
+                      return option.description ? (
+                        <Tooltip
+                          key={option.value}
+                          content={option.description}
+                          position="top"
+                          className="w-full"
+                        >
+                          {optionButton}
+                        </Tooltip>
+                      ) : (
+                        <div key={option.value} className="w-full">
+                          {optionButton}
+                        </div>
                       );
                     })}
                   </div>

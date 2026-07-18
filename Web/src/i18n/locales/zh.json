@@ -533,7 +533,7 @@
       },
       "totalServed": {
         "term": "总服务量",
-        "description": "发送到您的客户端的所有内容 — 包括缓存文件和新下载。"
+        "description": "发送到您的客户端的所有内容，包括缓存文件和新下载。"
       },
       "activeDownloads": {
         "term": "活跃下载",
@@ -553,7 +553,7 @@
       },
       "gamesOnDisk": {
         "term": "磁盘上的游戏",
-        "description": "上次游戏缓存检测扫描中与已知游戏匹配的缓存文件大小。共享文件按扫描完成时计算出的实际文件大小只统计一次。服务级缓存（Windows 更新等）和未识别的缓存文件不包含在内——当有缓存文件扫描结果时，它们会显示在未映射缓存部分中。"
+        "description": "上次游戏缓存检测扫描中与已知游戏匹配的缓存文件大小。共享文件按扫描完成时计算出的实际文件大小只统计一次。服务级缓存（Windows 更新等）和未识别的缓存文件不包含在内。当有缓存文件扫描结果时，它们会显示在未映射缓存部分中。"
       },
       "unmappedCache": "{{size}} 未映射缓存"
     },
@@ -1290,7 +1290,7 @@
         },
         "hitRate": {
           "title": "缓存命中率",
-          "description": "缓存命中率——数据由缓存提供（而非从互联网下载）的百分比。"
+          "description": "缓存命中率：数据由缓存提供（而非从互联网下载）的百分比。"
         }
       }
     },
@@ -1639,8 +1639,8 @@
           "cacheObservedBadge": "已观察到缓存",
           "cacheNotObservedBadge": "未观察到缓存",
           "cacheEvidence": {
-            "hit": "HIT — LANCache 为此精确路径提供了 {{bytes}}（HTTP {{status}}）。",
-            "miss": "MISS — 此精确路径经过 LANCache 并从上游获取；返回 {{bytes}}（HTTP {{status}}）。",
+            "hit": "HIT：LANCache 为此精确路径提供了 {{bytes}}（HTTP {{status}}）。",
+            "miss": "MISS：此精确路径经过 LANCache 并从上游获取；返回 {{bytes}}（HTTP {{status}}）。",
             "none": "未观察到与此精确路径匹配且字节数为正的 HIT 或 MISS。"
           },
           "sampleObserved": "访问日志样本观察于 {{age}}。",
@@ -3390,6 +3390,7 @@
       "scrapeIntervalRate": "Prometheus 抓取间隔",
       "scrapeIntervalRateDesc": "Prometheus 从 /metrics 端点拉取数据的频率",
       "scrapeIntervalRateFooter": "在您的 prometheus.yml 的 scrape_interval 中设置",
+      "pollingRates": "刷新和抓取速率",
       "prometheusConfig": "Prometheus 配置",
       "prometheusConfigSecured": "需要身份验证 - 包含授权标头",
       "prometheusConfigPublic": "公开访问 - 无需身份验证",
@@ -3903,7 +3904,7 @@
       },
       "description": {
         "authenticated": "管理功能已启用",
-        "disabled": "已通过 Security:EnableAuthentication 禁用身份验证 — 已授予全部访问权限，无需登录",
+        "disabled": "已通过 Security:EnableAuthentication 禁用身份验证。已授予全部访问权限，无需登录",
         "guest": "仅查看权限已激活",
         "expired": "需要身份验证才能继续",
         "requiresKeyOrGuest": "管理功能需要 API 密钥或访客访问权限",
@@ -4011,7 +4012,7 @@
       "labels": {
         "unauthorizedAccount": "未授权的 Steam 账户",
         "notLoggedInSession": "未登录的会话",
-        "anonymousAccount": "Battle.net — 无需登录",
+        "anonymousAccount": "Battle.net，无需登录",
         "persistentContainer": "持久化容器",
         "persistentBadge": "持久化",
         "loading": "加载中...",
@@ -6860,7 +6861,7 @@
       },
       "complete": {
         "default": "检测完成",
-        "newGames": "增量扫描完成 — 发现 {{newGamesCount}} 个新游戏（磁盘上共 {{totalGamesDetected}} 个）",
+        "newGames": "增量扫描完成。发现 {{newGamesCount}} 个新游戏（磁盘上共 {{totalGamesDetected}} 个）",
         "noNewGames": "未检测到新游戏（共 {{totalGamesDetected}} 个有缓存文件的游戏）",
         "full": "检测到 {{totalGamesDetected}} 个有缓存文件的游戏"
       },

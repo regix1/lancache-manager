@@ -13,6 +13,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
+import { EmptyState } from '@components/ui/ManagerCard';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import themeService from '@services/theme.service';
 import ApiService from '@services/api.service';
@@ -535,13 +536,11 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
         {/* All Imported State */}
         {allImported && (
-          <div className="text-center py-8 text-themed-muted">
-            <Check className="w-10 h-10 mx-auto mb-2 opacity-50 icon-green" />
-            <p className="text-sm font-medium mb-1">
-              {t('management.themes.community.allImported.title')}
-            </p>
-            <p className="text-xs">{t('management.themes.community.allImported.description')}</p>
-          </div>
+          <EmptyState
+            icon={Check}
+            title={t('management.themes.community.allImported.title')}
+            subtitle={t('management.themes.community.allImported.description')}
+          />
         )}
 
         {/* Community Themes Grid */}

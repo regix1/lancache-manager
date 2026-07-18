@@ -41,13 +41,6 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
       id="panel-integrations"
       aria-labelledby="tab-integrations"
     >
-      {/* Page Header */}
-      <div className="mb-6">
-        <p className="text-themed-secondary text-sm">
-          {t('management.sections.integrations.subtitle')}
-        </p>
-      </div>
-
       <div className="space-y-8">
         {/* Steam - merged PICS authentication + Web API card */}
         <section>

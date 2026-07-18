@@ -1,6 +1,7 @@
 import React from 'react';
 import type { EventSummary } from '../../../types';
 import { getEventColorVar } from '@utils/eventColors';
+import { Tooltip } from '@components/ui/Tooltip';
 
 interface EventBadgeProps {
   event: EventSummary;
@@ -12,18 +13,19 @@ const EventBadge: React.FC<EventBadgeProps> = ({ event, onClick, size = 'sm' }) 
   const sizeClasses = size === 'sm' ? 'px-1.5 py-0.5 text-xs' : 'px-2 py-1 text-xs';
 
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-md font-medium transition flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)] ${sizeClasses} ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
-      onClick={onClick}
-      title={event.name}
-    >
-      {/* Color indicator dot */}
+    <Tooltip content={event.name} position="top">
       <span
-        className="w-2 h-2 rounded-full flex-shrink-0"
-        style={{ backgroundColor: getEventColorVar(event.colorIndex) }}
-      />
-      <span className="truncate max-w-[100px]">{event.name}</span>
-    </span>
+        className={`inline-flex items-center gap-1.5 rounded-md font-medium transition flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)] ${sizeClasses} ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
+        onClick={onClick}
+      >
+        {/* Color indicator dot */}
+        <span
+          className="w-2 h-2 rounded-full flex-shrink-0"
+          style={{ backgroundColor: getEventColorVar(event.colorIndex) }}
+        />
+        <span className="truncate max-w-[100px]">{event.name}</span>
+      </span>
+    </Tooltip>
   );
 };
 

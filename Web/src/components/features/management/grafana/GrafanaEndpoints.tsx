@@ -125,6 +125,7 @@ const GrafanaEndpoints: React.FC = () => {
   const [scrapeInterval, setScrapeInterval] = useState<string>('15');
   const [isToggling, setIsToggling] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(false);
+  const [areRatesExpanded, setAreRatesExpanded] = useState(false);
 
   const fetchMetricsSecurity = useCallback(
     async (signal?: AbortSignal) => {
@@ -425,34 +426,75 @@ const GrafanaEndpoints: React.FC = () => {
         <p className="text-xs text-themed-muted">{t('management.grafana.prometheusFormat')}</p>
       </div>
 
-      {/* Data Refresh Rate - Controls how often the app updates metrics */}
-      <div className="mt-4 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <RefreshCw className="w-4 h-4 text-themed-muted" />
-            <div>
-              <span className="text-sm font-medium text-themed-primary">
-                {t('management.grafana.dataRefreshRate')}
-              </span>
-              <p className="text-xs text-themed-muted">
-                {t('management.grafana.dataRefreshRateDesc')}
-              </p>
+      {/* Refresh and scrape rates - secondary tuning, collapsed by default so the
+          endpoint access toggle and metrics URL read as the primary controls. */}
+      <div className="mt-4">
+        <AccordionSection
+          title={t('management.grafana.pollingRates')}
+          icon={RefreshCw}
+          isExpanded={areRatesExpanded}
+          onToggle={() => setAreRatesExpanded((prev) => !prev)}
+        >
+          {/* Data Refresh Rate - Controls how often the app updates metrics */}
+          <div className="p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-themed-muted" />
+                <div>
+                  <span className="text-sm font-medium text-themed-primary">
+                    {t('management.grafana.dataRefreshRate')}
+                  </span>
+                  <p className="text-xs text-themed-muted">
+                    {t('management.grafana.dataRefreshRateDesc')}
+                  </p>
+                </div>
+              </div>
+              <EnhancedDropdown
+                variant="button"
+                options={dataRefreshOptions}
+                value={dataRefreshRate}
+                onChange={handleDataRefreshChange}
+                placeholder={t('management.grafana.placeholders.selectRate')}
+                dropdownWidth="w-56"
+                alignRight={true}
+                dropdownTitle={t('management.grafana.dataRefreshRate')}
+                footerNote={t('management.grafana.dataRefreshFooter')}
+                footerIcon={Lightbulb}
+                cleanStyle={true}
+              />
             </div>
           </div>
-          <EnhancedDropdown
-            variant="button"
-            options={dataRefreshOptions}
-            value={dataRefreshRate}
-            onChange={handleDataRefreshChange}
-            placeholder={t('management.grafana.placeholders.selectRate')}
-            dropdownWidth="w-56"
-            alignRight={true}
-            dropdownTitle={t('management.grafana.dataRefreshRate')}
-            footerNote={t('management.grafana.dataRefreshFooter')}
-            footerIcon={Lightbulb}
-            cleanStyle={true}
-          />
-        </div>
+
+          {/* Prometheus Scrape Interval - Controls how often Prometheus pulls metrics */}
+          <div className="mt-2 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-themed-muted" />
+                <div>
+                  <span className="text-sm font-medium text-themed-primary">
+                    {t('management.grafana.scrapeIntervalRate')}
+                  </span>
+                  <p className="text-xs text-themed-muted">
+                    {t('management.grafana.scrapeIntervalRateDesc')}
+                  </p>
+                </div>
+              </div>
+              <EnhancedDropdown
+                variant="button"
+                options={scrapeIntervalOptions}
+                value={scrapeInterval}
+                onChange={handleScrapeIntervalChange}
+                placeholder={t('management.grafana.placeholders.selectInterval')}
+                dropdownWidth="w-56"
+                alignRight={true}
+                dropdownTitle={t('management.grafana.scrapeIntervalTitle')}
+                footerNote={t('management.grafana.scrapeIntervalRateFooter')}
+                footerIcon={Lightbulb}
+                cleanStyle={true}
+              />
+            </div>
+          </div>
+        </AccordionSection>
       </div>
 
       {/* Stale data warning - shown when scrape is faster than refresh */}
@@ -462,36 +504,6 @@ const GrafanaEndpoints: React.FC = () => {
           {t('management.grafana.staleDataWarning')}
         </p>
       )}
-
-      {/* Prometheus Scrape Interval - Controls how often Prometheus pulls metrics */}
-      <div className="mt-2 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-themed-muted" />
-            <div>
-              <span className="text-sm font-medium text-themed-primary">
-                {t('management.grafana.scrapeIntervalRate')}
-              </span>
-              <p className="text-xs text-themed-muted">
-                {t('management.grafana.scrapeIntervalRateDesc')}
-              </p>
-            </div>
-          </div>
-          <EnhancedDropdown
-            variant="button"
-            options={scrapeIntervalOptions}
-            value={scrapeInterval}
-            onChange={handleScrapeIntervalChange}
-            placeholder={t('management.grafana.placeholders.selectInterval')}
-            dropdownWidth="w-56"
-            alignRight={true}
-            dropdownTitle={t('management.grafana.scrapeIntervalTitle')}
-            footerNote={t('management.grafana.scrapeIntervalRateFooter')}
-            footerIcon={Lightbulb}
-            cleanStyle={true}
-          />
-        </div>
-      </div>
 
       {/* Prometheus Config & Query Examples - collapsible */}
       <div className="mt-4">

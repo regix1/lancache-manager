@@ -83,7 +83,6 @@ const ClientProbeCard: React.FC<ClientProbeCardProps> = ({ state, onRetry }) => 
               {state.status === 'checking' && <LoadingSpinner inline size="sm" />}
               {titleByStatus[state.status]}
             </p>
-            <p className="text-xs text-themed-muted">{t(`${keys}.deviceLaneDesc`)}</p>
           </div>
         </div>
         {state.status !== 'checking' && state.status !== 'blocked' && (

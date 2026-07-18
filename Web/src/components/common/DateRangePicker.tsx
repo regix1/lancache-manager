@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, Calendar, ChevronDown } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { Tooltip } from '@components/ui/Tooltip';
 import { useEvents } from '@contexts/useEvents';
 import { getEventColorVar } from '@utils/eventColors';
 import { formatEventDateRange } from '@utils/formatters';
@@ -570,29 +571,33 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   : 'var(--theme-primary)';
 
                 return (
-                  <button
+                  <Tooltip
                     key={event.id}
-                    onClick={() => handleEventPresetClick(event.startTimeUtc, event.endTimeUtc)}
-                    className="flex items-center gap-2 px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
-                    title={`${event.name}: ${formatEventDateRange(event.startTimeUtc, event.endTimeUtc)}`}
+                    content={`${event.name}: ${formatEventDateRange(event.startTimeUtc, event.endTimeUtc)}`}
+                    position="top"
                   >
-                    <div
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: colorVar }}
-                    />
-                    <span className="truncate max-w-[100px]">{event.name}</span>
-                    {status === 'active' && (
-                      <span
-                        className="px-1 py-0.5 text-[9px] rounded font-medium"
-                        style={{
-                          backgroundColor: 'var(--theme-success-muted)',
-                          color: 'var(--theme-success)'
-                        }}
-                      >
-                        {t('common.dateRangePicker.liveBadge')}
-                      </span>
-                    )}
-                  </button>
+                    <button
+                      onClick={() => handleEventPresetClick(event.startTimeUtc, event.endTimeUtc)}
+                      className="flex items-center gap-2 px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
+                    >
+                      <div
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: colorVar }}
+                      />
+                      <span className="truncate max-w-[100px]">{event.name}</span>
+                      {status === 'active' && (
+                        <span
+                          className="px-1 py-0.5 text-[9px] rounded font-medium"
+                          style={{
+                            backgroundColor: 'var(--theme-success-muted)',
+                            color: 'var(--theme-success)'
+                          }}
+                        >
+                          {t('common.dateRangePicker.liveBadge')}
+                        </span>
+                      )}
+                    </button>
+                  </Tooltip>
                 );
               })}
             </div>

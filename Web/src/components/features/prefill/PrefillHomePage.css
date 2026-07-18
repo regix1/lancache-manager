@@ -192,18 +192,6 @@
   color: var(--theme-text-muted);
 }
 
-.prefill-service-status-dot {
-  width: 0.4375rem;
-  height: 0.4375rem;
-  border-radius: 50%;
-  background: var(--theme-text-muted);
-}
-
-.prefill-service-status-dot--ready {
-  background: var(--theme-success);
-  border: 1px solid var(--theme-success-muted);
-}
-
 /* --- Description --- */
 .prefill-service-description {
   font-size: var(--font-size-base);

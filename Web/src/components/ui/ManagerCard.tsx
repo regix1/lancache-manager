@@ -147,19 +147,52 @@ const PermissionIndicators: React.FC<PermissionIndicatorsProps> = ({
 interface LoadingStateProps {
   message?: string;
   submessage?: string;
+  /**
+   * 'skeleton' (default) renders placeholder rows that mirror a content list, so
+   * a panel waiting on data reads as its final shape instead of a spinner void.
+   * 'spinner' keeps the centered spinner for spot loads with no list shape.
+   */
+  variant?: 'skeleton' | 'spinner';
+  /** Skeleton row count (skeleton variant only). */
+  rows?: number;
 }
 
 /**
- * Standardized loading state for management cards
+ * Standardized loading state for management cards. Defaults to a skeleton list;
+ * pass variant="spinner" for a small centered spinner instead.
  */
-export const LoadingState: React.FC<LoadingStateProps> = ({ message, submessage }) => {
+export const LoadingState: React.FC<LoadingStateProps> = ({
+  message,
+  submessage,
+  variant = 'skeleton',
+  rows = 4
+}) => {
   const { t } = useTranslation();
 
+  if (variant === 'spinner') {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 gap-3">
+        <LoadingSpinner inline size="lg" className="text-themed-accent" />
+        <p className="text-sm text-themed-secondary">{message || t('common.loading')}</p>
+        {submessage && <p className="text-xs text-themed-muted">{submessage}</p>}
+      </div>
+    );
+  }
+
+  const block = 'bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse rounded';
   return (
-    <div className="flex flex-col items-center justify-center py-8 gap-3">
-      <LoadingSpinner inline size="lg" className="text-themed-accent" />
-      <p className="text-sm text-themed-secondary">{message || t('common.loading')}</p>
-      {submessage && <p className="text-xs text-themed-muted">{submessage}</p>}
+    <div className="flex flex-col gap-3 py-2" role="status" aria-live="polite" aria-busy="true">
+      <span className="sr-only">{message || t('common.loading')}</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex items-center gap-3">
+          <div className={`${block} h-9 w-9 flex-shrink-0`} />
+          <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+            <div className={`${block} h-3.5 ${i % 2 === 0 ? 'w-2/5' : 'w-1/2'}`} />
+            <div className={`${block} h-3 w-1/4`} />
+          </div>
+          <div className={`${block} h-3.5 w-16 flex-shrink-0`} />
+        </div>
+      ))}
     </div>
   );
 };
@@ -226,7 +259,7 @@ export const ReadOnlyBadge: React.FC<ReadOnlyBadgeProps> = ({ message }) => {
 
   return (
     <div className="flex items-center justify-center py-4">
-      <span className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border bg-[var(--theme-warning-bg)] text-[var(--theme-warning)] border-[var(--theme-warning)]">
+      <span className="themed-badge status-badge-warning flex items-center gap-1.5">
         <Lock className="w-3 h-3" />
         {message || t('ui.managerCard.readOnly')}
       </span>

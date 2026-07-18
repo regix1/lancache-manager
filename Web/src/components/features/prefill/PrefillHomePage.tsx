@@ -110,7 +110,6 @@ export function PrefillHomePage({
               <div className="prefill-service-meta">
                 <h2 className="prefill-service-name">Steam</h2>
                 <div className="prefill-service-status">
-                  <span className="prefill-service-status-dot prefill-service-status-dot--ready" />
                   <span>{t('prefill.home.ready', 'Ready')}</span>
                 </div>
               </div>
@@ -161,7 +160,6 @@ export function PrefillHomePage({
               <div className="prefill-service-meta">
                 <h2 className="prefill-service-name">Epic Games</h2>
                 <div className="prefill-service-status">
-                  <span className="prefill-service-status-dot prefill-service-status-dot--ready" />
                   <span>{t('prefill.home.ready', 'Ready')}</span>
                 </div>
               </div>
@@ -212,7 +210,6 @@ export function PrefillHomePage({
               <div className="prefill-service-meta">
                 <h2 className="prefill-service-name">Battle.net</h2>
                 <div className="prefill-service-status">
-                  <span className="prefill-service-status-dot prefill-service-status-dot--ready" />
                   <span>{t('prefill.home.ready', 'Ready')}</span>
                 </div>
               </div>
@@ -268,7 +265,6 @@ export function PrefillHomePage({
               <div className="prefill-service-meta">
                 <h2 className="prefill-service-name">Riot Games</h2>
                 <div className="prefill-service-status">
-                  <span className="prefill-service-status-dot prefill-service-status-dot--ready" />
                   <span>{t('prefill.home.ready', 'Ready')}</span>
                 </div>
               </div>
@@ -319,7 +315,6 @@ export function PrefillHomePage({
               <div className="prefill-service-meta">
                 <h2 className="prefill-service-name">Xbox</h2>
                 <div className="prefill-service-status">
-                  <span className="prefill-service-status-dot prefill-service-status-dot--ready" />
                   <span>{t('prefill.home.ready', 'Ready')}</span>
                 </div>
               </div>
