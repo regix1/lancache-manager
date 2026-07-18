@@ -970,11 +970,19 @@ const DownloadsTab: React.FC = () => {
           : `game-${download.gameName}`;
         groupName = download.gameName || `Steam App ${download.gameAppId}`;
         groupType = 'game';
-      } else if (!hideUnknownGames && groupUnknown && isUnknownGame) {
-        // Group all unknown games together when the setting is enabled
+      } else if (
+        !hideUnknownGames &&
+        groupUnknown &&
+        isUnknownGame &&
+        (download.service ?? '').toLowerCase() === 'steam'
+      ) {
+        // Group unmapped Steam content together when the setting is enabled.
+        // Only Steam is treated as "unknown" here - other services (WSUS, Riot,
+        // Epic, Xbox, Blizzard, etc.) are known sources and keep their own service
+        // group, so they are never folded into this bucket.
         // (skip when hideUnknownGames is true - those go to service-level group instead)
-        groupKey = 'unknown-steam-games';
-        groupName = 'Unknown Games';
+        groupKey = 'unknown-other';
+        groupName = 'Unknown/Other';
         groupType = 'content';
       } else if ((download.service ?? '').toLowerCase() !== 'steam') {
         const svcLower = (download.service ?? '').toLowerCase();
@@ -997,7 +1005,11 @@ const DownloadsTab: React.FC = () => {
           id: groupKey,
           name: groupName,
           type: groupType,
-          service: download.service,
+          // The Unknown/Other bucket spans downloads that each carry their own
+          // service (e.g. Steam). Use a neutral sentinel so the row renders the
+          // Unknown icon and "Unknown/Other" name instead of borrowing a real
+          // service's badge, icon, or on-disk size.
+          service: groupKey === 'unknown-other' ? 'unknown' : download.service,
           downloads: [],
           totalBytes: 0,
           totalDownloaded: 0,

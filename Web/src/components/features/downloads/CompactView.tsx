@@ -203,6 +203,14 @@ const GroupRow: React.FC<GroupRowProps> = ({
       : null;
   const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
   const isPartiallyEvicted = !isEvicted && group.downloads.some((d: Download) => d.isEvicted);
+  // Show the group name for resolved games and for the Unknown/Other bucket
+  // (whose members have no real game name, so the sentinel service drives it).
+  const showGroupName =
+    serviceLower === 'unknown' ||
+    group.downloads.some(
+      (d: Download) =>
+        d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
+    );
   const detection = resolveGameDetection(
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,
@@ -253,10 +261,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     isEvicted={isEvicted}
                     isPartiallyEvicted={isPartiallyEvicted}
                   />
-                  {group.downloads.some(
-                    (d: Download) =>
-                      d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
-                  ) && (
+                  {showGroupName && (
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate flex-1">
                       {group.name}
                     </span>
@@ -314,10 +319,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     isEvicted={isEvicted}
                     isPartiallyEvicted={isPartiallyEvicted}
                   />
-                  {group.downloads.some(
-                    (d: Download) =>
-                      d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
-                  ) && (
+                  {showGroupName && (
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate">
                       {group.name}
                     </span>

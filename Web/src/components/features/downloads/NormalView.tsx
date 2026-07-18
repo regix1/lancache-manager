@@ -203,9 +203,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
         : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   const placeholderIconSize = 64;
-  const hasRealGameName = group.downloads.some(
-    (d: Download) => d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
-  );
+  // Render the name for resolved games and for the Unknown/Other bucket, whose
+  // members have no real game name so the sentinel service drives it.
+  const hasRealGameName =
+    serviceLower === 'unknown' ||
+    group.downloads.some(
+      (d: Download) =>
+        d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
+    );
 
   React.useEffect(() => {
     if (!enableScrollIntoView) return;
