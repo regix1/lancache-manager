@@ -79,9 +79,31 @@ impl SourceSet {
     }
 }
 
+/// Filename prefixes (before `-access.log`) that bare-metal actually writes: the five
+/// per-service vhosts plus the special `fallback` file. This is a CLOSED set on purpose.
+/// A log directory can hold other `*-access.log` files that are NOT lancache cache logs —
+/// most commonly the nginx stream module's `stream-access.log` next to a monolithic
+/// `access.log` — and treating those as per-service sources would misread a monolithic
+/// datasource as bare-metal/mixed and wrongly gate its disk features. Only these names
+/// count as bare-metal sources; anything else is ignored.
+const BARE_METAL_SOURCE_PREFIXES: [&str; 6] = [
+    "steam",
+    "epicgames",
+    "blizzard",
+    "riot",
+    "windows-update",
+    "fallback",
+];
+
+/// True when `prefix` is one of the recognized bare-metal source filenames (case-insensitive).
+fn is_recognized_bare_metal_prefix(prefix: &str) -> bool {
+    let lower = prefix.to_ascii_lowercase();
+    BARE_METAL_SOURCE_PREFIXES.iter().any(|known| *known == lower)
+}
+
 /// Map a per-service filename prefix (the part before `-access.log`) to the manager's
-/// service name. The pinned entries cover every file bare-metal writes; unknown prefixes
-/// pass through normalized so a future per-service file still attributes sensibly.
+/// service name. Only called for prefixes already confirmed by
+/// `is_recognized_bare_metal_prefix`, so the arms below are exhaustive for real inputs.
 pub fn service_for_prefix(prefix: &str) -> String {
     let lower = prefix.to_ascii_lowercase();
     match lower.as_str() {
@@ -132,7 +154,10 @@ fn logical_stem(file_name: &str) -> Option<String> {
         return Some(base.to_string());
     }
     if let Some(prefix) = base.strip_suffix("-access.log") {
-        if !prefix.is_empty() {
+        // Only recognized bare-metal source names count. A stray `*-access.log` (e.g. the
+        // nginx stream module's stream-access.log) must NOT become a per-service source, or
+        // a monolithic datasource would be misread as bare-metal/mixed.
+        if !prefix.is_empty() && is_recognized_bare_metal_prefix(prefix) {
             return Some(base.to_string());
         }
     }
@@ -288,6 +313,39 @@ mod tests {
         assert_eq!(logical_stem("-access.log"), None);
         assert_eq!(logical_stem("access.logfoo"), None);
         assert_eq!(logical_stem("stream.log"), None);
+    }
+
+    #[test]
+    fn logical_stem_rejects_unknown_service_access_logs() {
+        // The nginx stream module's log and other stray `*-access.log` files are NOT
+        // lancache bare-metal sources and must never flip a monolithic dir to bare-metal.
+        assert_eq!(logical_stem("stream-access.log"), None);
+        assert_eq!(logical_stem("nginx-access.log"), None);
+        assert_eq!(logical_stem("stream-access.log.1"), None);
+        // The six real bare-metal sources still resolve.
+        for name in [
+            "steam-access.log",
+            "epicgames-access.log",
+            "blizzard-access.log",
+            "riot-access.log",
+            "windows-update-access.log",
+            "fallback-access.log",
+        ] {
+            assert_eq!(logical_stem(name).as_deref(), Some(name));
+        }
+    }
+
+    #[test]
+    fn discovery_ignores_stream_access_log_next_to_monolithic() {
+        // The reported real-world case: a monolithic access.log plus the nginx stream
+        // module's stream-access.log must stay "monolithic", not become "mixed".
+        let tmp = tempfile::tempdir().unwrap();
+        touch(tmp.path(), "access.log");
+        touch(tmp.path(), "stream-access.log");
+        let set = discover_log_sources(tmp.path()).unwrap();
+        assert_eq!(set.sources.len(), 1);
+        assert_eq!(set.sources[0].stem, "access.log");
+        assert_eq!(set.layout(), "monolithic");
     }
 
     #[test]

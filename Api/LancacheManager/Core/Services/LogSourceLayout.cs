@@ -16,6 +16,19 @@ public static class LogSourceLayout
     public const string LayoutMixed = "mixed";
 
     /// <summary>
+    /// Filename prefixes (before -access.log) that bare-metal actually writes: the five
+    /// per-service vhosts plus the special fallback file. CLOSED set, in lockstep with the
+    /// Rust log_layout BARE_METAL_SOURCE_PREFIXES. A directory can hold other *-access.log
+    /// files that are NOT lancache cache logs (most commonly the nginx stream module's
+    /// stream-access.log beside a monolithic access.log); treating those as per-service
+    /// sources would misread a monolithic datasource as bare-metal/mixed.
+    /// </summary>
+    private static readonly HashSet<string> _bareMetalSourcePrefixes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "steam", "epicgames", "blizzard", "riot", "windows-update", "fallback"
+    };
+
+    /// <summary>
     /// Candidate per-service stems for a manager service name, used to clear positions
     /// after a service-scoped removal. This is the REVERSE of the Rust-side filename-hint
     /// map (log_layout.rs service_for_prefix) — the forward map lives only in Rust, which
@@ -74,7 +87,13 @@ public static class LogSourceLayout
         if (baseName.EndsWith("-access.log", StringComparison.Ordinal) &&
             baseName.Length > "-access.log".Length)
         {
-            return baseName;
+            // Only recognized bare-metal source names count. A stray *-access.log (e.g. the
+            // nginx stream module's stream-access.log) must NOT become a per-service source.
+            var prefix = baseName[..^"-access.log".Length];
+            if (_bareMetalSourcePrefixes.Contains(prefix))
+            {
+                return baseName;
+            }
         }
         return null;
     }
