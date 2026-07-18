@@ -147,6 +147,14 @@ type SortOrder =
 type PresetType = 'pretty' | 'minimal' | 'showAll' | 'default' | 'custom';
 
 // Preset configurations
+// Unmapped Steam content: a Steam download with no resolved game name (PICS did not
+// cover the depot, or none was captured). It has no game to map to, so it displays
+// under the synthetic "Unknown/Other" group rather than a named game. This is the
+// single source of truth the group / hide / search "unknown" settings all act on.
+const isUnmappedSteam = (d: Download): boolean =>
+  (d.service ?? '').toLowerCase() === 'steam' &&
+  (!d.gameName || d.gameName.trim() === '' || d.gameName.toLowerCase() === d.service.toLowerCase());
+
 const PRESETS = {
   pretty: {
     hideMetadata: true,
@@ -880,6 +888,12 @@ const DownloadsTab: React.FC = () => {
       filtered = filtered.filter((d) => !d.isEvicted);
     }
 
+    // "Hide unknown games" drops unmapped Steam content (the Unknown/Other bucket)
+    // before grouping, so it is gone from every view and from the totals.
+    if (settings.hideUnknownGames) {
+      filtered = filtered.filter((d) => !isUnmappedSteam(d));
+    }
+
     if (settings.hitMissFilter !== 'all') {
       filtered = filtered.filter((d) =>
         settings.hitMissFilter === 'hit' ? d.cacheHitPercent >= 50 : d.cacheHitPercent < 50
@@ -910,13 +924,22 @@ const DownloadsTab: React.FC = () => {
     // Apply search filter
     if (settings.searchQuery.trim()) {
       const query = settings.searchQuery.toLowerCase().trim();
+      // Unmapped Steam downloads have no resolved game name and their service is
+      // "steam", so none of the per-row fields carry the word "unknown". They
+      // display under the synthetic "Unknown/Other" group, so let that label be
+      // searchable: match when the query is the start of "unknown", "other", or
+      // "unknown/other". Scoped to Steam to mirror the grouping (WSUS and other
+      // known services stay findable by their own service name).
+      const queryMatchesUnknownLabel =
+        'unknown/other'.startsWith(query) || 'other'.startsWith(query);
       filtered = filtered.filter(
         (d) =>
           (d.gameName && d.gameName.toLowerCase().includes(query)) ||
           d.service.toLowerCase().includes(query) ||
           d.clientIp.toLowerCase().includes(query) ||
           (d.depotId && String(d.depotId).includes(query)) ||
-          (d.gameAppId && String(d.gameAppId).includes(query))
+          (d.gameAppId && String(d.gameAppId).includes(query)) ||
+          (queryMatchesUnknownLabel && isUnmappedSteam(d))
       );
     }
 
@@ -927,6 +950,7 @@ const DownloadsTab: React.FC = () => {
     settings.hideSmallFiles,
     settings.hideLocalhost,
     settings.hideEvicted,
+    settings.hideUnknownGames,
     evictedDataMode,
     settings.hitMissFilter,
     settings.selectedService,
@@ -940,8 +964,7 @@ const DownloadsTab: React.FC = () => {
   // Grouping logic for different view modes
   const createGroups = (
     downloads: Download[],
-    groupUnknown = false,
-    hideUnknownGames = false
+    groupUnknown = false
   ): { groups: DownloadGroup[]; individuals: Download[] } => {
     const groups: Record<string, DownloadGroup> = {};
     const individuals: Download[] = [];
@@ -970,17 +993,11 @@ const DownloadsTab: React.FC = () => {
           : `game-${download.gameName}`;
         groupName = download.gameName || `Steam App ${download.gameAppId}`;
         groupType = 'game';
-      } else if (
-        !hideUnknownGames &&
-        groupUnknown &&
-        isUnknownGame &&
-        (download.service ?? '').toLowerCase() === 'steam'
-      ) {
+      } else if (groupUnknown && isUnmappedSteam(download)) {
         // Group unmapped Steam content together when the setting is enabled.
         // Only Steam is treated as "unknown" here - other services (WSUS, Riot,
         // Epic, Xbox, Blizzard, etc.) are known sources and keep their own service
         // group, so they are never folded into this bucket.
-        // (skip when hideUnknownGames is true - those go to service-level group instead)
         groupKey = 'unknown-other';
         groupName = 'Unknown/Other';
         groupType = 'content';
@@ -1042,26 +1059,12 @@ const DownloadsTab: React.FC = () => {
   };
 
   const normalViewItems = useMemo((): (Download | DownloadGroup)[] => {
-    const { groups, individuals } = createGroups(
-      filteredDownloads,
-      settings.groupUnknownGames,
-      settings.hideUnknownGames
-    );
+    const { groups, individuals } = createGroups(filteredDownloads, settings.groupUnknownGames);
 
-    // Filter out groups with "unknown" in the name if hideUnknownGames is enabled
-    let filteredGroups = groups;
-    if (settings.hideUnknownGames) {
-      filteredGroups = groups.filter((g) => {
-        const groupNameLower = g.name.toLowerCase().trim();
-        const hasUnknown = groupNameLower.includes('unknown');
-        const isUnmappedApps = g.name === 'Unmapped Steam Apps';
-        const shouldKeep = !hasUnknown && !isUnmappedApps;
-        return shouldKeep;
-      });
-    }
-
-    // Keep ALL groups as expandable groups, including single downloads
-    const allItems: (Download | DownloadGroup)[] = [...filteredGroups, ...individuals];
+    // Unmapped Steam content ("Unknown/Other") is already removed upstream in
+    // filteredDownloads when hideUnknownGames is set, so no group-level filtering
+    // is needed here.
+    const allItems: (Download | DownloadGroup)[] = [...groups, ...individuals];
 
     return allItems.sort((a, b) => {
       // If groupByFrequency is disabled, skip the frequency-based sorting
@@ -1091,12 +1094,7 @@ const DownloadsTab: React.FC = () => {
           : new Date(b.startTimeUtc).getTime();
       return bTime - aTime;
     });
-  }, [
-    filteredDownloads,
-    settings.groupByFrequency,
-    settings.hideUnknownGames,
-    settings.groupUnknownGames
-  ]);
+  }, [filteredDownloads, settings.groupByFrequency, settings.groupUnknownGames]);
 
   // Compact and Normal share the same grouping logic, so reuse normalViewItems
   const compactViewItems = normalViewItems;

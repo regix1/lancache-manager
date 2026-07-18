@@ -379,7 +379,7 @@ public class DownloadsController : ControllerBase
                     ClientIp = r.ClientIp,
                     Service = r.Service,
                     Datasource = r.Datasource,
-                    AppName = r.GameName ?? r.Service,
+                    AppName = ResolveRetroAppName(r.Service, r.GameName),
                     SteamAppId = r.GameAppId,
                     StartTimeUtc = r.StartTimeUtc,
                     EndTimeUtc = r.EndTimeUtc,
@@ -413,13 +413,13 @@ public class DownloadsController : ControllerBase
                     .ToList();
             }
 
-            // Filter: hide unknown games
+            // Filter: hide unknown games. Mirror the Normal/Compact views - remove only the
+            // unmapped-Steam "Unknown/Other" rows. Known services (WSUS, Riot, Epic, ...) keep
+            // their rows even when they carry no per-title name.
             if (query.HideUnknown)
             {
                 grouped = grouped
-                    .Where(r => !string.IsNullOrEmpty(r.AppName)
-                             && r.AppName != r.Service
-                             && !r.AppName.StartsWith("Unknown", StringComparison.OrdinalIgnoreCase))
+                    .Where(r => !string.Equals(r.AppName, UnknownOtherAppName, StringComparison.Ordinal))
                     .ToList();
             }
 
@@ -626,6 +626,21 @@ public class DownloadsController : ControllerBase
         public int RequestCount { get; set; }
         public double WeightedSpeedSum { get; set; }
         public double SpeedBytesSum { get; set; }
+    }
+
+    private const string UnknownOtherAppName = "Unknown/Other";
+
+    /// <summary>
+    /// Display name for a retro group. Unmapped Steam content (a Steam row with no resolved
+    /// game name) is surfaced as "Unknown/Other" to match the Normal/Compact views. Every
+    /// other service keeps its service-name fallback.
+    /// </summary>
+    private static string ResolveRetroAppName(string service, string? gameName)
+    {
+        var isUnmappedSteam = string.Equals(service, "steam", StringComparison.OrdinalIgnoreCase)
+            && (string.IsNullOrEmpty(gameName)
+                || string.Equals(gameName, service, StringComparison.OrdinalIgnoreCase));
+        return isUnmappedSteam ? UnknownOtherAppName : (gameName ?? service);
     }
 
     /// <summary>
