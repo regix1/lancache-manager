@@ -17,6 +17,46 @@
   min-height: 2.5rem;
 }
 
+/* Unnamed-client rows carry only a mono IP and one action, so they run denser
+   than the default 3rem management row to keep 20 rows scannable per page. */
+.clients-unnamed-row {
+  min-height: 2.5rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+/* Flat card shell for the two page sections: icon-tile header with the body
+   below it, always visible (only two sections here, so no accordions). */
+.clients-card-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--theme-border-secondary);
+}
+
+.clients-card-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--theme-border-radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.clients-card-body {
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+/* The segmented mode toggle and the remove button sit in one action cluster;
+   give them more air than the default row-action gap so they read as two
+   separate controls. */
+.clients-exclusion-row .mgmt-row__actions {
+  column-gap: 1rem;
+}
+
 /* The .themed-input (px-3 py-2 + 1px border) lands ~2px above the borderless md
    Button; trim its vertical padding by that border to share the 40px height. */
 .clients-control-row .themed-input {

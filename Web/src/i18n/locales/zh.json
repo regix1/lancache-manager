@@ -2315,9 +2315,13 @@
         "noNicknamesYet": "尚未分配昵称",
         "noNicknamesDesc": "添加昵称以为客户端 IP 赋予友好名称",
         "withoutNicknames": "无昵称",
-        "withoutNicknamesDesc": "这些客户端 IP 尚未分配昵称。点击上面的\"添加昵称\"为其赋予友好名称。",
-        "clickAddNicknameTooltip": "点击\"添加昵称\"为此 IP 命名",
+        "withoutNicknamesDesc": "这些客户端还没有昵称。添加昵称以便一眼识别。",
+        "nameIpAction": "添加昵称",
+        "expandIps": "显示 {{nickname}} 的 IP",
+        "collapseIps": "隐藏 {{nickname}} 的 IP",
+        "unsavedChanges": "有未保存的更改",
         "excludeFromStats": "客户端排除",
+        "exclusionsSummary": "将特定客户端排除在统计之外，或完全隐藏",
         "excludedIpsDesc": "选择每个客户端的处理方式。“仅统计”会让客户端仍显示在下载和实时速度中，但将其从仪表盘总计、命中率和排行榜中移除。“隐藏”会将客户端从所有视图和所有统计中移除。",
         "modeExclude": "仅统计",
         "modeHide": "隐藏",
@@ -4738,10 +4742,9 @@
         "noClientsAvailable": "没有可用的未分组客户端。您可以稍后添加 IP。"
       },
       "actions": {
-        "saving": "保存中...",
-        "adding": "添加中...",
         "saveChanges": "保存更改",
-        "addNickname": "添加昵称"
+        "addNickname": "添加昵称",
+        "removeChosenIp": "移除 {{ip}}"
       },
       "messages": {
         "andAddedIps": " 并添加了 {{count}} 个 IP",

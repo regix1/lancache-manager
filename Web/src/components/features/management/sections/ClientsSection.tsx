@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, CardHeader, CardTitle, CardContent } from '@components/ui/Card';
+import { Card } from '@components/ui/Card';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Alert } from '@components/ui/Alert';
@@ -13,11 +14,21 @@ import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
-import { Plus, Users, Trash2, Edit2, X, User, AlertTriangle } from 'lucide-react';
+import {
+  Users,
+  EyeOff,
+  Trash2,
+  Edit2,
+  X,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp
+} from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import type { ClientGroup, ClientExclusionRule, ClientExclusionMode } from '../../../../types';
+import '../managementSectionContent.css';
 import './ClientsSection.css';
 
 const UNGROUPED_IPS_PER_PAGE = 20;
@@ -242,11 +253,25 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<ClientGroup | null>(null);
+  const [quickNameIps, setQuickNameIps] = useState<string[]>([]);
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null);
   const [removingMember, setRemovingMember] = useState<{ groupId: number; ip: string } | null>(
     null
   );
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ClientGroup | null>(null);
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<number>>(new Set());
+
+  const toggleGroupExpanded = (groupId: number) => {
+    setExpandedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  };
 
   // Get all IPs that are in groups
   const groupedIps = useMemo(() => {
@@ -273,11 +298,19 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
   const handleCreateGroup = () => {
     setEditingGroup(null);
+    setQuickNameIps([]);
+    setIsModalOpen(true);
+  };
+
+  const handleQuickName = (ip: string) => {
+    setEditingGroup(null);
+    setQuickNameIps([ip]);
     setIsModalOpen(true);
   };
 
   const handleEditGroup = (group: ClientGroup) => {
     setEditingGroup(group);
+    setQuickNameIps([]);
     setIsModalOpen(true);
   };
 
@@ -317,6 +350,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   const handleModalClose = () => {
     setIsModalOpen(false);
     setEditingGroup(null);
+    setQuickNameIps([]);
   };
 
   const handleModalSuccess = (message: string) => {
@@ -326,189 +360,198 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
   return (
     <div
-      className="management-section animate-fade-in"
+      className="management-section animate-fade-in space-y-4"
       role="tabpanel"
       id="panel-clients"
       aria-labelledby="tab-clients"
     >
-      {/* Section Header */}
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <p className="text-themed-secondary text-sm">
-            {t('management.sections.clients.subtitle')}
-          </p>
-        </div>
-        {isAdmin && (
-          <Button onClick={handleCreateGroup} className="flex items-center gap-2">
-            <Plus className="w-4 h-4" />
-            {t('management.sections.clients.addNickname')}
-          </Button>
-        )}
-      </div>
-
       {/* Client Nicknames */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-primary)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.clients.nicknames')}
-          </h3>
-          {clientGroups.length > 0 && (
-            <span className="themed-badge status-badge-neutral badge-count">
-              {clientGroups.length}
-            </span>
+      <Card padding="none">
+        <div className="clients-card-header">
+          <div className="clients-card-icon icon-bg-blue">
+            <Users className="w-4 h-4 icon-blue" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <h3 className="font-semibold text-themed-primary truncate">
+                {t('management.sections.clients.title')}
+              </h3>
+              {clientGroups.length > 0 && (
+                <span className="themed-badge status-badge-neutral badge-count">
+                  {clientGroups.length}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-themed-muted">{t('management.sections.clients.subtitle')}</p>
+          </div>
+          {isAdmin && (
+            <Button size="sm" onClick={handleCreateGroup}>
+              {t('management.sections.clients.addNickname')}
+            </Button>
           )}
         </div>
-
-        {loading ? (
-          <Card>
-            <CardContent className="py-8 flex items-center justify-center">
-              <LoadingSpinner inline size="lg" className="text-themed-muted" />
-              <span className="ml-2 text-themed-muted">
-                {t('management.sections.clients.loadingNicknames')}
-              </span>
-            </CardContent>
-          </Card>
-        ) : clientGroups.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-themed-muted">
-              <User className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p className="mb-2">{t('management.sections.clients.noNicknamesYet')}</p>
-              <p className="text-sm">{t('management.sections.clients.noNicknamesDesc')}</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4">
-            {clientGroups.map((group) => {
-              const isMultiIp = group.memberIps.length > 1;
-              return (
-                <Card key={group.id}>
-                  <CardHeader className="flex flex-row items-center justify-between py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-themed-tertiary">
-                        {isMultiIp ? (
-                          <Users className="w-5 h-5 text-themed-muted" />
-                        ) : (
-                          <User className="w-5 h-5 text-themed-muted" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <CardTitle className="text-base">{group.nickname}</CardTitle>
+        <div className="clients-card-body space-y-4">
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-6 text-themed-muted">
+              <LoadingSpinner inline size="md" />
+              <span>{t('management.sections.clients.loadingNicknames')}</span>
+            </div>
+          ) : clientGroups.length === 0 ? (
+            <div className="mgmt-panel items-center py-6 text-center">
+              <p className="text-themed-secondary">
+                {t('management.sections.clients.noNicknamesYet')}
+              </p>
+              <p className="text-sm text-themed-muted">
+                {t('management.sections.clients.noNicknamesDesc')}
+              </p>
+            </div>
+          ) : (
+            <div className="mgmt-list">
+              {clientGroups.map((group) => {
+                const isMultiIp = group.memberIps.length > 1;
+                const isExpanded = expandedGroupIds.has(group.id);
+                return (
+                  <div key={group.id}>
+                    <div className="mgmt-row">
+                      <div className="mgmt-row__body">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <p className="mgmt-row__title truncate">{group.nickname}</p>
                           {isMultiIp && (
                             <Tooltip content={t('modals.clientGroup.multiIpWarning')}>
-                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs icon-bg-orange icon-orange">
+                              <span className="flex flex-shrink-0 items-center gap-1 px-1.5 py-0.5 rounded text-xs icon-bg-orange icon-orange">
                                 <AlertTriangle className="w-3 h-3" />
                                 {group.memberIps.length} {t('management.sections.clients.ipsLabel')}
                               </span>
                             </Tooltip>
                           )}
                         </div>
-                        {group.description && (
-                          <p className="text-sm text-themed-muted">{group.description}</p>
-                        )}
+                        <p className="mgmt-row__meta truncate">
+                          {group.description && <span>{group.description} · </span>}
+                          <span className="font-mono">
+                            {isMultiIp
+                              ? `${group.memberIps.length} ${t('management.sections.clients.ipsLabel')}`
+                              : group.memberIps[0]}
+                          </span>
+                        </p>
                       </div>
-                    </div>
-                    {isAdmin && (
-                      <div className="flex items-center gap-2">
-                        <Tooltip content={t('common.edit')}>
-                          <Button
-                            variant="filled"
-                            color="gray"
-                            size="sm"
-                            onClick={() => handleEditGroup(group)}
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </Button>
-                        </Tooltip>
-                        <Tooltip content={t('common.delete')}>
-                          <Button
-                            variant="filled"
-                            size="sm"
-                            color="red"
-                            onClick={() => handleDeleteGroup(group)}
-                            disabled={deletingGroupId === group.id}
-                          >
-                            {deletingGroupId === group.id ? (
-                              <LoadingSpinner inline size="sm" />
-                            ) : (
-                              <Trash2 className="w-4 h-4" />
-                            )}
-                          </Button>
-                        </Tooltip>
-                      </div>
-                    )}
-                  </CardHeader>
-                  <CardContent className="pt-0 pb-4">
-                    <div className="flex flex-wrap gap-2">
-                      {group.memberIps.map((ip) => (
-                        <div
-                          key={ip}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono bg-themed-tertiary text-themed-secondary"
-                        >
-                          <span>{ip}</span>
-                          {isAdmin && (
-                            <Tooltip content={t('management.sections.clients.removeIp')}>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRemoveMember(group.id, ip, group.nickname);
-                                }}
-                                disabled={
-                                  removingMember?.groupId === group.id && removingMember?.ip === ip
-                                }
-                                className="ml-1 p-0.5 rounded text-themed-muted delete-hover"
+                      <div className="mgmt-row__actions">
+                        {isAdmin && (
+                          <>
+                            <Tooltip content={t('common.edit')}>
+                              <Button
+                                variant="filled"
+                                color="gray"
+                                size="xs"
+                                onClick={() => handleEditGroup(group)}
                               >
-                                {removingMember?.groupId === group.id &&
-                                removingMember?.ip === ip ? (
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </Tooltip>
+                            <Tooltip content={t('common.delete')}>
+                              <Button
+                                variant="filled"
+                                color="red"
+                                size="xs"
+                                onClick={() => handleDeleteGroup(group)}
+                                disabled={deletingGroupId === group.id}
+                              >
+                                {deletingGroupId === group.id ? (
                                   <LoadingSpinner inline size="xs" />
                                 ) : (
-                                  <X className="w-3 h-3" />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 )}
-                              </button>
+                              </Button>
                             </Tooltip>
+                          </>
+                        )}
+                        <Button
+                          variant="filled"
+                          color="gray"
+                          size="xs"
+                          onClick={() => toggleGroupExpanded(group.id)}
+                          aria-expanded={isExpanded}
+                          aria-label={
+                            isExpanded
+                              ? t('management.sections.clients.collapseIps', {
+                                  nickname: group.nickname
+                                })
+                              : t('management.sections.clients.expandIps', {
+                                  nickname: group.nickname
+                                })
+                          }
+                        >
+                          {isExpanded ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
                           )}
-                        </div>
-                      ))}
+                        </Button>
+                      </div>
                     </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                    <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">
+                      <div className="flex flex-wrap gap-2">
+                        {group.memberIps.map((ip) => (
+                          <div
+                            key={ip}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono bg-themed-tertiary text-themed-secondary"
+                          >
+                            <span>{ip}</span>
+                            {isAdmin && (
+                              <Tooltip content={t('management.sections.clients.removeIp')}>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveMember(group.id, ip, group.nickname);
+                                  }}
+                                  disabled={
+                                    removingMember?.groupId === group.id &&
+                                    removingMember?.ip === ip
+                                  }
+                                  className="ml-1 p-0.5 rounded text-themed-muted delete-hover"
+                                >
+                                  {removingMember?.groupId === group.id &&
+                                  removingMember?.ip === ip ? (
+                                    <LoadingSpinner inline size="xs" />
+                                  ) : (
+                                    <X className="w-3 h-3" />
+                                  )}
+                                </button>
+                              </Tooltip>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </CollapsibleRegion>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-      {/* Clients Without Nicknames */}
-      {(loadingClients || ungroupedClients.length > 0) && (
-        <div>
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-orange)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              {t('management.sections.clients.withoutNicknames')}
-            </h3>
-            {!loadingClients && ungroupedClients.length > 0 && (
-              <span className="themed-badge status-badge-neutral badge-count">
-                {ungroupedClients.length}
-              </span>
-            )}
-          </div>
-
-          <Card>
-            <CardContent className="py-4">
-              {loadingClients ? (
-                <div className="flex items-center justify-center py-4">
-                  <LoadingSpinner inline size="md" className="text-themed-muted" />
-                  <span className="ml-2 text-themed-muted">
-                    {t('management.sections.clients.loadingClients')}
+          {/* Clients without nicknames */}
+          {(loadingClients || ungroupedClients.length > 0) && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h4 className="mgmt-subhead">
+                  {t('management.sections.clients.withoutNicknames')}
+                </h4>
+                {!loadingClients && ungroupedClients.length > 0 && (
+                  <span className="themed-badge status-badge-neutral badge-count">
+                    {ungroupedClients.length}
                   </span>
+                )}
+              </div>
+
+              {loadingClients ? (
+                <div className="flex items-center justify-center gap-2 py-4 text-themed-muted">
+                  <LoadingSpinner inline size="md" />
+                  <span>{t('management.sections.clients.loadingClients')}</span>
                 </div>
               ) : (
                 <>
-                  <p className="text-sm text-themed-muted mb-3">
+                  <p className="text-sm text-themed-muted">
                     {t('management.sections.clients.withoutNicknamesDesc')}
                   </p>
-                  {/* Top Pagination Controls (shown for long lists) */}
                   {ungroupedClients.length > PAGINATION_TOP_THRESHOLD &&
                     totalUngroupedPages > 1 && (
                       <Pagination
@@ -520,98 +563,112 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                         itemLabel={t('management.sections.clients.ipsLabel')}
                         showCard={false}
                         compact
-                        className="mb-3"
                       />
                     )}
-                  <div className="flex flex-wrap gap-2">
+                  <div className="mgmt-list">
                     {paginatedUngroupedClients.map((ip) => (
-                      <Tooltip
-                        key={ip}
-                        content={t('management.sections.clients.clickAddNicknameTooltip')}
-                      >
-                        <div className="px-2 py-1 rounded text-sm font-mono cursor-help bg-themed-tertiary text-themed-muted">
-                          {ip}
+                      <div key={ip} className="mgmt-row clients-unnamed-row">
+                        <div className="mgmt-row__body">
+                          <p className="mgmt-row__title font-mono truncate">{ip}</p>
                         </div>
-                      </Tooltip>
+                        {isAdmin && (
+                          <div className="mgmt-row__actions">
+                            <Button
+                              variant="filled"
+                              color="gray"
+                              size="xs"
+                              onClick={() => handleQuickName(ip)}
+                            >
+                              {t('management.sections.clients.nameIpAction')}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
+                  {totalUngroupedPages > 1 && (
+                    <Pagination
+                      currentPage={ungroupedPage}
+                      totalPages={totalUngroupedPages}
+                      totalItems={ungroupedClients.length}
+                      itemsPerPage={UNGROUPED_IPS_PER_PAGE}
+                      onPageChange={setUngroupedPage}
+                      itemLabel={t('management.sections.clients.ipsLabel')}
+                      showCard={false}
+                      compact
+                    />
+                  )}
                 </>
               )}
-              {!loadingClients && totalUngroupedPages > 1 && (
-                <Pagination
-                  currentPage={ungroupedPage}
-                  totalPages={totalUngroupedPages}
-                  totalItems={ungroupedClients.length}
-                  itemsPerPage={UNGROUPED_IPS_PER_PAGE}
-                  onPageChange={setUngroupedPage}
-                  itemLabel={t('management.sections.clients.ipsLabel')}
-                  showCard={false}
-                  compact
-                  className="mt-3"
-                />
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Exclude IPs from Stats */}
-      <div className="mt-8">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-red)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.clients.excludeFromStats')}
-          </h3>
-        </div>
-
-        <Card>
-          <CardContent className="py-5 space-y-4">
-            <div className="text-sm text-themed-secondary">
-              {t('management.sections.clients.excludedIpsDesc')}
             </div>
+          )}
+        </div>
+      </Card>
 
-            {!isAdmin ? (
-              <Alert color="yellow">
-                <span className="text-sm">
-                  {t('management.sections.clients.authenticateToManage')}
+      {/* Client Exclusions */}
+      <Card padding="none">
+        <div className="clients-card-header">
+          <div className="clients-card-icon icon-bg-red">
+            <EyeOff className="w-4 h-4 icon-red" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <h3 className="font-semibold text-themed-primary truncate">
+                {t('management.sections.clients.excludeFromStats')}
+              </h3>
+              {excludedRules.length > 0 && (
+                <span className="themed-badge status-badge-neutral badge-count">
+                  {excludedRules.length}
                 </span>
-              </Alert>
-            ) : (
-              <>
-                <div className="space-y-3">
-                  <div className="text-xs text-themed-muted uppercase tracking-wide font-semibold">
-                    {t('management.sections.clients.pickFromKnownClients')}
-                  </div>
-                  <div className="clients-control-row flex flex-col sm:flex-row sm:items-center gap-3">
-                    <MultiSelectDropdown
-                      options={knownClientOptions}
-                      values={selectedKnownIps}
-                      onChange={setSelectedKnownIps}
-                      placeholder={t('management.sections.clients.selectClients')}
-                      minSelections={0}
-                      disabled={
-                        loadingExcluded || savingExcluded || knownClientOptions.length === 0
-                      }
-                      className="w-full"
-                    />
-                    <Button
-                      onClick={handleAddKnownIps}
-                      variant="filled"
-                      color="blue"
-                      className="clients-row-button sm:w-40"
-                      disabled={selectedKnownIps.length === 0 || loadingExcluded || savingExcluded}
-                    >
-                      {t('management.sections.clients.addSelected')}
-                    </Button>
-                  </div>
-                  {knownClientOptions.length === 0 && (
-                    <div className="text-sm text-themed-muted">
-                      {t('management.sections.clients.allKnownExcluded')}
-                    </div>
-                  )}
-                </div>
+              )}
+            </div>
+            <p className="text-xs text-themed-muted">
+              {t('management.sections.clients.exclusionsSummary')}
+            </p>
+          </div>
+        </div>
+        <div className="clients-card-body">
+          {!isAdmin ? (
+            <Alert color="yellow">
+              <span className="text-sm">
+                {t('management.sections.clients.authenticateToManage')}
+              </span>
+            </Alert>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-themed-secondary">
+                {t('management.sections.clients.excludedIpsDesc')}
+              </p>
 
-                <div className="border-t border-themed-primary pt-4" />
+              <div className="space-y-3">
+                <h4 className="mgmt-subhead">
+                  {t('management.sections.clients.pickFromKnownClients')}
+                </h4>
+                <div className="clients-control-row flex flex-col sm:flex-row sm:items-center gap-3">
+                  <MultiSelectDropdown
+                    options={knownClientOptions}
+                    values={selectedKnownIps}
+                    onChange={setSelectedKnownIps}
+                    placeholder={t('management.sections.clients.selectClients')}
+                    minSelections={0}
+                    disabled={loadingExcluded || savingExcluded || knownClientOptions.length === 0}
+                    className="w-full"
+                  />
+                  <Button
+                    onClick={handleAddKnownIps}
+                    variant="filled"
+                    color="blue"
+                    className="clients-row-button sm:w-40"
+                    disabled={selectedKnownIps.length === 0 || loadingExcluded || savingExcluded}
+                  >
+                    {t('management.sections.clients.addSelected')}
+                  </Button>
+                </div>
+                {knownClientOptions.length === 0 && (
+                  <div className="text-sm text-themed-muted">
+                    {t('management.sections.clients.allKnownExcluded')}
+                  </div>
+                )}
 
                 <div className="clients-control-row flex flex-col sm:flex-row sm:items-center gap-3">
                   <input
@@ -651,92 +708,89 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                     </span>
                   </Alert>
                 )}
+              </div>
 
-                {loadingExcluded ? (
-                  <div className="flex items-center gap-2 text-themed-muted text-sm">
-                    <LoadingSpinner inline size="sm" />
-                    {t('management.sections.clients.loadingExcludedIps')}
-                  </div>
-                ) : excludedRules.length === 0 ? (
-                  <div className="text-sm text-themed-muted">
-                    {t('management.sections.clients.noExcludedIps')}
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {excludedRules.map((rule) => (
-                      <div
-                        key={rule.ip}
-                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg bg-themed-tertiary"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="font-mono text-themed-secondary font-medium">
-                            <ClientIpDisplay clientIp={rule.ip} showTooltip={false} />
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <div className="exclusion-mode-toggle" role="group">
-                            <Tooltip
-                              className="exclusion-mode-cell"
-                              content={t('management.sections.clients.modeExcludeTooltip')}
-                            >
-                              <button
-                                type="button"
-                                className={`exclusion-mode-option ${rule.mode === 'exclude' ? 'is-active' : ''}`}
-                                onClick={() => handleChangeMode(rule.ip, 'exclude')}
-                                disabled={savingExcluded}
-                              >
-                                {t('management.sections.clients.modeExclude')}
-                              </button>
-                            </Tooltip>
-                            <Tooltip
-                              className="exclusion-mode-cell"
-                              content={t('management.sections.clients.modeHideTooltip')}
-                            >
-                              <button
-                                type="button"
-                                className={`exclusion-mode-option ${rule.mode === 'hide' ? 'is-active' : ''}`}
-                                onClick={() => handleChangeMode(rule.ip, 'hide')}
-                                disabled={savingExcluded}
-                              >
-                                {t('management.sections.clients.modeHide')}
-                              </button>
-                            </Tooltip>
-                          </div>
-                          <Tooltip content={t('management.sections.clients.removeIp')}>
-                            <Button
-                              variant="filled"
-                              size="sm"
-                              color="red"
-                              className="text-themed-muted hover:text-red-500"
-                              onClick={() => handleRemoveExcluded(rule.ip)}
-                              disabled={savingExcluded}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </Tooltip>
+              {loadingExcluded ? (
+                <div className="flex items-center gap-2 text-themed-muted text-sm">
+                  <LoadingSpinner inline size="sm" />
+                  {t('management.sections.clients.loadingExcludedIps')}
+                </div>
+              ) : excludedRules.length === 0 ? (
+                <div className="text-sm text-themed-muted">
+                  {t('management.sections.clients.noExcludedIps')}
+                </div>
+              ) : (
+                <div className="mgmt-list">
+                  {excludedRules.map((rule) => (
+                    <div key={rule.ip} className="mgmt-row clients-exclusion-row flex-wrap">
+                      <div className="mgmt-row__body">
+                        <div className="mgmt-row__title font-mono">
+                          <ClientIpDisplay clientIp={rule.ip} showTooltip={false} />
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
-                  <div />
-                  <Button
-                    onClick={handleSaveExcluded}
-                    disabled={!hasExcludedChanges || savingExcluded || loadingExcluded}
-                    loading={savingExcluded}
-                    className="sm:w-40"
-                  >
-                    {t('management.sections.clients.saveChanges')}
-                  </Button>
+                      <div className="mgmt-row__actions">
+                        <div className="exclusion-mode-toggle" role="group">
+                          <Tooltip
+                            className="exclusion-mode-cell"
+                            content={t('management.sections.clients.modeExcludeTooltip')}
+                          >
+                            <button
+                              type="button"
+                              className={`exclusion-mode-option ${rule.mode === 'exclude' ? 'is-active' : ''}`}
+                              onClick={() => handleChangeMode(rule.ip, 'exclude')}
+                              disabled={savingExcluded}
+                            >
+                              {t('management.sections.clients.modeExclude')}
+                            </button>
+                          </Tooltip>
+                          <Tooltip
+                            className="exclusion-mode-cell"
+                            content={t('management.sections.clients.modeHideTooltip')}
+                          >
+                            <button
+                              type="button"
+                              className={`exclusion-mode-option ${rule.mode === 'hide' ? 'is-active' : ''}`}
+                              onClick={() => handleChangeMode(rule.ip, 'hide')}
+                              disabled={savingExcluded}
+                            >
+                              {t('management.sections.clients.modeHide')}
+                            </button>
+                          </Tooltip>
+                        </div>
+                        <Tooltip content={t('management.sections.clients.removeIp')}>
+                          <Button
+                            variant="filled"
+                            size="xs"
+                            color="red"
+                            onClick={() => handleRemoveExcluded(rule.ip)}
+                            disabled={savingExcluded}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </Tooltip>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+                <span className="text-xs text-themed-muted">
+                  {hasExcludedChanges ? t('management.sections.clients.unsavedChanges') : ''}
+                </span>
+                <Button
+                  onClick={handleSaveExcluded}
+                  disabled={!hasExcludedChanges || savingExcluded || loadingExcluded}
+                  loading={savingExcluded}
+                  className="sm:w-40"
+                >
+                  {t('management.sections.clients.saveChanges')}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
 
       {/* Edit/Create Modal */}
       <ClientGroupModal
@@ -744,6 +798,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
         onClose={handleModalClose}
         group={editingGroup}
         ungroupedIps={ungroupedClients}
+        initialIps={quickNameIps}
         onSuccess={handleModalSuccess}
         onError={onError}
       />

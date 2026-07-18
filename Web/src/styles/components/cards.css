@@ -8,6 +8,14 @@
     border-radius: var(--theme-border-radius-lg);
   }
 
+  /* Squarer variant for small controls (compact chevron/icon buttons, chips).
+     The lightly-rounded look is the house preference for these - use this
+     instead of themed-border-radius, whose lg radius reads as a pill at small
+     sizes. */
+  .themed-border-radius-sm {
+    border-radius: var(--theme-border-radius);
+  }
+
   /* Theme-aware Card */
   .themed-card {
     background-color: var(--theme-card-bg);

@@ -2315,9 +2315,13 @@
         "noNicknamesYet": "No nicknames assigned yet",
         "noNicknamesDesc": "Add a nickname to give a friendly name to client IPs",
         "withoutNicknames": "Without Nicknames",
-        "withoutNicknamesDesc": "These client IPs don't have nicknames assigned. Click \"Add Nickname\" above to give them friendly names.",
-        "clickAddNicknameTooltip": "Click \"Add Nickname\" to name this IP",
+        "withoutNicknamesDesc": "These clients don't have a nickname yet. Add one to recognize them at a glance.",
+        "nameIpAction": "Add nickname",
+        "expandIps": "Show IPs for {{nickname}}",
+        "collapseIps": "Hide IPs for {{nickname}}",
+        "unsavedChanges": "Unsaved changes",
         "excludeFromStats": "Client Exclusions",
+        "exclusionsSummary": "Keep specific clients out of stats, or hide them entirely",
         "excludedIpsDesc": "Choose how each client is handled. \"Stats only\" keeps the client visible in downloads and live speeds but removes it from dashboard totals, hit rate, and leaderboards. \"Hidden\" removes the client from every view and from all stats.",
         "modeExclude": "Stats only",
         "modeHide": "Hidden",
@@ -4739,10 +4743,9 @@
         "noClientsAvailable": "No ungrouped clients available. You can add IPs later."
       },
       "actions": {
-        "saving": "Saving...",
-        "adding": "Adding...",
         "saveChanges": "Save Changes",
-        "addNickname": "Add Nickname"
+        "addNickname": "Add Nickname",
+        "removeChosenIp": "Remove {{ip}}"
       },
       "messages": {
         "andAddedIps": " and added {{count}} IP",

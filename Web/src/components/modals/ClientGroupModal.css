@@ -1,0 +1,34 @@
+/* Nickname modal IP picker: the shared .mgmt-list surface around a
+   CustomScrollbar viewport (the house scrollbar), capped so the modal stays
+   compact even with hundreds of clients. The scrollbar wrapper becomes the
+   list's only direct child, so the row dividers live on .clientgroup-ip-rows. */
+.clientgroup-ip-rows > * + * {
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+/* Pick-list rows are plain <button>s wearing .mgmt-row; strip the user-agent
+   button chrome and tighten the row so ~6 rows fit the capped picker. */
+.clientgroup-ip-picker .clientgroup-ip-row {
+  min-height: 2.25rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  justify-content: space-between;
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Chosen-IP tokens are whole-chip remove buttons; give press feedback without
+   inventing a new hover surface on the accent fill. */
+.clientgroup-chosen-ip {
+  border: 0;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+@media (hover: hover) {
+  .clientgroup-chosen-ip:hover {
+    opacity: 0.85;
+  }
+}
