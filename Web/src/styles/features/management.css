@@ -329,7 +329,13 @@
     color 0.15s ease-out;
 }
 
-.exclusion-mode-option + .exclusion-mode-option {
+/* Each option sits inside a tooltip wrapper cell; the divider lives between cells */
+.exclusion-mode-cell {
+  display: flex;
+  align-items: stretch;
+}
+
+.exclusion-mode-cell + .exclusion-mode-cell {
   border-left: 1px solid var(--theme-border-primary);
 }
 

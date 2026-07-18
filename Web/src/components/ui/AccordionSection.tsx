@@ -84,13 +84,15 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         e.stopPropagation();
         onToggle();
       }}
-      className={`flex items-center justify-center w-10 h-10 themed-border-radius transition duration-300 flex-shrink-0 ${
+      className={`flex items-center justify-center ${
+        surface === 'well' ? 'w-7 h-7' : 'w-10 h-10'
+      } themed-border-radius transition duration-300 flex-shrink-0 ${
         isExpanded ? 'bg-[var(--theme-accent-subtle)]' : 'bg-transparent hover:bg-themed-tertiary'
       }`}
       aria-label={isExpanded ? 'Collapse section' : 'Expand section'}
     >
       <ChevronDown
-        className={`w-5 h-5 transition duration-300 ease-out ${
+        className={`${surface === 'well' ? 'w-4 h-4' : 'w-5 h-5'} transition duration-300 ease-out ${
           isExpanded ? 'rotate-180 text-themed-accent' : 'rotate-0 text-themed-muted'
         }`}
       />

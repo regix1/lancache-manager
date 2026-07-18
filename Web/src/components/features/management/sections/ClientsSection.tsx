@@ -411,29 +411,31 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                     </div>
                     {isAdmin && (
                       <div className="flex items-center gap-2">
-                        <Button
-                          variant="filled"
-                          color="gray"
-                          size="sm"
-                          onClick={() => handleEditGroup(group)}
-                          title={t('common.edit')}
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="filled"
-                          size="sm"
-                          color="red"
-                          onClick={() => handleDeleteGroup(group)}
-                          disabled={deletingGroupId === group.id}
-                          title={t('common.delete')}
-                        >
-                          {deletingGroupId === group.id ? (
-                            <LoadingSpinner inline size="sm" />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
-                        </Button>
+                        <Tooltip content={t('common.edit')}>
+                          <Button
+                            variant="filled"
+                            color="gray"
+                            size="sm"
+                            onClick={() => handleEditGroup(group)}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                        </Tooltip>
+                        <Tooltip content={t('common.delete')}>
+                          <Button
+                            variant="filled"
+                            size="sm"
+                            color="red"
+                            onClick={() => handleDeleteGroup(group)}
+                            disabled={deletingGroupId === group.id}
+                          >
+                            {deletingGroupId === group.id ? (
+                              <LoadingSpinner inline size="sm" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </Button>
+                        </Tooltip>
                       </div>
                     )}
                   </CardHeader>
@@ -446,23 +448,25 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                         >
                           <span>{ip}</span>
                           {isAdmin && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRemoveMember(group.id, ip, group.nickname);
-                              }}
-                              disabled={
-                                removingMember?.groupId === group.id && removingMember?.ip === ip
-                              }
-                              className="ml-1 p-0.5 rounded text-themed-muted delete-hover"
-                              title={t('management.sections.clients.removeIp')}
-                            >
-                              {removingMember?.groupId === group.id && removingMember?.ip === ip ? (
-                                <LoadingSpinner inline size="xs" />
-                              ) : (
-                                <X className="w-3 h-3" />
-                              )}
-                            </button>
+                            <Tooltip content={t('management.sections.clients.removeIp')}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveMember(group.id, ip, group.nickname);
+                                }}
+                                disabled={
+                                  removingMember?.groupId === group.id && removingMember?.ip === ip
+                                }
+                                className="ml-1 p-0.5 rounded text-themed-muted delete-hover"
+                              >
+                                {removingMember?.groupId === group.id &&
+                                removingMember?.ip === ip ? (
+                                  <LoadingSpinner inline size="xs" />
+                                ) : (
+                                  <X className="w-3 h-3" />
+                                )}
+                              </button>
+                            </Tooltip>
                           )}
                         </div>
                       ))}
@@ -672,36 +676,45 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
                         <div className="flex items-center gap-3">
                           <div className="exclusion-mode-toggle" role="group">
-                            <button
-                              type="button"
-                              className={`exclusion-mode-option ${rule.mode === 'exclude' ? 'is-active' : ''}`}
-                              onClick={() => handleChangeMode(rule.ip, 'exclude')}
-                              disabled={savingExcluded}
-                              title={t('management.sections.clients.modeExcludeTooltip')}
+                            <Tooltip
+                              className="exclusion-mode-cell"
+                              content={t('management.sections.clients.modeExcludeTooltip')}
                             >
-                              {t('management.sections.clients.modeExclude')}
-                            </button>
-                            <button
-                              type="button"
-                              className={`exclusion-mode-option ${rule.mode === 'hide' ? 'is-active' : ''}`}
-                              onClick={() => handleChangeMode(rule.ip, 'hide')}
-                              disabled={savingExcluded}
-                              title={t('management.sections.clients.modeHideTooltip')}
+                              <button
+                                type="button"
+                                className={`exclusion-mode-option ${rule.mode === 'exclude' ? 'is-active' : ''}`}
+                                onClick={() => handleChangeMode(rule.ip, 'exclude')}
+                                disabled={savingExcluded}
+                              >
+                                {t('management.sections.clients.modeExclude')}
+                              </button>
+                            </Tooltip>
+                            <Tooltip
+                              className="exclusion-mode-cell"
+                              content={t('management.sections.clients.modeHideTooltip')}
                             >
-                              {t('management.sections.clients.modeHide')}
-                            </button>
+                              <button
+                                type="button"
+                                className={`exclusion-mode-option ${rule.mode === 'hide' ? 'is-active' : ''}`}
+                                onClick={() => handleChangeMode(rule.ip, 'hide')}
+                                disabled={savingExcluded}
+                              >
+                                {t('management.sections.clients.modeHide')}
+                              </button>
+                            </Tooltip>
                           </div>
-                          <Button
-                            variant="filled"
-                            size="sm"
-                            color="red"
-                            className="text-themed-muted hover:text-red-500"
-                            onClick={() => handleRemoveExcluded(rule.ip)}
-                            disabled={savingExcluded}
-                            title={t('management.sections.clients.removeIp')}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <Tooltip content={t('management.sections.clients.removeIp')}>
+                            <Button
+                              variant="filled"
+                              size="sm"
+                              color="red"
+                              className="text-themed-muted hover:text-red-500"
+                              onClick={() => handleRemoveExcluded(rule.ip)}
+                              disabled={savingExcluded}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </Tooltip>
                         </div>
                       </div>
                     ))}
