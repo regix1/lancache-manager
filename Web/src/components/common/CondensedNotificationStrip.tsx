@@ -38,6 +38,21 @@ const OPEN_HOVER_RECHECK_MS = 250;
  */
 const PANEL_EXIT_MS = 260;
 
+/**
+ * How long the strip keeps rendering its final segments after the last compacted notification
+ * goes away, while the line's fade-out plays. Slightly longer than the CSS exit animation so
+ * the faded end state is what unmounts. A plain timeout for the same reason as PANEL_EXIT_MS.
+ */
+const LINE_EXIT_MS = 450;
+
+/**
+ * How long a single departing segment stays rendered while its fade-and-shrink plays, when
+ * other segments remain on the line. Matches LINE_EXIT_MS so one segment leaving feels like
+ * the whole line leaving. Ghost expiry rides timestamps swept by a state-armed timeout, so a
+ * flurry of arrivals and departures can never cancel a pending removal into a stuck ghost.
+ */
+const SEG_EXIT_MS = 450;
+
 interface CondensedStripSegment {
   /** Stable per-service group key; also the live-region transition identity. */
   key: string;
@@ -56,12 +71,25 @@ interface CondensedNotificationStripProps {
   children: React.ReactNode;
 }
 
+/** A departed segment kept on the line while its exit animation plays. */
+interface ExitingSegment {
+  segment: CondensedStripSegment;
+  /** Where the segment sat before it departed, so the exit plays in place. */
+  prevIndex: number;
+  /** Timestamp after which the ghost is swept away. */
+  expiresAt: number;
+}
+
 /**
  * One segment of the line: the status colour dimmed as an underlay across the whole width, the
  * same colour solid up to the run's progress (or a sweep while a run reports no numeric
- * progress), breathing softly while non-terminal.
+ * progress), breathing softly while non-terminal. A leaving segment fades and hands its width
+ * to its neighbours in the same motion.
  */
-const StripSegment: React.FC<{ segment: CondensedStripSegment }> = ({ segment }) => {
+const StripSegment: React.FC<{ segment: CondensedStripSegment; leaving?: boolean }> = ({
+  segment,
+  leaving
+}) => {
   const { notification, color } = segment;
   const isRunning = notification.status === 'running';
   const hasDeterminate =
@@ -80,7 +108,7 @@ const StripSegment: React.FC<{ segment: CondensedStripSegment }> = ({ segment })
     <span
       className={`condensed-strip-seg${
         isTerminalNotificationStatus(notification.status) ? '' : ' condensed-strip-seg-live'
-      }`}
+      }${leaving ? ' is-exiting' : ''}`}
       style={segmentStyle}
     >
       {isIndeterminate ? (
@@ -110,6 +138,122 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
   const { t } = useTranslation();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+
+  // When the last compacted notification goes away the bar hands this component an empty
+  // segments array, but an instant unmount blinks the line off. The last non-empty segments
+  // are kept as a ghost for LINE_EXIT_MS while the CSS fade-out plays; only then does the
+  // strip render null. The ghost is read synchronously in render, so the very first
+  // empty-segments render already shows the fading line rather than a one-frame gap.
+  const lastSegmentsRef = useRef<CondensedStripSegment[]>([]);
+  const hasSegments = segments.length > 0;
+  if (hasSegments) {
+    lastSegmentsRef.current = segments;
+  }
+  const [lineGone, setLineGone] = useState(!hasSegments);
+  useEffect(() => {
+    if (hasSegments) {
+      setLineGone(false);
+      return;
+    }
+    if (lastSegmentsRef.current.length === 0) {
+      setLineGone(true);
+      return;
+    }
+    setOpen(false);
+    const timer = window.setTimeout(() => setLineGone(true), LINE_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [hasSegments]);
+  const displaySegments = hasSegments ? segments : lastSegmentsRef.current;
+
+  // Per-segment exits, for when ONE service's notifications go away while others stay: the
+  // departed segment is kept as a ghost at its old position and fades while handing its width
+  // to its neighbours, instead of blinking off and snapping the survivors wider. When ALL
+  // segments depart together the whole-line fade above owns the goodbye, so no ghosts then.
+  const [exiting, setExiting] = useState<Map<string, ExitingSegment>>(new Map());
+  const prevByKeyRef = useRef<Map<string, { segment: CondensedStripSegment; index: number }>>(
+    new Map()
+  );
+  useEffect(() => {
+    const currentKeys = new Set(segments.map((segment) => segment.key));
+    const departed: ExitingSegment[] = [];
+    if (currentKeys.size > 0) {
+      prevByKeyRef.current.forEach((entry, key) => {
+        if (!currentKeys.has(key)) {
+          departed.push({
+            segment: entry.segment,
+            prevIndex: entry.index,
+            expiresAt: Date.now() + SEG_EXIT_MS
+          });
+        }
+      });
+    }
+    prevByKeyRef.current = new Map(
+      segments.map((segment, index) => [segment.key, { segment, index }])
+    );
+    setExiting((previous) => {
+      let changed = false;
+      const next = new Map(previous);
+      if (currentKeys.size === 0 && next.size > 0) {
+        // The whole-line fade owns this departure.
+        return new Map();
+      }
+      for (const ghost of departed) {
+        if (!next.has(ghost.segment.key)) {
+          next.set(ghost.segment.key, ghost);
+          changed = true;
+        }
+      }
+      next.forEach((_, key) => {
+        // A service that came back mid-exit reclaims its key as a live segment.
+        if (currentKeys.has(key)) {
+          next.delete(key);
+          changed = true;
+        }
+      });
+      return changed ? next : previous;
+    });
+  }, [segments]);
+
+  // Ghost sweeper, armed by the exiting STATE rather than any particular change: while ghosts
+  // exist, a timeout to the soonest expiry is always pending, so churn cannot cancel a removal.
+  useEffect(() => {
+    if (exiting.size === 0) {
+      return;
+    }
+    const soonest = Math.min(...[...exiting.values()].map((ghost) => ghost.expiresAt));
+    const timer = window.setTimeout(
+      () => {
+        setExiting((previous) => {
+          const cutoff = Date.now();
+          let changed = false;
+          const next = new Map(previous);
+          next.forEach((ghost, key) => {
+            if (ghost.expiresAt <= cutoff) {
+              next.delete(key);
+              changed = true;
+            }
+          });
+          return changed ? next : previous;
+        });
+      },
+      Math.max(0, soonest - Date.now())
+    );
+    return () => window.clearTimeout(timer);
+  }, [exiting]);
+
+  // Live segments in order, with ghosts spliced back into their remembered positions.
+  const renderSegments: { segment: CondensedStripSegment; leaving: boolean }[] =
+    displaySegments.map((segment) => ({ segment, leaving: false }));
+  if (hasSegments && exiting.size > 0) {
+    [...exiting.values()]
+      .sort((a, b) => a.prevIndex - b.prevIndex)
+      .forEach((ghost) => {
+        renderSegments.splice(Math.min(ghost.prevIndex, renderSegments.length), 0, {
+          segment: ghost.segment,
+          leaving: true
+        });
+      });
+  }
   // The panel outlives `open` by PANEL_EXIT_MS so its exit animation can play. Whenever
   // (closed, still mounted) holds after a commit, this effect has re-armed the unmount timer -
   // both pieces of that pair are dependencies - so the panel can never be left mounted with no
@@ -179,8 +323,8 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
 
   // The accessible name states the action the button will perform in its current state.
   const ariaLabel = open
-    ? t('common.notifications.condensedStripCollapse', { count: segments.length })
-    : t('common.notifications.condensedStripToggle', { count: segments.length });
+    ? t('common.notifications.condensedStripCollapse', { count: displaySegments.length })
+    : t('common.notifications.condensedStripToggle', { count: displaySegments.length });
 
   // While collapsed, the cards' own live regions are unmounted, so the strip keeps one. It
   // speaks only on a segment's status transition (never progress ticks) and stays silent while
@@ -215,10 +359,14 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
     }
   }, [segments, open, t]);
 
+  if (!hasSegments && (lineGone || displaySegments.length === 0)) {
+    return null;
+  }
+
   return (
     <div
       ref={wrapperRef}
-      className="condensed-strip"
+      className={`condensed-strip${hasSegments ? '' : ' is-vanishing'}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
@@ -238,15 +386,15 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
         onClick={() => setOpen((previous) => !previous)}
       >
         <span className="condensed-strip-segments">
-          {segments.map((segment) => (
-            <StripSegment key={segment.key} segment={segment} />
+          {renderSegments.map(({ segment, leaving }) => (
+            <StripSegment key={segment.key} segment={segment} leaving={leaving} />
           ))}
         </span>
         <span className="condensed-strip-glow" aria-hidden="true">
-          {segments.map((segment) => (
+          {renderSegments.map(({ segment, leaving }) => (
             <span
               key={segment.key}
-              className="condensed-strip-glow-seg"
+              className={`condensed-strip-glow-seg${leaving ? ' is-exiting' : ''}`}
               style={
                 {
                   '--seg-glow-color': GLOW_COLOR_BY_STATUS_COLOR[segment.color] ?? segment.color
@@ -256,7 +404,10 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
           ))}
         </span>
       </button>
-      {panelMounted && (
+      {/* Hard-gated on live segments: during the line's fade-out the children the bar passes
+          are already empty, and letting the panel play its own exit then would fade an empty
+          background slab. It unmounts instantly instead. */}
+      {panelMounted && hasSegments && (
         <div className={`condensed-strip-panel${open ? '' : ' is-leaving'}`}>{children}</div>
       )}
     </div>

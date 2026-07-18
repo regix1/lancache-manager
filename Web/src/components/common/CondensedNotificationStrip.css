@@ -14,6 +14,27 @@
   width: 100%;
 }
 
+/* The line's own goodbye: when the last compacted notification goes away, the strip keeps
+   rendering its final segments for one beat and fades them out, instead of blinking off in a
+   single frame. A ghost line should not glow or take clicks. */
+.condensed-strip.is-vanishing .condensed-strip-line {
+  animation: condensedStripLineOut 0.4s cubic-bezier(0.33, 1, 0.68, 1) forwards;
+  pointer-events: none;
+}
+
+.condensed-strip.is-vanishing .condensed-strip-glow {
+  opacity: 0;
+}
+
+@keyframes condensedStripLineOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 .condensed-strip-line {
   position: relative;
   display: flex;
@@ -108,6 +129,27 @@
   }
   100% {
     transform: translateX(350%);
+  }
+}
+
+/* One segment's goodbye while others stay: it fades and hands its width to its neighbours in
+   the same motion (flex-grow is what the survivors divide the line by), instead of blinking
+   off and snapping them wider. Same duration and curve as the whole-line fade. The compound
+   selector outranks the pulse, so a leaving live segment stops breathing and just goes. */
+.condensed-strip-seg.is-exiting,
+.condensed-strip-glow-seg.is-exiting {
+  animation: condensedStripSegOut 0.4s cubic-bezier(0.33, 1, 0.68, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes condensedStripSegOut {
+  from {
+    flex-grow: 1;
+    opacity: 1;
+  }
+  to {
+    flex-grow: 0;
+    opacity: 0;
   }
 }
 
@@ -219,6 +261,9 @@
 @media (prefers-reduced-motion: reduce) {
   .condensed-strip-panel,
   .condensed-strip-panel.is-leaving,
+  .condensed-strip.is-vanishing .condensed-strip-line,
+  .condensed-strip-seg.is-exiting,
+  .condensed-strip-glow-seg.is-exiting,
   .condensed-strip-sweep,
   .condensed-strip-seg-live,
   .condensed-strip-glow,

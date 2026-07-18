@@ -850,7 +850,10 @@ const UniversalNotificationBar: React.FC = () => {
             outranks terminal toasts for each segment's colour, fill, and pulse), and the whole
             line is one disclosure target. Rendered only when present, so the default all-full
             desktop path is the untouched full-card container below. */}
-        {condensedGroups.size > 0 && (
+        {/* Rendered unconditionally: with zero segments the strip renders null itself, after
+            fading its line out. A conditional unmount here would blink the line off in one
+            frame instead. */}
+        {
           <CondensedNotificationStrip
             segments={[...condensedGroups.entries()].map(([groupKey, group]) => {
               const representative =
@@ -897,7 +900,7 @@ const UniversalNotificationBar: React.FC = () => {
               )}
             </div>
           </CondensedNotificationStrip>
-        )}
+        }
         {fullItems.length > 0 && (
           <div className="container mx-auto px-4 py-2 space-y-2">
             {fullItems.map(({ notification }) => (
