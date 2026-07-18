@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { UnifiedNotification } from '@contexts/notifications';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
@@ -169,11 +169,18 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
   // departed segment is kept as a ghost at its old position and fades while handing its width
   // to its neighbours, instead of blinking off and snapping the survivors wider. When ALL
   // segments depart together the whole-line fade above owns the goodbye, so no ghosts then.
+  //
+  // This runs as a layout effect, not a passive one: a passive effect fires AFTER paint, so the
+  // browser would first paint the frame where the departed segment is already gone and the
+  // survivors have flexed out to fill its place, and only then would the ghost be spliced back
+  // in and the survivors snap narrow again to make room for its fade. That paint-then-correct
+  // double step reads as a flicker each time a segment leaves. A layout effect commits the ghost
+  // before the browser paints, so the survivors hand off their width in one smooth motion.
   const [exiting, setExiting] = useState<Map<string, ExitingSegment>>(new Map());
   const prevByKeyRef = useRef<Map<string, { segment: CondensedStripSegment; index: number }>>(
     new Map()
   );
-  useEffect(() => {
+  useLayoutEffect(() => {
     const currentKeys = new Set(segments.map((segment) => segment.key));
     const departed: ExitingSegment[] = [];
     if (currentKeys.size > 0) {

@@ -740,17 +740,31 @@ const UniversalNotificationBar: React.FC = () => {
       // Show immediately when notifications appear
       setShouldRender(true);
       setIsAnimatingOut(false);
-    } else if (shouldRender) {
-      // Start animation out when notifications are cleared
-      setIsAnimatingOut(true);
-      // Wait for animation to complete before unmounting
-      const timer = setTimeout(() => {
-        setShouldRender(false);
-        setIsAnimatingOut(false);
-      }, NOTIFICATION_ANIMATION_DURATION_MS);
-
-      return () => clearTimeout(timer);
+      return;
     }
+    if (!shouldRender) {
+      return;
+    }
+    // The bar just emptied. Do NOT start the slide-out immediately: a burst can remove the last
+    // notification and add a new one a fraction of a second later (one scheduled run finishing as
+    // the next appears, or a run that finishes almost instantly). Starting the exit right away and
+    // then reversing it when the new notification lands paints a visible dip-and-return flash on
+    // the whole bar. So hold the bar fully visible for one animation beat first; a notification
+    // that arrives during the hold cancels both timers with nothing ever dipped. Only a bar still
+    // empty after the hold plays the slide-out, then unmounts when it finishes.
+    const holdTimer = window.setTimeout(
+      () => setIsAnimatingOut(true),
+      NOTIFICATION_ANIMATION_DURATION_MS
+    );
+    const unmountTimer = window.setTimeout(() => {
+      setShouldRender(false);
+      setIsAnimatingOut(false);
+    }, NOTIFICATION_ANIMATION_DURATION_MS * 2);
+
+    return () => {
+      window.clearTimeout(holdTimer);
+      window.clearTimeout(unmountTimer);
+    };
   }, [notifications.length, shouldRender]);
 
   // Animated dismiss handler
