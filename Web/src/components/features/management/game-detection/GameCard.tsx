@@ -3,19 +3,20 @@ import { useTranslation } from 'react-i18next';
 import { HardDrive, Database, FolderOpen } from 'lucide-react';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { formatBytes, formatCount } from '@utils/formatters';
-import type { GameCacheInfo, CacheEntityVariant } from '../../../../types';
+import type { GameCacheInfo, CacheEntityVariant, DatasourceInfo } from '../../../../types';
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
 import { getGameUniqueId } from './gameUtils';
 import EvictedBadge from '@components/common/EvictedBadge';
 import Badge from '@components/ui/Badge';
 import { useIsEntityBusy } from '@hooks/useIsEntityBusy';
+import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 
 interface GameCardProps {
   game: GameCacheInfo;
   isExpanded: boolean;
   isAdmin: boolean;
-  dockerSocketAvailable: boolean;
+  datasourceConfigs: readonly DatasourceInfo[];
   onToggleDetails: (gameId: string) => void;
   onRemove: (game: GameCacheInfo) => void;
   variant?: CacheEntityVariant;
@@ -31,7 +32,7 @@ const GameCard: React.FC<GameCardProps> = ({
   game,
   isExpanded,
   isAdmin,
-  dockerSocketAvailable,
+  datasourceConfigs,
   onToggleDetails,
   onRemove,
   variant = 'active',
@@ -54,6 +55,10 @@ const GameCard: React.FC<GameCardProps> = ({
         : { kind: 'steamGame', gameAppId: game.game_app_id }
   );
   const isEvictedVariant = variant === 'evicted';
+  const nginxReopenGate = getNginxReopenGate(datasourceConfigs, game.datasources);
+  const nginxReopenUnavailableMessage = nginxReopenGate.messageKey
+    ? t(nginxReopenGate.messageKey)
+    : '';
 
   const stats: ExpandableItemStat[] = [
     {
@@ -159,7 +164,8 @@ const GameCard: React.FC<GameCardProps> = ({
         isExpanded={isExpanded}
         isRemoving={isRemoving}
         isAdmin={isAdmin}
-        dockerSocketAvailable={dockerSocketAvailable}
+        nginxReopenAvailable={nginxReopenGate.available}
+        nginxReopenUnavailableMessage={nginxReopenUnavailableMessage}
         hasExpandableContent={hasExpandableContent}
         onToggleDetails={(id) => onToggleDetails(String(id))}
         onRemove={() => onRemove(game)}

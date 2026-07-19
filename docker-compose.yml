@@ -7,6 +7,12 @@ services:
     restart: unless-stopped
     ports:
       - "8080:80"
+
+    # Bare-metal only: uncomment to let the manager find the host nginx master.
+    # Also run the manager as root (PUID=0 and PGID=0 below) or grant it sufficient
+    # signal privilege. Host log growth remains the host logrotate's responsibility.
+    # pid: host
+
     volumes:
       # Required: Data directory for database, PostgreSQL, API key, themes, and cached images
       # PostgreSQL data is stored at /data/postgresql by default
@@ -23,8 +29,9 @@ services:
       # Remove :ro to enable cache clearing, corruption removal, and game removal
       - /mnt/lancache/cache:/cache:ro
 
-      # Optional: Docker socket for nginx log rotation and Steam Prefill
-      # Required for: signaling nginx to reopen logs, spawning prefill containers
+      # Optional: Docker socket for containerized nginx log rotation and Steam Prefill
+      # Required for: signaling containerized nginx to reopen logs, spawning prefill containers
+      # Bare-metal nginx uses pid: host and sufficient signal privilege instead
       - /var/run/docker.sock:/var/run/docker.sock
 
     environment:
@@ -62,10 +69,12 @@ services:
       # User ID the application runs as (match your filesystem permissions)
       # Common values: 33 (www-data on Debian/Ubuntu), 1000 (default user)
       # For Unraid, use 99
+      # Bare-metal host-nginx reopen: use 0 unless CAP_KILL is retained another way
       - PUID=33
 
       # Group ID the application runs as
       # For Unraid, use 100
+      # Bare-metal host-nginx reopen with PUID=0: use 0
       - PGID=33
 
       # Timezone for log timestamps and display
@@ -125,12 +134,13 @@ services:
       # - ApiOptions__DefaultClientsLimit=100
 
       #---------------------------------------------------------------------------
-      # Nginx Log Rotation (auto-detects LANCache container)
+      # Nginx Log Rotation (container first, then bare-metal host fallback)
       #---------------------------------------------------------------------------
 
       # Automatically signal nginx to reopen logs after manipulation
-      # Prevents LANCache monolithic container from losing log file handle
-      # Requires docker.sock volume mount
+      # Container installs require docker.sock. Bare-metal installs require pid: host
+      # plus root or CAP_KILL so the manager can signal the host nginx master.
+      # Configure host logrotate with a postrotate "nginx -s reopen" for log growth.
       # - NginxLogRotation__Enabled=true
 
       # Name of the LANCache container (auto for auto-detection)

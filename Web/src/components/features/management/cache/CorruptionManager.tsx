@@ -13,7 +13,7 @@ import {
 import '../managementSectionContent.css';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
-import { useDockerSocket } from '@contexts/useDockerSocket';
+import { useConfig } from '@contexts/useConfig';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useNotifications } from '@contexts/notifications';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
@@ -29,6 +29,7 @@ import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
+import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { showPermissionBlock } from '@utils/permissionUi';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
@@ -65,6 +66,7 @@ import type {
   CorruptionScanCoverage
 } from '@/types';
 import type { StructuralScanMode } from '@/types/corruptionScan';
+import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 
 interface CorruptionManagerProps {
   authMode: AuthMode;
@@ -77,7 +79,23 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
   const { notifyError } = useErrorHandler();
   const { on, off } = useSignalR();
-  const { isDockerAvailable } = useDockerSocket();
+  const { config } = useConfig();
+  const datasources =
+    config.dataSources && config.dataSources.length > 0
+      ? config.dataSources
+      : [
+          {
+            name: 'default',
+            cachePath: config.cachePath,
+            logsPath: config.logsPath,
+            cacheWritable: config.cacheWritable,
+            logsWritable: config.logsWritable,
+            enabled: true,
+            layout: 'monolithic' as const,
+            nginxReopenAvailable: false
+          }
+        ];
+  const repeatedMissNginxReopenGate = getNginxReopenGate(datasources);
   const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
     useDirectoryPermissionsContext();
   // Corruption detection and removal map cache files back to logical objects, which needs the
@@ -505,8 +523,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const hasRemovalPermissionIssue = directoryMissing || isReadOnly;
   const showReadOnlyPlaceholder = showPermissionBlock(
     checkingPermissions,
-    hasRemovalPermissionIssue || (requiresRepeatedMissResources && !isDockerAvailable)
+    hasRemovalPermissionIssue
   );
+  const nginxReopenAvailable =
+    !requiresRepeatedMissResources || repeatedMissNginxReopenGate.available;
+  const nginxReopenUnavailableMessage = repeatedMissNginxReopenGate.messageKey
+    ? t(repeatedMissNginxReopenGate.messageKey)
+    : '';
   const corruptionRemovalBusy =
     anyServiceRemovalPending ||
     startingRemoveAll ||
@@ -727,7 +750,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     authMode !== 'authenticated' ||
     checkingPermissions ||
     hasRemovalPermissionIssue ||
-    (requiresRepeatedMissResources && !isDockerAvailable);
+    !nginxReopenAvailable;
+  const selectionBlocked =
+    !scanId ||
+    projection.total === 0 ||
+    mockMode ||
+    anyServiceRemovalPending ||
+    isCorruptionRemovalActive ||
+    startingRemoveAll ||
+    startingRemoveSelected ||
+    authMode !== 'authenticated' ||
+    checkingPermissions ||
+    hasRemovalPermissionIssue;
 
   const loadDetails = async (service: string) => {
     if (!scanId || loadingDetailsServices.has(service)) return;
@@ -1031,20 +1065,29 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               position="left"
               className="block w-full"
             >
-              <ActionMenuDangerItem
-                icon={<Trash2 className="w-3.5 h-3.5" />}
-                disabled={removalBlocked || selectedServices.length === 0 || !diskObjectsAvailable}
-                onClick={() => {
-                  setPendingRemoveSelected(true);
-                  close();
-                }}
+              <NginxReopenActionGate
+                available={nginxReopenAvailable}
+                tooltip={nginxReopenUnavailableMessage}
+                position="left"
+                className="block w-full"
               >
-                {t(
-                  detectionMethod === 'structural'
-                    ? 'management.corruption.removeSelectedInvalid'
-                    : 'management.corruption.removeSelectedSuspects'
-                )}
-              </ActionMenuDangerItem>
+                <ActionMenuDangerItem
+                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                  disabled={
+                    removalBlocked || selectedServices.length === 0 || !diskObjectsAvailable
+                  }
+                  onClick={() => {
+                    setPendingRemoveSelected(true);
+                    close();
+                  }}
+                >
+                  {t(
+                    detectionMethod === 'structural'
+                      ? 'management.corruption.removeSelectedInvalid'
+                      : 'management.corruption.removeSelectedSuspects'
+                  )}
+                </ActionMenuDangerItem>
+              </NginxReopenActionGate>
             </DiskObjectActionGate>
             <DiskObjectActionGate
               available={diskObjectsAvailable}
@@ -1052,22 +1095,29 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               position="left"
               className="block w-full"
             >
-              <ActionMenuDangerItem
-                icon={<Trash2 className="w-3.5 h-3.5" />}
-                disabled={removalBlocked || !diskObjectsAvailable}
-                onClick={() => {
-                  setPendingRemoveAll(true);
-                  close();
-                }}
+              <NginxReopenActionGate
+                available={nginxReopenAvailable}
+                tooltip={nginxReopenUnavailableMessage}
+                position="left"
+                className="block w-full"
               >
-                {startingRemoveAll
-                  ? t('management.corruption.removing')
-                  : t(
-                      detectionMethod === 'structural'
-                        ? 'management.corruption.removeAllInvalid'
-                        : 'management.corruption.removeAllSuspects'
-                    )}
-              </ActionMenuDangerItem>
+                <ActionMenuDangerItem
+                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                  disabled={removalBlocked || !diskObjectsAvailable}
+                  onClick={() => {
+                    setPendingRemoveAll(true);
+                    close();
+                  }}
+                >
+                  {startingRemoveAll
+                    ? t('management.corruption.removing')
+                    : t(
+                        detectionMethod === 'structural'
+                          ? 'management.corruption.removeAllInvalid'
+                          : 'management.corruption.removeAllSuspects'
+                      )}
+                </ActionMenuDangerItem>
+              </NginxReopenActionGate>
             </DiskObjectActionGate>
           </>
         )}
@@ -1165,33 +1215,16 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             </Alert>
           )}
 
-          {requiresRepeatedMissResources && !isDockerAvailable && !hasRemovalPermissionIssue && (
-            <Alert color="orange">
-              <div className="min-w-0">
-                <p className="font-medium">
-                  {t('management.corruption.alerts.dockerSocketUnavailable')}
-                </p>
-                <p className="text-sm mt-1">
-                  {t('management.corruption.alerts.requiresNginxSignal')}
-                </p>
-                <p className="text-sm mt-2">
-                  {t('management.logRemoval.alerts.dockerSocket.addVolumes')}
-                </p>
-                <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
-                  - /var/run/docker.sock:/var/run/docker.sock
-                </code>
-              </div>
-            </Alert>
-          )}
+          {requiresRepeatedMissResources &&
+            !repeatedMissNginxReopenGate.available &&
+            !hasRemovalPermissionIssue && <ReadOnlyBadge message={nginxReopenUnavailableMessage} />}
 
           {showReadOnlyPlaceholder && (
             <ReadOnlyBadge
               message={
                 directoryMissing
                   ? t('management.corruption.directoryMissing')
-                  : isReadOnly
-                    ? t('management.corruption.readOnly')
-                    : t('management.corruption.dockerSocketRequired')
+                  : t('management.corruption.readOnly')
               }
             />
           )}
@@ -1209,7 +1242,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                 <Checkbox
                   checked={allVisibleSelected}
                   onChange={() => selection.setMany(serviceKeys, !allVisibleSelected)}
-                  disabled={removalBlocked || serviceKeys.length === 0}
+                  disabled={selectionBlocked || serviceKeys.length === 0}
                   label={
                     allVisibleSelected
                       ? t('management.batchSelect.deselectAll')
@@ -1231,7 +1264,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                         <Checkbox
                           checked={selection.isSelected(service)}
                           onChange={() => selection.toggle(service)}
-                          disabled={removalBlocked || isRemoving}
+                          disabled={selectionBlocked || isRemoving}
                           aria-label={t('management.batchSelect.selectItem', {
                             name: getServiceDisplayName(service)
                           })}
@@ -1276,28 +1309,33 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             available={diskObjectsAvailable}
                             tooltip={t('management.capability.diskObjectsUnavailable')}
                           >
-                            <Button
-                              onClick={() => requestServiceRemoval(service)}
-                              awaitPermissions
-                              loading={isRemoving}
-                              disabled={
-                                removalBlocked ||
-                                loadingDetailsServices.has(service) ||
-                                !diskObjectsAvailable
-                              }
-                              variant="filled"
-                              color="red"
-                              size="xs"
-                              stableWidth
+                            <NginxReopenActionGate
+                              available={nginxReopenAvailable}
+                              tooltip={nginxReopenUnavailableMessage}
                             >
-                              {isRemoving
-                                ? t('management.corruption.removing')
-                                : t(
-                                    detectionMethod === 'structural'
-                                      ? 'management.corruption.removeInvalid'
-                                      : 'management.corruption.removeSuspect'
-                                  )}
-                            </Button>
+                              <Button
+                                onClick={() => requestServiceRemoval(service)}
+                                awaitPermissions
+                                loading={isRemoving}
+                                disabled={
+                                  removalBlocked ||
+                                  loadingDetailsServices.has(service) ||
+                                  !diskObjectsAvailable
+                                }
+                                variant="filled"
+                                color="red"
+                                size="xs"
+                                stableWidth
+                              >
+                                {isRemoving
+                                  ? t('management.corruption.removing')
+                                  : t(
+                                      detectionMethod === 'structural'
+                                        ? 'management.corruption.removeInvalid'
+                                        : 'management.corruption.removeSuspect'
+                                    )}
+                              </Button>
+                            </NginxReopenActionGate>
                           </DiskObjectActionGate>
                         </div>
                       </div>

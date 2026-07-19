@@ -3,17 +3,18 @@ import { useTranslation } from 'react-i18next';
 import { HardDrive, FolderOpen } from 'lucide-react';
 import { formatBytes, formatCount } from '@utils/formatters';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
-import type { ServiceCacheInfo, CacheEntityVariant } from '../../../../types';
+import type { ServiceCacheInfo, CacheEntityVariant, DatasourceInfo } from '../../../../types';
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
 import Badge from '@components/ui/Badge';
 import { useIsEntityBusy } from '@hooks/useIsEntityBusy';
+import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 
 interface ServiceCardProps {
   service: ServiceCacheInfo;
   isExpanded: boolean;
   isAdmin: boolean;
-  dockerSocketAvailable: boolean;
+  datasourceConfigs: readonly DatasourceInfo[];
   onToggleDetails: (serviceName: string) => void;
   onRemove: (service: ServiceCacheInfo) => void;
   variant?: CacheEntityVariant;
@@ -29,7 +30,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   service,
   isExpanded,
   isAdmin,
-  dockerSocketAvailable,
+  datasourceConfigs,
   onToggleDetails,
   onRemove,
   variant = 'active',
@@ -41,6 +42,10 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   const isEvictedVariant = variant === 'evicted';
   const isEvicted = service.is_evicted === true;
   const isRemoving = useIsEntityBusy({ kind: 'service', service: service.service_name });
+  const nginxReopenGate = getNginxReopenGate(datasourceConfigs, service.datasources);
+  const nginxReopenUnavailableMessage = nginxReopenGate.messageKey
+    ? t(nginxReopenGate.messageKey)
+    : '';
 
   const stats: ExpandableItemStat[] = [
     {
@@ -89,7 +94,8 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
       isExpanded={isExpanded}
       isRemoving={isRemoving}
       isAdmin={isAdmin}
-      dockerSocketAvailable={dockerSocketAvailable}
+      nginxReopenAvailable={nginxReopenGate.available}
+      nginxReopenUnavailableMessage={nginxReopenUnavailableMessage}
       hasExpandableContent={hasExpandableContent}
       onToggleDetails={(id) => onToggleDetails(id as string)}
       onRemove={() => onRemove(service)}

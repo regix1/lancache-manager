@@ -3,13 +3,13 @@ import { useTranslation } from 'react-i18next';
 import GameCard from './GameCard';
 import CacheEntityList from './CacheEntityList';
 import { getGameUniqueId } from './gameUtils';
-import type { GameCacheInfo, CacheEntityVariant } from '../../../../types';
+import type { GameCacheInfo, CacheEntityVariant, DatasourceInfo } from '../../../../types';
 import type { SelectionAdapter } from '@hooks/useSelectionSet';
 
 interface GamesListProps {
   games: GameCacheInfo[];
   isAdmin: boolean;
-  dockerSocketAvailable: boolean;
+  datasourceConfigs: readonly DatasourceInfo[];
   onRemoveGame: (game: GameCacheInfo) => void;
   variant?: CacheEntityVariant;
   /**
@@ -39,7 +39,7 @@ const filterAndSortGames = (games: GameCacheInfo[], searchQuery: string) => {
 const GamesList: React.FC<GamesListProps> = ({
   games,
   isAdmin,
-  dockerSocketAvailable,
+  datasourceConfigs,
   onRemoveGame,
   variant = 'active',
   selection
@@ -59,7 +59,7 @@ const GamesList: React.FC<GamesListProps> = ({
           game={game}
           isExpanded={state.isExpanded}
           isAdmin={isAdmin}
-          dockerSocketAvailable={dockerSocketAvailable}
+          datasourceConfigs={datasourceConfigs}
           onToggleDetails={state.onToggleDetails}
           onRemove={onRemoveGame}
           variant={variant}

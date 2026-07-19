@@ -1546,6 +1546,10 @@
     }
   },
   "management": {
+    "nginxReopen": {
+      "dockerUnavailable": "Docker socket required for log cleanup",
+      "bareMetalUnavailable": "Removing entries rewrites the access log, which needs the manager to reopen nginx. On bare-metal, run the manager with pid: host and root or CAP_KILL."
+    },
     "nav": {
       "settings": "Settings",
       "settingsShort": "Settings",

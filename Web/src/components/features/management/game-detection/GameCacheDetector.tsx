@@ -33,7 +33,6 @@ import { DiskObjectActionGate } from '@components/features/management/DiskObject
 import { useSelectionSet, type SelectionSet } from '@/hooks/useSelectionSet';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useConfig } from '@contexts/useConfig';
-import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
@@ -46,6 +45,7 @@ import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
+import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { getActiveGames, getActiveServices } from './cacheEntityFilters';
 import { getGameUniqueId } from './gameUtils';
 import {
@@ -61,6 +61,7 @@ import {
   useScheduledRemovalRefresh
 } from './cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
+import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 
 interface GameCacheDetectorProps {
   mockMode?: boolean;
@@ -80,7 +81,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const { notifyError } = useErrorHandler();
   const { on, off } = useSignalR();
   const { config } = useConfig();
-  const { isDockerAvailable } = useDockerSocket();
   const { cacheReadOnly, checkingPermissions } = useDirectoryPermissionsContext();
   const invalidateImageCache = useInvalidateImages();
   const { setupStatus, refreshSetupStatus } = useSetupStatus();
@@ -135,7 +135,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             logsPath: config.logsPath,
             cacheWritable: config.cacheWritable,
             logsWritable: config.logsWritable,
-            enabled: true
+            enabled: true,
+            layout: 'monolithic' as const,
+            nginxReopenAvailable: false
           }
         ];
   const [selectedDatasource, setSelectedDatasource] = useState<string | null>(null);
@@ -634,6 +636,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Services + games remove TOGETHER in one confirmed run (mirrors Remove All),
   // so the shared Remove Selected control counts and clears both sets at once.
   const selectedCombinedCount = selectedServiceItems.length + selectedGameItems.length;
+  const selectedNginxReopenGate = getNginxReopenGateForEntities(datasources, [
+    ...selectedServiceItems,
+    ...selectedGameItems
+  ]);
+  const allNginxReopenGate = getNginxReopenGateForEntities(datasources, [
+    ...filteredServices,
+    ...filteredGames
+  ]);
+  const selectedNginxReopenMessage = selectedNginxReopenGate.messageKey
+    ? t(selectedNginxReopenGate.messageKey)
+    : '';
+  const allNginxReopenMessage = allNginxReopenGate.messageKey
+    ? t(allNginxReopenGate.messageKey)
+    : '';
 
   // Prune selection keys that dropped out of the visible list on refresh/scan so
   // a removed item never lingers in the set (plan §6). Keyed on a stable
@@ -690,7 +706,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // selected subset. Both sets clear on settle.
   const handleRemoveSelected = useCallback(async () => {
     setConfirmRemoveSelected(false);
-    if (!isAdmin) return;
+    if (!isAdmin || !selectedNginxReopenGate.available) return;
     const items: BulkQueueEntry[] = [
       ...selectedServiceItems.map((service) => ({ kind: 'service' as const, service })),
       ...selectedGameItems.map((game) => ({ kind: 'game' as const, game }))
@@ -711,12 +727,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     runCacheRemoval,
     servicesSelection,
     gamesSelection,
-    onDataRefresh
+    onDataRefresh,
+    selectedNginxReopenGate.available
   ]);
 
   const handleRemoveAllCached = useCallback(async () => {
     setShowRemoveAllConfirm(false);
-    if (!isAdmin) return;
+    if (!isAdmin || !allNginxReopenGate.available) return;
 
     const services = [...filteredServices];
     const games = [...filteredGames];
@@ -734,7 +751,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         onDataRefresh?.();
       }
     });
-  }, [filteredGames, filteredServices, isAdmin, runCacheRemoval, onDataRefresh]);
+  }, [
+    allNginxReopenGate.available,
+    filteredGames,
+    filteredServices,
+    isAdmin,
+    runCacheRemoval,
+    onDataRefresh
+  ]);
 
   // Help content
   // Header actions - scan buttons + expand/collapse all
@@ -809,25 +833,33 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   position="left"
                   className="block w-full"
                 >
-                  <ActionMenuDangerItem
-                    icon={<Trash2 className="w-3.5 h-3.5" />}
-                    disabled={
-                      selectedCombinedCount === 0 ||
-                      loading ||
-                      mockMode ||
-                      cacheReadOnly ||
-                      checkingPermissions ||
-                      isCacheRemovalActive ||
-                      isBulkRemovalRunning ||
-                      !diskObjectsAvailable
-                    }
-                    onClick={() => {
-                      setConfirmRemoveSelected(true);
-                      close();
-                    }}
+                  <NginxReopenActionGate
+                    available={selectedNginxReopenGate.available}
+                    tooltip={selectedNginxReopenMessage}
+                    position="left"
+                    className="block w-full"
                   >
-                    {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
-                  </ActionMenuDangerItem>
+                    <ActionMenuDangerItem
+                      icon={<Trash2 className="w-3.5 h-3.5" />}
+                      disabled={
+                        selectedCombinedCount === 0 ||
+                        loading ||
+                        mockMode ||
+                        cacheReadOnly ||
+                        checkingPermissions ||
+                        isCacheRemovalActive ||
+                        isBulkRemovalRunning ||
+                        !diskObjectsAvailable ||
+                        !selectedNginxReopenGate.available
+                      }
+                      onClick={() => {
+                        setConfirmRemoveSelected(true);
+                        close();
+                      }}
+                    >
+                      {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
+                    </ActionMenuDangerItem>
+                  </NginxReopenActionGate>
                 </DiskObjectActionGate>
 
                 <DiskObjectActionGate
@@ -836,26 +868,34 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   position="left"
                   className="block w-full"
                 >
-                  <ActionMenuDangerItem
-                    icon={<Trash2 className="w-3.5 h-3.5" />}
-                    disabled={
-                      actionsPending ||
-                      loading ||
-                      mockMode ||
-                      cacheReadOnly ||
-                      checkingPermissions ||
-                      isCacheRemovalActive ||
-                      removeAllRunning ||
-                      isBulkRemovalRunning ||
-                      !diskObjectsAvailable
-                    }
-                    onClick={() => {
-                      setShowRemoveAllConfirm(true);
-                      close();
-                    }}
+                  <NginxReopenActionGate
+                    available={allNginxReopenGate.available}
+                    tooltip={allNginxReopenMessage}
+                    position="left"
+                    className="block w-full"
                   >
-                    {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
-                  </ActionMenuDangerItem>
+                    <ActionMenuDangerItem
+                      icon={<Trash2 className="w-3.5 h-3.5" />}
+                      disabled={
+                        actionsPending ||
+                        loading ||
+                        mockMode ||
+                        cacheReadOnly ||
+                        checkingPermissions ||
+                        isCacheRemovalActive ||
+                        removeAllRunning ||
+                        isBulkRemovalRunning ||
+                        !diskObjectsAvailable ||
+                        !allNginxReopenGate.available
+                      }
+                      onClick={() => {
+                        setShowRemoveAllConfirm(true);
+                        close();
+                      }}
+                    >
+                      {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
+                    </ActionMenuDangerItem>
+                  </NginxReopenActionGate>
                 </DiskObjectActionGate>
               </>
             )}
@@ -945,6 +985,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
           {!cacheReadOnly && !showBlockingLoader && (
             <>
+              {hasResults && !allNginxReopenGate.available && (
+                <ReadOnlyBadge message={allNginxReopenMessage} />
+              )}
+
               {/* Previous Results Summary */}
               {lastDetectionTime && hasResults && (
                 <div className="space-y-2">
@@ -1005,7 +1049,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   <ServicesList
                     services={filteredServices}
                     isAdmin={isAdmin}
-                    dockerSocketAvailable={isDockerAvailable}
+                    datasourceConfigs={datasources}
                     onRemoveService={handleServiceRemoveClick}
                     selection={servicesSelectionProp}
                   />
@@ -1026,7 +1070,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   <GamesList
                     games={filteredGames}
                     isAdmin={isAdmin}
-                    dockerSocketAvailable={isDockerAvailable}
+                    datasourceConfigs={datasources}
                     onRemoveGame={handleRemoveClick}
                     selection={gamesSelectionProp}
                   />

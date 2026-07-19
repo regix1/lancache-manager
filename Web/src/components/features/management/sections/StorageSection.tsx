@@ -17,7 +17,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
-import { LoadingState } from '@components/ui/ManagerCard';
+import { LoadingState, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import Badge from '@components/ui/Badge';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
@@ -27,7 +27,7 @@ import { type AuthMode } from '@services/auth.service';
 import { DirectoryPermissionsProvider } from '@contexts/DirectoryPermissionsProvider';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
-import { useDockerSocket } from '@contexts/useDockerSocket';
+import { useConfig } from '@contexts/useConfig';
 import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
@@ -40,6 +40,7 @@ import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
+import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { useSelectionSet, type SelectionSet, type SelectionAdapter } from '@/hooks/useSelectionSet';
 import { useBulkRemoval, type EvictedQueueEntry } from '@contexts/BulkRemovalContext';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
@@ -70,6 +71,7 @@ import {
 } from '../game-detection/cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 import { FAILED_TO_REMOVE_GAME_I18N_KEY } from '@contexts/notifications/constants';
+import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 
 // Adapts the combined evicted selection set (prefixed keyspace) into the raw-keyed
 // SelectionAdapter each list expects, translating keys through the given prefix.
@@ -115,7 +117,22 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     checkingPermissions,
     reload: reloadPermissions
   } = useDirectoryPermissionsContext();
-  const { isDockerAvailable } = useDockerSocket();
+  const { config } = useConfig();
+  const datasources =
+    config.dataSources && config.dataSources.length > 0
+      ? config.dataSources
+      : [
+          {
+            name: 'default',
+            cachePath: config.cachePath,
+            logsPath: config.logsPath,
+            cacheWritable: config.cacheWritable,
+            logsWritable: config.logsWritable,
+            enabled: true,
+            layout: 'monolithic' as const,
+            nginxReopenAvailable: false
+          }
+        ];
   const [isRechecking, setIsRechecking] = useState(false);
 
   // Image cache busting for GameCacheDetector's GameImage components
@@ -146,6 +163,13 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // /api/games/cached-detection instead of the slim dashboard batch context.
   const [evictedGames, setEvictedGames] = useState<GameCacheInfo[]>([]);
   const [evictedServices, setEvictedServices] = useState<ServiceCacheInfo[]>([]);
+  const allEvictedNginxReopenGate = getNginxReopenGateForEntities(datasources, [
+    ...evictedServices,
+    ...evictedGames
+  ]);
+  const allEvictedNginxReopenMessage = allEvictedNginxReopenGate.messageKey
+    ? t(allEvictedNginxReopenGate.messageKey)
+    : '';
 
   const isAnyEvictedRemovalRunning = useCacheRemovalActive();
   // Eviction removal deletes evicted cache files, which needs the monolithic cache-key recipe;
@@ -275,7 +299,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // re-runs the fetchEvictedItems effect above.
   const handleRemoveAllEvicted = useCallback(async () => {
     setShowRemoveAllConfirm(false);
-    if (!isAdmin) return;
+    if (!isAdmin || !allEvictedNginxReopenGate.available) return;
     if (evictedServices.length + evictedGames.length === 0) return;
 
     setRemoveAllRunning(true);
@@ -308,7 +332,14 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       // (isAnyEvictedRemovalRunning); the local flag only covers the kick-off.
       setRemoveAllRunning(false);
     }
-  }, [evictedGames.length, evictedServices.length, isAdmin, addNotification, t]);
+  }, [
+    addNotification,
+    allEvictedNginxReopenGate.available,
+    evictedGames.length,
+    evictedServices.length,
+    isAdmin,
+    t
+  ]);
 
   const confirmPartialEvictedRemoval = async () => {
     if (!partialEvictedTarget) return;
@@ -475,6 +506,13 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     [evictedGames, evictedSelection]
   );
   const selectedEvictedCount = selectedEvictedServices.length + selectedEvictedGames.length;
+  const selectedEvictedNginxReopenGate = getNginxReopenGateForEntities(datasources, [
+    ...selectedEvictedServices,
+    ...selectedEvictedGames
+  ]);
+  const selectedEvictedNginxReopenMessage = selectedEvictedNginxReopenGate.messageKey
+    ? t(selectedEvictedNginxReopenGate.messageKey)
+    : '';
 
   // Prune selection keys that dropped out of the evicted lists on refresh (plan §6).
   const evictedKeySignature = [
@@ -504,7 +542,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
   const handleRemoveSelectedEvicted = useCallback(async () => {
     setConfirmRemoveSelectedEvicted(false);
-    if (!isAdmin) return;
+    if (!isAdmin || !selectedEvictedNginxReopenGate.available) return;
     const items: EvictedQueueEntry[] = [
       ...selectedEvictedServices.map((service) => ({ kind: 'service' as const, service })),
       ...selectedEvictedGames.map((game) => ({ kind: 'game' as const, game }))
@@ -523,7 +561,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     selectedEvictedGames,
     runEvictedRemoval,
     evictedSelection,
-    onDataRefresh
+    onDataRefresh,
+    selectedEvictedNginxReopenGate.available
   ]);
 
   const evictionAllExpanded = evictionSettingsExpanded && evictedItemsExpanded;
@@ -842,25 +881,36 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                               position="left"
                               className="block w-full"
                             >
-                              <ActionMenuDangerItem
-                                icon={<Trash2 className="w-3.5 h-3.5" />}
-                                disabled={
-                                  selectedEvictedCount === 0 ||
-                                  removeAllRunning ||
-                                  removeSelectedEvictedRunning ||
-                                  isEvictedRemovalRunning ||
-                                  isAnyEvictedRemovalRunning ||
-                                  cacheReadOnly ||
-                                  checkingPermissions ||
-                                  !diskObjectsAvailable
-                                }
-                                onClick={() => {
-                                  setConfirmRemoveSelectedEvicted(true);
-                                  close();
-                                }}
+                              <NginxReopenActionGate
+                                available={selectedEvictedNginxReopenGate.available}
+                                tooltip={selectedEvictedNginxReopenMessage}
+                                position="left"
+                                className="block w-full"
                               >
-                                {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
-                              </ActionMenuDangerItem>
+                                <ActionMenuDangerItem
+                                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                                  disabled={
+                                    selectedEvictedCount === 0 ||
+                                    removeAllRunning ||
+                                    removeSelectedEvictedRunning ||
+                                    isEvictedRemovalRunning ||
+                                    isAnyEvictedRemovalRunning ||
+                                    cacheReadOnly ||
+                                    checkingPermissions ||
+                                    !diskObjectsAvailable ||
+                                    !selectedEvictedNginxReopenGate.available
+                                  }
+                                  onClick={() => {
+                                    setConfirmRemoveSelectedEvicted(true);
+                                    close();
+                                  }}
+                                >
+                                  {t(
+                                    'management.batchSelect.removeSelectedLabel',
+                                    'Remove Selected'
+                                  )}
+                                </ActionMenuDangerItem>
+                              </NginxReopenActionGate>
                             </DiskObjectActionGate>
 
                             <DiskObjectActionGate
@@ -869,25 +919,33 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                               position="left"
                               className="block w-full"
                             >
-                              <ActionMenuDangerItem
-                                icon={<Trash2 className="w-3.5 h-3.5" />}
-                                disabled={
-                                  evictedGames.length + evictedServices.length === 0 ||
-                                  removeAllRunning ||
-                                  removeSelectedEvictedRunning ||
-                                  isEvictionRemovalRunning ||
-                                  isAnyEvictedRemovalRunning ||
-                                  cacheReadOnly ||
-                                  checkingPermissions ||
-                                  !diskObjectsAvailable
-                                }
-                                onClick={() => {
-                                  setShowRemoveAllConfirm(true);
-                                  close();
-                                }}
+                              <NginxReopenActionGate
+                                available={allEvictedNginxReopenGate.available}
+                                tooltip={allEvictedNginxReopenMessage}
+                                position="left"
+                                className="block w-full"
                               >
-                                {t('management.sections.data.evictionRemoveAll', 'Remove All')}
-                              </ActionMenuDangerItem>
+                                <ActionMenuDangerItem
+                                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                                  disabled={
+                                    evictedGames.length + evictedServices.length === 0 ||
+                                    removeAllRunning ||
+                                    removeSelectedEvictedRunning ||
+                                    isEvictionRemovalRunning ||
+                                    isAnyEvictedRemovalRunning ||
+                                    cacheReadOnly ||
+                                    checkingPermissions ||
+                                    !diskObjectsAvailable ||
+                                    !allEvictedNginxReopenGate.available
+                                  }
+                                  onClick={() => {
+                                    setShowRemoveAllConfirm(true);
+                                    close();
+                                  }}
+                                >
+                                  {t('management.sections.data.evictionRemoveAll', 'Remove All')}
+                                </ActionMenuDangerItem>
+                              </NginxReopenActionGate>
                             </DiskObjectActionGate>
                           </>
                         )}
@@ -987,11 +1045,15 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   isExpanded={evictedItemsExpanded}
                   onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
                 >
+                  {evictedGames.length + evictedServices.length > 0 &&
+                    !allEvictedNginxReopenGate.available && (
+                      <ReadOnlyBadge message={allEvictedNginxReopenMessage} />
+                    )}
                   <EvictedItemsList
                     games={evictedGames}
                     services={evictedServices}
                     isAdmin={isAdmin}
-                    dockerSocketAvailable={isDockerAvailable}
+                    datasourceConfigs={datasources}
                     onRemoveGame={handleEvictedGameRemoveClick}
                     onRemoveService={handleEvictedServiceRemoveClick}
                     servicesSelection={evictedServicesSelectionProp}

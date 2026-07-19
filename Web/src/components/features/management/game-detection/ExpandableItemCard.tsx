@@ -33,7 +33,8 @@ interface ExpandableItemCardProps {
   isExpanded: boolean;
   isRemoving: boolean;
   isAdmin: boolean;
-  dockerSocketAvailable: boolean;
+  nginxReopenAvailable: boolean;
+  nginxReopenUnavailableMessage: string;
   hasExpandableContent?: boolean;
   onToggleDetails: (id: number | string) => void;
   onRemove: () => void;
@@ -59,7 +60,8 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   isExpanded,
   isRemoving,
   isAdmin,
-  dockerSocketAvailable,
+  nginxReopenAvailable,
+  nginxReopenUnavailableMessage,
   hasExpandableContent = true,
   onToggleDetails,
   onRemove,
@@ -90,6 +92,13 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   const imageId = nameKeyed ? nameKeyed.slug : isEpic ? epicAppId : String(gameAppId ?? '');
   const showImage = !!imageId && availableImages.has(imageId) && !imageError;
   const isUnknownGame = title.startsWith('Unknown Game');
+  const actionTooltip = !diskObjectsAvailable
+    ? t('management.capability.diskObjectsUnavailable')
+    : cacheReadOnly
+      ? t('management.gameDetection.cacheReadOnlyShort')
+      : !nginxReopenAvailable
+        ? nginxReopenUnavailableMessage
+        : removeTooltip;
 
   return (
     <div>
@@ -167,11 +176,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             </div>
           </div>
         </div>
-        <Tooltip
-          content={
-            diskObjectsAvailable ? removeTooltip : t('management.capability.diskObjectsUnavailable')
-          }
-        >
+        <Tooltip content={actionTooltip}>
           <Button
             onClick={onRemove}
             awaitPermissions
@@ -179,7 +184,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             disabled={
               !isAdmin ||
               cacheReadOnly ||
-              !dockerSocketAvailable ||
+              !nginxReopenAvailable ||
               isCacheRemovalActive ||
               !diskObjectsAvailable
             }
@@ -187,13 +192,6 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             color="red"
             size="sm"
             className="flex-shrink-0 min-h-[44px] sm:min-h-0"
-            title={
-              cacheReadOnly
-                ? t('management.gameDetection.cacheReadOnlyShort')
-                : !dockerSocketAvailable
-                  ? t('management.gameDetection.dockerSocketRequired')
-                  : undefined
-            }
           >
             {isRemoving ? (
               // Hide the label on mobile so the button stays compact next to the

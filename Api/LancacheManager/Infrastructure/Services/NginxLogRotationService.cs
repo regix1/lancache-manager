@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -23,30 +25,214 @@ public class LogRotationResult
 
 /// <summary>
 /// Service to signal nginx to reopen log files after log manipulation operations
-/// This prevents the monolithic container from losing access to access.log
+/// This prevents containerized and bare-metal nginx from losing access to rewritten logs
 /// </summary>
 public class NginxLogRotationService
 {
+    private static readonly TimeSpan _bareMetalWarningThrottle = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan _availabilityCacheTtl = TimeSpan.FromSeconds(30);
+
+    private const string HostNginxPidExpression =
+        "$(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
+        "pgrep -f 'nginx: master' | head -1)";
+
     private readonly ILogger<NginxLogRotationService> _logger;
     private readonly IConfiguration _configuration;
     private readonly ProcessManager _processManager;
+    private readonly IPathResolver _pathResolver;
+    private readonly TimeProvider _timeProvider;
+    private readonly object _bareMetalWarningLock = new();
+    private readonly object _availabilityCacheLock = new();
+    private readonly SemaphoreSlim _availabilityProbeLock = new(1, 1);
+    private DateTimeOffset? _lastBareMetalWarning;
+    private AvailabilityCacheEntry? _dockerAvailability;
+    private AvailabilityCacheEntry? _bareMetalAvailability;
 
     public NginxLogRotationService(
         ILogger<NginxLogRotationService> logger,
         IConfiguration configuration,
-        ProcessManager processManager)
+        ProcessManager processManager,
+        IPathResolver pathResolver)
+        : this(logger, configuration, processManager, pathResolver, TimeProvider.System)
+    {
+    }
+
+    internal NginxLogRotationService(
+        ILogger<NginxLogRotationService> logger,
+        IConfiguration configuration,
+        ProcessManager processManager,
+        IPathResolver pathResolver,
+        TimeProvider timeProvider)
     {
         _logger = logger;
         _configuration = configuration;
         _processManager = processManager;
+        _pathResolver = pathResolver;
+        _timeProvider = timeProvider;
     }
 
     /// <summary>
-    /// Signals nginx in the monolithic container to reopen log files
-    /// Auto-detects the container or uses configured name
+    /// Returns whether the manager can reopen nginx for the requested datasource layout.
+    /// Monolithic layouts use the Docker path; bare-metal and mixed layouts require access
+    /// to the host nginx master. Results are cached briefly because probing may spawn processes.
+    /// </summary>
+    public Task<bool> CanReopenNginxAsync(string layout)
+    {
+        var target = layout is LogSourceLayout.LayoutBareMetal or LogSourceLayout.LayoutMixed
+            ? ReopenTarget.BareMetal
+            : ReopenTarget.Docker;
+        return GetCachedAvailabilityAsync(target);
+    }
+
+    /// <summary>
+    /// Returns whether either reopen path is currently usable.
+    /// </summary>
+    public async Task<bool> CanReopenNginxAsync()
+    {
+        if (await GetCachedAvailabilityAsync(ReopenTarget.Docker))
+        {
+            return true;
+        }
+
+        return await GetCachedAvailabilityAsync(ReopenTarget.BareMetal);
+    }
+
+    private async Task<bool> GetCachedAvailabilityAsync(ReopenTarget target)
+    {
+        if (TryGetCachedAvailability(target, out var cached))
+        {
+            return cached;
+        }
+
+        await _availabilityProbeLock.WaitAsync();
+        try
+        {
+            if (TryGetCachedAvailability(target, out cached))
+            {
+                return cached;
+            }
+
+            var available = false;
+            try
+            {
+                if (_configuration.GetValue<bool>("NginxLogRotation:Enabled", false))
+                {
+                    available = target == ReopenTarget.Docker
+                        ? await ProbeDockerReopenAsync()
+                        : await ProbeBareMetalReopenAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Nginx reopen availability probe failed for {Target}", target);
+            }
+
+            lock (_availabilityCacheLock)
+            {
+                var entry = new AvailabilityCacheEntry(available, _timeProvider.GetUtcNow());
+                if (target == ReopenTarget.Docker)
+                {
+                    _dockerAvailability = entry;
+                }
+                else
+                {
+                    _bareMetalAvailability = entry;
+                }
+            }
+
+            return available;
+        }
+        finally
+        {
+            _availabilityProbeLock.Release();
+        }
+    }
+
+    private bool TryGetCachedAvailability(ReopenTarget target, out bool available)
+    {
+        lock (_availabilityCacheLock)
+        {
+            var entry = target == ReopenTarget.Docker
+                ? _dockerAvailability
+                : _bareMetalAvailability;
+            if (entry is not null &&
+                _timeProvider.GetUtcNow() - entry.CheckedAt < _availabilityCacheTtl)
+            {
+                available = entry.Available;
+                return true;
+            }
+        }
+
+        available = false;
+        return false;
+    }
+
+    private async Task<bool> ProbeDockerReopenAsync()
+    {
+        if (!_pathResolver.IsDockerSocketAvailable())
+        {
+            return false;
+        }
+
+        var configuredName = _configuration.GetValue<string>("NginxLogRotation:ContainerName");
+        if (!string.IsNullOrWhiteSpace(configuredName) &&
+            !string.Equals(configuredName, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            return await ContainerHasNginxAsync(configuredName);
+        }
+
+        var (containerName, _) = await FindMonolithicContainerAsync();
+        return !string.IsNullOrWhiteSpace(containerName);
+    }
+
+    private async Task<bool> ProbeBareMetalReopenAsync()
+    {
+        var result = await RunProcessAsync(
+            CreateHostSignalStartInfo("0"),
+            "host nginx signal probe");
+        return result.ExitCode == 0;
+    }
+
+    /// <summary>
+    /// Signals nginx to reopen log files. A configured or auto-detected LANCache container is
+    /// preferred; when none is found, the host nginx master is signaled locally.
     /// </summary>
     public async Task<LogRotationResult> ReopenNginxLogsAsync()
     {
+        void LogBareMetalFailure(string failureReason, Exception? exception = null)
+        {
+            var shouldLog = false;
+            lock (_bareMetalWarningLock)
+            {
+                var now = _timeProvider.GetUtcNow();
+                if (!_lastBareMetalWarning.HasValue ||
+                    now - _lastBareMetalWarning.Value >= _bareMetalWarningThrottle)
+                {
+                    _lastBareMetalWarning = now;
+                    shouldLog = true;
+                }
+            }
+
+            if (!shouldLog)
+            {
+                return;
+            }
+
+            const string message =
+                "Bare-metal nginx log reopen failed: {FailureReason}. Run the manager with " +
+                "--pid=host and as root or with CAP_KILL, or configure the host's logrotate " +
+                "to run 'nginx -s reopen' after rotation.";
+
+            if (exception is null)
+            {
+                _logger.LogWarning(message, failureReason);
+            }
+            else
+            {
+                _logger.LogWarning(exception, message, failureReason);
+            }
+        }
+
         try
         {
             var enabled = _configuration.GetValue<bool>("NginxLogRotation:Enabled", false);
@@ -67,9 +253,41 @@ public class NginxLogRotationService
 
             if (string.IsNullOrEmpty(containerName))
             {
-                var errorMsg = detectionError ?? "Could not find monolithic container";
-                _logger.LogWarning("{Error}. Set NginxLogRotation:ContainerName in appsettings.json to specify container name.", errorMsg);
-                return LogRotationResult.Failed(errorMsg, detectionError?.Contains("Docker socket") == true);
+                try
+                {
+                    var hostSignalResult = await RunProcessAsync(
+                        CreateHostSignalStartInfo("USR1"),
+                        "host nginx log reopen");
+
+                    if (hostSignalResult.ExitCode == 0)
+                    {
+                        lock (_bareMetalWarningLock)
+                        {
+                            _lastBareMetalWarning = null;
+                        }
+
+                        _logger.LogInformation("Successfully sent USR1 to the host nginx master process");
+                        return LogRotationResult.Succeeded();
+                    }
+
+                    var processFailure = string.IsNullOrWhiteSpace(hostSignalResult.Error)
+                        ? $"command exited with code {hostSignalResult.ExitCode}"
+                        : $"command exited with code {hostSignalResult.ExitCode}: {hostSignalResult.Error.Trim()}";
+                    var detectionContext = detectionError ?? "No LANCache container was found";
+                    LogBareMetalFailure($"{detectionContext}; {processFailure}");
+                    return LogRotationResult.Failed(
+                        $"Failed to signal host nginx to reopen logs: {processFailure}",
+                        detectionError?.Contains("Docker socket", StringComparison.OrdinalIgnoreCase) == true);
+                }
+                catch (Exception ex)
+                {
+                    var processFailure = $"could not run the local signal command: {ex.Message}";
+                    var detectionContext = detectionError ?? "No LANCache container was found";
+                    LogBareMetalFailure($"{detectionContext}; {processFailure}", ex);
+                    return LogRotationResult.Failed(
+                        $"Failed to signal host nginx to reopen logs: {processFailure}",
+                        detectionError?.Contains("Docker socket", StringComparison.OrdinalIgnoreCase) == true);
+                }
             }
 
             _logger.LogInformation("Signaling nginx to reopen logs in container: {ContainerName}", containerName);
@@ -103,7 +321,7 @@ public class NginxLogRotationService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error while attempting to signal nginx log rotation");
+            _logger.LogWarning(ex, "Failed while attempting best-effort nginx log reopen");
             return LogRotationResult.Failed(ex.Message);
         }
     }
@@ -113,19 +331,17 @@ public class NginxLogRotationService
     /// with nginx checks as a fallback when there are multiple candidates.
     /// </summary>
     /// <returns>A tuple of (container name, error message). If container is found, error is null.</returns>
-    private async Task<(string? ContainerName, string? Error)> FindMonolithicContainerAsync()
+    protected virtual async Task<(string? ContainerName, string? Error)> FindMonolithicContainerAsync()
     {
         try
         {
             _logger.LogDebug("Attempting to auto-detect monolithic container...");
 
             // Check if docker socket is accessible
-            if (!File.Exists("/var/run/docker.sock"))
+            if (!_pathResolver.IsDockerSocketAvailable())
             {
                 var error = "Docker socket not mounted. Add /var/run/docker.sock:/var/run/docker.sock to your volumes.";
-                _logger.LogWarning("Docker socket not found at /var/run/docker.sock. " +
-                    "Mount the docker socket to enable nginx log rotation: " +
-                    "volumes: - /var/run/docker.sock:/var/run/docker.sock");
+                _logger.LogDebug("Docker socket not found at /var/run/docker.sock; trying host nginx signaling");
                 return (null, error);
             }
 
@@ -133,13 +349,15 @@ public class NginxLogRotationService
             var processStartInfo = CreateDockerStartInfo(
                 "ps --filter status=running --format \"{{.Names}}|{{.Image}}\"");
 
-            var result = await _processManager.RunAsync(processStartInfo, label: "docker ps");
+            var result = await RunProcessAsync(processStartInfo, "docker ps");
 
             if (result.ExitCode != 0)
             {
                 var errorMsg = string.IsNullOrWhiteSpace(result.Error) ? "Unknown error" : result.Error.Trim();
-                _logger.LogWarning("docker ps command failed with exit code {ExitCode}: {Error}. " +
-                    "Docker socket may not be mounted or accessible.", result.ExitCode, errorMsg);
+                _logger.LogDebug(
+                    "docker ps failed with exit code {ExitCode}: {Error}; trying host nginx signaling",
+                    result.ExitCode,
+                    errorMsg);
                 return (null, $"Docker command failed: {errorMsg}");
             }
 
@@ -249,12 +467,12 @@ public class NginxLogRotationService
 
             // No suitable container found
 
-            _logger.LogWarning("No suitable container found for nginx log rotation");
+            _logger.LogDebug("No suitable nginx container found; trying host nginx signaling");
             return (null, "No container with nginx found");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error detecting monolithic container");
+            _logger.LogDebug(ex, "Container detection failed; trying host nginx signaling");
             return (null, ex.Message);
         }
     }
@@ -269,7 +487,7 @@ public class NginxLogRotationService
             var processStartInfo = CreateDockerStartInfo(
                 $"exec {containerName} sh -c \"which nginx || command -v nginx\"");
 
-            var result = await _processManager.RunAsync(processStartInfo, label: "docker exec nginx-check");
+            var result = await RunProcessAsync(processStartInfo, "docker exec nginx-check");
             return result.ExitCode == 0;
         }
         catch
@@ -288,7 +506,7 @@ public class NginxLogRotationService
             var commandStr = string.Join(" ", command.Select(c => c.Contains(" ") ? $"\"{c}\"" : c));
             var processStartInfo = CreateDockerStartInfo($"exec {containerName} {commandStr}");
 
-            var result = await _processManager.RunAsync(processStartInfo, label: "docker exec");
+            var result = await RunProcessAsync(processStartInfo, "docker exec");
 
             if (result.ExitCode == 0)
             {
@@ -317,7 +535,7 @@ public class NginxLogRotationService
         {
             var processStartInfo = CreateDockerStartInfo($"kill --signal={signal} {containerName}");
 
-            var result = await _processManager.RunAsync(processStartInfo, label: "docker kill");
+            var result = await RunProcessAsync(processStartInfo, "docker kill");
 
             if (result.ExitCode == 0)
             {
@@ -345,4 +563,33 @@ public class NginxLogRotationService
         UseShellExecute = false,
         CreateNoWindow = true
     };
+
+    private static ProcessStartInfo CreateHostSignalStartInfo(string signal)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "sh",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add($"kill -{signal} {HostNginxPidExpression}");
+        return startInfo;
+    }
+
+    /// <summary>
+    /// Test seam for commands that production runs through the shared process manager.
+    /// </summary>
+    protected virtual Task<ProcessCommandResult> RunProcessAsync(ProcessStartInfo startInfo, string label) =>
+        _processManager.RunAsync(startInfo, label: label);
+
+    private enum ReopenTarget
+    {
+        Docker,
+        BareMetal
+    }
+
+    private sealed record AvailabilityCacheEntry(bool Available, DateTimeOffset CheckedAt);
 }

@@ -5,14 +5,14 @@ import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import { getEvictedGames, getEvictedServices } from './cacheEntityFilters';
-import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
+import type { DatasourceInfo, GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 import type { SelectionAdapter } from '@hooks/useSelectionSet';
 
 interface EvictedItemsListProps {
   games: GameCacheInfo[];
   services: ServiceCacheInfo[];
   isAdmin: boolean;
-  dockerSocketAvailable: boolean;
+  datasourceConfigs: readonly DatasourceInfo[];
   onRemoveGame: (game: GameCacheInfo) => void;
   onRemoveService: (service: ServiceCacheInfo) => void;
   loading?: boolean;
@@ -24,7 +24,7 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
   games,
   services,
   isAdmin,
-  dockerSocketAvailable,
+  datasourceConfigs,
   onRemoveGame,
   onRemoveService,
   loading = false,
@@ -51,7 +51,7 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
         <ServicesList
           services={evictedServices}
           isAdmin={isAdmin}
-          dockerSocketAvailable={dockerSocketAvailable}
+          datasourceConfigs={datasourceConfigs}
           onRemoveService={onRemoveService}
           variant="evicted"
           selection={servicesSelection}
@@ -61,7 +61,7 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
         <GamesList
           games={evictedGames}
           isAdmin={isAdmin}
-          dockerSocketAvailable={dockerSocketAvailable}
+          datasourceConfigs={datasourceConfigs}
           onRemoveGame={onRemoveGame}
           variant="evicted"
           selection={gamesSelection}

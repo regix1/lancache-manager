@@ -94,6 +94,11 @@ public class DatasourceInfoDto
     /// Whole-root cache clear needs no key knowledge and stays available everywhere.
     /// </summary>
     public bool CanClearWholeCacheRoot { get; set; }
+
+    /// <summary>
+    /// Whether the manager can currently reopen nginx after rewriting this datasource's logs.
+    /// </summary>
+    public bool NginxReopenAvailable { get; set; }
 }
 
 /// <summary>

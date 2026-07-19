@@ -255,7 +255,8 @@ public sealed class LogsControllerRustFileOperationsTests
             var nginxRotation = new NginxLogRotationService(
                 NullLogger<NginxLogRotationService>.Instance,
                 configuration,
-                new ProcessManager(NullLogger<ProcessManager>.Instance));
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                pathResolver);
 
             Controller = new LogsController(
                 rustProcessor,

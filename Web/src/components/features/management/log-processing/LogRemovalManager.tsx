@@ -14,7 +14,6 @@ import { useNotifications } from '@contexts/notifications';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
-import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useConfig } from '@contexts/useConfig';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
@@ -38,7 +37,9 @@ import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { formatCount } from '@utils/formatters';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
+import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import type { DatasourceInfo, DatasourceServiceCounts } from '@/types';
+import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 
 /** One (datasource, service) pair queued for sequential log removal. */
 interface LogBatchEntry {
@@ -151,15 +152,32 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const { notifications, isAnyRemovalRunning, addNotification, updateNotification } =
     useNotifications();
   const { on, off } = useSignalR();
-  const { isDockerAvailable } = useDockerSocket();
   const { config } = useConfig();
   const { logsReadOnly, logsExist, checkingPermissions } = useDirectoryPermissionsContext();
 
   // The per-datasource service-count endpoint does not carry the source layout, so join it
   // from the config datasource list by name to drive the bare-metal displays below.
+  const configuredDatasources = useMemo<DatasourceInfo[]>(
+    () =>
+      config.dataSources && config.dataSources.length > 0
+        ? config.dataSources
+        : [
+            {
+              name: 'default',
+              cachePath: config.cachePath,
+              logsPath: config.logsPath,
+              cacheWritable: config.cacheWritable,
+              logsWritable: config.logsWritable,
+              enabled: true,
+              layout: 'monolithic',
+              nginxReopenAvailable: false
+            }
+          ],
+    [config]
+  );
   const datasourceInfoByName = useMemo<Map<string, DatasourceInfo>>(
-    () => new Map((config.dataSources ?? []).map((ds) => [ds.name, ds])),
-    [config.dataSources]
+    () => new Map(configuredDatasources.map((ds) => [ds.name, ds])),
+    [configuredDatasources]
   );
 
   // State
@@ -578,10 +596,17 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
   const logsMissing = !logsExist;
   const hasPermissionIssue = logsReadOnly || logsMissing;
-  const showReadOnlyPlaceholder = showPermissionBlock(
-    checkingPermissions,
-    hasPermissionIssue || !isDockerAvailable
+  const showReadOnlyPlaceholder = showPermissionBlock(checkingPermissions, hasPermissionIssue);
+  const selectedDatasourceNames = [...selection.selected].map((key) =>
+    key.slice(0, key.indexOf('::'))
   );
+  const selectedNginxReopenGate = getNginxReopenGate(
+    configuredDatasources,
+    selectedDatasourceNames
+  );
+  const selectedNginxReopenMessage = selectedNginxReopenGate.messageKey
+    ? t(selectedNginxReopenGate.messageKey)
+    : '';
 
   // Header action cluster: everything lives in one overflow menu now (the count
   // still shows on the "Remove Selected" item's own label). flex-wrap keeps the
@@ -607,24 +632,31 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
               {t('common.refresh')}
             </ActionMenuItem>
             <ActionMenuDivider />
-            <ActionMenuDangerItem
-              icon={<Trash2 className="w-3.5 h-3.5" />}
-              disabled={
-                selection.count === 0 ||
-                mockMode ||
-                authMode !== 'authenticated' ||
-                !isDockerAvailable ||
-                isLogRemovalActive ||
-                anyServiceRemovalPending ||
-                isBatchRunning
-              }
-              onClick={() => {
-                setShowBatchConfirm(true);
-                close();
-              }}
+            <NginxReopenActionGate
+              available={selectedNginxReopenGate.available}
+              tooltip={selectedNginxReopenMessage}
+              position="left"
+              className="block w-full"
             >
-              {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
-            </ActionMenuDangerItem>
+              <ActionMenuDangerItem
+                icon={<Trash2 className="w-3.5 h-3.5" />}
+                disabled={
+                  selection.count === 0 ||
+                  mockMode ||
+                  authMode !== 'authenticated' ||
+                  !selectedNginxReopenGate.available ||
+                  isLogRemovalActive ||
+                  anyServiceRemovalPending ||
+                  isBatchRunning
+                }
+                onClick={() => {
+                  setShowBatchConfirm(true);
+                  close();
+                }}
+              >
+                {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
+              </ActionMenuDangerItem>
+            </NginxReopenActionGate>
           </>
         )}
       </SectionActionsMenu>
@@ -677,35 +709,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
             </Alert>
           )}
 
-          {/* Docker Socket Warning */}
-          {!isDockerAvailable && !hasPermissionIssue && (
-            <Alert color="orange" className="mb-6">
-              <div className="min-w-0">
-                <p className="font-medium">
-                  {t('management.logRemoval.alerts.dockerSocket.title')}
-                </p>
-                <p className="text-sm mt-1">
-                  {t('management.logRemoval.alerts.dockerSocket.description')}
-                </p>
-                <p className="text-sm mt-2">
-                  {t('management.logRemoval.alerts.dockerSocket.addVolumes')}
-                </p>
-                <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
-                  - /var/run/docker.sock:/var/run/docker.sock
-                </code>
-              </div>
-            </Alert>
-          )}
-
           {/* Content */}
           {showReadOnlyPlaceholder ? (
             <ReadOnlyBadge
               message={
                 logsMissing
                   ? t('management.logRemoval.logsMissing', 'Logs directory not found')
-                  : logsReadOnly
-                    ? t('management.logRemoval.readOnly')
-                    : t('management.logRemoval.dockerSocketRequired')
+                  : t('management.logRemoval.readOnly')
               }
             />
           ) : (
@@ -746,6 +756,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                     const totalEntries = Object.values(ds.serviceCounts).reduce((a, b) => a + b, 0);
                     const hasEntries = totalEntries > 0;
                     const layout = datasourceInfoByName.get(ds.datasource)?.layout;
+                    const nginxReopenGate = getNginxReopenGate(configuredDatasources, [
+                      ds.datasource
+                    ]);
+                    const nginxReopenMessage = nginxReopenGate.messageKey
+                      ? t(nginxReopenGate.messageKey)
+                      : '';
                     const isBareMetalLayout = layout === 'bare_metal' || layout === 'mixed';
                     const layoutLabel =
                       layout === 'bare_metal'
@@ -773,6 +789,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                       >
                         {hasEntries ? (
                           <div className="space-y-3 pt-3">
+                            {!nginxReopenGate.available && (
+                              <ReadOnlyBadge message={nginxReopenMessage} />
+                            )}
                             {isBareMetalLayout && (
                               <Alert color="blue">
                                 <p className="text-sm">
@@ -784,14 +803,14 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                               {displayed.map((service) => {
                                 const key = `${ds.datasource}:${service}`;
                                 const selectKey = `${ds.datasource}::${service}`;
-                                const rowDisabled =
+                                const selectionDisabled =
                                   mockMode ||
                                   anyServiceRemovalPending ||
                                   isLogRemovalActive ||
                                   authMode !== 'authenticated' ||
                                   !ds.logsWritable ||
-                                  !isDockerAvailable ||
                                   isBatchRunning;
+                                const rowDisabled = selectionDisabled || !nginxReopenGate.available;
                                 return (
                                   <ServiceRow
                                     key={key}
@@ -813,11 +832,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                     selectLabel={t('management.batchSelect.selectItem', {
                                       name: getServiceDisplayName(service)
                                     })}
-                                    selectDisabled={rowDisabled || isBatchRunning}
+                                    selectDisabled={selectionDisabled}
                                     clearTooltip={
-                                      isBareMetalLayout
-                                        ? t('management.logRemoval.bareMetal.clearTooltip')
-                                        : undefined
+                                      !nginxReopenGate.available
+                                        ? nginxReopenMessage
+                                        : isBareMetalLayout
+                                          ? t('management.logRemoval.bareMetal.clearTooltip')
+                                          : undefined
                                     }
                                   />
                                 );
@@ -857,31 +878,36 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
                             {/* Delete entire log file button */}
                             <div className="flex justify-end pt-3 mt-3 border-t border-themed-secondary">
-                              <Button
-                                variant="filled"
-                                size="sm"
-                                color="red"
-                                leftSection={<Trash2 className="w-3 h-3" />}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setPendingLogFileDeletion(ds.datasource);
-                                }}
-                                awaitPermissions
-                                loading={deletingLogFile === ds.datasource}
-                                disabled={
-                                  mockMode ||
-                                  isAnyRemovalRunning ||
-                                  isLogRemovalActive ||
-                                  anyServiceRemovalPending ||
-                                  !!deletingLogFile ||
-                                  authMode !== 'authenticated' ||
-                                  !ds.logsWritable ||
-                                  !isDockerAvailable
-                                }
-                                className="w-full sm:w-auto"
+                              <NginxReopenActionGate
+                                available={nginxReopenGate.available}
+                                tooltip={nginxReopenMessage}
                               >
-                                {t('management.logRemoval.buttons.deleteLogFile')}
-                              </Button>
+                                <Button
+                                  variant="filled"
+                                  size="sm"
+                                  color="red"
+                                  leftSection={<Trash2 className="w-3 h-3" />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPendingLogFileDeletion(ds.datasource);
+                                  }}
+                                  awaitPermissions
+                                  loading={deletingLogFile === ds.datasource}
+                                  disabled={
+                                    mockMode ||
+                                    isAnyRemovalRunning ||
+                                    isLogRemovalActive ||
+                                    anyServiceRemovalPending ||
+                                    !!deletingLogFile ||
+                                    authMode !== 'authenticated' ||
+                                    !ds.logsWritable ||
+                                    !nginxReopenGate.available
+                                  }
+                                  className="w-full sm:w-auto"
+                                >
+                                  {t('management.logRemoval.buttons.deleteLogFile')}
+                                </Button>
+                              </NginxReopenActionGate>
                             </div>
                           </div>
                         ) : (

@@ -1546,6 +1546,10 @@
     }
   },
   "management": {
+    "nginxReopen": {
+      "dockerUnavailable": "日志清理需要 Docker 套接字",
+      "bareMetalUnavailable": "移除条目会重写访问日志，因此管理器需要让 nginx 重新打开日志。在裸机部署中，请使用 pid: host 运行管理器，并授予 root 权限或 CAP_KILL。"
+    },
     "nav": {
       "settings": "设置",
       "settingsShort": "设置",

@@ -2,13 +2,13 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import ServiceCard from './ServiceCard';
 import CacheEntityList from './CacheEntityList';
-import type { ServiceCacheInfo, CacheEntityVariant } from '../../../../types';
+import type { ServiceCacheInfo, CacheEntityVariant, DatasourceInfo } from '../../../../types';
 import type { SelectionAdapter } from '@hooks/useSelectionSet';
 
 interface ServicesListProps {
   services: ServiceCacheInfo[];
   isAdmin: boolean;
-  dockerSocketAvailable: boolean;
+  datasourceConfigs: readonly DatasourceInfo[];
   onRemoveService: (service: ServiceCacheInfo) => void;
   variant?: CacheEntityVariant;
   /**
@@ -33,7 +33,7 @@ const filterAndSortServices = (services: ServiceCacheInfo[], searchQuery: string
 const ServicesList: React.FC<ServicesListProps> = ({
   services,
   isAdmin,
-  dockerSocketAvailable,
+  datasourceConfigs,
   onRemoveService,
   variant = 'active',
   selection
@@ -53,7 +53,7 @@ const ServicesList: React.FC<ServicesListProps> = ({
           service={service}
           isExpanded={state.isExpanded}
           isAdmin={isAdmin}
-          dockerSocketAvailable={dockerSocketAvailable}
+          datasourceConfigs={datasourceConfigs}
           onToggleDetails={state.onToggleDetails}
           onRemove={onRemoveService}
           variant={variant}

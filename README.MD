@@ -720,7 +720,7 @@ If you run more than one cache instance or split services across drives, see [Mu
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NginxLogRotation__Enabled` | `true` | Tell nginx to reopen its logs after the app rotates them. Requires the Docker socket. |
+| `NginxLogRotation__Enabled` | `true` | Tell nginx to reopen its logs after the app rewrites them. Container installs use the Docker socket; bare-metal installs use the host PID namespace and sufficient signal privilege. |
 | `NginxLogRotation__ContainerName` | (empty = auto-detect) | LANCache container name. When empty (or set to `auto`), the app finds containers with "lancache" in the name. |
 | `NginxLogRotation__ScheduleHours` | `24` | How often to check whether rotation is needed. |
 
@@ -757,7 +757,7 @@ services:
       - ./data:/data                                # database, API key, themes, prefill state
       - /mnt/lancache/logs:/logs:ro                 # LANCache access logs
       - /mnt/lancache/cache:/cache:ro               # drop :ro to allow cache clearing and game removal
-      - /var/run/docker.sock:/var/run/docker.sock   # optional: needed for prefill and nginx log rotation
+      - /var/run/docker.sock:/var/run/docker.sock   # optional: prefill and containerized nginx log rotation
     environment:
       # --- Required (same as Quick Start) ---
       - PUID=33                                 # user id the app runs as; 33 = shipped Compose value (www-data). Unraid: 99
@@ -804,7 +804,7 @@ services:
       # - Prefill__HostTcpPort=                   # TCP mode only; empty picks a free port
       # - Prefill__TcpHost=127.0.0.1              # TCP mode only
 
-      # --- Nginx log rotation (needs the docker.sock mount) ---
+      # --- Nginx log rotation (docker.sock, or pid: host + privilege on bare-metal) ---
       # - NginxLogRotation__Enabled=true
       # - NginxLogRotation__ContainerName=        # empty or "auto" finds the "lancache" container
       # - NginxLogRotation__ScheduleHours=24
@@ -1086,6 +1086,27 @@ lancache_cache_used_bytes / 1024 / 1024 / 1024
 ```
 
 Mounting `/srv/lancache/logs` (the parent folder) also works — the manager finds the `http/` folder on its own.
+
+To let the manager automatically reopen the host nginx logs after a removal or rewrite, share the host PID namespace and run the manager with permission to signal the root-owned nginx master process. With the shipped image, the direct setup is:
+
+```yaml
+services:
+  lancache-manager:
+    pid: host
+    environment:
+      - PUID=0
+      - PGID=0
+```
+
+The equivalent `docker run` options are `--pid=host -e PUID=0 -e PGID=0`. A custom deployment may grant `CAP_KILL` instead, provided that capability is retained by the manager process. Without host PID visibility and sufficient privilege, removals still complete, but the best-effort reopen returns a failure and nginx may keep writing to the old inode.
+
+The manager's scheduled log-rotation job only asks nginx to reopen its current logs; it does not truncate or rotate bare-metal log files. Configure the host's `logrotate` for log growth and include an nginx reopen in its rule, for example:
+
+```text
+postrotate
+    nginx -s reopen
+endscript
+```
 
 **What works:** live activity, the dashboard, download history, game naming (Steam depots, Blizzard products, Riot hosts), client and service stats, per-service log counts and log removal, deleting log files, disk-level game and service removal, repeated-miss corruption scanning, eviction tracking, and clearing the whole cache. On bare-metal caches, every deletion double-checks the file's own embedded cache key before removing it.
 

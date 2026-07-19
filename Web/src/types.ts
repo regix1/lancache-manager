@@ -297,6 +297,8 @@ export interface DatasourceInfo {
   canMapLogicalObjects?: boolean;
   /** Whole-root cache clear stays available everywhere. */
   canClearWholeCacheRoot?: boolean;
+  /** Manager can reopen nginx after this datasource's access logs are rewritten. */
+  nginxReopenAvailable?: boolean;
 }
 
 export interface DatasourceLogPosition {

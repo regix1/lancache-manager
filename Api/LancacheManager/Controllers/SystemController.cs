@@ -31,6 +31,7 @@ public class SystemController : ControllerBase
     private readonly ISignalRNotificationService _notifications;
     private readonly UserPreferencesService _userPreferencesService;
     private readonly DatasourceCapabilityService _capabilityService;
+    private readonly NginxLogRotationService _nginxLogRotationService;
 
     public SystemController(
         StateService stateService,
@@ -42,7 +43,8 @@ public class SystemController : ControllerBase
         DatasourceService datasourceService,
         ISignalRNotificationService notifications,
         UserPreferencesService userPreferencesService,
-        DatasourceCapabilityService capabilityService)
+        DatasourceCapabilityService capabilityService,
+        NginxLogRotationService nginxLogRotationService)
     {
         _capabilityService = capabilityService;
         _stateService = stateService;
@@ -54,6 +56,7 @@ public class SystemController : ControllerBase
         _datasourceService = datasourceService;
         _notifications = notifications;
         _userPreferencesService = userPreferencesService;
+        _nginxLogRotationService = nginxLogRotationService;
     }
 
     /// <summary>
@@ -62,10 +65,28 @@ public class SystemController : ControllerBase
     /// </summary>
     [AllowAnonymous]
     [HttpGet("config")]
-    public IActionResult GetConfig()
+    public async Task<IActionResult> GetConfigAsync()
     {
         var datasources = _datasourceService.GetDatasources();
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
+        var datasourceDtos = await Task.WhenAll(datasources.Select(async ds =>
+        {
+            var capabilities = _capabilityService.GetCapabilities(ds);
+            return new DatasourceInfoDto
+            {
+                Name = ds.Name,
+                CachePath = ds.CachePath,
+                LogsPath = ds.LogPath,
+                CacheWritable = ds.CacheWritable,
+                LogsWritable = ds.LogsWritable,
+                Enabled = ds.Enabled,
+                Layout = ds.Layout,
+                SourceCount = ds.LogSourceStems.Count,
+                CanMapLogicalObjects = capabilities.CanMapLogicalObjects,
+                CanClearWholeCacheRoot = capabilities.CanClearWholeCacheRoot,
+                NginxReopenAvailable = await _nginxLogRotationService.CanReopenNginxAsync(ds.Layout)
+            };
+        }));
 
         return Ok(new SystemConfigResponse
         {
@@ -82,24 +103,8 @@ public class SystemController : ControllerBase
             // Use cached permission flags maintained by DirectoryPermissionMonitor.
             CacheWritable = defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable(),
             LogsWritable = defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsWritable(),
-            // Include all datasources with their layout + capability evidence
-            DataSources = datasources.Select(ds =>
-            {
-                var capabilities = _capabilityService.GetCapabilities(ds);
-                return new DatasourceInfoDto
-                {
-                    Name = ds.Name,
-                    CachePath = ds.CachePath,
-                    LogsPath = ds.LogPath,
-                    CacheWritable = ds.CacheWritable,
-                    LogsWritable = ds.LogsWritable,
-                    Enabled = ds.Enabled,
-                    Layout = ds.Layout,
-                    SourceCount = ds.LogSourceStems.Count,
-                    CanMapLogicalObjects = capabilities.CanMapLogicalObjects,
-                    CanClearWholeCacheRoot = capabilities.CanClearWholeCacheRoot
-                };
-            }).ToList()
+            // Include all datasources with their layout + capability evidence.
+            DataSources = datasourceDtos.ToList()
         });
     }
 
