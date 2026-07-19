@@ -1,8 +1,36 @@
 using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 
 namespace LancacheManager.Infrastructure.Services;
+
+/// <summary>
+/// Action that can make nginx log reopen available to the manager.
+/// </summary>
+[JsonConverter(typeof(NginxReopenHintJsonConverter))]
+public enum NginxReopenHint
+{
+    None,
+    GrantSignalPrivilege,
+    EnablePidHost,
+    MountDockerSocket
+}
+
+internal sealed class NginxReopenHintJsonConverter : JsonStringEnumConverter<NginxReopenHint>
+{
+    public NginxReopenHintJsonConverter()
+        : base(JsonNamingPolicy.CamelCase, allowIntegerValues: false)
+    {
+    }
+}
+
+/// <summary>
+/// Current nginx reopen availability and the applicable remedy when unavailable.
+/// </summary>
+public sealed record NginxReopenAvailability(bool Available, NginxReopenHint Hint);
 
 /// <summary>
 /// Result of a log rotation operation
@@ -31,6 +59,9 @@ public class NginxLogRotationService
     private static readonly TimeSpan _bareMetalWarningThrottle = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan _availabilityCacheTtl = TimeSpan.FromSeconds(30);
 
+    private const string HostPidVisibleMarker = "nginx-pid-visible";
+    private const int HostPidNotVisibleExitCode = 3;
+    private const string NoNginxContainerFoundError = "No container with nginx found";
     private const string HostNginxPidExpression =
         "$(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
         "pgrep -f 'nginx: master' | head -1)";
@@ -44,8 +75,7 @@ public class NginxLogRotationService
     private readonly object _availabilityCacheLock = new();
     private readonly SemaphoreSlim _availabilityProbeLock = new(1, 1);
     private DateTimeOffset? _lastBareMetalWarning;
-    private AvailabilityCacheEntry? _dockerAvailability;
-    private AvailabilityCacheEntry? _hostAvailability;
+    private AvailabilityCacheEntry? _availability;
 
     public NginxLogRotationService(
         ILogger<NginxLogRotationService> logger,
@@ -72,18 +102,50 @@ public class NginxLogRotationService
 
     /// <summary>
     /// Returns whether either reopen path is currently usable, checking the container path first
-    /// and then the host signal path. Results for each path are cached briefly because probing may
+    /// and then the host signal path. The combined result is cached briefly because probing may
     /// spawn processes.
     /// </summary>
     public async Task<bool> CanReopenNginxAsync()
     {
-        return await GetCachedAvailabilityAsync(ReopenTarget.Docker) ||
-               await GetCachedAvailabilityAsync(ReopenTarget.Host);
+        try
+        {
+            return (await GetCachedAvailabilityAsync()).Available;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Nginx reopen availability check failed");
+            return false;
+        }
     }
 
-    private async Task<bool> GetCachedAvailabilityAsync(ReopenTarget target)
+    /// <summary>
+    /// Returns nginx reopen availability plus the detected remedy for a datasource layout.
+    /// Probe evidence is shared with <see cref="CanReopenNginxAsync"/> and cached for the same TTL.
+    /// </summary>
+    public async Task<NginxReopenAvailability> GetNginxReopenAvailabilityAsync(string? datasourceLayout)
     {
-        if (TryGetCachedAvailability(target, out var cached))
+        try
+        {
+            var detection = await GetCachedAvailabilityAsync();
+            if (detection.Available)
+            {
+                return new NginxReopenAvailability(true, NginxReopenHint.None);
+            }
+
+            return new NginxReopenAvailability(
+                false,
+                detection.DetectedHint ?? GetLayoutFallbackHint(datasourceLayout));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Nginx reopen availability check failed");
+            return new NginxReopenAvailability(false, GetLayoutFallbackHint(datasourceLayout));
+        }
+    }
+
+    private async Task<AvailabilityDetection> GetCachedAvailabilityAsync()
+    {
+        if (TryGetCachedAvailability(out var cached))
         {
             return cached;
         }
@@ -91,40 +153,30 @@ public class NginxLogRotationService
         await _availabilityProbeLock.WaitAsync();
         try
         {
-            if (TryGetCachedAvailability(target, out cached))
+            if (TryGetCachedAvailability(out cached))
             {
                 return cached;
             }
 
-            var available = false;
+            var detection = AvailabilityDetection.Unavailable();
             try
             {
                 if (_configuration.GetValue<bool>("NginxLogRotation:Enabled", false))
                 {
-                    available = target == ReopenTarget.Docker
-                        ? await ProbeDockerReopenAsync()
-                        : await ProbeHostSignalAsync();
+                    detection = await DetectAvailabilityAsync();
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Nginx reopen availability probe failed for {Target}", target);
+                _logger.LogDebug(ex, "Nginx reopen availability detection failed");
             }
 
             lock (_availabilityCacheLock)
             {
-                var entry = new AvailabilityCacheEntry(available, _timeProvider.GetUtcNow());
-                if (target == ReopenTarget.Docker)
-                {
-                    _dockerAvailability = entry;
-                }
-                else
-                {
-                    _hostAvailability = entry;
-                }
+                _availability = new AvailabilityCacheEntry(detection, _timeProvider.GetUtcNow());
             }
 
-            return available;
+            return detection;
         }
         finally
         {
@@ -132,50 +184,140 @@ public class NginxLogRotationService
         }
     }
 
-    private bool TryGetCachedAvailability(ReopenTarget target, out bool available)
+    private bool TryGetCachedAvailability(out AvailabilityDetection detection)
     {
         lock (_availabilityCacheLock)
         {
-            var entry = target == ReopenTarget.Docker
-                ? _dockerAvailability
-                : _hostAvailability;
-            if (entry is not null &&
-                _timeProvider.GetUtcNow() - entry.CheckedAt < _availabilityCacheTtl)
+            if (_availability is not null &&
+                _timeProvider.GetUtcNow() - _availability.CheckedAt < _availabilityCacheTtl)
             {
-                available = entry.Available;
+                detection = _availability.Detection;
                 return true;
             }
         }
 
-        available = false;
+        detection = AvailabilityDetection.Unavailable();
         return false;
     }
 
-    private async Task<bool> ProbeDockerReopenAsync()
+    private async Task<AvailabilityDetection> DetectAvailabilityAsync()
+    {
+        DockerProbeResult dockerProbe;
+        try
+        {
+            dockerProbe = await ProbeDockerReopenAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Nginx reopen availability probe failed for Docker");
+            dockerProbe = DockerProbeResult.Unknown;
+        }
+
+        if (dockerProbe.Available)
+        {
+            return AvailabilityDetection.AvailableResult;
+        }
+
+        HostProbeResult hostProbe;
+        try
+        {
+            hostProbe = await ProbeHostSignalAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Nginx reopen availability probe failed for host nginx");
+            hostProbe = HostProbeResult.Unknown;
+        }
+
+        if (hostProbe.Available)
+        {
+            return AvailabilityDetection.AvailableResult;
+        }
+
+        if (hostProbe.Failure == HostProbeFailure.SignalDenied)
+        {
+            return AvailabilityDetection.Unavailable(NginxReopenHint.GrantSignalPrivilege);
+        }
+
+        if (dockerProbe.Failure == DockerProbeFailure.NoNginxContainer &&
+            hostProbe.Failure == HostProbeFailure.PidNotVisible)
+        {
+            return AvailabilityDetection.Unavailable(NginxReopenHint.EnablePidHost);
+        }
+
+        return AvailabilityDetection.Unavailable();
+    }
+
+    private async Task<DockerProbeResult> ProbeDockerReopenAsync()
     {
         if (!_pathResolver.IsDockerSocketAvailable())
         {
-            return false;
+            return new DockerProbeResult(false, DockerProbeFailure.SocketMissing);
         }
 
         var configuredName = _configuration.GetValue<string>("NginxLogRotation:ContainerName");
         if (!string.IsNullOrWhiteSpace(configuredName) &&
             !string.Equals(configuredName, "auto", StringComparison.OrdinalIgnoreCase))
         {
-            return await ContainerHasNginxAsync(configuredName);
+            return await ContainerHasNginxAsync(configuredName)
+                ? DockerProbeResult.AvailableResult
+                : DockerProbeResult.Unknown;
         }
 
-        var (containerName, _) = await FindMonolithicContainerAsync();
-        return !string.IsNullOrWhiteSpace(containerName);
+        var (containerName, error) = await FindMonolithicContainerAsync();
+        if (!string.IsNullOrWhiteSpace(containerName))
+        {
+            return DockerProbeResult.AvailableResult;
+        }
+
+        if (string.Equals(error, NoNginxContainerFoundError, StringComparison.Ordinal))
+        {
+            return new DockerProbeResult(false, DockerProbeFailure.NoNginxContainer);
+        }
+
+        if (error?.Contains("Docker socket", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return new DockerProbeResult(false, DockerProbeFailure.SocketMissing);
+        }
+
+        return DockerProbeResult.Unknown;
     }
 
-    private async Task<bool> ProbeHostSignalAsync()
+    private async Task<HostProbeResult> ProbeHostSignalAsync()
     {
         var result = await RunProcessAsync(
-            CreateHostSignalStartInfo("0"),
+            CreateHostProbeStartInfo(),
             "host nginx signal probe");
-        return result.ExitCode == 0;
+        if (result.ExitCode == 0)
+        {
+            return HostProbeResult.AvailableResult;
+        }
+
+        if (result.Output.Contains(HostPidVisibleMarker, StringComparison.Ordinal) ||
+            IndicatesSignalPermissionDenied(result.Error))
+        {
+            return new HostProbeResult(false, HostProbeFailure.SignalDenied);
+        }
+
+        if (result.ExitCode == HostPidNotVisibleExitCode ||
+            string.IsNullOrWhiteSpace(result.Error) ||
+            result.Error.Contains("no process", StringComparison.OrdinalIgnoreCase) ||
+            result.Error.Contains("No such process", StringComparison.OrdinalIgnoreCase))
+        {
+            return new HostProbeResult(false, HostProbeFailure.PidNotVisible);
+        }
+
+        return HostProbeResult.Unknown;
     }
+
+    private static bool IndicatesSignalPermissionDenied(string error) =>
+        error.Contains("Operation not permitted", StringComparison.OrdinalIgnoreCase) ||
+        error.Contains("Permission denied", StringComparison.OrdinalIgnoreCase);
+
+    private static NginxReopenHint GetLayoutFallbackHint(string? datasourceLayout) =>
+        datasourceLayout is LogSourceLayout.LayoutBareMetal or LogSourceLayout.LayoutMixed
+            ? NginxReopenHint.EnablePidHost
+            : NginxReopenHint.MountDockerSocket;
 
     /// <summary>
     /// Signals nginx to reopen log files. A configured or auto-detected LANCache container is
@@ -452,7 +594,7 @@ public class NginxLogRotationService
             // No suitable container found
 
             _logger.LogDebug("No suitable nginx container found; trying host nginx signaling");
-            return (null, "No container with nginx found");
+            return (null, NoNginxContainerFoundError);
         }
         catch (Exception ex)
         {
@@ -563,17 +705,67 @@ public class NginxLogRotationService
         return startInfo;
     }
 
+    private static ProcessStartInfo CreateHostProbeStartInfo()
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "sh",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add(
+            $"pid={HostNginxPidExpression}; " +
+            $"if [ -z \"$pid\" ]; then exit {HostPidNotVisibleExitCode}; fi; " +
+            $"printf '{HostPidVisibleMarker}\\n'; kill -0 \"$pid\"");
+        return startInfo;
+    }
+
     /// <summary>
     /// Test seam for commands that production runs through the shared process manager.
     /// </summary>
     protected virtual Task<ProcessCommandResult> RunProcessAsync(ProcessStartInfo startInfo, string label) =>
         _processManager.RunAsync(startInfo, label: label);
 
-    private enum ReopenTarget
+    private enum DockerProbeFailure
     {
-        Docker,
-        Host
+        None,
+        SocketMissing,
+        NoNginxContainer,
+        Unknown
     }
 
-    private sealed record AvailabilityCacheEntry(bool Available, DateTimeOffset CheckedAt);
+    private enum HostProbeFailure
+    {
+        None,
+        PidNotVisible,
+        SignalDenied,
+        Unknown
+    }
+
+    private sealed record DockerProbeResult(bool Available, DockerProbeFailure Failure)
+    {
+        public static DockerProbeResult AvailableResult { get; } = new(true, DockerProbeFailure.None);
+        public static DockerProbeResult Unknown { get; } = new(false, DockerProbeFailure.Unknown);
+    }
+
+    private sealed record HostProbeResult(bool Available, HostProbeFailure Failure)
+    {
+        public static HostProbeResult AvailableResult { get; } = new(true, HostProbeFailure.None);
+        public static HostProbeResult Unknown { get; } = new(false, HostProbeFailure.Unknown);
+    }
+
+    private sealed record AvailabilityDetection(bool Available, NginxReopenHint? DetectedHint)
+    {
+        public static AvailabilityDetection AvailableResult { get; } = new(true, null);
+
+        public static AvailabilityDetection Unavailable(NginxReopenHint? hint = null) =>
+            new(false, hint);
+    }
+
+    private sealed record AvailabilityCacheEntry(
+        AvailabilityDetection Detection,
+        DateTimeOffset CheckedAt);
 }

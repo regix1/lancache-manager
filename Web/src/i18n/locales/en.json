@@ -1547,8 +1547,9 @@
   },
   "management": {
     "nginxReopen": {
-      "dockerUnavailable": "Docker socket required for log cleanup",
-      "bareMetalUnavailable": "Removing entries rewrites the access log, so expose the Docker socket for a containerized nginx, or run the manager with pid: host and root or CAP_KILL for nginx running directly on the host."
+      "grantSignalPrivilege": "The manager can see host nginx but lacks permission to signal it, so run the manager as root or grant it CAP_KILL.",
+      "enablePidHost": "Nginx appears to run on the host, so run the manager with pid: host and either as root or with CAP_KILL to signal nginx after log changes.",
+      "dockerUnavailable": "Nginx appears to run in a container, so mount /var/run/docker.sock into the manager to reopen nginx logs after log changes."
     },
     "nav": {
       "settings": "Settings",

@@ -72,6 +72,7 @@ public class SystemController : ControllerBase
         var datasourceDtos = await Task.WhenAll(datasources.Select(async ds =>
         {
             var capabilities = _capabilityService.GetCapabilities(ds);
+            var nginxReopen = await _nginxLogRotationService.GetNginxReopenAvailabilityAsync(ds.Layout);
             return new DatasourceInfoDto
             {
                 Name = ds.Name,
@@ -84,7 +85,10 @@ public class SystemController : ControllerBase
                 SourceCount = ds.LogSourceStems.Count,
                 CanMapLogicalObjects = capabilities.CanMapLogicalObjects,
                 CanClearWholeCacheRoot = capabilities.CanClearWholeCacheRoot,
-                NginxReopenAvailable = await _nginxLogRotationService.CanReopenNginxAsync()
+                NginxReopenAvailable = nginxReopen.Available,
+                NginxReopenHint = nginxReopen.Hint == NginxReopenHint.None
+                    ? null
+                    : nginxReopen.Hint
             };
         }));
 

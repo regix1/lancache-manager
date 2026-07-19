@@ -1,7 +1,10 @@
 using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -14,8 +17,9 @@ public sealed class NginxLogRotationServiceTests
         "kill -USR1 $(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
         "pgrep -f 'nginx: master' | head -1)";
     private const string HostProbeCommand =
-        "kill -0 $(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
-        "pgrep -f 'nginx: master' | head -1)";
+        "pid=$(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
+        "pgrep -f 'nginx: master' | head -1); if [ -z \"$pid\" ]; then exit 3; fi; " +
+        "printf 'nginx-pid-visible\\n'; kill -0 \"$pid\"";
 
     [Fact]
     public async Task CanReopenNginxAsync_ContainerizedNginxWithBareMetalLogs_ReturnsTrueAsync()
@@ -134,6 +138,134 @@ public sealed class NginxLogRotationServiceTests
 
         Assert.False(available);
         Assert.Single(service.Commands);
+    }
+
+    [Fact]
+    public async Task GetNginxReopenAvailabilityAsync_HostPidVisibleButSignalDenied_GrantsSignalPrivilegeAsync()
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        service.ProcessResults.Enqueue(new ProcessCommandResult
+        {
+            ExitCode = 1,
+            Output = "nginx-pid-visible\n",
+            Error = "kill: Operation not permitted"
+        });
+
+        var result = await service.GetNginxReopenAvailabilityAsync("monolithic");
+
+        Assert.False(result.Available);
+        Assert.Equal(NginxReopenHint.GrantSignalPrivilege, result.Hint);
+        Assert.Single(service.Commands);
+    }
+
+    [Fact]
+    public async Task GetNginxReopenAvailabilityAsync_NoNginxContainerAndHostPidInvisible_EnablesPidHostAsync()
+    {
+        var service = CreateService(
+            new CapturingLogger<NginxLogRotationService>(),
+            dockerSocketAvailable: true);
+        service.DetectionResult = (null, "No container with nginx found");
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 3 });
+
+        var result = await service.GetNginxReopenAvailabilityAsync("monolithic");
+
+        Assert.False(result.Available);
+        Assert.Equal(NginxReopenHint.EnablePidHost, result.Hint);
+        Assert.Equal(1, service.DetectionCalls);
+        Assert.Single(service.Commands);
+    }
+
+    [Theory]
+    [InlineData("bare_metal", NginxReopenHint.EnablePidHost)]
+    [InlineData("mixed", NginxReopenHint.EnablePidHost)]
+    [InlineData("monolithic", NginxReopenHint.MountDockerSocket)]
+    public async Task GetNginxReopenAvailabilityAsync_SocketMissingAndHostPidInvisible_UsesLayoutFallbackAsync(
+        string layout,
+        NginxReopenHint expectedHint)
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 3 });
+
+        var result = await service.GetNginxReopenAvailabilityAsync(layout);
+
+        Assert.False(result.Available);
+        Assert.Equal(expectedHint, result.Hint);
+        Assert.Equal(0, service.DetectionCalls);
+        Assert.Single(service.Commands);
+    }
+
+    [Fact]
+    public async Task GetNginxReopenAvailabilityAsync_HostProbeThrows_UsesLayoutFallbackAsync()
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+
+        var result = await service.GetNginxReopenAvailabilityAsync("bare_metal");
+
+        Assert.False(result.Available);
+        Assert.Equal(NginxReopenHint.EnablePidHost, result.Hint);
+        Assert.Single(service.Commands);
+    }
+
+    [Fact]
+    public async Task GetNginxReopenAvailabilityAsync_HintSharesAvailabilityCacheAsync()
+    {
+        var timeProvider = new MutableTimeProvider(
+            new DateTimeOffset(2026, 7, 19, 12, 0, 0, TimeSpan.Zero));
+        var service = CreateService(
+            new CapturingLogger<NginxLogRotationService>(),
+            timeProvider,
+            dockerSocketAvailable: true);
+        service.DetectionResult = (null, "No container with nginx found");
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 3 });
+
+        var available = await service.CanReopenNginxAsync();
+        timeProvider.Advance(TimeSpan.FromSeconds(29));
+        var status = await service.GetNginxReopenAvailabilityAsync("monolithic");
+
+        Assert.False(available);
+        Assert.False(status.Available);
+        Assert.Equal(NginxReopenHint.EnablePidHost, status.Hint);
+        Assert.Equal(1, service.DetectionCalls);
+        Assert.Single(service.Commands);
+    }
+
+    [Fact]
+    public async Task GetNginxReopenAvailabilityAsync_Available_ReturnsNoHintAsync()
+    {
+        var service = CreateService(
+            new CapturingLogger<NginxLogRotationService>(),
+            dockerSocketAvailable: true);
+        service.DetectionResult = ("lancache-monolithic", null);
+
+        var result = await service.GetNginxReopenAvailabilityAsync("bare_metal");
+
+        Assert.True(result.Available);
+        Assert.Equal(NginxReopenHint.None, result.Hint);
+        Assert.Empty(service.Commands);
+    }
+
+    [Fact]
+    public void DatasourceInfoDto_NginxReopenHint_UsesCamelCaseAndWritesNull()
+    {
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+
+        var unavailableJson = JsonSerializer.Serialize(new DatasourceInfoDto
+        {
+            NginxReopenAvailable = false,
+            NginxReopenHint = NginxReopenHint.GrantSignalPrivilege
+        }, options);
+        var availableJson = JsonSerializer.Serialize(new DatasourceInfoDto
+        {
+            NginxReopenAvailable = true,
+            NginxReopenHint = null
+        }, options);
+
+        Assert.Contains("\"nginxReopenHint\":\"grantSignalPrivilege\"", unavailableJson, StringComparison.Ordinal);
+        Assert.Contains("\"nginxReopenHint\":null", availableJson, StringComparison.Ordinal);
     }
 
     [Fact]

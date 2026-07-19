@@ -282,6 +282,8 @@ export interface MessageResponse {
   message: string;
 }
 
+export type NginxReopenHint = 'grantSignalPrivilege' | 'enablePidHost' | 'mountDockerSocket';
+
 export interface DatasourceInfo {
   name: string;
   cachePath: string;
@@ -299,6 +301,8 @@ export interface DatasourceInfo {
   canClearWholeCacheRoot?: boolean;
   /** Manager can reopen nginx after this datasource's access logs are rewritten. */
   nginxReopenAvailable?: boolean;
+  /** Action needed to make nginx reopen available, or null when it is already available. */
+  nginxReopenHint?: NginxReopenHint | null;
 }
 
 export interface DatasourceLogPosition {

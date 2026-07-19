@@ -32,35 +32,122 @@ test('enables destructive actions when nginx reopen is available', () => {
   });
 });
 
-test('disables destructive actions with Docker copy for a monolithic datasource', () => {
+test('selects the Docker socket hint reported by the backend', () => {
+  assert.deepEqual(
+    getNginxReopenGate([
+      datasource({ nginxReopenAvailable: false, nginxReopenHint: 'mountDockerSocket' })
+    ]),
+    {
+      available: false,
+      messageKey: 'management.nginxReopen.dockerUnavailable'
+    }
+  );
+});
+
+test('selects the signal privilege hint reported by the backend', () => {
+  assert.deepEqual(
+    getNginxReopenGate([
+      datasource({ nginxReopenAvailable: false, nginxReopenHint: 'grantSignalPrivilege' })
+    ]),
+    {
+      available: false,
+      messageKey: 'management.nginxReopen.grantSignalPrivilege'
+    }
+  );
+});
+
+test('selects the host PID namespace hint reported by the backend', () => {
+  assert.deepEqual(
+    getNginxReopenGate([
+      datasource({ nginxReopenAvailable: false, nginxReopenHint: 'enablePidHost' })
+    ]),
+    {
+      available: false,
+      messageKey: 'management.nginxReopen.enablePidHost'
+    }
+  );
+});
+
+test('does not infer a hint from datasource layout', () => {
+  assert.deepEqual(
+    getNginxReopenGate([
+      datasource({
+        layout: 'bare_metal',
+        nginxReopenAvailable: false,
+        nginxReopenHint: 'mountDockerSocket'
+      })
+    ]),
+    {
+      available: false,
+      messageKey: 'management.nginxReopen.dockerUnavailable'
+    }
+  );
+});
+
+test('uses privilege, host PID, then Docker socket precedence across unavailable datasources', () => {
+  const datasources = [
+    datasource({
+      name: 'docker',
+      nginxReopenAvailable: false,
+      nginxReopenHint: 'mountDockerSocket'
+    }),
+    datasource({
+      name: 'host',
+      nginxReopenAvailable: false,
+      nginxReopenHint: 'enablePidHost'
+    }),
+    datasource({
+      name: 'denied',
+      nginxReopenAvailable: false,
+      nginxReopenHint: 'grantSignalPrivilege'
+    })
+  ];
+
+  assert.deepEqual(getNginxReopenGate(datasources.slice(0, 2)), {
+    available: false,
+    messageKey: 'management.nginxReopen.enablePidHost'
+  });
+  assert.deepEqual(getNginxReopenGate(datasources), {
+    available: false,
+    messageKey: 'management.nginxReopen.grantSignalPrivilege'
+  });
+});
+
+test('uses the legacy Docker fallback when an unavailable datasource has no hint', () => {
   assert.deepEqual(getNginxReopenGate([datasource({ nginxReopenAvailable: false })]), {
     available: false,
     messageKey: 'management.nginxReopen.dockerUnavailable'
   });
 });
 
-test('disables destructive actions with bare-metal copy for a bare-metal datasource', () => {
-  assert.deepEqual(
-    getNginxReopenGate([datasource({ layout: 'bare_metal', nginxReopenAvailable: false })]),
-    {
-      available: false,
-      messageKey: 'management.nginxReopen.bareMetalUnavailable'
-    }
-  );
-});
+test('locales contain one matching remedy per hint and stay in parity', () => {
+  assert.deepEqual(Object.keys(localeMessages[0]).sort(), Object.keys(localeMessages[1]).sort());
 
-test('bare-metal copy explains both container and host nginx recovery paths', () => {
   for (const messages of localeMessages) {
-    assert.match(messages.bareMetalUnavailable, /Docker/);
-    assert.match(messages.bareMetalUnavailable, /pid: host/);
-    assert.match(messages.bareMetalUnavailable, /CAP_KILL/);
+    assert.deepEqual(Object.keys(messages).sort(), [
+      'dockerUnavailable',
+      'enablePidHost',
+      'grantSignalPrivilege'
+    ]);
+    assert.match(messages.grantSignalPrivilege, /CAP_KILL/);
+    assert.doesNotMatch(messages.grantSignalPrivilege, /pid: host|docker\.sock/i);
+    assert.match(messages.enablePidHost, /pid: host/);
+    assert.match(messages.enablePidHost, /CAP_KILL/);
+    assert.doesNotMatch(messages.enablePidHost, /docker\.sock/i);
+    assert.match(messages.dockerUnavailable, /docker\.sock/i);
+    assert.doesNotMatch(messages.dockerUnavailable, /pid: host|CAP_KILL/);
   }
 });
 
 test('uses only the datasources touched by an entity removal', () => {
   const datasources = [
     datasource({ name: 'docker', nginxReopenAvailable: true }),
-    datasource({ name: 'host', layout: 'bare_metal', nginxReopenAvailable: false })
+    datasource({
+      name: 'host',
+      layout: 'bare_metal',
+      nginxReopenAvailable: false,
+      nginxReopenHint: 'enablePidHost'
+    })
   ];
 
   assert.equal(getNginxReopenGate(datasources, ['docker']).available, true);

@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using LancacheManager.Infrastructure.Services;
+
 namespace LancacheManager.Models;
 
 /// <summary>
@@ -99,6 +102,12 @@ public class DatasourceInfoDto
     /// Whether the manager can currently reopen nginx after rewriting this datasource's logs.
     /// </summary>
     public bool NginxReopenAvailable { get; set; }
+
+    /// <summary>
+    /// Action needed to make nginx reopen available, or null when it is already available.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public NginxReopenHint? NginxReopenHint { get; set; }
 }
 
 /// <summary>

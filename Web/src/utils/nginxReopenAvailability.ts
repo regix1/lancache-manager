@@ -1,16 +1,26 @@
-import type { DatasourceInfo } from '../types';
+import type { DatasourceInfo, NginxReopenHint } from '../types';
 
 type NginxReopenMessageKey =
-  | 'management.nginxReopen.dockerUnavailable'
-  | 'management.nginxReopen.bareMetalUnavailable';
+  | 'management.nginxReopen.grantSignalPrivilege'
+  | 'management.nginxReopen.enablePidHost'
+  | 'management.nginxReopen.dockerUnavailable';
 
 interface NginxReopenGate {
   available: boolean;
   messageKey: NginxReopenMessageKey | null;
 }
 
-const isBareMetalLayout = (layout: DatasourceInfo['layout']): boolean =>
-  layout === 'bare_metal' || layout === 'mixed';
+const hintPrecedence: readonly NginxReopenHint[] = [
+  'grantSignalPrivilege',
+  'enablePidHost',
+  'mountDockerSocket'
+];
+
+const messageKeyByHint: Record<NginxReopenHint, NginxReopenMessageKey> = {
+  grantSignalPrivilege: 'management.nginxReopen.grantSignalPrivilege',
+  enablePidHost: 'management.nginxReopen.enablePidHost',
+  mountDockerSocket: 'management.nginxReopen.dockerUnavailable'
+};
 
 export function getNginxReopenGate(
   datasources: readonly DatasourceInfo[],
@@ -31,14 +41,14 @@ export function getNginxReopenGate(
     return { available: true, messageKey: null };
   }
 
-  const hasBareMetalDatasource = unavailable.some(
-    (datasource) => datasource !== null && isBareMetalLayout(datasource.layout)
-  );
+  const hint =
+    hintPrecedence.find((candidate) =>
+      unavailable.some((datasource) => datasource?.nginxReopenHint === candidate)
+    ) ?? 'mountDockerSocket';
+
   return {
     available: false,
-    messageKey: hasBareMetalDatasource
-      ? 'management.nginxReopen.bareMetalUnavailable'
-      : 'management.nginxReopen.dockerUnavailable'
+    messageKey: messageKeyByHint[hint]
   };
 }
 
