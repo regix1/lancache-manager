@@ -852,7 +852,8 @@ public partial class RustProcessHelper
         return new LogLineCountResult(
             progress.LinesProcessed,
             progress.FilesProcessed,
-            progress.SourceLineCounts ?? new Dictionary<string, long>());
+            progress.SourceLineCounts ?? new Dictionary<string, long>(),
+            progress.FilesWithErrors ?? 0);
     }
 
     /// <summary>
@@ -956,6 +957,13 @@ public partial class RustProcessHelper
         /// <summary>Complete-record counts per logical source stem (count-lines only).</summary>
         [System.Text.Json.Serialization.JsonPropertyName("source_line_counts")]
         public Dictionary<string, long>? SourceLineCounts { get; init; }
+
+        /// <summary>
+        /// Count of source files whose count stopped at an unreadable member (count-lines only).
+        /// Absent or zero means every source read cleanly and the totals are authoritative.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("files_with_errors")]
+        public long? FilesWithErrors { get; init; }
     }
 
     /// <summary>
@@ -1317,11 +1325,16 @@ public class RustExecutionResult
 }
 
 
-/// <summary>Final line/file totals produced by log_service_manager count-lines.</summary>
+/// <summary>
+/// Final line/file totals produced by log_service_manager count-lines. <see cref="FilesWithErrors"/>
+/// is greater than zero when a source stopped at an unreadable member, which marks the line and
+/// source totals as a partial clean prefix rather than an authoritative count.
+/// </summary>
 public sealed record LogLineCountResult(
     long LinesProcessed,
     long FilesProcessed,
-    Dictionary<string, long> SourceLineCounts);
+    Dictionary<string, long> SourceLineCounts,
+    long FilesWithErrors = 0);
 
 /// <summary>Pre-delete byte count produced by log_service_manager delete-file.</summary>
 public sealed record LogFileDeletionResult(long BytesDeleted);

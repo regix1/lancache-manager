@@ -197,12 +197,17 @@ public class LogsController : ControllerBase
             // use the same focused Rust line-count command as reset-to-end; failures propagate
             // instead of masquerading as a required zero value.
             var totalLines = _stateRepository.GetLogTotalLines(ds.Name);
+            // True when the first-run count above stopped at an unreadable source member, so the
+            // reported total is only a clean prefix. This is distinct from the ingestion-side
+            // filesWithErrors list below (which reflects the last processing run, not this count).
+            var totalLinesPartial = false;
             if (totalLines == 0 && position == 0)
             {
                 var countResult = await _rustProcessHelper.CountLogLinesAsync(
                     ds.LogPath,
                     cancellationToken);
                 totalLines = countResult.LinesProcessed;
+                totalLinesPartial = countResult.FilesWithErrors > 0;
             }
 
             ds.RefreshLogSources();
@@ -214,6 +219,7 @@ public class LogsController : ControllerBase
                 datasource = ds.Name,
                 position,
                 totalLines,
+                totalLinesPartial,
                 logPath = ds.LogPath,
                 enabled = ds.Enabled,
                 layout = ds.Layout,

@@ -5,6 +5,28 @@ using LancacheManager.Core.Interfaces;
 namespace LancacheManager.Infrastructure.Platform;
 
 /// <summary>
+/// Outcome of a directory write-access probe. Distinguishes a deliberately read-only mount
+/// from an ownership/mode denial so callers can log an accurate, low-noise reason.
+/// </summary>
+public enum DirectoryWriteAccess
+{
+    /// <summary>The directory accepts writes.</summary>
+    Writable,
+
+    /// <summary>The directory does not exist.</summary>
+    DirectoryMissing,
+
+    /// <summary>The path is mounted read-only, so writes are disabled by design.</summary>
+    ReadOnlyMount,
+
+    /// <summary>Writes are denied by ownership or file mode (commonly a PUID/PGID mismatch).</summary>
+    OwnershipOrModeDenied,
+
+    /// <summary>Write access could not be determined.</summary>
+    Indeterminate
+}
+
+/// <summary>
 /// Abstract base class for platform-specific path resolvers, containing shared logic
 /// </summary>
 public abstract class PathResolverBase : IPathResolver
@@ -276,25 +298,32 @@ public abstract class PathResolverBase : IPathResolver
     public abstract string NormalizePath(string path);
 
     /// <summary>
-    /// Checks if a directory is writable. Base implementation uses test-file creation.
-    /// Linux overrides to add /proc/mounts check and existing-file sampling.
+    /// Checks if a directory is writable. Base implementation samples existing files then runs a create-test.
+    /// Linux overrides <see cref="GetDirectoryWriteAccess"/> to add a /proc/mounts read-only check.
     /// </summary>
     public virtual bool IsDirectoryWritable(string directoryPath)
+        => GetDirectoryWriteAccess(directoryPath) == DirectoryWriteAccess.Writable;
+
+    /// <summary>
+    /// Determines write access and the reason for any denial. Repeat, unchanged denials are logged at
+    /// debug here; a single human-facing warning is emitted by the caller only when the state transitions.
+    /// </summary>
+    public virtual DirectoryWriteAccess GetDirectoryWriteAccess(string directoryPath)
     {
         try
         {
             if (!Directory.Exists(directoryPath))
             {
-                _logger.LogWarning("Directory does not exist: {Path}", directoryPath);
-                return false;
+                _logger.LogDebug("Directory does not exist: {Path}", directoryPath);
+                return DirectoryWriteAccess.DirectoryMissing;
             }
 
-            return TestWriteAccess(directoryPath);
+            return EvaluateWriteAccess(directoryPath);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error testing write access to directory: {Path}", directoryPath);
-            return false;
+            return DirectoryWriteAccess.Indeterminate;
         }
     }
 
@@ -348,9 +377,11 @@ public abstract class PathResolverBase : IPathResolver
     }
 
     /// <summary>
-    /// Tests write access by opening existing files first, then falling back to create-test.
+    /// Probes actual write access by opening existing files first, then falling back to a create-test,
+    /// and reports the reason for any denial. All outcomes are logged at debug: this runs on a fast poll,
+    /// so callers own the single, throttled, human-facing warning on a state transition.
     /// </summary>
-    protected bool TestWriteAccess(string directoryPath)
+    protected DirectoryWriteAccess EvaluateWriteAccess(string directoryPath)
     {
         // Strategy: Test ACTUAL write access by opening existing files for write.
         // This is more reliable than UID/GID comparison because it:
@@ -378,17 +409,16 @@ public abstract class PathResolverBase : IPathResolver
                         {
                             // Successfully opened for write - we have permission
                             _logger.LogDebug("Write access confirmed for file: {Path}", existingFile);
-                            return true;
+                            return DirectoryWriteAccess.Writable;
                         }
                     }
                     catch (UnauthorizedAccessException)
                     {
-                        // Cannot modify this file - permission issue (likely PUID/PGID mismatch)
-                        _logger.LogWarning(
-                            "Permission denied on existing file: {Path}. " +
-                            "This typically indicates PUID/PGID mismatch - update docker-compose.yml to match lancache container ownership.",
-                            existingFile);
-                        return false;
+                        // Write is denied by ownership or file mode (commonly a PUID/PGID mismatch).
+                        // Debug-level because this repeats every poll while the state is unchanged;
+                        // the caller reports it once on the writable -> read-only transition.
+                        _logger.LogDebug("Write access denied by ownership or file mode on existing file: {Path}", existingFile);
+                        return DirectoryWriteAccess.OwnershipOrModeDenied;
                     }
                     catch (IOException ex)
                     {
@@ -398,11 +428,10 @@ public abstract class PathResolverBase : IPathResolver
                     }
                 }
 
-                // BUG 8 FIX: All sampled files were locked - log a warning before falling back
-                _logger.LogWarning(
-                    "All {Count} sampled files in {Path} were locked/inaccessible. " +
-                    "Falling back to create-test, which may not detect PUID/PGID mismatches on existing cache files. " +
-                    "This can happen when the cache is under heavy load.",
+                // All sampled files were locked; fall back to the create-test. Debug-level because this can
+                // recur every poll under heavy cache load and is not an actionable permission problem.
+                _logger.LogDebug(
+                    "All {Count} sampled files in {Path} were locked/inaccessible; falling back to create-test.",
                     existingFiles.Count, directoryPath);
             }
             else
@@ -410,11 +439,11 @@ public abstract class PathResolverBase : IPathResolver
                 _logger.LogDebug("No existing files found in {Path}, using create test", directoryPath);
             }
         }
-        catch (UnauthorizedAccessException ex)
+        catch (UnauthorizedAccessException)
         {
-            // Can't even enumerate files - definitely no access
-            _logger.LogWarning(ex, "Cannot enumerate files in directory (permission denied): {Path}", directoryPath);
-            return false;
+            // Cannot even enumerate the directory: write is denied by ownership or file mode.
+            _logger.LogDebug("Cannot enumerate files (write access denied by ownership or file mode): {Path}", directoryPath);
+            return DirectoryWriteAccess.OwnershipOrModeDenied;
         }
         catch (Exception ex)
         {
@@ -430,17 +459,17 @@ public abstract class PathResolverBase : IPathResolver
             File.WriteAllText(testFilePath, "permission check");
             File.Delete(testFilePath);
             _logger.LogDebug("Create/delete test passed in {Path}", directoryPath);
-            return true;
+            return DirectoryWriteAccess.Writable;
         }
         catch (UnauthorizedAccessException)
         {
-            _logger.LogDebug("Directory is read-only (cannot create files): {Path}", directoryPath);
-            return false;
+            _logger.LogDebug("Directory is not writable, cannot create files: {Path}", directoryPath);
+            return DirectoryWriteAccess.OwnershipOrModeDenied;
         }
         catch (IOException)
         {
-            _logger.LogDebug("Directory is read-only or inaccessible: {Path}", directoryPath);
-            return false;
+            _logger.LogDebug("Directory is not writable or inaccessible: {Path}", directoryPath);
+            return DirectoryWriteAccess.OwnershipOrModeDenied;
         }
     }
 }

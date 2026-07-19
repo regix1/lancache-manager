@@ -60,16 +60,20 @@ public static class LogSourceLayout
         // Ordinal (case-sensitive) on purpose: the Rust discovery strips exactly ".gz"
         // and ".zst", and both sides must agree on what belongs to a series.
         var withoutCompression = fileName;
+        var isCompressed = false;
         if (withoutCompression.EndsWith(".gz", StringComparison.Ordinal))
         {
             withoutCompression = withoutCompression[..^3];
+            isCompressed = true;
         }
         else if (withoutCompression.EndsWith(".zst", StringComparison.Ordinal))
         {
             withoutCompression = withoutCompression[..^4];
+            isCompressed = true;
         }
 
         var baseName = withoutCompression;
+        var hasRotation = false;
         var lastDot = withoutCompression.LastIndexOf('.');
         if (lastDot > 0)
         {
@@ -77,7 +81,17 @@ public static class LogSourceLayout
             if (suffix.Length > 0 && suffix.All(char.IsAsciiDigit))
             {
                 baseName = withoutCompression[..lastDot];
+                hasRotation = true;
             }
+        }
+
+        // Discovery only replays a compressed file when it is a numbered rotation, because
+        // a compression-only name (access.log.gz) cannot join the live source's file series.
+        // Rejecting it here keeps this side from claiming a layout, or halting the logs/http
+        // descent, on a file the record processor would ignore.
+        if (isCompressed && !hasRotation)
+        {
+            return null;
         }
 
         if (baseName == MonolithicStem)

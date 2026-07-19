@@ -540,13 +540,16 @@ public class DatasourceService
                 LogPath = logDir,
                 LogFilePath = Path.Combine(logDir, "access.log"),
                 Enabled = config.Enabled,
-                CacheWritable = _pathResolver.IsDirectoryWritable(cachePath),
-                LogsWritable = _pathResolver.IsDirectoryWritable(logDir)
+                CacheWritable = _pathResolver.IsDirectoryWritable(cachePath)
             };
             // RefreshLogSources performs the bare-metal <logs> -> <logs>/http descent from
             // the configured root; doing it per refresh (not once here) means an http/
-            // folder that appears after startup is still discovered.
+            // folder that appears after startup is still discovered. Probe writability only
+            // after the descent so LogsWritable reflects the directory the record processor
+            // actually writes positions against, not a parent mount whose ownership or mode
+            // differs from the resolved http/ child.
             datasource.RefreshLogSources();
+            datasource.LogsWritable = _pathResolver.IsDirectoryWritable(datasource.LogPath);
             return datasource;
         }
         catch (Exception ex)
@@ -638,8 +641,11 @@ public class DatasourceService
         foreach (var ds in _datasources)
         {
             ds.CacheWritable = _pathResolver.IsDirectoryWritable(ds.CachePath);
-            ds.LogsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath);
+            // Re-run the <logs> -> <logs>/http descent before probing writability so
+            // LogsWritable is measured against the resolved LogPath rather than a parent
+            // mount whose permissions differ from the http/ child that holds the sources.
             ds.RefreshLogSources();
+            ds.LogsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath);
         }
     }
 

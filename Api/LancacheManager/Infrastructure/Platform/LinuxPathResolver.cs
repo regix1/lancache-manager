@@ -65,39 +65,40 @@ public class LinuxPathResolver : PathResolverBase
     }
 
     /// <summary>
-    /// Checks if a directory is writable.
-    /// On Linux, checks /proc/mounts for read-only flag first, then falls back to base TestWriteAccess.
+    /// Determines write access for a directory.
+    /// On Linux a read-only mount is detected from /proc/mounts first (a deliberate, expected state),
+    /// then actual permissions are probed to catch ownership/mode denials (e.g. PUID/PGID mismatch).
     /// </summary>
-    public override bool IsDirectoryWritable(string directoryPath)
+    public override DirectoryWriteAccess GetDirectoryWriteAccess(string directoryPath)
     {
         try
         {
             // Check if directory exists
             if (!Directory.Exists(directoryPath))
             {
-                _logger.LogWarning("Directory does not exist: {Path}", directoryPath);
-                return false;
+                _logger.LogDebug("Directory does not exist: {Path}", directoryPath);
+                return DirectoryWriteAccess.DirectoryMissing;
             }
 
-            // Check /proc/mounts for read-only mount flag (Linux-specific optimization)
+            // Check /proc/mounts for read-only mount flag (Linux-specific optimization).
+            // A read-only mount is a deliberate configuration, not an ownership problem.
             // IMPORTANT: Only short-circuit on READ-ONLY mounts. For read-write mounts,
-            // we MUST still run TestWriteAccess to verify actual permissions (PUID/PGID).
+            // we MUST still probe actual permissions to catch PUID/PGID mismatches.
             var isReadOnlyMount = CheckReadOnlyMount(directoryPath);
             if (isReadOnlyMount.HasValue && isReadOnlyMount.Value)
             {
                 // Mount is definitely read-only - no need to test further
                 _logger.LogDebug("Directory is mounted read-only (from /proc/mounts): {Path}", directoryPath);
-                return false;
+                return DirectoryWriteAccess.ReadOnlyMount;
             }
 
-            // Mount is read-write (or unknown) - test actual write permissions
-            // This is critical for detecting PUID/PGID mismatches
-            return TestWriteAccess(directoryPath);
+            // Mount is read-write (or unknown) - probe actual write permissions.
+            return EvaluateWriteAccess(directoryPath);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error testing write access to directory: {Path}", directoryPath);
-            return false;
+            return DirectoryWriteAccess.Indeterminate;
         }
     }
 

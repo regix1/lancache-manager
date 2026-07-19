@@ -2821,6 +2821,8 @@
         "bareMetal": "裸机",
         "mixed": "混合日志"
       },
+      "sourceSet": "{{count}} 个日志源",
+      "sourceSet_other": "{{count}} 个日志源",
       "diagnostics": {
         "unparsed": "有 {{count}} 行无法识别。",
         "unparsed_other": "有 {{count}} 行无法识别。",
@@ -2829,7 +2831,8 @@
       },
       "position": {
         "unknown": "未知",
-        "noLogFile": "无日志文件",
+        "noSources": "无日志源",
+        "noData": "暂无日志数据",
         "caughtUp": "{{position}}（已跟上）",
         "progress": "{{position}} / {{total}}（{{percent}}%）"
       },

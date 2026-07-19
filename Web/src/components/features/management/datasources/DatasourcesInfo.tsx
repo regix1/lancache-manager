@@ -214,7 +214,14 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   const formatPosition = (pos: DatasourceLogPosition | undefined): string => {
     if (!pos) return t('management.datasources.position.unknown');
-    if (pos.totalLines === 0) return t('management.datasources.position.noLogFile');
+    if (pos.totalLines === 0) {
+      // Distinguish "there are no log sources on disk" from "sources exist but haven't
+      // produced any lines yet" so the empty state reflects reality instead of implying a
+      // missing file.
+      return (pos.sourceCount ?? 0) === 0
+        ? t('management.datasources.position.noSources')
+        : t('management.datasources.position.noData');
+    }
 
     // When position equals or exceeds totalLines, we're "caught up" to where the log was
     // when last checked. The log may have grown since, so avoid showing misleading 100%.
@@ -355,6 +362,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
               const hintless = position?.hintlessHttpDetailedLines ?? 0;
               const hasDiagnostics =
                 Boolean(position?.missingSourcesMessage) || unparsed > 0 || hintless > 0;
+              // Bare-metal and mixed datasources read several per-service logs, so a single
+              // "access.log" title is inaccurate. Show the source-set count instead.
+              const isMultiSource = ds.layout === 'bare_metal' || ds.layout === 'mixed';
+              const sourceCount = position?.sourceCount ?? ds.sourceCount ?? 0;
 
               return (
                 <DatasourceListItem
@@ -371,7 +382,13 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                     {/* Access Log row */}
                     <div className="mgmt-row flex-wrap">
                       <div className="mgmt-row__body">
-                        <p className="mgmt-row__title font-mono">access.log</p>
+                        {isMultiSource ? (
+                          <p className="mgmt-row__title">
+                            {t('management.datasources.sourceSet', { count: sourceCount })}
+                          </p>
+                        ) : (
+                          <p className="mgmt-row__title font-mono">access.log</p>
+                        )}
                         <p className="mgmt-row__meta">{formatPosition(position)}</p>
                       </div>
                       <div className="mgmt-row__actions">

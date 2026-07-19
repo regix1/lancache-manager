@@ -2821,6 +2821,8 @@
         "bareMetal": "Bare metal",
         "mixed": "Mixed logs"
       },
+      "sourceSet": "{{count}} log source",
+      "sourceSet_other": "{{count}} log sources",
       "diagnostics": {
         "unparsed": "{{count}} line could not be recognized.",
         "unparsed_other": "{{count}} lines could not be recognized.",
@@ -2829,7 +2831,8 @@
       },
       "position": {
         "unknown": "Unknown",
-        "noLogFile": "No log file",
+        "noSources": "No log sources",
+        "noData": "No log data yet",
         "caughtUp": "{{position}} (caught up)",
         "progress": "{{position}} / {{total}} ({{percent}}%)"
       },

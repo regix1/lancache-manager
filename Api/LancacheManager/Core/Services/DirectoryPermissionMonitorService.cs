@@ -1,5 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Services.Base;
 
 namespace LancacheManager.Core.Services;
@@ -48,10 +49,29 @@ public class DirectoryPermissionMonitorService : ScheduledBackgroundService
         var datasources = _datasourceService.GetDatasources();
         foreach (var ds in datasources)
         {
+            var cacheAccess = GetWriteAccess(ds.CachePath);
+            var logsAccess = GetWriteAccess(ds.LogPath);
+
             _lastKnownState[ds.Name] = (
-                CacheWritable: _pathResolver.IsDirectoryWritable(ds.CachePath),
-                LogsWritable: _pathResolver.IsDirectoryWritable(ds.LogPath)
+                CacheWritable: cacheAccess == DirectoryWriteAccess.Writable,
+                LogsWritable: logsAccess == DirectoryWriteAccess.Writable
             );
+
+            // Surface a not-writable directory once at startup with an accurate reason. This is a
+            // single message per datasource per boot, not the per-poll spam it replaces.
+            if (cacheAccess != DirectoryWriteAccess.Writable)
+            {
+                _logger.LogWarning(
+                    "Datasource '{Name}': cache directory is not writable at {Path}. {Reason}",
+                    ds.Name, ds.CachePath, DescribeDenial(cacheAccess));
+            }
+
+            if (logsAccess != DirectoryWriteAccess.Writable)
+            {
+                _logger.LogWarning(
+                    "Datasource '{Name}': logs directory is not writable at {Path}. {Reason}",
+                    ds.Name, ds.LogPath, DescribeDenial(logsAccess));
+            }
         }
 
         _logger.LogInformation("DirectoryPermissionMonitor initialized with {Count} datasource(s)", datasources.Count);
@@ -65,8 +85,10 @@ public class DirectoryPermissionMonitorService : ScheduledBackgroundService
 
         foreach (var ds in datasources)
         {
-            var currentCacheWritable = _pathResolver.IsDirectoryWritable(ds.CachePath);
-            var currentLogsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath);
+            var cacheAccess = GetWriteAccess(ds.CachePath);
+            var logsAccess = GetWriteAccess(ds.LogPath);
+            var currentCacheWritable = cacheAccess == DirectoryWriteAccess.Writable;
+            var currentLogsWritable = logsAccess == DirectoryWriteAccess.Writable;
 
             if (_lastKnownState.TryGetValue(ds.Name, out var lastState))
             {
@@ -74,13 +96,10 @@ public class DirectoryPermissionMonitorService : ScheduledBackgroundService
                 {
                     hasChanges = true;
 
-                    _logger.LogInformation(
-                        "Datasource '{Name}': Permissions changed - Cache: {OldCache} -> {NewCache}, Logs: {OldLogs} -> {NewLogs}",
-                        ds.Name,
-                        lastState.CacheWritable ? "writable" : "read-only",
-                        currentCacheWritable ? "writable" : "read-only",
-                        lastState.LogsWritable ? "writable" : "read-only",
-                        currentLogsWritable ? "writable" : "read-only");
+                    // Log once per transition per directory. Unchanged state is throttled: nothing is
+                    // logged here on a poll where the writable flags did not move.
+                    LogWriteAccessTransition(ds.Name, "cache", ds.CachePath, lastState.CacheWritable, cacheAccess);
+                    LogWriteAccessTransition(ds.Name, "logs", ds.LogPath, lastState.LogsWritable, logsAccess);
                 }
             }
             else
@@ -112,4 +131,56 @@ public class DirectoryPermissionMonitorService : ScheduledBackgroundService
                 });
         }
     }
+
+    /// <summary>
+    /// Resolves the typed write-access reason for a directory. The path resolvers expose this on the
+    /// concrete base; if a resolver ever does not, fall back to the boolean writability check.
+    /// </summary>
+    private DirectoryWriteAccess GetWriteAccess(string directoryPath)
+        => _pathResolver is PathResolverBase resolver
+            ? resolver.GetDirectoryWriteAccess(directoryPath)
+            : _pathResolver.IsDirectoryWritable(directoryPath)
+                ? DirectoryWriteAccess.Writable
+                : DirectoryWriteAccess.Indeterminate;
+
+    /// <summary>
+    /// Emits a single message when a directory's writability transitions. A loss of write access is a
+    /// warning that names the actual cause; a recovery is informational.
+    /// </summary>
+    private void LogWriteAccessTransition(string datasourceName, string directoryKind, string path, bool wasWritable, DirectoryWriteAccess current)
+    {
+        var isWritable = current == DirectoryWriteAccess.Writable;
+        if (wasWritable == isWritable)
+        {
+            return;
+        }
+
+        if (isWritable)
+        {
+            _logger.LogInformation(
+                "Datasource '{Name}': {Kind} write access restored at {Path}.",
+                datasourceName, directoryKind, path);
+            return;
+        }
+
+        _logger.LogWarning(
+            "Datasource '{Name}': {Kind} is no longer writable at {Path}. {Reason}",
+            datasourceName, directoryKind, path, DescribeDenial(current));
+    }
+
+    /// <summary>
+    /// Human-readable reason for a write denial, distinguishing a deliberately read-only mount from an
+    /// ownership/mode denial so the message does not blame PUID/PGID when the mount is read-only by design.
+    /// </summary>
+    private static string DescribeDenial(DirectoryWriteAccess access) => access switch
+    {
+        DirectoryWriteAccess.ReadOnlyMount =>
+            "The path is mounted read-only, so writes are disabled by design. No ownership change is needed.",
+        DirectoryWriteAccess.OwnershipOrModeDenied =>
+            "Write access is denied by ownership or file mode, commonly a PUID/PGID mismatch. Match the container's ownership to the lancache files.",
+        DirectoryWriteAccess.DirectoryMissing =>
+            "The directory no longer exists.",
+        _ =>
+            "Write access could not be determined."
+    };
 }

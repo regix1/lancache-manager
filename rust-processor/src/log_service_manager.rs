@@ -43,6 +43,11 @@ struct ProgressData {
     /// Lines in the fallback-access.log series. Reported separately, never as a service.
     #[serde(skip_serializing_if = "Option::is_none")]
     fallback_lines: Option<u64>,
+    /// Count of source files whose count stopped at an unreadable member. When present, the
+    /// line and source counts describe only a clean prefix, so the total is partial rather
+    /// than authoritative. Omitted (and treated as zero) when every source read cleanly.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    files_with_errors: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     datasource_name: Option<String>,
     // i18n stage key consumed by C# RustLogRemovalService.ProgressData.StageKey
@@ -76,6 +81,7 @@ impl ProgressData {
             service_counts,
             source_line_counts: None,
             fallback_lines: None,
+            files_with_errors: None,
             datasource_name,
             stage_key: String::new(),
             timestamp: progress_utils::current_timestamp(),
@@ -89,6 +95,18 @@ impl ProgressData {
 
     fn with_fallback_lines(mut self, fallback_lines: Option<u64>) -> Self {
         self.fallback_lines = fallback_lines;
+        self
+    }
+
+    /// Marks the count partial when at least one source stopped at an unreadable member. A
+    /// zero count is left unset so a clean run keeps the original progress shape (the field is
+    /// only serialized when it actually signals a partial total).
+    fn with_files_with_errors(mut self, files_with_errors: u64) -> Self {
+        self.files_with_errors = if files_with_errors > 0 {
+            Some(files_with_errors)
+        } else {
+            None
+        };
         self
     }
 
@@ -193,6 +211,9 @@ struct LineCountOutcome {
     lines_processed: u64,
     files_processed: usize,
     cancelled: bool,
+    /// Count of source files that stopped at an unreadable member; when greater than zero the
+    /// returned counts describe only a clean prefix and the total is partial, not authoritative.
+    files_with_errors: u64,
     /// Complete-record count per logical source stem.
     source_line_counts: HashMap<String, u64>,
 }
@@ -305,6 +326,7 @@ fn finish_cancelled_line_count(
     datasource_name: Option<&str>,
     lines_processed: u64,
     files_processed: usize,
+    files_with_errors: u64,
     source_line_counts: HashMap<String, u64>,
 ) -> Result<LineCountOutcome> {
     let progress = ProgressData::new(
@@ -319,6 +341,7 @@ fn finish_cancelled_line_count(
         datasource_name.map(str::to_string),
     )
     .with_source_line_counts(source_line_counts.clone())
+    .with_files_with_errors(files_with_errors)
     .with_stage_key("signalr.logService.cancelled");
     write_progress(progress_path, reporter, &progress)?;
 
@@ -326,6 +349,7 @@ fn finish_cancelled_line_count(
         lines_processed,
         files_processed,
         cancelled: true,
+        files_with_errors,
         source_line_counts,
     })
 }
@@ -357,6 +381,7 @@ where
             datasource_name,
             0,
             0,
+            0,
             HashMap::new(),
         );
     }
@@ -383,6 +408,7 @@ where
             lines_processed: 0,
             files_processed: 0,
             cancelled: false,
+            files_with_errors: 0,
             source_line_counts: HashMap::new(),
         });
     }
@@ -395,6 +421,7 @@ where
         .sum::<u64>();
     let mut lines_processed = 0u64;
     let mut files_processed = 0usize;
+    let mut files_with_errors = 0u64;
     let mut bytes_processed = 0u64;
     let mut last_progress_update = Instant::now();
     let mut source_line_counts: HashMap<String, u64> = HashMap::new();
@@ -410,6 +437,7 @@ where
                     datasource_name,
                     lines_processed + source_lines,
                     files_processed,
+                    files_with_errors,
                     source_counts_through_current(&source_line_counts, &source.stem, source_lines),
                 );
             }
@@ -459,6 +487,7 @@ where
                         datasource_name,
                         lines_processed + source_lines + outcome.lines,
                         files_processed,
+                        files_with_errors,
                         source_counts_through_current(
                             &source_line_counts,
                             &source.stem,
@@ -475,6 +504,9 @@ where
                 }
                 Err(error) => {
                     files_processed += 1;
+                    // An unreadable member truncates this source at its clean prefix. Record it so
+                    // the returned total is reported as partial instead of looking authoritative.
+                    files_with_errors += 1;
                     eprintln!(
                         "WARNING: Corrupted log file {} stops this source's count at its last clean prefix: {error:#}",
                         log_file.path.display()
@@ -500,6 +532,7 @@ where
         datasource_name.map(str::to_string),
     )
     .with_source_line_counts(source_line_counts.clone())
+    .with_files_with_errors(files_with_errors)
     .with_stage_key("signalr.logService.complete");
     write_progress(progress_path, reporter, &progress)?;
 
@@ -507,6 +540,7 @@ where
         lines_processed,
         files_processed,
         cancelled: false,
+        files_with_errors,
         source_line_counts,
     })
 }
@@ -2041,7 +2075,48 @@ mod tests {
         assert_eq!(result.lines_processed, 0);
         assert_eq!(result.files_processed, 1);
         assert_eq!(result.source_line_counts.get("access.log"), Some(&0));
+        assert_eq!(result.files_with_errors, 1);
         assert_eq!(read_progress(&progress_path)["status"], "completed");
+        assert_eq!(read_progress(&progress_path)["files_with_errors"], 1);
+    }
+
+    #[test]
+    fn count_log_lines_preserves_readable_sources_and_flags_partial_on_unreadable() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        // One per-service source is fully readable and must keep its exact count.
+        fs::write(directory.path().join("steam-access.log"), b"a\nb\n").expect("write readable");
+        // Another source's older rotation is a corrupt gzip: that source stops at its clean
+        // prefix (zero lines) and the whole count is marked partial, never all-or-nothing.
+        fs::write(directory.path().join("blizzard-access.log"), b"newer\n").expect("write current");
+        fs::write(
+            directory.path().join("blizzard-access.log.1.gz"),
+            b"not a gzip stream",
+        )
+        .expect("write corrupt rotation");
+        let progress_path = directory.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+
+        let result = count_log_lines(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &reporter,
+            None,
+            || false,
+        )
+        .expect("count with one unreadable source");
+
+        // The readable source's count survives; only the unreadable source is truncated.
+        assert_eq!(result.source_line_counts.get("steam-access.log"), Some(&2));
+        assert_eq!(result.source_line_counts.get("blizzard-access.log"), Some(&0));
+        assert_eq!(result.lines_processed, 2);
+        assert!(!result.cancelled);
+        // Exactly one source hit an unreadable member, so the total is partial.
+        assert_eq!(result.files_with_errors, 1);
+
+        let progress = read_progress(&progress_path);
+        assert_eq!(progress["status"], "completed");
+        assert_eq!(progress["lines_processed"], 2);
+        assert_eq!(progress["files_with_errors"], 1);
     }
 
     #[test]
