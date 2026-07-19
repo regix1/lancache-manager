@@ -7,7 +7,7 @@ public class DatasourceCapabilityServiceTests
 {
     [Theory]
     [InlineData("access.log", CacheKeyScheme.SupportedMonolithic, true, true, true, true, true, true)]
-    [InlineData("steam-access.log", CacheKeyScheme.ObservedBareMetal, true, false, true, true, false, false)]
+    [InlineData("steam-access.log", CacheKeyScheme.ObservedBareMetal, true, false, true, true, false, true)]
     [InlineData("access.log,steam-access.log", CacheKeyScheme.Mixed, true, false, false, false, false, false)]
     [InlineData("", CacheKeyScheme.Unknown, false, false, false, false, true, false)]
     public void GetCapabilities_UsesCurrentLogEvidence(

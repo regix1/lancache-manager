@@ -110,7 +110,12 @@ public class DatasourceCapabilityService
             CanClearWholeCacheRoot = true,
             CanMapLogicalObjects = canUseObjectScopedDiskFeatures,
             CanSignalLogReopen = !hasPerService,
-            CanTrackLiveSpeed = scheme == CacheKeyScheme.SupportedMonolithic
+            // The speed tracker discovers and tails BOTH layouts (the monolithic cachelog and
+            // the per-service bare-metal http-detailed files), so any datasource with a single
+            // trustworthy layout can be tracked. Unknown/Mixed evidence has no reliable service
+            // attribution and stays off.
+            CanTrackLiveSpeed = scheme is
+                CacheKeyScheme.SupportedMonolithic or CacheKeyScheme.ObservedBareMetal
         };
     }
 

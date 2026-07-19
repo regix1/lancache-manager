@@ -1,28 +1,43 @@
 use anyhow::Result;
 use chrono::{NaiveDateTime, Utc};
 use chrono_tz::Tz;
-use regex::Regex;
+use serde::Serialize;
 use sqlx::PgPool;
 use sqlx::Row;
-use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 mod cache_utils;
 mod db;
+mod log_discovery;
+mod log_layout;
+mod models;
+mod parser;
+mod parser_http_detailed;
 mod progress_events;
 mod riot_hosts;
 mod service_utils;
 mod tact_products;
 
+use log_layout::{discover_log_sources, SourceKind};
+use parser::LogParser;
+use parser_http_detailed::HttpDetailedParser;
+
 // Configuration
 const WINDOW_SECONDS: i64 = 2;
 const BROADCAST_INTERVAL_MS: u64 = 500;
 const POLL_INTERVAL_MS: u64 = 100;
+/// Upper bound on how many bytes a single source may drain in one poll. Each `read_new_entries`
+/// call reads at most this many pending bytes (or the size snapshot captured at entry, whichever
+/// is smaller) and then RETURNS, so a source appended to as fast as it is read cannot pin the loop
+/// on a moving EOF: the 2s cleanup, the broadcast, and every other source are still serviced each
+/// iteration, and the in-window `entries` deque stays bounded. The checkpoint resumes exactly where
+/// the poll stopped, so nothing is skipped between polls.
+const MAX_POLL_BYTES: u64 = 8 * 1024 * 1024;
 
 fn replace_pattern_lookup_cache(cache: &mut HashMap<u128, Option<String>>) {
     *cache = HashMap::new();
@@ -82,193 +97,135 @@ struct DownloadSpeedSnapshot {
     has_active_downloads: bool,
 }
 
-struct LogParser {
-    main_regex: Regex,
-    depot_regex: Regex,
-    local_tz: Tz,
+/// One discovered log source reduced to the single file the tracker tails: its CURRENT
+/// unrotated, uncompressed member. `kind` carries the service attribution: `Monolithic`
+/// lines self-identify with a `[service]` tag, `Service(name)` lines take the stem's service
+/// hint for the http-detailed format. The fallback series is dropped at discovery and never
+/// tracked.
+#[derive(Debug, Clone)]
+struct TrackedSource {
+    path: PathBuf,
+    kind: SourceKind,
 }
 
-impl LogParser {
-    fn new(local_tz: Tz) -> Self {
-        let main_regex = Regex::new(
-            r#"^(?:\[(?P<service>[^\]]+)\]\s+)?(?P<ip>\S+)\s+/\s+-\s+-\s+-\s+\[(?P<time>[^\]]+)\]\s+"(?P<method>[A-Z]+)\s+(?P<url>\S+)(?:\s+HTTP/(?P<httpVersion>[^"\s]+))?"\s+(?P<status>\d{3})\s+(?P<bytes>-|\d+)(?P<rest>.*)$"#
-        ).unwrap();
-
-        let depot_regex = Regex::new(r"/depot/(\d+)/").unwrap();
-
-        Self {
-            main_regex,
-            depot_regex,
-            local_tz,
-        }
-    }
-
-    fn parse_line(&self, line: &str) -> Option<SpeedLogEntry> {
-        let captures = self.main_regex.captures(line)?;
-
-        let service = captures
-            .name("service")
-            .map(|m| service_utils::normalize_service_name(m.as_str()))
-            .unwrap_or_else(|| "unknown".to_string());
-
-        let client_ip = captures.name("ip")?.as_str().to_string();
-        let time_str = captures.name("time")?.as_str();
-        let url = captures.name("url")?.as_str();
-
-        if service_utils::should_skip_url(url) {
-            return None;
-        }
-
-        let bytes_str = captures.name("bytes")?.as_str();
-        let bytes_sent = if bytes_str == "-" {
-            return None; // Skip entries with no bytes
-        } else {
-            bytes_str.parse::<i64>().ok()?
+/// Resolve every datasource directory to the concrete files worth tailing. A directory may
+/// expose 1..N sources (a monolithic `access.log`, and/or per-service bare-metal `*-access.log`
+/// files); for each we tail only the CURRENT unrotated, uncompressed member. A source whose sole
+/// surviving member is a rotated/compressed archive has no live file and is skipped, and the
+/// fallback series is never ingested. Discovery reuses `log_layout::discover_log_sources`, so the
+/// tracker carries no filename or layout grammar of its own.
+fn discover_tracked_sources(dirs: &[PathBuf]) -> Vec<TrackedSource> {
+    let mut tracked = Vec::new();
+    for dir in dirs {
+        let set = match discover_log_sources(dir) {
+            Ok(set) => set,
+            Err(e) => {
+                eprintln!("Failed to discover log sources in {}: {}", dir.display(), e);
+                continue;
+            }
         };
-
-        if bytes_sent <= 0 {
-            return None;
-        }
-
-        let rest = captures.name("rest").map(|m| m.as_str()).unwrap_or("");
-
-        // Manager Status Check probes tag themselves; never show them as live activity.
-        if service_utils::is_manager_probe(rest) {
-            return None;
-        }
-
-        let timestamp = self.parse_timestamp(time_str)?;
-        let cache_status = self.extract_cache_status(rest);
-        let is_cache_hit = cache_status == "HIT";
-
-        let depot_id = self.depot_regex
-            .captures(url)
-            .and_then(|cap| cap.get(1))
-            .and_then(|m| m.as_str().parse::<u32>().ok());
-
-        // Riot CDN host (4th quoted field, $host) — only the riot service needs it.
-        let cdn_host = if service == "riot" {
-            let host = self.extract_quoted_field(rest, 4);
-            (!host.is_empty()).then(|| host.to_lowercase())
-        } else {
-            None
-        };
-
-        Some(SpeedLogEntry {
-            timestamp,
-            client_ip,
-            service,
-            depot_id,
-            bytes_sent,
-            is_cache_hit,
-            request_url: url.to_string(),
-            cdn_host,
-        })
-    }
-
-    fn parse_timestamp(&self, time_str: &str) -> Option<NaiveDateTime> {
-        let (time_without_tz, tz_offset) = if let Some(pos) = time_str.rfind(['+', '-']) {
-            let tz_str = time_str[pos..].trim();
-            let offset = if tz_str.len() >= 5 {
-                let sign = if tz_str.starts_with('-') { -1 } else { 1 };
-                let hours: i32 = tz_str[1..3].parse().ok()?;
-                let minutes: i32 = tz_str[3..5].parse().ok()?;
-                Some(sign * (hours * 3600 + minutes * 60))
-            } else {
-                None
+        for source in set.sources {
+            if matches!(source.kind, SourceKind::Fallback) {
+                continue;
+            }
+            let Some(current) = source
+                .files
+                .iter()
+                .find(|file| file.rotation_number.is_none() && !file.is_compressed)
+            else {
+                continue;
             };
-            (time_str[..pos].trim(), offset)
-        } else {
-            (time_str, None)
-        };
-
-        if let Ok(naive_dt) = NaiveDateTime::parse_from_str(time_without_tz, "%d/%b/%Y:%H:%M:%S") {
-            return Some(self.convert_to_utc(naive_dt, tz_offset));
+            tracked.push(TrackedSource {
+                path: current.path.clone(),
+                kind: source.kind.clone(),
+            });
         }
+    }
+    tracked
+}
 
-        None
+/// Parse one tailed line into a `SpeedLogEntry`, or None. Canonical order (identical to the
+/// record processor and the content scan): the cachelog parser runs first everywhere so an
+/// explicit `[service]` tag always wins; otherwise a per-service source parses with its stem's
+/// service hint. The manager's own probe traffic is synthetic and never live activity, and only
+/// requests that actually transferred bytes count toward live speed. Maps the canonical
+/// `LogEntry` onto the tracker's `SpeedLogEntry` (riot `cdn_host` comes straight from the parsed
+/// entry, whose parsers own that grammar).
+fn parse_speed_entry(
+    cachelog: &LogParser,
+    detailed: &HttpDetailedParser,
+    line: &str,
+    kind: &SourceKind,
+) -> Option<SpeedLogEntry> {
+    if service_utils::is_manager_probe(line) {
+        return None;
     }
 
-    fn convert_to_utc(&self, naive_dt: NaiveDateTime, tz_offset_secs: Option<i32>) -> NaiveDateTime {
-        use chrono::{FixedOffset, TimeZone, Utc};
+    let entry = if let Some(entry) = cachelog.parse_line(line) {
+        entry
+    } else if let SourceKind::Service(service) = kind {
+        detailed.parse_line(line, service)?
+    } else {
+        // Monolithic http-detailed content is hint-less; there is no service to attribute.
+        return None;
+    };
 
-        if let Some(offset_secs) = tz_offset_secs {
-            if let Some(offset) = FixedOffset::east_opt(offset_secs) {
-                if let Some(dt_with_tz) = offset.from_local_datetime(&naive_dt).earliest() {
-                    return dt_with_tz.with_timezone(&Utc).naive_utc();
-                }
-            }
-        }
-
-        if let Some(local_dt) = self.local_tz.from_local_datetime(&naive_dt).earliest() {
-            return local_dt.with_timezone(&Utc).naive_utc();
-        }
-
-        naive_dt
+    if service_utils::should_skip_url(&entry.url) {
+        return None;
+    }
+    // Live speed measures bytes actually served; `-`/zero/negative rows move no data.
+    if entry.bytes_served <= 0 {
+        return None;
     }
 
-    fn extract_cache_status(&self, rest: &str) -> String {
-        let mut quote_count = 0;
-        let mut start_idx = None;
+    Some(SpeedLogEntry {
+        timestamp: entry.timestamp,
+        client_ip: entry.client_ip,
+        service: entry.service,
+        depot_id: entry.depot_id,
+        bytes_sent: entry.bytes_served,
+        is_cache_hit: entry.cache_status.eq_ignore_ascii_case("HIT"),
+        request_url: entry.url,
+        cdn_host: entry.cdn_host,
+    })
+}
 
-        for (i, ch) in rest.char_indices() {
-            if ch == '"' {
-                quote_count += 1;
-                if quote_count == 5 {
-                    start_idx = Some(i + 1);
-                } else if quote_count == 6 {
-                    if let Some(start) = start_idx {
-                        let status = &rest[start..i];
-                        if status == "HIT" || status == "MISS" {
-                            return status.to_string();
-                        }
-                    }
-                    break;
-                }
-            }
+/// Per-source tail state, kept distinct so an oversized record cannot stall a source. `checkpoint`
+/// is the committed RECORD boundary: the byte offset of the start of the current incomplete record;
+/// everything before it has been parsed and is never re-read. `scan` is where the next poll reads
+/// from and it advances across polls even when a capped slice holds NO newline, so a record longer
+/// than `MAX_POLL_BYTES` cannot pin the reader on the same prefix forever. `discarding` marks that
+/// the current record already exceeded the poll budget with no terminator: bytes are dropped until
+/// the next newline (a real access-log line is never that long) before normal parsing resumes.
+#[derive(Debug, Clone, Copy)]
+struct SourceState {
+    checkpoint: u64,
+    scan: u64,
+    discarding: bool,
+}
+
+impl SourceState {
+    /// Anchor both cursors at `position` with no in-progress discard. This is both the
+    /// seed-to-EOF state (first successful observation) and the rotation reset.
+    fn anchored(position: u64) -> Self {
+        Self {
+            checkpoint: position,
+            scan: position,
+            discarding: false,
         }
-
-        "UNKNOWN".to_string()
-    }
-
-    /// Extract the Nth quoted field from the rest string (1-indexed).
-    /// Returns empty string if the field doesn't exist or is "-".
-    /// (Mirrors `parser.rs::extract_quoted_field`; field 4 = the `$host` value.)
-    fn extract_quoted_field(&self, rest: &str, field_number: usize) -> String {
-        let target_open = (field_number - 1) * 2 + 1; // Quote that opens the field
-        let target_close = target_open + 1; // Quote that closes the field
-        let mut quote_count = 0usize;
-        let mut start_idx = None;
-
-        for (i, ch) in rest.char_indices() {
-            if ch == '"' {
-                quote_count += 1;
-                if quote_count == target_open {
-                    start_idx = Some(i + 1);
-                } else if quote_count == target_close {
-                    if let Some(start) = start_idx {
-                        let value = &rest[start..i];
-                        if value == "-" {
-                            return String::new();
-                        }
-                        return value.to_string();
-                    }
-                    break;
-                }
-            }
-        }
-
-        String::new()
     }
 }
 
 struct SpeedTracker {
     pool: PgPool,
-    log_paths: Vec<PathBuf>,
-    parser: LogParser,
+    sources: Vec<TrackedSource>,
+    cachelog: LogParser,
+    detailed: HttpDetailedParser,
     entries: VecDeque<SpeedLogEntry>,
     depot_cache: HashMap<u32, (Option<String>, Option<u32>)>, // depot_id -> (game_name, game_app_id)
-    file_positions: HashMap<PathBuf, u64>,
+    // Committed record checkpoint + bounded scan cursor per source (see SourceState). An absent
+    // key is the explicit UNINITIALIZED state, kept distinct from an anchored byte-0 checkpoint.
+    file_positions: HashMap<PathBuf, SourceState>,
     // The CDN caches key on the URL's md5 digest instead of the URL string: this daemon lives
     // for months, and a heavy chunked download pushes tens of thousands of unique URLs into
     // these maps between the 60s pattern-reload clears - ~180 bytes each as Strings, ~46 as
@@ -282,14 +239,15 @@ struct SpeedTracker {
 }
 
 impl SpeedTracker {
-    fn new(pool: PgPool, log_paths: Vec<PathBuf>) -> Self {
+    fn new(pool: PgPool, sources: Vec<TrackedSource>) -> Self {
         let tz_str = env::var("TZ").unwrap_or_else(|_| "UTC".to_string());
         let local_tz: Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
 
         Self {
             pool,
-            log_paths,
-            parser: LogParser::new(local_tz),
+            sources,
+            cachelog: LogParser::new(local_tz),
+            detailed: HttpDetailedParser::new(local_tz),
             entries: VecDeque::new(),
             depot_cache: HashMap::new(),
             file_positions: HashMap::new(),
@@ -303,25 +261,20 @@ impl SpeedTracker {
     }
 
     async fn run(&mut self) -> Result<()> {
-        eprintln!("SpeedTracker started - monitoring {} log file(s)", self.log_paths.len());
+        eprintln!("SpeedTracker started - monitoring {} log file(s)", self.sources.len());
 
-        // Initialize file positions to end of files
-        for log_path in &self.log_paths {
-            if log_path.exists() {
-                if let Ok(metadata) = std::fs::metadata(log_path) {
-                    self.file_positions.insert(log_path.clone(), metadata.len());
-                    eprintln!("Initialized {} at position {}", log_path.display(), metadata.len());
-                }
-            }
-        }
+        // File positions seed lazily on each source's first readable poll (see read_new_entries):
+        // every source anchors at its CURRENT EOF, so pre-existing history is never replayed, and a
+        // source that is absent or unreadable at startup seeds correctly the first time it becomes
+        // readable instead of defaulting to byte 0 and replaying its whole file.
 
         let mut last_broadcast = Instant::now();
 
         loop {
-            // Read new entries from all log files
-            for log_path in self.log_paths.clone() {
-                if let Err(e) = self.read_new_entries(&log_path) {
-                    eprintln!("Error reading {}: {}", log_path.display(), e);
+            // Read new entries from every tracked source's current file
+            for source in self.sources.clone() {
+                if let Err(e) = self.read_new_entries(&source) {
+                    eprintln!("Error reading {}: {}", source.path.display(), e);
                 }
             }
 
@@ -344,49 +297,156 @@ impl SpeedTracker {
         }
     }
 
-    fn read_new_entries(&mut self, log_path: &PathBuf) -> Result<()> {
-        if !log_path.exists() {
-            return Ok(());
-        }
+    fn read_new_entries(&mut self, source: &TrackedSource) -> Result<()> {
+        let log_path = &source.path;
 
-        let metadata = std::fs::metadata(log_path)?;
-        let current_size = metadata.len();
-        let mut last_position = *self.file_positions.get(log_path).unwrap_or(&0);
+        // Size snapshot at entry. A source we cannot stat (absent or unreadable) stays in the
+        // explicit UNINITIALIZED state: we neither seed nor read it, so it is never conflated with
+        // a byte-0 checkpoint. It seeds on the first poll it is actually readable (below), so a
+        // file missing at startup that later appears does not replay its whole history.
+        let current_size = match std::fs::metadata(log_path) {
+            Ok(metadata) => metadata.len(),
+            Err(_) => return Ok(()),
+        };
 
-        // Handle file rotation (new file is smaller)
-        if current_size < last_position {
-            eprintln!("Log file rotated: {}", log_path.display());
-            self.file_positions.insert(log_path.clone(), 0);
-            last_position = 0;
-        }
-
-        // No new data
-        if current_size == last_position {
-            return Ok(());
-        }
-
-        // Read new lines
-        let file = File::open(log_path)?;
-        let mut reader = BufReader::new(file);
-        reader.seek(SeekFrom::Start(last_position))?;
-
-        let mut new_position = last_position;
-        let mut line = String::new();
-
-        while reader.read_line(&mut line)? > 0 {
-            new_position = reader.stream_position()?;
-
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                if let Some(entry) = self.parser.parse_line(trimmed) {
-                    self.entries.push_back(entry);
-                }
+        // First successful observation: seed both cursors to the CURRENT EOF and read nothing this
+        // poll. An absent map key is the uninitialized state, kept distinct from a real byte-0
+        // checkpoint so a genuinely empty file is still read from its start.
+        let state = match self.file_positions.get(log_path) {
+            Some(&state) => state,
+            None => {
+                eprintln!(
+                    "Initialized {} at position {}",
+                    log_path.display(),
+                    current_size
+                );
+                self.file_positions
+                    .insert(log_path.clone(), SourceState::anchored(current_size));
+                return Ok(());
             }
-            line.clear();
+        };
+
+        // Rotation: a file smaller than our committed checkpoint is a fresh log; read it from the
+        // start and drop any in-progress over-limit discard state.
+        let mut state = if current_size < state.checkpoint {
+            eprintln!("Log file rotated: {}", log_path.display());
+            SourceState::anchored(0)
+        } else {
+            state
+        };
+
+        // The scan cursor must never lead past EOF. If the file was truncated to somewhere inside
+        // the current incomplete record (below the scan cursor but not below the committed
+        // checkpoint), the scanned span no longer exists; fall back to the checkpoint and re-scan
+        // from the last committed record boundary.
+        if state.scan > current_size {
+            state.scan = state.checkpoint;
+            state.discarding = false;
         }
 
-        self.file_positions.insert(log_path.clone(), new_position);
+        // No unscanned bytes this poll: either no new data at all, or we already scanned every
+        // available byte of an in-progress over-limit record and are waiting for its newline.
+        if current_size <= state.scan {
+            self.file_positions.insert(log_path.clone(), state);
+            return Ok(());
+        }
+
+        // Bound this poll to the unscanned pending bytes AND the fixed budget, then return to the
+        // outer loop so cleanup, broadcast, and every other source get serviced. The scan cursor
+        // advances every poll (below), so the partial buffer never exceeds MAX_POLL_BYTES and an
+        // oversized record cannot pin the reader on the same prefix.
+        let pending = current_size - state.scan;
+        let budget = pending.min(MAX_POLL_BYTES) as usize;
+
+        let mut file = File::open(log_path)?;
+        file.seek(SeekFrom::Start(state.scan))?;
+
+        let mut buffer = vec![0u8; budget];
+        let mut filled = 0usize;
+        while filled < buffer.len() {
+            let read = file.read(&mut buffer[filled..])?;
+            if read == 0 {
+                break;
+            }
+            filled += read;
+        }
+        buffer.truncate(filled);
+
+        if filled == 0 {
+            self.file_positions.insert(log_path.clone(), state);
+            return Ok(());
+        }
+
+        match buffer.iter().rposition(|&b| b == b'\n') {
+            Some(index) => {
+                let complete_len = index + 1;
+                if state.discarding {
+                    // We were discarding a record that overran the budget with no newline. The
+                    // FIRST newline in this buffer terminates that oversized record's tail; drop
+                    // everything up to and including it, then parse any complete records that
+                    // follow within this same buffer. A single access-log line is never 8 MiB, so
+                    // discarding the oversized fragment is correct and the source recovers here.
+                    let first_newline = buffer[..complete_len]
+                        .iter()
+                        .position(|&b| b == b'\n')
+                        .unwrap_or(index);
+                    let resume = first_newline + 1;
+                    self.parse_records(&buffer[resume..complete_len], &source.kind);
+                    state.discarding = false;
+                } else {
+                    // Commit only PAST complete, newline-terminated records. Everything after the
+                    // last newline is an incomplete final record read again next poll.
+                    self.parse_records(&buffer[..complete_len], &source.kind);
+                }
+                // Advance the committed checkpoint past the last complete record and resync the
+                // scan cursor to it: no byte is skipped, and the last complete record is not re-read.
+                let record_end = state.scan + complete_len as u64;
+                state.checkpoint = record_end;
+                state.scan = record_end;
+            }
+            None => {
+                if state.discarding {
+                    // Still discarding an over-limit record whose newline has not arrived: drop the
+                    // scanned bytes and advance past them, retaining nothing.
+                    state.scan += filled as u64;
+                } else if filled as u64 >= MAX_POLL_BYTES {
+                    // The current record is at least MAX_POLL_BYTES long with no terminator. Enter
+                    // discard-until-newline mode and advance the scan cursor past the scanned bytes
+                    // so they are never re-read and the partial buffer never exceeds the cap. The
+                    // committed checkpoint stays at the record start until the newline is found, so
+                    // nothing before it is ever replayed.
+                    state.discarding = true;
+                    state.scan += filled as u64;
+                }
+                // Otherwise this is an ordinary incomplete final record still being written: leave
+                // the scan cursor at the checkpoint so the whole record is re-read once its
+                // terminating newline arrives, never split across two polls and never lost.
+            }
+        }
+
+        self.file_positions.insert(log_path.clone(), state);
         Ok(())
+    }
+
+    /// Parse a newline-delimited slice of complete records into `entries`. Decode lossily and trim,
+    /// exactly like canonical ingestion (`String::from_utf8_lossy(raw).trim()`): a record carrying
+    /// invalid UTF-8 becomes a classified-invalid line that parse_speed_entry rejects and we advance
+    /// past, instead of an error that would drop the batch's checkpoint and replay earlier valid
+    /// records on every later poll.
+    fn parse_records(&mut self, bytes: &[u8], kind: &SourceKind) {
+        for record in bytes.split(|&b| b == b'\n') {
+            if record.is_empty() {
+                continue;
+            }
+            let decoded = String::from_utf8_lossy(record);
+            let trimmed = decoded.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Some(entry) = parse_speed_entry(&self.cachelog, &self.detailed, trimmed, kind) {
+                self.entries.push_back(entry);
+            }
+        }
     }
 
     fn clean_old_entries(&mut self) {
@@ -405,12 +465,13 @@ impl SpeedTracker {
             .cloned()
             .collect();
 
-        // Whole-window aggregates and the per-client aggregation read from window_entries
-        // BEFORE the grouping below consumes it by move, so this snapshot clones every
-        // windowed entry exactly once (it used to clone each entry up to three times, every
-        // 500ms broadcast).
-        let entries_count = window_entries.len();
-        let total_bytes: i64 = window_entries.iter().map(|e| e.bytes_sent).sum();
+        // Whole-window headline aggregates come from the shared, DB-free `headline_aggregates`
+        // seam (the same computation the streaming tail tests drive), reading straight from the
+        // in-window entries. The per-client aggregation below still reads from window_entries
+        // BEFORE the grouping consumes it by move, so this snapshot clones every windowed entry
+        // exactly once (it used to clone each entry up to three times, every 500ms broadcast).
+        let (total_bytes_per_second, entries_count, has_active_downloads) =
+            headline_aggregates(&self.entries, window_start);
 
         // Per-client (total, cache-hit) byte aggregates - only three fields are read per
         // entry, so no entry clone is needed.
@@ -580,12 +641,12 @@ impl SpeedTracker {
 
         DownloadSpeedSnapshot {
             timestamp_utc: now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-            total_bytes_per_second: total_bytes as f64 / WINDOW_SECONDS as f64,
+            total_bytes_per_second,
             game_speeds,
             client_speeds,
             window_seconds: WINDOW_SECONDS,
             entries_in_window: entries_count,
-            has_active_downloads: entries_count > 0,
+            has_active_downloads,
         }
     }
 
@@ -763,6 +824,24 @@ impl SpeedTracker {
     }
 }
 
+/// DB-free headline aggregates over the rolling window: total bytes/second, the in-window entry
+/// count, and whether any download is active. `calculate_snapshot` derives its
+/// `total_bytes_per_second`, `entries_in_window`, and `has_active_downloads` fields from exactly
+/// this (no depot/game database lookup), so it is the real seam the streaming tail path is verified
+/// through without a live pool.
+fn headline_aggregates(
+    entries: &VecDeque<SpeedLogEntry>,
+    window_start: NaiveDateTime,
+) -> (f64, usize, bool) {
+    let mut total_bytes: i64 = 0;
+    let mut count: usize = 0;
+    for entry in entries.iter().filter(|e| e.timestamp >= window_start) {
+        total_bytes += entry.bytes_sent;
+        count += 1;
+    }
+    (total_bytes as f64 / WINDOW_SECONDS as f64, count, count > 0)
+}
+
 /// Build a GameSpeedInfo from a group of log entries
 fn build_game_speed_info(
     entries: Vec<SpeedLogEntry>,
@@ -900,9 +979,11 @@ async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: {} <log_path> [log_path2] ...", args[0]);
-        eprintln!("  log_path: Path to log directory (will monitor access.log)");
-        eprintln!("");
+        eprintln!("Usage: {} <log_dir> [log_dir2] ...", args[0]);
+        eprintln!("  log_dir: Path to a datasource log directory. Every log source inside it");
+        eprintln!("           (a monolithic access.log and/or per-service bare-metal *-access.log");
+        eprintln!("           files) is discovered and tailed; access.log is not assumed.");
+        eprintln!();
         eprintln!("Database connection is configured via DATABASE_URL environment variable.");
         eprintln!("Outputs JSON speed snapshots to stdout every {}ms", BROADCAST_INTERVAL_MS);
         eprintln!("Uses a {}-second rolling window", WINDOW_SECONDS);
@@ -910,27 +991,35 @@ async fn main() -> Result<()> {
         // stream, not a discrete lifecycle operation - see emit_json_line docs). Returning
         // Err (instead of process::exit(1)) still surfaces the fatal reason: anyhow's
         // default main Termination prints "Error: {:#}" to stderr and exits 1.
-        anyhow::bail!("missing required <log_path> argument(s)");
+        anyhow::bail!("missing required <log_dir> argument(s)");
     }
 
-    // Build log paths from all provided directories
-    let log_paths: Vec<PathBuf> = args[1..].iter()
-        .map(|dir| PathBuf::from(dir).join("access.log"))
-        .collect();
+    // Discover the concrete current files to tail across every datasource directory. A directory
+    // may hold a monolithic access.log and/or per-service bare-metal logs; the Rust side owns
+    // discovery so C# only has to pass the datasource directory.
+    let dirs: Vec<PathBuf> = args[1..].iter().map(PathBuf::from).collect();
+    let sources = discover_tracked_sources(&dirs);
+
+    if sources.is_empty() {
+        eprintln!("No log sources discovered in the provided director(ies); nothing to track.");
+    }
 
     let pool = db::create_pool().await?;
-    let mut tracker = SpeedTracker::new(pool, log_paths);
+    let mut tracker = SpeedTracker::new(pool, sources);
     tracker.run().await
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        build_game_speed_info, collapse_depot_groups, replace_pattern_lookup_cache, SpeedLogEntry,
-        WINDOW_SECONDS,
+        build_game_speed_info, collapse_depot_groups, discover_tracked_sources,
+        headline_aggregates, replace_pattern_lookup_cache, SourceKind, SpeedLogEntry, SpeedTracker,
+        TrackedSource, MAX_POLL_BYTES, WINDOW_SECONDS,
     };
     use chrono::Utc;
+    use sqlx::postgres::PgPoolOptions;
     use std::collections::HashMap;
+    use std::io::Write;
 
     // A minimal in-window Steam entry; the collapse logic only reads client_ip, depot_id,
     // bytes_sent and service, so the rest use inert defaults.
@@ -1082,5 +1171,310 @@ mod tests {
         assert!(cache.is_empty());
         assert_eq!(cache.capacity(), 0);
         assert!(previous_capacity > cache.capacity());
+    }
+
+    // Current-time nginx access-log timestamp. The `+0000` offset forces UTC regardless of the
+    // process TZ, so a freshly written record lands inside the 2s window the headline reads.
+    fn now_ts() -> String {
+        Utc::now().format("%d/%b/%Y:%H:%M:%S +0000").to_string()
+    }
+
+    // A monolithic cachelog line: the service comes from the `[service]` tag, not the filename.
+    fn mono_line(service: &str, client_ip: &str, url: &str, bytes: i64, cache: &str) -> String {
+        format!(
+            "[{service}] {client_ip} / - - - [{ts}] \"GET {url} HTTP/1.1\" 200 {bytes} \"-\" \"BITS\" \"{cache}\" \"download.windowsupdate.com\" \"-\"\n",
+            ts = now_ts()
+        )
+    }
+
+    // A bare-metal http-detailed line (no `[service]` tag). Field order matches
+    // access-log-formats/http/detailed.conf; the transferred body-bytes field carries `bytes`.
+    fn detailed_steam_line(client_ip: &str, depot: u32, bytes: i64, cache: &str) -> String {
+        format!(
+            "[{ts}] {client_ip} GET \"/depot/{depot}/chunk/abc\" - HTTP/1.1 200 \"-\" 512 2016 {bytes} 0.005 {bytes} {cache} h.example 200 0.004 \"Steam\"\n",
+            ts = now_ts()
+        )
+    }
+
+    fn append_bytes(path: &std::path::Path, bytes: &[u8]) {
+        let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
+        file.write_all(bytes).unwrap();
+    }
+
+    // A SpeedTracker over `sources` with a lazily-created pool that never actually connects: the
+    // streaming tail path and `headline_aggregates` do no database work, so no server is needed.
+    fn lazy_tracker(sources: Vec<TrackedSource>) -> SpeedTracker {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:password@127.0.0.1/lancache_test")
+            .expect("lazy pool builds without connecting");
+        SpeedTracker::new(pool, sources)
+    }
+
+    // The live tracker must stream BOTH layouts a datasource can present: the monolithic cachelog
+    // `access.log` and the per-service bare-metal `steam-access.log` (http-detailed). Discovery
+    // selects each source's current file; each source seeds to EOF (pre-existing history is not
+    // replayed) and is then driven through the REAL `read_new_entries` loop; and the DB-free
+    // snapshot headline (the seam `calculate_snapshot` uses for bytes/active-downloads) reflects
+    // both. A source whose only surviving member is a compressed rotation contributes nothing.
+    #[tokio::test]
+    async fn tracks_both_monolithic_and_bare_metal_current_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let access = dir.join("access.log");
+        let steam = dir.join("steam-access.log");
+
+        // Pre-existing history written BEFORE the tracker observes the files. These carry current
+        // timestamps, so if seeding-to-EOF failed to skip them they WOULD count; the test proves
+        // they do not.
+        std::fs::write(
+            &access,
+            mono_line("wsus", "10.0.0.9", "/content/old.bin", 999, "HIT"),
+        )
+        .unwrap();
+        std::fs::write(&steam, detailed_steam_line("10.0.0.8", 654321, 999, "MISS")).unwrap();
+
+        // A per-service source whose only surviving member is a compressed rotation: it has no
+        // current file to tail, so it must never be tracked.
+        std::fs::write(
+            dir.join("blizzard-access.log.1.gz"),
+            b"ignored compressed bytes",
+        )
+        .unwrap();
+
+        let tracked = discover_tracked_sources(&[dir.to_path_buf()]);
+        assert_eq!(
+            tracked.len(),
+            2,
+            "only the monolithic and bare-metal current files are tracked"
+        );
+        assert!(
+            !tracked
+                .iter()
+                .any(|t| t.path.file_name().and_then(|n| n.to_str()) == Some("blizzard-access.log")),
+            "a compressed rotation-only source has no current file to track"
+        );
+        // The monolithic file is hint-less; the per-service file carries the steam stem hint.
+        assert!(tracked.iter().any(|t| t.kind == SourceKind::Monolithic));
+        assert!(tracked
+            .iter()
+            .any(|t| t.kind == SourceKind::Service("steam".to_string())));
+
+        let mut tracker = lazy_tracker(tracked.clone());
+
+        // First poll seeds every source to its current EOF and reads nothing.
+        for source in &tracked {
+            tracker.read_new_entries(source).unwrap();
+        }
+        assert!(
+            tracker.entries.is_empty(),
+            "seeding to EOF must not replay pre-existing history"
+        );
+
+        // Append one live record to EACH format, then drive the real streaming reader for both.
+        append_bytes(
+            &access,
+            mono_line("wsus", "10.0.0.1", "/content/file.bin", 1000, "HIT").as_bytes(),
+        );
+        append_bytes(
+            &steam,
+            detailed_steam_line("10.0.0.2", 654321, 2000, "MISS").as_bytes(),
+        );
+        for source in &tracked {
+            tracker.read_new_entries(source).unwrap();
+        }
+
+        assert_eq!(
+            tracker.entries.len(),
+            2,
+            "both formats produce one live entry each"
+        );
+        let mono = tracker
+            .entries
+            .iter()
+            .find(|e| e.service == "wsus")
+            .expect("monolithic wsus entry");
+        let steam_entry = tracker
+            .entries
+            .iter()
+            .find(|e| e.service == "steam")
+            .expect("bare-metal steam entry");
+        assert_eq!(mono.bytes_sent, 1000);
+        assert!(mono.is_cache_hit, "the monolithic line was a cache HIT");
+        assert_eq!(steam_entry.bytes_sent, 2000);
+        assert_eq!(
+            steam_entry.depot_id,
+            Some(654321),
+            "steam depot parsed from the http-detailed URL"
+        );
+        assert!(
+            !steam_entry.is_cache_hit,
+            "the bare-metal line was a cache MISS"
+        );
+
+        // The REAL snapshot headline (the DB-free seam calculate_snapshot derives its
+        // total_bytes_per_second / entries_in_window / has_active_downloads from) reflects BOTH
+        // formats: throughput sums across sources and the window is active.
+        let window_start = Utc::now().naive_utc() - chrono::Duration::seconds(WINDOW_SECONDS);
+        let (total_bytes_per_second, entries_in_window, has_active_downloads) =
+            headline_aggregates(&tracker.entries, window_start);
+        assert_eq!(
+            entries_in_window, 2,
+            "both live records are inside the window"
+        );
+        assert_eq!(
+            total_bytes_per_second,
+            3000.0 / WINDOW_SECONDS as f64,
+            "throughput sums both formats"
+        );
+        assert!(
+            has_active_downloads,
+            "a non-empty window means active downloads"
+        );
+    }
+
+    // A record whose bytes arrive in two writes across two polls must be parsed exactly once, with
+    // nothing lost: the first (newline-less) fragment is held at the checkpoint, and only the
+    // reassembled, newline-terminated record is parsed on the later poll.
+    #[tokio::test]
+    async fn split_record_across_polls_is_parsed_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let access = dir.join("access.log");
+        std::fs::write(&access, b"").unwrap();
+
+        let tracked = discover_tracked_sources(&[dir.to_path_buf()]);
+        assert_eq!(tracked.len(), 1);
+        let mut tracker = lazy_tracker(tracked.clone());
+
+        tracker.read_new_entries(&tracked[0]).unwrap();
+        assert!(tracker.entries.is_empty());
+
+        // Write one record in TWO parts. The first part is mid-line and carries no newline.
+        let line = mono_line("wsus", "10.9.9.9", "/content/split.bin", 4096, "MISS");
+        let bytes = line.as_bytes();
+        let split_at = bytes.len() / 2;
+
+        append_bytes(&access, &bytes[..split_at]);
+        tracker.read_new_entries(&tracked[0]).unwrap();
+        assert!(
+            tracker.entries.is_empty(),
+            "an incomplete record (no newline yet) is neither parsed nor checkpointed past"
+        );
+
+        append_bytes(&access, &bytes[split_at..]);
+        tracker.read_new_entries(&tracked[0]).unwrap();
+        assert_eq!(
+            tracker.entries.len(),
+            1,
+            "the reassembled record is parsed exactly once"
+        );
+        assert_eq!(tracker.entries[0].client_ip, "10.9.9.9");
+        assert_eq!(tracker.entries[0].bytes_sent, 4096);
+    }
+
+    // A complete record containing invalid UTF-8 must be skipped (lossy decode, like canonical
+    // ingestion) with the checkpoint advancing past it. Earlier valid records in the SAME batch are
+    // committed and never replayed on a later clean poll, unlike the pre-fix read_line-on-`String`
+    // path which propagated the UTF-8 error, dropped the batch's checkpoint, and re-read forever.
+    #[tokio::test]
+    async fn invalid_utf8_record_advances_checkpoint_without_replaying_valid_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let steam = dir.join("steam-access.log");
+        std::fs::write(&steam, b"").unwrap();
+
+        let tracked = discover_tracked_sources(&[dir.to_path_buf()]);
+        assert_eq!(tracked.len(), 1);
+        assert_eq!(tracked[0].kind, SourceKind::Service("steam".to_string()));
+        let mut tracker = lazy_tracker(tracked.clone());
+
+        tracker.read_new_entries(&tracked[0]).unwrap();
+        assert!(tracker.entries.is_empty());
+
+        // ONE batch: a valid record, then a complete record with invalid UTF-8, then another valid
+        // record, each newline-terminated.
+        let mut batch: Vec<u8> = Vec::new();
+        batch.extend_from_slice(detailed_steam_line("10.5.5.1", 654321, 2000, "MISS").as_bytes());
+        batch.extend_from_slice(&[0xff, 0x9f, 0x92, 0xde]);
+        batch.extend_from_slice(b" not-a-log-line \n");
+        batch.extend_from_slice(detailed_steam_line("10.5.5.2", 654321, 3000, "HIT").as_bytes());
+        append_bytes(&steam, &batch);
+
+        tracker.read_new_entries(&tracked[0]).unwrap();
+        assert_eq!(
+            tracker.entries.len(),
+            2,
+            "both valid records parse; the invalid-UTF-8 record is skipped, not fatal"
+        );
+
+        // A second poll has no new data. Because the checkpoint advanced PAST the whole batch, the
+        // earlier valid records are not replayed.
+        tracker.read_new_entries(&tracked[0]).unwrap();
+        assert_eq!(
+            tracker.entries.len(),
+            2,
+            "a clean poll must not replay already-committed records"
+        );
+    }
+
+    // A record LARGER than MAX_POLL_BYTES with no newline inside the first capped slice must not
+    // stall the source: the reader discards the oversized fragment and recovers to the following
+    // valid record, reaching it EXACTLY once (not stalled, not duplicated) without corrupting the
+    // checkpoint. Before the scan-cursor/discard fix, the capped no-newline slice returned without
+    // advancing and the source re-read the same 8 MiB prefix on every poll forever.
+    #[tokio::test]
+    async fn oversized_record_recovers_to_next_valid_record_exactly_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let access = dir.join("access.log");
+        std::fs::write(&access, b"").unwrap();
+
+        let tracked = discover_tracked_sources(&[dir.to_path_buf()]);
+        assert_eq!(tracked.len(), 1);
+        let mut tracker = lazy_tracker(tracked.clone());
+
+        // First poll seeds to EOF (empty file) and reads nothing.
+        tracker.read_new_entries(&tracked[0]).unwrap();
+        assert!(tracker.entries.is_empty());
+
+        // An oversized record: MAX_POLL_BYTES + a remainder of non-newline bytes, so its first
+        // newline lies BEYOND the first capped 8 MiB read. It is terminated, then followed by a
+        // normal newline-terminated record that must be reached exactly once.
+        let oversized_len = MAX_POLL_BYTES as usize + 4096;
+        let filler = vec![b'x'; oversized_len];
+        append_bytes(&access, &filler);
+        append_bytes(&access, b"\n");
+        let valid = mono_line(
+            "wsus",
+            "10.7.7.7",
+            "/content/after-oversized.bin",
+            5000,
+            "HIT",
+        );
+        append_bytes(&access, valid.as_bytes());
+
+        // Drive the reader across enough polls for the oversized record to be discarded (one capped
+        // read per 8 MiB) and the following valid record to be parsed.
+        for _ in 0..4 {
+            tracker.read_new_entries(&tracked[0]).unwrap();
+        }
+
+        assert_eq!(
+            tracker.entries.len(),
+            1,
+            "the oversized record is discarded; only the following valid record is parsed, once"
+        );
+        assert_eq!(tracker.entries[0].client_ip, "10.7.7.7");
+        assert_eq!(tracker.entries[0].bytes_sent, 5000);
+        assert!(tracker.entries[0].is_cache_hit);
+
+        // Further polls have no new data: the checkpoint advanced past the whole file, so nothing
+        // is replayed and the source did not stall.
+        tracker.read_new_entries(&tracked[0]).unwrap();
+        assert_eq!(
+            tracker.entries.len(),
+            1,
+            "a clean poll after recovery must not replay or duplicate the valid record"
+        );
     }
 }

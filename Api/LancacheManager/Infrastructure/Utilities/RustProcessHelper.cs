@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using LancacheManager.Core.Interfaces;
 
@@ -872,6 +874,92 @@ public partial class RustProcessHelper
         return new LogFileDeletionResult(progress.BytesDeleted);
     }
 
+    /// <summary>
+    /// Backstop deadline for one directory's content scan. A stall guard only (e.g. a hung
+    /// <c>File::open</c>/<c>read</c> on a network-backed log path); a normal multi-source tail read
+    /// completes far inside it. When it fires the child is killed and the scan surfaces a typed
+    /// <see cref="TimeoutException"/> the Status Check maps to a fail-soft unreadable state.
+    /// </summary>
+    public static readonly TimeSpan DefaultContentScanTimeout = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Runs the log_service_manager content scan over one datasource log DIRECTORY and returns its
+    /// positive-cache candidate records. The Rust side reuses the shared log-source discovery and
+    /// BOTH canonical line parsers (the monolithic cachelog format and the per-service
+    /// http-detailed format), so bare-metal per-service logs are read the same way as access.log.
+    /// The scan is read-only and offset-independent (it never touches the live monitor positions);
+    /// path/SSRF safety and host DNS validation stay in the C# caller. Caller cancellation remains a
+    /// terminal <see cref="OperationCanceledException"/>; a stalled child that overruns
+    /// <paramref name="timeout"/> is killed and surfaced as a <see cref="TimeoutException"/> (never
+    /// an empty result), which the Status Check maps to a fail-soft unreadable state.
+    /// </summary>
+    public virtual async Task<RustContentScanResult> ScanContentSamplesAsync(
+        string logDirectory,
+        int maxTailBytes = RustContentScanResult.DefaultMaxTailBytes,
+        int maxSamples = RustContentScanResult.DefaultMaxSamples,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var scanTimeout = timeout ?? DefaultContentScanTimeout;
+        var outputFile = Path.GetTempFileName();
+        // Bound the scan with a linked deadline so a stalled child cannot hang the detached Status
+        // Check sweep indefinitely. The linked token kills the child when either the caller cancels
+        // or the deadline elapses; the catch below keeps those two outcomes distinct.
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(scanTimeout);
+        try
+        {
+            var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
+            EnsureBinaryExists(rustBinaryPath, "log_service_manager");
+
+            // ArgumentList preserves the configured directory verbatim without shell parsing.
+            var startInfo = CreateProcessStartInfo(rustBinaryPath, string.Empty);
+            startInfo.ArgumentList.Add("scan-content");
+            startInfo.ArgumentList.Add(logDirectory);
+            startInfo.ArgumentList.Add(outputFile);
+            startInfo.ArgumentList.Add(maxTailBytes.ToString(CultureInfo.InvariantCulture));
+            startInfo.ArgumentList.Add(maxSamples.ToString(CultureInfo.InvariantCulture));
+
+            var result = await ExecuteTrackedProcessWithProgressEventsAsync(
+                startInfo,
+                operationId: null,
+                timeoutCts.Token,
+                onProgressEvent: evt =>
+                {
+                    _logger.LogDebug(
+                        "[log_service_manager:scan-content] {Event} ({StageKey})",
+                        evt.Event,
+                        evt.StageKey);
+                    return Task.CompletedTask;
+                },
+                processLabel: "log_service_manager:scan-content");
+
+            result.EnsureSuccess("log_service_manager", "scan-content");
+            timeoutCts.Token.ThrowIfCancellationRequested();
+
+            return await ReadOutputJsonAsync<RustContentScanResult>(
+                outputFile,
+                "log_service_manager scan-content",
+                timeoutCts.Token);
+        }
+        catch (OperationCanceledException)
+            when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // The internal deadline fired (not the caller): the child was killed after stalling past
+            // the content-scan budget. Surface a typed timeout the Status Check turns into a
+            // fail-soft unreadable state, never terminal cancellation.
+            _logger.LogWarning(
+                "log_service_manager scan-content exceeded the {TimeoutSeconds:0}s content-scan deadline",
+                scanTimeout.TotalSeconds);
+            throw new TimeoutException(
+                $"log_service_manager scan-content exceeded the {scanTimeout.TotalSeconds:0}s content-scan deadline");
+        }
+        finally
+        {
+            await DeleteTempFileAsync(outputFile);
+        }
+    }
+
     private async Task<LogManagerFileProgress> RunLogFileOperationAsync(
         string command,
         string path,
@@ -1338,3 +1426,65 @@ public sealed record LogLineCountResult(
 
 /// <summary>Pre-delete byte count produced by log_service_manager delete-file.</summary>
 public sealed record LogFileDeletionResult(long BytesDeleted);
+
+/// <summary>
+/// Deserialized output of log_service_manager scan-content for one datasource log directory.
+/// <see cref="Availability"/> is one of "available" (a live source file was read), "unreadable"
+/// (a source file existed but could not be read), or "logMissing" (no sources discovered). The
+/// records are the Rust-side positive-cache candidates before the C# security filters run.
+/// </summary>
+public sealed class RustContentScanResult
+{
+    /// <summary>Bounded tail budget per source file (32 MiB), matching the Rust default.</summary>
+    public const int DefaultMaxTailBytes = 32 * 1024 * 1024;
+
+    /// <summary>Upper bound on candidate records the scan returns, matching the Rust default.</summary>
+    public const int DefaultMaxSamples = 5000;
+
+    [JsonPropertyName("availability")]
+    public string Availability { get; init; } = "logMissing";
+
+    [JsonPropertyName("scanned_bytes")]
+    public long ScannedBytes { get; init; }
+
+    [JsonPropertyName("truncated")]
+    public bool Truncated { get; init; }
+
+    [JsonPropertyName("records")]
+    public IReadOnlyList<RustContentSample> Records { get; init; } = Array.Empty<RustContentSample>();
+}
+
+/// <summary>
+/// One positive-cache candidate emitted by log_service_manager scan-content. <see cref="Target"/>
+/// is the request URL exactly as logged (unmodified); the C# caller runs path/SSRF safety and host
+/// DNS normalization over these raw fields before any of them is probed.
+/// </summary>
+public sealed class RustContentSample
+{
+    [JsonPropertyName("service")]
+    public string Service { get; init; } = string.Empty;
+
+    [JsonPropertyName("host")]
+    public string Host { get; init; } = string.Empty;
+
+    [JsonPropertyName("target")]
+    public string Target { get; init; } = string.Empty;
+
+    [JsonPropertyName("method")]
+    public string Method { get; init; } = string.Empty;
+
+    [JsonPropertyName("status_code")]
+    public int StatusCode { get; init; }
+
+    [JsonPropertyName("bytes")]
+    public long Bytes { get; init; }
+
+    [JsonPropertyName("cache_status")]
+    public string CacheStatus { get; init; } = string.Empty;
+
+    [JsonPropertyName("timestamp")]
+    public string Timestamp { get; init; } = string.Empty;
+
+    [JsonPropertyName("user_agent")]
+    public string UserAgent { get; init; } = string.Empty;
+}

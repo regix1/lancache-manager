@@ -117,9 +117,10 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         IReadOnlyList<ResolvedDatasource> datasources,
         CancellationToken stoppingToken)
     {
-        // Build log directory arguments. The tracker tails the monolithic cachelog format,
-        // so datasources whose sources are per-service http-detailed files are skipped
-        // (their lines would only inflate the tracker's unparsed noise).
+        // Build log directory arguments. The tracker discovers and tails every log source in
+        // each directory (the monolithic cachelog access.log AND per-service bare-metal
+        // *-access.log files), so any datasource whose scheme supports live speed is passed its
+        // directory. Datasources with no single trustworthy layout (Unknown/Mixed) are skipped.
         var logDirs = datasources
             .Where(d => d.Enabled && _capabilityService.GetCapabilities(d).CanTrackLiveSpeed)
             .Select(d => $"\"{d.LogPath}\"")
@@ -131,7 +132,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             {
                 _loggedNoTrackableDatasources = true;
                 _logger.LogInformation(
-                    "No datasource with monolithic access.log sources; live speed tracking is idle");
+                    "No datasource with trackable log sources; live speed tracking is idle");
             }
             // Idle without error spam; re-check periodically in case a source appears.
             await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);

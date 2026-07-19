@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models.Responses;
 
 namespace LancacheManager.Core.Services.StatusCheck;
@@ -12,7 +13,7 @@ public sealed class ContentPathCheckService : IContentPathCheckService
     private const int MaxProbedEdges = 3;
 
     private readonly Func<IReadOnlyList<ResolvedDatasource>> _datasourceProvider;
-    private readonly ContentPathLogScanner _scanner;
+    private readonly Func<IReadOnlyList<string>, CancellationToken, Task<ContentPathRawScan>> _sampleProvider;
     private readonly Func<string, CancellationToken, Task<DohResolutionResult>> _resolveEdges;
     private readonly Func<ContentPathSample, IPAddress, CancellationToken, Task<ContentPathEdgeResult>> _probeEdge;
     private readonly TimeProvider _timeProvider;
@@ -21,10 +22,12 @@ public sealed class ContentPathCheckService : IContentPathCheckService
     public ContentPathCheckService(
         DatasourceService datasourceService,
         IHttpClientFactory httpClientFactory,
+        RustProcessHelper rustProcessHelper,
         ILogger<ContentPathCheckService> logger)
         : this(
             datasourceService.GetDatasources,
-            new ContentPathLogScanner(),
+            new RustContentPathScanner(
+                (directory, token) => rustProcessHelper.ScanContentSamplesAsync(directory, cancellationToken: token)).ScanAsync,
             new PublicDohResolver(httpClientFactory.CreateClient()).ResolveAsync,
             new DirectContentProbe().ProbeEdgeAsync,
             TimeProvider.System,
@@ -34,14 +37,14 @@ public sealed class ContentPathCheckService : IContentPathCheckService
 
     internal ContentPathCheckService(
         Func<IReadOnlyList<ResolvedDatasource>> datasourceProvider,
-        ContentPathLogScanner scanner,
+        Func<IReadOnlyList<string>, CancellationToken, Task<ContentPathRawScan>> sampleProvider,
         Func<string, CancellationToken, Task<DohResolutionResult>> resolveEdges,
         Func<ContentPathSample, IPAddress, CancellationToken, Task<ContentPathEdgeResult>> probeEdge,
         TimeProvider timeProvider,
         ILogger<ContentPathCheckService> logger)
     {
         _datasourceProvider = datasourceProvider;
-        _scanner = scanner;
+        _sampleProvider = sampleProvider;
         _resolveEdges = resolveEdges;
         _probeEdge = probeEdge;
         _timeProvider = timeProvider;
@@ -58,16 +61,26 @@ public sealed class ContentPathCheckService : IContentPathCheckService
             .Where(static name => !string.IsNullOrWhiteSpace(name))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        ContentPathScanResult scan;
+        ContentPathRawScan scan;
         var datasources = _datasourceProvider()
             .Where(datasource => datasource.Enabled)
             .ToList();
         try
         {
-            var logPaths = datasources
-                .Select(datasource => datasource.LogFilePath)
+            // Refresh each datasource's sources so the bare-metal logs/ -> logs/http descent is
+            // resolved, then scan the RESOLVED log directory (not the legacy access.log path): the
+            // Rust scan reuses the shared discovery to read both the monolithic and per-service
+            // sources under it.
+            var logDirectories = datasources
+                .Select(datasource =>
+                {
+                    datasource.RefreshLogSources();
+                    return datasource.LogPath;
+                })
+                .Where(directory => !string.IsNullOrWhiteSpace(directory))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            scan = await _scanner.ScanAsync(logPaths, knownServices, now, cancellationToken);
+            scan = await _sampleProvider(logDirectories, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -85,26 +98,26 @@ public sealed class ContentPathCheckService : IContentPathCheckService
             };
         }
 
-        // Typed states instead of truthful-looking empty success: a readable log with zero
-        // recognizable samples is "noSamples", and when the datasource's sources are
-        // per-service (bare-metal http-detailed) files this sampler cannot read yet, the
-        // honest state is "unsupportedFormat" — never "available" with nothing behind it.
-        var availability = scan.Availability;
-        if ((availability == "available" && scan.Samples.Count == 0) || availability == "logMissing")
+        // The Rust scan reused the canonical grammar; C# owns the security boundary. Map each
+        // candidate through the path/SSRF safety, host DNS normalization, not-future timestamp and
+        // known-service filters, then apply the bounded, deterministic sample selection.
+        var samples = new List<ContentPathSample>();
+        foreach (var record in scan.Records)
         {
-            var hasPerServiceSources = datasources.Any(datasource =>
+            if (ContentPathRecordFilter.TryMap(record, knownServices, now, out var sample))
             {
-                datasource.RefreshLogSources();
-                return datasource.LogSourceStems.Any(LogSourceLayout.IsPerServiceStem);
-            });
-            if (hasPerServiceSources)
-            {
-                availability = "unsupportedFormat";
+                samples.Add(sample!);
             }
-            else if (availability == "available")
-            {
-                availability = "noSamples";
-            }
+        }
+        var selectedSamples = ContentPathSampleSelector.Select(samples, now);
+
+        // Typed states instead of truthful-looking empty success: a readable log with zero
+        // recognizable samples is "noSamples", never "available" with nothing behind it. Both the
+        // monolithic and per-service formats are supported now, so there is no unsupported state.
+        var availability = scan.Availability;
+        if (availability == "available" && selectedSamples.Count == 0)
+        {
+            availability = "noSamples";
         }
 
         var report = new StatusCheckContentReport
@@ -113,14 +126,14 @@ public sealed class ContentPathCheckService : IContentPathCheckService
             ScanTruncated = scan.ScanTruncated,
             ScannedBytes = scan.ScannedBytes
         };
-        if (availability != "available" || scan.Samples.Count == 0)
+        if (availability != "available" || selectedSamples.Count == 0)
         {
             report.CheckedAtUtc = _timeProvider.GetUtcNow();
             return report;
         }
 
         using var semaphore = new SemaphoreSlim(MaxConcurrentSamples);
-        var tasks = scan.Samples.Select(async (sample, index) =>
+        var tasks = selectedSamples.Select(async (sample, index) =>
         {
             await semaphore.WaitAsync(cancellationToken);
             try

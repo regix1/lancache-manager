@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.StatusCheck;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models.Responses;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -22,17 +23,17 @@ public sealed class StatusCheckContentPathTests
     [InlineData("epicgames", "/builds/Fortnite/CloudDir/ChunksV4/00/file.chunk", "download.example.net", "MISS")]
     [InlineData("blizzard", "/tpr/ow/data/ab/cd/0123456789abcdef", "hotfix.example.net", "MISS")]
     [InlineData("riot", "/channels/public/bundles/client.bundle", "valorant.example.net", "HIT")]
-    public void ParseAccessLogLine_RealFiveFieldFixtures_ExtractsSafeEvidence(
+    public void MapRustRecord_RealCandidates_ExtractsSafeEvidence(
         string service,
         string target,
         string host,
         string cacheOutcome)
     {
-        var line = BuildLine(service, target, host, cacheOutcome: cacheOutcome);
+        var record = RustSample(service, target, host, cacheOutcome: cacheOutcome);
 
-        var parsed = ContentPathAccessLogParser.TryParseCandidate(line, KnownServices, Now, out var sample);
+        var mapped = ContentPathRecordFilter.TryMap(record, KnownServices, Now, out var sample);
 
-        Assert.True(parsed);
+        Assert.True(mapped);
         Assert.NotNull(sample);
         Assert.Equal(service, sample.Service);
         Assert.Equal(host, sample.Host);
@@ -44,35 +45,37 @@ public sealed class StatusCheckContentPathTests
     }
 
     [Fact]
-    public void ParseAccessLogLine_RejectsNonEvidenceAndUnsafeRows()
+    public void MapRustRecord_RejectsNonEvidenceAndUnsafeRecords()
     {
-        var valid = BuildLine("steam", "/depot/123/chunk/abcdef0123456789", "cache1.example.net");
+        // The security boundary stays in C#: the Rust scan already applied the positive-cache gate
+        // and dropped probe lines, but path/SSRF safety, host DNS normalization, the not-future
+        // timestamp and the known-service gate must still reject a malformed candidate here.
         var rejected = new[]
         {
-            valid.Replace("[steam]", "steam", StringComparison.Ordinal),
-            valid.Replace("\"GET ", "\"HEAD ", StringComparison.Ordinal),
-            valid.Replace(" 206 1024 ", " 304 1024 ", StringComparison.Ordinal),
-            valid.Replace(" 206 1024 ", " 206 0 ", StringComparison.Ordinal),
-            valid.Replace("\"HIT\"", "\"BYPASS\"", StringComparison.Ordinal),
-            valid.Replace("\"HIT\"", "\"-\"", StringComparison.Ordinal),
-            valid.Replace("[steam]", "[unknown]", StringComparison.Ordinal),
-            valid.Replace("/depot/123/chunk/abcdef0123456789", "/lancache-heartbeat", StringComparison.Ordinal),
-            valid.Replace("/depot/123/chunk/abcdef0123456789", "/health", StringComparison.Ordinal),
-            valid.Replace("/depot/123/chunk/abcdef0123456789", "/ping", StringComparison.Ordinal),
-            valid.Replace("Valve/Steam", "lancache-manager-status-check/1.0", StringComparison.Ordinal),
-            valid.Replace("/depot/123/chunk/abcdef0123456789", "/depot/file?token=secret", StringComparison.Ordinal),
-            valid.Replace("/depot/123/chunk/abcdef0123456789", "/depot/file#fragment", StringComparison.Ordinal),
-            valid.Replace("/depot/123/chunk/abcdef0123456789", "/depot/../secret", StringComparison.Ordinal),
-            valid.Replace("/depot/123/chunk/abcdef0123456789", "/depot/%2e%2e/secret", StringComparison.Ordinal),
-            valid.Replace("/depot/123/chunk/abcdef0123456789", "/depot/%252e%252e/secret", StringComparison.Ordinal),
-            valid.Replace("/depot/123/chunk/abcdef0123456789", "/download/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_AbCdEfGhIjKlMnOp", StringComparison.Ordinal),
-            valid.Replace("cache1.example.net", "127.0.0.1", StringComparison.Ordinal),
-            valid + " trailing-data"
+            RustSample(method: "HEAD"),
+            RustSample(statusCode: 304),
+            RustSample(bytes: 0),
+            RustSample(cacheOutcome: "BYPASS"),
+            RustSample(cacheOutcome: "-"),
+            RustSample(service: "unknown"),
+            RustSample(target: "/lancache-heartbeat"),
+            RustSample(target: "/health"),
+            RustSample(target: "/ping"),
+            RustSample(userAgent: "lancache-manager-status-check/1.0"),
+            RustSample(target: "/depot/file?token=secret"),
+            RustSample(target: "/depot/file#fragment"),
+            RustSample(target: "/depot/../secret"),
+            RustSample(target: "/depot/%2e%2e/secret"),
+            RustSample(target: "/depot/%252e%252e/secret"),
+            RustSample(target: "/download/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_AbCdEfGhIjKlMnOp"),
+            RustSample(target: "//evil.example.net/depot"),
+            RustSample(host: "127.0.0.1"),
+            RustSample(timestamp: "2126-07-10T19:55:00+00:00")
         };
 
-        foreach (var line in rejected)
+        foreach (var record in rejected)
         {
-            Assert.False(ContentPathAccessLogParser.TryParseCandidate(line, KnownServices, Now, out _), line);
+            Assert.False(ContentPathRecordFilter.TryMap(record, KnownServices, Now, out _), record.Target);
         }
     }
 
@@ -89,7 +92,7 @@ public sealed class StatusCheckContentPathTests
         string cacheOutcome,
         bool expected)
     {
-        Assert.Equal(expected, ContentPathAccessLogParser.IsPositiveCacheEvidence(statusCode, bytes, cacheOutcome));
+        Assert.Equal(expected, ContentPathRecordFilter.IsPositiveCacheEvidence(statusCode, bytes, cacheOutcome));
     }
 
     [Fact]
@@ -120,58 +123,51 @@ public sealed class StatusCheckContentPathTests
     }
 
     [Fact]
-    public async Task ScanTail_DiscardsPartialFirstLineAndReportsTruncation()
+    public async Task RustContentScanner_AggregatesRecordsAndAvailabilityAcrossDirectories()
     {
-        var path = Path.GetTempFileName();
-        try
+        // available beats unreadable beats logMissing, records concatenate, bytes sum, and any
+        // truncation flag survives. The per-directory Rust scan is injected, so no real process runs.
+        var scanned = new List<string>();
+        var scanner = new RustContentPathScanner((directory, _) =>
         {
-            var line = BuildLine("steam", "/depot/123/chunk/abcdef0123456789", "cache1.example.net");
-            await File.WriteAllTextAsync(path, new string('x', 2048) + "\n" + line + "\n");
-            var scanner = new ContentPathLogScanner(maxTailBytes: 512);
+            scanned.Add(directory);
+            return Task.FromResult(directory switch
+            {
+                "readable" => new RustContentScanResult
+                {
+                    Availability = "available",
+                    ScannedBytes = 100,
+                    Truncated = true,
+                    Records = new[] { RustSample(service: "steam") }
+                },
+                "unreadable" => new RustContentScanResult
+                {
+                    Availability = "unreadable",
+                    ScannedBytes = 5,
+                    Records = new[] { RustSample(service: "riot", host: "valorant.example.net") }
+                },
+                _ => new RustContentScanResult { Availability = "logMissing" }
+            });
+        });
 
-            var result = await scanner.ScanAsync(new[] { path }, KnownServices, Now, CancellationToken.None);
+        var scan = await scanner.ScanAsync(new[] { "readable", "unreadable", "missing" }, CancellationToken.None);
 
-            Assert.Equal("available", result.Availability);
-            Assert.True(result.ScanTruncated);
-            Assert.InRange(result.ScannedBytes, 1, 512);
-            Assert.Single(result.Samples);
-            Assert.Equal("cache1.example.net", result.Samples[0].Host);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
+        Assert.Equal(new[] { "readable", "unreadable", "missing" }, scanned);
+        Assert.Equal("available", scan.Availability);
+        Assert.True(scan.ScanTruncated);
+        Assert.Equal(105, scan.ScannedBytes);
+        Assert.Equal(2, scan.Records.Count);
 
-    [Fact]
-    public async Task ScanTail_MissingAndUnreadable_ReturnTypedAvailability()
-    {
-        var scanner = new ContentPathLogScanner(maxTailBytes: 512);
-        var missing = await scanner.ScanAsync(
-            new[] { Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "access.log") },
-            KnownServices,
-            Now,
-            CancellationToken.None);
-        var lockedPath = Path.GetTempFileName();
-        ContentPathScanResult unreadable;
-        try
-        {
-            await using var locked = new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-            unreadable = await scanner.ScanAsync(
-                new[] { lockedPath },
-                KnownServices,
-                Now,
-                CancellationToken.None);
-        }
-        finally
-        {
-            File.Delete(lockedPath);
-        }
+        var missingOnly = await new RustContentPathScanner((_, _) =>
+                Task.FromResult(new RustContentScanResult { Availability = "logMissing" }))
+            .ScanAsync(new[] { "a", "b" }, CancellationToken.None);
+        Assert.Equal("logMissing", missingOnly.Availability);
+        Assert.Empty(missingOnly.Records);
 
-        Assert.Equal("logMissing", missing.Availability);
-        Assert.Empty(missing.Samples);
-        Assert.Equal("unreadable", unreadable.Availability);
-        Assert.Empty(unreadable.Samples);
+        var unreadableOnly = await new RustContentPathScanner((_, _) =>
+                Task.FromResult(new RustContentScanResult { Availability = "unreadable" }))
+            .ScanAsync(new[] { "a" }, CancellationToken.None);
+        Assert.Equal("unreadable", unreadableOnly.Availability);
     }
 
     [Theory]
@@ -618,7 +614,7 @@ public sealed class StatusCheckContentPathTests
         string? probedTarget = null;
         var service = new ContentPathCheckService(
             () => Array.Empty<ResolvedDatasource>(),
-            new ContentPathLogScanner(),
+            (_, _) => Task.FromResult(LogMissingScan()),
             (_, _) => Task.FromResult(new DohResolutionResult(addresses, addresses.Length, false, null)),
             (sample, address, _) =>
             {
@@ -641,82 +637,140 @@ public sealed class StatusCheckContentPathTests
     [Fact]
     public async Task ContentPathCheck_ExactCacheEvidenceRemainsBesideCurrentProtocolStatus()
     {
-        var path = Path.GetTempFileName();
-        try
-        {
-            await File.WriteAllTextAsync(
-                path,
-                BuildLine("steam", "/depot/123/chunk/abcdef0123456789", "cache1.example.net") + "\n");
-            var addresses = new[] { IPAddress.Parse("93.184.216.34"), IPAddress.Parse("93.184.216.35") };
-            var service = new ContentPathCheckService(
-                () => new[] { new ResolvedDatasource { Enabled = true, LogFilePath = path } },
-                new ContentPathLogScanner(maxTailBytes: 4096),
-                (_, _) => Task.FromResult(new DohResolutionResult(addresses, addresses.Length, false, null)),
-                (sample, address, _) => Task.FromResult(Edge(address.ToString(), "denied", "content")),
-                new FixedTimeProvider(Now),
-                NullLogger<ContentPathCheckService>.Instance);
+        var addresses = new[] { IPAddress.Parse("93.184.216.34"), IPAddress.Parse("93.184.216.35") };
+        var scan = AvailableScan(RustSample("steam", "/depot/123/chunk/abcdef0123456789", "cache1.example.net"));
+        var service = new ContentPathCheckService(
+            () => new[] { new ResolvedDatasource { Enabled = true, LogPath = TempDir() } },
+            (_, _) => Task.FromResult(scan),
+            (_, _) => Task.FromResult(new DohResolutionResult(addresses, addresses.Length, false, null)),
+            (sample, address, _) => Task.FromResult(Edge(address.ToString(), "denied", "content")),
+            new FixedTimeProvider(Now),
+            NullLogger<ContentPathCheckService>.Instance);
 
-            var report = await service.CheckAsync(
-                new[] { new CacheDomainService { Name = "steam" } },
-                CancellationToken.None);
+        var report = await service.CheckAsync(
+            new[] { new CacheDomainService { Name = "steam" } },
+            CancellationToken.None);
 
-            var result = Assert.Single(report.Paths);
-            Assert.Equal("available", report.Availability);
-            Assert.Equal("steam", result.Service);
-            Assert.Equal("cache1.example.net", result.Host);
-            Assert.Equal("/depot/123/chunk/abcdef0123456789", result.PathDisplay);
-            Assert.Equal("hit", result.CacheEvidence?.Outcome);
-            Assert.Equal("httpsOnlyCandidate", result.ProtocolStatus);
-            Assert.Equal(2, result.ConsensusEdges);
-            Assert.Equal(2, result.TotalPublicEdges);
-            Assert.Equal(2, result.Edges.Count);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        var result = Assert.Single(report.Paths);
+        Assert.Equal("available", report.Availability);
+        Assert.Equal("steam", result.Service);
+        Assert.Equal("cache1.example.net", result.Host);
+        Assert.Equal("/depot/123/chunk/abcdef0123456789", result.PathDisplay);
+        Assert.Equal("hit", result.CacheEvidence?.Outcome);
+        Assert.Equal("httpsOnlyCandidate", result.ProtocolStatus);
+        Assert.Equal(2, result.ConsensusEdges);
+        Assert.Equal(2, result.TotalPublicEdges);
+        Assert.Equal(2, result.Edges.Count);
+    }
+
+    [Fact]
+    public async Task ContentPathCheck_PerServiceHttpDetailedRecordsFlowThrough()
+    {
+        // Records the Rust scan produced from a bare-metal per-service (http-detailed) source carry
+        // no format marker at the C# boundary - a candidate is a candidate. Two such records for
+        // different services must both survive the filters and be probed.
+        var addresses = new[] { IPAddress.Parse("93.184.216.34") };
+        var scan = AvailableScan(
+            RustSample("steam", "/depot/42/chunk/aabbccddeeff0011", "cache.steamcontent.com"),
+            RustSample("riot", "/channels/public/bundles/x.bundle", "lol.dyn.riotcdn.net", cacheOutcome: "MISS"));
+        var service = new ContentPathCheckService(
+            () => new[] { new ResolvedDatasource { Enabled = true, LogPath = TempDir() } },
+            (_, _) => Task.FromResult(scan),
+            (_, _) => Task.FromResult(new DohResolutionResult(addresses, addresses.Length, false, null)),
+            (sample, address, _) => Task.FromResult(Edge(address.ToString(), "content", "content")),
+            new FixedTimeProvider(Now),
+            NullLogger<ContentPathCheckService>.Instance);
+
+        var report = await service.CheckAsync(
+            new[] { new CacheDomainService { Name = "steam" }, new CacheDomainService { Name = "riot" } },
+            CancellationToken.None);
+
+        Assert.Equal("available", report.Availability);
+        Assert.Equal(2, report.Paths.Count);
+        Assert.Contains(report.Paths, path => path.Service == "steam" && path.Host == "cache.steamcontent.com");
+        Assert.Contains(report.Paths, path => path.Service == "riot" && path.Host == "lol.dyn.riotcdn.net");
     }
 
     [Fact]
     public async Task ContentPathCheck_NoRealCandidateMakesNoNetworkCalls()
     {
-        var path = Path.GetTempFileName();
-        try
-        {
-            await File.WriteAllTextAsync(path, "not an access-log row\n");
-            var resolveCalls = 0;
-            var probeCalls = 0;
-            var service = new ContentPathCheckService(
-                () => new[] { new ResolvedDatasource { Enabled = true, LogFilePath = path } },
-                new ContentPathLogScanner(maxTailBytes: 4096),
-                (_, _) =>
-                {
-                    resolveCalls++;
-                    return Task.FromResult(new DohResolutionResult(Array.Empty<IPAddress>(), 0, false, "noPublicEdges"));
-                },
-                (_, _, _) =>
-                {
-                    probeCalls++;
-                    throw new InvalidOperationException();
-                },
-                new FixedTimeProvider(Now),
-                NullLogger<ContentPathCheckService>.Instance);
+        var resolveCalls = 0;
+        var probeCalls = 0;
+        var service = new ContentPathCheckService(
+            () => new[] { new ResolvedDatasource { Enabled = true, LogPath = TempDir() } },
+            (_, _) => Task.FromResult(AvailableScan()),
+            (_, _) =>
+            {
+                resolveCalls++;
+                return Task.FromResult(new DohResolutionResult(Array.Empty<IPAddress>(), 0, false, "noPublicEdges"));
+            },
+            (_, _, _) =>
+            {
+                probeCalls++;
+                throw new InvalidOperationException();
+            },
+            new FixedTimeProvider(Now),
+            NullLogger<ContentPathCheckService>.Instance);
 
-            var report = await service.CheckAsync(
-                new[] { new CacheDomainService { Name = "steam" } },
-                CancellationToken.None);
+        var report = await service.CheckAsync(
+            new[] { new CacheDomainService { Name = "steam" } },
+            CancellationToken.None);
 
-            // A readable log with zero recognizable samples is the typed "noSamples"
-            // state, never "available" with nothing behind it - and still no network.
-            Assert.Equal("noSamples", report.Availability);
-            Assert.Empty(report.Paths);
-            Assert.Equal(0, resolveCalls);
-            Assert.Equal(0, probeCalls);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        // A readable log with zero recognizable samples is the typed "noSamples"
+        // state, never "available" with nothing behind it - and still no network.
+        Assert.Equal("noSamples", report.Availability);
+        Assert.Empty(report.Paths);
+        Assert.Equal(0, resolveCalls);
+        Assert.Equal(0, probeCalls);
+    }
+
+    [Fact]
+    public async Task ContentPathCheck_InternalScanTimeoutIsFailSoftUnreadableNotCancellation()
+    {
+        // A stalled Rust child that overruns the internal content-scan deadline surfaces as a
+        // TimeoutException, NOT an OperationCanceledException. The caller did not cancel, so the
+        // check must fold it into the fail-soft "unreadable" state and never let it propagate.
+        var probeCalls = 0;
+        var service = new ContentPathCheckService(
+            () => new[] { new ResolvedDatasource { Enabled = true, LogPath = TempDir() } },
+            (_, _) => throw new TimeoutException("scan-content exceeded the content-scan deadline"),
+            (_, _) => Task.FromResult(new DohResolutionResult(Array.Empty<IPAddress>(), 0, false, null)),
+            (_, _, _) =>
+            {
+                probeCalls++;
+                throw new InvalidOperationException();
+            },
+            new FixedTimeProvider(Now),
+            NullLogger<ContentPathCheckService>.Instance);
+
+        var report = await service.CheckAsync(
+            new[] { new CacheDomainService { Name = "steam" } },
+            CancellationToken.None);
+
+        Assert.Equal("unreadable", report.Availability);
+        Assert.Empty(report.Paths);
+        Assert.Equal(0, probeCalls);
+    }
+
+    [Fact]
+    public async Task ContentPathCheck_UserCancellationDuringScanRemainsTerminal()
+    {
+        // User cancellation of the sweep is terminal: an OperationCanceledException tied to the
+        // caller token propagates, never masquerading as the fail-soft "unreadable" state that an
+        // internal timeout produces.
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var service = new ContentPathCheckService(
+            () => new[] { new ResolvedDatasource { Enabled = true, LogPath = TempDir() } },
+            (_, token) => throw new OperationCanceledException(token),
+            (_, _) => Task.FromResult(new DohResolutionResult(Array.Empty<IPAddress>(), 0, false, null)),
+            (_, _, _) => throw new InvalidOperationException(),
+            new FixedTimeProvider(Now),
+            NullLogger<ContentPathCheckService>.Instance);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.CheckAsync(
+            new[] { new CacheDomainService { Name = "steam" } },
+            cts.Token));
     }
 
     [Fact]
@@ -768,12 +822,35 @@ public sealed class StatusCheckContentPathTests
         Assert.False(LancacheServerLocator.IsHeartbeatSuccess(blankHeader, out _));
     }
 
-    private static string BuildLine(
-        string service,
-        string target,
-        string host,
-        string cacheOutcome = "HIT") =>
-        $"[{service}] 192.168.1.50 / - - - [10/Jul/2026:19:55:00 +0000] \"GET {target} HTTP/1.1\" 206 1024 \"-\" \"Valve/Steam\" \"{cacheOutcome}\" \"{host}\" \"bytes=0-1023\"";
+    private static RustContentSample RustSample(
+        string service = "steam",
+        string target = "/depot/123/chunk/abcdef0123456789",
+        string host = "cache1.example.net",
+        string method = "GET",
+        int statusCode = 206,
+        long bytes = 1024,
+        string cacheOutcome = "HIT",
+        string userAgent = "Valve/Steam",
+        string? timestamp = null) => new()
+    {
+        Service = service,
+        Target = target,
+        Host = host,
+        Method = method,
+        StatusCode = statusCode,
+        Bytes = bytes,
+        CacheStatus = cacheOutcome,
+        UserAgent = userAgent,
+        Timestamp = timestamp ?? "2026-07-10T19:55:00+00:00"
+    };
+
+    private static ContentPathRawScan AvailableScan(params RustContentSample[] records) =>
+        new("available", false, records.Length == 0 ? 0 : 128, records);
+
+    private static ContentPathRawScan LogMissingScan() =>
+        new("logMissing", false, 0, Array.Empty<RustContentSample>());
+
+    private static string TempDir() => Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
 
     private static ContentPathSample Sample(
         string service,

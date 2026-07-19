@@ -211,8 +211,19 @@ impl HttpDetailedParser {
 
     /// Structural recognizer only: is this line an http-detailed record? Never consults
     /// the service hint, so a hint-less file can still be diagnosed as http-detailed.
+    #[allow(dead_code)] // used by log_processor's classifier; other binaries share this module
     pub(crate) fn recognizes(&self, line: &str) -> bool {
         self.capture(line).is_some()
+    }
+
+    /// Host (`$host`, field 15) and User-Agent (field 18) of an http-detailed record, reusing
+    /// the same recognizer `parse_line` uses. The read-only content scan needs the request host
+    /// for a DNS check; the produced `LogEntry` only carries `cdn_host` for the riot service.
+    /// Returns None when the line is not an http-detailed record.
+    #[allow(dead_code)] // used by the content scan in log_service_manager; other binaries share this module
+    pub(crate) fn extract_host_and_user_agent(&self, line: &str) -> Option<(String, String)> {
+        let record = self.capture(line)?;
+        Some((record.host.to_string(), record.user_agent.to_string()))
     }
 
     /// Parse an http-detailed record into a `LogEntry`, attributing the given service.

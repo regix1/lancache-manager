@@ -139,7 +139,7 @@ public class StatusCheckResult
 /// <summary>Bounded report built from recent real access-log paths during an explicit Status Check.</summary>
 public class StatusCheckContentReport
 {
-    /// <summary>"available" | "logMissing" | "unreadable".</summary>
+    /// <summary>"available" | "noSamples" | "unreadable" | "logMissing".</summary>
     public string Availability { get; set; } = "logMissing";
     public DateTimeOffset? CheckedAtUtc { get; set; }
     public bool ScanTruncated { get; set; }

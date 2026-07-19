@@ -1,7 +1,5 @@
 using System.Globalization;
-using System.Security;
-using System.Text;
-using System.Text.RegularExpressions;
+using LancacheManager.Infrastructure.Utilities;
 
 namespace LancacheManager.Core.Services.StatusCheck;
 
@@ -15,64 +13,45 @@ internal sealed record ContentPathSample(
     int StatusCode,
     long Bytes);
 
-internal sealed record ContentPathScanResult(
+/// <summary>
+/// Aggregated Rust content-scan result across a datasource set, before the security filters and
+/// sample selection the check service applies in C#. <see cref="Availability"/> is one of
+/// "available", "unreadable", or "logMissing".
+/// </summary>
+internal sealed record ContentPathRawScan(
     string Availability,
     bool ScanTruncated,
     long ScannedBytes,
-    IReadOnlyList<ContentPathSample> Samples);
+    IReadOnlyList<RustContentSample> Records);
 
-/// <summary>Mirrors the established LANCache/Rust five-quoted-tail-field access-log grammar.</summary>
-internal static class ContentPathAccessLogParser
+/// <summary>
+/// Turns a Rust-produced <see cref="RustContentSample"/> into a validated <see cref="ContentPathSample"/>.
+/// The Rust scan already reused the canonical log grammar and applied the cheap positive-cache gate;
+/// this is the SECURITY boundary that stays in C#: path/SSRF safety, host DNS normalization, a
+/// not-future timestamp, and a known-service gate. The positive-cache rule is re-checked as
+/// defense-in-depth so a malformed record can never reach a network probe.
+/// </summary>
+internal static class ContentPathRecordFilter
 {
-    private const int MaxLineLength = 16 * 1024;
+    private const string ProbeUserAgentMarker = "lancache-manager-status-check";
 
-    private static readonly Regex _linePattern = new(
-        @"^\[(?<service>[^\]\r\n]{1,128})\]\s+(?<client>\S+)\s+/\s+-\s+-\s+-\s+\[(?<time>[^\]\r\n]+)\]\s+""(?<method>[A-Z]+)\s+(?<target>\S+)(?:\s+HTTP/(?<version>[^""\s]+))?""\s+(?<status>\d{3})\s+(?<bytes>-|\d+)\s+""(?<referer>(?:\\.|[^""\r\n])*)""\s+""(?<userAgent>(?:\\.|[^""\r\n])*)""\s+""(?<cache>(?:\\.|[^""\r\n])*)""\s+""(?<host>(?:\\.|[^""\r\n])*)""\s+""(?<range>(?:\\.|[^""\r\n])*)""\s*$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture,
-        TimeSpan.FromMilliseconds(100));
-
-    internal static bool TryParseCandidate(
-        string line,
+    internal static bool TryMap(
+        RustContentSample record,
         IReadOnlySet<string> knownServices,
         DateTimeOffset now,
         out ContentPathSample? sample)
     {
         sample = null;
-        if (string.IsNullOrEmpty(line) || line.Length > MaxLineLength)
-        {
-            return false;
-        }
 
-        Match match;
-        try
-        {
-            match = _linePattern.Match(line);
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            return false;
-        }
-
-        if (!match.Success)
-        {
-            return false;
-        }
-
-        var service = match.Groups["service"].Value.Trim().ToLowerInvariant();
-        var method = match.Groups["method"].Value;
-        var target = match.Groups["target"].Value;
-        var userAgent = match.Groups["userAgent"].Value;
-        var cacheOutcome = match.Groups["cache"].Value;
-
-        if (!knownServices.Contains(service) || method != "GET" ||
-            userAgent.Contains("lancache-manager-status-check", StringComparison.OrdinalIgnoreCase) ||
-            ContentPathTargetSafety.IsExcludedEndpoint(target) ||
-            !ContentPathTargetSafety.IsSafe(target) ||
-            !int.TryParse(match.Groups["status"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var statusCode) ||
-            !long.TryParse(match.Groups["bytes"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var bytes) ||
-            !IsPositiveCacheEvidence(statusCode, bytes, cacheOutcome) ||
-            !TryNormalizeHost(match.Groups["host"].Value, out var host) ||
-            !TryParseTimestamp(match.Groups["time"].Value, out var observedAt) ||
+        var service = record.Service.Trim().ToLowerInvariant();
+        if (!knownServices.Contains(service) ||
+            !string.Equals(record.Method, "GET", StringComparison.Ordinal) ||
+            record.UserAgent.Contains(ProbeUserAgentMarker, StringComparison.OrdinalIgnoreCase) ||
+            ContentPathTargetSafety.IsExcludedEndpoint(record.Target) ||
+            !ContentPathTargetSafety.IsSafe(record.Target) ||
+            !IsPositiveCacheEvidence(record.StatusCode, record.Bytes, record.CacheStatus) ||
+            !TryNormalizeHost(record.Host, out var host) ||
+            !TryParseTimestamp(record.Timestamp, out var observedAt) ||
             observedAt > now.AddMinutes(5))
         {
             return false;
@@ -81,11 +60,11 @@ internal static class ContentPathAccessLogParser
         sample = new ContentPathSample(
             service,
             host,
-            target,
+            record.Target,
             observedAt,
-            cacheOutcome.ToLowerInvariant(),
-            statusCode,
-            bytes);
+            record.CacheStatus.ToLowerInvariant(),
+            record.StatusCode,
+            record.Bytes);
         return true;
     }
 
@@ -120,36 +99,14 @@ internal static class ContentPathAccessLogParser
 
     private static bool TryParseTimestamp(string value, out DateTimeOffset timestamp)
     {
-        var normalized = value.Trim();
-        if (normalized.Length >= 5)
-        {
-            var offsetStart = normalized.Length - 5;
-            if ((normalized[offsetStart] == '+' || normalized[offsetStart] == '-') &&
-                normalized.AsSpan(offsetStart + 1).IndexOf(':') < 0)
-            {
-                normalized = normalized.Insert(offsetStart + 3, ":");
-            }
-        }
-
-        if (DateTimeOffset.TryParseExact(
-                normalized,
-                "dd/MMM/yyyy:HH:mm:ss zzz",
+        // Rust emits the record instant as RFC3339 UTC (e.g. 2026-07-10T19:55:00+00:00).
+        if (DateTimeOffset.TryParse(
+                value,
                 CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
+                DateTimeStyles.RoundtripKind | DateTimeStyles.AssumeUniversal,
                 out timestamp))
         {
             timestamp = timestamp.ToUniversalTime();
-            return true;
-        }
-
-        if (DateTime.TryParseExact(
-                normalized,
-                new[] { "yyyy-MM-dd HH:mm:ss", "yyyy-MM-ddTHH:mm:ss" },
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                out var utc))
-        {
-            timestamp = new DateTimeOffset(utc, TimeSpan.Zero);
             return true;
         }
 
@@ -289,122 +246,53 @@ internal static class ContentPathSampleSelector
     }
 }
 
-/// <summary>Read-only bounded tail scanner. It never shares offsets with the live monitor.</summary>
-internal sealed class ContentPathLogScanner
+/// <summary>
+/// Aggregates the read-only Rust content scan across every enabled datasource log directory. Each
+/// directory is scanned once (the Rust side discovers all its sources and reuses both line
+/// parsers); availability is combined with the same precedence the retired in-process scanner used
+/// (any readable -> available, else any unreadable -> unreadable, else logMissing). The per-directory
+/// scan is injected so the aggregation is testable without a real Rust process.
+/// </summary>
+internal sealed class RustContentPathScanner
 {
-    internal const int DefaultMaxTailBytes = 32 * 1024 * 1024;
-    private readonly int _maxTailBytes;
+    private readonly Func<string, CancellationToken, Task<RustContentScanResult>> _scanDirectory;
 
-    internal ContentPathLogScanner(int maxTailBytes = DefaultMaxTailBytes)
+    internal RustContentPathScanner(Func<string, CancellationToken, Task<RustContentScanResult>> scanDirectory)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(maxTailBytes, 1);
-        _maxTailBytes = maxTailBytes;
+        _scanDirectory = scanDirectory;
     }
 
-    internal async Task<ContentPathScanResult> ScanAsync(
-        IEnumerable<string> paths,
-        IReadOnlySet<string> knownServices,
-        DateTimeOffset now,
+    internal async Task<ContentPathRawScan> ScanAsync(
+        IReadOnlyList<string> logDirectories,
         CancellationToken cancellationToken)
     {
-        var samples = new List<ContentPathSample>();
+        var records = new List<RustContentSample>();
         var scannedBytes = 0L;
         var truncated = false;
         var anyReadable = false;
         var anyUnreadable = false;
 
-        foreach (var path in paths.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var directory in logDirectories)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                continue;
-            }
+            var result = await _scanDirectory(directory, cancellationToken);
+            scannedBytes += result.ScannedBytes;
+            truncated |= result.Truncated;
+            records.AddRange(result.Records);
 
-            try
+            switch (result.Availability)
             {
-                var read = await ReadTailAsync(path, cancellationToken);
-                anyReadable = true;
-                scannedBytes += read.BytesRead;
-                truncated |= read.Truncated;
-
-                foreach (var line in read.Lines)
-                {
-                    if (ContentPathAccessLogParser.TryParseCandidate(line, knownServices, now, out var sample))
-                    {
-                        samples.Add(sample!);
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-            {
-                // A rotated/not-yet-created log is a typed missing state, not a sweep failure.
-            }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or SecurityException or NotSupportedException)
-            {
-                anyUnreadable = true;
+                case "available":
+                    anyReadable = true;
+                    break;
+                case "unreadable":
+                    anyUnreadable = true;
+                    break;
+                // "logMissing" contributes neither readability nor an unreadable signal.
             }
         }
 
         var availability = anyReadable ? "available" : anyUnreadable ? "unreadable" : "logMissing";
-        return new ContentPathScanResult(
-            availability,
-            truncated,
-            scannedBytes,
-            ContentPathSampleSelector.Select(samples, now));
-    }
-
-    private async Task<(IReadOnlyList<string> Lines, int BytesRead, bool Truncated)> ReadTailAsync(
-        string path,
-        CancellationToken cancellationToken)
-    {
-        await using var stream = new FileStream(
-            path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete,
-            bufferSize: 64 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-
-        var length = stream.Length;
-        var start = Math.Max(0, length - _maxTailBytes);
-        var count = checked((int)Math.Min(_maxTailBytes, length - start));
-        var buffer = new byte[count];
-        stream.Seek(start, SeekOrigin.Begin);
-
-        var bytesRead = 0;
-        while (bytesRead < buffer.Length)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(bytesRead), cancellationToken);
-            if (read == 0)
-            {
-                break;
-            }
-            bytesRead += read;
-        }
-
-        ReadOnlySpan<byte> slice = buffer.AsSpan(0, bytesRead);
-        if (start > 0)
-        {
-            var firstNewline = slice.IndexOf((byte)'\n');
-            slice = firstNewline < 0 ? ReadOnlySpan<byte>.Empty : slice[(firstNewline + 1)..];
-        }
-
-        if (slice.Length > 0 && slice[^1] != (byte)'\n')
-        {
-            var lastNewline = slice.LastIndexOf((byte)'\n');
-            slice = lastNewline < 0 ? ReadOnlySpan<byte>.Empty : slice[..(lastNewline + 1)];
-        }
-
-        var text = Encoding.UTF8.GetString(slice);
-        var lines = text
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(static line => line.TrimEnd('\r'))
-            .ToList();
-        return (lines, bytesRead, start > 0);
+        return new ContentPathRawScan(availability, truncated, scannedBytes, records);
     }
 }

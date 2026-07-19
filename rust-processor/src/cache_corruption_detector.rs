@@ -1,6 +1,8 @@
 use crate::cache_utils::{self, CacheSliceKind, ObservedByteRange};
+use crate::log_layout::{discover_log_sources, SourceKind};
 use crate::log_reader::LogFileReader;
-use crate::parser::LogParser;
+use crate::parser::{parse_log_line, LogParser};
+use crate::parser_http_detailed::HttpDetailedParser;
 use crate::progress_utils;
 use crate::service_utils;
 use anyhow::{bail, Context, Result};
@@ -397,25 +399,19 @@ impl CorruptionDetector {
     pub fn generate_report<P: AsRef<Path>>(
         &self,
         log_dir: P,
-        log_base_name: &str,
         timezone: chrono_tz::Tz,
         progress_path: Option<&Path>,
     ) -> Result<CorruptionReport> {
         let cache_dir = self.cache_dir.clone();
         let canonical_root = canonical_cache_root(&cache_dir);
-        self.generate_report_with_path_inspector(
-            log_dir,
-            log_base_name,
-            timezone,
-            progress_path,
-            move |path| mapped_path_is_safe_regular(&cache_dir, canonical_root.as_deref(), path),
-        )
+        self.generate_report_with_path_inspector(log_dir, timezone, progress_path, move |path| {
+            mapped_path_is_safe_regular(&cache_dir, canonical_root.as_deref(), path)
+        })
     }
 
     fn generate_report_with_path_inspector<P, F>(
         &self,
         log_dir: P,
-        log_base_name: &str,
         timezone: chrono_tz::Tz,
         progress_path: Option<&Path>,
         mut path_is_safe_regular: F,
@@ -444,12 +440,23 @@ impl CorruptionDetector {
             .context("corruption lookback cutoff is outside the supported timestamp range")?;
 
         let log_dir = log_dir.as_ref();
-        let log_files = crate::log_discovery::discover_log_files(log_dir, log_base_name)?;
+        let source_set = discover_log_sources(log_dir)?;
+        let log_files: Vec<_> = source_set
+            .sources
+            .into_iter()
+            .filter(|source| source.kind != SourceKind::Fallback)
+            .flat_map(|source| {
+                let source_kind = source.kind;
+                source
+                    .files
+                    .into_iter()
+                    .map(move |file| (file, source_kind.clone()))
+            })
+            .collect();
         let total_files = log_files.len();
         if log_files.is_empty() {
             bail!(
-                "repeated-MISS scan incomplete: no access log files matching '{}' were found in {}",
-                log_base_name,
+                "repeated-MISS scan incomplete: no access log files were found in {}",
                 log_dir.display()
             );
         }
@@ -467,13 +474,14 @@ impl CorruptionDetector {
             )?;
         }
 
-        let parser = LogParser::new(timezone);
+        let cachelog = LogParser::new(timezone);
+        let detailed = HttpDetailedParser::new(timezone);
         let mut interner = StringInterner::default();
         let mut trackers: HashMap<EvidenceKey, EvidenceAccumulator> = HashMap::new();
         let mut eligible_entries = 0usize;
         let mut coverage = RepeatedMissCoverage::default();
 
-        for (file_index, log_file) in log_files.iter().enumerate() {
+        for (file_index, (log_file, source_kind)) in log_files.iter().enumerate() {
             let file_name = log_file
                 .path
                 .file_name()
@@ -553,8 +561,12 @@ impl CorruptionDetector {
                 if trimmed.is_empty() || service_utils::is_manager_probe(trimmed) {
                     continue;
                 }
-                let Some(entry) = parser.parse_line(trimmed) else {
-                    coverage.malformed_lines = coverage.malformed_lines.saturating_add(1);
+                let Some(entry) = parse_log_line(&cachelog, &detailed, trimmed, source_kind) else {
+                    // A structurally valid http-detailed line in a hint-less source cannot
+                    // produce an attributed entry, but it is not malformed.
+                    if !detailed.recognizes(trimmed) {
+                        coverage.malformed_lines = coverage.malformed_lines.saturating_add(1);
+                    }
                     continue;
                 };
                 if service_utils::should_skip_url(&entry.url)
@@ -1067,6 +1079,20 @@ mod tests {
         )
     }
 
+    fn detailed_log_line(
+        at: DateTime<Utc>,
+        status: i32,
+        cache: &str,
+        url: &str,
+        range: Option<&str>,
+    ) -> String {
+        format!(
+            "[{} +0000] 192.0.2.10 GET \"{url}\" {} HTTP/1.1 {status} \"-\" 512 1040 1024 0.005 1024 {cache} cdn.test {status} 0.004 \"Test\"",
+            at.format("%d/%b/%Y:%H:%M:%S"),
+            range.unwrap_or("-")
+        )
+    }
+
     fn write_log(log_dir: &Path, lines: &[String]) {
         fs::create_dir_all(log_dir).unwrap();
         fs::write(log_dir.join("access.log"), lines.join("\n") + "\n").unwrap();
@@ -1096,7 +1122,7 @@ mod tests {
         lookback: u32,
     ) -> CorruptionReport {
         CorruptionDetector::new(cache_dir, threshold, lookback, scan_start())
-            .generate_report(log_dir, "access.log", chrono_tz::UTC, None)
+            .generate_report(log_dir, chrono_tz::UTC, None)
             .unwrap()
     }
 
@@ -1157,10 +1183,40 @@ mod tests {
         fs::create_dir_all(&log_dir).unwrap();
 
         let error = CorruptionDetector::new(temp.path(), 3, 1, scan_start())
-            .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+            .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap_err();
 
         assert!(error.to_string().contains("no access log files"));
+    }
+
+    #[test]
+    fn per_service_http_detailed_source_produces_repeated_miss_report() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let log_dir = temp.path().join("logs");
+        let http_dir = log_dir.join("http");
+        let url = "/depot/424242/chunk/corrupt";
+        write_slice(&ranged_path(&cache_dir, url));
+        fs::create_dir_all(&http_dir).unwrap();
+
+        let lines: Vec<String> = (0..3)
+            .map(|second| {
+                detailed_log_line(
+                    scan_start() - Duration::seconds(2 - second),
+                    206,
+                    "MISS",
+                    url,
+                    Some("bytes=0-1048575"),
+                )
+            })
+            .collect();
+        fs::write(http_dir.join("steam-access.log"), lines.join("\n") + "\n").unwrap();
+
+        let result = report(&cache_dir, &log_dir, 3, 1);
+
+        assert_eq!(result.total, 1);
+        assert_eq!(result.service_counts.get("steam"), Some(&1));
+        assert_eq!(repeated(&result.candidates[0]).0, url);
     }
 
     #[test]
@@ -1171,7 +1227,7 @@ mod tests {
         fs::write(log_dir.join("access.log.1.gz"), b"not a gzip stream").unwrap();
 
         let error = CorruptionDetector::new(temp.path(), 3, 1, scan_start())
-            .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+            .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap_err();
 
         assert!(error
@@ -1381,7 +1437,7 @@ mod tests {
 
         let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
             .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
-            .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+            .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap();
 
         assert_eq!(result.total, 1);
@@ -1426,7 +1482,7 @@ mod tests {
 
         let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
             .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
-            .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+            .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap();
 
         assert_eq!(result.total, 1);
@@ -1477,7 +1533,7 @@ mod tests {
 
             let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
                 .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
-                .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+                .generate_report(&log_dir, chrono_tz::UTC, None)
                 .unwrap();
 
             assert_eq!(result.total, 1, "{service}");
@@ -1531,7 +1587,7 @@ mod tests {
 
         let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
             .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
-            .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+            .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap();
 
         assert_eq!(result.total, 1);
@@ -1858,7 +1914,7 @@ mod tests {
         for (threshold, lookback) in [(4, 1), (3, 0), (3, 366)] {
             assert!(
                 CorruptionDetector::new(temp.path(), threshold, lookback, scan_start())
-                    .generate_report(&log_dir, "access.log", chrono_tz::UTC, None)
+                    .generate_report(&log_dir, chrono_tz::UTC, None)
                     .is_err()
             );
         }

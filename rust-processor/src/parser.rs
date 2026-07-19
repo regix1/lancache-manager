@@ -1,4 +1,6 @@
+use crate::log_layout::SourceKind;
 use crate::models::LogEntry;
+use crate::parser_http_detailed::HttpDetailedParser;
 use crate::service_utils;
 use crate::tact_products;
 use chrono::{FixedOffset, NaiveDateTime, TimeZone, Utc};
@@ -140,6 +142,21 @@ impl LogParser {
         })
     }
 
+    /// Host (`$host`, the 4th quoted tail field) and User-Agent (the 2nd quoted field) of a
+    /// cachelog record, reusing the same `main_regex` and quoted-field extractor `parse_line`
+    /// uses. The read-only content scan needs the request host for a DNS check, which the
+    /// produced `LogEntry` only exposes (as `cdn_host`) for the riot service. Returns None when
+    /// the line is not a cachelog record.
+    #[allow(dead_code)] // used by the content scan in log_service_manager; other binaries share this module
+    pub(crate) fn extract_host_and_user_agent(&self, line: &str) -> Option<(String, String)> {
+        let captures = self.main_regex.captures(line)?;
+        let rest = captures.name("rest").map(|m| m.as_str()).unwrap_or("");
+        Some((
+            self.extract_quoted_field(rest, 4),
+            self.extract_quoted_field(rest, 2),
+        ))
+    }
+
     fn parse_timestamp(&self, time_str: &str) -> Option<NaiveDateTime> {
         parse_nginx_timestamp(time_str, self.local_tz)
     }
@@ -190,6 +207,26 @@ impl LogParser {
             .captures(url)
             .and_then(|cap| cap.get(1))
             .and_then(|m| m.as_str().parse::<u32>().ok())
+    }
+}
+
+/// Parse either supported access-log format using the source attribution rules shared by
+/// ingestion, purge, and corruption detection. An explicit cachelog service tag takes
+/// precedence over a per-service filename hint.
+#[allow(dead_code)] // some binaries share the parser module without dispatching both formats
+pub(crate) fn parse_log_line(
+    cachelog: &LogParser,
+    detailed: &HttpDetailedParser,
+    line: &str,
+    source_kind: &SourceKind,
+) -> Option<LogEntry> {
+    if let Some(entry) = cachelog.parse_line(line) {
+        return Some(entry);
+    }
+
+    match source_kind {
+        SourceKind::Service(service) => detailed.parse_line(line, service),
+        SourceKind::Monolithic | SourceKind::Fallback => None,
     }
 }
 
@@ -258,6 +295,56 @@ fn convert_to_utc(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const DETAILED_LINE: &str = "[01/Jan/2024:00:00:00 +0000] 192.0.2.10 GET \"/depot/42/chunk/a\" - HTTP/1.1 200 \"-\" 512 1040 1024 0.005 1024 MISS cdn.test 200 0.004 \"Test\"";
+
+    fn dispatch_parsers() -> (LogParser, HttpDetailedParser) {
+        (
+            LogParser::new(chrono_tz::UTC),
+            HttpDetailedParser::new(chrono_tz::UTC),
+        )
+    }
+
+    #[test]
+    fn parse_log_line_prefers_explicit_cachelog_service() {
+        let (cachelog, detailed) = dispatch_parsers();
+        let line = "[epicgames] 192.0.2.10 / - - - [01/Jan/2024:00:00:00 +0000] \"GET /Builds/object HTTP/1.1\" 200 1024 \"-\" \"Test\" \"MISS\" \"cdn.test\" \"-\"";
+
+        let entry = parse_log_line(
+            &cachelog,
+            &detailed,
+            line,
+            &SourceKind::Service("steam".to_string()),
+        )
+        .expect("cachelog line");
+
+        assert_eq!(entry.service, "epicgames");
+    }
+
+    #[test]
+    fn parse_log_line_uses_service_hint_for_http_detailed() {
+        let (cachelog, detailed) = dispatch_parsers();
+
+        let entry = parse_log_line(
+            &cachelog,
+            &detailed,
+            DETAILED_LINE,
+            &SourceKind::Service("steam".to_string()),
+        )
+        .expect("http-detailed line");
+
+        assert_eq!(entry.service, "steam");
+        assert_eq!(entry.depot_id, Some(42));
+    }
+
+    #[test]
+    fn parse_log_line_drops_hintless_http_detailed() {
+        let (cachelog, detailed) = dispatch_parsers();
+
+        assert!(
+            parse_log_line(&cachelog, &detailed, DETAILED_LINE, &SourceKind::Monolithic,).is_none()
+        );
+    }
 
     #[test]
     fn normalize_url_fast_path_returns_input_unchanged() {

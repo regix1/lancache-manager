@@ -3729,7 +3729,6 @@ export type StatusCheckContentAvailability =
   | 'available'
   | 'logMissing'
   | 'unreadable'
-  | 'unsupportedFormat'
   | 'noSamples';
 
 export type StatusCheckProtocolStatus =

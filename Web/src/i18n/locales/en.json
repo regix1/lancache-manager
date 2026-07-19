@@ -1615,7 +1615,6 @@
           "oldSnapshot": "This saved result is from before download checks existed. DNS results are still shown, but whether downloads used the cache is unknown.",
           "logMissing": "The cache access log was not found, so recent downloads could not be checked. DNS results are still shown.",
           "unreadable": "The cache access log could not be read, so recent downloads could not be checked. DNS results are still shown.",
-          "unsupportedFormat": "The cache access log is in a format that isn't recognized, so recent downloads could not be checked. DNS results are still shown.",
           "noSamples": "No recent downloads were found in the cache access log to check. DNS results are still shown.",
           "noPaths": "No recent downloads were found to check.",
           "noPathsHelp": "Only real, recent download entries can be checked, and none were available.",

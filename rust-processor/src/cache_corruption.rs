@@ -17,12 +17,16 @@ mod cache_utils;
 mod cancel;
 mod db;
 mod log_discovery;
+mod log_layout;
 mod log_purge;
 mod log_reader;
 mod models;
 mod parser;
+mod parser_http_detailed;
 mod progress_events;
 mod progress_utils;
+#[cfg(test)]
+mod riot_hosts;
 mod service_utils;
 mod tact_products;
 
@@ -914,7 +918,7 @@ fn generate_report(
     progress_path: Option<&Path>,
 ) -> Result<cache_corruption_detector::CorruptionReport> {
     CorruptionDetector::new(cache_dir, threshold, lookback_days, scan_started_utc)
-        .generate_report(log_dir, "access.log", timezone, progress_path)
+        .generate_report(log_dir, timezone, progress_path)
         .context("failed to generate corruption report")
 }
 
@@ -1201,7 +1205,7 @@ async fn run_remove(
 
     // Preflight every non-filesystem dependency before the first unlink. A later mutation error
     // still retains persisted evidence, but avoid preventable partial work (bad log root/DB config).
-    crate::log_discovery::discover_log_files(log_dir, "access.log")
+    crate::log_layout::discover_log_sources(log_dir)
         .context("failed to discover access logs before removal")?;
     let matcher = ExactLogMatcher::new(evidence.observations.clone());
     let prefilter = matcher.prefilter()?;

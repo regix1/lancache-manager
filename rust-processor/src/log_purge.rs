@@ -2,9 +2,9 @@
 // and `cache_corruption`.
 //
 // This module contains `remove_log_entries_for_game`, which walks all nginx
-// access.log files under a log directory (plain + gzip + zstd), rewrites each
-// file to exclude lines matching the given URL set or depot-ID set, and
-// atomically replaces the originals.
+// access-log sources under a log directory (plain + gzip + zstd), rewrites each
+// file to exclude lines matching the given URL set or depot-ID set, and atomically
+// replaces the originals.
 //
 // It was extracted from `cache_steam_remove.rs` so that both the single-game
 // remover and the bulk evicted purge binary can share the exact same logic
@@ -37,10 +37,12 @@ use flate2::Compression;
 use tempfile::NamedTempFile;
 
 use crate::cache_utils;
+use crate::log_layout::{discover_log_sources, SourceKind};
 use crate::log_reader::LogFileReader;
 use crate::models::LogEntry;
-use crate::parser::LogParser;
-use crate::{log_discovery, service_utils};
+use crate::parser::{parse_log_line, LogParser};
+use crate::parser_http_detailed::HttpDetailedParser;
+use crate::service_utils;
 
 /// Byte-level prefilter for removal candidates. A line that fails
 /// `is_candidate` can never match the removal predicate and is written
@@ -185,7 +187,9 @@ fn line_contains_double_slash(line: &[u8]) -> bool {
 fn line_should_be_removed<F>(
     raw_line: &[u8],
     prefilter: &RemovalPrefilter,
-    parser: &LogParser,
+    cachelog: &LogParser,
+    detailed: &HttpDetailedParser,
+    source_kind: &SourceKind,
     should_remove_entry: &F,
 ) -> bool
 where
@@ -200,7 +204,7 @@ where
         return false;
     };
 
-    match parser.parse_line(text.trim()) {
+    match parse_log_line(cachelog, detailed, text.trim(), source_kind) {
         Some(entry) => !service_utils::should_skip_url(&entry.url) && should_remove_entry(&entry),
         None => false,
     }
@@ -211,7 +215,9 @@ where
 fn scan_file_for_matches<F>(
     path: &Path,
     prefilter: &RemovalPrefilter,
-    parser: &LogParser,
+    cachelog: &LogParser,
+    detailed: &HttpDetailedParser,
+    source_kind: &SourceKind,
     should_remove_entry: &F,
 ) -> Result<(u64, u64)>
 where
@@ -230,7 +236,14 @@ where
         }
 
         lines_total += 1;
-        if line_should_be_removed(&line, prefilter, parser, should_remove_entry) {
+        if line_should_be_removed(
+            &line,
+            prefilter,
+            cachelog,
+            detailed,
+            source_kind,
+            should_remove_entry,
+        ) {
             lines_matched += 1;
         }
     }
@@ -253,8 +266,20 @@ where
 
     eprintln!("Filtering log files to remove {} entries...", description);
 
-    let parser = LogParser::new(chrono_tz::UTC);
-    let log_files = log_discovery::discover_log_files(log_dir, "access.log")?;
+    let cachelog = LogParser::new(chrono_tz::UTC);
+    let detailed = HttpDetailedParser::new(chrono_tz::UTC);
+    let source_set = discover_log_sources(log_dir)?;
+    let log_files: Vec<_> = source_set
+        .sources
+        .into_iter()
+        .flat_map(|source| {
+            let source_kind = source.kind;
+            source
+                .files
+                .into_iter()
+                .map(move |file| (file, source_kind.clone()))
+        })
+        .collect();
     let total_files = log_files.len();
 
     let total_lines_removed = AtomicU64::new(0);
@@ -265,7 +290,7 @@ where
     log_files
         .par_iter()
         .enumerate()
-        .for_each(|(file_index, log_file)| {
+        .for_each(|(file_index, (log_file, source_kind))| {
             eprintln!(
                 "  Processing file {}/{}: {}",
                 file_index + 1,
@@ -279,7 +304,9 @@ where
                 let (lines_total, lines_matched) = scan_file_for_matches(
                     &log_file.path,
                     prefilter,
-                    &parser,
+                    &cachelog,
+                    &detailed,
+                    source_kind,
                     &should_remove_entry,
                 )?;
 
@@ -287,9 +314,9 @@ where
                     return Ok(0);
                 }
 
-                if lines_matched == lines_total {
+                if lines_matched == lines_total && source_kind == &SourceKind::Monolithic {
                     // Every line matched: delete the file entirely (same semantics as
-                    // the previous single-pass implementation, minus the wasted temp write).
+                    // the previous monolithic implementation, minus the wasted temp write).
                     eprintln!(
                         "  INFO: All {} lines from this file matched, deleting file entirely",
                         lines_total
@@ -359,7 +386,14 @@ where
                             break;
                         }
 
-                        if line_should_be_removed(&line, prefilter, &parser, &should_remove_entry) {
+                        if line_should_be_removed(
+                            &line,
+                            prefilter,
+                            &cachelog,
+                            &detailed,
+                            source_kind,
+                            &should_remove_entry,
+                        ) {
                             lines_removed += 1;
                         } else {
                             writer.write_all(&line)?;
@@ -477,7 +511,7 @@ where
     )
 }
 
-/// Rewrite every nginx access.log file under `log_dir` to drop entries whose
+/// Rewrite every discovered nginx access-log file under `log_dir` to drop entries whose
 /// URL is in `urls_to_remove` OR whose parsed depot_id is in `valid_depot_ids`.
 ///
 /// Returns `(lines_removed, permission_errors)`.
@@ -570,6 +604,12 @@ mod tests {
         format!(
             "[steam] 192.168.1.50 / - - - [01/Jan/2024:00:00:00 +0000] \"GET {} HTTP/1.1\" 200 1024 \"-\" \"Valve/Steam\" \"{}\" \"-\" \"-\"",
             url, cache_status
+        )
+    }
+
+    fn detailed_log_line(url: &str, cache_status: &str) -> String {
+        format!(
+            "[01/Jan/2024:00:00:00 +0000] 192.168.1.50 GET \"{url}\" - HTTP/1.1 200 \"-\" 512 1040 1024 0.005 1024 {cache_status} cdn.test 200 0.004 \"Valve/Steam\""
         )
     }
 
@@ -898,6 +938,34 @@ mod tests {
         let remaining = fs::read_to_string(&log_path).unwrap();
         assert!(remaining.contains(keep_url));
         assert!(!remaining.contains("/depot/123456"));
+    }
+
+    #[test]
+    fn per_service_http_detailed_purge_preserves_kept_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("steam-access.log");
+        let target_one = detailed_log_line("/depot/424242/chunk/drop-a", "MISS");
+        let target_two = detailed_log_line("/depot/424242/chunk/drop-b", "HIT");
+        let kept = format!(
+            " \t{}  \r\n",
+            detailed_log_line("/depot/555555/chunk/keep", "HIT")
+        );
+        let unrecognized = "unrecognized /depot/424242/chunk/drop-a bytes \t\r\n";
+        let contents = format!("{target_one}\r\n{kept}{target_two}\n{unrecognized}");
+        fs::write(&log_path, contents.as_bytes()).unwrap();
+
+        let urls: HashSet<String> = HashSet::new();
+        let depot_ids: HashSet<u32> = [424242].into_iter().collect();
+        let (lines_removed, permission_errors) =
+            remove_log_entries_for_game(dir.path(), &urls, &depot_ids, None).unwrap();
+
+        assert_eq!(lines_removed, 2);
+        assert_eq!(permission_errors, 0);
+        assert!(log_path.exists());
+        assert_eq!(
+            fs::read(&log_path).unwrap(),
+            format!("{kept}{unrecognized}").as_bytes()
+        );
     }
 
     #[test]

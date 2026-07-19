@@ -12,12 +12,16 @@ mod cache_utils;
 mod cancel;
 mod db;
 mod log_discovery;
+mod log_layout;
 mod log_purge;
 mod log_reader;
 mod models;
 mod parser;
+mod parser_http_detailed;
 mod progress_events;
 mod progress_utils;
+#[cfg(test)]
+mod riot_hosts;
 mod service_utils;
 mod tact_products;
 

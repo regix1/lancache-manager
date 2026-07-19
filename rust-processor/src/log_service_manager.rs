@@ -11,13 +11,21 @@ use std::time::Instant;
 use tempfile::NamedTempFile;
 
 mod cancel;
+mod content_scan;
 mod log_discovery;
 mod log_layout;
 mod log_reader;
 mod models;
+mod parser;
+mod parser_http_detailed;
 mod progress_events;
 mod progress_utils;
+// The production binary does not use riot_hosts; it is compiled only for the test build, where the
+// shared parser_http_detailed test suite resolves a Riot CDN host through `crate::riot_hosts`.
+#[cfg(test)]
+mod riot_hosts;
 mod service_utils;
+mod tact_products;
 
 use log_discovery::{discover_log_files, LogFile};
 use log_layout::{discover_log_sources, kind_for_stem, LogSource, SourceKind};
@@ -1557,6 +1565,9 @@ fn run(args: &[String], reporter: &ProgressReporter) -> Result<()> {
         );
         eprintln!("  log_manager delete-file <file_path> <progress_json_path> [datasource_name]");
         eprintln!(
+            "  log_manager scan-content <log_directory> <output_json_path> [max_tail_bytes] [max_samples]"
+        );
+        eprintln!(
             "\nNote: count-lines counts complete records only and reports per-source counts."
         );
         anyhow::bail!("invalid arguments");
@@ -1748,9 +1759,49 @@ fn run(args: &[String], reporter: &ProgressReporter) -> Result<()> {
 
             Ok(())
         }
+        "scan-content" => {
+            if args.len() < 4 || args.len() > 6 {
+                eprintln!(
+                    "Usage: log_manager scan-content <log_directory> <output_json_path> [max_tail_bytes] [max_samples]"
+                );
+                anyhow::bail!("invalid arguments for scan-content");
+            }
+            let output_path = Path::new(&args[3]);
+            // Clamp both budgets to hard backstop ceilings so an oversized argument can never
+            // demand a multi-gigabyte tail allocation or unbounded candidate retention.
+            let max_tail_bytes = match args.get(4) {
+                Some(value) => value
+                    .parse::<u64>()
+                    .context("invalid max_tail_bytes for scan-content")?
+                    .min(content_scan::MAX_TAIL_BYTES_LIMIT),
+                None => content_scan::DEFAULT_MAX_TAIL_BYTES,
+            };
+            let max_samples = match args.get(5) {
+                Some(value) => value
+                    .parse::<usize>()
+                    .context("invalid max_samples for scan-content")?
+                    .min(content_scan::MAX_SAMPLES_LIMIT),
+                None => content_scan::DEFAULT_MAX_SAMPLES,
+            };
+
+            // Read-only: this never writes progress events or touches live monitor offsets. Its
+            // one output is the candidate JSON the C# host reads back and re-validates.
+            let output = content_scan::scan_directory(Path::new(log_path), max_tail_bytes, max_samples)
+                .context("Content scan failed")?;
+            let json =
+                serde_json::to_string(&output).context("Failed to serialize content scan output")?;
+            std::fs::write(output_path, json).with_context(|| {
+                format!(
+                    "Failed to write content scan output: {}",
+                    output_path.display()
+                )
+            })?;
+
+            Ok(())
+        }
         _ => {
             eprintln!("Unknown command: {command}");
-            eprintln!("Valid commands: count, count-lines, remove, delete-file");
+            eprintln!("Valid commands: count, count-lines, remove, delete-file, scan-content");
             anyhow::bail!("unknown command: {command}");
         }
     }
