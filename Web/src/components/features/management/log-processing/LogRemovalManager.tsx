@@ -781,7 +781,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                         statusBadge={`${formatCount(totalEntries)} entries`}
                         statusIcons={
                           layoutLabel ? (
-                            <span className="text-xs inline-flex items-center px-2.5 py-1 rounded-full bg-themed-tertiary text-themed-muted">
+                            <span
+                              className={`text-xs inline-flex items-center px-2.5 py-1 rounded-full transition duration-300 ${
+                                isExpanded
+                                  ? 'bg-[var(--theme-accent-subtle)] text-themed-accent'
+                                  : 'bg-themed-tertiary text-themed-muted'
+                              }`}
+                            >
                               {layoutLabel}
                             </span>
                           ) : undefined
