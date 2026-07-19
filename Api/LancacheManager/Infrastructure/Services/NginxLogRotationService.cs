@@ -506,7 +506,15 @@ public class NginxLogRotationService
             {
                 if (string.IsNullOrWhiteSpace(value)) return false;
                 var lower = value.ToLowerInvariant();
-                return lower.Contains("dns") || lower.Contains("manager");
+                // Sidecars that share the "lancache" name prefix but never run nginx: the
+                // manager UI, the DNS resolver, and the database backend (e.g. lancache-db
+                // on a postgres image). Excluding them keeps them out of the nginx search.
+                return lower.Contains("dns")
+                    || lower.Contains("manager")
+                    || lower.Contains("postgres")
+                    || lower.Contains("redis")
+                    || lower.Contains("mariadb")
+                    || lower.Contains("mysql");
             }
 
             var containers = stdout
@@ -559,8 +567,18 @@ public class NginxLogRotationService
             if (candidates.Count == 1)
             {
                 var match = candidates[0];
-                _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", match.Name);
-                return (match.Name, null);
+                // A single "lancache"-named match is ambiguous: a database or other sidecar
+                // can share the prefix, so confirm nginx is actually present before claiming
+                // it as the reopen target. If it is not, keep searching for a real nginx host.
+                if (await ContainerHasNginxAsync(match.Name))
+                {
+                    _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", match.Name);
+                    return (match.Name, null);
+                }
+
+                _logger.LogDebug(
+                    "Sole lancache-named container {ContainerName} has no nginx; continuing search.",
+                    match.Name);
             }
 
             if (candidates.Count > 1)
@@ -580,9 +598,12 @@ public class NginxLogRotationService
                 return (fallbackName, null);
             }
 
-            // Fall back to any container with nginx installed
+            // Fall back to any container with nginx installed, but still skip the known
+            // sidecars so a manager/dns/database container is never picked as the target.
             foreach (var container in containers)
             {
+                if (LooksLikeNonCache(container.Name) || LooksLikeNonCache(container.Image)) continue;
+
                 var hasNginx = await ContainerHasNginxAsync(container.Name);
                 if (!hasNginx) continue;
 

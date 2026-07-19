@@ -363,6 +363,60 @@ public sealed class NginxLogRotationServiceTests
             });
     }
 
+    [Fact]
+    public async Task GetNginxReopenAvailabilityAsync_SoleLancacheSidecarHasNoNginx_ReportsUnavailableAsync()
+    {
+        // Bare-metal nginx runs on the host; the only "lancache"-named container on the socket
+        // is a database sidecar. It must not be mistaken for the reopen target, so availability
+        // must fall through to the host signal path and report the pid-host remedy.
+        var service = CreateRealDetectionService(dockerSocketAvailable: true);
+        service.DockerPsOutput =
+            "lancache-manager|ghcr.io/regix1/lancache-manager:dev\nlancache-db|internaldb:16";
+        service.NginxCheckExitCode = 1;
+        service.HostProbeExitCode = 3;
+
+        var result = await service.GetNginxReopenAvailabilityAsync("bare_metal");
+
+        Assert.False(result.Available);
+        Assert.Equal(NginxReopenHint.EnablePidHost, result.Hint);
+    }
+
+    [Fact]
+    public async Task GetNginxReopenAvailabilityAsync_SoleLancacheContainerHasNginx_ReportsAvailableAsync()
+    {
+        // A single lancache-named container that actually runs nginx is still detected, so the
+        // added nginx check does not regress legitimate monolithic setups.
+        var service = CreateRealDetectionService(dockerSocketAvailable: true);
+        service.DockerPsOutput = "lancache|myregistry/lancache:latest";
+        service.NginxCheckExitCode = 0;
+
+        var result = await service.GetNginxReopenAvailabilityAsync("bare_metal");
+
+        Assert.True(result.Available);
+        Assert.Equal(NginxReopenHint.None, result.Hint);
+    }
+
+    private static RealDetectionNginxLogRotationService CreateRealDetectionService(bool dockerSocketAvailable)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["NginxLogRotation:Enabled"] = "true",
+                ["NginxLogRotation:ContainerName"] = "auto"
+            })
+            .Build();
+
+        return new RealDetectionNginxLogRotationService(
+            new CapturingLogger<NginxLogRotationService>(),
+            configuration,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            new TestPathResolver(NullLogger.Instance)
+            {
+                DockerSocketAvailable = dockerSocketAvailable
+            },
+            TimeProvider.System);
+    }
+
     private static TestNginxLogRotationService CreateService(
         CapturingLogger<NginxLogRotationService> logger,
         TimeProvider? timeProvider = null,
@@ -435,6 +489,38 @@ public sealed class NginxLogRotationServiceTests
                 startInfo.RedirectStandardError,
                 startInfo.UseShellExecute));
             return Task.FromResult(ProcessResults.Dequeue());
+        }
+    }
+
+    private sealed class RealDetectionNginxLogRotationService : NginxLogRotationService
+    {
+        public RealDetectionNginxLogRotationService(
+            ILogger<NginxLogRotationService> logger,
+            IConfiguration configuration,
+            ProcessManager processManager,
+            TestPathResolver pathResolver,
+            TimeProvider timeProvider)
+            : base(logger, configuration, processManager, pathResolver, timeProvider)
+        {
+        }
+
+        public string DockerPsOutput { get; set; } = string.Empty;
+        public int NginxCheckExitCode { get; set; } = 1;
+        public int HostProbeExitCode { get; set; } = 3;
+
+        protected override Task<ProcessCommandResult> RunProcessAsync(
+            ProcessStartInfo startInfo,
+            string label)
+        {
+            var result = label switch
+            {
+                "docker ps" => new ProcessCommandResult { ExitCode = 0, Output = DockerPsOutput },
+                "docker exec nginx-check" => new ProcessCommandResult { ExitCode = NginxCheckExitCode },
+                "host nginx signal probe" => new ProcessCommandResult { ExitCode = HostProbeExitCode },
+                _ => new ProcessCommandResult { ExitCode = 0 }
+            };
+
+            return Task.FromResult(result);
         }
     }
 
