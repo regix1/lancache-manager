@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -46,7 +45,7 @@ public class NginxLogRotationService
     private readonly SemaphoreSlim _availabilityProbeLock = new(1, 1);
     private DateTimeOffset? _lastBareMetalWarning;
     private AvailabilityCacheEntry? _dockerAvailability;
-    private AvailabilityCacheEntry? _bareMetalAvailability;
+    private AvailabilityCacheEntry? _hostAvailability;
 
     public NginxLogRotationService(
         ILogger<NginxLogRotationService> logger,
@@ -72,29 +71,14 @@ public class NginxLogRotationService
     }
 
     /// <summary>
-    /// Returns whether the manager can reopen nginx for the requested datasource layout.
-    /// Monolithic layouts use the Docker path; bare-metal and mixed layouts require access
-    /// to the host nginx master. Results are cached briefly because probing may spawn processes.
-    /// </summary>
-    public Task<bool> CanReopenNginxAsync(string layout)
-    {
-        var target = layout is LogSourceLayout.LayoutBareMetal or LogSourceLayout.LayoutMixed
-            ? ReopenTarget.BareMetal
-            : ReopenTarget.Docker;
-        return GetCachedAvailabilityAsync(target);
-    }
-
-    /// <summary>
-    /// Returns whether either reopen path is currently usable.
+    /// Returns whether either reopen path is currently usable, checking the container path first
+    /// and then the host signal path. Results for each path are cached briefly because probing may
+    /// spawn processes.
     /// </summary>
     public async Task<bool> CanReopenNginxAsync()
     {
-        if (await GetCachedAvailabilityAsync(ReopenTarget.Docker))
-        {
-            return true;
-        }
-
-        return await GetCachedAvailabilityAsync(ReopenTarget.BareMetal);
+        return await GetCachedAvailabilityAsync(ReopenTarget.Docker) ||
+               await GetCachedAvailabilityAsync(ReopenTarget.Host);
     }
 
     private async Task<bool> GetCachedAvailabilityAsync(ReopenTarget target)
@@ -119,7 +103,7 @@ public class NginxLogRotationService
                 {
                     available = target == ReopenTarget.Docker
                         ? await ProbeDockerReopenAsync()
-                        : await ProbeBareMetalReopenAsync();
+                        : await ProbeHostSignalAsync();
                 }
             }
             catch (Exception ex)
@@ -136,7 +120,7 @@ public class NginxLogRotationService
                 }
                 else
                 {
-                    _bareMetalAvailability = entry;
+                    _hostAvailability = entry;
                 }
             }
 
@@ -154,7 +138,7 @@ public class NginxLogRotationService
         {
             var entry = target == ReopenTarget.Docker
                 ? _dockerAvailability
-                : _bareMetalAvailability;
+                : _hostAvailability;
             if (entry is not null &&
                 _timeProvider.GetUtcNow() - entry.CheckedAt < _availabilityCacheTtl)
             {
@@ -185,7 +169,7 @@ public class NginxLogRotationService
         return !string.IsNullOrWhiteSpace(containerName);
     }
 
-    private async Task<bool> ProbeBareMetalReopenAsync()
+    private async Task<bool> ProbeHostSignalAsync()
     {
         var result = await RunProcessAsync(
             CreateHostSignalStartInfo("0"),
@@ -588,7 +572,7 @@ public class NginxLogRotationService
     private enum ReopenTarget
     {
         Docker,
-        BareMetal
+        Host
     }
 
     private sealed record AvailabilityCacheEntry(bool Available, DateTimeOffset CheckedAt);

@@ -18,29 +18,41 @@ public sealed class NginxLogRotationServiceTests
         "pgrep -f 'nginx: master' | head -1)";
 
     [Fact]
-    public async Task CanReopenNginxAsync_DockerContainerAndSocketAvailable_ReturnsTrueAsync()
+    public async Task CanReopenNginxAsync_ContainerizedNginxWithBareMetalLogs_ReturnsTrueAsync()
     {
+        // The log layout is bare-metal, but nginx itself is containerized and the host signal
+        // path is unavailable. Availability must follow the runtime reopen paths, not log layout.
         var service = CreateService(
             new CapturingLogger<NginxLogRotationService>(),
             dockerSocketAvailable: true);
         service.DetectionResult = ("lancache-monolithic", null);
+        service.ProcessResults.Enqueue(new ProcessCommandResult
+        {
+            ExitCode = 1,
+            Error = "kill: Operation not permitted"
+        });
 
-        var available = await service.CanReopenNginxAsync("monolithic");
+        var available = await service.CanReopenNginxAsync();
 
         Assert.True(available);
         Assert.Equal(1, service.DetectionCalls);
         Assert.Empty(service.Commands);
+        Assert.Single(service.ProcessResults);
     }
 
     [Fact]
-    public async Task CanReopenNginxAsync_SignalableHostNginx_ReturnsTrueAsync()
+    public async Task CanReopenNginxAsync_NoContainerAndHostSignalSucceeds_ReturnsTrueAsync()
     {
-        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        var service = CreateService(
+            new CapturingLogger<NginxLogRotationService>(),
+            dockerSocketAvailable: true);
+        service.DetectionResult = (null, "No container with nginx found");
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
 
-        var available = await service.CanReopenNginxAsync("bare_metal");
+        var available = await service.CanReopenNginxAsync();
 
         Assert.True(available);
+        Assert.Equal(1, service.DetectionCalls);
         var invocation = Assert.Single(service.Commands);
         Assert.Equal("host nginx signal probe", invocation.Label);
         Assert.Equal(new[] { "-c", HostProbeCommand }, invocation.ArgumentList);
@@ -49,33 +61,78 @@ public sealed class NginxLogRotationServiceTests
     [Theory]
     [InlineData("kill: no process found")]
     [InlineData("kill: Operation not permitted")]
-    public async Task CanReopenNginxAsync_HostNginxUnavailable_ReturnsFalseAsync(string error)
+    public async Task CanReopenNginxAsync_NoContainerAndHostSignalFails_ReturnsFalseAsync(string error)
     {
-        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        var service = CreateService(
+            new CapturingLogger<NginxLogRotationService>(),
+            dockerSocketAvailable: true);
+        service.DetectionResult = (null, "No container with nginx found");
         service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 1, Error = error });
 
-        var available = await service.CanReopenNginxAsync("bare_metal");
+        var available = await service.CanReopenNginxAsync();
 
         Assert.False(available);
+        Assert.Equal(1, service.DetectionCalls);
         Assert.Single(service.Commands);
     }
 
     [Fact]
-    public async Task CanReopenNginxAsync_WithinCacheTtl_DoesNotProbeAgainAsync()
+    public async Task CanReopenNginxAsync_DockerSocketMissingAndHostSignalSucceeds_ReturnsTrueAsync()
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+
+        var available = await service.CanReopenNginxAsync();
+
+        Assert.True(available);
+        Assert.Equal(0, service.DetectionCalls);
+        var invocation = Assert.Single(service.Commands);
+        Assert.Equal(new[] { "-c", HostProbeCommand }, invocation.ArgumentList);
+    }
+
+    [Fact]
+    public async Task CanReopenNginxAsync_DockerSocketMissingAndHostSignalFails_ReturnsFalseAsync()
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 1 });
+
+        var available = await service.CanReopenNginxAsync();
+
+        Assert.False(available);
+        Assert.Equal(0, service.DetectionCalls);
+        Assert.Single(service.Commands);
+    }
+
+    [Fact]
+    public async Task CanReopenNginxAsync_BothTargetsCached_DoesNotProbeAgainWithinTtlAsync()
     {
         var timeProvider = new MutableTimeProvider(
             new DateTimeOffset(2026, 7, 19, 12, 0, 0, TimeSpan.Zero));
         var service = CreateService(
             new CapturingLogger<NginxLogRotationService>(),
-            timeProvider);
-        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+            timeProvider,
+            dockerSocketAvailable: true);
+        service.DetectionResult = (null, "No container with nginx found");
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 1 });
 
-        var first = await service.CanReopenNginxAsync("bare_metal");
+        var first = await service.CanReopenNginxAsync();
         timeProvider.Advance(TimeSpan.FromSeconds(29));
-        var second = await service.CanReopenNginxAsync("bare_metal");
+        var second = await service.CanReopenNginxAsync();
 
-        Assert.True(first);
-        Assert.True(second);
+        Assert.False(first);
+        Assert.False(second);
+        Assert.Equal(1, service.DetectionCalls);
+        Assert.Single(service.Commands);
+    }
+
+    [Fact]
+    public async Task CanReopenNginxAsync_HostProbeThrows_ReturnsFalseAsync()
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+
+        var available = await service.CanReopenNginxAsync();
+
+        Assert.False(available);
         Assert.Single(service.Commands);
     }
 

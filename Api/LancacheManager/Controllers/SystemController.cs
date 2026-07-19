@@ -84,7 +84,7 @@ public class SystemController : ControllerBase
                 SourceCount = ds.LogSourceStems.Count,
                 CanMapLogicalObjects = capabilities.CanMapLogicalObjects,
                 CanClearWholeCacheRoot = capabilities.CanClearWholeCacheRoot,
-                NginxReopenAvailable = await _nginxLogRotationService.CanReopenNginxAsync(ds.Layout)
+                NginxReopenAvailable = await _nginxLogRotationService.CanReopenNginxAsync()
             };
         }));
 

@@ -720,7 +720,7 @@ If you run more than one cache instance or split services across drives, see [Mu
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NginxLogRotation__Enabled` | `true` | Tell nginx to reopen its logs after the app rewrites them. Container installs use the Docker socket; bare-metal installs use the host PID namespace and sufficient signal privilege. |
+| `NginxLogRotation__Enabled` | `true` | Tell nginx to reopen its logs after the app rewrites them. Containerized nginx uses the Docker socket; nginx running directly on the host uses the host PID namespace and sufficient signal privilege. |
 | `NginxLogRotation__ContainerName` | (empty = auto-detect) | LANCache container name. When empty (or set to `auto`), the app finds containers with "lancache" in the name. |
 | `NginxLogRotation__ScheduleHours` | `24` | How often to check whether rotation is needed. |
 
@@ -804,7 +804,7 @@ services:
       # - Prefill__HostTcpPort=                   # TCP mode only; empty picks a free port
       # - Prefill__TcpHost=127.0.0.1              # TCP mode only
 
-      # --- Nginx log rotation (docker.sock, or pid: host + privilege on bare-metal) ---
+      # --- Nginx log rotation (docker.sock for containers; pid: host for host nginx) ---
       # - NginxLogRotation__Enabled=true
       # - NginxLogRotation__ContainerName=        # empty or "auto" finds the "lancache" container
       # - NginxLogRotation__ScheduleHours=24
@@ -1087,7 +1087,9 @@ lancache_cache_used_bytes / 1024 / 1024 / 1024
 
 Mounting `/srv/lancache/logs` (the parent folder) also works — the manager finds the `http/` folder on its own.
 
-To let the manager automatically reopen the host nginx logs after a removal or rewrite, share the host PID namespace and run the manager with permission to signal the root-owned nginx master process. With the shipped image, the direct setup is:
+The `pid: host` setup is only for nginx running directly on the host. If nginx runs in a container but writes the bare-metal per-service log layout, mount the Docker socket instead; `pid: host` is not needed.
+
+To let the manager automatically reopen a host-run nginx after a removal or rewrite, share the host PID namespace and run the manager with permission to signal the root-owned nginx master process. With the shipped image, the direct setup is:
 
 ```yaml
 services:
