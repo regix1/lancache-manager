@@ -33,7 +33,6 @@ import { DiskObjectActionGate } from '@components/features/management/DiskObject
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { resolveCardNotice } from '@utils/cardDirectoryNotice';
-import { showPermissionBlock } from '@utils/permissionUi';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { formatCount } from '@utils/formatters';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -45,7 +44,7 @@ import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuDangerItem, ActionMenuDivider, ActionMenuItem } from '@components/ui/ActionMenu';
-import { EmptyState, LoadingState, ReadOnlyBadge } from '@components/ui/ManagerCard';
+import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
 import Badge from '@components/ui/Badge';
 import CorruptionChunkList from './CorruptionChunkList';
 import CorruptionRemovalWarning from './CorruptionRemovalWarning';
@@ -538,10 +537,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       checkingPermissions,
       nginxReopenGate: repeatedMissNginxReopenGate
     }
-  );
-  const showReadOnlyPlaceholder = showPermissionBlock(
-    checkingPermissions,
-    hasRemovalPermissionIssue
   );
   const nginxReopenAvailable =
     !requiresRepeatedMissResources || repeatedMissNginxReopenGate.available;
@@ -1192,12 +1187,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           )}
 
           <CardDirectoryNotice notice={directoryNotice} />
-
-          {requiresRepeatedMissResources &&
-            !repeatedMissNginxReopenGate.available &&
-            !hasRemovalPermissionIssue && <ReadOnlyBadge />}
-
-          {showReadOnlyPlaceholder && <ReadOnlyBadge />}
 
           {/*
             While a scan runs, the scan's own progress is the whole story: nothing below it.

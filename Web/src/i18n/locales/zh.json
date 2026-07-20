@@ -2962,7 +2962,6 @@
       "summary": "按服务删除访问日志记录以缩减日志。",
       "subtitle": "从日志文件中移除服务条目",
       "logsMissing": "未找到日志目录",
-      "readOnly": "只读",
       "dockerSocketRequired": "需要 Docker 套接字",
       "refreshServiceCounts": "刷新服务计数",
       "noEntriesForDatasource": "没有包含日志条目的服务",

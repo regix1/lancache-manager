@@ -39,7 +39,7 @@ import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { MANAGEMENT_STORAGE_KEYS } from '../sections/managementStorageKeys';
-import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
+import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import '../managementSectionContent.css';
 import Badge from '@components/ui/Badge';
 import GamesList from './GamesList';
@@ -949,7 +949,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       >
         <div className="space-y-3">
           <CardDirectoryNotice notice={directoryNotice} />
-          {!cacheExist && <ReadOnlyBadge />}
 
           {/* Datasource Filter */}
           {cacheExist && datasources.length > 1 && (

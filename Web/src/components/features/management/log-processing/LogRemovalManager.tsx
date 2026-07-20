@@ -28,7 +28,6 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
 import { Checkbox } from '@components/ui/Checkbox';
-import { showPermissionBlock } from '@utils/permissionUi';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -598,9 +597,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     Object.values(ds.serviceCounts).some((count) => count > 0)
   );
 
-  const logsMissing = !logsExist;
-  const hasPermissionIssue = logsReadOnly || logsMissing;
-  const showReadOnlyPlaceholder = showPermissionBlock(checkingPermissions, hasPermissionIssue);
   const directoryNotice = resolveCardNotice(
     { cacheWrite: false, cacheRead: false, logsWrite: true, nginx: true },
     {
@@ -693,223 +689,217 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           <CardDirectoryNotice notice={directoryNotice} />
 
           {/* Content */}
-          {showReadOnlyPlaceholder ? (
-            <ReadOnlyBadge />
-          ) : (
-            <>
-              {isLoading ? (
-                <LoadingState
-                  variant="spinner"
-                  message={t('management.logRemoval.loading.scanning')}
-                  submessage={t('management.logRemoval.loading.mayTakeMinutes')}
-                />
-              ) : hasAnyLogEntries ? (
-                <div className="space-y-3">
-                  {selectableKeys.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      {/* Select-all only. The selected count shows once in the section
+          <>
+            {isLoading ? (
+              <LoadingState
+                variant="spinner"
+                message={t('management.logRemoval.loading.scanning')}
+                submessage={t('management.logRemoval.loading.mayTakeMinutes')}
+              />
+            ) : hasAnyLogEntries ? (
+              <div className="space-y-3">
+                {selectableKeys.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Select-all only. The selected count shows once in the section
                             header badge, so it is not repeated here. */}
-                      <Checkbox
-                        checked={allVisibleSelected}
-                        onChange={() => selection.setMany(selectableKeys, !allVisibleSelected)}
-                        disabled={
-                          mockMode ||
-                          authMode !== 'authenticated' ||
-                          isLogRemovalActive ||
-                          anyServiceRemovalPending ||
-                          isBatchRunning
-                        }
-                        label={t(
-                          allVisibleSelected
-                            ? 'management.batchSelect.deselectAll'
-                            : 'management.batchSelect.selectAll'
-                        )}
-                      />
-                    </div>
-                  )}
-                  {datasourceCounts.map((ds) => {
-                    const { other, displayed } = getServicesForDatasource(ds);
-                    const isExpanded = expandedDatasources.has(ds.datasource);
-                    const totalEntries = Object.values(ds.serviceCounts).reduce((a, b) => a + b, 0);
-                    const hasEntries = totalEntries > 0;
-                    const layout = datasourceInfoByName.get(ds.datasource)?.layout;
-                    const nginxReopenGate = getNginxReopenGate(configuredDatasources, [
-                      ds.datasource
-                    ]);
-                    const nginxReopenMessage = nginxReopenGate.messageKey
-                      ? t(nginxReopenGate.messageKey)
-                      : '';
-                    const isBareMetalLayout = layout === 'bare_metal' || layout === 'mixed';
-                    const layoutLabel =
-                      layout === 'bare_metal'
-                        ? t('management.datasources.layout.bareMetal')
-                        : layout === 'mixed'
-                          ? t('management.datasources.layout.mixed')
-                          : null;
+                    <Checkbox
+                      checked={allVisibleSelected}
+                      onChange={() => selection.setMany(selectableKeys, !allVisibleSelected)}
+                      disabled={
+                        mockMode ||
+                        authMode !== 'authenticated' ||
+                        isLogRemovalActive ||
+                        anyServiceRemovalPending ||
+                        isBatchRunning
+                      }
+                      label={t(
+                        allVisibleSelected
+                          ? 'management.batchSelect.deselectAll'
+                          : 'management.batchSelect.selectAll'
+                      )}
+                    />
+                  </div>
+                )}
+                {datasourceCounts.map((ds) => {
+                  const { other, displayed } = getServicesForDatasource(ds);
+                  const isExpanded = expandedDatasources.has(ds.datasource);
+                  const totalEntries = Object.values(ds.serviceCounts).reduce((a, b) => a + b, 0);
+                  const hasEntries = totalEntries > 0;
+                  const layout = datasourceInfoByName.get(ds.datasource)?.layout;
+                  const nginxReopenGate = getNginxReopenGate(configuredDatasources, [
+                    ds.datasource
+                  ]);
+                  const nginxReopenMessage = nginxReopenGate.messageKey
+                    ? t(nginxReopenGate.messageKey)
+                    : '';
+                  const isBareMetalLayout = layout === 'bare_metal' || layout === 'mixed';
+                  const layoutLabel =
+                    layout === 'bare_metal'
+                      ? t('management.datasources.layout.bareMetal')
+                      : layout === 'mixed'
+                        ? t('management.datasources.layout.mixed')
+                        : null;
 
-                    return (
-                      <DatasourceListItem
-                        key={ds.datasource}
-                        name={ds.datasource}
-                        path={ds.logsPath}
-                        isExpanded={isExpanded}
-                        onToggle={() => toggleDatasourceExpanded(ds.datasource)}
-                        enabled={ds.enabled && ds.logsWritable}
-                        statusBadge={`${formatCount(totalEntries)} entries`}
-                        statusIcons={
-                          layoutLabel ? (
-                            <span
-                              className={`text-xs inline-flex items-center px-2.5 py-1 rounded-full transition duration-300 ${
-                                isExpanded
-                                  ? 'bg-[var(--theme-accent-subtle)] text-themed-accent'
-                                  : 'bg-themed-tertiary text-themed-muted'
-                              }`}
+                  return (
+                    <DatasourceListItem
+                      key={ds.datasource}
+                      name={ds.datasource}
+                      path={ds.logsPath}
+                      isExpanded={isExpanded}
+                      onToggle={() => toggleDatasourceExpanded(ds.datasource)}
+                      enabled={ds.enabled && ds.logsWritable}
+                      statusBadge={`${formatCount(totalEntries)} entries`}
+                      statusIcons={
+                        layoutLabel ? (
+                          <span
+                            className={`text-xs inline-flex items-center px-2.5 py-1 rounded-full transition duration-300 ${
+                              isExpanded
+                                ? 'bg-[var(--theme-accent-subtle)] text-themed-accent'
+                                : 'bg-themed-tertiary text-themed-muted'
+                            }`}
+                          >
+                            {layoutLabel}
+                          </span>
+                        ) : undefined
+                      }
+                    >
+                      {hasEntries ? (
+                        <div className="space-y-3 pt-3">
+                          {!nginxReopenGate.available && (
+                            <ReadOnlyBadge message={nginxReopenMessage} />
+                          )}
+                          {isBareMetalLayout && (
+                            <Alert color="blue">
+                              <p className="text-sm">{t('management.logRemoval.bareMetal.note')}</p>
+                            </Alert>
+                          )}
+                          <div className="mgmt-list">
+                            {displayed.map((service) => {
+                              const key = `${ds.datasource}:${service}`;
+                              const selectKey = `${ds.datasource}::${service}`;
+                              const selectionDisabled =
+                                mockMode ||
+                                anyServiceRemovalPending ||
+                                isLogRemovalActive ||
+                                authMode !== 'authenticated' ||
+                                !ds.logsWritable ||
+                                isBatchRunning;
+                              const rowDisabled = selectionDisabled || !nginxReopenGate.available;
+                              return (
+                                <ServiceRow
+                                  key={key}
+                                  service={service}
+                                  count={ds.serviceCounts[service] || 0}
+                                  isRemoving={
+                                    activeLogRemoval === service || isServiceRemovalPending(key)
+                                  }
+                                  isDisabled={rowDisabled}
+                                  onClick={() => handleRemoveServiceLogs(ds.datasource, service)}
+                                  clearLabel={t('management.logRemoval.buttons.clear')}
+                                  entriesLabel={t('management.logRemoval.labels.entries')}
+                                  removingLabel={t('management.logRemoval.labels.removing', {
+                                    service
+                                  })}
+                                  selectable={ds.logsWritable}
+                                  selected={selection.isSelected(selectKey)}
+                                  onSelectToggle={() => selection.toggle(selectKey)}
+                                  selectLabel={t('management.batchSelect.selectItem', {
+                                    name: getServiceDisplayName(service)
+                                  })}
+                                  selectDisabled={selectionDisabled}
+                                  clearTooltip={
+                                    !nginxReopenGate.available
+                                      ? nginxReopenMessage
+                                      : isBareMetalLayout
+                                        ? t('management.logRemoval.bareMetal.clearTooltip')
+                                        : undefined
+                                  }
+                                />
+                              );
+                            })}
+                          </div>
+
+                          {other.length > 0 && (
+                            <div>
+                              <Button
+                                variant="filled"
+                                color="gray"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowMoreServices((prev) => ({
+                                    ...prev,
+                                    [ds.datasource]: !prev[ds.datasource]
+                                  }));
+                                }}
+                              >
+                                {showMoreServices[ds.datasource] ? (
+                                  <>
+                                    {t('management.logRemoval.buttons.showLess', {
+                                      count: other.length
+                                    })}
+                                  </>
+                                ) : (
+                                  <>
+                                    {t('management.logRemoval.buttons.showMore', {
+                                      count: other.length
+                                    })}
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          )}
+
+                          {/* Delete entire log file button */}
+                          <div className="flex justify-end pt-3 mt-3 border-t border-themed-secondary">
+                            <NginxReopenActionGate
+                              available={nginxReopenGate.available}
+                              tooltip={nginxReopenMessage}
                             >
-                              {layoutLabel}
-                            </span>
-                          ) : undefined
-                        }
-                      >
-                        {hasEntries ? (
-                          <div className="space-y-3 pt-3">
-                            {!nginxReopenGate.available && (
-                              <ReadOnlyBadge message={nginxReopenMessage} />
-                            )}
-                            {isBareMetalLayout && (
-                              <Alert color="blue">
-                                <p className="text-sm">
-                                  {t('management.logRemoval.bareMetal.note')}
-                                </p>
-                              </Alert>
-                            )}
-                            <div className="mgmt-list">
-                              {displayed.map((service) => {
-                                const key = `${ds.datasource}:${service}`;
-                                const selectKey = `${ds.datasource}::${service}`;
-                                const selectionDisabled =
+                              <Button
+                                variant="filled"
+                                size="sm"
+                                color="red"
+                                leftSection={<Trash2 className="w-3 h-3" />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPendingLogFileDeletion(ds.datasource);
+                                }}
+                                awaitPermissions
+                                loading={deletingLogFile === ds.datasource}
+                                disabled={
                                   mockMode ||
-                                  anyServiceRemovalPending ||
+                                  isAnyRemovalRunning ||
                                   isLogRemovalActive ||
+                                  anyServiceRemovalPending ||
+                                  !!deletingLogFile ||
                                   authMode !== 'authenticated' ||
                                   !ds.logsWritable ||
-                                  isBatchRunning;
-                                const rowDisabled = selectionDisabled || !nginxReopenGate.available;
-                                return (
-                                  <ServiceRow
-                                    key={key}
-                                    service={service}
-                                    count={ds.serviceCounts[service] || 0}
-                                    isRemoving={
-                                      activeLogRemoval === service || isServiceRemovalPending(key)
-                                    }
-                                    isDisabled={rowDisabled}
-                                    onClick={() => handleRemoveServiceLogs(ds.datasource, service)}
-                                    clearLabel={t('management.logRemoval.buttons.clear')}
-                                    entriesLabel={t('management.logRemoval.labels.entries')}
-                                    removingLabel={t('management.logRemoval.labels.removing', {
-                                      service
-                                    })}
-                                    selectable={ds.logsWritable}
-                                    selected={selection.isSelected(selectKey)}
-                                    onSelectToggle={() => selection.toggle(selectKey)}
-                                    selectLabel={t('management.batchSelect.selectItem', {
-                                      name: getServiceDisplayName(service)
-                                    })}
-                                    selectDisabled={selectionDisabled}
-                                    clearTooltip={
-                                      !nginxReopenGate.available
-                                        ? nginxReopenMessage
-                                        : isBareMetalLayout
-                                          ? t('management.logRemoval.bareMetal.clearTooltip')
-                                          : undefined
-                                    }
-                                  />
-                                );
-                              })}
-                            </div>
-
-                            {other.length > 0 && (
-                              <div>
-                                <Button
-                                  variant="filled"
-                                  color="gray"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setShowMoreServices((prev) => ({
-                                      ...prev,
-                                      [ds.datasource]: !prev[ds.datasource]
-                                    }));
-                                  }}
-                                >
-                                  {showMoreServices[ds.datasource] ? (
-                                    <>
-                                      {t('management.logRemoval.buttons.showLess', {
-                                        count: other.length
-                                      })}
-                                    </>
-                                  ) : (
-                                    <>
-                                      {t('management.logRemoval.buttons.showMore', {
-                                        count: other.length
-                                      })}
-                                    </>
-                                  )}
-                                </Button>
-                              </div>
-                            )}
-
-                            {/* Delete entire log file button */}
-                            <div className="flex justify-end pt-3 mt-3 border-t border-themed-secondary">
-                              <NginxReopenActionGate
-                                available={nginxReopenGate.available}
-                                tooltip={nginxReopenMessage}
+                                  !nginxReopenGate.available
+                                }
+                                className="w-full sm:w-auto"
                               >
-                                <Button
-                                  variant="filled"
-                                  size="sm"
-                                  color="red"
-                                  leftSection={<Trash2 className="w-3 h-3" />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setPendingLogFileDeletion(ds.datasource);
-                                  }}
-                                  awaitPermissions
-                                  loading={deletingLogFile === ds.datasource}
-                                  disabled={
-                                    mockMode ||
-                                    isAnyRemovalRunning ||
-                                    isLogRemovalActive ||
-                                    anyServiceRemovalPending ||
-                                    !!deletingLogFile ||
-                                    authMode !== 'authenticated' ||
-                                    !ds.logsWritable ||
-                                    !nginxReopenGate.available
-                                  }
-                                  className="w-full sm:w-auto"
-                                >
-                                  {t('management.logRemoval.buttons.deleteLogFile')}
-                                </Button>
-                              </NginxReopenActionGate>
-                            </div>
+                                {t('management.logRemoval.buttons.deleteLogFile')}
+                              </Button>
+                            </NginxReopenActionGate>
                           </div>
-                        ) : (
-                          <div className="py-6 text-center text-sm text-themed-muted">
-                            {t('management.logRemoval.noEntriesForDatasource')}
-                          </div>
-                        )}
-                      </DatasourceListItem>
-                    );
-                  })}
-                </div>
-              ) : (
-                <EmptyState
-                  title={t('management.logRemoval.emptyState.title')}
-                  subtitle={t('management.logRemoval.emptyState.subtitle')}
-                />
-              )}
-            </>
-          )}
+                        </div>
+                      ) : (
+                        <div className="py-6 text-center text-sm text-themed-muted">
+                          {t('management.logRemoval.noEntriesForDatasource')}
+                        </div>
+                      )}
+                    </DatasourceListItem>
+                  );
+                })}
+              </div>
+            ) : (
+              <EmptyState
+                title={t('management.logRemoval.emptyState.title')}
+                subtitle={t('management.logRemoval.emptyState.subtitle')}
+              />
+            )}
+          </>
         </div>
       </AccordionSection>
 

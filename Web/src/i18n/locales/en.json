@@ -2962,7 +2962,6 @@
       "summary": "Remove access log entries for specific services to shrink the log.",
       "subtitle": "Remove service entries from log files",
       "logsMissing": "Logs directory not found",
-      "readOnly": "Read-only",
       "dockerSocketRequired": "Docker socket required",
       "refreshServiceCounts": "Refresh service counts",
       "noEntriesForDatasource": "No services with log entries",

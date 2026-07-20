@@ -1,8 +1,7 @@
 import React from 'react';
-import { ScrollText, HardDrive, CheckCircle, XCircle, Lock } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useTranslation } from 'react-i18next';
-import { Tooltip } from './Tooltip';
 
 // ============================================================================
 // TYPES
@@ -20,13 +19,6 @@ const _iconClassSafelist = [
 ];
 void _iconClassSafelist;
 
-interface PermissionStatus {
-  logsReadOnly?: boolean;
-  cacheReadOnly?: boolean;
-  dockerSocketAvailable?: boolean;
-  checkingPermissions?: boolean;
-}
-
 // ============================================================================
 // MANAGER CARD HEADER
 // ============================================================================
@@ -37,13 +29,12 @@ interface ManagerCardHeaderProps {
   title: string;
   subtitle: string;
   helpContent?: React.ReactNode;
-  permissions?: PermissionStatus;
   actions?: React.ReactNode;
 }
 
 /**
  * Standardized header for all management cards.
- * Includes: Icon, Title, Subtitle, Help popover, Permission indicators, Action buttons
+ * Includes: Icon, Title, Subtitle, Help popover, Action buttons
  */
 export const ManagerCardHeader: React.FC<ManagerCardHeaderProps> = ({
   icon: Icon,
@@ -51,7 +42,6 @@ export const ManagerCardHeader: React.FC<ManagerCardHeaderProps> = ({
   title,
   subtitle,
   helpContent,
-  permissions,
   actions
 }) => {
   return (
@@ -69,73 +59,8 @@ export const ManagerCardHeader: React.FC<ManagerCardHeaderProps> = ({
         {helpContent}
       </div>
       <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end sm:justify-start flex-shrink-0">
-        {permissions && !permissions.checkingPermissions && (
-          <PermissionIndicators {...permissions} />
-        )}
         {actions}
       </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// PERMISSION INDICATORS
-// ============================================================================
-
-interface PermissionIndicatorsProps {
-  logsReadOnly?: boolean;
-  cacheReadOnly?: boolean;
-  showLogs?: boolean;
-  showCache?: boolean;
-}
-
-/**
- * Standardized permission status indicators (logs/cache writable status)
- */
-const PermissionIndicators: React.FC<PermissionIndicatorsProps> = ({
-  logsReadOnly,
-  cacheReadOnly,
-  showLogs = true,
-  showCache = true
-}) => {
-  const { t } = useTranslation();
-
-  return (
-    <div className="flex items-center gap-2">
-      {showLogs && logsReadOnly !== undefined && (
-        <Tooltip
-          content={
-            logsReadOnly ? t('ui.managerCard.logsReadOnly') : t('ui.managerCard.logsWritable')
-          }
-          position="top"
-        >
-          <span className="flex items-center gap-0.5">
-            <ScrollText className="w-3.5 h-3.5 text-themed-muted" />
-            {logsReadOnly ? (
-              <XCircle className="w-4 h-4 text-themed-warning" />
-            ) : (
-              <CheckCircle className="w-4 h-4 text-themed-success" />
-            )}
-          </span>
-        </Tooltip>
-      )}
-      {showCache && cacheReadOnly !== undefined && (
-        <Tooltip
-          content={
-            cacheReadOnly ? t('ui.managerCard.cacheReadOnly') : t('ui.managerCard.cacheWritable')
-          }
-          position="top"
-        >
-          <span className="flex items-center gap-0.5">
-            <HardDrive className="w-3.5 h-3.5 text-themed-muted" />
-            {cacheReadOnly ? (
-              <XCircle className="w-4 h-4 text-themed-warning" />
-            ) : (
-              <CheckCircle className="w-4 h-4 text-themed-success" />
-            )}
-          </span>
-        </Tooltip>
-      )}
     </div>
   );
 };

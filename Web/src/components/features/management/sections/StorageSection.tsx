@@ -17,7 +17,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
-import { LoadingState, ReadOnlyBadge } from '@components/ui/ManagerCard';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import Badge from '@components/ui/Badge';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
@@ -1070,8 +1070,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   isExpanded={evictedItemsExpanded}
                   onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
                 >
-                  {evictedGames.length + evictedServices.length > 0 &&
-                    !allEvictedNginxReopenGate.available && <ReadOnlyBadge />}
                   <EvictedItemsList
                     games={evictedGames}
                     services={evictedServices}
