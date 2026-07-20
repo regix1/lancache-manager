@@ -1075,34 +1075,47 @@ lancache_cache_used_bytes / 1024 / 1024 / 1024
 <a id="bare-metal"></a>
 ## Bare-Metal LANCache
 
-[zeropingheroes/lancache-bare-metal](https://github.com/zeropingheroes/lancache-bare-metal) runs the cache directly on the host instead of in Docker, and it logs differently than the standard container: per-service files (`steam-access.log`, `blizzard-access.log`, `epicgames-access.log`, `riot-access.log`, `windows-update-access.log`, plus `fallback-access.log`) under `/srv/lancache/logs/http/`, in an `http-detailed` format with no service tag on each line. LANCache Manager reads this setup natively — point it at the log directory and traffic appears without touching the nginx config:
+[zeropingheroes/lancache-bare-metal](https://github.com/zeropingheroes/lancache-bare-metal) runs the cache's nginx directly on the host instead of in Docker. It writes per-service log files (`steam-access.log`, `blizzard-access.log`, `epicgames-access.log`, `riot-access.log`, `windows-update-access.log`, `fallback-access.log`) to `/srv/lancache/logs/http/`, in an `http-detailed` format with no service tag. LANCache Manager reads this layout natively: mount the log and cache directories and traffic appears, with no nginx changes needed.
 
-```yaml
-    volumes:
-      - ./data:/data
-      # Bare-metal log and cache locations
-      - /srv/lancache/logs/http:/logs:ro
-      - /srv/lancache/data:/cache:ro
-```
-
-Mounting `/srv/lancache/logs` (the parent folder) also works — the manager finds the `http/` folder on its own.
-
-The `pid: host` setup is only for nginx running directly on the host. If nginx runs in a container but writes the bare-metal per-service log layout, mount the Docker socket instead; `pid: host` is not needed.
-
-To let the manager automatically reopen a host-run nginx after a removal or rewrite, share the host PID namespace. Docker grants `CAP_KILL` by default, and the shipped entrypoint preserves it when switching to the configured non-root PUID, so keep your normal filesystem-matching PUID and PGID:
+### Full Compose example
 
 ```yaml
 services:
   lancache-manager:
+    image: ghcr.io/regix1/lancache-manager:latest
+    container_name: lancache-manager
+    restart: unless-stopped
+    # Share the host PID namespace so the manager can find the host nginx and
+    # ask it to reopen its logs after a removal or rewrite.
     pid: host
+    # Docker grants CAP_KILL by default and the image keeps it while dropping
+    # to the non-root PUID below. Uncomment only if your deployment uses
+    # cap_drop to trim the default capability set.
+    # cap_add:
+    #   - KILL
+    ports:
+      - "8080:80"
     environment:
-      - PUID=33
+      - PUID=33          # keep your normal non-root IDs; root is not required
       - PGID=33
+      - TZ=America/Chicago
+      - LanCache__LogPath=/logs
+      - LanCache__CachePath=/cache
+    volumes:
+      - ./data:/data                       # database, API key, themes, prefill state
+      - /srv/lancache/logs/http:/logs:ro   # bare-metal per-service logs
+      - /srv/lancache/data:/cache:ro       # drop :ro to allow cache clearing and game removal
 ```
 
-The equivalent `docker run` options are `--pid=host -e PUID=33 -e PGID=33` (substitute your normal non-root IDs). If your deployment uses `cap_drop` to trim Docker's default capability set, add `cap_add: [KILL]` in Compose or `--cap-add=KILL` with `docker run`. This explicit addition is only needed when the default capability was removed. `pid: host` remains required for host PID visibility; without visibility or `CAP_KILL`, removals still complete, but the best-effort reopen returns a failure and nginx may keep writing to the old inode.
+With `docker run`, the matching options are `--pid=host` and, only after a `cap_drop`, `--cap-add=KILL`. Mounting the parent `/srv/lancache/logs` also works; the manager finds the `http/` folder on its own.
 
-The manager's scheduled log-rotation job only asks nginx to reopen its current logs; it does not truncate or rotate bare-metal log files. Configure the host's `logrotate` for log growth and include an nginx reopen in its rule, for example:
+**Why `pid: host`:** after a removal the manager rewrites a log file, and nginx must reopen it or it keeps writing to the deleted inode. Host PID visibility plus `CAP_KILL` lets the manager signal the host nginx automatically. Without them, removals still complete, but the reopen is reported as failed so you can run `nginx -s reopen` yourself.
+
+**Containerized nginx with bare-metal logs:** if nginx runs in a container but writes the per-service log layout, skip `pid: host` and mount the Docker socket instead (`/var/run/docker.sock:/var/run/docker.sock`).
+
+### Log rotation
+
+The manager never truncates or rotates bare-metal log files; its scheduled job only asks nginx to reopen the current ones. Keep log growth under the host's `logrotate`, and have the rule reopen nginx afterwards:
 
 ```text
 postrotate
@@ -1110,26 +1123,32 @@ postrotate
 endscript
 ```
 
-**What works:** live activity, the dashboard, download history, game naming (Steam depots, Blizzard products, Riot hosts), client and service stats, per-service log counts and log removal, deleting log files, disk-level game and service removal, repeated-miss corruption scanning, eviction tracking, and clearing the whole cache. On bare-metal caches, every deletion double-checks the file's own embedded cache key before removing it.
+### What works
 
-**A note on hit rates:** the Blizzard and Windows Update sites serve files in 1 MB slices, and nginx logs the cache status of only the first requested slice of each download. For those two services the hit/miss ratio shown is an approximation; downloaded byte counts are always exact. This is a property of nginx slicing, not of bare-metal specifically, so a standard container install slices those services the same way and shows the same approximation.
+Everything, log-based and disk-based:
+
+- **Monitoring:** live activity, the dashboard, download history, client and service stats, and game naming (Steam depots, Blizzard products, Riot hosts).
+- **Logs:** per-service log counts, log removal, and deleting log files.
+- **Disk:** game and service removal, repeated-miss corruption scanning, eviction tracking, and clearing the whole cache. Every deletion double-checks the file's own embedded cache key first.
+
+**A note on hit rates:** Blizzard and Windows Update downloads arrive in 1 MB slices, and nginx logs the cache status of only the first slice. Their hit/miss ratio is therefore an approximation (byte counts stay exact). Container installs slice the same way, so this is not bare-metal specific.
 
 ### Alternative: switch bare-metal to the standard log format
 
-If you prefer the container-style combined log, you can patch the bare-metal nginx config instead. Add the standard format to the `http {}` block of `nginx.conf`:
+Prefer the container-style combined log? Patch the bare-metal nginx config instead. Add the standard format to the `http {}` block of `nginx.conf`:
 
 ```nginx
 log_format cachelog '[$cacheidentifier] $remote_addr / - - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$upstream_cache_status" "$host" "$http_range"';
 ```
 
-Then in each site file under `caches-available/`, set the service name and switch the access log (one shared file for every site):
+Then in each site file under `caches-available/`, set the service name and point every site at one shared log file:
 
 ```nginx
 set $cacheidentifier steam;   # blizzard / epicgames / riot / wsus per site
 access_log /srv/lancache/logs/http/access.log cachelog;
 ```
 
-Reload with `sudo nginx -s reopen` (or `systemctl reload nginx`) and mount `/srv/lancache/logs/http` as above. This restores every log-based feature. After applying this compatibility patch, disk-level features are off-limits: the on-disk cache keys still use the bare-metal layout, but the combined log makes the manager identify the setup as a container install. Those disk-level actions will no longer be blocked, so leave them alone on a patched bare-metal cache.
+Reload with `sudo nginx -s reopen` (or `systemctl reload nginx`) and mount `/srv/lancache/logs/http` as above. One warning: the combined log makes the manager treat the install as a standard container, while the files on disk keep the bare-metal cache keys. Disk-level actions are no longer blocked but no longer match the disk layout, so leave them alone on a patched cache.
 
 -----
 
