@@ -598,7 +598,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     _logger.LogError(ex, "[EvictionScan] Post-scan recovery failed - newly-evicted entities may remain hidden until next full scan");
                 }
 
-                if (scanResult.Evicted > 0)
+                // UnEvicted counts too: a pure re-cache scan (files reappeared, nothing newly
+                // evicted) changed both the detection rows (self-heal above) and the on-disk
+                // sizes, so it needs the same refresh or the dashboard keeps serving the stale
+                // pre-scan snapshot until an unrelated operation invalidates it.
+                if (scanResult.Evicted > 0 || scanResult.UnEvicted > 0)
                 {
                     // The disk-summary recompute is the long pole of the whole scan on large
                     // databases. Give it its own labeled stage at 92% and stream the parallel
