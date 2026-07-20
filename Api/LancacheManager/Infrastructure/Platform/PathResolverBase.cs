@@ -377,17 +377,19 @@ public abstract class PathResolverBase : IPathResolver
     }
 
     /// <summary>
-    /// Probes actual write access by opening existing files first, then falling back to a create-test,
-    /// and reports the reason for any denial. All outcomes are logged at debug: this runs on a fast poll,
-    /// so callers own the single, throttled, human-facing warning on a state transition.
+    /// Probes actual write access and reports the reason for any denial. All outcomes are logged at
+    /// debug: this runs on a fast poll, so callers own the single, throttled, human-facing warning on
+    /// a state transition.
     /// </summary>
     protected DirectoryWriteAccess EvaluateWriteAccess(string directoryPath)
     {
-        // Strategy: Test ACTUAL write access by opening existing files for write.
-        // This is more reliable than UID/GID comparison because it:
-        // - Works on all architectures (ARM64, x86_64)
-        // - Handles ACLs, group permissions, and root correctly
-        // - Tests real write ability, not just ownership
+        // Strategy: we need DIRECTORY-level write access (create/rotate/delete), so the authoritative
+        // test is the create-test in Step 2. Opening an existing file for write (Step 1) is only a fast
+        // positive shortcut: a success proves writable, but a failure proves nothing, because log and
+        // cache files are routinely owned by their producer (nginx, root) with mode 644 while the
+        // directory itself is writable. So Step 1 may only RETURN on success; every failure defers to
+        // the create-test. This beats a UID/GID comparison: it works on all architectures, and handles
+        // ACLs, group permissions, and root correctly.
 
         // Step 1: Try to find and test a shallow sample of existing files
         try
@@ -414,11 +416,13 @@ public abstract class PathResolverBase : IPathResolver
                     }
                     catch (UnauthorizedAccessException)
                     {
-                        // Write is denied by ownership or file mode (commonly a PUID/PGID mismatch).
-                        // Debug-level because this repeats every poll while the state is unchanged;
-                        // the caller reports it once on the writable -> read-only transition.
-                        _logger.LogDebug("Write access denied by ownership or file mode on existing file: {Path}", existingFile);
-                        return DirectoryWriteAccess.OwnershipOrModeDenied;
+                        // A file we cannot open for write says NOTHING about directory writability.
+                        // Log files and cache files are commonly owned by their producer (nginx, root)
+                        // with mode 644, while the directory itself is fully writable for the create,
+                        // rotate, and delete operations we actually perform. Do not conclude denied here;
+                        // fall through to the authoritative directory create-test below.
+                        _logger.LogDebug("Existing file not writable (likely owned by another user), deferring to create-test: {Path}", existingFile);
+                        continue;
                     }
                     catch (IOException ex)
                     {
@@ -428,11 +432,11 @@ public abstract class PathResolverBase : IPathResolver
                     }
                 }
 
-                // All sampled files were locked; fall back to the create-test. Debug-level because this can
-                // recur every poll under heavy cache load and is not an actionable permission problem.
+                // No sampled file could be opened for write (locked, or owned by another user). That is
+                // not a directory-level denial, so fall back to the authoritative create-test below.
                 _logger.LogDebug(
-                    "All {Count} sampled files in {Path} were locked/inaccessible; falling back to create-test.",
-                    existingFiles.Count, directoryPath);
+                    "No sampled file in {Path} proved writable ({Count} checked); falling back to create-test.",
+                    directoryPath, existingFiles.Count);
             }
             else
             {
@@ -441,9 +445,9 @@ public abstract class PathResolverBase : IPathResolver
         }
         catch (UnauthorizedAccessException)
         {
-            // Cannot even enumerate the directory: write is denied by ownership or file mode.
-            _logger.LogDebug("Cannot enumerate files (write access denied by ownership or file mode): {Path}", directoryPath);
-            return DirectoryWriteAccess.OwnershipOrModeDenied;
+            // Cannot enumerate the directory (no read permission). That still does not prove we cannot
+            // CREATE files here - write plus search without read is possible - so let the create-test decide.
+            _logger.LogDebug("Cannot enumerate files in {Path}; deferring to create-test", directoryPath);
         }
         catch (Exception ex)
         {
