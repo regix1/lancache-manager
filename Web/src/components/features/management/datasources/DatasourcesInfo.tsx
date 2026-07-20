@@ -22,7 +22,7 @@ import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
-import { formatCount } from '@utils/formatters';
+import { formatBytes, formatCount } from '@utils/formatters';
 import type { DatasourceInfo, DatasourceLogPosition } from '../../../../types';
 
 interface DatasourcesManagerProps {
@@ -46,7 +46,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   onDataRefresh
 }) => {
   const { t } = useTranslation();
-  const { config } = useConfig();
+  const { config, refreshConfig } = useConfig();
   const { checkingPermissions } = useDirectoryPermissionsContext();
   const [logPositions, setLogPositions] = useState<DatasourceLogPosition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +62,36 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   const { addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
+
+  // Per-datasource manual cache-size limit. A blank value clears the override and falls
+  // back to auto-detect, so the input drives an explicit save rather than editing state live.
+  const [cacheSizeDraft, setCacheSizeDraft] = useState<Record<string, string>>({});
+  const [cacheSizeSaving, setCacheSizeSaving] = useState<string | null>(null);
+  const [cacheSizeError, setCacheSizeError] = useState<Record<string, string | undefined>>({});
+
+  const handleSaveCacheSize = async (name: string) => {
+    // Single save at a time: a second row's Enter must not steal the saving owner.
+    if (cacheSizeSaving !== null) return;
+    const raw = (cacheSizeDraft[name] ?? '').trim();
+    setCacheSizeSaving(name);
+    setCacheSizeError((prev) => ({ ...prev, [name]: undefined }));
+    try {
+      await ApiService.setDatasourceCacheSize(name, raw.length > 0 ? raw : null);
+      setCacheSizeDraft((prev) => ({ ...prev, [name]: '' }));
+      onSuccess?.(t('management.datasources.cacheSize.saved'));
+      // Refresh the datasource config so this row's effective size and source update,
+      // and the dashboard stats so the cache total reflects the new limit.
+      await refreshConfig();
+      onDataRefresh?.();
+    } catch (err: unknown) {
+      setCacheSizeError((prev) => ({
+        ...prev,
+        [name]: getErrorMessage(err) || t('management.datasources.cacheSize.invalid')
+      }));
+    } finally {
+      setCacheSizeSaving(null);
+    }
+  };
   const signalR = useSignalR();
 
   // Check if processing is running or queued behind another operation
@@ -418,6 +448,75 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                           })}
                         </span>
                       </div>
+                    </div>
+
+                    {/* Cache size limit row */}
+                    <div className="mgmt-row flex-wrap">
+                      <div className="mgmt-row__body">
+                        <div className="flex items-center gap-1.5">
+                          <p className="mgmt-row__title">
+                            {t('management.datasources.cacheSize.title')}
+                          </p>
+                          <Tooltip
+                            content={t('management.datasources.cacheSize.tooltip')}
+                            position="top"
+                          />
+                        </div>
+                        <p className="mgmt-row__meta">
+                          {(ds.cacheSizeSource ?? 'fullDisk') === 'fullDisk'
+                            ? t('management.datasources.cacheSize.currentFullDisk')
+                            : t('management.datasources.cacheSize.current', {
+                                value: formatBytes(ds.resolvedCacheSizeBytes ?? 0),
+                                source: t(
+                                  'management.datasources.cacheSize.source.' +
+                                    (ds.cacheSizeSource ?? 'fullDisk')
+                                )
+                              })}
+                        </p>
+                        {cacheSizeError[ds.name] && (
+                          <p className="mgmt-row__meta text-themed-error">
+                            {cacheSizeError[ds.name]}
+                          </p>
+                        )}
+                      </div>
+                      {isAdmin && !mockMode && (
+                        <div className="mgmt-row__actions">
+                          <input
+                            type="text"
+                            className="themed-input themed-border-radius-sm min-h-8 w-28 px-3 py-1.5 text-sm"
+                            placeholder={t('management.datasources.cacheSize.placeholder')}
+                            aria-label={t('management.datasources.cacheSize.title')}
+                            value={cacheSizeDraft[ds.name] ?? ''}
+                            disabled={cacheSizeSaving === ds.name}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) =>
+                              setCacheSizeDraft((prev) => ({
+                                ...prev,
+                                [ds.name]: e.target.value
+                              }))
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleSaveCacheSize(ds.name);
+                              }
+                            }}
+                          />
+                          <Button
+                            variant="filled"
+                            color="gray"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSaveCacheSize(ds.name);
+                            }}
+                            disabled={cacheSizeSaving !== null && cacheSizeSaving !== ds.name}
+                            loading={cacheSizeSaving === ds.name}
+                          >
+                            {t('common.save')}
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Access Log row */}

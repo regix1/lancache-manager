@@ -22,6 +22,7 @@ public partial class CacheManagementService
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly DatasourceService _datasourceService;
+    private readonly IStateService _stateService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly IUnifiedOperationTracker _operationTracker;
@@ -50,8 +51,12 @@ public partial class CacheManagementService
     
     // Cache the configured cache size to avoid repeated Docker API calls
     private long? _cachedConfiguredCacheSize;
+    private IReadOnlyList<DatasourceCacheSizeResolution>? _cachedDatasourceCacheSizes;
     private DateTime _configuredCacheSizeLastChecked = DateTime.MinValue;
     private readonly TimeSpan _configuredCacheSizeCacheTime = TimeSpan.FromMinutes(5);
+    private readonly object _configuredCacheSizeLock = new();
+    private readonly SemaphoreSlim _configuredCacheSizeRefreshLock = new(1, 1);
+    private long _configuredCacheSizeGeneration;
     private bool _hasLoggedConfiguredCacheSize = false;
 
     // Cache the Rust binary scan result to avoid re-scanning on every page visit
@@ -83,6 +88,7 @@ public partial class CacheManagementService
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
         DatasourceService datasourceService,
+        IStateService stateService,
         IDbContextFactory<AppDbContext> dbContextFactory,
         GameCacheDetectionService gameCacheDetectionService,
         IUnifiedOperationTracker operationTracker,
@@ -97,6 +103,7 @@ public partial class CacheManagementService
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
         _datasourceService = datasourceService;
+        _stateService = stateService;
         _dbContextFactory = dbContextFactory;
         _gameCacheDetectionService = gameCacheDetectionService;
         _operationTracker = operationTracker;
@@ -259,33 +266,199 @@ public partial class CacheManagementService
     }
     
     /// <summary>
-    /// Gets the configured cache size, first from Docker container environment, 
-    /// then falling back to .env file. Caches result for 5 minutes.
-    /// Supports formats like "4000g", "500G", "2t", "1.5T", etc.
+    /// Gets the sum of known configured limits across enabled datasources.
+    /// Manual values take precedence over Docker and .env detection.
     /// </summary>
     private async Task<long> GetConfiguredCacheSizeAsync()
     {
-        // Return cached value if still valid
-        if (_cachedConfiguredCacheSize.HasValue &&
-            DateTime.UtcNow - _configuredCacheSizeLastChecked < _configuredCacheSizeCacheTime)
-        {
-            return _cachedConfiguredCacheSize.Value;
-        }
-
-        long configuredSize = 0;
-
-        // Method 1: Try to read from Docker container environment
-        configuredSize = await ReadCacheSizeFromDockerAsync();
-
-        // Method 2: Fall back to .env file
+        var resolutions = await GetDatasourceCacheSizeResolutionsAsync();
+        var configuredSize = SumKnownConfiguredSizes(resolutions);
         if (configuredSize == 0)
         {
-            configuredSize = ReadCacheSizeFromEnvFile();
+            return 0;
         }
 
-        // Cache the result
-        _cachedConfiguredCacheSize = configuredSize;
-        _configuredCacheSizeLastChecked = DateTime.UtcNow;
+        return AddFullDiskCapacities(resolutions, configuredSize);
+    }
+
+    /// <summary>
+    /// Returns each enabled datasource's effective configured limit and its origin.
+    /// </summary>
+    public async Task<IReadOnlyList<DatasourceCacheSizeResolution>> GetDatasourceCacheSizeResolutionsAsync()
+    {
+        lock (_configuredCacheSizeLock)
+        {
+            if (_cachedConfiguredCacheSize.HasValue
+                && _cachedDatasourceCacheSizes != null
+                && DateTime.UtcNow - _configuredCacheSizeLastChecked < _configuredCacheSizeCacheTime)
+            {
+                return _cachedDatasourceCacheSizes;
+            }
+        }
+
+        await _configuredCacheSizeRefreshLock.WaitAsync();
+        try
+        {
+            lock (_configuredCacheSizeLock)
+            {
+                if (_cachedConfiguredCacheSize.HasValue
+                    && _cachedDatasourceCacheSizes != null
+                    && DateTime.UtcNow - _configuredCacheSizeLastChecked < _configuredCacheSizeCacheTime)
+                {
+                    return _cachedDatasourceCacheSizes;
+                }
+            }
+
+            var generation = Volatile.Read(ref _configuredCacheSizeGeneration);
+            var detectedBytes = await ReadCacheSizeFromDockerAsync();
+            var detectedSource = CacheSizeSource.Docker;
+            if (detectedBytes == 0)
+            {
+                detectedBytes = ReadCacheSizeFromEnvFile();
+                detectedSource = detectedBytes > 0 ? CacheSizeSource.Env : CacheSizeSource.FullDisk;
+            }
+
+            var resolutions = ResolveDatasourceCacheSizes(
+                _datasourceService.GetDatasources(),
+                _stateService.GetDatasourceCacheSizeOverrides(),
+                detectedBytes,
+                detectedSource);
+            var configuredSize = SumKnownConfiguredSizes(resolutions);
+
+            lock (_configuredCacheSizeLock)
+            {
+                if (generation == Volatile.Read(ref _configuredCacheSizeGeneration))
+                {
+                    _cachedDatasourceCacheSizes = resolutions;
+                    _cachedConfiguredCacheSize = configuredSize;
+                    _configuredCacheSizeLastChecked = DateTime.UtcNow;
+                }
+            }
+
+            return resolutions;
+        }
+        finally
+        {
+            _configuredCacheSizeRefreshLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Expires configured-size state after a datasource override changes.
+    /// </summary>
+    public void InvalidateConfiguredCacheSize()
+    {
+        lock (_configuredCacheSizeLock)
+        {
+            Interlocked.Increment(ref _configuredCacheSizeGeneration);
+            _cachedConfiguredCacheSize = null;
+            _cachedDatasourceCacheSizes = null;
+            _configuredCacheSizeLastChecked = DateTime.MinValue;
+        }
+    }
+
+    internal static IReadOnlyList<DatasourceCacheSizeResolution> ResolveDatasourceCacheSizes(
+        IEnumerable<ResolvedDatasource> datasources,
+        IReadOnlyDictionary<string, long> overrides,
+        long detectedBytes,
+        CacheSizeSource detectedSource)
+    {
+        var normalizedOverrides = new Dictionary<string, long>(overrides, StringComparer.OrdinalIgnoreCase);
+        var resolutions = new List<DatasourceCacheSizeResolution>();
+
+        foreach (var datasource in datasources.Where(datasource => datasource.Enabled))
+        {
+            if (normalizedOverrides.TryGetValue(datasource.Name, out var overrideBytes) && overrideBytes > 0)
+            {
+                resolutions.Add(new DatasourceCacheSizeResolution(
+                    datasource.Name,
+                    overrideBytes,
+                    overrideBytes,
+                    CacheSizeSource.Manual));
+                continue;
+            }
+
+            if (detectedBytes > 0 && detectedSource is CacheSizeSource.Docker or CacheSizeSource.Env)
+            {
+                resolutions.Add(new DatasourceCacheSizeResolution(
+                    datasource.Name,
+                    null,
+                    detectedBytes,
+                    detectedSource));
+                continue;
+            }
+
+            resolutions.Add(new DatasourceCacheSizeResolution(
+                datasource.Name,
+                null,
+                0,
+                CacheSizeSource.FullDisk));
+        }
+
+        return resolutions.AsReadOnly();
+    }
+
+    internal static long SumKnownConfiguredSizes(IEnumerable<DatasourceCacheSizeResolution> resolutions)
+    {
+        var total = 0L;
+        foreach (var resolution in resolutions)
+        {
+            if (resolution.ResolvedBytes <= 0 || resolution.Source == CacheSizeSource.FullDisk)
+            {
+                continue;
+            }
+
+            if (resolution.ResolvedBytes > long.MaxValue - total)
+            {
+                return long.MaxValue;
+            }
+
+            total += resolution.ResolvedBytes;
+        }
+
+        return total;
+    }
+
+    private long AddFullDiskCapacities(
+        IEnumerable<DatasourceCacheSizeResolution> resolutions,
+        long configuredSize)
+    {
+        var fullDiskDatasources = resolutions
+            .Where(resolution => resolution.Source == CacheSizeSource.FullDisk)
+            .Select(resolution => resolution.DatasourceName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var countedMounts = new HashSet<string>(CachePathComparer);
+
+        foreach (var datasource in _datasourceService.GetDatasources()
+                     .Where(datasource => datasource.Enabled
+                         && fullDiskDatasources.Contains(datasource.Name)
+                         && !string.IsNullOrWhiteSpace(datasource.CachePath)))
+        {
+            try
+            {
+                var cachePath = GetCanonicalCachePath(datasource.CachePath);
+                var mountPoint = GetCanonicalCachePath(GetMountPoint(cachePath));
+                if (!countedMounts.Add(mountPoint) || !Directory.Exists(mountPoint))
+                {
+                    continue;
+                }
+
+                var capacity = new DriveInfo(mountPoint).TotalSize;
+                if (capacity > long.MaxValue - configuredSize)
+                {
+                    return long.MaxValue;
+                }
+
+                configuredSize += capacity;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to read full-disk capacity for datasource '{Name}'",
+                    datasource.Name);
+            }
+        }
 
         return configuredSize;
     }
@@ -347,8 +520,8 @@ public partial class CacheManagementService
                 if (!string.IsNullOrEmpty(cacheDiskSizeEnv))
                 {
                     var value = cacheDiskSizeEnv.Substring("CACHE_DISK_SIZE=".Length);
-                    var parsedSize = ParseCacheSize(value);
-                    if (parsedSize > 0)
+                    var parsed = CacheSizeParser.TryParse(value, out var parsedSize);
+                    if (parsed && parsedSize > 0)
                     {
                         if (!_hasLoggedConfiguredCacheSize)
                         {
@@ -357,6 +530,11 @@ public partial class CacheManagementService
                             _hasLoggedConfiguredCacheSize = true;
                         }
                         return parsedSize;
+                    }
+
+                    if (!parsed)
+                    {
+                        _logger.LogWarning("Could not parse cache size value: {Value}", value);
                     }
                 }
                 else
@@ -393,8 +571,8 @@ public partial class CacheManagementService
                 return 0;
             }
 
-            var parsedSize = ParseCacheSize(value);
-            if (parsedSize > 0)
+            var parsed = CacheSizeParser.TryParse(value, out var parsedSize);
+            if (parsed && parsedSize > 0)
             {
                 if (!_hasLoggedConfiguredCacheSize)
                 {
@@ -404,6 +582,11 @@ public partial class CacheManagementService
                 }
                 return parsedSize;
             }
+
+            if (!parsed)
+            {
+                _logger.LogWarning("Could not parse cache size value: {Value}", value);
+            }
         }
         catch (Exception ex)
         {
@@ -411,58 +594,6 @@ public partial class CacheManagementService
         }
 
         return 0;
-    }
-    
-    /// <summary>
-    /// Parses cache size strings like "4000g", "500G", "2t", "1.5T", "500m", etc.
-    /// Returns size in bytes.
-    /// </summary>
-    private long ParseCacheSize(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return 0;
-            
-        value = value.Trim().ToLowerInvariant();
-        
-        // Remove any quotes
-        value = value.Trim('"', '\'');
-        
-        // Try to parse the numeric part and unit
-        var numericPart = "";
-        var unit = "";
-        
-        for (int i = 0; i < value.Length; i++)
-        {
-            if (char.IsDigit(value[i]) || value[i] == '.')
-            {
-                numericPart += value[i];
-            }
-            else
-            {
-                unit = value.Substring(i).Trim();
-                break;
-            }
-        }
-        
-        // Use InvariantCulture to parse decimal values like "1.5T" correctly
-        // regardless of the system's locale (e.g., German locales use comma as decimal separator)
-        if (!double.TryParse(numericPart, System.Globalization.NumberStyles.Float, 
-            System.Globalization.CultureInfo.InvariantCulture, out var numericValue))
-        {
-            _logger.LogWarning("Could not parse cache size value: {Value}", value);
-            return 0;
-        }
-        
-        // Convert to bytes based on unit
-        return unit switch
-        {
-            "t" or "tb" => (long)(numericValue * 1024L * 1024L * 1024L * 1024L),
-            "g" or "gb" => (long)(numericValue * 1024L * 1024L * 1024L),
-            "m" or "mb" => (long)(numericValue * 1024L * 1024L),
-            "k" or "kb" => (long)(numericValue * 1024L),
-            "" or "b" => (long)numericValue,
-            _ => (long)numericValue // Assume bytes if unknown unit
-        };
     }
     
     private string GetMountPoint(string path)

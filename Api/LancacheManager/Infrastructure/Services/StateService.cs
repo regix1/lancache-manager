@@ -175,6 +175,9 @@ public class StateService : IStateService
         // Per-service interval overrides (keyed by ServiceKey, value in hours)
         public Dictionary<string, double> ServiceIntervals { get; set; } = new();
 
+        // Positive per-datasource cache-size limits in bytes.
+        public Dictionary<string, long> DatasourceCacheSizeOverrides { get; set; } = new();
+
         // Per-service "run on startup" overrides (keyed by ServiceKey).
         // Absent key = use the service's hardcoded DefaultRunOnStartup.
         public Dictionary<string, bool> ServiceRunOnStartup { get; set; } = new();
@@ -1009,6 +1012,38 @@ public class StateService : IStateService
         });
     }
 
+    // Datasource Cache Size Override Methods
+    public Dictionary<string, long> GetDatasourceCacheSizeOverrides()
+    {
+        return NormalizeDatasourceCacheSizeOverrides(GetState().DatasourceCacheSizeOverrides);
+    }
+
+    public void SetDatasourceCacheSizeOverride(string datasourceName, long? bytes)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(datasourceName);
+        if (bytes < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bytes), bytes, "Cache-size override cannot be negative.");
+        }
+
+        UpdateState(state =>
+        {
+            state.DatasourceCacheSizeOverrides ??= new Dictionary<string, long>();
+            var existingKeys = state.DatasourceCacheSizeOverrides.Keys
+                .Where(key => key.Equals(datasourceName, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            foreach (var existingKey in existingKeys)
+            {
+                state.DatasourceCacheSizeOverrides.Remove(existingKey);
+            }
+
+            if (bytes is > 0)
+            {
+                state.DatasourceCacheSizeOverrides[datasourceName] = bytes.Value;
+            }
+        });
+    }
+
     // Service RunOnStartup Methods
     public bool? GetServiceRunOnStartup(string serviceKey)
     {
@@ -1628,6 +1663,26 @@ public class StateService : IStateService
         return true;
     }
 
+    private static Dictionary<string, long> NormalizeDatasourceCacheSizeOverrides(
+        Dictionary<string, long>? overrides)
+    {
+        var normalized = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        if (overrides == null)
+        {
+            return normalized;
+        }
+
+        foreach (var (datasourceName, bytes) in overrides)
+        {
+            if (!string.IsNullOrWhiteSpace(datasourceName) && bytes > 0)
+            {
+                normalized[datasourceName] = bytes;
+            }
+        }
+
+        return normalized;
+    }
+
     /// <summary>
     /// Extracts the legacy single scheduled-prefill schedule interval (hours) from the per-service
     /// interval map. Pre-v2 state.json stored one global cadence under "scheduledPrefill"; it is the
@@ -1724,6 +1779,8 @@ public class StateService : IStateService
             CompletedPlatforms = persisted.CompletedPlatforms,
             // Per-service interval overrides
             ServiceIntervals = persisted.ServiceIntervals ?? new Dictionary<string, double>(),
+            // Per-datasource cache-size overrides
+            DatasourceCacheSizeOverrides = NormalizeDatasourceCacheSizeOverrides(persisted.DatasourceCacheSizeOverrides),
             // Per-service "run on startup" overrides
             ServiceRunOnStartup = persisted.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
             // Per-service notification-mode overrides
@@ -1836,6 +1893,8 @@ public class StateService : IStateService
             CompletedPlatforms = state.CompletedPlatforms,
             // Per-service interval overrides
             ServiceIntervals = state.ServiceIntervals ?? new Dictionary<string, double>(),
+            // Per-datasource cache-size overrides
+            DatasourceCacheSizeOverrides = NormalizeDatasourceCacheSizeOverrides(state.DatasourceCacheSizeOverrides),
             // Per-service "run on startup" overrides
             ServiceRunOnStartup = state.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
             // Per-service notification-mode overrides

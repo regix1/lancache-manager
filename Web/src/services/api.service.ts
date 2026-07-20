@@ -1036,6 +1036,27 @@ class ApiService {
     return await this.handleResponse<Config>(res);
   }
 
+  // Set or clear a datasource's manual cache-size limit. A blank/null size clears the
+  // override so the size falls back to auto-detect (docker/.env) and then the full disk.
+  static async setDatasourceCacheSize(
+    datasourceName: string,
+    size: string | null
+  ): Promise<{
+    cacheSizeOverrideBytes: number | null;
+    resolvedCacheSizeBytes: number;
+    cacheSizeSource: 'manual' | 'docker' | 'env' | 'fullDisk';
+  }> {
+    const res = await fetch(
+      `${API_BASE}/system/datasources/${encodeURIComponent(datasourceName)}/cache-size`,
+      this.getFetchOptions({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ size })
+      })
+    );
+    return await this.handleResponse(res);
+  }
+
   // Get directory write permissions and docker socket availability
   static async getDirectoryPermissions(): Promise<{
     cache: { path: string; exists: boolean; writable: boolean; readOnly: boolean };

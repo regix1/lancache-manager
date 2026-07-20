@@ -157,6 +157,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
     // file bytes are unchanged by the recovery load. Covers the compound/dictionary sections individually.
     [Theory]
     [InlineData("ServiceIntervals", "ServiceIntervals")]
+    [InlineData("DatasourceCacheSizeOverrides", "DatasourceCacheSizeOverrides")]
     [InlineData("ServiceRunOnStartup", "ServiceRunOnStartup")]
     [InlineData("ServiceNotificationMode", "ServiceNotificationMode")]
     [InlineData("ServiceNotificationDisplayMode", "ServiceNotificationDisplayMode")]
@@ -228,6 +229,20 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         Assert.True(loaded.SetupCompleted); // an unrelated section stays preserved
 
         AssertWarningNamingSection(logger, nameof(AppState.ServiceIntervals));
+    }
+
+    [Fact]
+    public void DatasourceCacheSizeOverride_RoundTripsAndClearsFromState()
+    {
+        var (writer, _) = CreateStateService();
+        writer.SetDatasourceCacheSizeOverride("alpha", 2_147_483_648L);
+
+        var reloadedService = CreateStateService().Service;
+        Assert.Equal(2_147_483_648L, reloadedService.GetDatasourceCacheSizeOverrides()["alpha"]);
+
+        reloadedService.SetDatasourceCacheSizeOverride("ALPHA", null);
+
+        Assert.Empty(CreateStateService().Service.GetDatasourceCacheSizeOverrides());
     }
 
     // LA-3: same salvage for a schedule last-run map, keeping the valid anchors and dropping only the bad one.
@@ -501,6 +516,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         DataSourceChoice = DataSourceChoice.Steam,
         CompletedPlatforms = "{\"steam\":\"github\"}",
         ServiceIntervals = new() { ["steam"] = 4.0, ["epic"] = 8.0 },
+        DatasourceCacheSizeOverrides = new() { ["alpha"] = 2_147_483_648L },
         ServiceRunOnStartup = new() { ["steam"] = true },
         ServiceNotificationMode = new() { ["cacheReconciliation"] = NotificationMode.Silent },
         ServiceNotificationDisplayMode = new() { ["cacheReconciliation"] = NotificationDisplayMode.Condensed },
@@ -566,6 +582,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         {
             // Keyed maps: an entry of the wrong type fails the whole-section deserialize (then salvage runs).
             case "ServiceIntervals":
+            case "DatasourceCacheSizeOverrides":
             case "ServiceRunOnStartup":
             case "ServiceNotificationMode":
             case "ServiceNotificationDisplayMode":

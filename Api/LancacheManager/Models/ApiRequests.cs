@@ -215,6 +215,17 @@ public class SetPrefillDefaultsRequest
 
 #region System Requests
 
+public class SetDatasourceCacheSizeRequest
+{
+    /// <summary>
+    /// Human-readable size or byte count. JSON strings and integer numbers are accepted;
+    /// null or blank clears the override.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("size")]
+    [System.Text.Json.Serialization.JsonConverter(typeof(FlexibleStringConverter))]
+    public string? Size { get; set; }
+}
+
 public class SetAllowedTimeFormatsRequest
 {
     public List<string> Formats { get; set; } = new();

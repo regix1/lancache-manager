@@ -75,6 +75,10 @@ public interface IStateService
     void SetServiceInterval(string serviceKey, double hours);
     void ClearServiceInterval(string serviceKey);
 
+    // Per-datasource cache-size override methods (missing/zero = automatic detection)
+    Dictionary<string, long> GetDatasourceCacheSizeOverrides();
+    void SetDatasourceCacheSizeOverride(string datasourceName, long? bytes);
+
     // Service RunOnStartup Methods
     bool? GetServiceRunOnStartup(string serviceKey);
     void SetServiceRunOnStartup(string serviceKey, bool runOnStartup);

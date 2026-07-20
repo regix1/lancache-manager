@@ -33,6 +33,7 @@ public class SystemController : ControllerBase
     private readonly UserPreferencesService _userPreferencesService;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly NginxLogRotationService _nginxLogRotationService;
+    private readonly CacheManagementService _cacheManagementService;
 
     public SystemController(
         StateService stateService,
@@ -45,7 +46,8 @@ public class SystemController : ControllerBase
         ISignalRNotificationService notifications,
         UserPreferencesService userPreferencesService,
         DatasourceCapabilityService capabilityService,
-        NginxLogRotationService nginxLogRotationService)
+        NginxLogRotationService nginxLogRotationService,
+        CacheManagementService cacheManagementService)
     {
         _capabilityService = capabilityService;
         _stateService = stateService;
@@ -58,6 +60,7 @@ public class SystemController : ControllerBase
         _notifications = notifications;
         _userPreferencesService = userPreferencesService;
         _nginxLogRotationService = nginxLogRotationService;
+        _cacheManagementService = cacheManagementService;
     }
 
     /// <summary>
@@ -70,10 +73,14 @@ public class SystemController : ControllerBase
     {
         var datasources = _datasourceService.GetDatasources();
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
+        var cacheSizeResolutions = (await _cacheManagementService.GetDatasourceCacheSizeResolutionsAsync())
+            .ToDictionary(resolution => resolution.DatasourceName, StringComparer.OrdinalIgnoreCase);
         var datasourceDtos = await Task.WhenAll(datasources.Select(async ds =>
         {
             var capabilities = _capabilityService.GetCapabilities(ds);
             var nginxReopen = await _nginxLogRotationService.GetNginxReopenAvailabilityAsync(ds.Layout);
+            var cacheSize = cacheSizeResolutions.GetValueOrDefault(ds.Name)
+                ?? new DatasourceCacheSizeResolution(ds.Name, null, 0, CacheSizeSource.FullDisk);
             return new DatasourceInfoDto
             {
                 Name = ds.Name,
@@ -82,6 +89,9 @@ public class SystemController : ControllerBase
                 CacheWritable = ds.CacheWritable,
                 LogsWritable = ds.LogsWritable,
                 Enabled = ds.Enabled,
+                CacheSizeOverrideBytes = cacheSize.OverrideBytes,
+                ResolvedCacheSizeBytes = cacheSize.ResolvedBytes,
+                CacheSizeSource = cacheSize.Source.ToWireValue(),
                 SchemeOverride = ds.SchemeOverride.ToWireValue(),
                 CacheKeyScheme = DatasourceCapabilityService.GetSchemeWireValue(capabilities),
                 CapabilityDenialReason = capabilities.DenialReason,

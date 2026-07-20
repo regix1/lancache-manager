@@ -306,6 +306,12 @@ export interface DatasourceInfo {
   layout?: 'monolithic' | 'bare_metal' | 'mixed';
   /** Number of logical access-log sources currently on disk. */
   sourceCount?: number;
+  /** User-set cache-size limit override in bytes. Null/absent when unset (auto-detect). */
+  cacheSizeOverrideBytes?: number | null;
+  /** Effective cache-size limit shown as the dashboard total, after override or auto-detect. */
+  resolvedCacheSizeBytes?: number;
+  /** Where the resolved size came from: manual, docker, env, or fullDisk. */
+  cacheSizeSource?: 'manual' | 'docker' | 'env' | 'fullDisk';
   /** Object-scoped disk features (game/service removal, corruption mapping, eviction) available. */
   canMapLogicalObjects?: boolean;
   /** Whole-root cache clear stays available everywhere. */

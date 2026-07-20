@@ -2844,6 +2844,21 @@
           "unknown": "Unknown"
         }
       },
+      "cacheSize": {
+        "title": "Cache size limit",
+        "tooltip": "The total cache size shown on the dashboard. Enter a size like 2000g, or leave blank to auto-detect from the docker container or use the full disk.",
+        "placeholder": "e.g. 2000g",
+        "current": "Current: {{value}} ({{source}})",
+        "currentFullDisk": "Currently using the full disk",
+        "saved": "Cache size limit updated",
+        "invalid": "Enter a size like 2000g, or leave blank to auto-detect.",
+        "source": {
+          "manual": "Manual",
+          "docker": "Docker auto-detect",
+          "env": ".env auto-detect",
+          "fullDisk": "Full disk"
+        }
+      },
       "sourceSet": "{{count}} log source",
       "sourceSet_other": "{{count}} log sources",
       "diagnostics": {

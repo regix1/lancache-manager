@@ -117,6 +117,9 @@ public class AppState
     // Per-service interval overrides (keyed by ServiceKey, value in hours)
     public Dictionary<string, double> ServiceIntervals { get; set; } = new();
 
+    // Positive per-datasource cache-size limits in bytes. Missing entries use automatic detection.
+    public Dictionary<string, long> DatasourceCacheSizeOverrides { get; set; } = new();
+
     // Per-service "run on startup" overrides (keyed by ServiceKey).
     // Absent key = use the service's hardcoded DefaultRunOnStartup. The user controls
     // this via the Schedules UI and the value is loaded by each service in its constructor.

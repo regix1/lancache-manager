@@ -78,6 +78,21 @@ public class DatasourceInfoDto
     public bool Enabled { get; set; }
 
     /// <summary>
+    /// User-defined cache-size limit in bytes, or null when automatic detection is active.
+    /// </summary>
+    public long? CacheSizeOverrideBytes { get; set; }
+
+    /// <summary>
+    /// Effective configured limit in bytes. Zero means no configured limit was found.
+    /// </summary>
+    public long ResolvedCacheSizeBytes { get; set; }
+
+    /// <summary>
+    /// Effective limit source: manual, docker, env, or fullDisk.
+    /// </summary>
+    public string CacheSizeSource { get; set; } = CacheSizeSourceValues.FullDisk;
+
+    /// <summary>
     /// Configured scheme override: auto, monolithic, or bare_metal.
     /// </summary>
     public string SchemeOverride { get; set; } = "auto";
@@ -123,6 +138,17 @@ public class DatasourceInfoDto
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public NginxReopenHint? NginxReopenHint { get; set; }
+}
+
+/// <summary>
+/// Result of setting or clearing one datasource cache-size override.
+/// </summary>
+public class DatasourceCacheSizeResponse
+{
+    public string Name { get; set; } = string.Empty;
+    public long? CacheSizeOverrideBytes { get; set; }
+    public long ResolvedCacheSizeBytes { get; set; }
+    public string CacheSizeSource { get; set; } = CacheSizeSourceValues.FullDisk;
 }
 
 /// <summary>

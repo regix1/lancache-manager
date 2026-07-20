@@ -2844,6 +2844,21 @@
           "unknown": "未知"
         }
       },
+      "cacheSize": {
+        "title": "缓存大小上限",
+        "tooltip": "仪表盘上显示的缓存总大小。可输入如 2000g 的大小，或留空以从 Docker 容器自动检测或使用整个磁盘。",
+        "placeholder": "例如 2000g",
+        "current": "当前：{{value}}（{{source}}）",
+        "currentFullDisk": "当前使用整个磁盘",
+        "saved": "缓存大小上限已更新",
+        "invalid": "请输入如 2000g 的大小，或留空以自动检测。",
+        "source": {
+          "manual": "手动",
+          "docker": "Docker 自动检测",
+          "env": ".env 自动检测",
+          "fullDisk": "整个磁盘"
+        }
+      },
       "sourceSet": "{{count}} 个日志源",
       "sourceSet_other": "{{count}} 个日志源",
       "diagnostics": {
