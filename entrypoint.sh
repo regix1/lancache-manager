@@ -138,8 +138,10 @@ diagnose_write_denial() {
         echo "  This is a mount-level restriction, not an ownership problem - chowning will NOT help."
         case "$fstype" in
             nfs|nfs4)
-                echo "  NFS: the export is squashing the container's users. On the NFS server, export with"
-                echo "       no_root_squash and allow write for UID ${PUID} GID ${PGID} (or set anonuid/anongid)."
+                echo "  NFS: the block is the server-side export, not the client. On the NFS server that"
+                echo "       exports this path, run 'exportfs -v': the export must be 'rw' (not 'ro') and must"
+                echo "       not 'all_squash', and the exported directory must be owned by ${PUID}:${PGID} on"
+                echo "       the server. Add 'no_root_squash' too if the container's root setup must write."
                 ;;
             cifs|smb3|smb2)
                 echo "  CIFS/SMB: mount with credentials that can write, add the 'noperm' option, and ensure the"
