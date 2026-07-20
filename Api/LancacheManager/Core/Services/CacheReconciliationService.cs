@@ -26,6 +26,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IPathResolver _pathResolver;
     private readonly GameCacheDetectionDataService _gameCacheDetectionDataService;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
@@ -185,6 +186,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
         RustProcessHelper rustProcessHelper,
+        NginxLogRotationService nginxLogRotationService,
         IPathResolver pathResolver,
         GameCacheDetectionDataService gameCacheDetectionDataService,
         GameCacheDetectionService gameCacheDetectionService,
@@ -200,6 +202,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         _notifications = notifications;
         _operationTracker = operationTracker;
         _rustProcessHelper = rustProcessHelper;
+        _nginxLogRotationService = nginxLogRotationService;
         _pathResolver = pathResolver;
         _gameCacheDetectionDataService = gameCacheDetectionDataService;
         _gameCacheDetectionService = gameCacheDetectionService;
@@ -1349,6 +1352,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // Log Removal panel refetches live (covers both bulk and per-entity purges).
                 var cacheManagementService = _serviceProvider.GetRequiredService<CacheManagementService>();
                 await cacheManagementService.InvalidateServiceCountsAsync();
+
+                // Reopening nginx remains best-effort after a successful log rewrite.
+                var rotationResult = await _nginxLogRotationService.ReopenNginxLogsAsync();
+                if (!rotationResult.Success)
+                {
+                    _logger.LogWarning("Failed to signal nginx to reopen logs: {Error}", rotationResult.ErrorMessage);
+                }
             }
 
             return new EvictedLogPurgeSummary(totalLinesRemoved, datasourcesProcessed, datasourcesFailed);
