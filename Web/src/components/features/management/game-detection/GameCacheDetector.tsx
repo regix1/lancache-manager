@@ -943,6 +943,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             </>
           )}
 
+          {!cacheReadOnly && !allNginxReopenGate.available && allNginxReopenGate.messageKey && (
+            <Alert color="orange" className="mb-6">
+              <div>
+                <p className="font-medium">{t('management.nginxReopen.alertTitle')}</p>
+                <p className="text-sm mt-1">{t(allNginxReopenGate.messageKey)}</p>
+              </div>
+            </Alert>
+          )}
+
           {/* Datasource Filter */}
           {!cacheReadOnly && datasources.length > 1 && (
             <div className="flex justify-end">

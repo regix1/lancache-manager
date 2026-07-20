@@ -1217,6 +1217,17 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
           {requiresRepeatedMissResources &&
             !repeatedMissNginxReopenGate.available &&
+            repeatedMissNginxReopenGate.messageKey && (
+              <Alert color="orange" className="mb-6">
+                <div>
+                  <p className="font-medium">{t('management.nginxReopen.alertTitle')}</p>
+                  <p className="text-sm mt-1">{t(repeatedMissNginxReopenGate.messageKey)}</p>
+                </div>
+              </Alert>
+            )}
+
+          {requiresRepeatedMissResources &&
+            !repeatedMissNginxReopenGate.available &&
             !hasRemovalPermissionIssue && <ReadOnlyBadge message={nginxReopenUnavailableMessage} />}
 
           {showReadOnlyPlaceholder && (

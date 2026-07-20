@@ -956,6 +956,15 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
               }
             >
               <div className="space-y-4">
+                {!allEvictedNginxReopenGate.available && allEvictedNginxReopenGate.messageKey && (
+                  <Alert color="orange" className="mb-6">
+                    <div>
+                      <p className="font-medium">{t('management.nginxReopen.alertTitle')}</p>
+                      <p className="text-sm mt-1">{t(allEvictedNginxReopenGate.messageKey)}</p>
+                    </div>
+                  </Alert>
+                )}
+
                 {/* Sub-accordion 1: Eviction Scan & Settings */}
                 <AccordionSection
                   title={t('management.sections.data.evictionSettingsHeading')}
