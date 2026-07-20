@@ -478,6 +478,7 @@ public sealed class ScheduledHeavyOperationQueueTests
                 notifications: null!,
                 operationTracker: null!,
                 rustProcessHelper: null!,
+                nginxLogRotationService: null!,
                 pathResolver: null!,
                 gameCacheDetectionDataService: null!,
                 gameCacheDetectionService: null!,
