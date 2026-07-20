@@ -33,6 +33,13 @@ interface DatasourcesManagerProps {
   onDataRefresh?: () => void;
 }
 
+// Which row is persisting a cache-size change, and through which button, so
+// only the pressed button shows its spinner while everything else disables.
+interface CacheSizeSaveState {
+  name: string;
+  action: 'save' | 'reset';
+}
+
 // Fetch log positions
 const fetchLogPositions = async (): Promise<DatasourceLogPosition[]> => {
   return await ApiService.getLogPositions();
@@ -66,14 +73,13 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   // Per-datasource manual cache-size limit. A blank value clears the override and falls
   // back to auto-detect, so the input drives an explicit save rather than editing state live.
   const [cacheSizeDraft, setCacheSizeDraft] = useState<Record<string, string>>({});
-  const [cacheSizeSaving, setCacheSizeSaving] = useState<string | null>(null);
+  const [cacheSizeSaving, setCacheSizeSaving] = useState<CacheSizeSaveState | null>(null);
   const [cacheSizeError, setCacheSizeError] = useState<Record<string, string | undefined>>({});
 
-  const handleSaveCacheSize = async (name: string) => {
+  const saveCacheSize = async (name: string, raw: string, action: CacheSizeSaveState['action']) => {
     // Single save at a time: a second row's Enter must not steal the saving owner.
     if (cacheSizeSaving !== null) return;
-    const raw = (cacheSizeDraft[name] ?? '').trim();
-    setCacheSizeSaving(name);
+    setCacheSizeSaving({ name, action });
     setCacheSizeError((prev) => ({ ...prev, [name]: undefined }));
     try {
       const result = await ApiService.setDatasourceCacheSize(name, raw.length > 0 ? raw : null);
@@ -94,7 +100,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           )
         });
       }
-      onSuccess?.(t('management.datasources.cacheSize.saved'));
+      onSuccess?.(
+        action === 'reset'
+          ? t('management.datasources.cacheSize.resetDone')
+          : t('management.datasources.cacheSize.saved')
+      );
       // Reconcile with the server: refresh the datasource config and the dashboard cache total.
       await refreshConfig();
       onDataRefresh?.();
@@ -106,6 +116,14 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     } finally {
       setCacheSizeSaving(null);
     }
+  };
+
+  const handleSaveCacheSize = async (name: string) => {
+    await saveCacheSize(name, (cacheSizeDraft[name] ?? '').trim(), 'save');
+  };
+
+  const handleResetCacheSize = async (name: string) => {
+    await saveCacheSize(name, '', 'reset');
   };
   const signalR = useSignalR();
 
@@ -502,7 +520,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                             placeholder={t('management.datasources.cacheSize.placeholder')}
                             aria-label={t('management.datasources.cacheSize.title')}
                             value={cacheSizeDraft[ds.name] ?? ''}
-                            disabled={cacheSizeSaving === ds.name}
+                            disabled={cacheSizeSaving?.name === ds.name}
                             onClick={(e) => e.stopPropagation()}
                             onChange={(e) =>
                               setCacheSizeDraft((prev) => ({
@@ -521,15 +539,45 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                             variant="filled"
                             color="gray"
                             size="sm"
+                            className="datasource-row-btn"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleSaveCacheSize(ds.name);
                             }}
-                            disabled={cacheSizeSaving !== null && cacheSizeSaving !== ds.name}
-                            loading={cacheSizeSaving === ds.name}
+                            disabled={
+                              cacheSizeSaving !== null &&
+                              (cacheSizeSaving.name !== ds.name ||
+                                cacheSizeSaving.action !== 'save')
+                            }
+                            loading={
+                              cacheSizeSaving?.name === ds.name && cacheSizeSaving.action === 'save'
+                            }
                           >
                             {t('common.save')}
                           </Button>
+                          {ds.cacheSizeSource === 'manual' && (
+                            <Button
+                              variant="filled"
+                              color="gray"
+                              size="sm"
+                              className="datasource-row-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleResetCacheSize(ds.name);
+                              }}
+                              disabled={
+                                cacheSizeSaving !== null &&
+                                (cacheSizeSaving.name !== ds.name ||
+                                  cacheSizeSaving.action !== 'reset')
+                              }
+                              loading={
+                                cacheSizeSaving?.name === ds.name &&
+                                cacheSizeSaving.action === 'reset'
+                              }
+                            >
+                              {t('common.reset')}
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -551,6 +599,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                           variant="filled"
                           color="gray"
                           size="sm"
+                          className="datasource-row-btn"
                           onClick={(e) => {
                             e.stopPropagation();
                             setResetModal({ datasource: ds.name, all: false });
@@ -570,6 +619,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                           variant="filled"
                           color="green"
                           size="sm"
+                          className="datasource-row-btn"
                           leftSection={<PlayCircle className="w-3 h-3" />}
                           onClick={(e) => {
                             e.stopPropagation();

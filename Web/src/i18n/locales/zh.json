@@ -2850,6 +2850,7 @@
         "current": "当前：{{value}}（{{source}}）",
         "currentFullDisk": "当前使用整个磁盘",
         "saved": "缓存大小上限已更新",
+        "resetDone": "缓存大小上限已重置为自动检测",
         "invalid": "请输入如 2000g 的大小，或留空以自动检测。",
         "source": {
           "manual": "手动",

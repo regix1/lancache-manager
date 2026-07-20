@@ -2850,6 +2850,7 @@
         "current": "Current: {{value}} ({{source}})",
         "currentFullDisk": "Currently using the full disk",
         "saved": "Cache size limit updated",
+        "resetDone": "Cache size limit reset to auto-detect",
         "invalid": "Enter a size like 2000g, or leave blank to auto-detect.",
         "source": {
           "manual": "Manual",

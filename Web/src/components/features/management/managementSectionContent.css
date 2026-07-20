@@ -186,6 +186,14 @@
   flex-shrink: 0;
 }
 
+/* Datasource detail rows stack two action clusters on adjacent rows
+   (Save/Reset above Reposition/Process). A shared minimum width, matching the
+   w-28 cache-size input, keeps those buttons ending at the same size instead
+   of ragged, mismatched widths. */
+.datasource-row-btn {
+  min-width: 7rem;
+}
+
 /* Row-level corruption actions (View/Delete saved scan, remove suspect/invalid,
    detail toggles) use Button size="xs" so they read as compact sub-row controls,
    matching every other list row in the app. The accordion header above them keeps
