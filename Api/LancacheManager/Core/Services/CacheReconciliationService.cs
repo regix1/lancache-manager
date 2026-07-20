@@ -342,21 +342,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         CancellationToken stoppingToken,
         bool silent = false)
     {
-        // Execution-time capability revalidation prevents a queued scan from running after
-        // the fleet changes to mixed or unknown key evidence. Fail closed across the whole
-        // fleet because a partial scan would mark false evictions.
-        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
-        if (capabilityDenial != null)
-        {
-            _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", capabilityDenial);
-            return new EvictionScanRunOutcome(Success: false, Error: capabilityDenial);
-        }
-
         // In Remove mode the scan phase is display-silent (manual or automatic): the user-visible
         // feedback for a Remove-mode run is the removal bar, not the scan bar. The incoming
         // <paramref name="silent"/> flag is run-silence (notification mode); scanSilent layers the
         // Remove-mode invariant on top. Lifecycle events are ALWAYS emitted - scanSilent only stamps
         // the ShowNotification display flag false so the frontend hides the scan card.
+        // Stamped FIRST, before the capability revalidation below: that check can enumerate log
+        // directories (ms-scale I/O), and until the stamp lands the eviction scan status endpoint
+        // would report this already-running operation with the PREVIOUS run's silent flag, letting
+        // recovery resurrect a visible card for a silent run.
         var isRemoveMode = _stateService.GetEvictedDataMode() == EvictedDataMode.Remove.ToWireString();
         var scanSilent = silent || isRemoveMode;
 
@@ -367,6 +361,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         if (_evictionScanTerminalStates.TryGetValue(operationId, out var scanTerminalState))
         {
             scanTerminalState.Silent = scanSilent;
+        }
+
+        // Execution-time capability revalidation prevents a queued scan from running after
+        // the fleet changes to mixed or unknown key evidence. Fail closed across the whole
+        // fleet because a partial scan would mark false evictions.
+        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        if (capabilityDenial != null)
+        {
+            _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", capabilityDenial);
+            return new EvictionScanRunOutcome(Success: false, Error: capabilityDenial);
         }
         string? datasourceConfigPath = null;
         string? progressFilePath = null;
@@ -567,29 +571,35 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     {
                         _logger.LogError(ex, "Failed to propagate eviction to CachedGameDetection rows");
                     }
+                }
 
-                    // Fix for "newly evicted items don't show until restart": after the scan
-                    // flags Downloads as evicted, run recovery so any game/service WITHOUT a
-                    // matching CachedGameDetection / CachedServiceDetection row gets one
-                    // inserted with IsEvicted=true. LoadDetectionFromDatabaseAsync only
-                    // returns entities that have detection rows - missing rows = invisible
-                    // in the Evicted Items UI. Recovery on startup wasn't enough; the user
-                    // needs it on every eviction scan because cache files can be evicted
-                    // (via manual clear, nginx cache miss, etc.) at any time.
-                    try
-                    {
-                        stoppingToken.ThrowIfCancellationRequested();
-                        var gamesRecovered = await _gameCacheDetectionService.RecoverEvictedGamesAsync(stoppingToken);
-                        var servicesRecovered = await _gameCacheDetectionService.RecoverEvictedServicesAsync(stoppingToken);
-                        _logger.LogInformation(
-                            "[EvictionScan] Post-scan recovery: inserted {Games} game + {Services} service detection rows from Downloads history (zero counts mean every evicted entity already had a row - their evicted_downloads_count will update in-place)",
-                            gamesRecovered, servicesRecovered);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "[EvictionScan] Post-scan recovery failed - newly-evicted entities may remain hidden until next full scan");
-                    }
+                // Fix for "newly evicted items don't show until restart": after the scan
+                // flags Downloads as evicted, run recovery so any game/service WITHOUT a
+                // matching CachedGameDetection / CachedServiceDetection row gets one
+                // inserted with IsEvicted=true. LoadDetectionFromDatabaseAsync only
+                // returns entities that have detection rows - missing rows = invisible
+                // in the Evicted Items UI. Runs on EVERY successful scan, not only when this
+                // scan newly evicted rows: a skipped scan (empty cache root after a full
+                // clear) must still repair projections for Downloads flagged by an earlier
+                // clear or scan, otherwise those entities stay invisible with no path back.
+                var recoveredProjections = 0;
+                try
+                {
+                    stoppingToken.ThrowIfCancellationRequested();
+                    var gamesRecovered = await _gameCacheDetectionService.RecoverEvictedGamesAsync(stoppingToken);
+                    var servicesRecovered = await _gameCacheDetectionService.RecoverEvictedServicesAsync(stoppingToken);
+                    recoveredProjections = gamesRecovered + servicesRecovered;
+                    _logger.LogInformation(
+                        "[EvictionScan] Post-scan recovery: inserted {Games} game + {Services} service detection rows from Downloads history (zero counts mean every evicted entity already had a row - their evicted_downloads_count will update in-place)",
+                        gamesRecovered, servicesRecovered);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogError(ex, "[EvictionScan] Post-scan recovery failed - newly-evicted entities may remain hidden until next full scan");
+                }
 
+                if (scanResult.Evicted > 0)
+                {
                     // The disk-summary recompute is the long pole of the whole scan on large
                     // databases. Give it its own labeled stage at 92% and stream the parallel
                     // path-stat counts into 92-99% so the bar visibly moves instead of sitting
@@ -626,6 +636,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     // first); when nothing was newly evicted the prune needs its own refresh
                     // so Service Analytics stops showing the deleted downloads.
                     await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
+                }
+                else if (recoveredProjections > 0)
+                {
+                    // Recovery only inserted projection rows; the disk summary is unchanged, but
+                    // the cached detection results must drop so the Evicted Items UI sees them.
+                    _gameCacheDetectionService.InvalidateDetectionCache();
                 }
 
                 stoppingToken.ThrowIfCancellationRequested();
@@ -1815,11 +1831,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         if (unevictedSteamGameIds.Count > 0)
         {
+            // All three arms treat zero-byte Downloads as neutral: they never proved cache
+            // content existed and are never flagged evicted, so they must not veto the
+            // all-evicted test. At least one genuinely evicted row is still required so an
+            // entity with ONLY zero-byte rows can never flip evicted.
             var steamGamesToEvict = await context.Downloads
                 .Where(d => d.GameAppId != null
                          && unevictedSteamGameIds.Contains(d.GameAppId.Value))
                 .GroupBy(d => d.GameAppId!.Value)
-                .Where(g => g.All(d => d.IsEvicted))
+                .Where(g => g.Any(d => d.IsEvicted)
+                         && g.All(d => d.IsEvicted || (d.CacheHitBytes == 0 && d.CacheMissBytes == 0)))
                 .Select(g => g.Key)
                 .ToListAsync(ct);
 
@@ -1848,7 +1869,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 .Where(d => d.EpicAppId != null
                          && unevictedEpicAppIds.Contains(d.EpicAppId))
                 .GroupBy(d => d.EpicAppId!)
-                .Where(g => g.All(d => d.IsEvicted))
+                .Where(g => g.Any(d => d.IsEvicted)
+                         && g.All(d => d.IsEvicted || (d.CacheHitBytes == 0 && d.CacheMissBytes == 0)))
                 .Select(g => g.Key)
                 .ToListAsync(ct);
 
@@ -1883,7 +1905,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                          && d.GameName != null
                          && unevictedNamedServices.Contains(d.Service!.ToLower()))
                 .GroupBy(d => new { Service = d.Service!.ToLower(), GameName = d.GameName! })
-                .Where(g => g.All(d => d.IsEvicted))
+                .Where(g => g.Any(d => d.IsEvicted)
+                         && g.All(d => d.IsEvicted || (d.CacheHitBytes == 0 && d.CacheMissBytes == 0)))
                 .Select(g => new { g.Key.Service, g.Key.GameName })
                 .ToListAsync(ct);
 

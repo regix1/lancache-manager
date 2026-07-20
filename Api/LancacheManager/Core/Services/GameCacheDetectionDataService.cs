@@ -31,12 +31,17 @@ public sealed partial class GameCacheDetectionDataService
             .Distinct()
             .ToListAsync(cancellationToken);
 
+        // All three un-evict arms require a BYTE-BACKED non-evicted Download as re-cache
+        // evidence. A zero-byte row proves nothing about disk content, so it must neither
+        // un-evict an entity here nor (symmetrically) block eviction in the evict/recovery
+        // paths - otherwise one aborted session flips badges in whichever direction it sits.
         var steamGameIdsToUnevict = evictedSteamGameIds.Count == 0
             ? new List<long>()
             : await context.Downloads
                 .Where(d => d.GameAppId != null
                          && evictedSteamGameIds.Contains(d.GameAppId.Value)
-                         && !d.IsEvicted)
+                         && !d.IsEvicted
+                         && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0))
                 .Select(d => d.GameAppId!.Value)
                 .Distinct()
                 .ToListAsync(cancellationToken);
@@ -52,7 +57,8 @@ public sealed partial class GameCacheDetectionDataService
             : await context.Downloads
                 .Where(d => d.EpicAppId != null
                          && evictedEpicAppIds.Contains(d.EpicAppId)
-                         && !d.IsEvicted)
+                         && !d.IsEvicted
+                         && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0))
                 .Select(d => d.EpicAppId!)
                 .Distinct()
                 .ToListAsync(cancellationToken);
@@ -79,6 +85,7 @@ public sealed partial class GameCacheDetectionDataService
                          && d.GameName != null
                          && d.GameName != ""
                          && !d.IsEvicted
+                         && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0)
                          && evictedNamedServices.Contains(d.Service!.ToLower()))
                 .Select(d => new { Service = d.Service!.ToLower(), GameName = d.GameName! })
                 .Distinct()
@@ -125,11 +132,13 @@ public sealed partial class GameCacheDetectionDataService
         // Self-heal mirror of the alive test in SaveServicesAsync: a falsely-evicted service whose
         // named-game (GameName-bearing) cache is back on disk must un-evict. Count ALL non-evicted
         // service-scoped Downloads including named-game ones - do NOT filter GameName==null here.
+        // Byte-backed rows only: a zero-byte Download is not re-cache evidence (see the alive test).
         return await context.Downloads
             .Where(d => d.GameAppId == null
                      && d.EpicAppId == null
                      && d.Service != null
                      && !d.IsEvicted
+                     && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0)
                      && evictedServiceNames.Contains(d.Service!.ToLower()))
             .Select(d => d.Service!.ToLower())
             .Distinct()
@@ -861,6 +870,10 @@ public sealed partial class GameCacheDetectionDataService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
+        // The not-evicted sibling veto in all three arms only counts byte-backed Downloads.
+        // Zero-byte rows (aborted or metadata-only sessions) never proved cache content existed,
+        // are deliberately never flagged evicted, and so must not block an entity whose every
+        // byte-backed Download IS evicted from surfacing in the Evicted Items UI.
         var evictedGames = await dbContext.Downloads
             .Where(d => d.GameAppId != null
                      && d.GameAppId > 0
@@ -869,7 +882,8 @@ public sealed partial class GameCacheDetectionDataService
                      && !dbContext.Downloads.Any(other =>
                          other.GameAppId == d.GameAppId
                          && other.EpicAppId == null
-                         && !other.IsEvicted)
+                         && !other.IsEvicted
+                         && (other.CacheHitBytes > 0 || other.CacheMissBytes > 0))
                      && !dbContext.CachedGameDetections.Any(g => g.GameAppId == d.GameAppId!.Value))
             .GroupBy(d => d.GameAppId!.Value)
             .Select(g => new
@@ -912,7 +926,8 @@ public sealed partial class GameCacheDetectionDataService
                      && d.IsEvicted
                      && !dbContext.Downloads.Any(other =>
                          other.EpicAppId == d.EpicAppId
-                         && !other.IsEvicted)
+                         && !other.IsEvicted
+                         && (other.CacheHitBytes > 0 || other.CacheMissBytes > 0))
                      && !dbContext.CachedGameDetections.Any(g => g.EpicAppId == d.EpicAppId))
             .GroupBy(d => d.EpicAppId!)
             .Select(g => new
@@ -961,7 +976,8 @@ public sealed partial class GameCacheDetectionDataService
                          && other.EpicAppId == null
                          && other.Service == d.Service
                          && other.GameName == d.GameName
-                         && !other.IsEvicted)
+                         && !other.IsEvicted
+                         && (other.CacheHitBytes > 0 || other.CacheMissBytes > 0))
                      && !dbContext.CachedGameDetections.Any(
                          g => g.GameAppId == 0 && g.Service == d.Service && g.GameName == d.GameName))
             .GroupBy(d => new { d.Service, d.GameName })
@@ -1012,7 +1028,8 @@ public sealed partial class GameCacheDetectionDataService
                          && other.EpicAppId == null
                          && other.Service == d.Service
                          && other.GameName == null
-                         && !other.IsEvicted)
+                         && !other.IsEvicted
+                         && (other.CacheHitBytes > 0 || other.CacheMissBytes > 0))
                      && !dbContext.CachedServiceDetections.Any(
                          s => s.ServiceName == d.Service!))
             .GroupBy(d => d.Service!)
@@ -1088,11 +1105,16 @@ public sealed partial class GameCacheDetectionDataService
         // downloads and falsely flip it Evicted. The GameName==null filter therefore must NOT be
         // applied to this query. (The size/accounting queries above DO keep GameName==null to avoid
         // double-counting named bytes - that's correct and intentional; only the alive test differs.)
+        // Zero-byte Downloads are NOT alive evidence: they never proved cache content existed
+        // (aborted or metadata-only sessions - wsus accumulates these constantly), the eviction
+        // paths deliberately never flag them, so counting them here would keep a fully evicted
+        // service out of the Evicted list forever.
         var servicesWithLiveDownloadsList = await dbContext.Downloads
             .Where(d => d.GameAppId == null
                      && d.EpicAppId == null
                      && d.Service != null
-                     && !d.IsEvicted)
+                     && !d.IsEvicted
+                     && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0))
             .Select(d => d.Service!)
             .Distinct()
             .ToListAsync(cancellationToken);

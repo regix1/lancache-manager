@@ -338,6 +338,37 @@ public class XboxNamedDetectionEvictionTests
         Assert.False(await assert.CachedServiceDetections.AnyAsync());
     }
 
+    /// <summary>
+    /// Zero-byte veto regression, named-game arm: a zero-byte non-evicted sibling never proved
+    /// cache content existed, so it must not block recovery of a named game whose byte-backed
+    /// Downloads are all evicted. Contrast with the partially-evicted test above, whose
+    /// still-cached sibling carries bytes and therefore legitimately vetoes.
+    /// </summary>
+    [Fact]
+    public async Task RecoverEvictedGames_ZeroByteSiblingDoesNotVetoNamedGame()
+    {
+        var options = NewInMemoryOptions();
+        await using (var seed = new AppDbContext(options))
+        {
+            var evicted = EvictedNamedDownload("xbox", "Halo Infinite");
+            var zeroByte = EvictedNamedDownload("xbox", "Halo Infinite");
+            zeroByte.ClientIp = "10.0.0.2";
+            zeroByte.IsEvicted = false;
+            zeroByte.CacheHitBytes = 0;
+            zeroByte.CacheMissBytes = 0;
+            seed.Downloads.AddRange(evicted, zeroByte);
+            await seed.SaveChangesAsync();
+        }
+
+        var recovered = await NewDataService(options).RecoverEvictedGamesAsync();
+
+        await using var assert = new AppDbContext(options);
+        Assert.Equal(1, recovered);
+        var row = await assert.CachedGameDetections.SingleAsync();
+        Assert.True(row.IsEvicted);
+        Assert.Equal("Halo Infinite", row.GameName);
+    }
+
     // -----------------------------------------------------------------------------------------
     // Active named-game REMOVAL detection-row cleanup. Regression guard for the bug where removing
     // an Xbox named game (e.g. "Minecraft for Windows") succeeded on disk/DB but the detection row

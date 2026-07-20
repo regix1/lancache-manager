@@ -169,6 +169,12 @@ public class CacheController : ControllerBase
     [HttpGet("size/scan/status")]
     public IActionResult GetCacheSizeScanStatus()
     {
+        // Snapshot the run-stable display flag BEFORE the active-operation guard. The flag is
+        // stamped before the operation registers and nulled only in onTerminalCleanup, which runs
+        // after the operation's status turns terminal; snapshot-then-guard therefore can never pair
+        // isProcessing=true with a defaulted flag at a silent scan's last instant. Reading the flag
+        // after the guard reopens that torn pair (the log processing status endpoint had it).
+        var showNotification = _cacheService.CurrentCacheSizeScanShowNotification ?? true;
         var activeScan = _operationTracker.GetActiveOperations(OperationType.CacheSizeScan).FirstOrDefault();
         if (activeScan == null)
         {
@@ -195,7 +201,7 @@ public class CacheController : ControllerBase
         return Ok(new
         {
             isProcessing = true,
-            showNotification = _cacheService.CurrentCacheSizeScanShowNotification ?? true,
+            showNotification,
             status = activeScan.Status,
             percentComplete = activeScan.PercentComplete,
             message = stageKey ?? "Scanning cache files...",

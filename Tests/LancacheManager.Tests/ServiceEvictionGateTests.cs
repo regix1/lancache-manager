@@ -88,6 +88,19 @@ public class ServiceEvictionGateTests
             Datasource = "default"
         };
 
+    /// <summary>
+    /// A zero-byte service-scoped Download (aborted or metadata-only session - wsus accumulates
+    /// these constantly). Never flagged evicted because it never proved cache content existed,
+    /// and for the same reason it must be NEUTRAL in every alive/veto/re-cache-evidence test.
+    /// </summary>
+    private static Download ZeroByteServiceDownload(string service)
+    {
+        var download = ServiceDownload(service, evicted: false);
+        download.CacheHitBytes = 0;
+        download.CacheMissBytes = 0;
+        return download;
+    }
+
     private static CachedServiceDetection EvictedServiceRow(string serviceName)
         => new CachedServiceDetection
         {
@@ -263,6 +276,97 @@ public class ServiceEvictionGateTests
     }
 
     /// <summary>
+    /// Zero-byte veto regression (the "wsus never shows as evicted" bug): a service whose every
+    /// BYTE-BACKED Download is evicted must be recovered into the Evicted Items projection even
+    /// when non-evicted zero-byte Downloads exist. Before the fix one aborted session vetoed the
+    /// all-evicted test forever, so the service could never surface (and never be removed).
+    /// </summary>
+    [Fact]
+    public async Task RecoverEvictedServices_ZeroByteSiblingDoesNotVetoAsync()
+    {
+        var options = NewInMemoryOptions();
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.Downloads.Add(ServiceDownload("wsus", evicted: true));
+            seed.Downloads.Add(ZeroByteServiceDownload("wsus"));
+            await seed.SaveChangesAsync();
+        }
+
+        var dataService = NewDataService(options);
+
+        var recovered = await dataService.RecoverEvictedServicesAsync();
+
+        Assert.Equal(1, recovered);
+        await using var assert = new AppDbContext(options);
+        var row = await assert.CachedServiceDetections.SingleAsync(s => s.ServiceName == "wsus");
+        Assert.True(row.IsEvicted);
+        Assert.Equal(0, row.CacheFilesFound);
+    }
+
+    /// <summary>
+    /// Zero-byte alive-test companion: a service ABSENT from the scan whose only non-evicted
+    /// Downloads are zero-byte must still flip to IsEvicted - zero-byte rows are not alive
+    /// evidence, so this case behaves like the all-downloads-evicted case.
+    /// </summary>
+    [Fact]
+    public async Task SaveServices_AbsentServiceWithOnlyZeroByteLiveDownloads_IsEvictedAsync()
+    {
+        var options = NewInMemoryOptions();
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.CachedServiceDetections.Add(new CachedServiceDetection
+            {
+                ServiceName = "wsus",
+                CacheFilesFound = 5,
+                TotalSizeBytes = 500,
+                IsEvicted = false,
+                LastDetectedUtc = DateTime.UtcNow.AddHours(-1),
+                CreatedAtUtc = DateTime.UtcNow.AddHours(-1)
+            });
+            seed.Downloads.Add(ServiceDownload("wsus", evicted: true));
+            seed.Downloads.Add(ZeroByteServiceDownload("wsus"));
+            await seed.SaveChangesAsync();
+        }
+
+        var dataService = NewDataService(options);
+
+        await dataService.SaveServicesAsync(new List<ServiceCacheInfo>());
+
+        await using var assert = new AppDbContext(options);
+        var row = await assert.CachedServiceDetections.SingleAsync(s => s.ServiceName == "wsus");
+        Assert.True(row.IsEvicted);
+        Assert.Equal(0, row.CacheFilesFound);
+    }
+
+    /// <summary>
+    /// Zero-byte self-heal companion: a zero-byte non-evicted Download is not re-cache evidence,
+    /// so it must NOT un-evict a service. Without this, the same aborted session that used to
+    /// block eviction would instead clear the badge right back off after recovery.
+    /// </summary>
+    [Fact]
+    public async Task GetServicesToUnevict_ZeroByteDownloadIsNotRecacheEvidenceAsync()
+    {
+        var options = NewInMemoryOptions();
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.CachedServiceDetections.Add(EvictedServiceRow("wsus"));
+            seed.Downloads.Add(ServiceDownload("wsus", evicted: true));
+            seed.Downloads.Add(ZeroByteServiceDownload("wsus"));
+            await seed.SaveChangesAsync();
+        }
+
+        var dataService = NewDataService(options);
+
+        await using var context = new AppDbContext(options);
+        var toUnevict = await dataService.GetServicesToUnevictAsync(context, CancellationToken.None);
+
+        Assert.DoesNotContain("wsus", toUnevict);
+    }
+
+    /// <summary>
     /// Named-game false-eviction regression (the "riot" bug, but SERVICE-AGNOSTIC): a service
     /// whose ONLY Downloads are named-game (GameName set) and NOT evicted must count as ALIVE and
     /// therefore must NOT be flipped to IsEvicted when absent from the scan. Before the fix the
@@ -390,12 +494,14 @@ public class ServiceEvictionGateTests
 
         using var context = new AppDbContext(options);
 
-        // Shape mirrors SaveServicesAsync.servicesWithLiveDownloads: raw Service select, lowered in C#.
+        // Shape mirrors SaveServicesAsync.servicesWithLiveDownloads: raw Service select, lowered
+        // in C#, and only byte-backed rows count as alive evidence.
         var liveQuery = context.Downloads
             .Where(d => d.GameAppId == null
                      && d.EpicAppId == null
                      && d.Service != null
-                     && !d.IsEvicted)
+                     && !d.IsEvicted
+                     && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0))
             .Select(d => d.Service!)
             .Distinct();
 
@@ -410,11 +516,47 @@ public class ServiceEvictionGateTests
                      && d.EpicAppId == null
                      && d.Service != null
                      && !d.IsEvicted
+                     && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0)
                      && evictedNames.Contains(d.Service!.ToLower()))
             .Select(d => d.Service!.ToLower())
             .Distinct();
 
         var unevictSql = unevictQuery.ToQueryString();
         Assert.Contains("SELECT", unevictSql, StringComparison.OrdinalIgnoreCase);
+
+        // Shape mirrors the CacheReconciliationService.EvictCachedGameDetectionsAsync group gate:
+        // at least one evicted row plus zero-byte rows treated as neutral. Grouped Any/All is the
+        // most fragile translation in the family, so compile it explicitly.
+        var appIds = new List<long> { 1L, 2L };
+        var groupGateQuery = context.Downloads
+            .Where(d => d.GameAppId != null && appIds.Contains(d.GameAppId.Value))
+            .GroupBy(d => d.GameAppId!.Value)
+            .Where(g => g.Any(d => d.IsEvicted)
+                     && g.All(d => d.IsEvicted || (d.CacheHitBytes == 0 && d.CacheMissBytes == 0)))
+            .Select(g => g.Key);
+
+        var groupGateSql = groupGateQuery.ToQueryString();
+        Assert.Contains("SELECT", groupGateSql, StringComparison.OrdinalIgnoreCase);
+
+        // Shape mirrors the RecoverEvictedServicesAsync veto subquery: only a byte-backed
+        // non-evicted sibling blocks recovery.
+        var recoveryQuery = context.Downloads
+            .Where(d => d.IsEvicted
+                     && d.GameAppId == null
+                     && d.EpicAppId == null
+                     && d.Service != null
+                     && d.GameName == null
+                     && !context.Downloads.Any(other =>
+                         other.GameAppId == null
+                         && other.EpicAppId == null
+                         && other.Service == d.Service
+                         && other.GameName == null
+                         && !other.IsEvicted
+                         && (other.CacheHitBytes > 0 || other.CacheMissBytes > 0)))
+            .GroupBy(d => d.Service!)
+            .Select(g => new { ServiceName = g.Key, Datasource = g.Min(d => d.Datasource) });
+
+        var recoverySql = recoveryQuery.ToQueryString();
+        Assert.Contains("SELECT", recoverySql, StringComparison.OrdinalIgnoreCase);
     }
 }

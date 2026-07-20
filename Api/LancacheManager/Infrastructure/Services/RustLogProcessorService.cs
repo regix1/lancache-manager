@@ -361,6 +361,13 @@ public class RustLogProcessorService
     /// </summary>
     public object GetStatus()
     {
+        // Snapshot the silent flag together with the processing guard, BEFORE the progress-file
+        // read below. The completion path clears IsProcessing first and IsSilentMode a few
+        // milliseconds later (cleanup runs after an awaited broadcast); reading IsSilentMode
+        // after the file I/O let a status fetch at a silent run's end pair isProcessing=true
+        // with silentMode=false, so recovery resurrected a visible card frozen at the terminal
+        // snapshot. Mirrors the up-front snapshot in StatsController.EvictionScanStatus.
+        var silentMode = IsSilentMode;
         if (!IsProcessing)
         {
             return new
@@ -402,7 +409,7 @@ public class RustLogProcessorService
             return new
             {
                 isProcessing = true,
-                silentMode = IsSilentMode,
+                silentMode,
                 status = "starting",
                 operationId = _currentOperationId
             };
@@ -416,7 +423,7 @@ public class RustLogProcessorService
         return new
         {
             isProcessing = true,
-            silentMode = IsSilentMode,
+            silentMode,
             operationId = _currentOperationId,
             status = progress.Status,
             percentComplete = progress.PercentComplete,
@@ -569,8 +576,10 @@ public class RustLogProcessorService
 
             if (sharedOperationId == null)
             {
-                IsProcessing = true;
+                // Silent flag first: GetStatus snapshots IsSilentMode before its IsProcessing
+                // guard, so the flag must already be correct when IsProcessing becomes visible.
                 IsSilentMode = silentMode;
+                IsProcessing = true;
             }
         }
         finally
