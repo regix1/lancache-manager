@@ -95,13 +95,75 @@ if command -v setfacl &>/dev/null; then
     done
 fi
 
-# Write access diagnostics - warn if the app user cannot write to critical dirs
+# Explain WHY a directory rejects writes, using the actual owner/mode/mount rather than a
+# canned "chown to PUID:PGID" that is wrong when the directory is already owned correctly.
+# A dir owned by PUID:PGID that still rejects writes - even from root - is a mount-level
+# restriction (read-only mount, NFS root_squash / UID mapping, a CIFS/SMB share whose
+# credentials lack write, or Docker userns-remap), not an ownership problem. Chowning it
+# would not help, so we do not tell the user to.
+diagnose_write_denial() {
+    local dir="$1"
+
+    # Numeric owner/mode as the kernel sees them. On CIFS/NFS the displayed name (e.g.
+    # "www-data") can be a mount-option alias, so compare numbers, not names.
+    local owner_uid owner_gid mode
+    owner_uid=$(stat -c '%u' "$dir" 2>/dev/null)
+    owner_gid=$(stat -c '%g' "$dir" 2>/dev/null)
+    mode=$(stat -c '%a' "$dir" 2>/dev/null)
+
+    # Filesystem type and read-only flag of the mount backing this dir.
+    local fstype="unknown" mount_ro=0
+    if command -v findmnt >/dev/null 2>&1; then
+        fstype=$(findmnt -n -o FSTYPE --target "$dir" 2>/dev/null || echo unknown)
+        findmnt -n -o OPTIONS --target "$dir" 2>/dev/null | tr ',' '\n' | grep -qx ro && mount_ro=1
+    fi
+
+    # If root itself cannot write here, standard Unix ownership is not the gate.
+    local root_can_write=0
+    if touch "$dir/.root_write_test" 2>/dev/null; then
+        rm -f "$dir/.root_write_test" 2>/dev/null
+        root_can_write=1
+    fi
+
+    echo "WARNING: No write access to $dir as ${PUID}:${PGID}"
+    echo "  Directory owner ${owner_uid:-?}:${owner_gid:-?}, mode ${mode:-?}, filesystem ${fstype:-unknown}"
+
+    if [ "$mount_ro" -eq 1 ]; then
+        echo "  Cause: the mount is read-only. Remove ':ro' from this volume, or make the export/share writable."
+        return
+    fi
+
+    if [ "$owner_uid" = "$PUID" ] && [ "$root_can_write" -eq 0 ]; then
+        echo "  Cause: the directory is ALREADY owned by ${PUID}:${PGID}, yet not even root can write to it."
+        echo "  This is a mount-level restriction, not an ownership problem - chowning will NOT help."
+        case "$fstype" in
+            nfs|nfs4)
+                echo "  NFS: the export is squashing the container's users. On the NFS server, export with"
+                echo "       no_root_squash and allow write for UID ${PUID} GID ${PGID} (or set anonuid/anongid)."
+                ;;
+            cifs|smb3|smb2)
+                echo "  CIFS/SMB: mount with credentials that can write, add the 'noperm' option, and ensure the"
+                echo "       share ACL grants that account write access."
+                ;;
+            *)
+                echo "  Check for: an NFS/CIFS/FUSE share denying writes, or Docker userns-remap mapping ${PUID}"
+                echo "       to a different host UID. Confirm on the host with: touch <host_path_to_$dir>/.t"
+                ;;
+        esac
+        return
+    fi
+
+    # Ownership genuinely differs - the classic PUID/PGID remedy applies.
+    echo "  Cause: the directory is owned by ${owner_uid:-?}:${owner_gid:-?}, not ${PUID}:${PGID}."
+    echo "  On the host: chown -R ${PUID}:${PGID} <host_path_to_$dir> && chmod -R 775 <host_path_to_$dir>"
+    echo "  If on Unraid, also run: setfacl -Rb <host_path_to_$dir>"
+}
+
+# Write access diagnostics - warn if the app user cannot write to critical dirs.
 for dir in /logs /cache; do
     if [ -d "$dir" ]; then
         if ! gosu "$USER_NAME" touch "$dir/.write_test" 2>/dev/null; then
-            echo "WARNING: No write access to $dir as ${PUID}:${PGID}"
-            echo "  If on Unraid, run on host: setfacl -Rb <host_path_to_$dir>"
-            echo "  Or ensure: chown -R ${PUID}:${PGID} <host_path> && chmod -R 775 <host_path>"
+            diagnose_write_denial "$dir"
         else
             rm -f "$dir/.write_test" 2>/dev/null
         fi
