@@ -1318,7 +1318,7 @@
         "clientsLabel": "client",
         "clientsLabel_other": "clients",
         "totalLabel": "total",
-        "requestsWindowLabel": "requests/2s"
+        "requestsWindowLabel": "requests/{{seconds}}s"
       }
     },
     "tab": {

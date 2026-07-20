@@ -397,8 +397,8 @@ const Dashboard: React.FC = () => {
     // Use dashboardStats when available, otherwise keep previous values to prevent flashing to 0
     const hasPeriodData = dashboardStats?.period !== undefined && dashboardStats?.period !== null;
 
-    // Active stats come from SpeedContext which has its own grace period
-    // to prevent tab-switch flicker (zero-transition delay in applySpeedSnapshot)
+    // Active stats read SpeedContext directly: the tracker's activity window now
+    // follows real log-delivery cadence, so a reported value needs no extra smoothing here.
     const activeClients = speedSnapshot?.clientSpeeds?.length ?? 0;
     const totalActiveDownloads = activeDownloadCount;
 

@@ -29,6 +29,14 @@ use parser_http_detailed::HttpDetailedParser;
 
 // Configuration
 const WINDOW_SECONDS: i64 = 2;
+// Upper bound on the adaptive rolling window and the fixed retention horizon. This is a backstop,
+// not the mechanism: it matches the DB-side activity grace so the live view never claims a download
+// is active longer than the database's own definition of active.
+const MAX_WINDOW_SECONDS: i64 = 15;
+// Depth of each source's recent-max cadence ring. A small fixed ring keeps SourceState `Copy` and
+// auto-expires a stale large delivery gap after this many fresh deliveries, with no time-based
+// pruning.
+const CADENCE_SAMPLES: usize = 4;
 const BROADCAST_INTERVAL_MS: u64 = 500;
 const POLL_INTERVAL_MS: u64 = 100;
 /// Upper bound on how many bytes a single source may drain in one poll. Each `read_new_entries`
@@ -202,17 +210,63 @@ struct SourceState {
     checkpoint: u64,
     scan: u64,
     discarding: bool,
+    // Log timestamp of the newest entry the previous entry-producing poll delivered. Lets the next
+    // delivery measure how far the log's own timeline advanced between deliveries. `None` until the
+    // first delivery.
+    last_batch_ts: Option<NaiveDateTime>,
+    // Recent-max ring of delivery-cadence samples (seconds). The window must cover the LARGEST
+    // realistic delivery gap, so cadence is the max of the ring, not an average.
+    cadence_ring: [f64; CADENCE_SAMPLES],
+    // Write index into cadence_ring.
+    cadence_head: usize,
 }
 
 impl SourceState {
-    /// Anchor both cursors at `position` with no in-progress discard. This is both the
-    /// seed-to-EOF state (first successful observation) and the rotation reset.
+    /// Anchor both cursors at `position` with no in-progress discard and an empty cadence history.
+    /// This is both the seed-to-EOF state (first successful observation) and the rotation reset;
+    /// the rotation path carries the learned cadence over afterwards, since a rotation resets file
+    /// offsets but not the log's delivery cadence.
     fn anchored(position: u64) -> Self {
         Self {
             checkpoint: position,
             scan: position,
             discarding: false,
+            last_batch_ts: None,
+            cadence_ring: [0.0; CADENCE_SAMPLES],
+            cadence_head: 0,
         }
+    }
+
+    /// Record one delivery's timestamp span into the recent-max cadence ring. The sample is the
+    /// larger of the intra-batch span (a buffered flush delivers several seconds of history at
+    /// once) and the advance since the previous delivery (which reinforces the cadence across
+    /// consecutive bursts). An inter-delivery advance longer than the retention horizon measures
+    /// idleness, not delivery cadence, so its signal is discarded to keep an overnight gap from
+    /// pinning the window wide on the next download; the intra-batch span still counts. The
+    /// previous-delivery timestamp is always updated so the next advance is measured from here.
+    fn record_delivery(&mut self, min_ts: NaiveDateTime, max_ts: NaiveDateTime) {
+        let intra_batch_span = (max_ts - min_ts).num_milliseconds() as f64 / 1000.0;
+        let inter_advance = match self.last_batch_ts {
+            Some(last) => {
+                let advance = (max_ts - last).num_milliseconds() as f64 / 1000.0;
+                if advance > MAX_WINDOW_SECONDS as f64 {
+                    0.0
+                } else {
+                    advance
+                }
+            }
+            None => 0.0,
+        };
+        let sample = intra_batch_span.max(inter_advance).max(0.0);
+        self.cadence_ring[self.cadence_head] = sample;
+        self.cadence_head = (self.cadence_head + 1) % CADENCE_SAMPLES;
+        self.last_batch_ts = Some(max_ts);
+    }
+
+    /// The largest recent delivery-gap sample in seconds. This is the per-source cadence the
+    /// effective window sizes itself to cover.
+    fn measured_cadence(&self) -> f64 {
+        self.cadence_ring.iter().copied().fold(0.0, f64::max)
     }
 }
 
@@ -330,7 +384,14 @@ impl SpeedTracker {
         // start and drop any in-progress over-limit discard state.
         let mut state = if current_size < state.checkpoint {
             eprintln!("Log file rotated: {}", log_path.display());
-            SourceState::anchored(0)
+            // Reset only the file offsets. Rotation swaps the file, not nginx's flush
+            // configuration, so the source's delivery cadence is unchanged; carrying the learned
+            // ring over stops the first download after logrotate from re-learning (and re-dipping).
+            let mut rotated = SourceState::anchored(0);
+            rotated.last_batch_ts = state.last_batch_ts;
+            rotated.cadence_ring = state.cadence_ring;
+            rotated.cadence_head = state.cadence_head;
+            rotated
         } else {
             state
         };
@@ -376,6 +437,10 @@ impl SpeedTracker {
             self.file_positions.insert(log_path.clone(), state);
             return Ok(());
         }
+
+        // Entry count before parsing this poll's buffer, so the timestamp span of exactly the
+        // records appended below can be measured as this source's latest delivery.
+        let before = self.entries.len();
 
         match buffer.iter().rposition(|&b| b == b'\n') {
             Some(index) => {
@@ -424,6 +489,23 @@ impl SpeedTracker {
             }
         }
 
+        // A poll that appended entries just observed one delivery from this source. Measure the
+        // log-timestamp span of those records so the window can size itself to real delivery
+        // cadence: a buffered log (nginx flush) lands several seconds of history in a single burst,
+        // and a fixed short window would empty between bursts and flicker the active state.
+        if self.entries.len() > before {
+            let mut min_ts: Option<NaiveDateTime> = None;
+            let mut max_ts: Option<NaiveDateTime> = None;
+            for entry in self.entries.iter().skip(before) {
+                let ts = entry.timestamp;
+                min_ts = Some(min_ts.map_or(ts, |current| current.min(ts)));
+                max_ts = Some(max_ts.map_or(ts, |current| current.max(ts)));
+            }
+            if let (Some(min_ts), Some(max_ts)) = (min_ts, max_ts) {
+                state.record_delivery(min_ts, max_ts);
+            }
+        }
+
         self.file_positions.insert(log_path.clone(), state);
         Ok(())
     }
@@ -449,15 +531,39 @@ impl SpeedTracker {
         }
     }
 
+    /// The rolling window sized to the slowest source's measured delivery cadence. A source that
+    /// delivers within the base window contributes nothing (gate `c > WINDOW_SECONDS`), so
+    /// unbuffered/monolithic delivery keeps the exact 2s behavior; a source whose flush cadence
+    /// exceeds the base window widens the window just enough that it never empties between bursts.
+    /// The margin added to the measured cadence is WINDOW_SECONDS itself, so worst-cycle coverage
+    /// (`w - c`) never falls below the speed divisor's floor, and the result is capped at the
+    /// backstop horizon.
+    fn effective_window_secs(&self) -> i64 {
+        let mut eff = WINDOW_SECONDS as f64;
+        for state in self.file_positions.values() {
+            let cadence = state.measured_cadence();
+            if cadence > WINDOW_SECONDS as f64 {
+                eff = eff.max(cadence + WINDOW_SECONDS as f64);
+            }
+        }
+        (eff.ceil() as i64).clamp(WINDOW_SECONDS, MAX_WINDOW_SECONDS)
+    }
+
     fn clean_old_entries(&mut self) {
-        let cutoff = Utc::now().naive_utc() - chrono::Duration::seconds(WINDOW_SECONDS);
+        // Retention is fixed at the backstop horizon and decoupled from the adaptive snapshot
+        // window: every downstream read re-filters by the current window_start, so retaining a bit
+        // more is always safe, memory stays bounded, and a window that widens on a later burst can
+        // retroactively re-include entries a narrower window would already have evicted.
+        let cutoff = Utc::now().naive_utc() - chrono::Duration::seconds(MAX_WINDOW_SECONDS);
 
         self.entries.retain(|entry| entry.timestamp >= cutoff);
     }
 
     async fn calculate_snapshot(&mut self) -> DownloadSpeedSnapshot {
         let now = Utc::now();
-        let window_start = now.naive_utc() - chrono::Duration::seconds(WINDOW_SECONDS);
+        let now_naive = now.naive_utc();
+        let window_secs = self.effective_window_secs();
+        let window_start = now_naive - chrono::Duration::seconds(window_secs);
 
         // Clone entries within window to avoid borrow issues
         let window_entries: Vec<SpeedLogEntry> = self.entries.iter()
@@ -465,13 +571,28 @@ impl SpeedTracker {
             .cloned()
             .collect();
 
+        // Speed divides by OBSERVED coverage, not the whole window. The newest in-window timestamp
+        // (clamped to now so a future-dated line cannot shrink the divisor) marks how much of the
+        // window actually holds delivered data. Buffered delivery lags the window tail by up to one
+        // flush, so dividing by the full window would make a steady download's reported speed
+        // sawtooth every flush cycle. The floor of WINDOW_SECONDS restores exact monolithic parity
+        // (full coverage clamps up to 2.0 => bytes/2) and bounds a lone aging entry's speed.
+        let anchor = window_entries
+            .iter()
+            .map(|e| e.timestamp)
+            .max()
+            .map(|max_ts| max_ts.min(now_naive))
+            .unwrap_or(now_naive);
+        let coverage_secs = (anchor - window_start).num_milliseconds() as f64 / 1000.0;
+        let speed_divisor = coverage_secs.clamp(WINDOW_SECONDS as f64, window_secs as f64);
+
         // Whole-window headline aggregates come from the shared, DB-free `headline_aggregates`
         // seam (the same computation the streaming tail tests drive), reading straight from the
         // in-window entries. The per-client aggregation below still reads from window_entries
         // BEFORE the grouping consumes it by move, so this snapshot clones every windowed entry
         // exactly once (it used to clone each entry up to three times, every 500ms broadcast).
         let (total_bytes_per_second, entries_count, has_active_downloads) =
-            headline_aggregates(&self.entries, window_start);
+            headline_aggregates(&self.entries, window_start, speed_divisor);
 
         // Per-client (total, cache-hit) byte aggregates - only three fields are read per
         // entry, so no entry clone is needed.
@@ -518,7 +639,7 @@ impl SpeedTracker {
         // non-depot services below. Unresolved depots keep their per-depot identity.
         let mut game_speeds: Vec<GameSpeedInfo> = collapse_depot_groups(depot_groups, |depot_id| {
             depot_resolutions.get(&depot_id).cloned().unwrap_or((None, None))
-        });
+        }, speed_divisor);
 
         // Add non-depot service entries (Epic, Origin, etc.)
         let mut resolved_groups: HashMap<(String, String), Vec<SpeedLogEntry>> = HashMap::new();
@@ -611,7 +732,7 @@ impl SpeedTracker {
 
         for ((game_name, client_ip), entries) in resolved_groups {
             let service = entries.first().map(|e| e.service.clone()).unwrap_or_default();
-            game_speeds.push(build_game_speed_info(entries, 0, client_ip, service, Some(game_name), None));
+            game_speeds.push(build_game_speed_info(entries, 0, client_ip, service, Some(game_name), None, speed_divisor));
         }
 
         // Sort by speed descending
@@ -628,7 +749,7 @@ impl SpeedTracker {
 
                 ClientSpeedInfo {
                     client_ip,
-                    bytes_per_second: total_bytes as f64 / WINDOW_SECONDS as f64,
+                    bytes_per_second: total_bytes as f64 / speed_divisor,
                     total_bytes,
                     active_games,
                     cache_hit_bytes,
@@ -644,7 +765,7 @@ impl SpeedTracker {
             total_bytes_per_second,
             game_speeds,
             client_speeds,
-            window_seconds: WINDOW_SECONDS,
+            window_seconds: window_secs,
             entries_in_window: entries_count,
             has_active_downloads,
         }
@@ -832,6 +953,7 @@ impl SpeedTracker {
 fn headline_aggregates(
     entries: &VecDeque<SpeedLogEntry>,
     window_start: NaiveDateTime,
+    speed_divisor: f64,
 ) -> (f64, usize, bool) {
     let mut total_bytes: i64 = 0;
     let mut count: usize = 0;
@@ -839,7 +961,7 @@ fn headline_aggregates(
         total_bytes += entry.bytes_sent;
         count += 1;
     }
-    (total_bytes as f64 / WINDOW_SECONDS as f64, count, count > 0)
+    (total_bytes as f64 / speed_divisor, count, count > 0)
 }
 
 /// Build a GameSpeedInfo from a group of log entries
@@ -850,6 +972,7 @@ fn build_game_speed_info(
     service: String,
     game_name: Option<String>,
     game_app_id: Option<u32>,
+    speed_divisor: f64,
 ) -> GameSpeedInfo {
     let total_bytes: i64 = entries.iter().map(|e| e.bytes_sent).sum();
     let cache_hit_bytes: i64 = entries.iter().filter(|e| e.is_cache_hit).map(|e| e.bytes_sent).sum();
@@ -866,7 +989,7 @@ fn build_game_speed_info(
         game_app_id,
         service,
         client_ip,
-        bytes_per_second: total_bytes as f64 / WINDOW_SECONDS as f64,
+        bytes_per_second: total_bytes as f64 / speed_divisor,
         total_bytes,
         request_count: entries.len(),
         cache_hit_bytes,
@@ -886,6 +1009,7 @@ fn build_game_speed_info(
 fn collapse_depot_groups<F>(
     depot_groups: HashMap<(u32, String), Vec<SpeedLogEntry>>,
     resolve: F,
+    speed_divisor: f64,
 ) -> Vec<GameSpeedInfo>
 where
     F: Fn(u32) -> (Option<String>, Option<u32>),
@@ -928,7 +1052,7 @@ where
                 }
             }
             let service = entries.first().map(|e| e.service.clone()).unwrap_or_default();
-            build_game_speed_info(entries, rep_depot_id, client_ip, service, game_name, game_app_id)
+            build_game_speed_info(entries, rep_depot_id, client_ip, service, game_name, game_app_id, speed_divisor)
         })
         .collect()
 }
@@ -986,7 +1110,7 @@ async fn main() -> Result<()> {
         eprintln!();
         eprintln!("Database connection is configured via DATABASE_URL environment variable.");
         eprintln!("Outputs JSON speed snapshots to stdout every {}ms", BROADCAST_INTERVAL_MS);
-        eprintln!("Uses a {}-second rolling window", WINDOW_SECONDS);
+        eprintln!("Uses a rolling window sized to each log's delivery cadence (min {}s)", WINDOW_SECONDS);
         // No ProgressReporter/envelope here by design (this bin is a continuous snapshot
         // stream, not a discrete lifecycle operation - see emit_json_line docs). Returning
         // Err (instead of process::exit(1)) still surfaces the fatal reason: anyhow's
@@ -1016,7 +1140,7 @@ mod tests {
         headline_aggregates, replace_pattern_lookup_cache, SourceKind, SpeedLogEntry, SpeedTracker,
         TrackedSource, MAX_POLL_BYTES, WINDOW_SECONDS,
     };
-    use chrono::Utc;
+    use chrono::{Duration, NaiveDateTime, Utc};
     use sqlx::postgres::PgPoolOptions;
     use std::collections::HashMap;
     use std::io::Write;
@@ -1066,13 +1190,13 @@ mod tests {
             .into_iter()
             .map(|((depot_id, client_ip), entries)| {
                 let (name, app) = cs2_resolver(depot_id);
-                build_game_speed_info(entries, depot_id, client_ip, "steam".to_string(), name, app)
+                build_game_speed_info(entries, depot_id, client_ip, "steam".to_string(), name, app, WINDOW_SECONDS as f64)
             })
             .collect();
         assert_eq!(pre_fix.len(), 2, "pre-fix: two depots of one game render as two rows");
 
         // POST-FIX behavior: collapsed to a single row with combined throughput.
-        let rows = collapse_depot_groups(groups, cs2_resolver);
+        let rows = collapse_depot_groups(groups, cs2_resolver, WINDOW_SECONDS as f64);
         assert_eq!(rows.len(), 1, "post-fix: one game => one row");
         let row = &rows[0];
         assert_eq!(row.total_bytes, 3000, "bytes are summed across both depots");
@@ -1090,7 +1214,7 @@ mod tests {
         groups.insert((5001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 5001, 500)]);
         groups.insert((5002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 5002, 500)]);
 
-        let rows = collapse_depot_groups(groups, none_resolver);
+        let rows = collapse_depot_groups(groups, none_resolver, WINDOW_SECONDS as f64);
         assert_eq!(rows.len(), 2, "two unknown depots must not merge");
         assert!(rows.iter().all(|r| r.game_app_id.is_none()));
     }
@@ -1101,7 +1225,7 @@ mod tests {
         groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 1000)]);
         groups.insert((1001, "10.0.0.2".to_string()), vec![steam_entry("10.0.0.2", 1001, 1000)]);
 
-        let rows = collapse_depot_groups(groups, cs2_resolver);
+        let rows = collapse_depot_groups(groups, cs2_resolver, WINDOW_SECONDS as f64);
         assert_eq!(rows.len(), 2, "per-client separation is intentional");
         assert!(rows.iter().all(|r| r.total_bytes == 1000));
     }
@@ -1123,7 +1247,7 @@ mod tests {
         groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 1000)]);
         groups.insert((1002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1002, 2000)]);
 
-        let rows = collapse_depot_groups(groups, partial_resolver);
+        let rows = collapse_depot_groups(groups, partial_resolver, WINDOW_SECONDS as f64);
         assert_eq!(rows.len(), 1, "partial resolution must not split one game across rows");
         let row = &rows[0];
         assert_eq!(row.total_bytes, 3000);
@@ -1142,7 +1266,7 @@ mod tests {
         groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 500)]);
         groups.insert((1002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1002, 500)]);
 
-        let rows = collapse_depot_groups(groups, cs2_resolver);
+        let rows = collapse_depot_groups(groups, cs2_resolver, WINDOW_SECONDS as f64);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].depot_id, 1001, "equal bytes tie-breaks to the smaller depot id");
     }
@@ -1154,7 +1278,7 @@ mod tests {
         groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 9000)]);
         groups.insert((1002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1002, 100)]);
 
-        let rows = collapse_depot_groups(groups, cs2_resolver);
+        let rows = collapse_depot_groups(groups, cs2_resolver, WINDOW_SECONDS as f64);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].depot_id, 1001);
     }
@@ -1193,6 +1317,22 @@ mod tests {
         format!(
             "[{ts}] {client_ip} GET \"/depot/{depot}/chunk/abc\" - HTTP/1.1 200 \"-\" 512 2016 {bytes} 0.005 {bytes} {cache} h.example 200 0.004 \"Steam\"\n",
             ts = now_ts()
+        )
+    }
+
+    // A bare-metal http-detailed line with a caller-supplied log timestamp, so a buffered flush can
+    // be injected as a burst of past-second records with no sleeping. The `+0000` offset forces UTC
+    // regardless of the process TZ, matching now_ts().
+    fn detailed_steam_line_at(
+        client_ip: &str,
+        depot: u32,
+        bytes: i64,
+        cache: &str,
+        ts: NaiveDateTime,
+    ) -> String {
+        let ts = ts.format("%d/%b/%Y:%H:%M:%S +0000").to_string();
+        format!(
+            "[{ts}] {client_ip} GET \"/depot/{depot}/chunk/abc\" - HTTP/1.1 200 \"-\" 512 2016 {bytes} 0.005 {bytes} {cache} h.example 200 0.004 \"Steam\"\n"
         )
     }
 
@@ -1316,7 +1456,7 @@ mod tests {
         // formats: throughput sums across sources and the window is active.
         let window_start = Utc::now().naive_utc() - chrono::Duration::seconds(WINDOW_SECONDS);
         let (total_bytes_per_second, entries_in_window, has_active_downloads) =
-            headline_aggregates(&tracker.entries, window_start);
+            headline_aggregates(&tracker.entries, window_start, WINDOW_SECONDS as f64);
         assert_eq!(
             entries_in_window, 2,
             "both live records are inside the window"
@@ -1475,6 +1615,220 @@ mod tests {
             tracker.entries.len(),
             1,
             "a clean poll after recovery must not replay or duplicate the valid record"
+        );
+    }
+
+    // A buffered per-service log delivers several seconds of history in one flush. Against the
+    // fixed 2s window that burst is entirely in the past, so the window empties and the source
+    // reads inactive (the 1->0 flicker). The adaptive window must widen to cover the delivery span
+    // so the source stays active, and speed must divide by observed coverage. Pre-fix, the window
+    // is fixed at 2s and effective_window_secs does not exist, so the widening and active
+    // assertions here fail; post-fix they pass.
+    #[tokio::test]
+    async fn buffered_source_window_widens_to_cover_flush_gap() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let steam = dir.join("steam-access.log");
+        std::fs::write(&steam, b"").unwrap();
+
+        let tracked = discover_tracked_sources(&[dir.to_path_buf()]);
+        assert_eq!(tracked.len(), 1);
+        let mut tracker = lazy_tracker(tracked.clone());
+
+        // Seed to EOF (reads nothing, records no cadence).
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        // One flush delivering a burst whose log timestamps span 4 seconds (7s..3s in the past), all
+        // at once. Timestamps are anchored to a fixed reference so the assertions do not race the
+        // wall clock.
+        let base = Utc::now().naive_utc();
+        let bytes_each = 1000i64;
+        let mut burst = String::new();
+        for secs in [7i64, 6, 5, 4, 3] {
+            burst.push_str(&detailed_steam_line_at(
+                "10.0.0.2",
+                654321,
+                bytes_each,
+                "MISS",
+                base - Duration::seconds(secs),
+            ));
+        }
+        append_bytes(&steam, burst.as_bytes());
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        // Delivery span 4s > base window, so the window widens: ceil(4 + WINDOW_SECONDS) = 6.
+        let w = tracker.effective_window_secs();
+        assert_eq!(w, 6, "a 4s delivery span widens the window to cover the flush gap");
+
+        // Fixed 2s window: the burst was delivered entirely in the past, so the window is empty and
+        // the source reads inactive - exactly the flicker this change removes.
+        let fixed_start = base - Duration::seconds(WINDOW_SECONDS);
+        let (_, _, fixed_active) =
+            headline_aggregates(&tracker.entries, fixed_start, WINDOW_SECONDS as f64);
+        assert!(!fixed_active, "the fixed 2s window empties between buffered flushes");
+
+        // Adaptive window: still covers the burst, so the source stays active, and speed divides by
+        // observed coverage (newest in-window timestamp minus window_start), not the whole window.
+        let window_start = base - Duration::seconds(w);
+        let in_window_bytes: i64 = tracker
+            .entries
+            .iter()
+            .filter(|e| e.timestamp >= window_start)
+            .map(|e| e.bytes_sent)
+            .sum();
+        let anchor = tracker
+            .entries
+            .iter()
+            .map(|e| e.timestamp)
+            .filter(|ts| *ts >= window_start)
+            .max()
+            .expect("the widened window contains the burst");
+        let coverage =
+            (anchor.min(Utc::now().naive_utc()) - window_start).num_milliseconds() as f64 / 1000.0;
+        let divisor = coverage.clamp(WINDOW_SECONDS as f64, w as f64);
+        let (bps, cnt, active) = headline_aggregates(&tracker.entries, window_start, divisor);
+        assert!(active, "the adaptive window still sees the buffered burst");
+        assert!(cnt > 0, "the widened window is non-empty");
+        assert_eq!(
+            bps,
+            in_window_bytes as f64 / divisor,
+            "speed divides by observed coverage, not the raw window"
+        );
+    }
+
+    // Unbuffered/monolithic delivery: each poll appends a line carrying the CURRENT timestamp, so
+    // the log's timeline tracks wall-clock and no multi-second gap ever forms. The window must stay
+    // at exactly WINDOW_SECONDS and the divisor must be exactly 2 - bit-for-bit today's behavior.
+    #[tokio::test]
+    async fn unbuffered_source_keeps_two_second_window() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let steam = dir.join("steam-access.log");
+        std::fs::write(&steam, b"").unwrap();
+
+        let tracked = discover_tracked_sources(&[dir.to_path_buf()]);
+        assert_eq!(tracked.len(), 1);
+        let mut tracker = lazy_tracker(tracked.clone());
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        for _ in 0..4 {
+            append_bytes(
+                &steam,
+                detailed_steam_line("10.0.0.2", 654321, 1000, "MISS").as_bytes(),
+            );
+            tracker.read_new_entries(&tracked[0]).unwrap();
+        }
+
+        assert_eq!(
+            tracker.effective_window_secs(),
+            WINDOW_SECONDS,
+            "fresh delivery never widens the window - monolithic behavior is preserved"
+        );
+
+        let window_start = Utc::now().naive_utc() - Duration::seconds(WINDOW_SECONDS);
+        let (bps, _, active) =
+            headline_aggregates(&tracker.entries, window_start, WINDOW_SECONDS as f64);
+        assert!(active);
+        assert_eq!(
+            bps,
+            4000.0 / WINDOW_SECONDS as f64,
+            "unbuffered speed divides by exactly 2"
+        );
+    }
+
+    // Two deliveries separated by a long idle gap (far larger than the retention horizon). The
+    // inter-delivery advance measures idleness, not delivery cadence, so it must be discarded: the
+    // window must stay at WINDOW_SECONDS. Without the idle gate the 40s advance would pin it wide.
+    #[tokio::test]
+    async fn idle_gap_does_not_widen_window() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let steam = dir.join("steam-access.log");
+        std::fs::write(&steam, b"").unwrap();
+
+        let tracked = discover_tracked_sources(&[dir.to_path_buf()]);
+        assert_eq!(tracked.len(), 1);
+        let mut tracker = lazy_tracker(tracked.clone());
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        let base = Utc::now().naive_utc();
+
+        // First delivery: a single line (zero intra-batch span).
+        append_bytes(
+            &steam,
+            detailed_steam_line_at("10.0.0.2", 654321, 1000, "MISS", base - Duration::seconds(40))
+                .as_bytes(),
+        );
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        // Second delivery after a long gap: a single line 40s later. Its inter-delivery advance is
+        // far beyond the retention horizon and must not be read as slow delivery cadence.
+        append_bytes(
+            &steam,
+            detailed_steam_line_at("10.0.0.2", 654321, 1000, "MISS", base).as_bytes(),
+        );
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        assert_eq!(
+            tracker.effective_window_secs(),
+            WINDOW_SECONDS,
+            "an idle gap between deliveries must not be mistaken for slow delivery cadence"
+        );
+    }
+
+    // Daily logrotate replaces the file with a smaller one but leaves nginx's flush configuration
+    // unchanged, so the learned delivery cadence must survive rotation - otherwise the first
+    // download after rotation re-learns from scratch and re-flickers.
+    #[tokio::test]
+    async fn rotation_preserves_learned_cadence() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let steam = dir.join("steam-access.log");
+        std::fs::write(&steam, b"").unwrap();
+
+        let tracked = discover_tracked_sources(&[dir.to_path_buf()]);
+        assert_eq!(tracked.len(), 1);
+        let mut tracker = lazy_tracker(tracked.clone());
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        // Teach a multi-second delivery cadence with one buffered burst.
+        let base = Utc::now().naive_utc();
+        let mut burst = String::new();
+        for secs in [7i64, 6, 5, 4, 3] {
+            burst.push_str(&detailed_steam_line_at(
+                "10.0.0.2",
+                654321,
+                1000,
+                "MISS",
+                base - Duration::seconds(secs),
+            ));
+        }
+        append_bytes(&steam, burst.as_bytes());
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        let learned = tracker
+            .file_positions
+            .get(&tracked[0].path)
+            .expect("source state is present after a delivery")
+            .measured_cadence();
+        assert!(
+            learned > WINDOW_SECONDS as f64,
+            "the burst taught a cadence above the base window"
+        );
+
+        // Rotate: replace the file with a smaller (empty) one. The rotation branch resets file
+        // offsets but must carry the cadence ring over, and the empty file appends no new delivery.
+        std::fs::write(&steam, b"").unwrap();
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        let after = tracker
+            .file_positions
+            .get(&tracked[0].path)
+            .expect("source state survives rotation")
+            .measured_cadence();
+        assert_eq!(
+            after, learned,
+            "rotation resets file positions but preserves the learned cadence"
         );
     }
 }

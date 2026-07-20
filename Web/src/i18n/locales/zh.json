@@ -1318,7 +1318,7 @@
         "clientsLabel": "个客户端",
         "clientsLabel_other": "个客户端",
         "totalLabel": "总计",
-        "requestsWindowLabel": "请求/2秒"
+        "requestsWindowLabel": "请求/{{seconds}}秒"
       }
     },
     "tab": {

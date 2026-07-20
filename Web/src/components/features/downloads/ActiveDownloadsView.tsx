@@ -184,7 +184,9 @@ const ActiveDownloadsView: React.FC = () => {
         </div>
         <div className="summary-stat">
           <strong>{speedSnapshot?.entriesInWindow || 0}</strong>{' '}
-          {t('downloads.active.summary.requestsWindowLabel')}
+          {t('downloads.active.summary.requestsWindowLabel', {
+            seconds: Math.round(speedSnapshot?.windowSeconds ?? 2)
+          })}
         </div>
       </div>
     </div>

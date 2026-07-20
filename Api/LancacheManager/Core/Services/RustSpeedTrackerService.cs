@@ -22,10 +22,12 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private bool _loggedNoTrackableDatasources;
     private string? _rustExecutablePath;
     private Process? _rustProcess;
+    // Initial value before the first Rust snapshot arrives. Two seconds is the minimum/default
+    // window; the Rust tracker reports a window that adapts upward from there toward the
+    // observed log-delivery cadence.
     private DownloadSpeedSnapshot _currentSnapshot = new() { WindowSeconds = 2 };
     private readonly object _snapshotLock = new();
     private bool _previousHadActivity = false;
-    private int _zeroStateBroadcastCountdown = 0; // Continue broadcasting zero-state for multiple cycles
 
     protected override string ServiceName => "RustSpeedTrackerService";
     protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(5);
@@ -213,26 +215,21 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
                         var hasActivity = snapshot.HasActiveDownloads;
 
-                        // Broadcast logic with countdown for zero-state messages
-                        // This ensures frontend receives multiple zero-state messages reliably
-                        if (hasActivity)
+                        // Broadcast every active snapshot plus exactly one trailing zero so a
+                        // real end-of-activity edge is reported once, then stay silent while
+                        // idle. The Rust window now adapts to the observed log-delivery
+                        // cadence, so a zero reading here means activity genuinely stopped
+                        // rather than a gap between flush bursts, and no repeat count is
+                        // needed to smooth it for the frontend.
+                        if (hasActivity || _previousHadActivity)
                         {
-                            // Active downloads - always broadcast and reset countdown
-                            _zeroStateBroadcastCountdown = 5; // Will broadcast 5 more cycles after stopping
                             await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, snapshot);
                         }
-                        else if (_zeroStateBroadcastCountdown > 0)
-                        {
-                            // No activity but countdown still running - broadcast zero-state
-                            _zeroStateBroadcastCountdown--;
-                            await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, snapshot);
 
-                            // Send DownloadsRefresh on first transition to zero
-                            // so frontend refreshes the active downloads list
-                            if (_previousHadActivity)
-                            {
-                                await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, null);
-                            }
+                        if (_previousHadActivity && !hasActivity)
+                        {
+                            // Downloads just ended - refresh the DB-backed active list once.
+                            await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, null);
                         }
 
                         _previousHadActivity = hasActivity;
