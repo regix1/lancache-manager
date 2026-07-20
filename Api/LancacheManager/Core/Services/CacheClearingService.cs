@@ -293,13 +293,21 @@ public class CacheClearingService : ScheduledBackgroundService
                 }
                 else
                 {
-                    _logger.LogWarning($"No cache directories found for datasource {ds.Name} at {ds.CachePath}");
+                    // An existing root with no hex subdirectories is an already-empty cache, and
+                    // the user explicitly asked to clear it. Keep it as a zero-directory entry so
+                    // the post-clear reconciliation still runs: that is the only path that flags
+                    // byte-backed Downloads evicted once the disk is empty (the eviction scan
+                    // deliberately refuses an empty root because an unmounted cache looks the
+                    // same, and failing the whole clear here left rows from an earlier wipe
+                    // permanently unreconciled). Missing paths above still fail out.
+                    validCachePaths.Add((ds.Name, ds.CachePath, 0));
+                    _logger.LogInformation($"Datasource {ds.Name}: cache already empty at {ds.CachePath}; clear will reconcile the database only");
                 }
             }
 
             if (!validCachePaths.Any())
             {
-                var error = "No cache directories found in any datasource";
+                var error = "Cache path does not exist for any datasource";
                 _logger.LogWarning("Cache clear operation {OperationId} failed: {Error}", operationId, error);
 
                 // Mark operation as complete (failed) in unified tracker.
@@ -366,6 +374,15 @@ public class CacheClearingService : ScheduledBackgroundService
             for (var dsIndex = 0; dsIndex < validCachePaths.Count; dsIndex++)
             {
                 var (dsName, cachePath, dirCount) = validCachePaths[dsIndex];
+
+                // Already-empty root: nothing for the Rust cleaner to delete. The datasource
+                // stays in validCachePaths so the reconciliation after this loop covers it.
+                if (dirCount == 0)
+                {
+                    _logger.LogInformation($"Datasource {dsName} cache already empty; skipping Rust cleaner ({dsIndex + 1}/{validCachePaths.Count})");
+                    continue;
+                }
+
                 var progressFile = Path.Combine(operationsDir, $"cache_clear_progress_{operationId}_{dsIndex}.json");
 
                 _logger.LogInformation($"Clearing cache for datasource {dsName} ({dsIndex + 1}/{validCachePaths.Count}): {cachePath}");
@@ -704,8 +721,13 @@ public class CacheClearingService : ScheduledBackgroundService
         IReadOnlyCollection<string> clearedDatasourceNames,
         CancellationToken cancellationToken)
     {
+        // Matched case-insensitively: Downloads.Datasource drifts in case from the configured
+        // name (rows stored as 'Default' against a 'default' config were observed live), the
+        // startup normalizer only repairs that once per boot, and an ordinal mismatch here
+        // silently reconciles zero rows.
         var datasourceNames = clearedDatasourceNames
             .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name.ToLowerInvariant())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         if (datasourceNames.Length == 0)
@@ -728,7 +750,7 @@ public class CacheClearingService : ScheduledBackgroundService
                         !download.IsActive
                         && !download.IsEvicted
                         && (download.CacheHitBytes > 0 || download.CacheMissBytes > 0)
-                        && datasourceNames.Contains(download.Datasource))
+                        && datasourceNames.Contains(download.Datasource.ToLower()))
                     .ExecuteUpdateAsync(
                         setters => setters.SetProperty(download => download.IsEvicted, true),
                         cancellationToken);

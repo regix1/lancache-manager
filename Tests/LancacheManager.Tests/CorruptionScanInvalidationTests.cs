@@ -247,6 +247,44 @@ public sealed class CorruptionScanInvalidationTests
         await AssertScanCountsAsync(database.Options, scans: 0, candidates: 0);
     }
 
+    /// <summary>
+    /// Downloads.Datasource drifts in case from the configured datasource name (rows stored as
+    /// 'Default' against a 'default' config were observed live), and the startup normalizer only
+    /// repairs that once per boot. Reconciliation must match case-insensitively or it silently
+    /// flags zero rows, leaving the cleared content unreconcilable.
+    /// </summary>
+    [Fact]
+    public async Task CacheClearing_SuccessMatchesDatasourceCaseInsensitivelyAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+
+        await using (var setup = new AppDbContext(database.Options))
+        {
+            setup.Downloads.AddRange(
+                CreateDownload("drifted-case", "Default", cacheHitBytes: 1024),
+                CreateDownload("other-datasource", "Secondary", cacheMissBytes: 2048));
+            await setup.SaveChangesAsync();
+        }
+
+        await using (var context = new AppDbContext(database.Options))
+        {
+            var result = await CacheClearingService.ReconcileSuccessfulCacheClearAsync(
+                context,
+                ["default"],
+                CancellationToken.None);
+
+            Assert.Equal(1, result.DownloadsEvicted);
+        }
+
+        await using (var assertContext = new AppDbContext(database.Options))
+        {
+            var states = await assertContext.Downloads
+                .ToDictionaryAsync(download => download.ClientIp, download => download.IsEvicted);
+            Assert.True(states["drifted-case"]);
+            Assert.False(states["other-datasource"]);
+        }
+    }
+
     [Fact]
     public async Task CacheClearing_ReconciliationRollsBackEvictionFlagsWhenInvalidationFailsAsync()
     {
