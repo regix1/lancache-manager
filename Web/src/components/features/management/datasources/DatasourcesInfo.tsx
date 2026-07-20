@@ -46,7 +46,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   onDataRefresh
 }) => {
   const { t } = useTranslation();
-  const { config, refreshConfig } = useConfig();
+  const { config, refreshConfig, updateConfig } = useConfig();
   const { checkingPermissions } = useDirectoryPermissionsContext();
   const [logPositions, setLogPositions] = useState<DatasourceLogPosition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,11 +76,26 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     setCacheSizeSaving(name);
     setCacheSizeError((prev) => ({ ...prev, [name]: undefined }));
     try {
-      await ApiService.setDatasourceCacheSize(name, raw.length > 0 ? raw : null);
+      const result = await ApiService.setDatasourceCacheSize(name, raw.length > 0 ? raw : null);
       setCacheSizeDraft((prev) => ({ ...prev, [name]: '' }));
+      // Apply the endpoint's authoritative result to this row immediately so it updates even if the
+      // config refresh below fails (the config provider keeps its last-good config silently on error).
+      if (config?.dataSources) {
+        updateConfig({
+          dataSources: config.dataSources.map((ds) =>
+            ds.name === name
+              ? {
+                  ...ds,
+                  cacheSizeOverrideBytes: result.cacheSizeOverrideBytes,
+                  resolvedCacheSizeBytes: result.resolvedCacheSizeBytes,
+                  cacheSizeSource: result.cacheSizeSource
+                }
+              : ds
+          )
+        });
+      }
       onSuccess?.(t('management.datasources.cacheSize.saved'));
-      // Refresh the datasource config so this row's effective size and source update,
-      // and the dashboard stats so the cache total reflects the new limit.
+      // Reconcile with the server: refresh the datasource config and the dashboard cache total.
       await refreshConfig();
       onDataRefresh?.();
     } catch (err: unknown) {

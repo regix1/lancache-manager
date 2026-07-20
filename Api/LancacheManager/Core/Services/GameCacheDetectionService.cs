@@ -25,7 +25,6 @@ public partial class GameCacheDetectionService : IDisposable
     private readonly DatasourceService _datasourceService;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly IServiceProvider _serviceProvider;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
@@ -109,8 +108,7 @@ public partial class GameCacheDetectionService : IDisposable
         ISignalRNotificationService notifications,
         DatasourceService datasourceService,
         DatasourceCapabilityService capabilityService,
-        IUnifiedOperationTracker operationTracker,
-        IServiceProvider serviceProvider)
+        IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -124,7 +122,6 @@ public partial class GameCacheDetectionService : IDisposable
         _datasourceService = datasourceService;
         _capabilityService = capabilityService;
         _operationTracker = operationTracker;
-        _serviceProvider = serviceProvider;
 
         _logger.LogInformation("GameCacheDetectionService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
 
@@ -794,14 +791,9 @@ public partial class GameCacheDetectionService : IDisposable
 
             await _detectionDataService.RefreshDiskSummaryAsync(cancellationToken);
 
-            if (!incremental)
-            {
-                // Resolve lazily to avoid the existing CacheManagementService -> detection-service
-                // dependency becoming a constructor cycle. A full scan has just inspected the
-                // cache, so current mount usage is the correct freshness baseline.
-                var cacheManagementService = _serviceProvider.GetRequiredService<CacheManagementService>();
-                await cacheManagementService.RefreshCacheScanStalenessBaselineAsync(cancellationToken);
-            }
+            // Game detection owns only its own on-disk summary. The cache-file scan (files/size and
+            // its own staleness) is a separate scheduled scan and is left untouched here, so a
+            // detection run never changes the Cache Files card or clears the cache-file scan.
 
             _logger.LogInformation("[GameDetection] Completed: {Count} games detected across {DatasourceCount} datasource(s)",
                 totalGamesDetected, datasources.Count);

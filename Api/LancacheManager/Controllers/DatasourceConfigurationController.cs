@@ -50,15 +50,21 @@ public class DatasourceConfigurationController : ControllerBase
         _cacheManagementService.InvalidateConfiguredCacheSize();
         _dashboardBatchService.InvalidateLiveCache();
 
+        // The resolution set is enabled datasources only. A disabled datasource is absent, so reflect
+        // the value we just persisted instead of throwing, so setting a size on a disabled datasource
+        // still round-trips.
         var resolution = (await _cacheManagementService.GetDatasourceCacheSizeResolutionsAsync())
-            .First(item => item.DatasourceName.Equals(datasource.Name, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(item => item.DatasourceName.Equals(datasource.Name, StringComparison.OrdinalIgnoreCase));
+
+        var source = resolution?.Source
+            ?? (overrideBytes.HasValue ? CacheSizeSource.Manual : CacheSizeSource.FullDisk);
 
         return Ok(new DatasourceCacheSizeResponse
         {
             Name = datasource.Name,
-            CacheSizeOverrideBytes = resolution.OverrideBytes,
-            ResolvedCacheSizeBytes = resolution.ResolvedBytes,
-            CacheSizeSource = resolution.Source.ToWireValue()
+            CacheSizeOverrideBytes = resolution?.OverrideBytes ?? overrideBytes,
+            ResolvedCacheSizeBytes = resolution?.ResolvedBytes ?? (overrideBytes ?? 0),
+            CacheSizeSource = source.ToWireValue()
         });
     }
 

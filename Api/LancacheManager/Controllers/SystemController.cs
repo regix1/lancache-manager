@@ -75,12 +75,18 @@ public class SystemController : ControllerBase
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
         var cacheSizeResolutions = (await _cacheManagementService.GetDatasourceCacheSizeResolutionsAsync())
             .ToDictionary(resolution => resolution.DatasourceName, StringComparer.OrdinalIgnoreCase);
+        // Enabled-only resolutions exclude disabled datasources; surface their persisted manual
+        // override directly so a stored size is not hidden as "full disk" while a datasource is off.
+        var cacheSizeOverrides = new Dictionary<string, long>(
+            _stateService.GetDatasourceCacheSizeOverrides(), StringComparer.OrdinalIgnoreCase);
         var datasourceDtos = await Task.WhenAll(datasources.Select(async ds =>
         {
             var capabilities = _capabilityService.GetCapabilities(ds);
             var nginxReopen = await _nginxLogRotationService.GetNginxReopenAvailabilityAsync(ds.Layout);
             var cacheSize = cacheSizeResolutions.GetValueOrDefault(ds.Name)
-                ?? new DatasourceCacheSizeResolution(ds.Name, null, 0, CacheSizeSource.FullDisk);
+                ?? (cacheSizeOverrides.TryGetValue(ds.Name, out var storedOverride) && storedOverride > 0
+                    ? new DatasourceCacheSizeResolution(ds.Name, storedOverride, storedOverride, CacheSizeSource.Manual)
+                    : new DatasourceCacheSizeResolution(ds.Name, null, 0, CacheSizeSource.FullDisk));
             return new DatasourceInfoDto
             {
                 Name = ds.Name,

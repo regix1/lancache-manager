@@ -159,8 +159,7 @@ public class GameDetectionVisibilityRaceTests
                 (ISignalRNotificationService)(object)Notifications,
                 datasourceService,
                 capabilityService,
-                (IUnifiedOperationTracker)(object)Tracker,
-                serviceProvider: null!);
+                (IUnifiedOperationTracker)(object)Tracker);
         }
 
         public void Dispose()

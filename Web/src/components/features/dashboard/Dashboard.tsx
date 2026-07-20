@@ -646,21 +646,14 @@ const Dashboard: React.FC = () => {
               .filter(Boolean)
               .join(' • ')
           : t('dashboard.cards.noScanData'),
-        badge:
-          (hasCacheScan && cacheInfo?.scanMayBeStale) || gamesOnDiskStats?.includesEvicted ? (
-            <>
-              {hasCacheScan && cacheInfo?.scanMayBeStale ? (
-                <Badge variant="warning" emphasis>
-                  {t('dashboard.cards.staleScanData')}
-                </Badge>
-              ) : null}
-              {gamesOnDiskStats?.includesEvicted ? (
-                <Badge variant="warning" emphasis>
-                  {t('dashboard.cards.evictedIncluded', { count: gamesOnDiskStats.evictedCount })}
-                </Badge>
-              ) : null}
-            </>
-          ) : undefined,
+        // Games on disk owns its own freshness (it shows "detected X ago" and refreshes on a
+        // detection run). It does not borrow the cache-file scan's staleness, so re-running the
+        // cache scan never flags this card and re-running detection never flags the Cache Files card.
+        badge: gamesOnDiskStats?.includesEvicted ? (
+          <Badge variant="warning" emphasis>
+            {t('dashboard.cards.evictedIncluded', { count: gamesOnDiskStats.evictedCount })}
+          </Badge>
+        ) : undefined,
         icon: HardDrive,
         color: 'blue' as const,
         visible: cardVisibility.gamesOnDisk ?? false,

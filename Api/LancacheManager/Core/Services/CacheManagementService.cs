@@ -400,23 +400,39 @@ public partial class CacheManagementService
 
     internal static long SumKnownConfiguredSizes(IEnumerable<DatasourceCacheSizeResolution> resolutions)
     {
-        var total = 0L;
+        var manualTotal = 0L;
+        // Docker/.env CACHE_DISK_SIZE is one global cache limit shared by every auto-detected
+        // datasource, so it is counted ONCE. Summing it per datasource would report N x the limit.
+        var autoDetected = 0L;
         foreach (var resolution in resolutions)
         {
-            if (resolution.ResolvedBytes <= 0 || resolution.Source == CacheSizeSource.FullDisk)
+            if (resolution.ResolvedBytes <= 0)
             {
                 continue;
             }
 
-            if (resolution.ResolvedBytes > long.MaxValue - total)
+            if (resolution.Source == CacheSizeSource.Manual)
             {
-                return long.MaxValue;
-            }
+                if (resolution.ResolvedBytes > long.MaxValue - manualTotal)
+                {
+                    return long.MaxValue;
+                }
 
-            total += resolution.ResolvedBytes;
+                manualTotal += resolution.ResolvedBytes;
+            }
+            else if (resolution.Source is CacheSizeSource.Docker or CacheSizeSource.Env
+                && resolution.ResolvedBytes > autoDetected)
+            {
+                autoDetected = resolution.ResolvedBytes;
+            }
         }
 
-        return total;
+        if (autoDetected > long.MaxValue - manualTotal)
+        {
+            return long.MaxValue;
+        }
+
+        return manualTotal + autoDetected;
     }
 
     private long AddFullDiskCapacities(
@@ -1349,78 +1365,6 @@ public partial class CacheManagementService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to persist cache scan to {FilePath}", _cachedScanFilePath);
-        }
-    }
-
-    internal static void RefreshCachedScanUsageBaseline(
-        CachedCacheScan cachedScan,
-        long currentUsedCacheSize,
-        IReadOnlyDictionary<string, long>? currentUsedCacheSizeByMount = null)
-    {
-        cachedScan.UsedCacheSizeAtScan = currentUsedCacheSize;
-        if (currentUsedCacheSizeByMount != null)
-        {
-            cachedScan.UsedCacheSizeByMountAtScan = currentUsedCacheSizeByMount.ToDictionary(
-                pair => pair.Key,
-                pair => pair.Value,
-                CachePathComparer);
-        }
-    }
-
-    /// <summary>
-    /// Refreshes the mount-usage baseline after a successful full game detection. The cached
-    /// file counts and scan timestamp are preserved; when no cache-file scan exists this is a
-    /// no-op so the explicit pre-first-scan state remains intact.
-    /// </summary>
-    public async Task<bool> RefreshCacheScanStalenessBaselineAsync(
-        CancellationToken cancellationToken = default)
-    {
-        await _scanCacheLock.WaitAsync(cancellationToken);
-        try
-        {
-            await LoadCachedScanAsync();
-            if (_cachedCacheScan == null)
-            {
-                _logger.LogDebug(
-                    "Cache scan baseline refresh skipped because no cache-file scan exists yet");
-                return false;
-            }
-
-            var usedBytesByMountAtScan = _cachedCacheScan.UsedCacheSizeByMountAtScan;
-            if (usedBytesByMountAtScan.Count > 0)
-            {
-                var currentUsedBytesByMount = ReadCacheMountUsage(usedBytesByMountAtScan.Keys);
-                if (currentUsedBytesByMount == null)
-                {
-                    _logger.LogWarning(
-                        "Cache scan baseline refresh skipped because current mount usage is unavailable");
-                    return false;
-                }
-
-                RefreshCachedScanUsageBaseline(
-                    _cachedCacheScan,
-                    currentUsedBytesByMount.Values.Sum(),
-                    currentUsedBytesByMount);
-            }
-            else
-            {
-                var cacheInfo = await GetCacheInfoAsync();
-                if (!OperatingSystemDetector.IsWindows && cacheInfo.DriveCapacity <= 0)
-                {
-                    _logger.LogWarning(
-                        "Cache scan baseline refresh skipped because current mount usage is unavailable");
-                    return false;
-                }
-
-                RefreshCachedScanUsageBaseline(_cachedCacheScan, cacheInfo.UsedCacheSize);
-            }
-
-            await PersistCachedScanAsync(_cachedCacheScan);
-            return true;
-        }
-        finally
-        {
-            _scanCacheLock.Release();
         }
     }
 

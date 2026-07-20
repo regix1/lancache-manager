@@ -109,29 +109,6 @@ public sealed class CacheDashboardRefreshTests
     }
 
     [Fact]
-    public void RefreshCachedScanUsageBaseline_ClearsDriftWithoutCreatingNewScanData()
-    {
-        const long gibibyte = 1024L * 1024 * 1024;
-        const long oldUsage = 100 * gibibyte;
-        const long currentUsage = 110 * gibibyte;
-        var scanTimestamp = new DateTime(2026, 7, 20, 12, 0, 0, DateTimeKind.Utc);
-        var cachedScan = new CacheManagementService.CachedCacheScan
-        {
-            ScanResult = new CacheSizeResponse { TotalFiles = 42, TotalBytes = 12_345 },
-            UsedCacheSizeAtScan = oldUsage,
-            ScannedAtUtc = scanTimestamp
-        };
-
-        Assert.True(CacheScanStaleCalculator.IsAnyScanStale(currentUsage, cachedScan.UsedCacheSizeAtScan));
-
-        CacheManagementService.RefreshCachedScanUsageBaseline(cachedScan, currentUsage);
-
-        Assert.False(CacheScanStaleCalculator.IsAnyScanStale(currentUsage, cachedScan.UsedCacheSizeAtScan));
-        Assert.Equal(scanTimestamp, cachedScan.ScannedAtUtc);
-        Assert.Equal(42, cachedScan.ScanResult.TotalFiles);
-    }
-
-    [Fact]
     public void IsAnyMountUsageStale_DetectsDriftOnNonDefaultMount()
     {
         const long gibibyte = 1024L * 1024 * 1024;
@@ -192,13 +169,15 @@ public sealed class CacheDashboardRefreshTests
     }
 
     [Fact]
-    public void FullDetection_RefreshesCacheScanBaselineBeforeCompletion()
+    public void FullDetection_LeavesCacheScanUntouched()
     {
+        // The game detection scan and the cache-file scan are independent: each owns its own data
+        // and freshness. A detection run refreshes only its own on-disk summary and must never touch
+        // the cache-file scan baseline, so detection can never clear or restate the Cache Files card.
         var source = ReadSource("Core", "Services", "GameCacheDetectionService.cs");
 
-        Assert.Contains("if (!incremental)", source, StringComparison.Ordinal);
-        Assert.Contains(
-            "RefreshCacheScanStalenessBaselineAsync(cancellationToken)",
+        Assert.DoesNotContain(
+            "RefreshCacheScanStalenessBaselineAsync",
             source,
             StringComparison.Ordinal);
     }

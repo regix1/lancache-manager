@@ -670,8 +670,7 @@
         "hitRatio": "Compare cache hits against origin traffic by service.",
         "bandwidth": "Bandwidth your cache saved per service. Larger slices = services most often served from cache instead of the internet.",
         "misses": "Data each service downloaded fresh from the internet. Larger slices = services with more new content. First-time downloads are normal.",
-        "games": "Review detected game installs and their on-disk footprint.",
-        "gamesStale": "Scan data may be outdated. Re-run Game Cache Detection for accurate sizes."
+        "games": "Review detected game installs and their on-disk footprint."
       },
       "footer": {
         "totalData": "Total Data",
