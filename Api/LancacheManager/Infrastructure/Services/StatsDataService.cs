@@ -32,6 +32,7 @@ public class StatsDataService : IStatsDataService
     {
         // Start with base query applying prefill filter
         var baseQuery = _context.Downloads.AsNoTracking().ApplyPrefillFilter()
+            .ApplyEmptySessionFilter()
             .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0);
 
         // Apply active-only filter if requested

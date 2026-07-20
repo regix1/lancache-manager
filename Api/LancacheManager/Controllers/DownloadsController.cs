@@ -81,7 +81,8 @@ public class DownloadsController : ControllerBase
                                 .Select(ed => ed.DownloadId)
                                 .Contains(d.Id))
                             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
-                            .ApplyEvictedFilter(evictedMode);
+                            .ApplyEvictedFilter(evictedMode)
+                            .ApplyEmptySessionFilter();
                     downloads = await eventQuery
                         .OrderByDescending(d => d.StartTimeUtc)
                         .Take(count)
@@ -92,7 +93,8 @@ public class DownloadsController : ControllerBase
                     var baseQuery = _context.Downloads
                             .AsNoTracking()
                             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
-                            .ApplyEvictedFilter(evictedMode);
+                            .ApplyEvictedFilter(evictedMode)
+                            .ApplyEmptySessionFilter();
                     downloads = await baseQuery
                         .OrderByDescending(d => d.StartTimeUtc)
                         .Take(count)
@@ -263,7 +265,7 @@ public class DownloadsController : ControllerBase
             .Where(d => d.Datasource != DownloadKindConstants.PrefillToken && d.Datasource != "Prefill")
             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
 
-        baseQuery = baseQuery.ApplyEvictedFilter(evictedMode);
+        baseQuery = baseQuery.ApplyEvictedFilter(evictedMode).ApplyEmptySessionFilter();
 
         var downloadsWithEvents = await baseQuery
             .OrderByDescending(d => d.StartTimeUtc)
@@ -665,7 +667,7 @@ public class DownloadsController : ControllerBase
 
         // Apply eviction filter (hide/remove modes exclude evicted downloads)
         var evictedMode = _stateRepository.GetEvictedDataMode();
-        baseQuery = baseQuery.ApplyEvictedFilter(evictedMode);
+        baseQuery = baseQuery.ApplyEvictedFilter(evictedMode).ApplyEmptySessionFilter();
 
         // Filter: time range (matches GetLatestAsync behavior)
         if (query.StartTime.HasValue || query.EndTime.HasValue)

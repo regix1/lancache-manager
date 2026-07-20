@@ -460,7 +460,7 @@ public class DashboardBatchService : IDashboardBatchService
                     .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
             }
 
-            query = query.ApplyEvictedFilter(evictedMode);
+            query = query.ApplyEvictedFilter(evictedMode).ApplyEmptySessionFilter();
             downloads = await query
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync();
