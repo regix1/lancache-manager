@@ -619,7 +619,7 @@ const Dashboard: React.FC = () => {
                 .filter(Boolean)
                 .join(' • '),
         badge:
-          hasCacheScan && cacheInfo?.scanMayBeStale ? (
+          hasCacheScan && cacheInfo?.scanStale ? (
             <Badge variant="warning" emphasis>
               {t('dashboard.cards.staleScanData')}
             </Badge>
@@ -646,10 +646,16 @@ const Dashboard: React.FC = () => {
               .filter(Boolean)
               .join(' • ')
           : t('dashboard.cards.noScanData'),
-        // Games on disk owns its own freshness (it shows "detected X ago" and refreshes on a
-        // detection run). It does not borrow the cache-file scan's staleness, so re-running the
-        // cache scan never flags this card and re-running detection never flags the Cache Files card.
-        badge: gamesOnDiskStats?.includesEvicted ? (
+        // Games on disk owns its own freshness: isStale compares live cache usage against
+        // the baseline captured when detection last ran, so a download after detection flags
+        // this card and re-running detection clears it. It never borrows the cache-file scan's
+        // staleness, so neither card's scan can flag or clear the other. The staleness badge
+        // outranks the evicted badge: it prompts the rerun that also refreshes evicted state.
+        badge: gamesOnDiskStats?.isStale ? (
+          <Badge variant="warning" emphasis>
+            {t('dashboard.cards.staleScanData')}
+          </Badge>
+        ) : gamesOnDiskStats?.includesEvicted ? (
           <Badge variant="warning" emphasis>
             {t('dashboard.cards.evictedIncluded', { count: gamesOnDiskStats.evictedCount })}
           </Badge>

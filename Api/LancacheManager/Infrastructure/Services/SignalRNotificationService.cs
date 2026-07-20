@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -52,6 +54,16 @@ public class SignalRNotificationService : ISignalRNotificationService
             // Resolved lazily to avoid a constructor DI cycle (IDashboardBatchService is a singleton).
             if (eventName == SignalREvents.GameDetectionComplete)
             {
+                // A successful run re-anchors the games-on-disk freshness baseline BEFORE the
+                // invalidation below, so the refetch this event triggers compares live usage
+                // against the run that just finished. Failed/cancelled runs keep the old
+                // baseline: their summary still reflects the previous successful run.
+                if (data is SignalRNotifications.GameDetectionComplete { Success: true, Cancelled: false })
+                {
+                    await _serviceProvider.GetRequiredService<CacheManagementService>()
+                        .CaptureDetectionUsageBaselineAsync();
+                }
+
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateDetectionCache();
             }
             else if (eventName is SignalREvents.DownloadsRefresh or SignalREvents.LogProcessingComplete)

@@ -240,13 +240,13 @@ public partial class CacheManagementService
         info.CacheScanTotalBytes = cachedScan.TotalBytes;
         info.CacheScanTimestampUtc = _cachedCacheScan!.ScannedAtUtc;
         info.HasCacheScan = true;
-        await ApplyScanMayBeStaleAsync(info);
+        await ApplyScanStaleAsync(info);
     }
 
     /// <summary>
-    /// Sets <see cref="CacheInfo.ScanMayBeStale"/> using live usage and the cached file-scan baseline.
+    /// Sets <see cref="CacheInfo.ScanStale"/> using live usage and the cached file-scan baseline.
     /// </summary>
-    public async Task ApplyScanMayBeStaleAsync(CacheInfo info)
+    public async Task ApplyScanStaleAsync(CacheInfo info)
     {
         await LoadCachedScanAsync();
 
@@ -254,13 +254,13 @@ public partial class CacheManagementService
         if (usedBytesByMountAtScan is { Count: > 0 })
         {
             var currentUsedBytesByMount = ReadCacheMountUsage(usedBytesByMountAtScan.Keys);
-            info.ScanMayBeStale = IsAnyMountUsageStale(
+            info.ScanStale = IsAnyMountUsageStale(
                 usedBytesByMountAtScan,
                 currentUsedBytesByMount);
             return;
         }
 
-        info.ScanMayBeStale = CacheScanStaleCalculator.IsAnyScanStale(
+        info.ScanStale = CacheScanStaleCalculator.IsAnyScanStale(
             info.UsedCacheSize,
             _cachedCacheScan?.UsedCacheSizeAtScan);
     }
@@ -2007,7 +2007,7 @@ public partial class CacheManagementService
 
         // A normal read must stay cheap and must not wait behind a minutes-long active scan.
         // The existing persisted result remains valid as a historical snapshot; callers can
-        // inspect ScanMayBeStale separately and the configured schedule refreshes the baseline.
+        // inspect ScanStale separately and the configured schedule refreshes the baseline.
         if (!force)
         {
             await LoadCachedScanAsync();

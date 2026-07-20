@@ -49,6 +49,8 @@ export interface CachedDetectionResponse {
   identified_service_bytes?: number;
   /** UTC timestamp when deduplicated on-disk totals were last computed. */
   detection_summary_computed_at?: string;
+  /** True when cache usage drifted since the last detection run; cleared by re-running detection. */
+  detection_stale?: boolean;
 }
 
 interface DashboardDataContextType {

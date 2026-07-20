@@ -496,6 +496,10 @@ public class DashboardBatchService : IDashboardBatchService
 
         var games = cachedResults.Games ?? [];
 
+        // Live usage is already fetched for this batch; reuse it so the games-on-disk
+        // staleness flag reflects the same snapshot the rest of the response was built from.
+        var detectionStale = await _cacheService.IsDetectionSummaryStaleAsync(usedCacheSizeBytes);
+
         return CachedDetectionResponseBuilder.Build(
             games,
             cachedResults.Services,
@@ -503,7 +507,8 @@ public class DashboardBatchService : IDashboardBatchService
             cachedResults.StartTime.AsUtc(),
             slimForDashboard: true,
             diskSummary: cachedResults.DiskSummary,
-            summaryComputedAtUtc: cachedResults.SummaryComputedAtUtc);
+            summaryComputedAtUtc: cachedResults.SummaryComputedAtUtc,
+            detectionStale: detectionStale);
     }
 
     // ───────────────────── New batch sub-queries (sparklines, hourly, cacheGrowth, cacheSnapshot) ─────────────────────

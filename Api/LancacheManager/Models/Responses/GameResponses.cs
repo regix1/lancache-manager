@@ -81,6 +81,14 @@ public class CachedDetectionResponse
     /// </summary>
     [JsonPropertyName("detection_summary_computed_at")]
     public string? DetectionSummaryComputedAt { get; set; }
+
+    /// <summary>
+    /// True when cache usage has drifted since the last successful detection run, so the
+    /// on-disk totals above no longer match what is in the cache. Cleared by re-running
+    /// detection; independent of the cache-file scan's staleness.
+    /// </summary>
+    [JsonPropertyName("detection_stale")]
+    public bool DetectionStale { get; set; }
 }
 
 /// <summary>

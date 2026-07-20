@@ -28,7 +28,8 @@ public static class CachedDetectionResponseBuilder
         DateTime lastDetectionUtc,
         bool slimForDashboard,
         IdentifiedCacheAggregate? diskSummary,
-        DateTime? summaryComputedAtUtc = null)
+        DateTime? summaryComputedAtUtc = null,
+        bool detectionStale = false)
     {
         var activeGamesCount = games.Count(g => !g.IsEvicted);
         var summary = diskSummary ?? throw new InvalidOperationException(
@@ -72,7 +73,8 @@ public static class CachedDetectionResponseBuilder
             GamesOnDiskCount = summary.ActiveGameCount,
             IdentifiedCacheBytes = summary.TotalBytes,
             IdentifiedServiceBytes = summary.ServiceBytes,
-            DetectionSummaryComputedAt = summaryComputedAtUtc?.ToString("o")
+            DetectionSummaryComputedAt = summaryComputedAtUtc?.ToString("o"),
+            DetectionStale = detectionStale
         };
     }
 }

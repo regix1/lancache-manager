@@ -42,5 +42,5 @@ public class CacheInfo
     /// <summary>
     /// True when mount used space has changed significantly since the last cache file scan.
     /// </summary>
-    public bool ScanMayBeStale { get; set; }
+    public bool ScanStale { get; set; }
 }

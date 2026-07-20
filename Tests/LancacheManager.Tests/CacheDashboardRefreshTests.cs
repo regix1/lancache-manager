@@ -203,6 +203,47 @@ public sealed class CacheDashboardRefreshTests
         Assert.Contains("public override bool DefaultRunOnStartup => false;", scheduledSource, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void IsDetectionBaselineStale_NoBaseline_ReportsFresh()
+    {
+        Assert.False(CacheManagementService.IsDetectionBaselineStale(
+            null, null, liveUsedCacheSize: 123_456_789));
+    }
+
+    [Fact]
+    public void IsDetectionBaselineStale_TotalUsagePath_FlagsOnlySignificantDrift()
+    {
+        var baseline = new CacheManagementService.DetectionUsageBaseline
+        {
+            UsedCacheSizeAtDetection = 100_000
+        };
+
+        Assert.False(CacheManagementService.IsDetectionBaselineStale(baseline, null, liveUsedCacheSize: 100_000));
+        Assert.False(CacheManagementService.IsDetectionBaselineStale(baseline, null, liveUsedCacheSize: 101_999));
+        Assert.True(CacheManagementService.IsDetectionBaselineStale(baseline, null, liveUsedCacheSize: 102_000));
+        Assert.True(CacheManagementService.IsDetectionBaselineStale(baseline, null, liveUsedCacheSize: 98_000));
+    }
+
+    [Fact]
+    public void IsDetectionBaselineStale_MountPath_FlagsDriftOrMissingMounts()
+    {
+        var baseline = new CacheManagementService.DetectionUsageBaseline
+        {
+            UsedCacheSizeAtDetection = 100_000,
+            UsedCacheSizeByMountAtDetection = new Dictionary<string, long> { ["/cache"] = 100_000 }
+        };
+
+        var unchanged = new Dictionary<string, long> { ["/cache"] = 100_000 };
+        var drifted = new Dictionary<string, long> { ["/cache"] = 103_000 };
+
+        Assert.False(CacheManagementService.IsDetectionBaselineStale(baseline, unchanged, liveUsedCacheSize: 0));
+        Assert.True(CacheManagementService.IsDetectionBaselineStale(baseline, drifted, liveUsedCacheSize: 0));
+        // Unreadable or missing mounts mean freshness cannot be proven - fail toward flagging.
+        Assert.True(CacheManagementService.IsDetectionBaselineStale(baseline, null, liveUsedCacheSize: 100_000));
+        Assert.True(CacheManagementService.IsDetectionBaselineStale(
+            baseline, new Dictionary<string, long>(), liveUsedCacheSize: 100_000));
+    }
+
     private static CacheSizeResponse CacheSizeResult(
         long bytes,
         long files,

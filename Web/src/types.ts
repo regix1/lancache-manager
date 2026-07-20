@@ -19,7 +19,7 @@ export interface CacheInfo {
   /** Total bytes in the cache directory from the last cache file scan. */
   cacheScanTotalBytes?: number;
   /** True when mount usage has drifted significantly since the last cache file scan. */
-  scanMayBeStale?: boolean;
+  scanStale?: boolean;
 }
 
 export interface CacheSizeInfo {

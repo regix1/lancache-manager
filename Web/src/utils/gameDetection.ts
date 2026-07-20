@@ -77,6 +77,7 @@ interface GamesOnDiskDisplayStats {
   gameCount: number;
   includesEvicted: boolean;
   evictedCount: number;
+  isStale: boolean;
 }
 
 /**
@@ -102,7 +103,8 @@ export function buildGamesOnDiskDisplayStats(
     totalSize: detection.games_on_disk_bytes,
     gameCount: detection.games_on_disk_count,
     includesEvicted: showEvictedBadge && evictedCount > 0,
-    evictedCount
+    evictedCount,
+    isStale: detection.detection_stale === true
   };
 }
 
