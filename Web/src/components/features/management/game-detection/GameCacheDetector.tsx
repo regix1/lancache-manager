@@ -37,6 +37,7 @@ import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { MANAGEMENT_STORAGE_KEYS } from '../sections/managementStorageKeys';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import '../managementSectionContent.css';
@@ -61,6 +62,7 @@ import {
   useScheduledRemovalRefresh
 } from './cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
+import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 
 interface GameCacheDetectorProps {
@@ -81,7 +83,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const { notifyError } = useErrorHandler();
   const { on, off } = useSignalR();
   const { config } = useConfig();
-  const { cacheReadOnly, checkingPermissions } = useDirectoryPermissionsContext();
+  const { cacheReadOnly, logsReadOnly, cacheExist, logsExist, checkingPermissions } =
+    useDirectoryPermissionsContext();
   const invalidateImageCache = useInvalidateImages();
   const { setupStatus, refreshSetupStatus } = useSetupStatus();
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? false;
@@ -650,6 +653,25 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const allNginxReopenMessage = allNginxReopenGate.messageKey
     ? t(allNginxReopenGate.messageKey)
     : '';
+  const directoryNoticeConditions = {
+    cacheWrite: true,
+    cacheRead: false,
+    logsWrite: true,
+    nginx: true
+  };
+  const directoryNoticeLiveState = {
+    cacheReadOnly,
+    logsReadOnly,
+    cacheExist,
+    logsExist,
+    checkingPermissions,
+    nginxReopenGate: allNginxReopenGate
+  };
+  const directoryNotice = resolveCardNotice(directoryNoticeConditions, directoryNoticeLiveState);
+  const diskActionBlocked = isCardDiskActionBlocked(
+    directoryNoticeConditions,
+    directoryNoticeLiveState
+  );
 
   // Prune selection keys that dropped out of the visible list on refresh/scan so
   // a removed item never lingers in the set (plan §6). Keyed on a stable
@@ -845,7 +867,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         selectedCombinedCount === 0 ||
                         loading ||
                         mockMode ||
-                        cacheReadOnly ||
+                        diskActionBlocked ||
                         checkingPermissions ||
                         isCacheRemovalActive ||
                         isBulkRemovalRunning ||
@@ -880,7 +902,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         actionsPending ||
                         loading ||
                         mockMode ||
-                        cacheReadOnly ||
+                        diskActionBlocked ||
                         checkingPermissions ||
                         isCacheRemovalActive ||
                         removeAllRunning ||
@@ -926,34 +948,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         }
       >
         <div className="space-y-3">
-          {/* Read-Only Warning */}
-          {cacheReadOnly && (
-            <>
-              <Alert color="orange" className="mb-2">
-                <div>
-                  <p className="font-medium">
-                    {t('management.gameDetection.alerts.cacheReadOnly.title')}
-                  </p>
-                  <p className="text-sm mt-1">
-                    {t('management.gameDetection.alerts.cacheReadOnly.description')}
-                  </p>
-                </div>
-              </Alert>
-              <ReadOnlyBadge />
-            </>
-          )}
-
-          {!cacheReadOnly && !allNginxReopenGate.available && allNginxReopenGate.messageKey && (
-            <Alert color="orange" className="mb-6">
-              <div>
-                <p className="font-medium">{t('management.nginxReopen.alertTitle')}</p>
-                <p className="text-sm mt-1">{t(allNginxReopenGate.messageKey)}</p>
-              </div>
-            </Alert>
-          )}
+          <CardDirectoryNotice notice={directoryNotice} />
+          {!cacheExist && <ReadOnlyBadge />}
 
           {/* Datasource Filter */}
-          {!cacheReadOnly && datasources.length > 1 && (
+          {cacheExist && datasources.length > 1 && (
             <div className="flex justify-end">
               <EnhancedDropdown
                 variant="button"
@@ -992,12 +991,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             />
           )}
 
-          {!cacheReadOnly && !showBlockingLoader && (
+          {cacheExist && !showBlockingLoader && (
             <>
-              {hasResults && !allNginxReopenGate.available && (
-                <ReadOnlyBadge message={allNginxReopenMessage} />
-              )}
-
               {/* Previous Results Summary */}
               {lastDetectionTime && hasResults && (
                 <div className="space-y-2">
@@ -1060,6 +1055,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     isAdmin={isAdmin}
                     datasourceConfigs={datasources}
                     onRemoveService={handleServiceRemoveClick}
+                    diskActionBlocked={diskActionBlocked}
                     selection={servicesSelectionProp}
                   />
                 </AccordionSection>
@@ -1081,6 +1077,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     isAdmin={isAdmin}
                     datasourceConfigs={datasources}
                     onRemoveGame={handleRemoveClick}
+                    diskActionBlocked={diskActionBlocked}
                     selection={gamesSelectionProp}
                   />
                 </AccordionSection>

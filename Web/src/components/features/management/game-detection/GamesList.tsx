@@ -9,6 +9,7 @@ import type { SelectionAdapter } from '@hooks/useSelectionSet';
 interface GamesListProps {
   games: GameCacheInfo[];
   isAdmin: boolean;
+  diskActionBlocked: boolean;
   datasourceConfigs: readonly DatasourceInfo[];
   onRemoveGame: (game: GameCacheInfo) => void;
   variant?: CacheEntityVariant;
@@ -39,6 +40,7 @@ const filterAndSortGames = (games: GameCacheInfo[], searchQuery: string) => {
 const GamesList: React.FC<GamesListProps> = ({
   games,
   isAdmin,
+  diskActionBlocked,
   datasourceConfigs,
   onRemoveGame,
   variant = 'active',
@@ -59,6 +61,7 @@ const GamesList: React.FC<GamesListProps> = ({
           game={game}
           isExpanded={state.isExpanded}
           isAdmin={isAdmin}
+          diskActionBlocked={diskActionBlocked}
           datasourceConfigs={datasourceConfigs}
           onToggleDetails={state.onToggleDetails}
           onRemove={onRemoveGame}

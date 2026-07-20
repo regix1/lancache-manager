@@ -8,6 +8,7 @@ import type { SelectionAdapter } from '@hooks/useSelectionSet';
 interface ServicesListProps {
   services: ServiceCacheInfo[];
   isAdmin: boolean;
+  diskActionBlocked: boolean;
   datasourceConfigs: readonly DatasourceInfo[];
   onRemoveService: (service: ServiceCacheInfo) => void;
   variant?: CacheEntityVariant;
@@ -33,6 +34,7 @@ const filterAndSortServices = (services: ServiceCacheInfo[], searchQuery: string
 const ServicesList: React.FC<ServicesListProps> = ({
   services,
   isAdmin,
+  diskActionBlocked,
   datasourceConfigs,
   onRemoveService,
   variant = 'active',
@@ -53,6 +55,7 @@ const ServicesList: React.FC<ServicesListProps> = ({
           service={service}
           isExpanded={state.isExpanded}
           isAdmin={isAdmin}
+          diskActionBlocked={diskActionBlocked}
           datasourceConfigs={datasourceConfigs}
           onToggleDetails={state.onToggleDetails}
           onRemove={onRemoveService}

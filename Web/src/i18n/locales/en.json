@@ -1552,6 +1552,15 @@
       "enablePidHost": "Nginx appears to run on the host, so run the manager with pid: host so it can signal nginx after log changes. CAP_KILL is granted by default; do not drop it.",
       "dockerUnavailable": "Nginx appears to run in a container, so mount /var/run/docker.sock into the manager to reopen nginx logs after log changes."
     },
+    "directoryNotice": {
+      "cacheReadOnlyTitle": "Cache directory is read-only",
+      "logsReadOnlyTitle": "Logs directory is read-only",
+      "readOnlyPrefix": "Remove",
+      "readOnlySuffix": "from your docker-compose volume mounts.",
+      "cacheMissingTitle": "Cache directory does not exist",
+      "logsMissingTitle": "Logs directory does not exist",
+      "missingDescription": "The directory was not found. Check that it is mounted correctly in docker-compose."
+    },
     "nav": {
       "settings": "Settings",
       "settingsShort": "Settings",
@@ -2791,12 +2800,6 @@
         "noGamesServicesDatasource": "No games or services found in {{datasource}}",
         "processLogsFirst": "Process access logs to populate the database first",
         "clickFullScan": "Click \"Full Scan\" to scan your cache directory"
-      },
-      "alerts": {
-        "cacheReadOnly": {
-          "title": "Cache directory is read-only",
-          "description": "Remove <1>:ro</1> from your docker-compose volume mounts to enable game cache detection."
-        }
       },
       "serviceSteam": "Steam",
       "serviceEpicGames": "Epic Games",

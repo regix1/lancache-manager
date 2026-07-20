@@ -41,6 +41,7 @@ import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
+import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { useSelectionSet, type SelectionSet, type SelectionAdapter } from '@/hooks/useSelectionSet';
 import { useBulkRemoval, type EvictedQueueEntry } from '@contexts/BulkRemovalContext';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
@@ -72,6 +73,7 @@ import {
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 import { FAILED_TO_REMOVE_GAME_I18N_KEY } from '@contexts/notifications/constants';
 import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
+import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
 
 // Adapts the combined evicted selection set (prefixed keyspace) into the raw-keyed
 // SelectionAdapter each list expects, translating keys through the given prefix.
@@ -114,6 +116,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const {
     logsReadOnly,
     cacheReadOnly,
+    logsExist,
+    cacheExist,
     checkingPermissions,
     reload: reloadPermissions
   } = useDirectoryPermissionsContext();
@@ -170,6 +174,25 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const allEvictedNginxReopenMessage = allEvictedNginxReopenGate.messageKey
     ? t(allEvictedNginxReopenGate.messageKey)
     : '';
+  const directoryNoticeConditions = {
+    cacheWrite: true,
+    cacheRead: false,
+    logsWrite: true,
+    nginx: true
+  };
+  const directoryNoticeLiveState = {
+    cacheReadOnly,
+    logsReadOnly,
+    cacheExist,
+    logsExist,
+    checkingPermissions,
+    nginxReopenGate: allEvictedNginxReopenGate
+  };
+  const directoryNotice = resolveCardNotice(directoryNoticeConditions, directoryNoticeLiveState);
+  const diskActionBlocked = isCardDiskActionBlocked(
+    directoryNoticeConditions,
+    directoryNoticeLiveState
+  );
 
   const isAnyEvictedRemovalRunning = useCacheRemovalActive();
   // Eviction removal deletes evicted cache files, which needs the monolithic cache-key recipe;
@@ -895,7 +918,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                                     removeSelectedEvictedRunning ||
                                     isEvictedRemovalRunning ||
                                     isAnyEvictedRemovalRunning ||
-                                    cacheReadOnly ||
+                                    diskActionBlocked ||
                                     checkingPermissions ||
                                     !diskObjectsAvailable ||
                                     !selectedEvictedNginxReopenGate.available
@@ -933,7 +956,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                                     removeSelectedEvictedRunning ||
                                     isEvictionRemovalRunning ||
                                     isAnyEvictedRemovalRunning ||
-                                    cacheReadOnly ||
+                                    diskActionBlocked ||
                                     checkingPermissions ||
                                     !diskObjectsAvailable ||
                                     !allEvictedNginxReopenGate.available
@@ -956,14 +979,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
               }
             >
               <div className="space-y-4">
-                {!allEvictedNginxReopenGate.available && allEvictedNginxReopenGate.messageKey && (
-                  <Alert color="orange" className="mb-6">
-                    <div>
-                      <p className="font-medium">{t('management.nginxReopen.alertTitle')}</p>
-                      <p className="text-sm mt-1">{t(allEvictedNginxReopenGate.messageKey)}</p>
-                    </div>
-                  </Alert>
-                )}
+                <CardDirectoryNotice notice={directoryNotice} />
 
                 {/* Sub-accordion 1: Eviction Scan & Settings */}
                 <AccordionSection
@@ -1055,9 +1071,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
                 >
                   {evictedGames.length + evictedServices.length > 0 &&
-                    !allEvictedNginxReopenGate.available && (
-                      <ReadOnlyBadge message={allEvictedNginxReopenMessage} />
-                    )}
+                    !allEvictedNginxReopenGate.available && <ReadOnlyBadge />}
                   <EvictedItemsList
                     games={evictedGames}
                     services={evictedServices}
@@ -1065,6 +1079,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                     datasourceConfigs={datasources}
                     onRemoveGame={handleEvictedGameRemoveClick}
                     onRemoveService={handleEvictedServiceRemoveClick}
+                    diskActionBlocked={diskActionBlocked}
                     servicesSelection={evictedServicesSelectionProp}
                     gamesSelection={evictedGamesSelectionProp}
                   />

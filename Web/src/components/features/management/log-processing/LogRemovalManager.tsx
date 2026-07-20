@@ -37,8 +37,10 @@ import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { formatCount } from '@utils/formatters';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
+import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import type { DatasourceInfo, DatasourceServiceCounts } from '@/types';
+import { resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 
 /** One (datasource, service) pair queued for sequential log removal. */
@@ -153,7 +155,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     useNotifications();
   const { on, off } = useSignalR();
   const { config } = useConfig();
-  const { logsReadOnly, logsExist, checkingPermissions } = useDirectoryPermissionsContext();
+  const { cacheReadOnly, logsReadOnly, cacheExist, logsExist, checkingPermissions } =
+    useDirectoryPermissionsContext();
 
   // The per-datasource service-count endpoint does not carry the source layout, so join it
   // from the config datasource list by name to drive the bare-metal displays below.
@@ -598,6 +601,17 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const logsMissing = !logsExist;
   const hasPermissionIssue = logsReadOnly || logsMissing;
   const showReadOnlyPlaceholder = showPermissionBlock(checkingPermissions, hasPermissionIssue);
+  const directoryNotice = resolveCardNotice(
+    { cacheWrite: false, cacheRead: false, logsWrite: true, nginx: true },
+    {
+      cacheReadOnly,
+      logsReadOnly,
+      cacheExist,
+      logsExist,
+      checkingPermissions,
+      nginxReopenGate: cardNginxReopenGate
+    }
+  );
   const selectedDatasourceNames = [...selection.selected].map((key) =>
     key.slice(0, key.indexOf('::'))
   );
@@ -676,58 +690,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         badge={headerBadge}
       >
         <div className="space-y-4">
-          {/* Logs Directory Missing Warning */}
-          {logsMissing && (
-            <Alert color="red" className="mb-6">
-              <div>
-                <p className="font-medium">
-                  {t(
-                    'management.logRemoval.alerts.logsMissing.title',
-                    'Logs directory does not exist'
-                  )}
-                </p>
-                <p className="text-sm mt-1">
-                  {t(
-                    'management.logRemoval.alerts.logsMissing.description',
-                    'The logs directory was not found. Ensure it is mounted correctly in docker-compose.'
-                  )}
-                </p>
-              </div>
-            </Alert>
-          )}
-
-          {/* Read-Only Warning */}
-          {logsReadOnly && !logsMissing && (
-            <Alert color="orange" className="mb-6">
-              <div>
-                <p className="font-medium">
-                  {t('management.logRemoval.alerts.logsReadOnly.title')}
-                </p>
-                <p className="text-sm mt-1">
-                  {t('management.logRemoval.alerts.logsReadOnly.description')}
-                </p>
-              </div>
-            </Alert>
-          )}
-
-          {!cardNginxReopenGate.available && cardNginxReopenGate.messageKey && (
-            <Alert color="orange" className="mb-6">
-              <div>
-                <p className="font-medium">{t('management.nginxReopen.alertTitle')}</p>
-                <p className="text-sm mt-1">{t(cardNginxReopenGate.messageKey)}</p>
-              </div>
-            </Alert>
-          )}
+          <CardDirectoryNotice notice={directoryNotice} />
 
           {/* Content */}
           {showReadOnlyPlaceholder ? (
-            <ReadOnlyBadge
-              message={
-                logsMissing
-                  ? t('management.logRemoval.logsMissing', 'Logs directory not found')
-                  : t('management.logRemoval.readOnly')
-              }
-            />
+            <ReadOnlyBadge />
           ) : (
             <>
               {isLoading ? (

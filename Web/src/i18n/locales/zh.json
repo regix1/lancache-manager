@@ -1552,6 +1552,15 @@
       "enablePidHost": "nginx 似乎在宿主机上运行，请使用 pid: host 运行管理器，以便在日志更改后向 nginx 发送信号。Docker 默认授予 CAP_KILL，请勿将其移除。",
       "dockerUnavailable": "nginx 似乎在容器中运行，请将 /var/run/docker.sock 挂载到管理器，使其能在日志更改后重新打开 nginx 日志。"
     },
+    "directoryNotice": {
+      "cacheReadOnlyTitle": "缓存目录为只读",
+      "logsReadOnlyTitle": "日志目录为只读",
+      "readOnlyPrefix": "请从 docker-compose 卷挂载中移除",
+      "readOnlySuffix": "选项。",
+      "cacheMissingTitle": "缓存目录不存在",
+      "logsMissingTitle": "日志目录不存在",
+      "missingDescription": "未找到该目录。请检查它是否已在 docker-compose 中正确挂载。"
+    },
     "nav": {
       "settings": "设置",
       "settingsShort": "设置",
@@ -2791,12 +2800,6 @@
         "noGamesServicesDatasource": "在 {{datasource}} 中未找到游戏或服务",
         "processLogsFirst": "先处理访问日志以填充数据库",
         "clickFullScan": "点击\"全面扫描\"以扫描您的缓存目录"
-      },
-      "alerts": {
-        "cacheReadOnly": {
-          "title": "缓存目录为只读",
-          "description": "移除 <1>:ro</1> 从您的 docker-compose 卷挂载以启用游戏缓存检测。"
-        }
       },
       "serviceSteam": "Steam",
       "serviceEpicGames": "Epic Games",

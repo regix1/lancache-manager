@@ -16,6 +16,7 @@ interface GameCardProps {
   game: GameCacheInfo;
   isExpanded: boolean;
   isAdmin: boolean;
+  diskActionBlocked: boolean;
   datasourceConfigs: readonly DatasourceInfo[];
   onToggleDetails: (gameId: string) => void;
   onRemove: (game: GameCacheInfo) => void;
@@ -32,6 +33,7 @@ const GameCard: React.FC<GameCardProps> = ({
   game,
   isExpanded,
   isAdmin,
+  diskActionBlocked,
   datasourceConfigs,
   onToggleDetails,
   onRemove,
@@ -164,6 +166,7 @@ const GameCard: React.FC<GameCardProps> = ({
         isExpanded={isExpanded}
         isRemoving={isRemoving}
         isAdmin={isAdmin}
+        diskActionBlocked={diskActionBlocked}
         nginxReopenAvailable={nginxReopenGate.available}
         nginxReopenUnavailableMessage={nginxReopenUnavailableMessage}
         hasExpandableContent={hasExpandableContent}

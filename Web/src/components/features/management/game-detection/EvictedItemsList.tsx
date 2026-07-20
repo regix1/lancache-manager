@@ -12,6 +12,7 @@ interface EvictedItemsListProps {
   games: GameCacheInfo[];
   services: ServiceCacheInfo[];
   isAdmin: boolean;
+  diskActionBlocked: boolean;
   datasourceConfigs: readonly DatasourceInfo[];
   onRemoveGame: (game: GameCacheInfo) => void;
   onRemoveService: (service: ServiceCacheInfo) => void;
@@ -24,6 +25,7 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
   games,
   services,
   isAdmin,
+  diskActionBlocked,
   datasourceConfigs,
   onRemoveGame,
   onRemoveService,
@@ -51,6 +53,7 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
         <ServicesList
           services={evictedServices}
           isAdmin={isAdmin}
+          diskActionBlocked={diskActionBlocked}
           datasourceConfigs={datasourceConfigs}
           onRemoveService={onRemoveService}
           variant="evicted"
@@ -61,6 +64,7 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
         <GamesList
           games={evictedGames}
           isAdmin={isAdmin}
+          diskActionBlocked={diskActionBlocked}
           datasourceConfigs={datasourceConfigs}
           onRemoveGame={onRemoveGame}
           variant="evicted"

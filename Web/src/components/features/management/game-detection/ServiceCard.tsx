@@ -14,6 +14,7 @@ interface ServiceCardProps {
   service: ServiceCacheInfo;
   isExpanded: boolean;
   isAdmin: boolean;
+  diskActionBlocked: boolean;
   datasourceConfigs: readonly DatasourceInfo[];
   onToggleDetails: (serviceName: string) => void;
   onRemove: (service: ServiceCacheInfo) => void;
@@ -30,6 +31,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   service,
   isExpanded,
   isAdmin,
+  diskActionBlocked,
   datasourceConfigs,
   onToggleDetails,
   onRemove,
@@ -94,6 +96,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
       isExpanded={isExpanded}
       isRemoving={isRemoving}
       isAdmin={isAdmin}
+      diskActionBlocked={diskActionBlocked}
       nginxReopenAvailable={nginxReopenGate.available}
       nginxReopenUnavailableMessage={nginxReopenUnavailableMessage}
       hasExpandableContent={hasExpandableContent}

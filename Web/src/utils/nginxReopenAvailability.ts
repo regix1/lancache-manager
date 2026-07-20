@@ -5,7 +5,7 @@ type NginxReopenMessageKey =
   | 'management.nginxReopen.enablePidHost'
   | 'management.nginxReopen.dockerUnavailable';
 
-interface NginxReopenGate {
+export interface NginxReopenGate {
   available: boolean;
   messageKey: NginxReopenMessageKey | null;
 }

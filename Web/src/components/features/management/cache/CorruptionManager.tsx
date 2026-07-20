@@ -28,9 +28,11 @@ import { useSelectionSet } from '@/hooks/useSelectionSet';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
+import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { showPermissionBlock } from '@utils/permissionUi';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { formatCount } from '@utils/formatters';
@@ -521,6 +523,22 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const directoryMissing = !cacheExist || (requiresRepeatedMissResources && !logsExist);
   const isReadOnly = cacheReadOnly || (requiresRepeatedMissResources && logsReadOnly);
   const hasRemovalPermissionIssue = directoryMissing || isReadOnly;
+  const directoryNotice = resolveCardNotice(
+    {
+      cacheWrite: true,
+      cacheRead: false,
+      logsWrite: requiresRepeatedMissResources,
+      nginx: requiresRepeatedMissResources
+    },
+    {
+      cacheReadOnly,
+      logsReadOnly,
+      cacheExist,
+      logsExist,
+      checkingPermissions,
+      nginxReopenGate: repeatedMissNginxReopenGate
+    }
+  );
   const showReadOnlyPlaceholder = showPermissionBlock(
     checkingPermissions,
     hasRemovalPermissionIssue
@@ -1173,72 +1191,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             </Alert>
           )}
 
-          {directoryMissing && (
-            <Alert color="red">
-              <div>
-                <p className="font-medium">
-                  {!logsExist && !cacheExist
-                    ? requiresRepeatedMissResources
-                      ? t('management.corruption.alerts.logsAndCacheMissing')
-                      : t('management.corruption.alerts.cacheMissing')
-                    : requiresRepeatedMissResources && !logsExist
-                      ? t('management.corruption.alerts.logsMissing')
-                      : t('management.corruption.alerts.cacheMissing')}
-                </p>
-                <p className="text-sm mt-1">
-                  {t('management.corruption.alerts.directoryNotFound')}
-                </p>
-              </div>
-            </Alert>
-          )}
-
-          {isReadOnly && !directoryMissing && (
-            <Alert color="orange">
-              <div>
-                <p className="font-medium">
-                  {requiresRepeatedMissResources && logsReadOnly && cacheReadOnly
-                    ? t('management.corruption.alerts.logsAndCacheReadOnly')
-                    : requiresRepeatedMissResources && logsReadOnly
-                      ? t('management.corruption.alerts.logsReadOnly')
-                      : t('management.corruption.alerts.cacheReadOnly')}
-                </p>
-                <p className="text-sm mt-1">
-                  {t(
-                    requiresRepeatedMissResources
-                      ? 'management.corruption.alerts.requiresWriteAccess'
-                      : 'management.corruption.alerts.requiresCacheWriteAccess'
-                  )}{' '}
-                  <code className="bg-themed-tertiary px-1 rounded">:ro</code>{' '}
-                  {t('management.corruption.alerts.fromVolumeMounts')}
-                </p>
-              </div>
-            </Alert>
-          )}
+          <CardDirectoryNotice notice={directoryNotice} />
 
           {requiresRepeatedMissResources &&
             !repeatedMissNginxReopenGate.available &&
-            repeatedMissNginxReopenGate.messageKey && (
-              <Alert color="orange" className="mb-6">
-                <div>
-                  <p className="font-medium">{t('management.nginxReopen.alertTitle')}</p>
-                  <p className="text-sm mt-1">{t(repeatedMissNginxReopenGate.messageKey)}</p>
-                </div>
-              </Alert>
-            )}
+            !hasRemovalPermissionIssue && <ReadOnlyBadge />}
 
-          {requiresRepeatedMissResources &&
-            !repeatedMissNginxReopenGate.available &&
-            !hasRemovalPermissionIssue && <ReadOnlyBadge message={nginxReopenUnavailableMessage} />}
-
-          {showReadOnlyPlaceholder && (
-            <ReadOnlyBadge
-              message={
-                directoryMissing
-                  ? t('management.corruption.directoryMissing')
-                  : t('management.corruption.readOnly')
-              }
-            />
-          )}
+          {showReadOnlyPlaceholder && <ReadOnlyBadge />}
 
           {/*
             While a scan runs, the scan's own progress is the whole story: nothing below it.

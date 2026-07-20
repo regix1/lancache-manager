@@ -6,7 +6,6 @@ import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Tooltip } from '@components/ui/Tooltip';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
-import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { GameImage } from '../../../common/GameImage';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
@@ -33,6 +32,7 @@ interface ExpandableItemCardProps {
   isExpanded: boolean;
   isRemoving: boolean;
   isAdmin: boolean;
+  diskActionBlocked?: boolean;
   nginxReopenAvailable: boolean;
   nginxReopenUnavailableMessage: string;
   hasExpandableContent?: boolean;
@@ -60,6 +60,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   isExpanded,
   isRemoving,
   isAdmin,
+  diskActionBlocked = false,
   nginxReopenAvailable,
   nginxReopenUnavailableMessage,
   hasExpandableContent = true,
@@ -73,7 +74,6 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   children
 }) => {
   const { t } = useTranslation();
-  const { cacheReadOnly } = useDirectoryPermissionsContext();
   // Any running/queued removal in the game-cache domain disables every per-item
   // Remove button - single removes and Remove All gate together.
   const isCacheRemovalActive = useCacheRemovalActive();
@@ -94,8 +94,8 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   const isUnknownGame = title.startsWith('Unknown Game');
   const actionTooltip = !diskObjectsAvailable
     ? t('management.capability.diskObjectsUnavailable')
-    : cacheReadOnly
-      ? t('management.gameDetection.cacheReadOnlyShort')
+    : diskActionBlocked
+      ? t('initialization.permissionsCheck.hasErrors')
       : !nginxReopenAvailable
         ? nginxReopenUnavailableMessage
         : removeTooltip;
@@ -183,7 +183,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             loading={isRemoving}
             disabled={
               !isAdmin ||
-              cacheReadOnly ||
+              diskActionBlocked ||
               !nginxReopenAvailable ||
               isCacheRemovalActive ||
               !diskObjectsAvailable
