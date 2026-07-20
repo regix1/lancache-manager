@@ -1548,8 +1548,8 @@
   "management": {
     "nginxReopen": {
       "alertTitle": "Cannot reopen nginx logs after changes",
-      "grantSignalPrivilege": "The manager can see host nginx but lacks permission to signal it, so run the manager as root or grant it CAP_KILL.",
-      "enablePidHost": "Nginx appears to run on the host, so run the manager with pid: host and either as root or with CAP_KILL to signal nginx after log changes.",
+      "grantSignalPrivilege": "The manager can see host nginx but was denied permission to signal it, which means the CAP_KILL capability is missing. CAP_KILL is granted by default, so ensure it was not removed with cap_drop.",
+      "enablePidHost": "Nginx appears to run on the host, so run the manager with pid: host so it can signal nginx after log changes. CAP_KILL is granted by default; do not drop it.",
       "dockerUnavailable": "Nginx appears to run in a container, so mount /var/run/docker.sock into the manager to reopen nginx logs after log changes."
     },
     "nav": {

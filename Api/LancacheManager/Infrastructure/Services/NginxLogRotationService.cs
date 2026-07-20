@@ -345,8 +345,9 @@ public class NginxLogRotationService
 
             const string message =
                 "Bare-metal nginx log reopen failed: {FailureReason}. Run the manager with " +
-                "--pid=host and as root or with CAP_KILL, or configure the host's logrotate " +
-                "to run 'nginx -s reopen' after rotation.";
+                "pid: host; CAP_KILL is granted by default, so root is not required. If signaling " +
+                "is denied, ensure CAP_KILL was not removed (for example, via cap_drop), or " +
+                "configure the host's logrotate to run 'nginx -s reopen' after rotation.";
 
             if (exception is null)
             {
@@ -398,8 +399,8 @@ public class NginxLogRotationService
                     if (hostSignalResult.ExitCode == HostPidNotVisibleExitCode)
                     {
                         const string visibilityFailure =
-                            "host nginx is not visible to the manager; enable pid: host and run " +
-                            "the manager as root or with CAP_KILL";
+                            "host nginx is not visible to the manager; enable pid: host " +
+                            "(CAP_KILL is granted by default; do not drop it)";
                         var visibilityDetectionContext =
                             detectionError ?? "No LANCache container was found";
                         LogBareMetalFailure($"{visibilityDetectionContext}; {visibilityFailure}");

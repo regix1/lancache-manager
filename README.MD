@@ -1089,18 +1089,18 @@ Mounting `/srv/lancache/logs` (the parent folder) also works — the manager fin
 
 The `pid: host` setup is only for nginx running directly on the host. If nginx runs in a container but writes the bare-metal per-service log layout, mount the Docker socket instead; `pid: host` is not needed.
 
-To let the manager automatically reopen a host-run nginx after a removal or rewrite, share the host PID namespace and run the manager with permission to signal the root-owned nginx master process. With the shipped image, the direct setup is:
+To let the manager automatically reopen a host-run nginx after a removal or rewrite, share the host PID namespace. Docker grants `CAP_KILL` by default, and the shipped entrypoint preserves it when switching to the configured non-root PUID, so keep your normal filesystem-matching PUID and PGID:
 
 ```yaml
 services:
   lancache-manager:
     pid: host
     environment:
-      - PUID=0
-      - PGID=0
+      - PUID=33
+      - PGID=33
 ```
 
-The equivalent `docker run` options are `--pid=host -e PUID=0 -e PGID=0`. A custom deployment may grant `CAP_KILL` instead, provided that capability is retained by the manager process. Without host PID visibility and sufficient privilege, removals still complete, but the best-effort reopen returns a failure and nginx may keep writing to the old inode.
+The equivalent `docker run` options are `--pid=host -e PUID=33 -e PGID=33` (substitute your normal non-root IDs). If your deployment uses `cap_drop` to trim Docker's default capability set, add `cap_add: [KILL]` in Compose or `--cap-add=KILL` with `docker run`. This explicit addition is only needed when the default capability was removed. `pid: host` remains required for host PID visibility; without visibility or `CAP_KILL`, removals still complete, but the best-effort reopen returns a failure and nginx may keep writing to the old inode.
 
 The manager's scheduled log-rotation job only asks nginx to reopen its current logs; it does not truncate or rotate bare-metal log files. Configure the host's `logrotate` for log growth and include an nginx reopen in its rule, for example:
 

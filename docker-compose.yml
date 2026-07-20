@@ -9,10 +9,14 @@ services:
       - "8080:80"
 
     # Host-run nginx only: uncomment to let the manager find the host nginx master.
-    # Also run the manager as root (PUID=0 and PGID=0 below) or grant it sufficient
-    # signal privilege. Host log growth remains the host logrotate's responsibility.
+    # Keep PUID/PGID at normal non-root values. Docker grants CAP_KILL by default,
+    # and the entrypoint preserves it so the manager can signal the host nginx master.
+    # If cap_drop trims the defaults, uncomment cap_add below to restore only KILL.
+    # Host log growth remains the host logrotate's responsibility.
     # Containerized nginx uses the Docker socket below, even with bare-metal logs.
     # pid: host
+    # cap_add:
+    #   - KILL
 
     volumes:
       # Required: Data directory for database, PostgreSQL, API key, themes, and cached images
@@ -32,7 +36,7 @@ services:
 
       # Optional: Docker socket for containerized nginx log rotation and Steam Prefill
       # Required for: signaling containerized nginx to reopen logs, spawning prefill containers
-      # Host-run nginx uses pid: host and sufficient signal privilege instead
+      # Host-run nginx uses pid: host; CAP_KILL is available by default
       # Containerized nginx uses this socket even with bare-metal per-service logs
       - /var/run/docker.sock:/var/run/docker.sock
 
@@ -71,12 +75,10 @@ services:
       # User ID the application runs as (match your filesystem permissions)
       # Common values: 33 (www-data on Debian/Ubuntu), 1000 (default user)
       # For Unraid, use 99
-      # Bare-metal host-nginx reopen: use 0 unless CAP_KILL is retained another way
       - PUID=33
 
       # Group ID the application runs as
       # For Unraid, use 100
-      # Bare-metal host-nginx reopen with PUID=0: use 0
       - PGID=33
 
       # Timezone for log timestamps and display
@@ -141,8 +143,8 @@ services:
 
       # Automatically signal nginx to reopen logs after manipulation
       # Containerized nginx requires docker.sock, including with bare-metal log layouts.
-      # Only host-run nginx requires pid: host plus root or CAP_KILL so the manager can
-      # signal the host nginx master.
+      # Only host-run nginx requires pid: host. CAP_KILL is available by default and
+      # retained when the entrypoint switches to the configured non-root PUID.
       # Configure host logrotate with a postrotate "nginx -s reopen" for log growth.
       # - NginxLogRotation__Enabled=true
 

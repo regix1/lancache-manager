@@ -314,7 +314,38 @@ if [ "$CAN_RUN_MIGRATION" -eq 1 ] && [ -f "$SQLITE_DB" ] && [ ! -f "$MIGRATION_M
     fi
 fi
 
-# Run the application as the specified user
-# Use username (not UID:GID) so gosu picks up supplementary groups from /etc/group
+# Run the application as the specified user.
 # The app's MigrateAsync creates/updates the PostgreSQL schema on startup.
+if [ "$PUID" -eq 0 ]; then
+    echo "PUID=0: running application without a privilege drop."
+    exec dotnet LancacheManager.dll "$@"
+fi
+
+# CAP_KILL is bit 5 (0x20). Ambient capabilities must also be inheritable, so use
+# setpriv only when the installed version supports ambient caps and CAP_KILL is bounded.
+CAP_KILL_DROP_SUPPORTED=0
+if command -v setpriv >/dev/null 2>&1 &&
+    setpriv --help 2>&1 | grep -q -- '--ambient-caps'; then
+    CAP_BND=$(awk '$1 == "CapBnd:" { print $2; exit }' /proc/self/status 2>/dev/null)
+    if [[ "$CAP_BND" =~ ^[[:xdigit:]]+$ ]]; then
+        CAP_BND_LOW_BYTE="${CAP_BND: -2}"
+        if (( (16#$CAP_BND_LOW_BYTE & 0x20) != 0 )); then
+            # Preflight the exact transition so an unsupported runtime falls back safely.
+            if setpriv --reuid "$PUID" --regid "$PGID" --init-groups \
+                --inh-caps=+kill --ambient-caps=+kill /bin/true >/dev/null 2>&1; then
+                CAP_KILL_DROP_SUPPORTED=1
+            fi
+        fi
+    fi
+fi
+
+if [ "$CAP_KILL_DROP_SUPPORTED" -eq 1 ]; then
+    echo "Privilege drop: preserving CAP_KILL for host nginx signaling."
+    exec setpriv --reuid "$PUID" --regid "$PGID" --init-groups \
+        --inh-caps=+kill --ambient-caps=+kill \
+        dotnet LancacheManager.dll "$@"
+fi
+
+# Use username (not UID:GID) so gosu picks up supplementary groups from /etc/group.
+echo "Privilege drop: standard privilege drop."
 exec gosu "$USER_NAME" dotnet LancacheManager.dll "$@"

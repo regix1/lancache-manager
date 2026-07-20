@@ -1095,6 +1095,29 @@ lancache_cache_used_bytes / 1024 / 1024 / 1024
 
 挂载上一级目录 `/srv/lancache/logs` 也可以 —— 管理器会自动找到其中的 `http/` 文件夹。
 
+`pid: host` 设置仅适用于直接在宿主机上运行的 nginx。如果 nginx 在容器中运行，但写入裸机版的按服务日志布局，请改为挂载 Docker 套接字；此时不需要 `pid: host`。
+
+要让管理器在删除或重写日志后自动通知宿主机上的 nginx 重新打开日志，请共享宿主机 PID 命名空间。Docker 默认授予 `CAP_KILL`，随附的入口脚本在切换到配置的非 root PUID 时会保留该能力，因此请继续使用与文件系统权限匹配的常规 PUID 和 PGID：
+
+```yaml
+services:
+  lancache-manager:
+    pid: host
+    environment:
+      - PUID=33
+      - PGID=33
+```
+
+等效的 `docker run` 参数为 `--pid=host -e PUID=33 -e PGID=33`（请替换为你常用的非 root ID）。如果部署使用 `cap_drop` 精简 Docker 的默认能力集，请在 Compose 中添加 `cap_add: [KILL]`，或在 `docker run` 中添加 `--cap-add=KILL`。只有默认能力被移除时才需要显式添加。`pid: host` 仍是查看宿主机 PID 的必要条件；如果缺少 PID 可见性或 `CAP_KILL`，删除操作仍会完成，但尽力而为的日志重开会失败，nginx 可能继续写入旧的 inode。
+
+管理器的定时日志轮转任务只会要求 nginx 重新打开当前日志；它不会截断或轮转裸机日志文件。请使用宿主机的 `logrotate` 控制日志增长，并在规则中加入重新打开 nginx 日志的操作，例如：
+
+```text
+postrotate
+    nginx -s reopen
+endscript
+```
+
 **可用功能：** 实时活动、仪表盘、下载历史、游戏识别（Steam depot、暴雪产品、Riot 域名）、客户端与服务统计、按服务统计和删除日志、删除日志文件、磁盘级按游戏和按服务删除缓存、重复未命中损坏扫描、逐出跟踪，以及清空整个缓存。在裸机缓存上，每次删除文件前都会再次核对文件自身嵌入的缓存键。
 
 **关于命中率：** 暴雪与 Windows 更新站点按 1 MB 分片提供文件，而 nginx 只记录每次下载第一个分片的缓存状态。因此这两个服务显示的命中率是近似值；下载字节数始终是精确的。这是 nginx 分片机制的固有特性，与裸机无关，标准容器版对这两个服务同样分片，也会显示相同的近似值。

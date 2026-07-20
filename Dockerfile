@@ -139,6 +139,7 @@ ENV LANCACHE_MANAGER_VERSION=${VERSION}
 # Install runtime dependencies including tools for fast cache clearing and Docker CLI
 # Docker CLI is needed to send signals to nginx container via 'docker kill' command
 # gosu is needed for PUID/PGID support (running as non-root user)
+# util-linux provides setpriv for retaining CAP_KILL across the PUID privilege drop
 # Note: .NET 10 uses Ubuntu 24.04 (noble) base image, so we use Docker's Ubuntu repository
 RUN apt-get update && \
     apt-get install -y \
@@ -146,6 +147,7 @@ RUN apt-get update && \
     bash \
     nano \
     procps \
+    util-linux \
     net-tools \
     dnsutils \
     rsync \

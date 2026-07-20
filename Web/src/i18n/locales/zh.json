@@ -1548,8 +1548,8 @@
   "management": {
     "nginxReopen": {
       "alertTitle": "更改后无法重新打开 nginx 日志",
-      "grantSignalPrivilege": "管理器可以看到主机上的 nginx 进程，但没有向其发送信号的权限，请以 root 身份运行管理器或授予其 CAP_KILL。",
-      "enablePidHost": "nginx 似乎在主机上运行，请使用 pid: host 运行管理器并以 root 身份运行或授予 CAP_KILL，使其能在日志更改后向 nginx 发送信号。",
+      "grantSignalPrivilege": "管理器可以看到宿主机上的 nginx，但向其发送信号时被拒绝，这说明缺少 CAP_KILL 能力。Docker 默认授予 CAP_KILL，请确认没有通过 cap_drop 将其移除。",
+      "enablePidHost": "nginx 似乎在宿主机上运行，请使用 pid: host 运行管理器，以便在日志更改后向 nginx 发送信号。Docker 默认授予 CAP_KILL，请勿将其移除。",
       "dockerUnavailable": "nginx 似乎在容器中运行，请将 /var/run/docker.sock 挂载到管理器，使其能在日志更改后重新打开 nginx 日志。"
     },
     "nav": {
