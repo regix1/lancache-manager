@@ -8,6 +8,7 @@ import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { Alert } from '@components/ui/Alert';
+import { Tooltip } from '@components/ui/Tooltip';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -349,9 +350,23 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           <LoadingState message={t('management.datasources.loadingDatasources')} />
         ) : (
           <div className="space-y-3">
-            {datasources.map((ds) => {
+            {datasources.map((ds: DatasourceInfo) => {
               const position = getPositionForDatasource(ds.name);
               const isDatasourceExpanded = expandedDatasources.has(ds.name);
+              const schemeOverride = ds.schemeOverride ?? 'auto';
+              const cacheKeyScheme =
+                ds.cacheKeyScheme ??
+                (ds.layout === 'bare_metal'
+                  ? 'bare_metal'
+                  : ds.layout === 'mixed'
+                    ? 'mixed'
+                    : 'monolithic');
+              const schemeOverrideLabel = t(
+                'management.datasources.scheme.values.' + schemeOverride
+              );
+              const cacheKeySchemeLabel = t(
+                'management.datasources.scheme.values.' + cacheKeyScheme
+              );
               const layoutBadge =
                 ds.layout === 'bare_metal'
                   ? t('management.datasources.layout.bareMetal')
@@ -379,6 +394,32 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                 >
                   {/* Expanded content - Position info */}
                   <div className="mgmt-list mt-3">
+                    <div className="mgmt-row flex-wrap">
+                      <div className="mgmt-row__body">
+                        <div className="flex items-center gap-1.5">
+                          <p className="mgmt-row__title">
+                            {t('management.datasources.scheme.title')}
+                          </p>
+                          <Tooltip
+                            content={t('management.datasources.scheme.tooltip')}
+                            position="top"
+                          />
+                        </div>
+                        <p className="mgmt-row__meta">
+                          {t('management.datasources.scheme.configured', {
+                            scheme: schemeOverrideLabel
+                          })}
+                        </p>
+                      </div>
+                      <div className="mgmt-row__actions">
+                        <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-themed-tertiary text-themed-secondary">
+                          {t('management.datasources.scheme.effective', {
+                            scheme: cacheKeySchemeLabel
+                          })}
+                        </span>
+                      </div>
+                    </div>
+
                     {/* Access Log row */}
                     <div className="mgmt-row flex-wrap">
                       <div className="mgmt-row__body">
@@ -436,6 +477,15 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                       </div>
                     </div>
                   </div>
+
+                  {ds.capabilityDenialReason && (
+                    <Alert color="yellow" className="mt-3">
+                      <p>
+                        <strong>{t('management.datasources.scheme.unavailable')}:</strong>{' '}
+                        {ds.capabilityDenialReason}
+                      </p>
+                    </Alert>
+                  )}
 
                   {hasDiagnostics && (
                     <Alert color="yellow" className="mt-3">

@@ -1,18 +1,34 @@
 import { useMemo } from 'react';
 import { useConfig } from '@contexts/useConfig';
+import type { DatasourceInfo } from '../types';
+
+interface DiskObjectCapability {
+  available: boolean;
+  denialReason: string | null;
+}
 
 /**
  * Fleet-wide availability of disk-level logical-object operations: per-game and per-service
- * cache removal, corruption detection/removal, and eviction removal. These need the monolithic
- * cache-key recipe, so a fleet whose every enabled datasource is bare-metal cannot map objects
- * on disk. A legacy single-path setup (no datasource list) and any datasource that still maps
- * objects keep the actions available; a mixed fleet stays enabled and the backend fails closed
- * per datasource. Whole-cache clear never depends on this and stays available everywhere.
+ * cache removal, corruption detection/removal, and eviction removal. Every enabled datasource
+ * must have one resolved cache-key scheme because cross-datasource mutations must not partially
+ * succeed. Whole-cache clear never depends on this capability.
  */
-export function useDiskObjectCapability(): boolean {
+export function useDiskObjectCapability(): DiskObjectCapability {
   const { config } = useConfig();
-  return useMemo(() => {
-    const enabled = (config.dataSources ?? []).filter((ds) => ds.enabled);
-    return enabled.length === 0 || enabled.some((ds) => ds.canMapLogicalObjects !== false);
+  return useMemo<DiskObjectCapability>(() => {
+    const enabled = (config.dataSources ?? []).filter(
+      (datasource: DatasourceInfo) => datasource.enabled
+    );
+    const available =
+      enabled.length > 0 &&
+      enabled.every((datasource: DatasourceInfo) => datasource.canMapLogicalObjects === true);
+    const blockedDatasource = enabled.find(
+      (datasource: DatasourceInfo) => datasource.canMapLogicalObjects !== true
+    );
+
+    return {
+      available,
+      denialReason: blockedDatasource?.capabilityDenialReason ?? null
+    };
   }, [config.dataSources]);
 }

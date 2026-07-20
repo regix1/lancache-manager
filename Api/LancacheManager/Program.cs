@@ -866,6 +866,11 @@ using (var scope = app.Services.CreateScope())
                 logger.LogInformation("Migration-only mode completed successfully. Exiting without starting the web host.");
                 return;
             }
+
+            // CachedDetectionSummary is derived data rather than schema state. Rebuild it only
+            // when older persisted detection rows exist without their singleton summary.
+            var detectionDataService = scope.ServiceProvider.GetRequiredService<GameCacheDetectionDataService>();
+            await detectionDataService.ReconcileMissingDiskSummaryAsync();
         }
         catch (Exception ex)
         {

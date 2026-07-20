@@ -99,10 +99,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const repeatedMissNginxReopenGate = getNginxReopenGate(datasources);
   const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
     useDirectoryPermissionsContext();
-  // Corruption detection and removal map cache files back to logical objects, which needs the
-  // monolithic cache-key recipe; an all bare-metal fleet cannot do this, so the backend rejects
-  // both scan and removal. Disable them here with an explanation.
-  const diskObjectsAvailable = useDiskObjectCapability();
+  // Corruption detection and removal map cache files back to logical objects, so every enabled
+  // datasource needs one resolved cache-key scheme. Disable both actions with the backend reason.
+  const { available: diskObjectsAvailable, denialReason: diskObjectDenialReason } =
+    useDiskObjectCapability();
 
   const isScanningFromNotification = useOperationBusy({
     types: ['corruption_detection'],
@@ -1021,7 +1021,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           <>
             <DiskObjectActionGate
               available={diskObjectsAvailable}
-              tooltip={t('management.capability.diskObjectsUnavailable')}
+              tooltip={diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable')}
               position="left"
               className="block w-full"
             >
@@ -1074,7 +1074,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             <ActionMenuDivider />
             <DiskObjectActionGate
               available={diskObjectsAvailable}
-              tooltip={t('management.capability.diskObjectsUnavailable')}
+              tooltip={diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable')}
               position="left"
               className="block w-full"
             >
@@ -1104,7 +1104,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             </DiskObjectActionGate>
             <DiskObjectActionGate
               available={diskObjectsAvailable}
-              tooltip={t('management.capability.diskObjectsUnavailable')}
+              tooltip={diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable')}
               position="left"
               className="block w-full"
             >
@@ -1266,7 +1266,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                           </Button>
                           <DiskObjectActionGate
                             available={diskObjectsAvailable}
-                            tooltip={t('management.capability.diskObjectsUnavailable')}
+                            tooltip={
+                              diskObjectDenialReason ??
+                              t('management.capability.diskObjectsUnavailable')
+                            }
                           >
                             <NginxReopenActionGate
                               available={nginxReopenAvailable}

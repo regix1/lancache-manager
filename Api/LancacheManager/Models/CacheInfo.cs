@@ -24,6 +24,12 @@ public class CacheInfo
     public Dictionary<string, long> ServiceSizes { get; set; } = new();
 
     /// <summary>
+    /// True after a scheduled or manual cache-file scan has produced a persisted result.
+    /// False distinguishes the pre-first-scan state from a completed scan that found zero files.
+    /// </summary>
+    public bool HasCacheScan { get; set; }
+
+    /// <summary>
     /// UTC timestamp of the last Rust cache-size scan used for <see cref="TotalFiles"/>.
     /// </summary>
     public DateTime? CacheScanTimestampUtc { get; set; }

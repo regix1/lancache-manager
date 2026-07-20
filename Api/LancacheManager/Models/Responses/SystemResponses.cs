@@ -78,6 +78,21 @@ public class DatasourceInfoDto
     public bool Enabled { get; set; }
 
     /// <summary>
+    /// Configured scheme override: auto, monolithic, or bare_metal.
+    /// </summary>
+    public string SchemeOverride { get; set; } = "auto";
+
+    /// <summary>
+    /// Effective cache-key scheme: monolithic, bare_metal, mixed, or unknown.
+    /// </summary>
+    public string CacheKeyScheme { get; set; } = "unknown";
+
+    /// <summary>
+    /// Reason object-scoped disk features are unavailable, or null when allowed.
+    /// </summary>
+    public string? CapabilityDenialReason { get; set; }
+
+    /// <summary>
     /// Presentation-only source layout: monolithic | bare_metal | mixed.
     /// </summary>
     public string Layout { get; set; } = "monolithic";

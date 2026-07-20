@@ -508,6 +508,7 @@
       "gamesOnDisk": "磁盘上的游戏",
       "gamesDetected": "检测到 {{count}} 个游戏",
       "noScanData": "暂无扫描数据",
+      "noCacheScanData": "暂无扫描数据 — 请前往“管理”→“缓存”运行扫描。",
       "scannedAt": "扫描于 {{time}}",
       "staleScanData": "扫描数据已过期",
       "evictedIncluded": "{{count}} 个已淘汰",
@@ -2815,7 +2816,7 @@
       }
     },
     "capability": {
-      "diskObjectsUnavailable": "裸机缓存暂不支持磁盘级的游戏和服务操作。清除整个缓存仍然可用。"
+      "diskObjectsUnavailable": "只有每个已启用的数据源都具有明确的缓存键方案时，才能执行磁盘级游戏和服务操作。清除整个缓存仍然可用。"
     },
     "datasources": {
       "title": "日志处理",
@@ -2828,6 +2829,20 @@
       "layout": {
         "bareMetal": "裸机",
         "mixed": "混合日志"
+      },
+      "scheme": {
+        "title": "缓存键方案覆盖",
+        "configured": "覆盖设置：{{scheme}}",
+        "effective": "当前生效：{{scheme}}",
+        "unavailable": "磁盘操作不可用",
+        "tooltip": "自动模式会根据日志布局选择缓存键方案。可用的覆盖值为 auto、monolithic 和 bare_metal。仅当自定义日志名称导致自动检测不可靠时，才使用显式覆盖。",
+        "values": {
+          "auto": "自动 (auto)",
+          "monolithic": "单体 (monolithic)",
+          "bare_metal": "裸机 (bare_metal)",
+          "mixed": "混合证据",
+          "unknown": "未知"
+        }
       },
       "sourceSet": "{{count}} 个日志源",
       "sourceSet_other": "{{count}} 个日志源",

@@ -179,35 +179,34 @@ public partial class CacheManagementService
 
         try
         {
-            // For Windows development, skip drive info
-            if (OperatingSystemDetector.IsWindows)
+            // Windows development has no Linux cache mount, but persisted scan availability is
+            // still applied below so zero files and no scan remain distinct.
+            if (!OperatingSystemDetector.IsWindows)
             {
-                return info;
-            }
+                // Find the actual mount point for the cache directory
+                var mountPoint = GetMountPoint(_cachePath);
 
-            // Find the actual mount point for the cache directory
-            var mountPoint = GetMountPoint(_cachePath);
+                if (Directory.Exists(mountPoint))
+                {
+                    var driveInfo = new DriveInfo(mountPoint);
+                    info.DriveCapacity = driveInfo.TotalSize;
+                    info.FreeCacheSize = driveInfo.AvailableFreeSpace;
 
-            if (Directory.Exists(mountPoint))
-            {
-                var driveInfo = new DriveInfo(mountPoint);
-                info.DriveCapacity = driveInfo.TotalSize;
-                info.FreeCacheSize = driveInfo.AvailableFreeSpace;
+                    // Try to read configured cache size from lancache .env file
+                    info.ConfiguredCacheSize = await GetConfiguredCacheSizeAsync();
 
-                // Try to read configured cache size from lancache .env file
-                info.ConfiguredCacheSize = await GetConfiguredCacheSizeAsync();
+                    // Use configured size if available, otherwise use drive capacity
+                    info.TotalCacheSize = info.ConfiguredCacheSize > 0
+                        ? info.ConfiguredCacheSize
+                        : info.DriveCapacity;
 
-                // Use configured size if available, otherwise use drive capacity
-                info.TotalCacheSize = info.ConfiguredCacheSize > 0
-                    ? info.ConfiguredCacheSize
-                    : info.DriveCapacity;
-
-                // Calculate used space - this is always based on actual drive usage
-                info.UsedCacheSize = info.DriveCapacity - info.FreeCacheSize;
-            }
-            else
-            {
-                _logger.LogWarning($"Mount point does not exist: {mountPoint}");
+                    // Calculate used space - this is always based on actual drive usage
+                    info.UsedCacheSize = info.DriveCapacity - info.FreeCacheSize;
+                }
+                else
+                {
+                    _logger.LogWarning("Mount point does not exist: {MountPoint}", mountPoint);
+                }
             }
 
             await ApplyCachedScanStatsAsync(info);
@@ -233,6 +232,7 @@ public partial class CacheManagementService
         info.TotalFiles = cachedScan.TotalFiles;
         info.CacheScanTotalBytes = cachedScan.TotalBytes;
         info.CacheScanTimestampUtc = _cachedCacheScan!.ScannedAtUtc;
+        info.HasCacheScan = true;
         await ApplyScanMayBeStaleAsync(info);
     }
 
@@ -242,6 +242,17 @@ public partial class CacheManagementService
     public async Task ApplyScanMayBeStaleAsync(CacheInfo info)
     {
         await LoadCachedScanAsync();
+
+        var usedBytesByMountAtScan = _cachedCacheScan?.UsedCacheSizeByMountAtScan;
+        if (usedBytesByMountAtScan is { Count: > 0 })
+        {
+            var currentUsedBytesByMount = ReadCacheMountUsage(usedBytesByMountAtScan.Keys);
+            info.ScanMayBeStale = IsAnyMountUsageStale(
+                usedBytesByMountAtScan,
+                currentUsedBytesByMount);
+            return;
+        }
+
         info.ScanMayBeStale = CacheScanStaleCalculator.IsAnyScanStale(
             info.UsedCacheSize,
             _cachedCacheScan?.UsedCacheSizeAtScan);
@@ -472,7 +483,7 @@ public partial class CacheManagementService
                     {
                         var mountPoint = parts[1];
                         // Check if this mount point is a parent of our path
-                        if (path.StartsWith(mountPoint) && mountPoint.Length > bestMatchLength)
+                        if (IsSameOrNestedCachePath(path, mountPoint) && mountPoint.Length > bestMatchLength)
                         {
                             bestMatch = mountPoint;
                             bestMatchLength = mountPoint.Length;
@@ -485,7 +496,7 @@ public partial class CacheManagementService
 
             // Fallback: check if the cache path is a mount point
             var cachePath = _pathResolver.GetCacheDirectory();
-            if (path.StartsWith(cachePath))
+            if (IsSameOrNestedCachePath(path, cachePath))
             {
                 if (Directory.Exists(cachePath) && new DriveInfo(cachePath).TotalSize > 0)
                     return cachePath;
@@ -500,6 +511,80 @@ public partial class CacheManagementService
         }
 
         return "/";
+    }
+
+    private Dictionary<string, long>? GetCacheMountUsage(IEnumerable<string> cachePaths)
+    {
+        return ReadCacheMountUsage(cachePaths.Select(GetMountPoint));
+    }
+
+    private Dictionary<string, long>? ReadCacheMountUsage(IEnumerable<string> mountPaths)
+    {
+        var usageByMount = new Dictionary<string, long>(CachePathComparer);
+        foreach (var mountPath in mountPaths)
+        {
+            var canonicalMountPath = GetCanonicalCachePath(mountPath);
+            if (usageByMount.ContainsKey(canonicalMountPath))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (!Directory.Exists(canonicalMountPath))
+                {
+                    _logger.LogWarning(
+                        "Cache mount does not exist while reading scan baseline: {MountPoint}",
+                        canonicalMountPath);
+                    return null;
+                }
+
+                var driveInfo = new DriveInfo(canonicalMountPath);
+                usageByMount[canonicalMountPath] = driveInfo.TotalSize - driveInfo.AvailableFreeSpace;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to read cache mount usage for scan baseline: {MountPoint}",
+                    canonicalMountPath);
+                return null;
+            }
+        }
+
+        return usageByMount;
+    }
+
+    internal static bool IsAnyMountUsageStale(
+        IReadOnlyDictionary<string, long> usedBytesByMountAtScan,
+        IReadOnlyDictionary<string, long>? currentUsedBytesByMount)
+    {
+        if (currentUsedBytesByMount == null)
+        {
+            return true;
+        }
+
+        foreach (var baseline in usedBytesByMountAtScan)
+        {
+            var found = false;
+            var currentUsedBytes = 0L;
+            foreach (var current in currentUsedBytesByMount)
+            {
+                if (CachePathComparer.Equals(baseline.Key, current.Key))
+                {
+                    found = true;
+                    currentUsedBytes = current.Value;
+                    break;
+                }
+            }
+
+            if (!found || CacheScanStaleCalculator.IsAnyScanStale(currentUsedBytes, baseline.Value))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
 
@@ -1085,7 +1170,10 @@ public partial class CacheManagementService
         };
     }
 
-    private async Task SaveCachedScanAsync(CacheSizeResponse scanResult, long usedCacheSizeAtScan)
+    private async Task SaveCachedScanAsync(
+        CacheSizeResponse scanResult,
+        long usedCacheSizeAtScan,
+        IReadOnlyDictionary<string, long>? usedCacheSizeByMountAtScan = null)
     {
         var scannedAtUtc = DateTime.UtcNow;
         SyncScanTimestamp(scanResult, scannedAtUtc);
@@ -1097,8 +1185,21 @@ public partial class CacheManagementService
             // worker's IsCached=false success classification.
             ScanResult = CopyCacheSizeResponse(scanResult, isCached: false),
             UsedCacheSizeAtScan = usedCacheSizeAtScan,
+            UsedCacheSizeByMountAtScan = usedCacheSizeByMountAtScan?.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value,
+                CachePathComparer) ?? new Dictionary<string, long>(CachePathComparer),
             ScannedAtUtc = scannedAtUtc
         };
+
+        await PersistCachedScanAsync(entry);
+    }
+
+    private async Task PersistCachedScanAsync(CachedCacheScan entry)
+    {
+        // In-memory readers should observe the new baseline even if persistence is
+        // temporarily unavailable. The next successful scan or refresh retries the file write.
+        _cachedCacheScan = entry;
 
         try
         {
@@ -1112,14 +1213,83 @@ public partial class CacheManagementService
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
             await File.WriteAllTextAsync(_cachedScanFilePath, json);
-            _cachedCacheScan = entry;
-            _logger.LogInformation("Saved cache scan result to {FilePath}", _cachedScanFilePath);
+            _logger.LogInformation("Persisted cache scan state to {FilePath}", _cachedScanFilePath);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to persist cache scan to {FilePath}", _cachedScanFilePath);
-            // Still update in-memory even if file write fails
-            _cachedCacheScan = entry;
+        }
+    }
+
+    internal static void RefreshCachedScanUsageBaseline(
+        CachedCacheScan cachedScan,
+        long currentUsedCacheSize,
+        IReadOnlyDictionary<string, long>? currentUsedCacheSizeByMount = null)
+    {
+        cachedScan.UsedCacheSizeAtScan = currentUsedCacheSize;
+        if (currentUsedCacheSizeByMount != null)
+        {
+            cachedScan.UsedCacheSizeByMountAtScan = currentUsedCacheSizeByMount.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value,
+                CachePathComparer);
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the mount-usage baseline after a successful full game detection. The cached
+    /// file counts and scan timestamp are preserved; when no cache-file scan exists this is a
+    /// no-op so the explicit pre-first-scan state remains intact.
+    /// </summary>
+    public async Task<bool> RefreshCacheScanStalenessBaselineAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _scanCacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            await LoadCachedScanAsync();
+            if (_cachedCacheScan == null)
+            {
+                _logger.LogDebug(
+                    "Cache scan baseline refresh skipped because no cache-file scan exists yet");
+                return false;
+            }
+
+            var usedBytesByMountAtScan = _cachedCacheScan.UsedCacheSizeByMountAtScan;
+            if (usedBytesByMountAtScan.Count > 0)
+            {
+                var currentUsedBytesByMount = ReadCacheMountUsage(usedBytesByMountAtScan.Keys);
+                if (currentUsedBytesByMount == null)
+                {
+                    _logger.LogWarning(
+                        "Cache scan baseline refresh skipped because current mount usage is unavailable");
+                    return false;
+                }
+
+                RefreshCachedScanUsageBaseline(
+                    _cachedCacheScan,
+                    currentUsedBytesByMount.Values.Sum(),
+                    currentUsedBytesByMount);
+            }
+            else
+            {
+                var cacheInfo = await GetCacheInfoAsync();
+                if (!OperatingSystemDetector.IsWindows && cacheInfo.DriveCapacity <= 0)
+                {
+                    _logger.LogWarning(
+                        "Cache scan baseline refresh skipped because current mount usage is unavailable");
+                    return false;
+                }
+
+                RefreshCachedScanUsageBaseline(_cachedCacheScan, cacheInfo.UsedCacheSize);
+            }
+
+            await PersistCachedScanAsync(_cachedCacheScan);
+            return true;
+        }
+        finally
+        {
+            _scanCacheLock.Release();
         }
     }
 
@@ -1284,6 +1454,166 @@ public partial class CacheManagementService
         }
     }
 
+    /// <summary>
+    /// Resolves the distinct enabled cache roots included in a full scan. The legacy path is used
+    /// only when no enabled datasource was resolved.
+    /// </summary>
+    internal static IReadOnlyList<string> SelectFullScanCachePaths(
+        IEnumerable<ResolvedDatasource> datasources,
+        string legacyCachePath)
+    {
+        var configuredPaths = datasources
+            .Where(datasource => datasource.Enabled)
+            .Select(datasource => datasource.CachePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToList();
+
+        var candidates = configuredPaths.Count > 0 ? configuredPaths : [legacyCachePath];
+        var canonicalPaths = new List<string>(candidates.Count);
+        foreach (var candidate in candidates)
+        {
+            var canonicalPath = GetCanonicalCachePath(candidate);
+            if (!canonicalPaths.Contains(canonicalPath, CachePathComparer))
+            {
+                canonicalPaths.Add(canonicalPath);
+            }
+        }
+
+        // The scanner is not guaranteed to descend from an outer root into a nested datasource
+        // directory, so avoiding a rare nested-config double-count is not worth omitting its files.
+        return canonicalPaths;
+    }
+
+    private static StringComparer CachePathComparer =>
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    private static StringComparison CachePathComparison =>
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    private static string GetCanonicalCachePath(string path)
+    {
+        var trimmed = path.Trim();
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(trimmed);
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException or System.Security.SecurityException)
+        {
+            // An invalid, unsupported, or overlong configured cache path cannot be canonicalized;
+            // fall back to the trimmed input so full-scan selection and baseline reads stay
+            // deterministic instead of aborting the whole scan.
+            return Path.TrimEndingDirectorySeparator(trimmed);
+        }
+
+        var root = Path.GetPathRoot(fullPath);
+        if (string.IsNullOrEmpty(root))
+        {
+            return Path.TrimEndingDirectorySeparator(fullPath);
+        }
+
+        var currentPath = root;
+        var segments = fullPath[root.Length..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var segment in segments)
+        {
+            currentPath = Path.Combine(currentPath, segment);
+            try
+            {
+                var directory = new DirectoryInfo(currentPath);
+                if (directory.LinkTarget != null)
+                {
+                    currentPath = directory.ResolveLinkTarget(returnFinalTarget: true)?.FullName
+                        ?? currentPath;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                // Keep the normalized logical path when physical-link metadata is unavailable.
+            }
+        }
+
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(currentPath));
+    }
+
+    private static bool IsSameOrNestedCachePath(string path, string possibleParent)
+    {
+        if (CachePathComparer.Equals(path, possibleParent))
+        {
+            return true;
+        }
+
+        var parentPrefix = Path.EndsInDirectorySeparator(possibleParent)
+            ? possibleParent
+            : possibleParent + Path.DirectorySeparatorChar;
+        return path.StartsWith(parentPrefix, CachePathComparison);
+    }
+
+    /// <summary>
+    /// Combines the per-root Rust results into the single response retained by existing API clients.
+    /// Deletion estimates are additive because cache clearing handles datasource roots in sequence.
+    /// </summary>
+    internal static CacheSizeResponse AggregateCacheSizeResponses(
+        IReadOnlyCollection<CacheSizeResponse> results)
+    {
+        if (results.Count == 0)
+        {
+            throw new ArgumentException("At least one cache-size result is required", nameof(results));
+        }
+
+        var preserveSeconds = results.Sum(result => result.EstimatedDeletionTimes.PreserveSeconds);
+        var fullSeconds = results.Sum(result => result.EstimatedDeletionTimes.FullSeconds);
+        var rsyncSeconds = results.Sum(result => result.EstimatedDeletionTimes.RsyncSeconds);
+        var totalBytes = results.Sum(result => result.TotalBytes);
+
+        return new CacheSizeResponse
+        {
+            TotalBytes = totalBytes,
+            TotalFiles = results.Sum(result => result.TotalFiles),
+            TotalDirectories = results.Sum(result => result.TotalDirectories),
+            HexDirectories = results.Sum(result => result.HexDirectories),
+            ScanDurationMs = results.Sum(result => result.ScanDurationMs),
+            FormattedSize = FormatBytes(totalBytes),
+            Timestamp = DateTime.UtcNow,
+            EstimatedDeletionTimes = new EstimatedDeletionTimes
+            {
+                PreserveSeconds = preserveSeconds,
+                FullSeconds = fullSeconds,
+                RsyncSeconds = rsyncSeconds,
+                PreserveFormatted = FormatEstimatedDuration(preserveSeconds),
+                FullFormatted = FormatEstimatedDuration(fullSeconds),
+                RsyncFormatted = FormatEstimatedDuration(rsyncSeconds)
+            }
+        };
+    }
+
+    private static string FormatEstimatedDuration(double seconds)
+    {
+        if (seconds < 1)
+        {
+            return "< 1 second";
+        }
+
+        var totalSeconds = (long)Math.Round(seconds);
+        if (totalSeconds < 60)
+        {
+            return $"{totalSeconds} second{(totalSeconds == 1 ? "" : "s")}";
+        }
+
+        var minutes = totalSeconds / 60;
+        var remainingSeconds = totalSeconds % 60;
+        if (minutes < 60)
+        {
+            return remainingSeconds == 0 ? $"{minutes} minute{(minutes == 1 ? "" : "s")}" : $"{minutes}m {remainingSeconds}s";
+        }
+
+        var hours = minutes / 60;
+        var remainingMinutes = minutes % 60;
+        return remainingMinutes == 0 ? $"{hours} hour{(hours == 1 ? "" : "s")}" : $"{hours}h {remainingMinutes}m";
+    }
+
     // Broadcast gate for RelayProgressAsync. Safe as instance fields: callers hold the scan
     // locks so at most one cache size scan relays progress at a time.
     private long _cacheSizeScanLastEmitTicks = long.MinValue;
@@ -1349,7 +1679,7 @@ public partial class CacheManagementService
     /// Callers must hold _scanCacheLock so at most one tracked scan is registered at a time.
     /// </summary>
     private async Task<CacheSizeResponse?> RunFullScanAsync(
-        string cachePath,
+        IReadOnlyList<string> cachePaths,
         CancellationToken callerToken,
         Action<Guid>? onScanStarted = null,
         bool showNotification = true)
@@ -1442,20 +1772,58 @@ public partial class CacheManagementService
             _logger.LogInformation("[CacheSizeScan] Emitted CacheSizeScanStarted for operation {OperationId}", operationId);
             onScanStarted?.Invoke(operationId);
 
-            var result = await RunCacheSizeScanAsync(
-                cachePath,
-                linked.Token,
-                operationId,
-                onProgress: progress => RelayProgressAsync(operationId, progress, showNotification));
+            var results = new List<CacheSizeResponse>(cachePaths.Count);
+            var completedDirectories = 0L;
+            var completedFiles = 0L;
+            var completedBytes = 0L;
+
+            for (var cachePathIndex = 0; cachePathIndex < cachePaths.Count; cachePathIndex++)
+            {
+                var cachePath = cachePaths[cachePathIndex];
+                _logger.LogInformation(
+                    "[CacheSizeScan] Scanning cache root {Current}/{Total}: {CachePath}",
+                    cachePathIndex + 1,
+                    cachePaths.Count,
+                    cachePath);
+
+                async Task RelayDatasourceProgressAsync(CacheSizeScanProgressData progress)
+                {
+                    var overallProgress = new CacheSizeScanProgressData
+                    {
+                        StageKey = progress.StageKey,
+                        PercentComplete = ((cachePathIndex + (progress.PercentComplete / 100.0)) / cachePaths.Count) * 100.0,
+                        DirectoriesScanned = completedDirectories + progress.DirectoriesScanned,
+                        TotalDirectories = completedDirectories + progress.TotalDirectories,
+                        TotalFiles = completedFiles + progress.TotalFiles,
+                        TotalBytes = completedBytes + progress.TotalBytes,
+                        CalibrationStep = progress.CalibrationStep,
+                        CalibrationTotalSteps = progress.CalibrationTotalSteps
+                    };
+                    await RelayProgressAsync(operationId, overallProgress, showNotification);
+                }
+
+                var datasourceResult = await RunCacheSizeScanAsync(
+                    cachePath,
+                    linked.Token,
+                    operationId,
+                    onProgress: RelayDatasourceProgressAsync);
+
+                linked.Token.ThrowIfCancellationRequested();
+                if (datasourceResult == null)
+                {
+                    _operationTracker.CompleteOperation(operationId, success: false, error: "Cache size scan failed - see server logs");
+                    return null;
+                }
+
+                results.Add(datasourceResult);
+                completedDirectories += datasourceResult.TotalDirectories;
+                completedFiles += datasourceResult.TotalFiles;
+                completedBytes += datasourceResult.TotalBytes;
+            }
+
+            var result = AggregateCacheSizeResponses(results);
 
             linked.Token.ThrowIfCancellationRequested();
-
-            if (result == null)
-            {
-                // Terminal CacheSizeScanComplete(error) is emitted by the registered onTerminalEmit closure.
-                _operationTracker.CompleteOperation(operationId, success: false, error: "Cache size scan failed - see server logs");
-                return null;
-            }
 
             // Capture the totals BY VALUE before completing so the onTerminalEmit closure
             // builds the success payload from real metrics.
@@ -1576,18 +1944,28 @@ public partial class CacheManagementService
             return cachedResult;
         }
 
-        var allCachePath = _pathResolver.GetCacheDirectory();
+        var allCachePaths = SelectFullScanCachePaths(
+            _datasourceService.GetDatasources(),
+            _pathResolver.GetCacheDirectory());
 
         await _scanCacheLock.WaitAsync(cancellationToken);
         try
         {
             // A forced scan is either a queued manual refresh or the scheduled service.
             _logger.LogInformation("Force rescan requested - running fresh cache size scan");
-            var freshResult = await RunFullScanAsync(allCachePath, cancellationToken, onScanStarted, showNotification);
+            var freshResult = await RunFullScanAsync(allCachePaths, cancellationToken, onScanStarted, showNotification);
             if (freshResult != null)
             {
-                var cacheInfo = await GetCacheInfoAsync();
-                await SaveCachedScanAsync(freshResult, cacheInfo.UsedCacheSize);
+                var usedCacheSizeByMount = OperatingSystemDetector.IsWindows
+                    ? null
+                    : GetCacheMountUsage(allCachePaths);
+                var usedCacheSizeAtScan = usedCacheSizeByMount is { Count: > 0 }
+                    ? usedCacheSizeByMount.Values.Sum()
+                    : (await GetCacheInfoAsync()).UsedCacheSize;
+                await SaveCachedScanAsync(
+                    freshResult,
+                    usedCacheSizeAtScan,
+                    usedCacheSizeByMount);
                 freshResult.IsCached = false;
                 return freshResult;
             }
@@ -1718,6 +2096,7 @@ public partial class CacheManagementService
     {
         public CacheSizeResponse ScanResult { get; set; } = new();
         public long UsedCacheSizeAtScan { get; set; }
+        public Dictionary<string, long> UsedCacheSizeByMountAtScan { get; set; } = new();
         public DateTime ScannedAtUtc { get; set; }
     }
 }

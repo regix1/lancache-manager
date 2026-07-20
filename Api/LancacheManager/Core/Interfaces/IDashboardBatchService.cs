@@ -20,4 +20,9 @@ public interface IDashboardBatchService
     /// next read re-queries the DB. Call after a write that changes live download data.
     /// </summary>
     void InvalidateLiveCache();
+
+    /// <summary>
+    /// Invalidates the detection slice in every cached batch response, including fixed ranges.
+    /// </summary>
+    void InvalidateDetectionCache();
 }

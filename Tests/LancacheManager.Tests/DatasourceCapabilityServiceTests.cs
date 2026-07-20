@@ -1,3 +1,4 @@
+using LancacheManager.Configuration;
 using LancacheManager.Core.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -71,6 +72,57 @@ public class DatasourceCapabilityServiceTests
                 () => service.GetKeySchemeWireValue(datasource));
 
             Assert.Contains("mixed or unknown cache-key evidence", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(logPath, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("", DatasourceSchemeOverride.Monolithic, CacheKeyScheme.SupportedMonolithic, "monolithic")]
+    [InlineData("access.log,steam-access.log", DatasourceSchemeOverride.BareMetal, CacheKeyScheme.ObservedBareMetal, "bare_metal")]
+    public void GetCapabilities_ExplicitOverrideBypassesUnknownOrMixedInference(
+        string sourceFiles,
+        DatasourceSchemeOverride schemeOverride,
+        CacheKeyScheme expectedScheme,
+        string expectedWireValue)
+    {
+        var (logPath, datasource, service) = CreateSubject(sourceFiles);
+        datasource.SchemeOverride = schemeOverride;
+
+        try
+        {
+            var capabilities = service.GetCapabilities(datasource);
+
+            Assert.Equal(expectedScheme, capabilities.CacheKeyScheme);
+            Assert.Equal(schemeOverride, capabilities.SchemeOverride);
+            Assert.True(capabilities.CanMapLogicalObjects);
+            Assert.Null(capabilities.DenialReason);
+            Assert.Equal(expectedWireValue, service.GetKeySchemeWireValue(datasource));
+        }
+        finally
+        {
+            Directory.Delete(logPath, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("access.log,steam-access.log", "mixed")]
+    [InlineData("", "unknown")]
+    public void GetCapabilities_DeniedInferenceExposesSchemeAndReason(
+        string sourceFiles,
+        string expectedScheme)
+    {
+        var (logPath, datasource, service) = CreateSubject(sourceFiles);
+
+        try
+        {
+            var capabilities = service.GetCapabilities(datasource);
+
+            Assert.Equal(expectedScheme, DatasourceCapabilityService.GetSchemeWireValue(capabilities));
+            Assert.NotNull(capabilities.DenialReason);
+            Assert.Contains(datasource.Name, capabilities.DenialReason, StringComparison.Ordinal);
         }
         finally
         {

@@ -1,3 +1,5 @@
+using LancacheManager.Configuration;
+
 namespace LancacheManager.Core.Services;
 
 /// <summary>
@@ -18,13 +20,15 @@ public enum CacheKeyScheme
 }
 
 /// <summary>
-/// Per-datasource derived capabilities. Computed from on-disk evidence at query time,
-/// never from a stored layout label or user configuration.
+/// Per-datasource capabilities. Auto mode is computed from current on-disk evidence;
+/// an explicit datasource override selects the cache-key scheme when inference is unavailable.
 /// </summary>
 public class DatasourceCapabilities
 {
     public string DatasourceName { get; init; } = string.Empty;
     public CacheKeyScheme CacheKeyScheme { get; init; }
+    public DatasourceSchemeOverride SchemeOverride { get; init; }
+    public string? DenialReason { get; init; }
     /// <summary>Log sources exist and can be ingested.</summary>
     public bool CanIngest { get; init; }
     /// <summary>Line-level rewriting of every active log (per-game purge) is meaningful.</summary>
@@ -77,10 +81,18 @@ public class DatasourceCapabilityService
         var hasMonolithic = stems.Contains(LogSourceLayout.MonolithicStem);
         var hasPerService = stems.Any(LogSourceLayout.IsPerServiceStem);
 
-        // A single observed layout selects the matching native key scheme. A mixed set is
-        // ambiguous and fails closed. No sources at all proves nothing and also fails closed.
+        // Explicit configuration is authoritative for the key recipe. Auto retains the existing
+        // evidence inference and its mixed/unknown default-deny behavior.
         CacheKeyScheme scheme;
-        if (hasMonolithic && hasPerService)
+        if (datasource.SchemeOverride == DatasourceSchemeOverride.Monolithic)
+        {
+            scheme = CacheKeyScheme.SupportedMonolithic;
+        }
+        else if (datasource.SchemeOverride == DatasourceSchemeOverride.BareMetal)
+        {
+            scheme = CacheKeyScheme.ObservedBareMetal;
+        }
+        else if (hasMonolithic && hasPerService)
         {
             scheme = CacheKeyScheme.Mixed;
         }
@@ -104,6 +116,8 @@ public class DatasourceCapabilityService
         {
             DatasourceName = datasource.Name,
             CacheKeyScheme = scheme,
+            SchemeOverride = datasource.SchemeOverride,
+            DenialReason = canUseObjectScopedDiskFeatures ? null : DenialMessage(datasource.Name),
             CanIngest = stems.Count > 0,
             CanRewriteAllActiveLogs = scheme == CacheKeyScheme.SupportedMonolithic,
             CanInspectCacheStructure = canUseObjectScopedDiskFeatures,
@@ -126,11 +140,29 @@ public class DatasourceCapabilityService
     public string GetKeySchemeWireValue(ResolvedDatasource datasource)
     {
         var capabilities = GetCapabilities(datasource);
+        if (!capabilities.CanMapLogicalObjects)
+        {
+            throw new InvalidOperationException(capabilities.DenialReason);
+        }
+
+        return GetSchemeWireValue(capabilities);
+    }
+
+    /// <summary>
+    /// Effective scheme exposed by the capability API, including denied inferred states.
+    /// </summary>
+    public static string GetSchemeWireValue(DatasourceCapabilities capabilities)
+    {
         return capabilities.CacheKeyScheme switch
         {
             CacheKeyScheme.SupportedMonolithic => LogSourceLayout.LayoutMonolithic,
             CacheKeyScheme.ObservedBareMetal => LogSourceLayout.LayoutBareMetal,
-            _ => throw new InvalidOperationException(DenialMessage(capabilities.DatasourceName))
+            CacheKeyScheme.Mixed => LogSourceLayout.LayoutMixed,
+            CacheKeyScheme.Unknown => "unknown",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(capabilities),
+                capabilities.CacheKeyScheme,
+                "Unknown cache-key scheme")
         };
     }
 
@@ -177,7 +209,7 @@ public class DatasourceCapabilityService
             _logger.LogInformation(
                 "Denied key-dependent operation for datasource '{Name}' (cache key scheme: {Scheme})",
                 datasourceName, capabilities.CacheKeyScheme);
-            return DenialMessage(datasourceName);
+            return capabilities.DenialReason;
         }
         return null;
     }
@@ -194,7 +226,7 @@ public class DatasourceCapabilityService
             return "No datasources configured";
         }
         var blocked = all.FirstOrDefault(c => !c.CanMapLogicalObjects);
-        return blocked == null ? null : DenialMessage(blocked.DatasourceName);
+        return blocked?.DenialReason;
     }
 
     private static string DenialMessage(string datasourceName) =>

@@ -1,5 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Models.ApiRequests;
+using LancacheManager.Configuration;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
@@ -81,6 +82,9 @@ public class SystemController : ControllerBase
                 CacheWritable = ds.CacheWritable,
                 LogsWritable = ds.LogsWritable,
                 Enabled = ds.Enabled,
+                SchemeOverride = ds.SchemeOverride.ToWireValue(),
+                CacheKeyScheme = DatasourceCapabilityService.GetSchemeWireValue(capabilities),
+                CapabilityDenialReason = capabilities.DenialReason,
                 Layout = ds.Layout,
                 SourceCount = ds.LogSourceStems.Count,
                 CanMapLogicalObjects = capabilities.CanMapLogicalObjects,

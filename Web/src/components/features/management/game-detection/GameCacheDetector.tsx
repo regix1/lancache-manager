@@ -106,9 +106,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // disables Remove All - single removes and Remove All gate together. Removals
   // from unrelated cards (corruption/logs/cache) still enqueue.
   const isCacheRemovalActive = useCacheRemovalActive();
-  // Disk-level game/service cache removal needs the monolithic cache-key recipe; an all
-  // bare-metal fleet cannot map objects to files, so these bulk actions are disabled.
-  const diskObjectsAvailable = useDiskObjectCapability();
+  // Bulk removal needs one resolved cache-key scheme for every enabled datasource so a
+  // cross-datasource request cannot partially succeed.
+  const { available: diskObjectsAvailable, denialReason: diskObjectDenialReason } =
+    useDiskObjectCapability();
 
   // Track local starting state for immediate UI feedback before SignalR events arrive
   const [isStartingDetection, setIsStartingDetection] = useState(false);
@@ -851,7 +852,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 <ActionMenuDivider />
                 <DiskObjectActionGate
                   available={diskObjectsAvailable}
-                  tooltip={t('management.capability.diskObjectsUnavailable')}
+                  tooltip={
+                    diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable')
+                  }
                   position="left"
                   className="block w-full"
                 >
@@ -886,7 +889,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
                 <DiskObjectActionGate
                   available={diskObjectsAvailable}
-                  tooltip={t('management.capability.diskObjectsUnavailable')}
+                  tooltip={
+                    diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable')
+                  }
                   position="left"
                   className="block w-full"
                 >

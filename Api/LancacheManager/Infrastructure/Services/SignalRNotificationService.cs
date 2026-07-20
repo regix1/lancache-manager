@@ -46,12 +46,15 @@ public class SignalRNotificationService : ISignalRNotificationService
     {
         try
         {
-            // Events that make the frontend refetch GET /api/dashboard/batch must first expire the
-            // live batch cache, or the refetch is served the (up to 15s) stale snapshot. This is the
-            // single chokepoint for ALL DownloadsRefresh + LogProcessingComplete emitters (log
-            // processing, evictions, removals, mapping re-resolves, speed-tracker idle ticks).
+            // Events that make the frontend refetch GET /api/dashboard/batch must first invalidate
+            // the affected batch variants, or the refetch can receive a stale snapshot. This is the
+            // single chokepoint for downloads, log-processing, and detection completion emitters.
             // Resolved lazily to avoid a constructor DI cycle (IDashboardBatchService is a singleton).
-            if (eventName is SignalREvents.DownloadsRefresh or SignalREvents.LogProcessingComplete)
+            if (eventName == SignalREvents.GameDetectionComplete)
+            {
+                _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateDetectionCache();
+            }
+            else if (eventName is SignalREvents.DownloadsRefresh or SignalREvents.LogProcessingComplete)
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateLiveCache();
             }

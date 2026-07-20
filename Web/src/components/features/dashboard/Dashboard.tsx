@@ -443,6 +443,7 @@ const Dashboard: React.FC = () => {
   // Hold the previous stable value in a ref so the card doesn't jump
   // while game detection is running and returning intermediate results.
   const formattedLastDetectionTime = useFormattedDateTime(gameDetectionData?.lastDetectionTime);
+  const hasCacheScan = cacheInfo?.hasCacheScan === true;
   const gamesOnDiskStats = useMemo(() => {
     if (!gameDetectionData?.hasCachedResults) {
       return null;
@@ -456,6 +457,10 @@ const Dashboard: React.FC = () => {
   }, [gameDetectionData, evictedDataMode, evictedGamesCount]);
 
   const unmappedCacheBytes = useMemo(() => {
+    if (!cacheInfo?.hasCacheScan) {
+      return null;
+    }
+
     const cacheScanTotal = cacheInfo?.cacheScanTotalBytes;
     const identifiedTotal = gameDetectionData?.identified_cache_bytes;
     if (
@@ -467,7 +472,11 @@ const Dashboard: React.FC = () => {
     }
 
     return cacheScanTotal - identifiedTotal;
-  }, [cacheInfo?.cacheScanTotalBytes, gameDetectionData?.identified_cache_bytes]);
+  }, [
+    cacheInfo?.hasCacheScan,
+    cacheInfo?.cacheScanTotalBytes,
+    gameDetectionData?.identified_cache_bytes
+  ]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({
@@ -597,20 +606,24 @@ const Dashboard: React.FC = () => {
       cacheFiles: {
         key: 'cacheFiles',
         title: t('dashboard.cards.cacheFiles'),
-        value: cacheInfo ? formatCount(cacheInfo.totalFiles) : '—',
-        subtitle: [
-          t('dashboard.cards.filesOnDisk'),
-          formattedCacheScanTime
-            ? t('dashboard.cards.scannedAt', { time: formattedCacheScanTime })
-            : null
-        ]
-          .filter(Boolean)
-          .join(' • '),
-        badge: cacheInfo?.scanMayBeStale ? (
-          <Badge variant="warning" emphasis>
-            {t('dashboard.cards.staleScanData')}
-          </Badge>
-        ) : undefined,
+        value: cacheInfo && hasCacheScan ? formatCount(cacheInfo.totalFiles) : '—',
+        subtitle:
+          cacheInfo && !hasCacheScan
+            ? t('dashboard.cards.noCacheScanData')
+            : [
+                t('dashboard.cards.filesOnDisk'),
+                formattedCacheScanTime
+                  ? t('dashboard.cards.scannedAt', { time: formattedCacheScanTime })
+                  : null
+              ]
+                .filter(Boolean)
+                .join(' • '),
+        badge:
+          hasCacheScan && cacheInfo?.scanMayBeStale ? (
+            <Badge variant="warning" emphasis>
+              {t('dashboard.cards.staleScanData')}
+            </Badge>
+          ) : undefined,
         icon: Files,
         color: 'teal' as const,
         visible: cardVisibility.cacheFiles,
@@ -634,9 +647,9 @@ const Dashboard: React.FC = () => {
               .join(' • ')
           : t('dashboard.cards.noScanData'),
         badge:
-          cacheInfo?.scanMayBeStale || gamesOnDiskStats?.includesEvicted ? (
+          (hasCacheScan && cacheInfo?.scanMayBeStale) || gamesOnDiskStats?.includesEvicted ? (
             <>
-              {cacheInfo?.scanMayBeStale ? (
+              {hasCacheScan && cacheInfo?.scanMayBeStale ? (
                 <Badge variant="warning" emphasis>
                   {t('dashboard.cards.staleScanData')}
                 </Badge>
@@ -668,6 +681,7 @@ const Dashboard: React.FC = () => {
       gamesOnDiskStats,
       formattedLastDetectionTime,
       formattedCacheScanTime,
+      hasCacheScan,
       unmappedCacheBytes
     ]
   );

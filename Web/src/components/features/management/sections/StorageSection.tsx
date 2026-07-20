@@ -195,9 +195,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   );
 
   const isAnyEvictedRemovalRunning = useCacheRemovalActive();
-  // Eviction removal deletes evicted cache files, which needs the monolithic cache-key recipe;
-  // an all bare-metal fleet cannot map objects to files, so these actions are disabled.
-  const diskObjectsAvailable = useDiskObjectCapability();
+  // Eviction removal can span cache roots, so every enabled datasource needs one resolved
+  // cache-key scheme before these actions are safe.
+  const { available: diskObjectsAvailable, denialReason: diskObjectDenialReason } =
+    useDiskObjectCapability();
 
   // Managed setTimeout for post-SignalR eviction refetch; cancels on unmount.
   const scheduleEvictedItemsRefresh = useTimeoutCallback(CACHED_DETECTION_RELOAD_DELAY_MS);
@@ -900,7 +901,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                           <>
                             <DiskObjectActionGate
                               available={diskObjectsAvailable}
-                              tooltip={t('management.capability.diskObjectsUnavailable')}
+                              tooltip={
+                                diskObjectDenialReason ??
+                                t('management.capability.diskObjectsUnavailable')
+                              }
                               position="left"
                               className="block w-full"
                             >
@@ -938,7 +942,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
                             <DiskObjectActionGate
                               available={diskObjectsAvailable}
-                              tooltip={t('management.capability.diskObjectsUnavailable')}
+                              tooltip={
+                                diskObjectDenialReason ??
+                                t('management.capability.diskObjectsUnavailable')
+                              }
                               position="left"
                               className="block w-full"
                             >

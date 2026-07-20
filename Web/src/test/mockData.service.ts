@@ -110,6 +110,7 @@ class MockDataService {
       freeCacheSize: 550000000000,
       usagePercent: 72.5,
       totalFiles: 48293 + (typeof downloadCount === 'number' ? downloadCount : 500) * 100,
+      hasCacheScan: true,
       serviceSizes: {
         steam: 650000000000,
         epicgames: 320000000000,

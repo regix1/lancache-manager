@@ -12,6 +12,8 @@ export interface CacheInfo {
   usagePercent: number;
   totalFiles: number;
   serviceSizes: Record<string, number>;
+  /** True after a scheduled or manual cache-file scan has produced a persisted result. */
+  hasCacheScan: boolean;
   /** UTC timestamp of the cache file scan backing totalFiles. */
   cacheScanTimestampUtc?: string;
   /** Total bytes in the cache directory from the last cache file scan. */
@@ -284,6 +286,9 @@ export interface MessageResponse {
 
 export type NginxReopenHint = 'grantSignalPrivilege' | 'enablePidHost' | 'mountDockerSocket';
 
+export type DatasourceSchemeOverride = 'auto' | 'monolithic' | 'bare_metal';
+export type CacheKeyScheme = 'monolithic' | 'bare_metal' | 'mixed' | 'unknown';
+
 export interface DatasourceInfo {
   name: string;
   cachePath: string;
@@ -291,6 +296,12 @@ export interface DatasourceInfo {
   cacheWritable: boolean;
   logsWritable: boolean;
   enabled: boolean;
+  /** Configured selection. Absent only on responses from older servers. */
+  schemeOverride?: DatasourceSchemeOverride;
+  /** Scheme currently selected after applying the override or log-layout inference. */
+  cacheKeyScheme?: CacheKeyScheme;
+  /** Backend explanation for a denied object-scoped disk capability. */
+  capabilityDenialReason?: string | null;
   /** Presentation-only source layout. Absent on legacy responses (treat as monolithic). */
   layout?: 'monolithic' | 'bare_metal' | 'mixed';
   /** Number of logical access-log sources currently on disk. */

@@ -160,6 +160,38 @@ public class GamesOnDiskCalculatorTests : IDisposable
         Assert.Equal(1, summary.GamesOnDiskCount);
     }
 
+    [Fact]
+    public async Task LoadDetectionAsync_MissingSummaryWithDetectionRows_RebuildsBeforeResponse()
+    {
+        var options = NewInMemoryOptions();
+        const ulong persistedBytes = 4_096;
+        var missingPath = Path.Combine(Path.GetTempPath(), $"gamesondisk_backfill_{Guid.NewGuid():N}.cache");
+
+        await using (var seedContext = new AppDbContext(options))
+        {
+            seedContext.CachedGameDetections.Add(NamedDetectionRow(
+                "riot",
+                "Existing Detection",
+                cacheFilesFound: 1,
+                totalSizeBytes: persistedBytes,
+                cacheFilePaths: new List<string> { missingPath }));
+            await seedContext.SaveChangesAsync();
+        }
+
+        var dataService = NewDataService(options);
+        var response = await dataService.LoadDetectionAsync(includeCacheFilePaths: false);
+
+        Assert.NotNull(response);
+        Assert.NotNull(response.DiskSummary);
+        Assert.Equal(persistedBytes, response.DiskSummary.Value.GameBytes);
+        Assert.Equal(1, response.DiskSummary.Value.ActiveGameCount);
+        Assert.NotNull(response.SummaryComputedAtUtc);
+
+        await using var verifyContext = new AppDbContext(options);
+        var summary = await verifyContext.CachedDetectionSummaries.SingleAsync();
+        Assert.Equal(persistedBytes, summary.GamesOnDiskBytes);
+    }
+
     // -----------------------------------------------------------------------------------------
     // Retention must not double-count when a game's paths were already claimed by an earlier
     // active game/service in the same refresh (e.g. two named games sharing a common launcher/

@@ -31,7 +31,8 @@ public static class CachedDetectionResponseBuilder
         DateTime? summaryComputedAtUtc = null)
     {
         var activeGamesCount = games.Count(g => !g.IsEvicted);
-        var summary = diskSummary ?? default;
+        var summary = diskSummary ?? throw new InvalidOperationException(
+            "Cached detection rows exist without a derived disk summary");
 
         object? responseGames = slimForDashboard
             ? games.Select(g => new DashboardGameSummary

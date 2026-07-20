@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using LancacheManager.Configuration;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using Microsoft.Extensions.Configuration;
@@ -292,6 +293,45 @@ public sealed class DatasourceServiceAutoDiscoveryTests
         });
 
         AssertDatasources(service, ("alpha", alphaCache, alphaLogs));
+        Assert.Equal(DatasourceSchemeOverride.Auto, Assert.Single(service.GetDatasources()).SchemeOverride);
+        Assert.Equal("auto", Assert.Single(service.GetDatasourceInfos()).SchemeOverride);
+    }
+
+    [Fact]
+    public void ExplicitDatasource_SchemeOverrideFlowsIntoResolvedDatasourceAndApiInfo()
+    {
+        using var fixture = new Fixture();
+
+        var service = fixture.BuildService(extra: new Dictionary<string, string?>
+        {
+            ["LanCache:DataSources:0:Name"] = "custom",
+            ["LanCache:DataSources:0:CachePath"] = fixture.CachePath,
+            ["LanCache:DataSources:0:LogPath"] = fixture.LogPath,
+            ["LanCache:DataSources:0:Enabled"] = "true",
+            ["LanCache:DataSources:0:SchemeOverride"] = "bare_metal"
+        });
+
+        var resolved = Assert.Single(service.GetDatasources());
+        var info = Assert.Single(service.GetDatasourceInfos());
+        Assert.Equal(DatasourceSchemeOverride.BareMetal, resolved.SchemeOverride);
+        Assert.Equal("bare_metal", info.SchemeOverride);
+    }
+
+    [Fact]
+    public void ExplicitDatasource_InvalidSchemeOverrideIsRejected()
+    {
+        using var fixture = new Fixture();
+
+        var exception = Assert.Throws<ArgumentException>(() => fixture.BuildService(extra: new Dictionary<string, string?>
+        {
+            ["LanCache:DataSources:0:Name"] = "custom",
+            ["LanCache:DataSources:0:CachePath"] = fixture.CachePath,
+            ["LanCache:DataSources:0:LogPath"] = fixture.LogPath,
+            ["LanCache:DataSources:0:Enabled"] = "true",
+            ["LanCache:DataSources:0:SchemeOverride"] = "guess"
+        }));
+
+        Assert.Contains("auto, monolithic, bare_metal", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

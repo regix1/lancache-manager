@@ -508,6 +508,7 @@
       "gamesOnDisk": "Games on Disk",
       "gamesDetected": "{{count}} games detected",
       "noScanData": "No scan data yet",
+      "noCacheScanData": "No scan data yet — run a scan in Management → Cache.",
       "scannedAt": "scanned {{time}}",
       "staleScanData": "Scan outdated",
       "evictedIncluded": "{{count}} evicted",
@@ -2815,7 +2816,7 @@
       }
     },
     "capability": {
-      "diskObjectsUnavailable": "Disk-level game and service actions aren't available for bare-metal caches yet. Clearing the whole cache still works."
+      "diskObjectsUnavailable": "Disk-level game and service actions require a clear cache-key scheme for every enabled datasource. Clearing the whole cache still works."
     },
     "datasources": {
       "title": "Log Processing",
@@ -2828,6 +2829,20 @@
       "layout": {
         "bareMetal": "Bare metal",
         "mixed": "Mixed logs"
+      },
+      "scheme": {
+        "title": "Cache key scheme override",
+        "configured": "Override: {{scheme}}",
+        "effective": "Effective: {{scheme}}",
+        "unavailable": "Disk actions unavailable",
+        "tooltip": "Automatic detection uses the log layout to choose the cache key scheme. Available override values are auto, monolithic, and bare_metal. Use an explicit override only when custom log names prevent reliable detection.",
+        "values": {
+          "auto": "Automatic (auto)",
+          "monolithic": "Monolithic (monolithic)",
+          "bare_metal": "Bare metal (bare_metal)",
+          "mixed": "Mixed evidence",
+          "unknown": "Unknown"
+        }
       },
       "sourceSet": "{{count}} log source",
       "sourceSet_other": "{{count}} log sources",

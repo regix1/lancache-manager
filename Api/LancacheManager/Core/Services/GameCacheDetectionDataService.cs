@@ -11,6 +11,7 @@ public sealed partial class GameCacheDetectionDataService
 {
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly ILogger<GameCacheDetectionDataService> _logger;
+    private readonly SemaphoreSlim _summaryRefreshLock = new(1, 1);
 
     public GameCacheDetectionDataService(
         IDbContextFactory<AppDbContext> dbContextFactory,
@@ -139,6 +140,10 @@ public sealed partial class GameCacheDetectionDataService
         CancellationToken cancellationToken = default,
         bool includeCacheFilePaths = true)
     {
+        // A summary is derived state. Repair a missing row before returning cached detections so
+        // existing detection rows can never be presented with authoritative zero totals.
+        await ReconcileMissingDiskSummaryAsync(cancellationToken);
+
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         var cachedGames = await LoadGameEntitiesAsync(dbContext, includeCacheFilePaths, cancellationToken);
@@ -403,11 +408,75 @@ public sealed partial class GameCacheDetectionDataService
     }
 
     /// <summary>
+    /// Rebuilds the derived singleton summary only when it is missing and detection rows exist.
+    /// Used during application startup and as a read-path repair for older databases.
+    /// </summary>
+    /// <returns>True when a missing summary was rebuilt.</returns>
+    public async Task<bool> ReconcileMissingDiskSummaryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _summaryRefreshLock.WaitAsync(cancellationToken);
+        try
+        {
+            bool hasDetectionRows;
+            await using (var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
+            {
+                var summaryExists = await dbContext.CachedDetectionSummaries
+                    .AsNoTracking()
+                    .AnyAsync(s => s.Id == CachedDetectionSummary.SingletonId, cancellationToken);
+                if (summaryExists)
+                {
+                    return false;
+                }
+
+                hasDetectionRows = await dbContext.CachedGameDetections
+                    .AsNoTracking()
+                    .AnyAsync(cancellationToken);
+                if (!hasDetectionRows)
+                {
+                    hasDetectionRows = await dbContext.CachedServiceDetections
+                        .AsNoTracking()
+                        .AnyAsync(cancellationToken);
+                }
+            }
+
+            if (!hasDetectionRows)
+            {
+                return false;
+            }
+
+            await RefreshDiskSummaryCoreAsync(cancellationToken);
+            _logger.LogInformation(
+                "[GameDetection] Rebuilt missing cached detection summary from persisted detection rows");
+            return true;
+        }
+        finally
+        {
+            _summaryRefreshLock.Release();
+        }
+    }
+
+    /// <summary>
     /// Recomputes deduplicated on-disk totals from persisted detection rows and stores the singleton summary row.
-    /// Runs after detection scans and other detection mutations — not on dashboard reads.
+    /// Runs after detection mutations and when a read discovers that the derived row is missing.
     /// </summary>
     public async Task RefreshDiskSummaryAsync(
         CancellationToken cancellationToken = default,
+        Action<int, int>? onPathProgress = null)
+    {
+        await _summaryRefreshLock.WaitAsync(cancellationToken);
+        try
+        {
+            await RefreshDiskSummaryCoreAsync(cancellationToken, onPathProgress);
+        }
+        finally
+        {
+            _summaryRefreshLock.Release();
+        }
+    }
+
+    private async Task RefreshDiskSummaryCoreAsync(
+        CancellationToken cancellationToken,
         Action<int, int>? onPathProgress = null)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);

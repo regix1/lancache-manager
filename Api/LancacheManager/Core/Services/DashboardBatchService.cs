@@ -9,7 +9,6 @@ using LancacheManager.Models.Responses;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Primitives;
 
 namespace LancacheManager.Core.Services;
 
@@ -32,10 +31,10 @@ public class DashboardBatchService : IDashboardBatchService
     private readonly IMemoryCache _memoryCache;
     private readonly JsonSerializerOptions _wireJsonOptions;
 
-    // Live (unbounded time-range) batch entries are linked to this token so a download write can
-    // expire ALL of them at once — every evicted-mode key variant — via InvalidateLiveCache,
-    // instead of waiting out their 15s TTL. Swapped + cancelled atomically on invalidation.
-    private CancellationTokenSource _liveCacheCts = new();
+    // Every request captures both applicable generations before doing any work. Generations are
+    // part of the key, and a response is cached only if its captured generations remain current.
+    private long _liveCacheGeneration;
+    private long _detectionCacheGeneration;
 
     public DashboardBatchService(
         CacheManagementService cacheService,
@@ -69,13 +68,17 @@ public class DashboardBatchService : IDashboardBatchService
         long? eventId,
         CancellationToken ct)
     {
+        var isLive = !startTime.HasValue && !endTime.HasValue;
+        var liveCacheGeneration = isLive ? Volatile.Read(ref _liveCacheGeneration) : 0;
+        var detectionCacheGeneration = Volatile.Read(ref _detectionCacheGeneration);
+
         // Shared state used by multiple sub-queries
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
         var eventIdList = eventId.HasValue ? new List<long> { eventId.Value } : new List<long>();
 
-        var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}";
+        var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{liveCacheGeneration}:{detectionCacheGeneration}";
         if (_memoryCache.TryGetValue(cacheKey, out DashboardBatchResponse? cachedResponse) && cachedResponse != null)
         {
             // Cache file scan stats (totalFiles, cacheScanTimestampUtc) change independently of
@@ -136,19 +139,18 @@ public class DashboardBatchService : IDashboardBatchService
         };
 
         // Non-live ranges (startTime/endTime fixed) cache for 60s; live (no bounds) cache for 15s.
-        var isLive = !startTime.HasValue && !endTime.HasValue;
         var cacheOptions = new MemoryCacheEntryOptions()
             .SetAbsoluteExpiration(TimeSpan.FromSeconds(isLive ? 15 : 60))
             .SetSize(50_000)
             .SetPriority(CacheItemPriority.High);
-        if (isLive)
+
+        var generationsAreCurrent =
+            detectionCacheGeneration == Volatile.Read(ref _detectionCacheGeneration)
+            && (!isLive || liveCacheGeneration == Volatile.Read(ref _liveCacheGeneration));
+        if (generationsAreCurrent)
         {
-            // Link live entries to the invalidation token so a download write expires them
-            // immediately (see InvalidateLiveCache), guaranteeing a SignalR-triggered refetch
-            // reads fresh data rather than this snapshot.
-            cacheOptions.AddExpirationToken(new CancellationChangeToken(_liveCacheCts.Token));
+            _memoryCache.Set(cacheKey, response, cacheOptions);
         }
-        _memoryCache.Set(cacheKey, response, cacheOptions);
 
         return response;
     }
@@ -156,12 +158,13 @@ public class DashboardBatchService : IDashboardBatchService
     /// <inheritdoc />
     public void InvalidateLiveCache()
     {
-        // Atomically swap in a fresh token source and cancel the old one, so every live batch
-        // entry linked to it expires now regardless of its 15s TTL. Thread-safe under the
-        // singleton lifetime + concurrent batch requests.
-        var previous = Interlocked.Exchange(ref _liveCacheCts, new CancellationTokenSource());
-        previous.Cancel();
-        previous.Dispose();
+        Interlocked.Increment(ref _liveCacheGeneration);
+    }
+
+    /// <inheritdoc />
+    public void InvalidateDetectionCache()
+    {
+        Interlocked.Increment(ref _detectionCacheGeneration);
     }
 
     // ───────────────────── Sub-query implementations ─────────────────────

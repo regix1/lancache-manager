@@ -520,6 +520,10 @@ public class DatasourceService
     /// </summary>
     private ResolvedDatasource? ResolveDatasource(DatasourceConfig config)
     {
+        var schemeOverride = DatasourceSchemeOverrideValues.Parse(
+            config.SchemeOverride,
+            nameof(config.SchemeOverride));
+
         try
         {
             var cachePath = _pathResolver.ResolvePath(config.CachePath);
@@ -540,6 +544,7 @@ public class DatasourceService
                 LogPath = logDir,
                 LogFilePath = Path.Combine(logDir, "access.log"),
                 Enabled = config.Enabled,
+                SchemeOverride = schemeOverride,
                 CacheWritable = _pathResolver.IsDirectoryWritable(cachePath)
             };
             // RefreshLogSources performs the bare-metal <logs> -> <logs>/http descent from
@@ -627,7 +632,8 @@ public class DatasourceService
                 LogsWritable = d.LogsWritable,
                 Enabled = d.Enabled,
                 Layout = d.Layout,
-                SourceCount = d.LogSourceStems.Count
+                SourceCount = d.LogSourceStems.Count,
+                SchemeOverride = d.SchemeOverride.ToWireValue()
             };
         }).ToList();
     }
@@ -689,6 +695,11 @@ public class ResolvedDatasource
     /// Whether this datasource is enabled.
     /// </summary>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Configured cache-key scheme selection. Auto keeps the inferred log topology.
+    /// </summary>
+    public DatasourceSchemeOverride SchemeOverride { get; set; } = DatasourceSchemeOverride.Auto;
 
     /// <summary>
     /// Whether the cache directory is writable.
@@ -769,6 +780,7 @@ public class DatasourceInfo
     public bool CacheWritable { get; set; }
     public bool LogsWritable { get; set; }
     public bool Enabled { get; set; }
+    public string SchemeOverride { get; set; } = DatasourceSchemeOverrideValues.Auto;
     /// <summary>Presentation-only source layout: monolithic | bare_metal | mixed.</summary>
     public string Layout { get; set; } = LogSourceLayout.LayoutMonolithic;
     /// <summary>Number of logical access-log sources currently on disk.</summary>

@@ -179,8 +179,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
       // Backend IMemoryCache dedupes identical in-flight requests (15s live / 60s historical TTL).
 
-      abortControllerRef.current = new AbortController();
-      const signal = abortControllerRef.current.signal;
+      const requestController = new AbortController();
+      abortControllerRef.current = requestController;
+      const signal = requestController.signal;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
       try {
         // Show skeleton only for user-initiated fetches (initial load, time range change).
@@ -190,7 +192,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
 
         const timeout = 10000;
-        const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
+        timeoutId = setTimeout(() => requestController.abort(), timeout);
 
         // Single batch endpoint replaces 6 individual API calls
         const eventId = eventIds && eventIds.length > 0 ? eventIds[0] : undefined;
@@ -200,8 +202,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           endTime,
           eventId
         );
-
-        clearTimeout(timeoutId);
 
         // CRITICAL: Check if we're still the current request before modifying ANY state
         if (currentRequestIdRef.current !== thisRequestId) {
@@ -257,6 +257,12 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
         setLoading(false);
       } finally {
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+        }
+        if (abortControllerRef.current === requestController) {
+          abortControllerRef.current = null;
+        }
         // Always clear fetch flags - even for superseded requests.
         // Only the requestId guard on STATE UPDATES (above) prevents stale data.
         // Flags must always reset or subsequent fetches get permanently blocked.
@@ -344,10 +350,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       }
     };
 
-    const handleGameDetectionStarted = () => {
-      clearDetectionState();
-    };
-
     const handleCacheClearingComplete = () => {
       clearDetectionState();
       handleRefreshEvent('CacheClearingComplete');
@@ -392,7 +394,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       signalR.on(event, handler);
     });
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
-    signalR.on('GameDetectionStarted', handleGameDetectionStarted);
 
     return () => {
       // Use the same handler references for cleanup
@@ -403,7 +404,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         signalR.off(event, handler);
       });
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
-      signalR.off('GameDetectionStarted', handleGameDetectionStarted);
       if (forcedRefreshTimerRef.current) {
         clearTimeout(forcedRefreshTimerRef.current);
         forcedRefreshTimerRef.current = null;

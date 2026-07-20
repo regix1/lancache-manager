@@ -77,9 +77,10 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   // Any running/queued removal in the game-cache domain disables every per-item
   // Remove button - single removes and Remove All gate together.
   const isCacheRemovalActive = useCacheRemovalActive();
-  // Disk-level object removal needs the monolithic cache-key recipe; an all-bare-metal fleet
-  // cannot map a game/service to files, so the backend rejects these calls.
-  const diskObjectsAvailable = useDiskObjectCapability();
+  // Disk-level object removal needs one resolved cache-key scheme for every enabled datasource
+  // because an entity can span datasource roots.
+  const { available: diskObjectsAvailable, denialReason: diskObjectDenialReason } =
+    useDiskObjectCapability();
   const [imageError, setImageError] = useState(false);
   const availableImages = useAvailableGameImages();
 
@@ -93,7 +94,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   const showImage = !!imageId && availableImages.has(imageId) && !imageError;
   const isUnknownGame = title.startsWith('Unknown Game');
   const actionTooltip = !diskObjectsAvailable
-    ? t('management.capability.diskObjectsUnavailable')
+    ? (diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable'))
     : diskActionBlocked
       ? t('initialization.permissionsCheck.hasErrors')
       : !nginxReopenAvailable
