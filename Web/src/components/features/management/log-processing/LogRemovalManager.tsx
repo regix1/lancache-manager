@@ -175,6 +175,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           ],
     [config]
   );
+  const cardNginxReopenGate = getNginxReopenGate(configuredDatasources);
   const datasourceInfoByName = useMemo<Map<string, DatasourceInfo>>(
     () => new Map(configuredDatasources.map((ds) => [ds.name, ds])),
     [configuredDatasources]
@@ -705,6 +706,15 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                 <p className="text-sm mt-1">
                   {t('management.logRemoval.alerts.logsReadOnly.description')}
                 </p>
+              </div>
+            </Alert>
+          )}
+
+          {!cardNginxReopenGate.available && cardNginxReopenGate.messageKey && (
+            <Alert color="orange" className="mb-6">
+              <div>
+                <p className="font-medium">{t('management.nginxReopen.alertTitle')}</p>
+                <p className="text-sm mt-1">{t(cardNginxReopenGate.messageKey)}</p>
               </div>
             </Alert>
           )}

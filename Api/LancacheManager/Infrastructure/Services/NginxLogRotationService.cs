@@ -64,7 +64,7 @@ public class NginxLogRotationService
     private const string NoNginxContainerFoundError = "No container with nginx found";
     private const string HostNginxPidExpression =
         "$(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
-        "pgrep -f 'nginx: master' | head -1)";
+        "pgrep -f 'nginx[:] master' | head -1)";
 
     private readonly ILogger<NginxLogRotationService> _logger;
     private readonly IConfiguration _configuration;
@@ -293,18 +293,17 @@ public class NginxLogRotationService
             return HostProbeResult.AvailableResult;
         }
 
-        if (result.Output.Contains(HostPidVisibleMarker, StringComparison.Ordinal) ||
-            IndicatesSignalPermissionDenied(result.Error))
-        {
-            return new HostProbeResult(false, HostProbeFailure.SignalDenied);
-        }
-
         if (result.ExitCode == HostPidNotVisibleExitCode ||
             string.IsNullOrWhiteSpace(result.Error) ||
             result.Error.Contains("no process", StringComparison.OrdinalIgnoreCase) ||
             result.Error.Contains("No such process", StringComparison.OrdinalIgnoreCase))
         {
             return new HostProbeResult(false, HostProbeFailure.PidNotVisible);
+        }
+
+        if (IndicatesSignalPermissionDenied(result.Error))
+        {
+            return new HostProbeResult(false, HostProbeFailure.SignalDenied);
         }
 
         return HostProbeResult.Unknown;
@@ -396,6 +395,19 @@ public class NginxLogRotationService
                         return LogRotationResult.Succeeded();
                     }
 
+                    if (hostSignalResult.ExitCode == HostPidNotVisibleExitCode)
+                    {
+                        const string visibilityFailure =
+                            "host nginx is not visible to the manager; enable pid: host and run " +
+                            "the manager as root or with CAP_KILL";
+                        var visibilityDetectionContext =
+                            detectionError ?? "No LANCache container was found";
+                        LogBareMetalFailure($"{visibilityDetectionContext}; {visibilityFailure}");
+                        return LogRotationResult.Failed(
+                            $"Failed to signal host nginx to reopen logs: {visibilityFailure}",
+                            false);
+                    }
+
                     var processFailure = string.IsNullOrWhiteSpace(hostSignalResult.Error)
                         ? $"command exited with code {hostSignalResult.ExitCode}"
                         : $"command exited with code {hostSignalResult.ExitCode}: {hostSignalResult.Error.Trim()}";
@@ -428,7 +440,7 @@ public class NginxLogRotationService
             // Try method 2: Execute kill command inside container to find and signal nginx master process
             // This works even when nginx is not PID 1 (e.g., running under supervisor)
             var execSuccess = await ExecuteInContainerAsync(containerName,
-                "sh", "-c", "kill -USR1 $(cat /var/run/nginx.pid 2>/dev/null || pgrep -f 'nginx: master' | head -1)");
+                "sh", "-c", "kill -USR1 $(cat /var/run/nginx.pid 2>/dev/null || pgrep -f 'nginx[:] master' | head -1)");
 
             if (execSuccess)
             {
@@ -711,6 +723,15 @@ public class NginxLogRotationService
         CreateNoWindow = true
     };
 
+    /// <summary>
+    /// Shell prefix shared by the host probe and signal scripts: resolves the host nginx pid and
+    /// exits with <see cref="HostPidNotVisibleExitCode"/> before either script acts on it, so both
+    /// stay in lockstep instead of drifting the way the probe-only guard once did.
+    /// </summary>
+    private static string BuildHostPidResolutionScript() =>
+        $"pid={HostNginxPidExpression}; " +
+        $"if [ -z \"$pid\" ]; then exit {HostPidNotVisibleExitCode}; fi; ";
+
     private static ProcessStartInfo CreateHostSignalStartInfo(string signal)
     {
         var startInfo = new ProcessStartInfo
@@ -722,7 +743,9 @@ public class NginxLogRotationService
             CreateNoWindow = true
         };
         startInfo.ArgumentList.Add("-c");
-        startInfo.ArgumentList.Add($"kill -{signal} {HostNginxPidExpression}");
+        startInfo.ArgumentList.Add(
+            BuildHostPidResolutionScript() +
+            $"kill -{signal} \"$pid\"");
         return startInfo;
     }
 
@@ -738,8 +761,7 @@ public class NginxLogRotationService
         };
         startInfo.ArgumentList.Add("-c");
         startInfo.ArgumentList.Add(
-            $"pid={HostNginxPidExpression}; " +
-            $"if [ -z \"$pid\" ]; then exit {HostPidNotVisibleExitCode}; fi; " +
+            BuildHostPidResolutionScript() +
             $"printf '{HostPidVisibleMarker}\\n'; kill -0 \"$pid\"");
         return startInfo;
     }

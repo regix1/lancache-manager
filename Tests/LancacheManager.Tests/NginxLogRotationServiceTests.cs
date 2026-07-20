@@ -14,11 +14,12 @@ namespace LancacheManager.Tests;
 public sealed class NginxLogRotationServiceTests
 {
     private const string HostSignalCommand =
-        "kill -USR1 $(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
-        "pgrep -f 'nginx: master' | head -1)";
+        "pid=$(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
+        "pgrep -f 'nginx[:] master' | head -1); if [ -z \"$pid\" ]; then exit 3; fi; " +
+        "kill -USR1 \"$pid\"";
     private const string HostProbeCommand =
         "pid=$(cat /run/nginx.pid 2>/dev/null || cat /var/run/nginx.pid 2>/dev/null || " +
-        "pgrep -f 'nginx: master' | head -1); if [ -z \"$pid\" ]; then exit 3; fi; " +
+        "pgrep -f 'nginx[:] master' | head -1); if [ -z \"$pid\" ]; then exit 3; fi; " +
         "printf 'nginx-pid-visible\\n'; kill -0 \"$pid\"";
 
     [Fact]
@@ -175,6 +176,27 @@ public sealed class NginxLogRotationServiceTests
         Assert.Single(service.Commands);
     }
 
+    [Fact]
+    public async Task GetNginxReopenAvailabilityAsync_StaleHostPidFile_EnablesPidHostAsync()
+    {
+        var service = CreateService(
+            new CapturingLogger<NginxLogRotationService>(),
+            dockerSocketAvailable: true);
+        service.DetectionResult = (null, "No container with nginx found");
+        service.ProcessResults.Enqueue(new ProcessCommandResult
+        {
+            ExitCode = 1,
+            Output = "nginx-pid-visible\n",
+            Error = "kill: No such process"
+        });
+
+        var result = await service.GetNginxReopenAvailabilityAsync("monolithic");
+
+        Assert.False(result.Available);
+        Assert.Equal(NginxReopenHint.EnablePidHost, result.Hint);
+        Assert.Single(service.Commands);
+    }
+
     [Theory]
     [InlineData("bare_metal", NginxReopenHint.EnablePidHost)]
     [InlineData("mixed", NginxReopenHint.EnablePidHost)]
@@ -295,6 +317,52 @@ public sealed class NginxLogRotationServiceTests
     }
 
     [Fact]
+    public async Task HostProbeAndSignalCommands_UseSelfMatchProofNginxPatternAsync()
+    {
+        var service = CreateService(new CapturingLogger<NginxLogRotationService>());
+        service.DetectionResult = (null, "No container with nginx found");
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+        service.ProcessResults.Enqueue(new ProcessCommandResult { ExitCode = 0 });
+
+        var available = await service.CanReopenNginxAsync();
+        var reopenResult = await service.ReopenNginxLogsAsync();
+
+        Assert.True(available);
+        Assert.True(reopenResult.Success);
+        Assert.Equal(2, service.Commands.Count);
+        foreach (var invocation in service.Commands)
+        {
+            Assert.Equal("sh", invocation.FileName);
+            Assert.Equal(2, invocation.ArgumentList.Length);
+            Assert.Contains("nginx[:] master", invocation.ArgumentList[1], StringComparison.Ordinal);
+            Assert.DoesNotContain("nginx: master", invocation.ArgumentList[1], StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task ReopenNginxLogsAsync_HostPidNotVisible_ReturnsPidHostRemedyAsync()
+    {
+        var logger = new CapturingLogger<NginxLogRotationService>();
+        var service = CreateService(logger);
+        service.DetectionResult = (null, "No container with nginx found");
+        service.ProcessResults.Enqueue(new ProcessCommandResult
+        {
+            ExitCode = 3,
+            Error = string.Empty
+        });
+
+        var result = await service.ReopenNginxLogsAsync();
+
+        Assert.False(result.Success);
+        Assert.False(result.DockerSocketMissing);
+        Assert.Contains("pid: host", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.Contains("root", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.Contains("CAP_KILL", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("code 3", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
+    }
+
+    [Fact]
     public async Task ReopenNginxLogsAsync_HostSignalDenied_ReturnsFailureAndThrottlesActionableWarningAsync()
     {
         var logger = new CapturingLogger<NginxLogRotationService>();
@@ -357,7 +425,7 @@ public sealed class NginxLogRotationServiceTests
                 Assert.Equal("docker", invocation.FileName);
                 Assert.Equal(
                     "exec lancache-monolithic sh -c \"kill -USR1 $(cat /var/run/nginx.pid 2>/dev/null || " +
-                    "pgrep -f 'nginx: master' | head -1)\"",
+                    "pgrep -f 'nginx[:] master' | head -1)\"",
                     invocation.Arguments);
                 Assert.Empty(invocation.ArgumentList);
             });

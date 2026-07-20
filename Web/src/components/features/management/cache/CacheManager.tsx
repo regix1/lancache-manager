@@ -16,6 +16,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { showPermissionBlock } from '@utils/permissionUi';
+import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { ReadOnlyBadge } from '@components/ui/ManagerCard';
@@ -291,9 +292,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             logsPath: config.logsPath,
             cacheWritable: config.cacheWritable,
             logsWritable: config.logsWritable,
-            enabled: true
+            enabled: true,
+            nginxReopenAvailable: false
           }
         ];
+  const cacheNginxReopenGate = getNginxReopenGate(datasources);
   const hasMultipleDatasources = datasources.length > 1;
 
   // Header actions
@@ -363,6 +366,15 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   <code className="bg-themed-tertiary px-1 rounded">:ro</code>{' '}
                   {t('management.cache.alerts.readOnly.descriptionSuffix')}
                 </p>
+              </div>
+            </Alert>
+          )}
+
+          {!cacheNginxReopenGate.available && cacheNginxReopenGate.messageKey && (
+            <Alert color="orange" className="mb-6">
+              <div>
+                <p className="font-medium">{t('management.nginxReopen.alertTitle')}</p>
+                <p className="text-sm mt-1">{t(cacheNginxReopenGate.messageKey)}</p>
               </div>
             </Alert>
           )}
