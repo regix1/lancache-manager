@@ -20,6 +20,8 @@ interface PrefillCommandButtonsProps {
   isPrefillActive: boolean;
   isSessionActive: boolean;
   isUserAuthenticated: boolean;
+  /** Localized display name of this service, interpolated into the login-notice copy. */
+  serviceName: string;
   selectedAppIds: string[];
   selectedOS: string[];
   maxConcurrency: string;
@@ -48,6 +50,7 @@ export function PrefillCommandButtons({
   isPrefillActive,
   isSessionActive,
   isUserAuthenticated,
+  serviceName,
   selectedAppIds,
   selectedOS,
   maxConcurrency,
@@ -257,7 +260,9 @@ export function PrefillCommandButtons({
             <p className="font-medium text-sm text-warning-text">
               {t('prefill.loginNotice.title')}
             </p>
-            <p className="text-sm text-themed-muted mt-1">{t('prefill.loginNotice.message')}</p>
+            <p className="text-sm text-themed-muted mt-1">
+              {t('prefill.loginNotice.message', { service: serviceName })}
+            </p>
           </div>
         )}
       </div>

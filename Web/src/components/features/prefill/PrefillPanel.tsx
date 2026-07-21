@@ -13,9 +13,6 @@ import ApiService from '@services/api.service';
 import { usePrefillContext } from '@contexts/usePrefillContext';
 import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { SteamIcon } from '@components/ui/SteamIcon';
-import { EpicIcon } from '@components/ui/EpicIcon';
-import { XboxIcon } from '@components/ui/XboxIcon';
 import { API_BASE, STORAGE_KEYS } from '@utils/constants';
 import { getErrorMessage } from '@utils/error';
 
@@ -89,6 +86,7 @@ function ServicePrefillPanel({
   const serviceConfig = prefillServiceConfig(serviceId);
   const serviceBasePath = serviceConfig.serviceBasePath;
   const ServiceIcon = serviceConfig.icon;
+  const serviceName = t(serviceConfig.serviceNameKey);
   const hasExpiredRef = useRef(false);
   const gamesCacheRef = useRef<{
     sessionId: string | null;
@@ -262,7 +260,7 @@ function ServicePrefillPanel({
           signalR.setIsLoggedIn(true);
           setShowAuthModal(false);
           authActions.resetAuthForm();
-          addLog('success', t('prefill.log.loginSuccess'));
+          addLog('success', t('prefill.log.loginSuccess', { service: serviceName }));
           break;
         case 'UsernameRequired':
         case 'PasswordRequired':
@@ -270,7 +268,7 @@ function ServicePrefillPanel({
           // Both map to the same UI because the modal collects username + password together.
           authActions.resetAuthForm();
           setShowAuthModal(true);
-          addLog('auth', t('prefill.log.credentialsRequired'));
+          addLog('auth', t('prefill.log.credentialsRequired', { service: serviceName }));
           break;
         case 'TwoFactorRequired':
           trigger2FAPrompt();
@@ -303,7 +301,7 @@ function ServicePrefillPanel({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addLog, t]
+    [addLog, t, serviceName]
   );
 
   // SignalR hook - manages connection, session, and progress
@@ -813,7 +811,7 @@ function ServicePrefillPanel({
         case 'prefill-all':
           return {
             title: t('prefill.confirm.downloadAllTitle'),
-            message: t('prefill.confirm.downloadAllMessage')
+            message: t('prefill.confirm.downloadAllMessage', { service: serviceName })
           };
         case 'prefill-force':
           return {
@@ -844,7 +842,7 @@ function ServicePrefillPanel({
           return { title: t('common.confirm'), message: t('prefill.confirm.defaultMessage') };
       }
     },
-    [selectedAppIds, t]
+    [selectedAppIds, t, serviceName]
   );
 
   const handleCommandClick = useCallback(
@@ -1051,7 +1049,9 @@ function ServicePrefillPanel({
               <p className="font-medium text-sm text-[var(--theme-warning-text)]">
                 {t('prefill.sessionExpired.title')}
               </p>
-              <p className="text-sm text-themed-muted">{t('prefill.sessionExpired.message')}</p>
+              <p className="text-sm text-themed-muted">
+                {t('prefill.sessionExpired.message', { service: serviceName })}
+              </p>
             </div>
           </div>
           <Button
@@ -1166,8 +1166,8 @@ function ServicePrefillPanel({
                   <div>
                     <p className="font-medium text-themed-primary">
                       {signalR.isLoggedIn
-                        ? t('prefill.auth.loggedIn')
-                        : t('prefill.auth.loginRequired')}
+                        ? t('prefill.auth.loggedIn', { service: serviceName })
+                        : t('prefill.auth.loginRequired', { service: serviceName })}
                     </p>
                     <p className="text-sm text-themed-muted">
                       {signalR.isLoggedIn
@@ -1184,18 +1184,8 @@ function ServicePrefillPanel({
                     onClick={handleOpenAuthModal}
                     className="flex-shrink-0 w-full sm:w-auto"
                   >
-                    {serviceId === 'epic' ? (
-                      <EpicIcon size={18} className="text-[var(--theme-button-text)]" />
-                    ) : serviceId === 'xbox' ? (
-                      <XboxIcon size={18} className="text-[var(--theme-button-text)]" />
-                    ) : (
-                      <SteamIcon size={18} />
-                    )}
-                    {serviceId === 'epic'
-                      ? t('prefill.auth.loginToEpic', 'Login to Epic')
-                      : serviceId === 'xbox'
-                        ? t('prefill.auth.loginToXbox', 'Login to Xbox')
-                        : t('prefill.auth.loginToSteam')}
+                    <ServiceIcon size={18} className="text-[var(--theme-button-text)]" />
+                    {t('prefill.auth.loginToService', { service: serviceName })}
                   </Button>
                 )}
               </div>
@@ -1229,6 +1219,7 @@ function ServicePrefillPanel({
             isPrefillActive={signalR.isPrefillActive}
             isSessionActive={isSessionActive}
             isUserAuthenticated={isAdmin}
+            serviceName={serviceName}
             selectedAppIds={selectedAppIds}
             selectedOS={selectedOS}
             maxConcurrency={maxConcurrency}

@@ -4423,12 +4423,11 @@
       "mayTakeMoment": "This may take a moment"
     },
     "auth": {
-      "loggedIn": "Logged In to Steam",
-      "loginRequired": "Steam Login Required",
+      "loggedIn": "Logged In to {{service}}",
+      "loginRequired": "{{service}} Login Required",
       "canUsePrefill": "You can now use prefill commands",
       "authenticateToAccess": "Authenticate to access your game library",
-      "loginToSteam": "Login to Steam",
-      "loginToXbox": "Login to Xbox"
+      "loginToService": "Login to {{service}}"
     },
     "activityLog": {
       "title": "Activity Log",
@@ -4621,14 +4620,14 @@
     },
     "loginNotice": {
       "title": "Login Required to Use Commands",
-      "message": "All prefill commands require Steam authentication. Click \"Login to Steam\" above to enable commands. Your credentials are sent directly to the container and never stored by this application."
+      "message": "All prefill commands require {{service}} authentication. Click \"Login to {{service}}\" above to enable commands. Your credentials are sent directly to the container and never stored by this application."
     },
     "confirm": {
       "downloadTitle": "Confirm Download",
       "downloadMessage": "You are about to download {{count}} game. This may take a while and use significant bandwidth.",
       "downloadMessage_other": "You are about to download {{count}} games. This may take a while and use significant bandwidth.",
       "downloadAllTitle": "Download All Games",
-      "downloadAllMessage": "This will download ALL games in your Steam library. This could be hundreds of gigabytes and take many hours.",
+      "downloadAllMessage": "This will download ALL games in your {{service}} library. This could be hundreds of gigabytes and take many hours.",
       "recentTitle": "Download Recent Played",
       "recentMessage": "This will download recently played games (last 2 weeks). This may use significant bandwidth.",
       "recentPurchasedTitle": "Download Recent Bought",
@@ -4661,12 +4660,12 @@
     },
     "sessionExpired": {
       "title": "Session expired",
-      "message": "This prefill session has expired. Start a new session to continue using Steam prefill.",
+      "message": "This prefill session has expired. Start a new session to continue using {{service}} prefill.",
       "startNew": "Start new session"
     },
     "log": {
-      "loginSuccess": "Successfully logged in to Steam",
-      "credentialsRequired": "Steam credentials required",
+      "loginSuccess": "Successfully logged in to {{service}}",
+      "credentialsRequired": "{{service}} credentials required",
       "twoFactorRequired": "Two-factor authentication required",
       "steamGuardRequired": "Steam Guard email code required",
       "deviceConfirmationRequired": "Approve login on your Steam Mobile App",
@@ -4713,15 +4712,13 @@
       "reconnectedExistingSession": "Reconnected to existing session",
       "containerDetail": "Container: {{name}}",
       "sessionExpiresIn": "Session expires in {{time}}",
-      "alreadyLoggedIn": "Already logged in to Steam",
-      "loginToSteamPrompt": "Click \"Login to Steam\" to authenticate",
+      "alreadyLoggedIn": "Already logged in to {{service}}",
+      "loginPrompt": "Please log in to {{service}} to start prefilling",
       "prefillCompletedWhileAway": "Prefill completed while away ({{duration}})",
       "creatingSession": "Creating prefill session...",
       "connectedExistingSession": "Connected to existing session",
       "sessionCreated": "Session created successfully",
-      "loginToSteamBeforePrefill": "Click \"Login to Steam\" to authenticate before using prefill commands",
-      "loginToXboxPrompt": "Please log in to Xbox to start prefilling",
-      "loginToXboxBeforePrefill": "Please log in to Xbox before starting prefill"
+      "loginBeforePrefill": "Please log in to {{service}} before starting prefill"
     },
     "gameSelection": {
       "title": "Select Games to Prefill",

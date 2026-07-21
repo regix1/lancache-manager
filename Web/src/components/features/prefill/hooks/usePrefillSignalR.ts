@@ -7,6 +7,7 @@ import type { LogEntryType } from '../ActivityLog.utils';
 import i18n from '../../../../i18n';
 import { getErrorMessage } from '@utils/error';
 import { usePrefillAnimation } from './usePrefillAnimation';
+import { prefillServiceConfig } from './prefillServiceConfig';
 import { registerPrefillEventHandlers } from './usePrefillEventHandlers';
 import {
   PREFILL_SESSION_TIMEOUT_MS,
@@ -79,6 +80,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     clearAllPrefillStorage
   } = options;
   const t = i18n.t.bind(i18n);
+  // Resolved through t() at call time so log lines follow the active language.
+  const serviceNameKey = prefillServiceConfig(serviceId).serviceNameKey;
 
   // Connection refs
   const hubConnection = useRef<HubConnection | null>(null);
@@ -441,20 +444,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
         if (activeSession.authState === 'Authenticated' && serviceId !== 'battlenet') {
           // Battle.net is anonymous - never logs a "logged in" message
-          addLog('info', t('prefill.log.alreadyLoggedIn'));
+          addLog('info', t('prefill.log.alreadyLoggedIn', { service: t(serviceNameKey) }));
         } else if (serviceId !== 'battlenet') {
           // Battle.net is anonymous - no login prompt needed
-          addLog(
-            'info',
-            serviceId === 'epic'
-              ? t(
-                  'prefill.log.loginToEpicPrompt',
-                  'Please log in to Epic Games to start prefilling'
-                )
-              : serviceId === 'xbox'
-                ? t('prefill.log.loginToXboxPrompt', 'Please log in to Xbox to start prefilling')
-                : t('prefill.log.loginToSteamPrompt')
-          );
+          addLog('info', t('prefill.log.loginPrompt', { service: t(serviceNameKey) }));
         }
 
         // Check for missed completions
@@ -559,6 +552,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     isCompletionDismissed,
     clearAllPrefillStorage,
     serviceId,
+    serviceNameKey,
     t,
     rehydratePrefillProgress,
     seedReconnectingProgressFromSession
@@ -597,7 +591,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           );
           if (serviceId !== 'battlenet') {
             // Battle.net is anonymous - no "logged in" message
-            addLog('info', t('prefill.log.alreadyLoggedIn'));
+            addLog('info', t('prefill.log.alreadyLoggedIn', { service: t(serviceNameKey) }));
           }
         } else {
           addLog(
@@ -607,20 +601,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           );
           if (serviceId !== 'battlenet') {
             // Battle.net is anonymous - no login required before prefill
-            addLog(
-              'info',
-              serviceId === 'epic'
-                ? t(
-                    'prefill.log.loginToEpicBeforePrefill',
-                    'Please log in to Epic Games before starting prefill'
-                  )
-                : serviceId === 'xbox'
-                  ? t(
-                      'prefill.log.loginToXboxBeforePrefill',
-                      'Please log in to Xbox before starting prefill'
-                    )
-                  : t('prefill.log.loginToSteamBeforePrefill')
-            );
+            addLog('info', t('prefill.log.loginBeforePrefill', { service: t(serviceNameKey) }));
           }
         }
         addLog(
@@ -639,7 +620,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         setIsCreating(false);
       }
     },
-    [connectToHub, addLog, serviceId, t]
+    [connectToHub, addLog, serviceId, serviceNameKey, t]
   );
 
   // Initialize on mount, cleanup on unmount

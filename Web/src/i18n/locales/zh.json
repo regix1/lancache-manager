@@ -4422,12 +4422,11 @@
       "mayTakeMoment": "这可能需要一点时间"
     },
     "auth": {
-      "loggedIn": "已登录 Steam",
-      "loginRequired": "需要登录 Steam",
+      "loggedIn": "已登录 {{service}}",
+      "loginRequired": "需要登录 {{service}}",
       "canUsePrefill": "您现在可以使用预填充命令",
       "authenticateToAccess": "验证身份以访问您的游戏库",
-      "loginToSteam": "登录 Steam",
-      "loginToXbox": "登录 Xbox"
+      "loginToService": "登录 {{service}}"
     },
     "activityLog": {
       "title": "活动日志",
@@ -4620,14 +4619,14 @@
     },
     "loginNotice": {
       "title": "需要登录才能使用命令",
-      "message": "所有预填充命令都需要 Steam 身份验证。点击上方的\"登录 Steam\"以启用命令。您的凭据将直接发送到容器，本应用程序不会存储。"
+      "message": "所有预填充命令都需要 {{service}} 身份验证。点击上方的\"登录 {{service}}\"以启用命令。您的凭据将直接发送到容器，本应用程序不会存储。"
     },
     "confirm": {
       "downloadTitle": "确认下载",
       "downloadMessage": "您即将下载 {{count}} 个游戏。这可能需要一些时间并消耗大量带宽。",
       "downloadMessage_other": "您即将下载 {{count}} 个游戏。这可能需要一些时间并消耗大量带宽。",
       "downloadAllTitle": "下载所有游戏",
-      "downloadAllMessage": "这将下载您 Steam 库中的所有游戏。可能有数百 GB 并需要数小时。",
+      "downloadAllMessage": "这将下载您 {{service}} 库中的所有游戏。可能有数百 GB 并需要数小时。",
       "recentTitle": "下载最近游玩",
       "recentMessage": "这将下载最近游玩的游戏（最近 2 周）。这可能会消耗大量带宽。",
       "recentPurchasedTitle": "下载最近购买",
@@ -4660,12 +4659,12 @@
     },
     "sessionExpired": {
       "title": "会话已过期",
-      "message": "此预填充会话已过期。开始新会话以继续使用 Steam 预填充。",
+      "message": "此预填充会话已过期。开始新会话以继续使用 {{service}} 预填充。",
       "startNew": "开始新会话"
     },
     "log": {
-      "loginSuccess": "已成功登录 Steam",
-      "credentialsRequired": "需要 Steam 凭据",
+      "loginSuccess": "已成功登录 {{service}}",
+      "credentialsRequired": "需要 {{service}} 凭据",
       "twoFactorRequired": "需要双重身份验证",
       "steamGuardRequired": "需要 Steam Guard 邮箱验证码",
       "deviceConfirmationRequired": "在您的 Steam 移动应用中批准登录",
@@ -4712,15 +4711,13 @@
       "reconnectedExistingSession": "已重新连接到现有会话",
       "containerDetail": "容器：{{name}}",
       "sessionExpiresIn": "会话在 {{time}} 后过期",
-      "alreadyLoggedIn": "已登录 Steam",
-      "loginToSteamPrompt": "点击\"登录 Steam\"进行身份验证",
+      "alreadyLoggedIn": "已登录 {{service}}",
+      "loginPrompt": "请登录 {{service}} 以开始预填充",
       "prefillCompletedWhileAway": "离开时预填充已完成（{{duration}}）",
       "creatingSession": "正在创建预填充会话...",
       "connectedExistingSession": "已连接到现有会话",
       "sessionCreated": "会话已成功创建",
-      "loginToSteamBeforePrefill": "在使用预填充命令前，点击\"登录 Steam\"进行身份验证",
-      "loginToXboxPrompt": "请登录 Xbox 以开始预填充",
-      "loginToXboxBeforePrefill": "请在开始预填充前登录 Xbox"
+      "loginBeforePrefill": "请在开始预填充前登录 {{service}}"
     },
     "gameSelection": {
       "title": "选择要预填充的游戏",

@@ -18,6 +18,13 @@ interface PrefillServiceConfig {
   hubPath: string;
   /** REST controller base path segment for this service's daemon. */
   serviceBasePath: string;
+  /**
+   * i18n key of this service's localized display name (the `prefill.persistent.services.*`
+   * map). Login-flow copy interpolates it so shared strings never default to "Steam". Kept as
+   * an explicit key because the map key for Battle.net is `battleNet` while the service id is
+   * `battlenet` - a template lookup on the id would silently miss it.
+   */
+  serviceNameKey: string;
   /** Branded icon component for this service. */
   icon: typeof SteamIcon;
   /** CSS custom property holding this service's accent colour. */
@@ -57,6 +64,7 @@ interface PrefillServiceConfig {
 const STEAM_CONFIG: PrefillServiceConfig = {
   hubPath: '/steam-daemon',
   serviceBasePath: 'steam-daemon',
+  serviceNameKey: 'prefill.persistent.services.steam',
   icon: SteamIcon,
   colorVar: 'var(--theme-steam)',
   subtleColorVar: 'var(--theme-steam-subtle)',
@@ -74,6 +82,7 @@ const STEAM_CONFIG: PrefillServiceConfig = {
 const EPIC_CONFIG: PrefillServiceConfig = {
   hubPath: '/epic-prefill-daemon',
   serviceBasePath: 'epic-daemon',
+  serviceNameKey: 'prefill.persistent.services.epic',
   icon: EpicIcon,
   colorVar: 'var(--theme-epic)',
   subtleColorVar: 'var(--theme-epic-subtle)',
@@ -85,6 +94,7 @@ const EPIC_CONFIG: PrefillServiceConfig = {
 const BATTLENET_CONFIG: PrefillServiceConfig = {
   hubPath: '/battlenet-prefill-daemon',
   serviceBasePath: 'battlenet-daemon',
+  serviceNameKey: 'prefill.persistent.services.battleNet',
   icon: BlizzardIcon,
   colorVar: 'var(--theme-blizzard)',
   subtleColorVar: 'var(--theme-blizzard-subtle)',
@@ -96,6 +106,7 @@ const BATTLENET_CONFIG: PrefillServiceConfig = {
 const RIOT_CONFIG: PrefillServiceConfig = {
   hubPath: '/riot-prefill-daemon',
   serviceBasePath: 'riot-daemon',
+  serviceNameKey: 'prefill.persistent.services.riot',
   icon: RiotIcon,
   colorVar: 'var(--theme-riot)',
   subtleColorVar: 'var(--theme-riot-subtle)',
@@ -107,6 +118,7 @@ const RIOT_CONFIG: PrefillServiceConfig = {
 const XBOX_CONFIG: PrefillServiceConfig = {
   hubPath: '/xbox-prefill-daemon',
   serviceBasePath: 'xbox-daemon',
+  serviceNameKey: 'prefill.persistent.services.xbox',
   icon: XboxIcon,
   colorVar: 'var(--theme-xbox)',
   subtleColorVar: 'var(--theme-xbox-subtle)',
