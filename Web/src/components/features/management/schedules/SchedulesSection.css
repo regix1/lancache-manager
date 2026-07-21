@@ -144,8 +144,12 @@
   transition: background-color 0.15s ease;
 }
 
-.schedule-row--interactive:hover {
-  background-color: var(--theme-bg-hover);
+/* Only on real hover devices. On touch, :hover sticks after the tap that expands a
+   row, leaving the open row showing a light highlight until the next tap elsewhere. */
+@media (hover: hover) {
+  .schedule-row--interactive:hover {
+    background-color: var(--theme-bg-hover);
+  }
 }
 
 /* Bottom corners: the last item's row fill (resting or hover) and, when that item is
@@ -254,9 +258,11 @@
     color 0.15s ease;
 }
 
-.schedule-chevron:hover {
-  background-color: var(--theme-bg-hover);
-  color: var(--theme-text-secondary);
+@media (hover: hover) {
+  .schedule-chevron:hover {
+    background-color: var(--theme-bg-hover);
+    color: var(--theme-text-secondary);
+  }
 }
 
 .schedule-chevron svg {
