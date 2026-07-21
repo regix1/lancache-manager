@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures_util::TryStreamExt;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use std::collections::HashMap;
@@ -335,13 +335,18 @@ pub(crate) async fn query_epic_game_downloads(pool: &PgPool) -> Result<Vec<EpicD
 
     // GROUP BY (Service, Url, EpicAppId, GameName) + MAX(BytesServed) replaces SELECT DISTINCT
     // so each Epic (service, url) carries the URL's largest observed size for probe-chunk sizing.
+    //
+    // Evicted rows are INCLUDED on purpose: the disk probe is the arbiter of what is cached.
+    // Filtering on IsEvicted here left a stuck-evicted game invisible to every scan (the service
+    // bucket anti-joins game URLs out unconditionally, so they reached NO bucket), and files that
+    // returned to disk could never be rediscovered. Zero-file games are dropped after the probe,
+    // and the post-detection un-evict pass flips IsEvicted back when a probe hits.
     let rows = sqlx::query(
         "SELECT le.\"Service\", le.\"Url\", d.\"EpicAppId\", d.\"GameName\", MAX(le.\"BytesServed\") AS \"MaxBytes\"
          FROM \"LogEntries\" le
          INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
          WHERE d.\"EpicAppId\" IS NOT NULL
            AND d.\"GameName\" IS NOT NULL
-           AND d.\"IsEvicted\" = false
            AND le.\"Url\" IS NOT NULL
          GROUP BY le.\"Service\", le.\"Url\", d.\"EpicAppId\", d.\"GameName\"
          ORDER BY d.\"EpicAppId\"",
@@ -385,6 +390,10 @@ pub(crate) async fn query_named_game_downloads(
     // For Blizzard/Riot the two are equal (d.Service == le.Service at ingest). For Xbox the identity
     // is `xbox` while the cache-hash service stays `wsus` — selecting le."Service" separately is what
     // lets Xbox detection find its cache files under the wsus hash.
+    //
+    // Evicted rows are INCLUDED on purpose — same rationale as query_epic_game_downloads: the
+    // disk probe decides what is cached, and the post-detection un-evict pass heals rows whose
+    // files are back on disk.
     let rows = sqlx::query(
         "SELECT d.\"Service\", le.\"Service\" AS \"CacheService\", le.\"Url\", d.\"GameName\", MAX(le.\"BytesServed\") AS \"MaxBytes\"
          FROM \"LogEntries\" le
@@ -392,7 +401,6 @@ pub(crate) async fn query_named_game_downloads(
          WHERE d.\"GameAppId\" IS NULL
            AND d.\"EpicAppId\" IS NULL
            AND d.\"GameName\" IS NOT NULL
-           AND d.\"IsEvicted\" = false
            AND le.\"Url\" IS NOT NULL
          GROUP BY d.\"Service\", le.\"Service\", le.\"Url\", d.\"GameName\"
          ORDER BY d.\"Service\", d.\"GameName\"",
@@ -413,4 +421,68 @@ pub(crate) async fn query_named_game_downloads(
 
     eprintln!("Found {} named game URLs", records.len());
     Ok(records)
+}
+
+/// One `(evicted download, url)` pair for the post-detection un-evict probe. `cache_service`
+/// is LogEntries.Service — the cache-hash service (Xbox: `wsus`), the same identity/hash split
+/// as `NamedDownloadRecord`.
+#[derive(Debug)]
+pub(crate) struct EvictedDownloadUrl {
+    pub(crate) download_id: i64,
+    pub(crate) cache_service: String,
+    pub(crate) url: String,
+}
+
+/// Query the URLs of evicted Epic + named (Blizzard/Riot/Xbox) game Downloads so detection can
+/// probe whether their cache files are back on disk and un-evict the rows that re-cached. Steam
+/// is excluded: the Steam bucket joins SteamDepotMappings rather than Downloads and never
+/// filtered on IsEvicted, so Steam games were never blind here and their per-download eviction
+/// state stays owned by cache_eviction_scan.
+pub(crate) async fn query_evicted_game_download_urls(
+    pool: &PgPool,
+) -> Result<Vec<EvictedDownloadUrl>> {
+    eprintln!("Querying LogEntries for evicted Epic/named game URLs...");
+
+    // Byte-backed rows only: zero-byte Downloads are never flagged evicted, so this predicate is
+    // redundant today — it exists to keep this gate aligned with every other eviction gate should
+    // that invariant ever loosen. GROUP BY dedupes repeated log rows for the same (download, url).
+    let rows = sqlx::query(
+        "SELECT d.\"Id\", le.\"Service\", le.\"Url\"
+         FROM \"LogEntries\" le
+         INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+         WHERE d.\"IsEvicted\" = true
+           AND d.\"GameName\" IS NOT NULL
+           AND (d.\"EpicAppId\" IS NOT NULL
+                OR (d.\"GameAppId\" IS NULL AND d.\"EpicAppId\" IS NULL))
+           AND (d.\"CacheHitBytes\" > 0 OR d.\"CacheMissBytes\" > 0)
+           AND le.\"Url\" IS NOT NULL
+         GROUP BY d.\"Id\", le.\"Service\", le.\"Url\"",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let records: Vec<EvictedDownloadUrl> = rows
+        .iter()
+        .map(|row| EvictedDownloadUrl {
+            download_id: row.get::<i64, _>("Id"),
+            cache_service: row.get::<String, _>("Service"),
+            url: row.get::<String, _>("Url"),
+        })
+        .collect();
+
+    eprintln!("Found {} evicted game URLs to re-probe", records.len());
+    Ok(records)
+}
+
+/// Flip `IsEvicted` back to false for downloads whose probe found files on disk. The reverse of
+/// cache_eviction_scan's update, but one-directional: detection only ever un-evicts, because a
+/// probe miss against a single datasource root is not eviction evidence (the files may live in
+/// another datasource's cache, which cache_eviction_scan probes holistically).
+pub(crate) async fn unevict_downloads(pool: &PgPool, download_ids: &[i64]) -> Result<u64> {
+    let result = sqlx::query(r#"UPDATE "Downloads" SET "IsEvicted" = false WHERE "Id" = ANY($1)"#)
+        .bind(download_ids)
+        .execute(pool)
+        .await
+        .with_context(|| "Failed to un-evict re-cached downloads")?;
+    Ok(result.rows_affected())
 }

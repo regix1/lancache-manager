@@ -32,12 +32,16 @@ use cache_detect_matching::{
     detect_steam_game_cache_info_incremental,
     group_epic_records,
     group_named_records,
+    unevict_candidates_incremental,
+    unevict_candidates_with_index,
 };
 use cache_detect_queries::{
     query_epic_game_downloads,
+    query_evicted_game_download_urls,
     query_game_downloads,
     query_named_game_downloads,
     query_service_downloads,
+    unevict_downloads,
 };
 use progress_events::ProgressReporter;
 
@@ -590,6 +594,34 @@ async fn main() -> Result<()> {
 
     eprintln!("\nTotal game cache files found: {}", total_files_found);
     eprintln!("Total game cache size: {:.2} GB", total_bytes_found as f64 / 1_073_741_824.0);
+
+    // PHASE 3d: Un-evict Epic/named downloads whose files are back on disk. Their URLs already
+    // feed the detection buckets above (the queries no longer filter on IsEvicted), but listing
+    // alone would leave the Downloads rows stuck evicted — and a stuck-evicted row is what made
+    // these games invisible to every scan in the first place. One-directional on purpose: a probe
+    // miss against this one datasource root is not eviction evidence (the files may live in
+    // another datasource's cache), so evicting stays owned by cache_eviction_scan.
+    eprintln!("\n=== Phase 3d: Re-probing Evicted Epic/Named Downloads ===");
+    let evicted_records = query_evicted_game_download_urls(&pool).await?;
+    if !evicted_records.is_empty() {
+        let unevict_ids = if incremental_mode {
+            unevict_candidates_incremental(&evicted_records, &cache_dir)
+        } else {
+            let cache_index = cache_files_index
+                .as_ref()
+                .context("Cache file index missing during un-evict probe")?;
+            unevict_candidates_with_index(&evicted_records, cache_index)
+        };
+        if unevict_ids.is_empty() {
+            eprintln!("No evicted Epic/named downloads have files back on disk");
+        } else {
+            let updated = unevict_downloads(&pool, &unevict_ids).await?;
+            eprintln!(
+                "Un-evicted {} download(s) whose cache files are present on disk",
+                updated
+            );
+        }
+    }
 
     // PHASE 4: Detect non-game services
     let mut detected_services = Vec::new();

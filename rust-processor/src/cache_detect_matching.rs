@@ -6,7 +6,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::cache_detect_queries::{DownloadRecord, EpicDownloadRecord, NamedDownloadRecord};
+use crate::cache_detect_queries::{
+    DownloadRecord, EpicDownloadRecord, EvictedDownloadUrl, NamedDownloadRecord,
+};
 use crate::cache_utils;
 use crate::{GameCacheInfo, ServiceCacheInfo};
 
@@ -128,31 +130,42 @@ fn match_files_with_index_tracked(
     service_urls
         .par_iter()
         .flat_map_iter(|(service, url, _bytes_served)| {
-            // Collect EVERY existing slice for this URL, not just the first. Range-served objects
-            // (Blizzard /tpr/ TACT archives, Riot bundles) span many 1 MiB slices; the old
-            // single-slice `.find_map` early-exit undercounted them ~250x. We ignore `bytes_served`
-            // here (it is MAX(BytesServed) per URL and can be a single range for range-served
-            // objects) and instead walk slice indices, collecting all that exist in the index —
-            // safe because non-existent candidates are simply not returned. The all-miss cost is
-            // bounded by CONSECUTIVE_MISS_LIMIT, not MAX_PROBE_CHUNKS (see existing_cache_digests_for_url).
-            let digests =
-                if cache_utils::active_key_scheme() == cache_utils::CacheKeyScheme::BareMetal {
-                    cache_utils::existing_bare_metal_keyed_digests_for_url(service, url, |digest| {
-                        cache_files_index.contains_key(&digest)
-                    })
-                    .into_iter()
-                    .map(|(digest, _key)| digest)
-                    .collect()
-                } else {
-                    cache_utils::existing_cache_digests_for_url(service, url, |digest| {
-                        cache_files_index.contains_key(&digest)
-                    })
-                };
+            let digests = url_digests_in_index(service, url, cache_files_index);
             counter.fetch_add(1, Ordering::Relaxed);
             // The outer HashSet dedups physical files shared across URLs.
             digests.into_iter()
         })
         .collect()
+}
+
+/// Every existing slice digest for one URL in the in-memory index. The single choke point for
+/// the key-scheme branch on index-backed probes — every caller must hash identically or real
+/// files get reported missing.
+///
+/// Collects EVERY existing slice for the URL, not just the first. Range-served objects
+/// (Blizzard /tpr/ TACT archives, Riot bundles) span many 1 MiB slices; the old single-slice
+/// `.find_map` early-exit undercounted them ~250x. `bytes_served` is ignored (it is
+/// MAX(BytesServed) per URL and can be a single range for range-served objects) — the walk
+/// visits slice indices, collecting all that exist in the index, safe because non-existent
+/// candidates are simply not returned. The all-miss cost is bounded by CONSECUTIVE_MISS_LIMIT,
+/// not MAX_PROBE_CHUNKS (see existing_cache_digests_for_url).
+fn url_digests_in_index(
+    service: &str,
+    url: &str,
+    cache_files_index: &HashMap<u128, u64>,
+) -> Vec<u128> {
+    if cache_utils::active_key_scheme() == cache_utils::CacheKeyScheme::BareMetal {
+        cache_utils::existing_bare_metal_keyed_digests_for_url(service, url, |digest| {
+            cache_files_index.contains_key(&digest)
+        })
+        .into_iter()
+        .map(|(digest, _key)| digest)
+        .collect()
+    } else {
+        cache_utils::existing_cache_digests_for_url(service, url, |digest| {
+            cache_files_index.contains_key(&digest)
+        })
+    }
 }
 
 fn match_files_in_cache(service_urls: &[ServiceUrl], cache_dir: &Path) -> HashSet<PathBuf> {
@@ -168,25 +181,79 @@ fn match_files_in_cache_tracked(
     service_urls
         .par_iter()
         .flat_map_iter(|(service, url, _bytes_served)| {
-            // Filesystem twin of the index path: collect EVERY existing slice on disk for this URL,
-            // not just the first. `bytes_served` (MAX per URL) is ignored — see the index-side
-            // comment above. The all-miss cost is bounded by CONSECUTIVE_MISS_LIMIT.
-            let paths = match cache_utils::active_key_scheme() {
-                cache_utils::CacheKeyScheme::Monolithic => {
-                    cache_utils::existing_cache_paths_for_url(cache_dir, service, url)
-                }
-                cache_utils::CacheKeyScheme::BareMetal => {
-                    cache_utils::existing_bare_metal_keyed_paths_for_url(cache_dir, service, url)
-                        .into_iter()
-                        .map(|candidate| candidate.path)
-                        .collect()
-                }
-            };
+            let paths = url_paths_on_disk(cache_dir, service, url);
             counter.fetch_add(1, Ordering::Relaxed);
             // The outer HashSet dedups physical files shared across URLs.
             paths.into_iter()
         })
         .collect()
+}
+
+/// Filesystem twin of `url_digests_in_index`: every existing slice path on disk for one URL,
+/// walking slices with the same collect-all semantics and CONSECUTIVE_MISS_LIMIT bound.
+fn url_paths_on_disk(cache_dir: &Path, service: &str, url: &str) -> Vec<PathBuf> {
+    match cache_utils::active_key_scheme() {
+        cache_utils::CacheKeyScheme::Monolithic => {
+            cache_utils::existing_cache_paths_for_url(cache_dir, service, url)
+        }
+        cache_utils::CacheKeyScheme::BareMetal => {
+            cache_utils::existing_bare_metal_keyed_paths_for_url(cache_dir, service, url)
+                .into_iter()
+                .map(|candidate| candidate.path)
+                .collect()
+        }
+    }
+}
+
+/// Group evicted-download URL records by download id, lowercasing the cache-hash service once
+/// so probes hash with the same normalization as every other matcher.
+fn group_evicted_records(records: &[EvictedDownloadUrl]) -> HashMap<i64, Vec<(String, String)>> {
+    let mut grouped: HashMap<i64, Vec<(String, String)>> = HashMap::new();
+    for record in records {
+        grouped.entry(record.download_id).or_default().push((
+            cache_utils::service_name_lowercase(&record.cache_service),
+            record.url.clone(),
+        ));
+    }
+    grouped
+}
+
+/// Ids of evicted downloads with at least one of their own slices present in the cache index —
+/// affirmative disk evidence that the row re-cached (or was never really gone). Any-hit is
+/// enough: one present slice proves bytes are on disk, so `any` short-circuits instead of
+/// collecting every slice. Ids are sorted for deterministic updates and logs.
+pub(crate) fn unevict_candidates_with_index(
+    records: &[EvictedDownloadUrl],
+    cache_files_index: &HashMap<u128, u64>,
+) -> Vec<i64> {
+    let mut ids: Vec<i64> = group_evicted_records(records)
+        .into_iter()
+        .filter(|(_, urls)| {
+            urls.par_iter().any(|(service, url)| {
+                !url_digests_in_index(service, url, cache_files_index).is_empty()
+            })
+        })
+        .map(|(download_id, _)| download_id)
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
+/// Filesystem twin of `unevict_candidates_with_index` for incremental scans (no index built).
+pub(crate) fn unevict_candidates_incremental(
+    records: &[EvictedDownloadUrl],
+    cache_dir: &Path,
+) -> Vec<i64> {
+    let mut ids: Vec<i64> = group_evicted_records(records)
+        .into_iter()
+        .filter(|(_, urls)| {
+            urls.par_iter()
+                .any(|(service, url)| !url_paths_on_disk(cache_dir, service, url).is_empty())
+        })
+        .map(|(download_id, _)| download_id)
+        .collect();
+    ids.sort_unstable();
+    ids
 }
 
 fn total_size_from_index(
@@ -615,6 +682,48 @@ mod tests {
         let service_urls: Vec<ServiceUrl> = vec![(service.to_string(), url.to_string(), 0)];
         let found = match_files_with_index(&service_urls, &index);
         assert_eq!(found.len(), 7, "walk must bridge the 2-slice hole and count slices 0-2 and 5-8");
+    }
+
+    fn evicted(download_id: i64, cache_service: &str, url: &str) -> EvictedDownloadUrl {
+        EvictedDownloadUrl {
+            download_id,
+            cache_service: cache_service.to_string(),
+            url: url.to_string(),
+        }
+    }
+
+    /// Un-evict is per-download: only downloads with at least one of their own slices present in
+    /// the index come back; downloads whose URLs are all absent stay evicted.
+    #[test]
+    fn unevict_candidates_returns_only_downloads_with_files_present() {
+        let service = "riot";
+        let cached_url = "/channels/public/bundles/CACHED.bundle";
+        let gone_url = "/channels/public/bundles/GONE.bundle";
+        let index =
+            build_multi_slice_index(service, cached_url, 3, cache_utils::DEFAULT_SLICE_SIZE);
+
+        let records = vec![
+            evicted(1, service, cached_url),
+            evicted(2, service, gone_url),
+            // Download 3 mixes a gone URL with the cached one — one hit is enough.
+            evicted(3, service, gone_url),
+            evicted(3, service, cached_url),
+        ];
+
+        assert_eq!(unevict_candidates_with_index(&records, &index), vec![1, 3]);
+        assert!(unevict_candidates_with_index(&records, &HashMap::new()).is_empty());
+    }
+
+    /// Xbox split: the record carries the cache-hash service (wsus), and the probe must hash
+    /// under it — the same identity/hash split the named detection path uses.
+    #[test]
+    fn unevict_candidates_hash_under_cache_service() {
+        let url = "/filestreamingservice/files/abc123";
+        let index = build_multi_slice_index("wsus", url, 1, cache_utils::DEFAULT_SLICE_SIZE);
+        assert_eq!(
+            unevict_candidates_with_index(&[evicted(7, "wsus", url)], &index),
+            vec![7]
+        );
     }
 
     #[test]
