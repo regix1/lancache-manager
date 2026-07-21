@@ -39,7 +39,11 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
   } else if (report.availability === 'unreadable') {
     body = <p className="status-check-content-state">{t(`${keys}.unreadable`)}</p>;
   } else if (report.availability === 'noSamples') {
-    body = <p className="status-check-content-state">{t(`${keys}.noSamples`)}</p>;
+    // scannedBytes separates the two no-sample stories: empty logs (nothing to scan) versus
+    // traffic that never qualified as a completed download (polls, metadata checks, zero-byte
+    // sessions). Bare-metal caches idle at the second state constantly via Windows Update.
+    const noSamplesKey = (report.scannedBytes ?? 0) > 0 ? 'noSamples' : 'logsEmpty';
+    body = <p className="status-check-content-state">{t(`${keys}.${noSamplesKey}`)}</p>;
   } else if ((report.paths ?? []).length === 0) {
     body = (
       <div className="status-check-content-state status-check-content-state--stacked">

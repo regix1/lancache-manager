@@ -1628,9 +1628,10 @@
           "summaryHelp": "This looks at real files from your recent cache logs and checks how each file's download server responds today. It is separate from the DNS results above, and one file can appear in more than one count.",
           "updating": "Checking recent downloads…",
           "oldSnapshot": "This saved result is from before download checks existed. DNS results are still shown, but whether downloads used the cache is unknown.",
-          "logMissing": "The cache access log was not found, so recent downloads could not be checked. DNS results are still shown.",
-          "unreadable": "The cache access log could not be read, so recent downloads could not be checked. DNS results are still shown.",
-          "noSamples": "No recent downloads were found in the cache access log to check. DNS results are still shown.",
+          "logMissing": "No cache access logs were found, so recent downloads could not be checked. DNS results are still shown.",
+          "unreadable": "The cache access logs could not be read, so recent downloads could not be checked. DNS results are still shown.",
+          "noSamples": "The cache logs have traffic, but none of it was a completed download that served data. Background polls and metadata checks don't count. Download something through the cache, then run the check again.",
+          "logsEmpty": "The cache access logs are empty, so there are no recent downloads to check. Download something through the cache, then run the check again.",
           "noPaths": "No recent downloads were found to check.",
           "noPathsHelp": "Only real, recent download entries can be checked, and none were available.",
           "summary": {
