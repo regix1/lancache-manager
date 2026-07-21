@@ -2142,11 +2142,11 @@
   gap: 1rem;
 }
 
-/* One fixed control width for the toggle and both dropdowns. The dropdowns fill it (w-full on
-   the EnhancedDropdown) so all three are identical width and wide enough that the menu no
-   longer truncates the option descriptions. Shrinks as one on tight cards, keeping them equal. */
+/* The control column fills the width from the label to the card's right edge so there is no
+   empty gap beside it. The dropdown and accordion are w-full, so they span that full width and
+   share one left and right edge; the toggle keeps its natural width, left-aligned. */
 .schedule-settings-control {
-  flex: 0 1 16rem;
+  flex: 1 1 auto;
   /* Vertically centre the 32px toggle / 40px dropdown against the label; the accordion (also
      40px collapsed) grows past this floor when opened. */
   min-height: 40px;
