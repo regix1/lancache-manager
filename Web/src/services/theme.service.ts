@@ -841,6 +841,20 @@ class ThemeService {
       --theme-primary-on-bg: ${v('primaryOnBg', rgba(primary, 0.12))};
       --theme-primary-on-bg-hover: ${v('primaryOnBgHover', rgba(primary, 0.18))};
       --theme-primary-on-border: ${v('primaryOnBorder', rgba(primary, 0.25))};
+
+      /* Derived radius for inset corners (1px inside the outer radius). */
+      --theme-border-radius-inner: calc(var(--theme-border-radius) - 1px);
+      /* Shared elevation for floating dropdown/menu surfaces. */
+      --shadow-dropdown: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+
+      /* Selected-state surface - the one token pair every selected row/pill/option
+         uses, so the highlight weight is tuned here instead of per component. The
+         text token stays the normal readable text color on purpose: primary-hued
+         text on a primary-tinted fill collapses into the fill in themes whose
+         primary runs light. */
+      --theme-selected-bg: ${v('selectedBg', rgba(primary, 0.25))};
+      --theme-selected-bg-hover: ${v('selectedBgHover', rgba(primary, 0.4))};
+      --theme-selected-text: ${v('selectedText', 'var(--theme-text-primary)')};
       --theme-success-on-bg: ${v('successOnBg', rgba(success, 0.08))};
       --theme-success-on-border: ${v('successOnBorder', rgba(success, 0.3))};
       --theme-warning-on-error: ${v('warningOnError', rgba(warning, 0.8))};

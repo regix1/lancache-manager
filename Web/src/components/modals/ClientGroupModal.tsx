@@ -304,7 +304,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                       : t('modals.clientGroup.placeholders.searchToAdd')
                   }
                 />
-                <div className="mgmt-list clientgroup-ip-picker">
+                <div className="mgmt-list divided-list clientgroup-ip-picker">
                   {availableIps.length === 0 ? (
                     <p className="text-sm text-themed-muted text-center py-3">
                       {ipSearchQuery
@@ -315,7 +315,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                     </p>
                   ) : (
                     <CustomScrollbar maxHeight="13.5rem" paddingMode="none" radius="none">
-                      <div className="clientgroup-ip-rows">
+                      <div className="clientgroup-ip-rows divided-list">
                         {paginatedAvailableIps.map((ip) => (
                           <button
                             key={ip}

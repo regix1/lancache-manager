@@ -456,7 +456,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                   statusBadge={layoutBadge}
                 >
                   {/* Expanded content - Position info */}
-                  <div className="mgmt-list mt-3">
+                  <div className="mgmt-list divided-list mt-3">
                     <div className="mgmt-row flex-wrap">
                       <div className="mgmt-row__body">
                         <div className="flex items-center gap-1.5">

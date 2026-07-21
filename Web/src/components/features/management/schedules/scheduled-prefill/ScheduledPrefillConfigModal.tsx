@@ -1249,20 +1249,20 @@ export function ScheduledPrefillConfigModal({
                     aria-busy="true"
                     aria-label={t(`${baseKey}.loading`)}
                   >
-                    <div className="scheduled-prefill-config-modal__skeleton-overview" />
+                    <div className="scheduled-prefill-config-modal__skeleton-overview skeleton-shimmer" />
                     <div className="scheduled-prefill-config-modal__skeleton-body">
                       <div className="scheduled-prefill-config-modal__skeleton-nav">
                         {SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => (
                           <div
                             key={serviceKey}
-                            className="scheduled-prefill-config-modal__skeleton-nav-item"
+                            className="scheduled-prefill-config-modal__skeleton-nav-item skeleton-shimmer"
                           />
                         ))}
                       </div>
                       <div className="scheduled-prefill-config-modal__skeleton-detail">
-                        <div className="scheduled-prefill-config-modal__skeleton-block" />
-                        <div className="scheduled-prefill-config-modal__skeleton-block" />
-                        <div className="scheduled-prefill-config-modal__skeleton-block scheduled-prefill-config-modal__skeleton-block--tall" />
+                        <div className="scheduled-prefill-config-modal__skeleton-block skeleton-shimmer" />
+                        <div className="scheduled-prefill-config-modal__skeleton-block skeleton-shimmer" />
+                        <div className="scheduled-prefill-config-modal__skeleton-block skeleton-shimmer scheduled-prefill-config-modal__skeleton-block--tall" />
                       </div>
                     </div>
                   </div>
@@ -1281,7 +1281,7 @@ export function ScheduledPrefillConfigModal({
                             })}
                           </Badge>
                           <HelpPopover position="left" width={360} maxHeight="20rem">
-                            <ul className="scheduled-prefill-config-modal__help-list">
+                            <ul className="scheduled-prefill-config-modal__help-list help-list">
                               <li className="schedule-extra-help">
                                 {t(`${baseKey}.auth.authPathsBattleNet`)}
                               </li>

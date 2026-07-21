@@ -162,4 +162,19 @@
     outline-offset: 2px;
     box-shadow: none;
   }
+
+  /* Square icon-only Button footprints at md/sm control heights, with the non-lg
+     radius for the squarer-corner look. */
+  .btn-icon-square {
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    justify-content: center;
+    border-radius: var(--theme-border-radius);
+  }
+
+  .btn-icon-square--sm {
+    width: 2rem;
+    height: 2rem;
+  }
 }

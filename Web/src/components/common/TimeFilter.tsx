@@ -319,7 +319,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
             onClick={() => !disabled && setIsOpen(!isOpen)}
             disabled={disabled}
             aria-label={t('common.timeFilter.title')}
-            className={`ed-trigger w-full px-3 py-[9px] sm:px-3 sm:py-[9px] themed-border-radius border text-left flex items-center justify-between text-sm bg-[var(--theme-card-bg)] text-[var(--theme-text-primary)] ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
+            className={`ed-trigger w-full px-3 h-10 themed-border-radius border text-left flex items-center justify-between text-sm bg-[var(--theme-card-bg)] text-[var(--theme-text-primary)] ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
           >
             <div
               className={`flex items-center flex-1 truncate ${iconOnly ? 'justify-center' : 'gap-1.5'}`}
@@ -359,7 +359,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
             createPortal(
               <div
                 ref={dropdownRef}
-                className="ed-dropdown fixed w-64 rounded-lg border overflow-hidden bg-[var(--theme-bg-secondary)] border-[var(--theme-border-primary)] max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[85]"
+                className="ed-dropdown fixed w-64 rounded-lg border overflow-hidden bg-[var(--theme-bg-secondary)] border-[var(--theme-border-primary)] max-w-[calc(100vw-32px)] z-[85]"
                 style={{
                   top: dropdownPosition.top,
                   left: dropdownPosition.left,
@@ -386,7 +386,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                           <div className="flex items-start gap-3">
                             <div className="flex flex-col flex-1 min-w-0">
                               <span
-                                className={`font-medium truncate ${isSelected ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-primary)]'}`}
+                                className={`font-medium truncate ${isSelected ? 'text-[var(--theme-selected-text)]' : 'text-[var(--theme-text-primary)]'}`}
                               >
                                 {option.label}
                               </span>
@@ -398,7 +398,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                             </div>
                             {option.rightLabel && (
                               <span
-                                className={`flex-shrink-0 text-xs font-medium ${isSelected ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-secondary)]'}`}
+                                className={`flex-shrink-0 text-xs font-medium ${isSelected ? 'text-[var(--theme-selected-text)]' : 'text-[var(--theme-text-secondary)]'}`}
                               >
                                 {option.rightLabel}
                               </span>
@@ -518,7 +518,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                                 <div className="flex flex-col flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5">
                                     <span
-                                      className={`font-medium truncate ${isSelected ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-primary)]'}`}
+                                      className={`font-medium truncate ${isSelected ? 'text-[var(--theme-selected-text)]' : 'text-[var(--theme-text-primary)]'}`}
                                     >
                                       {event.name}
                                     </span>

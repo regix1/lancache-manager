@@ -192,25 +192,25 @@ const ClientsTab: React.FC = () => {
             {Array.from({ length: 8 }, (_, i) => (
               <div key={i} className="clients-grid">
                 <div className="clients-cell clients-cell--client">
-                  <div className="clients-skeleton-line clients-skeleton-line--title" />
+                  <div className="clients-skeleton-line skeleton-shimmer clients-skeleton-line--title" />
                 </div>
                 <div className="clients-cell clients-cell--num">
-                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                  <div className="clients-skeleton-line skeleton-shimmer clients-skeleton-line--value" />
                 </div>
                 <div className="clients-cell clients-cell--num">
-                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                  <div className="clients-skeleton-line skeleton-shimmer clients-skeleton-line--value" />
                 </div>
                 <div className="clients-cell clients-cell--num">
-                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                  <div className="clients-skeleton-line skeleton-shimmer clients-skeleton-line--value" />
                 </div>
                 <div className="clients-cell clients-cell--num">
-                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                  <div className="clients-skeleton-line skeleton-shimmer clients-skeleton-line--value" />
                 </div>
                 <div className="clients-cell clients-cell--num">
-                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                  <div className="clients-skeleton-line skeleton-shimmer clients-skeleton-line--value" />
                 </div>
                 <div className="clients-cell clients-cell--num clients-cell--lg">
-                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                  <div className="clients-skeleton-line skeleton-shimmer clients-skeleton-line--value" />
                 </div>
               </div>
             ))}

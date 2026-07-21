@@ -146,7 +146,7 @@ function CacheEntityList<TItem>({
             />
           )}
 
-          <div className="mgmt-list">
+          <div className="mgmt-list divided-list">
             {paginatedItems.map((item) => {
               const itemId = getItemKey(item);
               return (

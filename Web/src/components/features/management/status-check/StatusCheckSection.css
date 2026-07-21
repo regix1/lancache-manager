@@ -305,11 +305,6 @@
   }
 }
 
-.status-check-ribbon-segment:focus-visible {
-  outline: 2px solid var(--theme-border-focus);
-  outline-offset: 2px;
-}
-
 .status-check-ribbon-segment--resolved {
   background-color: var(--theme-success);
 }

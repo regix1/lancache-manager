@@ -185,7 +185,7 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
             disabled={isDisabled}
             placeholder={t('management.schedules.customMinutes.placeholder')}
             aria-label={t('management.schedules.customMinutes.aria')}
-            className={`schedule-interval-picker-input${isCustomInputValid ? '' : ' has-error'}`}
+            className={`schedule-interval-picker-input focus-ring${isCustomInputValid ? '' : ' has-error'}`}
           />
           <span className="schedule-interval-picker-suffix">
             {t('management.schedules.customMinutes.suffix')}

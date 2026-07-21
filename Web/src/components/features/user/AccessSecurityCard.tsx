@@ -132,7 +132,7 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
       </div>
 
       <div className="p-4 sm:p-5">
-        <div className="mgmt-list user-settings-list">
+        <div className="mgmt-list divided-list user-settings-list">
           <div className="mgmt-row">
             <div className="mgmt-row__body">
               <p className="mgmt-row__title">{t('user.guest.sections.sessionDuration')}</p>

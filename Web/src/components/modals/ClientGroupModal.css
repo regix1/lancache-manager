@@ -2,9 +2,6 @@
    CustomScrollbar viewport (the house scrollbar), capped so the modal stays
    compact even with hundreds of clients. The scrollbar wrapper becomes the
    list's only direct child, so the row dividers live on .clientgroup-ip-rows. */
-.clientgroup-ip-rows > * + * {
-  border-top: 1px solid var(--theme-border-secondary);
-}
 
 /* Pick-list rows are plain <button>s wearing .mgmt-row; strip the user-agent
    button chrome and tighten the row so ~6 rows fit the capped picker. */

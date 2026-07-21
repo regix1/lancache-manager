@@ -99,7 +99,7 @@ export function ScheduledPrefillPlatformsPanel({
               <button
                 key={serviceKey}
                 type="button"
-                className={`scheduled-prefill-platforms__nav-item${
+                className={`scheduled-prefill-platforms__nav-item focus-ring${
                   isActive ? ' scheduled-prefill-platforms__nav-item--active' : ''
                 } ${platformMeta.rowClassName}`}
                 aria-current={isActive ? 'page' : undefined}

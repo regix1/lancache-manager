@@ -1457,7 +1457,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
           {/* One responsive divided list (reflows via CSS at every breakpoint) */}
           {!loading && filteredActiveSessions.length > 0 && (
-            <div className="mgmt-list">{pagedSessions.map(renderSessionItem)}</div>
+            <div className="mgmt-list divided-list">{pagedSessions.map(renderSessionItem)}</div>
           )}
 
           {/* Filtered but no results */}
@@ -1521,7 +1521,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           </button>
           <CollapsibleRegion open={historyExpanded}>
             <div className="px-4 sm:px-5 pb-4 sm:pb-5">
-              <div className="mgmt-list">{historySessions.map(renderHistoryCard)}</div>
+              <div className="mgmt-list divided-list">{historySessions.map(renderHistoryCard)}</div>
             </div>
           </CollapsibleRegion>
         </Card>
@@ -2010,7 +2010,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         {t('activeSessions.prefill.subtitle')}
                       </p>
                     </div>
-                    <div className="mgmt-list">
+                    <div className="mgmt-list divided-list">
                       {/* Steam Prefill Row */}
                       {(() => {
                         const current = editingSession.steamPrefillEnabled;

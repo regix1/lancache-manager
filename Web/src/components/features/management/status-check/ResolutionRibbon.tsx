@@ -36,7 +36,7 @@ const ResolutionRibbon: React.FC<ResolutionRibbonProps> = ({
           >
             <button
               type="button"
-              className={`status-check-ribbon-segment status-check-ribbon-segment--${segment.status}`}
+              className={`status-check-ribbon-segment focus-ring status-check-ribbon-segment--${segment.status}`}
               aria-label={label}
               disabled={!interactive}
               onClick={() => onSegmentClick(segment.service)}

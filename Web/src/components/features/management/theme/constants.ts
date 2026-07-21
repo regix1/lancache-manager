@@ -307,6 +307,51 @@ export const colorGroups: ColorGroup[] = [
         pages: []
       },
       {
+        key: 'selectedBg',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management',
+          'charts'
+        ]
+      },
+      {
+        key: 'selectedBgHover',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management',
+          'charts'
+        ]
+      },
+      {
+        key: 'selectedText',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management',
+          'charts'
+        ]
+      },
+      {
         key: 'checkboxAccent',
         supportsAlpha: false, // Browser overrides alpha for accessibility
         pages: ['downloads', 'management']

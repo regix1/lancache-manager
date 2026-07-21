@@ -340,7 +340,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
       {groupEntries.length === 0 ? (
         <p className="mgmt-scanmeta">{t('management.corruption.history.methodEmpty')}</p>
       ) : (
-        <div className="mgmt-list">
+        <div className="mgmt-list divided-list">
           {groupEntries.map((entry) => (
             <HistoryRow
               key={entry.scanId}
@@ -412,7 +412,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
                 subtitle={t('management.corruption.history.zeroResultSubtitle')}
               />
             ) : (
-              <div className="mgmt-list">
+              <div className="mgmt-list divided-list">
                 {viewProjection.rows.map(({ service, count }) => {
                   const isDetailExpanded = expandedDetailService === service;
                   return (

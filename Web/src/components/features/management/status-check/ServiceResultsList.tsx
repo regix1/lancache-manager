@@ -138,7 +138,7 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
                       {t(`${keys}.expectedForService`, { ips: expectedLabel })}
                     </Tooltip>
                   )}
-                  <div className="mgmt-list">
+                  <div className="mgmt-list divided-list">
                     {sortedDomains.map((domain) => (
                       <div key={domain.originalEntry} className="status-check-domain-item">
                         <DomainLeafRow result={domain} />

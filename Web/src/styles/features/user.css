@@ -20,7 +20,10 @@
 
 .status-dot.active {
   background: var(--theme-success);
-  animation: pulse-dot 2s infinite;
+  /* pulse-dot-ring, not pulse-dot: the schedules stylesheet defines a same-named
+     opacity-fade keyframes, and duplicate @keyframes names resolve globally to
+     whichever loads last - the two dots were silently sharing one animation. */
+  animation: pulse-dot-ring 2s infinite;
 }
 
 .status-dot.away {
@@ -32,7 +35,7 @@
   background: var(--theme-text-muted);
 }
 
-@keyframes pulse-dot {
+@keyframes pulse-dot-ring {
   0%,
   100% {
     box-shadow:

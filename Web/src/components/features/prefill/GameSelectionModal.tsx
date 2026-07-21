@@ -399,7 +399,7 @@ export function GameSelectionModal({
                       : 'flex-1 min-h-0'
                   }`}
                 >
-                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[var(--theme-primary-on-bg-hover)] text-[var(--theme-primary)] border-b border-[var(--theme-border-secondary)]">
+                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[var(--theme-selected-bg)] text-[var(--theme-selected-text)] border-b border-[var(--theme-border-secondary)]">
                     {t('prefill.gameSelection.selected')}
                     {localSelected.size > 0 && (
                       <span className="themed-badge status-badge-neutral badge-count">

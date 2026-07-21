@@ -685,7 +685,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       {/* Downloads list */}
       <div className="rdl-well">
         <CustomScrollbar maxHeight="380px" paddingMode="none" radius="none" className="rdl-scroll">
-          <div className="rdl-list">
+          <div className="rdl-list divided-list">
             {viewMode === 'active' ? (
               speedLoading ? (
                 <div className="rdl-loading">
@@ -712,15 +712,15 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               <div className="recent-downloads-skeleton">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="recent-downloads-skeleton-row">
-                    <div className="recent-downloads-skeleton-icon" />
+                    <div className="recent-downloads-skeleton-icon skeleton-shimmer" />
                     <div className="recent-downloads-skeleton-content">
-                      <div className="recent-downloads-skeleton-title" />
-                      <div className="recent-downloads-skeleton-meta" />
+                      <div className="recent-downloads-skeleton-title skeleton-shimmer" />
+                      <div className="recent-downloads-skeleton-meta skeleton-shimmer" />
                     </div>
                     <div className="recent-downloads-skeleton-stats">
-                      <div className="recent-downloads-skeleton-size" />
-                      <div className="recent-downloads-skeleton-date" />
-                      <div className="recent-downloads-skeleton-hit-rate" />
+                      <div className="recent-downloads-skeleton-size skeleton-shimmer" />
+                      <div className="recent-downloads-skeleton-date skeleton-shimmer" />
+                      <div className="recent-downloads-skeleton-hit-rate skeleton-shimmer" />
                     </div>
                   </div>
                 ))}

@@ -1209,7 +1209,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                   }
                 />
               </div>
-              <div className="mgmt-list">
+              <div className="mgmt-list divided-list">
                 {projection.rows.map(({ service, count }) => {
                   const isExpanded = expandedService === service;
                   const isRemoving =

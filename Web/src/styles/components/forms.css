@@ -420,3 +420,12 @@
     margin-bottom: 0.375rem;
   }
 }
+
+/* Shared md control height (40px) for buttons and trigger-like controls.
+   !important because a Button size prop emits its own min-h-* utility at equal
+   specificity, and this bundle loads before Tailwind's utilities - a bare
+   declaration loses that tie no matter where in this file it sits. This class
+   exists to pin a control to the 40px row height, so it must always win. */
+.control-h-md {
+  min-height: 2.5rem !important;
+}

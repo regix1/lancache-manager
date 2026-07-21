@@ -30,7 +30,7 @@ export function BackToTopButton({
     scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const classes = ['back-to-top-button', visible ? 'is-visible' : '', className ?? '']
+  const classes = ['back-to-top-button', 'focus-ring', visible ? 'is-visible' : '', className ?? '']
     .filter(Boolean)
     .join(' ');
 

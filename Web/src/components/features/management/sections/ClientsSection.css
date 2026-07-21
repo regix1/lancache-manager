@@ -8,7 +8,7 @@
    Match them to ONE height (the 40px md-button height) by trimming each bordered
    control's vertical padding by its border, mirroring the proven
    .scheduled-prefill-number-cap .themed-input recipe, and pinning every control in
-   the row to the same min-height like .schedule-control-button. Scoped to these rows
+   the row to the same min-height like .control-h-md. Scoped to these rows
    so the shared .themed-input / MultiSelectDropdown stay unchanged everywhere else. */
 
 .clients-control-row .themed-input,

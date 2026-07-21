@@ -405,7 +405,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
               </p>
             </div>
           ) : (
-            <div className="mgmt-list">
+            <div className="mgmt-list divided-list">
               {clientGroups.map((group) => {
                 const isMultiIp = group.memberIps.length > 1;
                 const isExpanded = expandedGroupIds.has(group.id);
@@ -564,7 +564,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                         compact
                       />
                     )}
-                  <div className="mgmt-list">
+                  <div className="mgmt-list divided-list">
                     {paginatedUngroupedClients.map((ip) => (
                       <div key={ip} className="mgmt-row clients-unnamed-row">
                         <div className="mgmt-row__body">
@@ -719,7 +719,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   {t('management.sections.clients.noExcludedIps')}
                 </div>
               ) : (
-                <div className="mgmt-list">
+                <div className="mgmt-list divided-list">
                   {excludedRules.map((rule) => (
                     <div key={rule.ip} className="mgmt-row clients-exclusion-row flex-wrap">
                       <div className="mgmt-row__body">

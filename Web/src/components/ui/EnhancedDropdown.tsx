@@ -589,7 +589,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`ed-dropdown ed-dropdown--menu absolute themed-border-radius border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[250] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
+            className={`ed-dropdown ed-dropdown--menu absolute themed-border-radius border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] z-[250] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
             style={{
               top: dropdownPosition.top,
               left: dropdownPosition.left,
@@ -640,7 +640,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                               <option.icon
                                 className={`flex-shrink-0 mt-0.5 ${
                                   value.startsWith(option.value + ':')
-                                    ? 'text-[var(--theme-primary)]'
+                                    ? 'text-[var(--theme-selected-text)]'
                                     : 'text-themed-secondary'
                                 }`}
                                 size={16}
@@ -648,7 +648,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                             )}
                             <div className="flex flex-col flex-1 min-w-0">
                               <span
-                                className={`font-medium truncate ${value.startsWith(option.value + ':') ? 'text-[var(--theme-primary)]' : 'text-themed-primary'}`}
+                                className={`font-medium truncate ${value.startsWith(option.value + ':') ? 'text-[var(--theme-selected-text)]' : 'text-themed-primary'}`}
                               >
                                 {option.label}
                               </span>
@@ -662,7 +662,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                               <span
                                 className={`flex-shrink-0 text-xs font-medium ${
                                   value.startsWith(option.value + ':')
-                                    ? 'text-[var(--theme-primary)]'
+                                    ? 'text-[var(--theme-selected-text)]'
                                     : 'text-themed-secondary'
                                 }`}
                               >
@@ -682,7 +682,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                         createPortal(
                           <div
                             ref={submenuRef}
-                            className="ed-dropdown absolute w-64 themed-border-radius border border-themed-primary overflow-hidden z-[251] bg-themed-secondary shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]"
+                            className="ed-dropdown absolute w-64 themed-border-radius border border-themed-primary overflow-hidden z-[251] bg-themed-secondary animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]"
                             style={{
                               top: submenuPosition.top,
                               left: submenuPosition.left
@@ -780,13 +780,13 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                             <div className={`flex items-start ${compactMode ? 'gap-2' : 'gap-3'}`}>
                               {!cleanStyle && option.icon && (
                                 <option.icon
-                                  className={`flex-shrink-0 mt-0.5 ${isSelected ? 'text-[var(--theme-primary)]' : 'text-themed-secondary'}`}
+                                  className={`flex-shrink-0 mt-0.5 ${isSelected ? 'text-[var(--theme-selected-text)]' : 'text-themed-secondary'}`}
                                   size={compactMode ? 12 : 16}
                                 />
                               )}
                               <div className="flex flex-col flex-1 min-w-0">
                                 <span
-                                  className={`font-medium truncate ${isSelected ? 'text-[var(--theme-primary)]' : 'text-themed-primary'}`}
+                                  className={`font-medium truncate ${isSelected ? 'text-[var(--theme-selected-text)]' : 'text-themed-primary'}`}
                                 >
                                   {option.label}
                                 </span>
@@ -798,7 +798,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                               </div>
                               {option.rightLabel && (
                                 <span
-                                  className={`flex-shrink-0 text-xs font-medium ${isSelected ? 'text-[var(--theme-primary)]' : 'text-themed-secondary'}`}
+                                  className={`flex-shrink-0 text-xs font-medium ${isSelected ? 'text-[var(--theme-selected-text)]' : 'text-themed-secondary'}`}
                                 >
                                   {option.rightLabel}
                                 </span>
@@ -806,7 +806,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                               {!cleanStyle && isSelected && (
                                 <Check
                                   size={compactMode ? 12 : 16}
-                                  className="flex-shrink-0 mt-0.5 text-[var(--theme-primary)]"
+                                  className="flex-shrink-0 mt-0.5 text-[var(--theme-selected-text)]"
                                 />
                               )}
                             </div>

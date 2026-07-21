@@ -31,7 +31,7 @@ const ContentPathGroup: React.FC<ContentPathGroupProps> = ({ paths }) => {
         </span>
       </div>
       {resultsVary && <p className="status-check-content-varies">{t(`${keys}.resultsVary`)}</p>}
-      <div className="status-check-content-rows mgmt-list">
+      <div className="status-check-content-rows mgmt-list divided-list">
         {sortedPaths.map((path) => (
           <ContentPathRow
             key={`${path.host}::${path.pathDisplay}::${path.sampleObservedAtUtc ?? ''}`}

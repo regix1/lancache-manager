@@ -452,7 +452,7 @@ const ScheduleRow = memo(function ScheduleRow({
               disabled={isDisabled || isDimmed}
               loading={isRunningThis}
               stableWidth
-              className="schedule-control-button"
+              className="control-h-md"
             >
               {t('management.schedules.runNow')}
             </Button>
@@ -654,8 +654,10 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
                   </HelpNote>
                 </HelpPopover>
               </h3>
+              {/* Short summary on the card, like the table rows above - the full
+              description lives only in the (?) popover so it isn't shown twice. */}
               <p className="schedule-card-description">
-                {t(`management.schedules.services.${service.key}.description`)}
+                {t(`management.schedules.services.${service.key}.summary`)}
               </p>
             </div>
           </div>
@@ -1026,7 +1028,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       </div>
 
       {genericSchedules.length > 0 && (
-        <div className="schedule-table">
+        <div className="schedule-table divided-list">
           <div className="schedule-table-cols schedule-table-head">
             <span>{t('management.schedules.taskColumn')}</span>
             <span>{t('management.schedules.lastRun')}</span>

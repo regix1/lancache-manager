@@ -5326,6 +5326,21 @@
           "description": "聚焦输入框指示器",
           "affects": ["输入框活跃边框", "焦点环"]
         },
+        "selectedBg": {
+          "label": "选中高亮",
+          "description": "选中行和选项的背景色调",
+          "affects": ["下拉菜单选中项", "活跃筛选胶囊", "选中的列表行"]
+        },
+        "selectedBgHover": {
+          "label": "选中高亮悬停",
+          "description": "悬停在选中行上时加深的色调",
+          "affects": ["下拉菜单选中项悬停"]
+        },
+        "selectedText": {
+          "label": "选中文本",
+          "description": "选中行上的文字和图标颜色",
+          "affects": ["下拉菜单选中项文字", "活跃筛选胶囊文字", "选中勾选标记"]
+        },
         "checkboxAccent": {
           "label": "复选框强调",
           "description": "复选框选中状态颜色",

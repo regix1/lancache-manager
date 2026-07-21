@@ -114,7 +114,7 @@ const StatCard: React.FC<StatCardProps> = ({
           {/* Main value with optional animation */}
           <div className="flex items-baseline gap-2 mt-1">
             {loading ? (
-              <div className="stat-card-skeleton-value" />
+              <div className="stat-card-skeleton-value skeleton-shimmer" />
             ) : animateValue ? (
               <AnimatedValue value={value} className="text-2xl font-bold transition duration-300" />
             ) : (
@@ -125,7 +125,7 @@ const StatCard: React.FC<StatCardProps> = ({
           </div>
 
           {loading ? (
-            <div className="stat-card-skeleton-subtitle mt-1" />
+            <div className="stat-card-skeleton-subtitle skeleton-shimmer mt-1" />
           ) : subtitle ? (
             <div className="flex items-center gap-1.5 mt-1">
               <p className="text-xs text-[var(--theme-text-secondary)]">{subtitle}</p>
@@ -141,7 +141,7 @@ const StatCard: React.FC<StatCardProps> = ({
       {/* Sparkline or placeholder for consistent card height - mt-auto pushes to bottom */}
       <div className="mt-auto">
         {loading ? (
-          <div className="stat-card-skeleton-sparkline h-8 mt-2" />
+          <div className="stat-card-skeleton-sparkline skeleton-shimmer h-8 mt-2" />
         ) : Array.isArray(sparklineData) ? (
           <Sparkline
             data={

@@ -27,6 +27,7 @@
 @import './styles/utilities/colors.css';
 @import './styles/utilities/animations.css';
 @import './styles/utilities/responsive.css';
+@import './styles/utilities/patterns.css';
 
 /* Features */
 @import './styles/features/dashboard.css';

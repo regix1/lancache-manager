@@ -19,9 +19,11 @@
 }
 
 .toggle-pill.active {
-  background: var(--theme-primary-on-bg-hover);
+  /* App-wide selected-state tokens: tinted fill + normal text. Primary-hued text on
+     the primary-tinted fill collapses into it in themes whose primary runs light. */
+  background: var(--theme-selected-bg);
   border-color: var(--theme-primary-on-border);
-  color: var(--theme-primary);
+  color: var(--theme-selected-text);
   font-weight: 600;
 }
 

@@ -121,10 +121,6 @@
   overflow: hidden;
 }
 
-.mgmt-list > * + * {
-  border-top: 1px solid var(--theme-border-secondary);
-}
-
 /* One list row: leading control(s), flexible body, trailing action cluster. */
 .mgmt-row {
   display: flex;
@@ -220,10 +216,6 @@
 /* ── Corrupt cache file detail ──────────────────────────────────────────────
    One suspect slice: an identity line, evidence count, and a labelled key/value
    grid so exact-path evidence reads as grouped, scannable facts. */
-.mgmt-evidence-list > * + * {
-  border-top: 1px solid var(--theme-border-secondary);
-}
-
 .mgmt-evidence {
   display: flex;
   flex-direction: column;
@@ -368,11 +360,6 @@
   font-weight: 600;
   line-height: 1.4;
   overflow-wrap: anywhere;
-}
-
-.mgmt-evidence__technical summary:focus-visible {
-  outline: 2px solid var(--theme-border-focus);
-  outline-offset: 2px;
 }
 
 @media (hover: hover) {

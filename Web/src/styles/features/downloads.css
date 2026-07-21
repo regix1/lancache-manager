@@ -424,9 +424,11 @@
   }
 
   .downloads-header .stat-chip.highlight {
-    background: var(--theme-primary-on-bg-hover);
+    /* App-wide selected-state tokens: tinted fill + normal text (primary-hued text
+       collapses into the primary-tinted fill in themes whose primary runs light). */
+    background: var(--theme-selected-bg);
     border-color: var(--theme-primary-on-border);
-    color: var(--theme-primary);
+    color: var(--theme-selected-text);
   }
 
   .downloads-header .right-section {

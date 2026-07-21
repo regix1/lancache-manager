@@ -169,6 +169,7 @@
 
   .ed-dropdown {
     contain: layout style;
+    box-shadow: var(--shadow-dropdown);
   }
 
   .ed-option {
@@ -179,8 +180,16 @@
     background-color: var(--theme-bg-hover) !important;
   }
 
+  /* Selected row = the app-wide selected-state tokens (theme.service). The old
+     neutral bg-tertiary/bg-hover pair read as a washed-out band in themes whose
+     neutrals resolve bright; the selected tokens tint with each theme's own primary
+     and hover deepens the same tint instead of jumping to the neutral grey. */
   .ed-option-selected {
-    background-color: var(--theme-bg-tertiary) !important;
+    background-color: var(--theme-selected-bg) !important;
+  }
+
+  .ed-option-selected:not(:disabled):hover {
+    background-color: var(--theme-selected-bg-hover) !important;
   }
 
   .ed-submenu-option {
@@ -212,6 +221,10 @@
 
   .msd-dropdown {
     contain: layout style;
+    /* Same shared dropdown shadow as .ed-dropdown, plus this menu's top glint. */
+    box-shadow:
+      var(--shadow-dropdown),
+      inset 0 1px 0 0 var(--theme-glint-white);
   }
 
   .msd-option {
@@ -228,12 +241,14 @@
     background-color: var(--theme-bg-tertiary) !important;
   }
 
+  /* Same selected-state tokens as .ed-option-selected above so every dropdown's
+     selected row carries one weight of the theme's tint. */
   .msd-option-selected {
-    background-color: var(--theme-primary-on-bg) !important;
+    background-color: var(--theme-selected-bg) !important;
   }
 
   .msd-option-selected:not(:disabled):hover {
-    background-color: var(--theme-primary-on-bg-hover) !important;
+    background-color: var(--theme-selected-bg-hover) !important;
   }
 
   .msd-checkbox {
@@ -344,6 +359,7 @@
 
   .github-dropdown {
     overflow: hidden;
+    box-shadow: var(--shadow-dropdown);
   }
 
   /* Dropdown Header */

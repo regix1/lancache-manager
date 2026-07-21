@@ -181,14 +181,6 @@
 .clients-skeleton-line {
   height: 0.875rem;
   border-radius: 0.25rem;
-  background: linear-gradient(
-    90deg,
-    var(--theme-skeleton-base, rgba(255, 255, 255, 0.06)) 25%,
-    var(--theme-skeleton-highlight, rgba(255, 255, 255, 0.12)) 50%,
-    var(--theme-skeleton-base, rgba(255, 255, 255, 0.06)) 75%
-  );
-  background-size: 200% 100%;
-  animation: stat-card-shimmer 1.5s ease-in-out infinite;
 }
 
 .clients-skeleton-line--title {

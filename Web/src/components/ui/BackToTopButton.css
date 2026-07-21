@@ -37,8 +37,3 @@
   background-color: var(--theme-bg-surface-hover);
   color: var(--theme-text-primary);
 }
-
-.back-to-top-button:focus-visible {
-  outline: 2px solid var(--theme-border-focus);
-  outline-offset: 2px;
-}

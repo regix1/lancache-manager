@@ -773,7 +773,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                               <p className="text-sm">{t('management.logRemoval.bareMetal.note')}</p>
                             </Alert>
                           )}
-                          <div className="mgmt-list">
+                          <div className="mgmt-list divided-list">
                             {displayed.map((service) => {
                               const key = `${ds.datasource}:${service}`;
                               const selectKey = `${ds.datasource}::${service}`;

@@ -86,7 +86,7 @@ const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({
             EnhancedDropdown siblings in this row) so the locked indicator doesn't sit shorter
             than the row it's in - also picks up the .header-controls mobile shrink override
             for free since that's scoped by the same class name. */}
-        <div className="ed-trigger flex items-center justify-center gap-1.5 px-3 py-[9px] themed-border-radius border border-themed-secondary text-sm cursor-not-allowed opacity-75">
+        <div className="ed-trigger flex items-center justify-center gap-1.5 px-3 h-10 themed-border-radius border border-themed-secondary text-sm cursor-not-allowed opacity-75">
           <Lock className="w-3.5 h-3.5 text-themed-muted" />
           {!iconOnly && <span className="text-themed-secondary">{displayLabel}</span>}
         </div>

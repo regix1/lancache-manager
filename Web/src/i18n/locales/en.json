@@ -5327,6 +5327,25 @@
           "description": "Focused input indicator",
           "affects": ["Active input borders", "Focus rings"]
         },
+        "selectedBg": {
+          "label": "Selected Highlight",
+          "description": "Background tint on selected rows and options",
+          "affects": ["Dropdown selected option", "Active filter pills", "Selected list rows"]
+        },
+        "selectedBgHover": {
+          "label": "Selected Highlight Hover",
+          "description": "Deepened tint when hovering a selected row",
+          "affects": ["Dropdown selected option hover"]
+        },
+        "selectedText": {
+          "label": "Selected Text",
+          "description": "Text and icons on selected rows",
+          "affects": [
+            "Dropdown selected option text",
+            "Active filter pill text",
+            "Selection checkmarks"
+          ]
+        },
         "checkboxAccent": {
           "label": "Checkbox Accent",
           "description": "Checkbox checked state color",

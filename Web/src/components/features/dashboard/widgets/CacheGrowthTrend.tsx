@@ -85,23 +85,23 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           </div>
           <div className="cache-growth-skeleton">
             {/* Large stat */}
-            <div className="cache-growth-skeleton-stat" />
+            <div className="cache-growth-skeleton-stat skeleton-shimmer" />
 
             {/* Progress bar */}
-            <div className="cache-growth-skeleton-progress" />
+            <div className="cache-growth-skeleton-progress skeleton-shimmer" />
 
             {/* Sparkline area */}
-            <div className="cache-growth-skeleton-chart" />
+            <div className="cache-growth-skeleton-chart skeleton-shimmer" />
 
             {/* Stats grid */}
             <div className="cache-growth-skeleton-grid">
               <div className="cache-growth-skeleton-grid-cell">
-                <div className="cache-growth-skeleton-label" />
-                <div className="cache-growth-skeleton-value" />
+                <div className="cache-growth-skeleton-label skeleton-shimmer" />
+                <div className="cache-growth-skeleton-value skeleton-shimmer" />
               </div>
               <div className="cache-growth-skeleton-grid-cell">
-                <div className="cache-growth-skeleton-label" />
-                <div className="cache-growth-skeleton-value" />
+                <div className="cache-growth-skeleton-label skeleton-shimmer" />
+                <div className="cache-growth-skeleton-value skeleton-shimmer" />
               </div>
             </div>
           </div>

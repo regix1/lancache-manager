@@ -85,7 +85,7 @@ const OptionItem = memo<OptionItemProps>(
 
         {Icon && (
           <div
-            className={`flex-shrink-0 mt-0.5 ${isSelected ? 'text-[var(--theme-primary)]' : 'text-themed-muted'}`}
+            className={`flex-shrink-0 mt-0.5 ${isSelected ? 'text-[var(--theme-selected-text)]' : 'text-themed-muted'}`}
           >
             <Icon size={compact ? 14 : 18} />
           </div>
@@ -266,7 +266,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`msd-trigger w-full px-3 py-[9px] themed-border-radius border text-left flex items-center justify-between gap-2 text-sm font-medium themed-card text-themed-primary ${
+        className={`msd-trigger w-full px-3 h-10 themed-border-radius border text-left flex items-center justify-between gap-2 text-sm font-medium themed-card text-themed-primary ${
           isOpen ? 'msd-trigger-open border-themed-focus' : 'border-themed-primary'
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
@@ -287,7 +287,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`msd-dropdown absolute z-[250] ${dropdownWidth || ''} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2),inset_0_1px_0_0_var(--theme-glint-white)]`}
+            className={`msd-dropdown absolute z-[250] ${dropdownWidth || ''} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary`}
             style={{
               top: dropdownStyle.top,
               left: dropdownStyle.left,

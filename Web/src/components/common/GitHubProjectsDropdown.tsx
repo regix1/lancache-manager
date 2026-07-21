@@ -722,7 +722,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
           animation: 'dropdownSlideDown 0.15s cubic-bezier(0.16, 1, 0.3, 1)'
         }}
       >
-        <div className="github-dropdown themed-border-radius border border-themed-primary bg-themed-secondary shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)]">
+        <div className="github-dropdown themed-border-radius border border-themed-primary bg-themed-secondary">
           {/* Header */}
           <div className="github-dropdown-header">
             <div className="github-dropdown-header-content">
@@ -898,7 +898,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
         <button
           ref={triggerRef}
           onClick={handleButtonClick}
-          className={`ed-trigger github-trigger ${isBouncing ? 'bouncing' : ''} px-3 py-[9px] themed-border-radius border text-left flex items-center text-sm themed-card text-themed-primary ${
+          className={`ed-trigger github-trigger ${isBouncing ? 'bouncing' : ''} px-3 h-10 themed-border-radius border text-left flex items-center text-sm themed-card text-themed-primary ${
             isOpen ? 'border-themed-focus' : 'border-themed-primary'
           } ${iconOnly ? 'justify-center' : 'gap-1.5'} cursor-pointer`}
           aria-label={t('nav.githubProjects.ariaLabel')}

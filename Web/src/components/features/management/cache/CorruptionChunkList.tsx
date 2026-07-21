@@ -372,7 +372,7 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
         </dl>
 
         <details className="mgmt-evidence__technical">
-          <summary>{t('management.corruption.cacheMappingDetails')}</summary>
+          <summary className="focus-ring">{t('management.corruption.cacheMappingDetails')}</summary>
           <dl className="mgmt-evidence__mapping">
             {evidence.normalizedUri !== evidence.rawUrl && (
               <div className="mgmt-evidence__mapping-item mgmt-evidence__mapping-item--wide">
@@ -460,7 +460,9 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
         </div>
 
         <details className="mgmt-evidence__technical">
-          <summary>{t('management.corruption.structural.technicalDetails')}</summary>
+          <summary className="focus-ring">
+            {t('management.corruption.structural.technicalDetails')}
+          </summary>
           <dl className="mgmt-evidence__mapping">
             <div className="mgmt-evidence__mapping-item mgmt-evidence__mapping-item--wide">
               <dt>{t('management.corruption.structural.exactPath')}</dt>
@@ -592,7 +594,7 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
       ) : (
         <>
           <CustomScrollbar maxHeight="24rem" radius="none" paddingMode="compact">
-            <div className="mgmt-evidence-list">{visibleChunks.map(renderChunk)}</div>
+            <div className="mgmt-evidence-list divided-list">{visibleChunks.map(renderChunk)}</div>
           </CustomScrollbar>
           {filteredChunks.length > CHUNKS_PER_PAGE && (
             <Pagination

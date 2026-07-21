@@ -119,7 +119,7 @@ const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups }) => {
       )}
 
       {response && (
-        <div className="mgmt-list mt-3">
+        <div className="mgmt-list divided-list mt-3">
           <div className="status-check-domain-item">
             <DomainLeafRow result={response.result} />
           </div>

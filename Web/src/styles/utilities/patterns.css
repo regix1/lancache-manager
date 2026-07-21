@@ -1,0 +1,37 @@
+/* Shared structural/text patterns reused across pages. */
+
+/* Hairline divider between direct children (list rows, stacked rows). */
+.divided-list > * + * {
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+/* Keyboard focus outline for custom interactive elements. */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: 2px;
+}
+
+/* Bulleted help/explanation list with consistent spacing. */
+.help-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  list-style: disc;
+}
+
+/* Small uppercase section/field label. */
+.caps-label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--theme-text-muted);
+}
+
+/* Smaller variant of .caps-label (both classes go on the element). */
+.caps-label--sm {
+  font-size: var(--font-size-2xs);
+  font-weight: 500;
+}

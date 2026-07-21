@@ -158,32 +158,32 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
         </div>
         <div className="peak-usage-skeleton">
           {/* Period totals bar */}
-          <div className="peak-usage-skeleton-bar" />
+          <div className="peak-usage-skeleton-bar skeleton-shimmer" />
 
           {/* Two stat cards */}
           <div className="peak-usage-skeleton-cards">
             <div className="peak-usage-skeleton-card">
-              <div className="peak-usage-skeleton-card-label" />
-              <div className="peak-usage-skeleton-card-value" />
+              <div className="peak-usage-skeleton-card-label skeleton-shimmer" />
+              <div className="peak-usage-skeleton-card-value skeleton-shimmer" />
             </div>
             <div className="peak-usage-skeleton-card">
-              <div className="peak-usage-skeleton-card-label" />
-              <div className="peak-usage-skeleton-card-value" />
+              <div className="peak-usage-skeleton-card-label skeleton-shimmer" />
+              <div className="peak-usage-skeleton-card-value skeleton-shimmer" />
             </div>
           </div>
 
           {/* Heatmap grid */}
           <div className="peak-usage-skeleton-heatmap">
             {Array.from({ length: 24 }).map((_, i) => (
-              <div key={i} className="peak-usage-skeleton-cell" />
+              <div key={i} className="peak-usage-skeleton-cell skeleton-shimmer" />
             ))}
           </div>
 
           {/* Legend */}
           <div className="peak-usage-skeleton-legend">
-            <div className="peak-usage-skeleton-legend-item" />
-            <div className="peak-usage-skeleton-legend-item" />
-            <div className="peak-usage-skeleton-legend-item" />
+            <div className="peak-usage-skeleton-legend-item skeleton-shimmer" />
+            <div className="peak-usage-skeleton-legend-item skeleton-shimmer" />
+            <div className="peak-usage-skeleton-legend-item skeleton-shimmer" />
           </div>
         </div>
       </div>

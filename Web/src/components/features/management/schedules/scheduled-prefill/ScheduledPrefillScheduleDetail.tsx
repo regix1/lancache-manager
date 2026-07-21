@@ -539,7 +539,7 @@ export function ScheduledPrefillScheduleDetail({
               variant="filled"
               color="green"
               size="sm"
-              className="schedule-control-button"
+              className="control-h-md"
               onClick={onRunNow}
               disabled={runNowDisabled}
               loading={runNowLoading}
@@ -552,7 +552,7 @@ export function ScheduledPrefillScheduleDetail({
               variant="filled"
               color="blue"
               size="sm"
-              className="schedule-control-button"
+              className="control-h-md"
               onClick={() => setModalOpened(true)}
               disabled={disabled}
             >
