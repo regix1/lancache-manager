@@ -173,6 +173,21 @@ const SESSION_GAP_MINUTES: i64 = 5;
 const LINE_BUFFER_CAPACITY: usize = 1024;
 const LOG_ENTRY_INSERT_SQL: &str = r#"INSERT INTO "LogEntries" ("Timestamp", "ClientIp", "Service", "Method", "HttpRange", "Url", "StatusCode", "BytesServed", "CacheStatus", "DepotId", "DownloadId", "CreatedAt", "Datasource")
        SELECT * FROM UNNEST($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::int[], $8::bigint[], $9::text[], $10::bigint[], $11::bigint[], $12::timestamptz[], $13::text[])"#;
+
+/// Character limit of the bounded "Method" and "CacheStatus" varchar(16) columns on
+/// "LogEntries". Values are clamped to it before insert so a single oversized token
+/// cannot abort the whole batch transaction, which is what happened when varchar(10)
+/// rejected nginx's REVALIDATED status and zero entries from the batch survived.
+const LOG_ENTRY_VARCHAR_MAX_CHARS: usize = 16;
+
+/// Clamp a value to a column's character limit without splitting a char boundary.
+fn clamp_chars(value: &str, max_chars: usize) -> String {
+    match value.char_indices().nth(max_chars) {
+        Some((byte_index, _)) => value[..byte_index].to_string(),
+        None => value.to_string(),
+    }
+}
+
 /// Throttle interval for reloading the Xbox CDN fragment patterns from the DB during a run.
 const XBOX_PATTERN_RELOAD: Duration = Duration::from_secs(60);
 
@@ -1914,12 +1929,12 @@ impl Processor {
                 timestamp: Utc.from_utc_datetime(&entry.timestamp),
                 client_ip: entry.client_ip.clone(),
                 service: entry.service.clone(),
-                method: entry.method.clone(),
+                method: clamp_chars(&entry.method, LOG_ENTRY_VARCHAR_MAX_CHARS),
                 http_range: entry.http_range.clone(),
                 url: entry.url.clone(),
                 status_code: entry.status_code,
                 bytes_served: entry.bytes_served,
-                cache_status: entry.cache_status.clone(),
+                cache_status: clamp_chars(&entry.cache_status, LOG_ENTRY_VARCHAR_MAX_CHARS),
                 depot_id: entry.depot_id.map(|d| d as i64),
                 download_id,
                 created_at: now,
@@ -2455,6 +2470,36 @@ mod classification_tests {
         let map = load_positions(path_str).unwrap();
         assert_eq!(map.get("access.log"), Some(&42));
         assert_eq!(map.get("steam-access.log"), Some(&7));
+    }
+}
+
+#[cfg(test)]
+mod log_entry_clamp_tests {
+    use super::{clamp_chars, LOG_ENTRY_VARCHAR_MAX_CHARS};
+
+    #[test]
+    fn values_within_the_column_limit_pass_through_unchanged() {
+        assert_eq!(clamp_chars("GET", LOG_ENTRY_VARCHAR_MAX_CHARS), "GET");
+        // The longest legitimate nginx cache status must survive intact.
+        assert_eq!(
+            clamp_chars("REVALIDATED", LOG_ENTRY_VARCHAR_MAX_CHARS),
+            "REVALIDATED"
+        );
+    }
+
+    #[test]
+    fn oversized_values_clamp_to_the_column_limit() {
+        let oversized = "X".repeat(LOG_ENTRY_VARCHAR_MAX_CHARS + 5);
+        let clamped = clamp_chars(&oversized, LOG_ENTRY_VARCHAR_MAX_CHARS);
+        assert_eq!(clamped.chars().count(), LOG_ENTRY_VARCHAR_MAX_CHARS);
+    }
+
+    #[test]
+    fn clamp_respects_char_boundaries() {
+        let multibyte = "é".repeat(20);
+        let clamped = clamp_chars(&multibyte, LOG_ENTRY_VARCHAR_MAX_CHARS);
+        assert_eq!(clamped.chars().count(), LOG_ENTRY_VARCHAR_MAX_CHARS);
+        assert!(multibyte.starts_with(&clamped));
     }
 }
 

@@ -20,7 +20,7 @@ public class LogEntryRecord
     [MaxLength(50)]
     public string Service { get; set; } = string.Empty;
 
-    [MaxLength(10)]
+    [MaxLength(16)]
     public string Method { get; set; } = string.Empty;
 
     [MaxLength(2000)]
@@ -30,7 +30,9 @@ public class LogEntryRecord
 
     public long BytesServed { get; set; }
 
-    [MaxLength(10)]
+    // varchar(10) rejected nginx's REVALIDATED (11 chars) and aborted whole insert
+    // batches on bare-metal blizzard logs; 16 covers every nginx cache status.
+    [MaxLength(16)]
     public string CacheStatus { get; set; } = string.Empty;
 
     /// <summary>
