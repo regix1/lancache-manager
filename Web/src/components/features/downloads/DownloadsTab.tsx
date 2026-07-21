@@ -1802,7 +1802,7 @@ const DownloadsTab: React.FC = () => {
                           disabled={exportLoading || itemsToDisplay.length === 0}
                           loading={exportLoading}
                         >
-                          <DownloadIcon className="w-5 h-5" />
+                          <DownloadIcon className="w-4 h-4" />
                         </Button>
                       </Tooltip>
                     }
@@ -1834,7 +1834,7 @@ const DownloadsTab: React.FC = () => {
                         className="btn-icon-square"
                         onClick={() => retroViewRef.current?.resetWidths()}
                       >
-                        <Maximize2 className="w-5 h-5" />
+                        <Maximize2 className="w-4 h-4" />
                       </Button>
                     </Tooltip>
                   )}
@@ -1850,7 +1850,7 @@ const DownloadsTab: React.FC = () => {
                         disabled={imageCacheClearing}
                       >
                         <RefreshCw
-                          className={`w-5 h-5${imageCacheClearing ? ' animate-spin' : ''}`}
+                          className={`w-4 h-4${imageCacheClearing ? ' animate-spin' : ''}`}
                         />
                       </Button>
                     </Tooltip>
@@ -1867,7 +1867,7 @@ const DownloadsTab: React.FC = () => {
                       aria-expanded={settingsOpened}
                       aria-controls="downloads-settings-panel"
                     >
-                      <Settings className="w-5 h-5" />
+                      <Settings className="w-4 h-4" />
                     </Button>
                   </Tooltip>
                 </div>

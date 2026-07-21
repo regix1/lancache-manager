@@ -15,6 +15,16 @@ interface CustomScrollbarProps {
    * against Tailwind's important-mode `rounded-xl` on this same element.
    */
   radius?: 'xl' | 'none';
+  /**
+   * Visual treatment of the scrollbar.
+   * 'rail' (default): a full-height tinted track at the edge, with content inset by
+   * paddingMode so it stops at the track.
+   * 'float': for menus whose rows highlight edge-to-edge - no gutter is reserved
+   * (paddingMode is ignored), the track is invisible, and a slim pill thumb floats
+   * above the content, inset from the edge and the panel's rounded corners. A
+   * hairline ring in the panel background keeps it legible over row highlights.
+   */
+  variant?: 'rail' | 'float';
 }
 
 export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
@@ -22,10 +32,15 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   maxHeight = '32rem',
   className = '',
   paddingMode = 'default',
-  radius = 'xl'
+  radius = 'xl',
+  variant = 'rail'
 }) => {
   const basePaddingRight =
-    paddingMode === 'none' ? '0px' : paddingMode === 'compact' ? '6px' : '12px';
+    variant === 'float' || paddingMode === 'none'
+      ? '0px'
+      : paddingMode === 'compact'
+        ? '6px'
+        : '12px';
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollTrackRef = useRef<HTMLDivElement>(null);
   const scrollThumbRef = useRef<HTMLDivElement>(null);
@@ -205,35 +220,26 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       <div
         ref={scrollTrackRef}
         onClick={handleTrackClick}
-        className={`absolute right-0 top-0.5 bottom-0.5 w-2 rounded-xl transition-opacity ${
-          showScrollbar ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-        style={{
-          background: showScrollbar ? 'var(--theme-scrollbar-track)' : 'transparent'
-        }}
+        className={`absolute right-0 w-2 transition-opacity ${
+          variant === 'float'
+            ? 'csb-track--float top-1 bottom-1'
+            : 'csb-track--rail top-0.5 bottom-0.5 rounded-xl'
+        } ${showScrollbar ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
       >
-        {/* Scrollbar thumb */}
+        {/* Scrollbar thumb - measured geometry stays inline; colors live in
+            custom-scrollbar.css */}
         {showScrollbar && (
           <div
             ref={scrollThumbRef}
             onMouseDown={handleMouseDown}
-            className="absolute left-0.5 w-1 min-h-[30px] rounded-lg transition-colors cursor-pointer"
+            className={`csb-thumb absolute w-1 min-h-[30px] transition-colors cursor-pointer ${
+              variant === 'float'
+                ? 'csb-thumb--float right-[3px] rounded-full'
+                : 'left-0.5 rounded-lg'
+            } ${isDragging ? 'csb-thumb--active' : ''}`}
             style={{
               height: `${thumbHeight}px`,
-              top: `${thumbTop}px`,
-              backgroundColor: isDragging
-                ? 'var(--theme-scrollbar-hover)'
-                : 'var(--theme-scrollbar-thumb)'
-            }}
-            onMouseEnter={(e) => {
-              if (!isDragging) {
-                e.currentTarget.style.backgroundColor = 'var(--theme-scrollbar-hover)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!isDragging) {
-                e.currentTarget.style.backgroundColor = 'var(--theme-scrollbar-thumb)';
-              }
+              top: `${thumbTop}px`
             }}
           />
         )}

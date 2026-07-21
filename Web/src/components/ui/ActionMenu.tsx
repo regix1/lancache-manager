@@ -174,7 +174,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`am-dropdown absolute ${width} bg-themed-secondary themed-border-radius shadow-xl overflow-hidden border border-themed-primary z-[85] ${
+            className={`am-dropdown absolute ${width} bg-themed-secondary themed-border-radius-sm shadow-xl overflow-hidden border border-themed-primary z-[85] ${
               closing
                 ? 'animate-[dropdownSlideOut_0.14s_ease-in_forwards]'
                 : 'animate-[dropdownSlide_0.15s_ease-out]'

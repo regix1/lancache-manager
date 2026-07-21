@@ -45,6 +45,16 @@
    the bordered data well. Used by the Recent Downloads panel, the analytics
    widgets, and Top Clients so the whole dashboard reads as one system. */
 
+/* Shared panel heading — theme-scaled title used by Downloads, Service
+   Analytics, Peak Usage Hours, Cache Growth, and Top Clients */
+.dash-panel-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--theme-text-primary);
+}
+
 .dash-readout {
   display: grid;
   grid-auto-flow: column;

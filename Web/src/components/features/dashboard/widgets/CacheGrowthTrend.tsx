@@ -79,9 +79,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
       return (
         <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
           <div className="flex items-center gap-2 mb-3">
-            <h3 className="text-lg font-semibold text-themed-primary">
-              {t('widgets.cacheGrowthTrend.title')}
-            </h3>
+            <h3 className="dash-panel-title">{t('widgets.cacheGrowthTrend.title')}</h3>
           </div>
           <div className="cache-growth-skeleton">
             {/* Large stat */}
@@ -114,9 +112,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
       return (
         <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
           <div className="flex items-center gap-2 mb-3">
-            <h3 className="text-lg font-semibold text-themed-primary">
-              {t('widgets.cacheGrowthTrend.title')}
-            </h3>
+            <h3 className="dash-panel-title">{t('widgets.cacheGrowthTrend.title')}</h3>
           </div>
           <EmptyState
             icon={TrendingUp}
@@ -137,9 +133,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold text-themed-primary">
-              {t('widgets.cacheGrowthTrend.title')}
-            </h3>
+            <h3 className="dash-panel-title">{t('widgets.cacheGrowthTrend.title')}</h3>
             {loading && displayData && <LoadingSpinner size="xs" inline />}
             <HelpPopover width={320}>
               <HelpSection title={t('widgets.cacheGrowthTrend.help.termsTitle')} variant="subtle">

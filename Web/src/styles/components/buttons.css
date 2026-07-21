@@ -96,14 +96,15 @@
     color: var(--theme-icon-red);
   }
 
-  /* Theme-aware button border radius */
+  /* Theme-aware button border radius. Base token, not -lg: buttons follow the
+     squarer small-control corner; the -lg radius is for card shells. */
   .themed-button-radius {
-    border-radius: var(--theme-border-radius-lg);
+    border-radius: var(--theme-border-radius);
   }
 
   /* Theme-aware Button */
   .themed-button-primary {
-    border-radius: var(--theme-border-radius-lg);
+    border-radius: var(--theme-border-radius);
     background-color: var(--theme-button-bg);
     border-color: var(--theme-button-bg);
   }

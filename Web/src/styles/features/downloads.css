@@ -645,10 +645,18 @@
 
   /* ===== CARD GRID LAYOUT ===== */
 
+  /* Top inset gives the first row's hover raise (translateY(-2px) + shadow) room
+     inside the clipping scroll ancestor. Rows already space themselves with
+     padding-bottom, so in the virtualized grid only row 0 needs the inset. */
   .card-grid-container {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 1rem;
+    padding-top: 0.25rem;
+  }
+
+  .virtual-list-parent-cardgrid .virtual-grid-row[data-index='0'] {
+    padding-top: 0.25rem;
   }
 
   .card-grid-container.card-size-small {
@@ -1493,6 +1501,58 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--theme-text-secondary);
+  }
+
+  /* Column resize dividers: a 10px hit strip straddling each header cell
+     boundary (the last column's strip stays inside its cell so it cannot add
+     horizontal overflow). Thin marker at rest; full-height line while
+     hovered, keyboard-focused, or dragging. */
+  .retro-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -5px;
+    width: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 10;
+  }
+
+  .retro-resize-handle:focus-visible {
+    outline: none;
+  }
+
+  .retro-resize-handle-last {
+    right: 0;
+    justify-content: flex-end;
+  }
+
+  .retro-resize-handle-line {
+    width: 1px;
+    height: 1rem;
+    border-radius: 1px;
+    background: var(--theme-primary);
+    opacity: 0.3;
+  }
+
+  .retro-resize-handle:hover .retro-resize-handle-line,
+  .retro-resize-handle:focus-visible .retro-resize-handle-line,
+  .retro-resize-handle:active .retro-resize-handle-line {
+    width: 2px;
+    height: 100%;
+    opacity: 1;
+  }
+
+  /* While a divider drag is active the pointer can leave the 10px strip;
+     keep the resize cursor and suppress text selection everywhere until the
+     pointer is released. */
+  body.retro-col-resizing,
+  body.retro-col-resizing * {
+    cursor: col-resize !important;
+    user-select: none !important;
   }
 
   /* Body rows: efficiency accent stripe + zebra tint (no divider; the zebra

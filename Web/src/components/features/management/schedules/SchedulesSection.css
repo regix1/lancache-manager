@@ -106,15 +106,21 @@
   /* Column-air knobs. Desktop gets the roomier values; the 768-1023px band drops
      back to the compact originals below - the extra air otherwise comes straight
      out of the flexible text columns, crushing the task cell on tablets. The
-     settings track is always pill width (7.25rem) + 2x its inline padding. */
+     settings track is always pill width (7.25rem) + its left and right inline
+     padding, so the pills keep their width. The right pad is deliberately larger:
+     it is the Settings <-> Run every separation, and widening it pulls space out
+     of the flexible task column (the widest fr track), which has room to give. */
   --schedule-col-gap: 1.25rem;
-  --schedule-settings-track: 10.75rem;
-  --schedule-settings-pad: 1.75rem;
+  --schedule-settings-pad: 2.25rem;
+  --schedule-settings-pad-right: 6rem;
+  --schedule-settings-track: calc(
+    7.25rem + var(--schedule-settings-pad) + var(--schedule-settings-pad-right)
+  );
   /* The Run Now / chevron cluster is right-aligned in this track, so widening it
      past the cluster's own ~8.25rem leaves the slack on the LEFT - that slack plus
      the column gap is the breathing room between the Run Every dropdown and Run
      Now, without shifting the chevron off the table's right edge. */
-  --schedule-actions-track: 10rem;
+  --schedule-actions-track: 11rem;
   display: grid;
   grid-template-columns:
     minmax(0, 2.5fr) minmax(0, 0.85fr) minmax(0, 1.05fr) var(--schedule-settings-track)
@@ -148,7 +154,7 @@
    row, leaving the open row showing a light highlight until the next tap elsewhere. */
 @media (hover: hover) {
   .schedule-row--interactive:hover {
-    background-color: var(--theme-bg-hover);
+    background-color: var(--theme-bg-tertiary);
   }
 }
 
@@ -392,18 +398,19 @@
      to sit clear of the readouts on its left and the interval picker on its right.
      Targeted by position so the head label and the row pills inset identically (both
      grids share the template; column 4 is the settings column in each). The settings
-     track is pill width plus twice this padding, so the pills keep their width. */
+     track is pill width plus both pads, so the pills keep their width. */
   .schedule-table-cols > :nth-child(4) {
-    padding-inline: var(--schedule-settings-pad);
+    padding-inline: var(--schedule-settings-pad) var(--schedule-settings-pad-right);
   }
 }
 
-/* Tablet band: the compact original spacing - see the knobs comment above. */
+/* Tablet band: the compact original spacing - see the knobs comment above. The
+   track re-derives from the calc, so only the pads need restating here. */
 @media (min-width: 768px) and (max-width: 1023px) {
   .schedule-table-cols {
     --schedule-col-gap: 0.75rem;
-    --schedule-settings-track: 8.75rem;
     --schedule-settings-pad: 0.75rem;
+    --schedule-settings-pad-right: 0.75rem;
     --schedule-actions-track: 8.25rem;
   }
 }
@@ -776,7 +783,7 @@
   }
 
   .scheduled-prefill-schedule-table__row:hover {
-    background: var(--theme-bg-hover);
+    background: var(--theme-bg-tertiary-muted);
   }
 
   .scheduled-prefill-schedule-table__row:nth-child(even):hover {

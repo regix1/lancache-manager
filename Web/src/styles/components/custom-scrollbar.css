@@ -1,0 +1,33 @@
+@layer components {
+  /* ==============================================
+   * CUSTOM SCROLLBAR - CustomScrollbar component
+   * Static colors for the hand-drawn scrollbar; the thumb's measured
+   * geometry (height/top) is set inline by the component.
+   * ============================================== */
+
+  /* Rail variant: full-height tinted track sitting in a reserved gutter. */
+  .csb-track--rail {
+    background: var(--theme-scrollbar-track);
+  }
+
+  /* Float variant: no track fill - the thumb alone floats over the content. */
+  .csb-track--float {
+    background: transparent;
+  }
+
+  .csb-thumb {
+    background-color: var(--theme-scrollbar-thumb);
+  }
+
+  .csb-thumb:hover,
+  .csb-thumb--active {
+    background-color: var(--theme-scrollbar-hover);
+  }
+
+  /* The hairline ring in the panel's own background lifts the pill off
+     whatever passes beneath it (row hover/selected highlights included),
+     so the thumb and a highlighted row never merge into one shape. */
+  .csb-thumb--float {
+    box-shadow: 0 0 0 1px var(--theme-bg-secondary);
+  }
+}

@@ -6,7 +6,7 @@
   /* Theme-aware Input */
   .themed-input {
     @apply border;
-    border-radius: var(--theme-border-radius-lg);
+    border-radius: var(--theme-border-radius);
     background-color: var(--theme-input-bg);
     border-color: var(--theme-input-border);
     color: var(--theme-text-primary);

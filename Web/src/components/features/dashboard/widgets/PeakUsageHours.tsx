@@ -152,9 +152,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         <div className="flex items-center gap-2 mb-3">
-          <h3 className="text-lg font-semibold text-themed-primary">
-            {t('widgets.peakUsageHours.title')}
-          </h3>
+          <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
         </div>
         <div className="peak-usage-skeleton">
           {/* Period totals bar */}
@@ -195,9 +193,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         <div className="flex items-center gap-2 mb-3">
-          <h3 className="text-lg font-semibold text-themed-primary">
-            {t('widgets.peakUsageHours.title')}
-          </h3>
+          <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
         </div>
         <EmptyState
           icon={Clock}
@@ -218,9 +214,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         <div className="flex items-center gap-2 mb-3">
-          <h3 className="text-lg font-semibold text-themed-primary">
-            {t('widgets.peakUsageHours.title')}
-          </h3>
+          <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
         </div>
         <div className="well-surface dash-well p-3 flex-1 flex flex-col">
           <EmptyState
@@ -239,9 +233,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
       {/* Header */}
       <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
-          <h3 className="text-lg font-semibold text-themed-primary">
-            {t('widgets.peakUsageHours.title')}
-          </h3>
+          <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
           {loading && displayData && <LoadingSpinner size="xs" inline />}
           <HelpPopover width={320}>
             <HelpSection title={t('widgets.peakUsageHours.help.aboutTitle')}>

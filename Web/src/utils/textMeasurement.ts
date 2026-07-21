@@ -60,7 +60,6 @@ export interface ColumnWidths {
   client: number;
   speed: number;
   cacheHit: number;
-  cacheMiss: number;
   overall: number;
 }
 
@@ -77,6 +76,7 @@ interface RetroViewFonts {
   clientSub: string;
   speed: string;
   cacheValue: string;
+  gaugeLabel: string;
 }
 
 // Matches Tailwind's font-mono stack, which the retro cells render with.
@@ -126,7 +126,9 @@ export function getRetroViewFonts(): RetroViewFonts {
     // Speed (text-xs mono medium)
     speed: `500 12px ${mono}`,
     // Cache hit/miss labels under the bar (10px mono)
-    cacheValue: `400 10px ${mono}`
+    cacheValue: `400 10px ${mono}`,
+    // Efficiency gauge label under the dial (9px mono semibold uppercase)
+    gaugeLabel: `600 9px ${mono}`
   };
   return cachedRetroFonts;
 }

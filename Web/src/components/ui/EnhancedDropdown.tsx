@@ -554,7 +554,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         }}
         disabled={disabled}
         aria-label={resolvedAriaLabel}
-        className={`ed-trigger w-full px-3 ${triggerSizeClass} themed-border-radius border text-left flex items-center justify-between text-sm text-themed-primary ${
+        className={`ed-trigger w-full px-3 ${triggerSizeClass} themed-border-radius-sm border text-left flex items-center justify-between text-sm text-themed-primary ${
           variant === 'button' ? 'bg-themed-surface hover:bg-themed-surface-hover' : 'themed-card'
         } ${
           isOpen
@@ -589,7 +589,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`ed-dropdown ed-dropdown--menu absolute themed-border-radius border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] z-[250] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
+            className={`ed-dropdown ed-dropdown--menu absolute themed-border-radius-sm border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] z-[250] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
             style={{
               top: dropdownPosition.top,
               left: dropdownPosition.left,
@@ -611,10 +611,12 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
 
             <CustomScrollbar
               maxHeight={cleanStyle ? 'none' : maxHeight || '280px'}
-              paddingMode="compact"
+              variant="float"
               className="!rounded-none"
             >
-              <div className={compactMode ? 'py-0.5' : 'py-1'}>
+              {/* No vertical padding: the first/last option's highlight must reach the
+                  panel edge, where the rounded overflow clip finishes the corners. */}
+              <div>
                 {options.map((option) =>
                   option.value === 'divider' ? (
                     <div
@@ -682,7 +684,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                         createPortal(
                           <div
                             ref={submenuRef}
-                            className="ed-dropdown absolute w-64 themed-border-radius border border-themed-primary overflow-hidden z-[251] bg-themed-secondary animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]"
+                            className="ed-dropdown absolute w-64 themed-border-radius-sm border border-themed-primary overflow-hidden z-[251] bg-themed-secondary animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]"
                             style={{
                               top: submenuPosition.top,
                               left: submenuPosition.left
@@ -693,8 +695,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                 {option.submenuTitle}
                               </div>
                             )}
-                            <CustomScrollbar maxHeight="240px" paddingMode="none">
-                              <div className="py-1">
+                            <CustomScrollbar maxHeight="240px" variant="float">
+                              <div>
                                 {option.submenu.map((subItem) => {
                                   const isSubSelected =
                                     value === `${option.value}:${subItem.value}`;

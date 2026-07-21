@@ -266,7 +266,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`msd-trigger w-full px-3 h-10 themed-border-radius border text-left flex items-center justify-between gap-2 text-sm font-medium themed-card text-themed-primary ${
+        className={`msd-trigger w-full px-3 h-10 themed-border-radius-sm border text-left flex items-center justify-between gap-2 text-sm font-medium themed-card text-themed-primary ${
           isOpen ? 'msd-trigger-open border-themed-focus' : 'border-themed-primary'
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
@@ -287,7 +287,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`msd-dropdown absolute z-[250] ${dropdownWidth || ''} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary`}
+            className={`msd-dropdown absolute z-[250] ${dropdownWidth || ''} themed-border-radius-sm overflow-hidden bg-themed-secondary border border-themed-primary`}
             style={{
               top: dropdownStyle.top,
               left: dropdownStyle.left,
@@ -303,7 +303,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
               </div>
             )}
 
-            <CustomScrollbar maxHeight="280px" paddingMode="compact">
+            <CustomScrollbar maxHeight="280px" variant="float">
               <div
                 className="bg-themed-secondary"
                 style={{ overscrollBehavior: 'contain' }}

@@ -776,7 +776,7 @@ const Dashboard: React.FC = () => {
               {/* Hidden Cards Dropdown */}
               {dropdownPresent && (
                 <div
-                  className={`dash-hidden-dropdown absolute left-0 sm:left-auto sm:right-0 mt-2 w-72 sm:w-80 themed-border-radius border shadow-xl z-50 themed-card border-themed-primary${dropdownClosing ? ' dash-hidden-dropdown--closing' : ''}`}
+                  className={`dash-hidden-dropdown absolute left-0 sm:left-auto sm:right-0 mt-2 w-72 sm:w-80 themed-border-radius-sm border shadow-xl z-50 themed-card border-themed-primary${dropdownClosing ? ' dash-hidden-dropdown--closing' : ''}`}
                 >
                   {/* Search - only show if more than 3 hidden cards */}
                   {hiddenCardsCount > 3 && (
@@ -789,7 +789,7 @@ const Dashboard: React.FC = () => {
                           onChange={(e) => setSearchQuery(e.target.value)}
                           placeholder={t('dashboard.searchHiddenCards')}
                           aria-label={t('dashboard.searchHiddenCards')}
-                          className="w-full pl-10 pr-3 py-2 themed-border-radius text-sm bg-themed-tertiary text-themed-primary border border-themed-primary"
+                          className="w-full pl-10 pr-3 py-2 themed-border-radius-sm text-sm bg-themed-tertiary text-themed-primary border border-themed-primary"
                           autoFocus
                         />
                       </div>
@@ -810,7 +810,7 @@ const Dashboard: React.FC = () => {
                         setDropdownOpen(false);
                         setSearchQuery('');
                       }}
-                      className="hover-btn w-full px-3 py-2 text-sm themed-border-radius text-left flex items-center gap-2 text-themed-accent"
+                      className="hover-btn w-full px-3 py-2 text-sm themed-border-radius-sm text-left flex items-center gap-2 text-themed-accent"
                     >
                       <Eye className="w-4 h-4" />
                       {t('dashboard.showAllCards')}
@@ -832,7 +832,7 @@ const Dashboard: React.FC = () => {
                                 setSearchQuery('');
                               }
                             }}
-                            className="hover-btn w-full p-2.5 themed-border-radius flex items-center gap-3 group"
+                            className="hover-btn w-full p-2.5 themed-border-radius-sm flex items-center gap-3 group"
                           >
                             <div
                               className="stat-card-icon p-1.5 themed-border-radius"
@@ -917,7 +917,7 @@ const Dashboard: React.FC = () => {
             >
               <button
                 onClick={hideDragHint}
-                className="ml-2 p-1 themed-border-radius hover:bg-themed-hover transition-colors flex-shrink-0 text-themed-muted"
+                className="ml-2 p-1 themed-border-radius-sm hover:bg-themed-hover transition-colors flex-shrink-0 text-themed-muted"
                 aria-label={t('dashboard.hideThisHint')}
               >
                 <X className="w-4 h-4" />
@@ -977,7 +977,7 @@ const Dashboard: React.FC = () => {
                   strategy="overlay"
                   className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity hidden md:block z-[5]"
                 >
-                  <div className="p-1 themed-border-radius cursor-grab hover:bg-themed-hover">
+                  <div className="p-1 themed-border-radius-sm cursor-grab hover:bg-themed-hover">
                     <GripVertical className="w-4 h-4 text-themed-muted" />
                   </div>
                 </Tooltip>
@@ -987,7 +987,7 @@ const Dashboard: React.FC = () => {
               {isEditMode && (
                 <div className="absolute top-2 left-2 md:hidden z-[5] edit-mode-handle">
                   <div
-                    className={`edit-mode-handle-inner p-1.5 themed-border-radius ${
+                    className={`edit-mode-handle-inner p-1.5 themed-border-radius-sm ${
                       draggedCard === card.key ? 'handle-active' : ''
                     }`}
                   >
@@ -1028,7 +1028,7 @@ const Dashboard: React.FC = () => {
                     event.stopPropagation();
                     toggleCardVisibility(card.key);
                   }}
-                  className="p-2.5 themed-border-radius transition-colors hover:bg-themed-hover focus-visible:opacity-100"
+                  className="p-2.5 themed-border-radius-sm transition-colors hover:bg-themed-hover focus-visible:opacity-100"
                   aria-label={t('tooltips.hideThisCard')}
                 >
                   <EyeOff className="w-3.5 h-3.5 text-themed-muted" />

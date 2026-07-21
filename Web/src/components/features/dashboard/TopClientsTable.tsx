@@ -142,7 +142,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
     return (
       <Card glassmorphism={glassmorphism}>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-          <h3 className="text-lg font-semibold text-themed-primary flex items-center gap-2">
+          <h3 className="dash-panel-title flex items-center gap-2">
             {t('dashboard.topClients.title')}
             <CacheInfoTooltip />
           </h3>

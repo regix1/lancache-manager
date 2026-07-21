@@ -2,28 +2,20 @@ import { measureTextWidth, getRetroViewFonts, type ColumnWidths } from '@utils/t
 
 export const RETRO_WIDTHS_STORAGE_KEY = 'retro-view-column-widths';
 
-const GRID_GAP = 8;
+// Horizontal row padding (1rem each side) that the grid template cannot use.
 const GRID_PADDING = 32;
-const GRID_FIXED_ADDITIONS = 20; // overall +20 in grid template
-export const RESIZE_MIN_WIDTH = 60;
-const COLUMN_FIT_FLOOR = 40;
 
-const MIN_COLUMN_WIDTHS: ColumnWidths = {
-  timestamp: 80,
-  banner: 120,
-  app: 100,
-  datasource: 70,
-  events: 50,
-  depot: 40,
-  client: 60,
-  speed: 50,
-  cacheHit: 80,
-  cacheMiss: 0,
-  overall: 50
-};
+// Hard floor for a user-sized column; content below this truncates.
+export const RESIZE_MIN_WIDTH = 48;
 
-// Baseline widths used as the floor when measuring real content. Also the
-// initial render widths before the first auto-fit pass runs.
+// Rendered size of the efficiency dial (mirrors .retro-gauge-dial). The row
+// renderer draws its SVG at this size and the auto-fit measurement uses it as
+// the gauge column's content width.
+export const GAUGE_DIAL_SIZE = 44;
+
+// Fallback widths for columns whose content cannot be canvas-measured
+// (event badges, artwork) and the initial render widths before the first
+// auto-fit pass runs.
 const MEASURE_BASE_WIDTHS: ColumnWidths = {
   timestamp: 120,
   banner: 120,
@@ -34,11 +26,45 @@ const MEASURE_BASE_WIDTHS: ColumnWidths = {
   client: 70,
   speed: 60,
   cacheHit: 150,
-  cacheMiss: 0,
-  overall: 80
+  overall: 64
 };
 
 export const getDefaultColumnWidths = (): ColumnWidths => ({ ...MEASURE_BASE_WIDTHS });
+
+const COLUMN_KEYS = Object.keys(MEASURE_BASE_WIDTHS) as (keyof ColumnWidths)[];
+
+/**
+ * Load persisted manual widths. Unknown keys are dropped and every value must
+ * be a finite number, so a stale or hand-edited entry can never produce a
+ * broken grid template; missing columns fall back to their defaults.
+ */
+export const readStoredWidths = (): ColumnWidths | null => {
+  try {
+    const saved = localStorage.getItem(RETRO_WIDTHS_STORAGE_KEY);
+    if (!saved) return null;
+    const parsed: unknown = JSON.parse(saved);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const raw = parsed as Record<string, unknown>;
+    const widths = getDefaultColumnWidths();
+    COLUMN_KEYS.forEach((key) => {
+      const value = raw[key];
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        widths[key] = Math.max(RESIZE_MIN_WIDTH, Math.round(value));
+      }
+    });
+    // Entries written before the cache column became a single track persisted
+    // it as separate hit/miss widths that rendered merged; fold the legacy
+    // miss share back in so an old entry keeps its overall cache width.
+    const legacyMiss = raw.cacheMiss;
+    if (typeof legacyMiss === 'number' && Number.isFinite(legacyMiss) && legacyMiss > 0) {
+      widths.cacheHit += Math.round(legacyMiss);
+    }
+    return widths;
+  } catch {
+    // Ignore localStorage errors
+    return null;
+  }
+};
 
 export interface RetroColumnVisibility {
   showDatasource: boolean;
@@ -60,133 +86,59 @@ const getVisibleColumns = ({
   return columns;
 };
 
-const getAvailableGridWidth = (
-  containerWidth: number,
-  visibility: RetroColumnVisibility
-): number => {
-  const columns = getVisibleColumns(visibility);
-  const columnCount = columns.length;
-  const gapCount = columnCount - 1;
-  return containerWidth - GRID_PADDING - gapCount * GRID_GAP - GRID_FIXED_ADDITIONS;
-};
-
-export const fitWidthsToContainer = (
-  widths: ColumnWidths,
-  containerWidth: number,
-  visibility: RetroColumnVisibility,
-  lockedMinWidths?: Partial<ColumnWidths>
-): ColumnWidths => {
-  const availableWidth = getAvailableGridWidth(containerWidth, visibility);
-  if (!Number.isFinite(availableWidth) || availableWidth <= 0) {
-    return widths;
-  }
-
-  const columns = getVisibleColumns(visibility);
-  const minWidths: ColumnWidths = { ...MIN_COLUMN_WIDTHS };
-  if (lockedMinWidths) {
-    Object.entries(lockedMinWidths).forEach(([column, value]) => {
-      const key = column as keyof ColumnWidths;
-      minWidths[key] = Math.max(minWidths[key], value ?? 0);
-    });
-  }
-
-  const normalized: ColumnWidths = { ...widths, cacheMiss: 0 };
-  columns.forEach((column) => {
-    normalized[column] = Math.max(minWidths[column], normalized[column]);
-  });
-
-  const totalWidth = columns.reduce((sum, column) => sum + normalized[column], 0);
-  if (totalWidth <= availableWidth) {
-    return normalized;
-  }
-
-  const totalMin = columns.reduce((sum, column) => sum + minWidths[column], 0);
-  if (totalMin >= availableWidth) {
-    const lockedColumns = new Set(
-      columns.filter(
-        (column) =>
-          lockedMinWidths !== undefined &&
-          Object.prototype.hasOwnProperty.call(lockedMinWidths, column)
-      )
-    );
-
-    if (lockedColumns.size > 0) {
-      const fitted: ColumnWidths = { ...normalized, cacheMiss: 0 };
-      const unlockedColumns = columns.filter((column) => !lockedColumns.has(column));
-      const lockedTotal = columns.reduce(
-        (sum, column) => sum + (lockedColumns.has(column) ? minWidths[column] : 0),
-        0
-      );
-      const availableForUnlocked = Math.max(0, availableWidth - lockedTotal);
-      const sharedFloor =
-        unlockedColumns.length > 0
-          ? Math.max(
-              1,
-              Math.min(COLUMN_FIT_FLOOR, Math.floor(availableForUnlocked / unlockedColumns.length))
-            )
-          : 0;
-      const remaining = Math.max(0, availableForUnlocked - sharedFloor * unlockedColumns.length);
-      const flexTotal = unlockedColumns.reduce(
-        (sum, column) => sum + Math.max(0, minWidths[column] - sharedFloor),
-        0
-      );
-
-      columns.forEach((column) => {
-        if (lockedColumns.has(column)) {
-          fitted[column] = minWidths[column];
-          return;
-        }
-
-        const flex = Math.max(0, minWidths[column] - sharedFloor);
-        const share = flexTotal > 0 ? (flex / flexTotal) * remaining : 0;
-        fitted[column] = Math.floor(sharedFloor + share);
-      });
-      return fitted;
-    }
-
-    const scale = availableWidth / totalMin;
-    const scaled: ColumnWidths = { ...normalized, cacheMiss: 0 };
-    columns.forEach((column) => {
-      scaled[column] = Math.max(COLUMN_FIT_FLOOR, Math.floor(minWidths[column] * scale));
-    });
-    return scaled;
-  }
-
-  const extra = availableWidth - totalMin;
-  const flexTotal = columns.reduce(
-    (sum, column) => sum + Math.max(0, normalized[column] - minWidths[column]),
-    0
-  );
-  const fitted: ColumnWidths = { ...normalized, cacheMiss: 0 };
-  columns.forEach((column) => {
-    const flex = Math.max(0, normalized[column] - minWidths[column]);
-    const share = flexTotal > 0 ? (flex / flexTotal) * extra : 0;
-    fitted[column] = Math.floor(minWidths[column] + share);
-  });
-
-  return fitted;
-};
+// Columns excluded from auto-fit expansion: the banner box is fixed-size
+// artwork and the gauge reads best at its content width (leftover space used
+// to pool in the gauge column via a 1fr track, leaving the dial adrift in a
+// far-too-wide last column).
+const FIXED_CONTENT_COLUMNS: ReadonlySet<keyof ColumnWidths> = new Set(['banner', 'overall']);
 
 /**
- * Fit content-measured widths to the page while keeping timestamp lines
- * intact. Other columns can truncate gracefully, but losing AM/PM changes the
- * meaning of the displayed time.
+ * Auto-fit: distribute leftover container width across the text columns in
+ * proportion to their measured widths. Measured widths are never reduced;
+ * when content is wider than the container the table scrolls horizontally.
  */
 export const fitMeasuredWidthsToContainer = (
-  widths: ColumnWidths,
+  measured: ColumnWidths,
   containerWidth: number,
   visibility: RetroColumnVisibility
-): ColumnWidths =>
-  fitWidthsToContainer(
-    widths,
-    containerWidth,
-    visibility,
-    visibility.showTimestamps ? { timestamp: widths.timestamp } : undefined
-  );
+): ColumnWidths => {
+  const available = containerWidth - GRID_PADDING;
+  if (!Number.isFinite(available) || available <= 0) {
+    return measured;
+  }
+
+  const columns = getVisibleColumns(visibility);
+  const total = columns.reduce((sum, column) => sum + measured[column], 0);
+  const extra = available - total;
+  if (extra <= 0) {
+    return measured;
+  }
+
+  const flexColumns = columns.filter((column) => !FIXED_CONTENT_COLUMNS.has(column));
+  const flexTotal = flexColumns.reduce((sum, column) => sum + measured[column], 0);
+  if (flexTotal <= 0) {
+    return measured;
+  }
+
+  const fitted: ColumnWidths = { ...measured };
+  let used = 0;
+  flexColumns.forEach((column) => {
+    const share = Math.floor((extra * measured[column]) / flexTotal);
+    fitted[column] += share;
+    used += share;
+  });
+  // Rounding remainder goes to the app column so the grid fills the container
+  // to the pixel.
+  fitted.app += extra - used;
+  return fitted;
+};
 
 // Build the grid-template-columns value applied as the --retro-grid-cols CSS
 // variable on the table container. Rows and the header consume the variable,
 // so resize drags only touch one DOM node instead of re-rendering every row.
+// Every track is an exact pixel width: resizing one column changes the
+// table's total width and the container's horizontal scrollbar absorbs the
+// difference, leaving every other column exactly where the user put it.
 export const buildGridTemplate = (
   widths: ColumnWidths,
   visibility: RetroColumnVisibility
@@ -201,8 +153,8 @@ export const buildGridTemplate = (
     `${widths.depot}px`,
     `${widths.client}px`,
     `${widths.speed}px`,
-    `${widths.cacheHit + widths.cacheMiss}px`,
-    `minmax(${widths.overall + 20}px, 1fr)`
+    `${widths.cacheHit}px`,
+    `${widths.overall}px`
   );
   return parts.join(' ');
 };
@@ -221,6 +173,7 @@ export interface RetroMeasureRow {
   speedLabel: string;
   hitLabel: string;
   missLabel: string;
+  gaugeLabel: string;
 }
 
 const maxRowWidth = (
@@ -305,8 +258,17 @@ export const measureRetroColumn = (
         width = Math.max(width, hitWidth + missWidth + 8 + 32);
       });
       break;
+    case 'overall':
+      // Gauge column: dial plus the widest tier label under it. Padding on
+      // the label absorbs its letter-spacing, which canvas cannot measure.
+      width = Math.max(
+        width,
+        GAUGE_DIAL_SIZE + 16,
+        maxRowWidth(rows, fonts.gaugeLabel, (r) => r.gaugeLabel, 24)
+      );
+      break;
     default:
-      // events / overall are header-driven
+      // events is badge-driven; its base width applies.
       break;
   }
 
@@ -319,14 +281,14 @@ export const measureRetroColumn = (
 /**
  * Measure every visible column from real row content. Callers can then keep
  * these content widths for horizontal scrolling or pass them through
- * fitWidthsToContainer for responsive auto-fit behavior.
+ * fitMeasuredWidthsToContainer for responsive auto-fit behavior.
  */
 export const measureAllRetroColumns = (
   rows: RetroMeasureRow[],
   headers: Record<keyof ColumnWidths, string>,
   visibility: RetroColumnVisibility
 ): ColumnWidths => {
-  const measured: ColumnWidths = { ...MEASURE_BASE_WIDTHS, cacheMiss: 0 };
+  const measured: ColumnWidths = { ...MEASURE_BASE_WIDTHS };
   getVisibleColumns(visibility).forEach((column) => {
     measured[column] = measureRetroColumn(column, rows, headers[column]);
   });

@@ -597,7 +597,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     <Card glassmorphism={glassmorphism} className="recent-downloads-panel">
       {/* Header */}
       <div className="rdl-header">
-        <h3>{t('dashboard.downloadsPanel.title')}</h3>
+        <h3 className="dash-panel-title">{t('dashboard.downloadsPanel.title')}</h3>
 
         <div className="flex items-center gap-2">
           {viewMode === 'recent' && (

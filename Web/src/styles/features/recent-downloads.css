@@ -23,11 +23,6 @@
 }
 
 .rdl-header h3 {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--theme-text-primary);
-  margin: 0;
   min-width: 0;
 }
 

@@ -211,7 +211,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         {/* Header */}
         <div className="service-analytics-header">
           <div className="service-analytics-heading">
-            <h3>{t('dashboard.serviceAnalytics.title')}</h3>
+            <h3 className="dash-panel-title">{t('dashboard.serviceAnalytics.title')}</h3>
             <p>{activeDescription}</p>
           </div>
 

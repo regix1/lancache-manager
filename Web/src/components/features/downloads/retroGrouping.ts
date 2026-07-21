@@ -275,3 +275,13 @@ export const mapDtoToDepotGroupedData = (dto: RetroDownloadDto): DepotGroupedDat
     isPartiallyEvicted: false
   };
 };
+
+// Hit-rate classification shared by the row renderer (gauge color, accent
+// stripe) and the column auto-fit measurement (gauge label width).
+export type EfficiencyTier = 'success' | 'warning' | 'error';
+
+export const efficiencyTier = (percent: number): EfficiencyTier => {
+  if (percent >= 90) return 'success';
+  if (percent >= 50) return 'warning';
+  return 'error';
+};

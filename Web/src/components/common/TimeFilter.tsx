@@ -319,7 +319,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
             onClick={() => !disabled && setIsOpen(!isOpen)}
             disabled={disabled}
             aria-label={t('common.timeFilter.title')}
-            className={`ed-trigger w-full px-3 h-10 themed-border-radius border text-left flex items-center justify-between text-sm bg-[var(--theme-card-bg)] text-[var(--theme-text-primary)] ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
+            className={`ed-trigger w-full px-3 h-10 themed-border-radius-sm border text-left flex items-center justify-between text-sm bg-[var(--theme-card-bg)] text-[var(--theme-text-primary)] ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
           >
             <div
               className={`flex items-center flex-1 truncate ${iconOnly ? 'justify-center' : 'gap-1.5'}`}
@@ -359,7 +359,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
             createPortal(
               <div
                 ref={dropdownRef}
-                className="ed-dropdown fixed w-64 rounded-lg border overflow-hidden bg-[var(--theme-bg-secondary)] border-[var(--theme-border-primary)] max-w-[calc(100vw-32px)] z-[85]"
+                className="ed-dropdown fixed w-64 themed-border-radius-sm border overflow-hidden bg-[var(--theme-bg-secondary)] border-[var(--theme-border-primary)] max-w-[calc(100vw-32px)] z-[85]"
                 style={{
                   top: dropdownPosition.top,
                   left: dropdownPosition.left,
@@ -372,9 +372,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                   {t('common.timeFilter.title')}
                 </div>
 
-                <CustomScrollbar maxHeight="min(70vh, 32rem)" paddingMode="compact">
+                <CustomScrollbar maxHeight="min(70vh, 32rem)" variant="float">
                   {/* Time Range Options */}
-                  <div className="py-1">
+                  <div>
                     {timeOptions.map((option) => {
                       const isSelected = option.value === timeRange;
                       const optionButton = (

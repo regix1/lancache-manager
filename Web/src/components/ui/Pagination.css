@@ -11,7 +11,7 @@
 
 .pagination-group__btn {
   padding: 0.375rem;
-  border-radius: 9999px;
+  border-radius: var(--theme-border-radius);
   background-color: transparent;
   color: var(--theme-text-primary);
   border: none;

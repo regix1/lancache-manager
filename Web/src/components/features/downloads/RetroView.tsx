@@ -14,7 +14,12 @@ import { HardDrive, Download } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 import './VirtualizedList.css';
-import type { RetroViewHandle, RetroRowData, HitMissFilter } from './RetroView.types';
+import type {
+  RetroViewHandle,
+  RetroRowData,
+  RetroColumnDragState,
+  HitMissFilter
+} from './RetroView.types';
 import { useIsDesktop } from '@hooks/useMediaQuery';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
@@ -27,6 +32,7 @@ import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import RetroRow from './RetroRow';
 import { useRetroDownloads } from './useRetroDownloads';
 import {
+  efficiencyTier,
   formatTimeRange,
   formatTimeRangeLines,
   groupByDepot,
@@ -39,10 +45,10 @@ import {
   RESIZE_MIN_WIDTH,
   buildGridTemplate,
   fitMeasuredWidthsToContainer,
-  fitWidthsToContainer,
   getDefaultColumnWidths,
   measureAllRetroColumns,
   measureRetroColumn,
+  readStoredWidths,
   type RetroColumnVisibility,
   type RetroMeasureRow
 } from './retroColumnSizing';
@@ -204,22 +210,8 @@ const RetroSkeletonRows: React.FC<{ isDesktop: boolean; visibility: RetroColumnV
 const widthsEqual = (a: ColumnWidths, b: ColumnWidths): boolean =>
   (Object.keys(a) as (keyof ColumnWidths)[]).every((key) => a[key] === b[key]);
 
-// Column resize handle component
-const ResizeHandle: React.FC<{
-  onMouseDown: (e: React.MouseEvent) => void;
-  onDoubleClick: (e: React.MouseEvent) => void;
-}> = ({ onMouseDown, onDoubleClick }) => (
-  <div
-    className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize group z-10 flex items-center justify-end"
-    onMouseDown={onMouseDown}
-    onDoubleClick={onDoubleClick}
-  >
-    {/* Subtle divider - always visible */}
-    <div className="h-4 w-px rounded transition-[width,height] duration-150 group-hover:h-full group-hover:w-0.5 bg-[var(--theme-primary)] opacity-30" />
-    {/* Brighter line on hover */}
-    <div className="absolute h-full w-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--theme-primary)]" />
-  </div>
-);
+// Keyboard resize step for a focused divider (ArrowLeft / ArrowRight).
+const RESIZE_KEY_STEP = 8;
 
 // Virtualization: RetroView rows have heavy content (banners, columns,
 // tooltips). Threshold is lower (>100) because row cost is high.
@@ -349,7 +341,6 @@ const RetroView = memo(
           client: t('downloads.tab.retro.headers.client'),
           speed: t('downloads.tab.retro.headers.avgSpeed'),
           cacheHit: t('downloads.tab.retro.headers.cachePerformance'),
-          cacheMiss: t('downloads.tab.retro.headers.cachePerformance'),
           overall: t('downloads.tab.retro.headers.efficiency')
         }),
         [t]
@@ -364,6 +355,7 @@ const RetroView = memo(
             const totalBytes = data.totalBytes || 0;
             const hitPercent = totalBytes > 0 ? (data.cacheHitBytes / totalBytes) * 100 : 0;
             const missPercent = totalBytes > 0 ? (data.cacheMissBytes / totalBytes) * 100 : 0;
+            const tier = efficiencyTier(hitPercent);
             const detection = resolveGameDetection(
               data.gameAppId,
               data.gameName,
@@ -402,7 +394,13 @@ const RetroView = memo(
                   : '',
               speedLabel: formatSpeed(data.averageBytesPerSecond),
               hitLabel: `${formatBytes(data.cacheHitBytes)} (${formatPercent(hitPercent)})`,
-              missLabel: `${formatBytes(data.cacheMissBytes)} (${formatPercent(missPercent)})`
+              missLabel: `${formatBytes(data.cacheMissBytes)} (${formatPercent(missPercent)})`,
+              gaugeLabel:
+                tier === 'success'
+                  ? t('downloads.tab.retro.gauge.excellent')
+                  : tier === 'warning'
+                    ? t('downloads.tab.retro.gauge.partial')
+                    : t('downloads.tab.retro.gauge.miss')
             };
           }),
         [groupedItems, t, detectionLookup, detectionByName, detectionByService]
@@ -412,24 +410,12 @@ const RetroView = memo(
       // by default; manual once the user drags a divider or double-click-fits
       // a column (persisted). The "Fit columns" toolbar action clears saved
       // widths and returns to responsive auto-fit mode.
-      const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() => {
-        try {
-          const saved = localStorage.getItem(RETRO_WIDTHS_STORAGE_KEY);
-          if (saved) {
-            return { ...getDefaultColumnWidths(), ...JSON.parse(saved) };
-          }
-        } catch {
-          // Ignore localStorage errors
-        }
-        return getDefaultColumnWidths();
-      });
-      const [isManualWidths, setIsManualWidths] = useState<boolean>(() => {
-        try {
-          return localStorage.getItem(RETRO_WIDTHS_STORAGE_KEY) !== null;
-        } catch {
-          return false;
-        }
-      });
+      const [columnWidths, setColumnWidths] = useState<ColumnWidths>(
+        () => readStoredWidths() ?? getDefaultColumnWidths()
+      );
+      const [isManualWidths, setIsManualWidths] = useState<boolean>(
+        () => readStoredWidths() !== null
+      );
       // Ref that mirrors columnWidths so handlers can read the current value
       // without being recreated on every width change.
       const columnWidthsRef = useRef<ColumnWidths>(columnWidths);
@@ -467,44 +453,92 @@ const RetroView = memo(
         return () => observer.disconnect();
       }, []);
 
-      // Drag handling: mousemove only rewrites the --retro-grid-cols CSS
-      // variable on the container (no React re-render); state commits on
-      // mouseup so persistence and memoized rows stay cheap.
-      const handleMouseDown = useCallback(
-        (column: keyof ColumnWidths, e: React.MouseEvent) => {
+      // Drag handling: dragging the divider after column N resizes column N
+      // only. Every track is a fixed pixel width, so columns to the right
+      // keep their widths and the container's horizontal scrollbar absorbs
+      // the change in total width. Pointer capture keeps fast drags attached
+      // to the handle; each pointermove only rewrites the --retro-grid-cols
+      // CSS variable on the container (no React re-render) and the widths
+      // commit to state on pointerup.
+      const dragStateRef = useRef<RetroColumnDragState | null>(null);
+
+      const applyGridTemplate = useCallback((widths: ColumnWidths) => {
+        containerRef.current?.style.setProperty(
+          '--retro-grid-cols',
+          buildGridTemplate(widths, visibilityRef.current)
+        );
+      }, []);
+
+      const handleResizePointerDown = useCallback(
+        (column: keyof ColumnWidths, e: React.PointerEvent<HTMLDivElement>) => {
+          if (e.pointerType === 'mouse' && e.button !== 0) return;
           e.preventDefault();
           e.stopPropagation();
-
-          const startX = e.clientX;
-          const startWidth = columnWidthsRef.current[column];
-          let liveWidths = columnWidthsRef.current;
-
-          const handleMouseMove = (moveEvent: MouseEvent) => {
-            const diff = moveEvent.clientX - startX;
-            const newWidth = Math.max(RESIZE_MIN_WIDTH, startWidth + diff);
-            liveWidths = { ...liveWidths, [column]: newWidth };
-            containerRef.current?.style.setProperty(
-              '--retro-grid-cols',
-              buildGridTemplate(liveWidths, visibilityRef.current)
-            );
+          e.currentTarget.setPointerCapture(e.pointerId);
+          dragStateRef.current = {
+            column,
+            pointerId: e.pointerId,
+            startClientX: e.clientX,
+            startWidth: columnWidthsRef.current[column],
+            widths: columnWidthsRef.current,
+            moved: false
           };
-
-          const handleMouseUp = () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-            setColumnWidths(liveWidths);
-            setIsManualWidths(true);
-            persistWidths(liveWidths);
-          };
-
-          document.addEventListener('mousemove', handleMouseMove);
-          document.addEventListener('mouseup', handleMouseUp);
-          document.body.style.cursor = 'col-resize';
-          document.body.style.userSelect = 'none';
+          document.body.classList.add('retro-col-resizing');
         },
-        [persistWidths]
+        []
+      );
+
+      const handleResizePointerMove = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+          const drag = dragStateRef.current;
+          if (!drag || e.pointerId !== drag.pointerId) return;
+          const width = Math.max(
+            RESIZE_MIN_WIDTH,
+            Math.round(drag.startWidth + e.clientX - drag.startClientX)
+          );
+          if (width === drag.widths[drag.column]) return;
+          drag.widths = { ...drag.widths, [drag.column]: width };
+          drag.moved = true;
+          applyGridTemplate(drag.widths);
+        },
+        [applyGridTemplate]
+      );
+
+      const finishResize = useCallback(
+        (commit: boolean) => {
+          const drag = dragStateRef.current;
+          if (!drag) return;
+          dragStateRef.current = null;
+          document.body.classList.remove('retro-col-resizing');
+          if (commit && drag.moved) {
+            setColumnWidths(drag.widths);
+            setIsManualWidths(true);
+            persistWidths(drag.widths);
+            return;
+          }
+          applyGridTemplate(columnWidthsRef.current);
+        },
+        [applyGridTemplate, persistWidths]
+      );
+
+      // Also wired to lostpointercapture as a safety net; after a normal
+      // finish the cleared drag state makes the second call a no-op.
+      const handleResizePointerUp = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+          const drag = dragStateRef.current;
+          if (!drag || e.pointerId !== drag.pointerId) return;
+          finishResize(true);
+        },
+        [finishResize]
+      );
+
+      const handleResizePointerCancel = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+          const drag = dragStateRef.current;
+          if (!drag || e.pointerId !== drag.pointerId) return;
+          finishResize(false);
+        },
+        [finishResize]
       );
 
       // "Fit columns" toolbar action: drop any manual widths and fit the
@@ -530,21 +564,42 @@ const RetroView = memo(
         setColumnWidths(measured);
       }, [measureRows, headerLabels, visibility]);
 
-      // Double-click on a divider: fit that one column to its content. An
-      // explicit per-column override, so widths switch to manual mode.
+      // Double-click on a divider: size that one column to its widest content
+      // (header included). Every other column keeps its width - the total
+      // width changes and horizontal scroll absorbs it, matching spreadsheet
+      // fit-to-content. An explicit per-column override, so manual mode.
       const handleAutoFitColumn = useCallback(
         (column: keyof ColumnWidths) => {
           const requiredWidth = measureRetroColumn(column, measureRows, headerLabels[column]);
-          let next: ColumnWidths = { ...columnWidthsRef.current, [column]: requiredWidth };
-          const width = containerRef.current?.clientWidth;
-          if (width) {
-            next = fitWidthsToContainer(next, width, visibility, { [column]: requiredWidth });
-          }
+          const next: ColumnWidths = { ...columnWidthsRef.current, [column]: requiredWidth };
           setColumnWidths(next);
           setIsManualWidths(true);
           persistWidths(next);
         },
-        [measureRows, headerLabels, visibility, persistWidths]
+        [measureRows, headerLabels, persistWidths]
+      );
+
+      // Focused divider: arrow keys nudge the column, Enter fits to content.
+      const handleResizeKeyDown = useCallback(
+        (column: keyof ColumnWidths, e: React.KeyboardEvent<HTMLDivElement>) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAutoFitColumn(column);
+            return;
+          }
+          const delta =
+            e.key === 'ArrowLeft' ? -RESIZE_KEY_STEP : e.key === 'ArrowRight' ? RESIZE_KEY_STEP : 0;
+          if (delta === 0) return;
+          e.preventDefault();
+          const current = columnWidthsRef.current;
+          const width = Math.max(RESIZE_MIN_WIDTH, current[column] + delta);
+          if (width === current[column]) return;
+          const next: ColumnWidths = { ...current, [column]: width };
+          setColumnWidths(next);
+          setIsManualWidths(true);
+          persistWidths(next);
+        },
+        [handleAutoFitColumn, persistWidths]
       );
 
       const setPageFading = useCallback((fading: boolean) => {
@@ -722,12 +777,15 @@ const RetroView = memo(
       );
 
       // Header cells align with their column content: text columns left,
-      // numeric readouts right, badges/bars/gauge centered.
+      // numeric readouts right, badges/bars/gauge centered. Every column,
+      // including the last, carries a resize divider on its right edge; the
+      // last column's divider stays inside the cell so it cannot widen the
+      // scrollable area.
       const headerCell = (
         column: keyof ColumnWidths,
-        options: { align?: 'left' | 'center' | 'right'; resizable?: boolean } = {}
+        options: { align?: 'left' | 'center' | 'right'; isLast?: boolean } = {}
       ) => {
-        const { align = 'center', resizable = true } = options;
+        const { align = 'center', isLast = false } = options;
         const justifyClass =
           align === 'left'
             ? ' justify-start'
@@ -742,12 +800,28 @@ const RetroView = memo(
             data-header
           >
             <span className={`min-w-0 flex-1 truncate${textClass}`}>{headerLabels[column]}</span>
-            {resizable && (
-              <ResizeHandle
-                onMouseDown={(e: React.MouseEvent) => handleMouseDown(column, e)}
-                onDoubleClick={() => handleAutoFitColumn(column)}
-              />
-            )}
+            <div
+              className={
+                isLast ? 'retro-resize-handle retro-resize-handle-last' : 'retro-resize-handle'
+              }
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={headerLabels[column]}
+              aria-valuenow={Math.round(columnWidths[column])}
+              aria-valuemin={RESIZE_MIN_WIDTH}
+              tabIndex={0}
+              onPointerDown={(e: React.PointerEvent<HTMLDivElement>) =>
+                handleResizePointerDown(column, e)
+              }
+              onPointerMove={handleResizePointerMove}
+              onPointerUp={handleResizePointerUp}
+              onPointerCancel={handleResizePointerCancel}
+              onLostPointerCapture={handleResizePointerUp}
+              onDoubleClick={() => handleAutoFitColumn(column)}
+              onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => handleResizeKeyDown(column, e)}
+            >
+              <div className="retro-resize-handle-line" />
+            </div>
           </div>
         );
       };
@@ -783,7 +857,11 @@ const RetroView = memo(
               className="rounded-lg border border-[var(--theme-border-primary)] overflow-x-auto overflow-y-hidden retro-table-container bg-[var(--theme-card-bg)]"
               style={{ '--retro-grid-cols': gridTemplate } as React.CSSProperties}
             >
-              <div>
+              {/* min-w-fit: when the grid template is wider than the viewport
+                  this wrapper grows to the content width, so row backgrounds
+                  (zebra, hover, accent stripes) span the full scrolled width
+                  instead of stopping at the visible edge. */}
+              <div className="min-w-fit">
                 {/* Desktop Table Header - only rendered on desktop via JS conditional */}
                 {isDesktop && (
                   <div className="retro-grid-row retro-header-row select-none min-w-fit">
@@ -796,7 +874,7 @@ const RetroView = memo(
                     {headerCell('client', { align: 'right' })}
                     {headerCell('speed', { align: 'right' })}
                     {headerCell('cacheHit')}
-                    {headerCell('overall', { resizable: false })}
+                    {headerCell('overall', { isLast: true })}
                   </div>
                 )}
 

@@ -16,6 +16,8 @@ import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
 import BadgesRow from './BadgesRow';
 import DownloadBadges from './DownloadBadges';
+import { efficiencyTier, type EfficiencyTier } from './retroGrouping';
+import { GAUGE_DIAL_SIZE } from './retroColumnSizing';
 
 const getServiceIcon = (service: string, size = 24) => {
   const serviceLower = service.toLowerCase();
@@ -51,26 +53,19 @@ const getServiceIcon = (service: string, size = 24) => {
 
 // Circular efficiency gauge - the retro instrument readout for hit rate.
 // Colors come from the tier class so the SVG carries no inline styling.
-const GAUGE_SIZE = 44;
 const GAUGE_STROKE = 4;
-const GAUGE_RADIUS = (GAUGE_SIZE - GAUGE_STROKE) / 2;
+const GAUGE_RADIUS = (GAUGE_DIAL_SIZE - GAUGE_STROKE) / 2;
 const GAUGE_CIRCUMFERENCE = 2 * Math.PI * GAUGE_RADIUS;
-
-const efficiencyTier = (percent: number): 'success' | 'warning' | 'error' => {
-  if (percent >= 90) return 'success';
-  if (percent >= 50) return 'warning';
-  return 'error';
-};
 
 // Class names must appear as literal strings (never template-built), or
 // Tailwind's content scanner purges the matching @layer components rules.
-const GAUGE_TIER_CLASS: Record<'success' | 'warning' | 'error', string> = {
+const GAUGE_TIER_CLASS: Record<EfficiencyTier, string> = {
   success: 'retro-gauge retro-gauge-success',
   warning: 'retro-gauge retro-gauge-warning',
   error: 'retro-gauge retro-gauge-error'
 };
 
-const ROW_ACCENT_CLASS: Record<'success' | 'warning' | 'error', string> = {
+const ROW_ACCENT_CLASS: Record<EfficiencyTier, string> = {
   success: 'retro-row retro-row-accent-success',
   warning: 'retro-row retro-row-accent-warning',
   error: 'retro-row retro-row-accent-error'
@@ -90,11 +85,11 @@ const EfficiencyGauge: React.FC<{ percent: number }> = ({ percent }) => {
   return (
     <div className={GAUGE_TIER_CLASS[tier]}>
       <div className="retro-gauge-dial">
-        <svg width={GAUGE_SIZE} height={GAUGE_SIZE} className="-rotate-90">
+        <svg width={GAUGE_DIAL_SIZE} height={GAUGE_DIAL_SIZE} className="-rotate-90">
           {/* Background track */}
           <circle
-            cx={GAUGE_SIZE / 2}
-            cy={GAUGE_SIZE / 2}
+            cx={GAUGE_DIAL_SIZE / 2}
+            cy={GAUGE_DIAL_SIZE / 2}
             r={GAUGE_RADIUS}
             fill="none"
             stroke="var(--theme-progress-bg)"
@@ -102,8 +97,8 @@ const EfficiencyGauge: React.FC<{ percent: number }> = ({ percent }) => {
           />
           {/* Progress arc */}
           <circle
-            cx={GAUGE_SIZE / 2}
-            cy={GAUGE_SIZE / 2}
+            cx={GAUGE_DIAL_SIZE / 2}
+            cy={GAUGE_DIAL_SIZE / 2}
             r={GAUGE_RADIUS}
             fill="none"
             stroke="currentColor"

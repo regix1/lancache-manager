@@ -124,14 +124,6 @@
   min-width: 0;
 }
 
-.service-analytics-heading h3 {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--theme-text-primary);
-  margin: 0;
-}
-
 .service-analytics-heading p {
   max-width: 32rem;
   margin: 0.25rem 0 0;
