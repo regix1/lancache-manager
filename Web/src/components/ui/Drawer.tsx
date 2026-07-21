@@ -53,7 +53,7 @@ const Drawer: React.FC<DrawerProps> = ({
         <div className={`custom-drawer-header ${classNames?.header ?? ''}`}>
           <h2 className={`custom-drawer-title ${classNames?.title ?? ''}`}>{title}</h2>
           <button
-            className="custom-drawer-close"
+            className="btn-icon-square btn-icon-square--sm custom-drawer-close"
             onClick={onClose}
             aria-label="Close"
             type="button"

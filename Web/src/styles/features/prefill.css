@@ -188,10 +188,7 @@
     background-color: var(--theme-bg-surface-active);
   }
 
-  .cmd-tile:focus-visible {
-    outline: 2px solid var(--theme-border-focus);
-    outline-offset: 2px;
-  }
+  /* Focus outline comes from the shared .focus-ring (added on the tile button). */
 
   .cmd-tile:disabled {
     cursor: not-allowed;
@@ -218,15 +215,10 @@
     border-color: var(--theme-icon-red-muted);
   }
 
-  /* Command tile icon container */
-  .cmd-tile-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
+  /* Command tile icon container. Layout/size from shared .icon-box icon-box--sm;
+     radius stays fixed at 0.5rem (independent of the theme radius token). */
+  .icon-box.cmd-tile-icon {
     border-radius: 0.5rem;
-    flex-shrink: 0;
   }
 
   /* Settings inline panel - integrated look */
@@ -236,12 +228,11 @@
     gap: 0.375rem;
   }
 
-  .cmd-settings-label {
+  /* Base type from shared .caps-label; this label reads one step larger (sm) with
+     tighter tracking than the default. */
+  .caps-label.cmd-settings-label {
     font-size: var(--font-size-sm);
-    font-weight: 600;
     letter-spacing: 0.025em;
-    text-transform: uppercase;
-    color: var(--theme-text-muted);
   }
 
   /* Login notice bar */

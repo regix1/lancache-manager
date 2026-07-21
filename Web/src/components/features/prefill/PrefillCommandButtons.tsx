@@ -124,13 +124,13 @@ export function PrefillCommandButtons({
     return (
       <button
         key={cmd.id}
-        className={`cmd-tile cmd-tile-enter ${getTileVariantClass(cmd)}`}
+        className={`focus-ring cmd-tile cmd-tile-enter ${getTileVariantClass(cmd)}`}
         onClick={() => onCommandClick(cmd.id)}
         disabled={disabled}
         type="button"
       >
         <div className="flex items-start gap-3 w-full">
-          <span className={`cmd-tile-icon ${getIconBgClass(cmd)}`}>
+          <span className={`icon-box icon-box--sm cmd-tile-icon ${getIconBgClass(cmd)}`}>
             {isExecuting && cmd.id.startsWith('prefill') ? (
               <LoadingSpinner inline size="sm" className="text-themed-muted" />
             ) : (
@@ -184,7 +184,7 @@ export function PrefillCommandButtons({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {hasTargetPlatforms && (
                 <div className="cmd-settings-field">
-                  <label className="cmd-settings-label flex items-center gap-1.5">
+                  <label className="caps-label cmd-settings-label flex items-center gap-1.5">
                     <Monitor className="h-3 w-3" />
                     {t('prefill.settings.targetPlatforms')}
                   </label>
@@ -205,7 +205,7 @@ export function PrefillCommandButtons({
                 </div>
               )}
               <div className={`cmd-settings-field ${hasTargetPlatforms ? '' : 'sm:col-span-2'}`}>
-                <label className="cmd-settings-label flex items-center gap-1.5">
+                <label className="caps-label cmd-settings-label flex items-center gap-1.5">
                   <Link className="w-3 h-3" />
                   {t('prefill.settings.downloadThreads')}
                 </label>

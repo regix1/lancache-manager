@@ -39,12 +39,9 @@
   padding: 0.55rem 1rem;
 }
 
-/* Well-nested list (inside .clients-well at --theme-bg-tertiary): opaque hairline
+/* Row hairlines come from the shared .divided-list on .clients-well: opaque
    dividers, not a translucent zebra tint (which would composite back to the well
    tone and read as invisible). Zebra is reserved for card-toned tables. */
-.clients-grid + .clients-grid {
-  border-top: 1px solid var(--theme-border-secondary);
-}
 
 .clients-grid--header {
   display: none;

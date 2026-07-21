@@ -157,7 +157,7 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
       <div className="session-filter-bar">
         {uniqueIps.length > 1 && (
           <div className="session-filter-group">
-            <span className="session-filter-label">IP</span>
+            <span className="session-filter-label caps-label">IP</span>
             <MultiSelectDropdown
               options={ipOptions}
               values={filters.clientIps}
@@ -171,7 +171,7 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
         )}
 
         <div className="session-filter-group">
-          <span className="session-filter-label">Cache</span>
+          <span className="session-filter-label caps-label">Cache</span>
           <div className="session-filter-pills">
             {CACHE_STATUS_OPTIONS.map((option) => (
               <TogglePill
@@ -187,7 +187,7 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
         </div>
 
         <div className="session-filter-group">
-          <span className="session-filter-label">Time</span>
+          <span className="session-filter-label caps-label">Time</span>
           <div className="session-filter-pills">
             {TIME_RANGE_OPTIONS.map((option) => (
               <TogglePill
@@ -203,7 +203,7 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
         </div>
 
         <div className="session-filter-group">
-          <span className="session-filter-label">Sort</span>
+          <span className="session-filter-label caps-label">Sort</span>
           <EnhancedDropdown
             options={sortDropdownOptions}
             value={filters.sortBy}
@@ -213,7 +213,7 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
         </div>
 
         <div className="session-filter-group">
-          <span className="session-filter-label">IPs/page</span>
+          <span className="session-filter-label caps-label">IPs/page</span>
           <EnhancedDropdown
             options={sessionsPerPageDropdownOptions}
             value={String(filters.sessionsPerPage)}
@@ -223,7 +223,7 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
         </div>
 
         <div className="session-filter-group">
-          <span className="session-filter-label">Items/IP</span>
+          <span className="session-filter-label caps-label">Items/IP</span>
           <EnhancedDropdown
             options={itemsPerSessionDropdownOptions}
             value={String(filters.itemsPerSession)}

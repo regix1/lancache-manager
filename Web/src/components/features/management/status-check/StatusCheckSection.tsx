@@ -371,7 +371,9 @@ const StatusCheckSection: React.FC = () => {
   // tooltip explains its strategy, so no hint paragraph floats in the layout.
   const resolverControl = status ? (
     <>
-      <span className="status-check-resolver-label">{t(`${keys}.resolverMode.label`)}</span>
+      <span className="status-check-resolver-label caps-label caps-label--sm">
+        {t(`${keys}.resolverMode.label`)}
+      </span>
       <SegmentedControl
         size="sm"
         showLabels
@@ -408,7 +410,7 @@ const StatusCheckSection: React.FC = () => {
           <section>
             <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
               <div>
-                <h3 className="integrations-group-label">{t(`${keys}.serverLane`)}</h3>
+                <h3 className="integrations-group-label caps-label">{t(`${keys}.serverLane`)}</h3>
               </div>
               {lastResult && (
                 <TogglePill
@@ -436,12 +438,12 @@ const StatusCheckSection: React.FC = () => {
         )}
 
         <section>
-          <h3 className="integrations-group-label mb-3">{t(`${keys}.deviceLane`)}</h3>
+          <h3 className="integrations-group-label caps-label mb-3">{t(`${keys}.deviceLane`)}</h3>
           <ClientProbeCard state={probeState} onRetry={retryProbe} />
         </section>
 
         <section>
-          <h3 className="integrations-group-label mb-3">{t(`${keys}.testLane`)}</h3>
+          <h3 className="integrations-group-label caps-label mb-3">{t(`${keys}.testLane`)}</h3>
           <TestDomainCard groups={domainGroups} />
         </section>
 

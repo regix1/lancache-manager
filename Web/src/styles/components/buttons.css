@@ -3,11 +3,22 @@
    * BUTTONS - Action, Themed, Hover
    * ============================================== */
 
+  /* Shared filled-button text color + bg transition (variants keep bg/border/hover) */
+  .action-reset,
+  .action-process,
+  .action-delete,
+  .outline-delete,
+  .outline-process,
+  .outline-primary,
+  .outline-reset,
+  .themed-button-primary {
+    color: var(--theme-button-text);
+    transition: background-color 0.2s ease;
+  }
+
   /* Action Buttons */
   .action-reset {
     background-color: var(--theme-action-reset-bg);
-    color: var(--theme-button-text);
-    transition: background-color 0.2s ease;
   }
 
   .action-reset:hover {
@@ -16,8 +27,6 @@
 
   .action-process {
     background-color: var(--theme-action-process-bg);
-    color: var(--theme-button-text);
-    transition: background-color 0.2s ease;
   }
 
   .action-process:hover {
@@ -26,8 +35,6 @@
 
   .action-delete {
     background-color: var(--theme-action-delete-bg);
-    color: var(--theme-button-text);
-    transition: background-color 0.2s ease;
   }
 
   .action-delete:hover {
@@ -41,8 +48,6 @@
   .outline-delete {
     background-color: var(--theme-action-delete-bg);
     border-color: var(--theme-action-delete-bg);
-    color: var(--theme-button-text);
-    transition: background-color 0.2s ease;
   }
 
   .outline-delete:hover {
@@ -53,8 +58,6 @@
   .outline-process {
     background-color: var(--theme-action-process-bg);
     border-color: var(--theme-action-process-bg);
-    color: var(--theme-button-text);
-    transition: background-color 0.2s ease;
   }
 
   .outline-process:hover {
@@ -65,8 +68,6 @@
   .outline-primary {
     background-color: var(--theme-button-bg);
     border-color: var(--theme-button-bg);
-    color: var(--theme-button-text);
-    transition: background-color 0.2s ease;
   }
 
   .outline-primary:hover {
@@ -77,8 +78,6 @@
   .outline-reset {
     background-color: var(--theme-action-reset-bg);
     border-color: var(--theme-action-reset-bg);
-    color: var(--theme-button-text);
-    transition: background-color 0.2s ease;
   }
 
   .outline-reset:hover {
@@ -106,9 +105,7 @@
   .themed-button-primary {
     border-radius: var(--theme-border-radius-lg);
     background-color: var(--theme-button-bg);
-    color: var(--theme-button-text);
     border-color: var(--theme-button-bg);
-    transition: background-color 0.2s ease;
   }
 
   .themed-button-primary:hover {
@@ -171,6 +168,13 @@
     padding: 0;
     justify-content: center;
     border-radius: var(--theme-border-radius);
+  }
+
+  /* Keep the glyph from being compressed horizontally: the button is a flex row with a
+     gap, so a flex-shrinkable icon collapses its width (renders thin) while its height
+     holds. Pinning shrink to 0 lets the icon keep the square size its sizing classes set. */
+  .btn-icon-square svg {
+    flex-shrink: 0;
   }
 
   .btn-icon-square--sm {

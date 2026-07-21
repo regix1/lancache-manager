@@ -368,7 +368,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       {/* Client Nicknames */}
       <Card padding="none">
         <div className="clients-card-header">
-          <div className="clients-card-icon icon-bg-blue">
+          <div className="clients-card-icon icon-box icon-box--sm icon-bg-blue">
             <Users className="w-4 h-4 icon-blue" />
           </div>
           <div className="min-w-0 flex-1">
@@ -531,7 +531,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
           {(loadingClients || ungroupedClients.length > 0) && (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <h4 className="mgmt-subhead">
+                <h4 className="mgmt-subhead caps-label">
                   {t('management.sections.clients.withoutNicknames')}
                 </h4>
                 {!loadingClients && ungroupedClients.length > 0 && (
@@ -607,7 +607,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       {/* Client Exclusions */}
       <Card padding="none">
         <div className="clients-card-header">
-          <div className="clients-card-icon icon-bg-red">
+          <div className="clients-card-icon icon-box icon-box--sm icon-bg-red">
             <EyeOff className="w-4 h-4 icon-red" />
           </div>
           <div className="min-w-0 flex-1">
@@ -640,7 +640,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
               </p>
 
               <div className="space-y-3">
-                <h4 className="mgmt-subhead">
+                <h4 className="mgmt-subhead caps-label">
                   {t('management.sections.clients.pickFromKnownClients')}
                 </h4>
                 <div className="clients-control-row flex flex-col sm:flex-row sm:items-center gap-3">
@@ -735,7 +735,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                           >
                             <button
                               type="button"
-                              className={`exclusion-mode-option ${rule.mode === 'exclude' ? 'is-active' : ''}`}
+                              className={`exclusion-mode-option focus-ring--inset ${rule.mode === 'exclude' ? 'is-active' : ''}`}
                               onClick={() => handleChangeMode(rule.ip, 'exclude')}
                               disabled={savingExcluded}
                             >
@@ -748,7 +748,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                           >
                             <button
                               type="button"
-                              className={`exclusion-mode-option ${rule.mode === 'hide' ? 'is-active' : ''}`}
+                              className={`exclusion-mode-option focus-ring--inset ${rule.mode === 'hide' ? 'is-active' : ''}`}
                               onClick={() => handleChangeMode(rule.ip, 'hide')}
                               disabled={savingExcluded}
                             >

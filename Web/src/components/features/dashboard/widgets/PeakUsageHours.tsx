@@ -222,7 +222,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
             {t('widgets.peakUsageHours.title')}
           </h3>
         </div>
-        <div className="dash-well p-3 flex-1 flex flex-col">
+        <div className="well-surface dash-well p-3 flex-1 flex flex-col">
           <EmptyState
             variant="panel"
             icon={Clock}
@@ -292,7 +292,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
 
       {/* Heatmap well - 24 hour blocks. flex-1 so the small row-stretch
           remainder lands inside the well instead of as dead card space */}
-      <div className="dash-well p-3 flex-1 flex flex-col justify-center">
+      <div className="well-surface dash-well p-3 flex-1 flex flex-col justify-center">
         <div className="grid grid-cols-12 gap-1.5">
           {hourlyData.map((hourData) => {
             const isCurrentHour = isTodayInRange && hourData.hour === currentHour;
@@ -400,21 +400,29 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
       <div className="dash-readout dash-readout--footer">
         <div className="dash-readout-item">
           <div className="dash-readout-value is-warning">{formatHour(peakHour)}</div>
-          <div className="dash-readout-label">{t('widgets.peakUsageHours.busiestHour')}</div>
+          <div className="caps-label caps-label--wide dash-readout-label">
+            {t('widgets.peakUsageHours.busiestHour')}
+          </div>
         </div>
         {isTodayInRange && (
           <div className="dash-readout-item">
             <div className="dash-readout-value is-primary">{formatHour(currentHour)}</div>
-            <div className="dash-readout-label">{t('widgets.peakUsageHours.currentHourLabel')}</div>
+            <div className="caps-label caps-label--wide dash-readout-label">
+              {t('widgets.peakUsageHours.currentHourLabel')}
+            </div>
           </div>
         )}
         <div className="dash-readout-item">
           <div className="dash-readout-value">{formatCount(totalDownloads)}</div>
-          <div className="dash-readout-label">{t('widgets.peakUsageHours.downloads')}</div>
+          <div className="caps-label caps-label--wide dash-readout-label">
+            {t('widgets.peakUsageHours.downloads')}
+          </div>
         </div>
         <div className="dash-readout-item">
           <div className="dash-readout-value">{formatBytes(totalBytesServed)}</div>
-          <div className="dash-readout-label">{t('widgets.peakUsageHours.dataServed')}</div>
+          <div className="caps-label caps-label--wide dash-readout-label">
+            {t('widgets.peakUsageHours.dataServed')}
+          </div>
         </div>
       </div>
     </div>

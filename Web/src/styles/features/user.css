@@ -10,58 +10,9 @@
  * tab-content fade.
  */
 
-/* ===== STATUS DOT (quiet activity marker in the row's leading slot) ===== */
-
-.status-dot {
-  @apply w-2 h-2 rounded-full;
-  flex-shrink: 0;
-  box-shadow: 0 0 0 2px var(--theme-bg-secondary);
-}
-
-.status-dot.active {
-  background: var(--theme-success);
-  /* pulse-dot-ring, not pulse-dot: the schedules stylesheet defines a same-named
-     opacity-fade keyframes, and duplicate @keyframes names resolve globally to
-     whichever loads last - the two dots were silently sharing one animation. */
-  animation: pulse-dot-ring 2s infinite;
-}
-
-.status-dot.away {
-  background: var(--theme-warning);
-  animation: pulse-dot-away 3s infinite;
-}
-
-.status-dot.inactive {
-  background: var(--theme-text-muted);
-}
-
-@keyframes pulse-dot-ring {
-  0%,
-  100% {
-    box-shadow:
-      0 0 0 2px var(--theme-bg-secondary),
-      0 0 0 4px var(--theme-success-strong);
-  }
-  50% {
-    box-shadow:
-      0 0 0 2px var(--theme-bg-secondary),
-      0 0 0 6px var(--theme-success-faint);
-  }
-}
-
-@keyframes pulse-dot-away {
-  0%,
-  100% {
-    box-shadow:
-      0 0 0 2px var(--theme-bg-secondary),
-      0 0 0 4px var(--theme-warning-strong);
-  }
-  50% {
-    box-shadow:
-      0 0 0 2px var(--theme-bg-secondary),
-      0 0 0 6px var(--theme-warning-faint);
-  }
-}
+/* The .status-dot base, its state classes and the pulse-dot-ring/away keyframes now
+   live in styles/utilities/patterns.css so schedule/prefill/connection dots can share
+   them. This sheet keeps only the session-row helpers and the tab-content fade. */
 
 /* ===== TOOLTIP (shared Tooltip + dashboard charts - global, do not remove) ===== */
 
@@ -294,11 +245,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .status-dot.active,
-  .status-dot.away {
-    animation: none;
-  }
-
   .user-tab-content {
     animation: none;
   }

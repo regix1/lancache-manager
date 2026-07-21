@@ -76,9 +76,9 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; t: TFunction }> = ({ g
       </div>
       <div className="rdl-row-stats">
         <div className="rdl-row-figures">
-          <span className="rdl-row-speed">{formatSpeed(game.bytesPerSecond)}</span>
+          <span className="rdl-row-speed tabular-nums">{formatSpeed(game.bytesPerSecond)}</span>
           <div
-            className={`rdl-hit ${game.cacheHitPercent >= 80 ? 'high' : game.cacheHitPercent >= 50 ? 'medium' : 'low'}`}
+            className={`tabular-nums rdl-hit ${game.cacheHitPercent >= 80 ? 'high' : game.cacheHitPercent >= 50 ? 'medium' : 'low'}`}
           >
             {formatPercent(game.cacheHitPercent, 0)} {t('dashboard.downloadsPanel.hitLabel')}
           </div>
@@ -272,14 +272,14 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
                   {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })} ·
                 </span>
               ) : null}
-              <Tooltip content={hitTooltip} className={`rdl-hit ${hitClass}`}>
+              <Tooltip content={hitTooltip} className={`tabular-nums rdl-hit ${hitClass}`}>
                 {formatPercent(display.cacheHitPercent)} {t('dashboard.downloadsPanel.hitLabel')}
               </Tooltip>
             </div>
           ) : (
             display.totalBytes > 0 && (
               <div className="rdl-row-subline">
-                <Tooltip content={hitTooltip} className={`rdl-hit ${hitClass}`}>
+                <Tooltip content={hitTooltip} className={`tabular-nums rdl-hit ${hitClass}`}>
                   {formatPercent(display.cacheHitPercent)} {t('dashboard.downloadsPanel.hitLabel')}
                 </Tooltip>
               </div>
@@ -627,7 +627,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                   <span className="segmented-control-label">
                     {t('dashboard.downloadsPanel.active')}
                     {!isHistoricalView && activeCount > 0 && (
-                      <span className="rdl-tab-badge">{activeCount}</span>
+                      <span className="rdl-tab-badge tabular-nums">{activeCount}</span>
                     )}
                   </span>
                 ),
@@ -683,7 +683,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       )}
 
       {/* Downloads list */}
-      <div className="rdl-well">
+      <div className="rdl-well well-surface">
         <CustomScrollbar maxHeight="380px" paddingMode="none" radius="none" className="rdl-scroll">
           <div className="rdl-list divided-list">
             {viewMode === 'active' ? (
@@ -787,11 +787,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 <div className={`dash-readout-value${hasActiveDownloads ? ' is-success' : ''}`}>
                   {hasActiveDownloads ? formatSpeed(totalSpeed) : '—'}
                 </div>
-                <div className="dash-readout-label">{t('dashboard.downloadsPanel.speed')}</div>
+                <div className="caps-label caps-label--wide dash-readout-label">
+                  {t('dashboard.downloadsPanel.speed')}
+                </div>
               </div>
               <div className="dash-readout-item">
                 <div className="dash-readout-value">{activeCount}</div>
-                <div className="dash-readout-label">
+                <div className="caps-label caps-label--wide dash-readout-label">
                   {t('dashboard.downloadsPanel.game', { count: activeCount })}
                 </div>
               </div>
@@ -800,7 +802,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                   <span className="rdl-live-dot" />
                   {t('dashboard.downloadsPanel.live')}
                 </div>
-                <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
+                <div className="caps-label caps-label--wide dash-readout-label">
+                  {t('dashboard.downloadsPanel.period')}
+                </div>
               </div>
             </>
           ) : (
@@ -811,11 +815,15 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 >
                   {stats.totalBytes > 0 ? formatPercent(stats.overallHitRate) : '—'}
                 </div>
-                <div className="dash-readout-label">{t('dashboard.downloadsPanel.hitRate')}</div>
+                <div className="caps-label caps-label--wide dash-readout-label">
+                  {t('dashboard.downloadsPanel.hitRate')}
+                </div>
               </div>
               <div className="dash-readout-item">
                 <div className="dash-readout-value">{getTimeRangeLabel}</div>
-                <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
+                <div className="caps-label caps-label--wide dash-readout-label">
+                  {t('dashboard.downloadsPanel.period')}
+                </div>
               </div>
               {groupedItems.totalGroups > 0 && (
                 <div className="dash-readout-item">
@@ -823,7 +831,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                     {Math.min(displayCount, groupedItems.displayedItems.length)} /{' '}
                     {groupedItems.totalGroups}
                   </div>
-                  <div className="dash-readout-label">
+                  <div className="caps-label caps-label--wide dash-readout-label">
                     {t('dashboard.downloadsPanel.showingLabel')}
                   </div>
                 </div>

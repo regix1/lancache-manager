@@ -36,15 +36,8 @@
   border-bottom: 1px solid var(--theme-border-secondary);
 }
 
-.clients-card-icon {
-  width: 2rem;
-  height: 2rem;
-  border-radius: var(--theme-border-radius);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
+/* Icon tile layout/size comes from the shared .icon-box .icon-box--sm primitive;
+   the card supplies only the colour via .icon-bg-* on the element. */
 
 .clients-card-body {
   padding: 1rem 1.25rem 1.25rem;

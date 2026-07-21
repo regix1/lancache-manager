@@ -94,11 +94,9 @@
   font-variant-numeric: tabular-nums lining-nums;
 }
 
-.dash-readout-label {
-  font-size: var(--font-size-xs);
-  color: var(--theme-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+/* Typography from .caps-label + .caps-label--wide; compound so margin-top
+   wins if a later split ever reintroduces a competing size/tracking rule. */
+.caps-label.dash-readout-label {
   margin-top: 0.25rem;
 }
 
@@ -148,15 +146,7 @@
   }
 }
 
-.dash-well {
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-well);
-  border-radius: var(--theme-border-radius);
-  overflow: hidden;
-}
-
-/* Standard breathing room between a well and whatever follows it (footer
-   strips, legends) — matches the Downloads panel's well spacing */
+/* Surface from .well-surface. Spacing between stacked wells stays local. */
 .dash-well:not(:last-child) {
   margin-bottom: 1rem;
 }
@@ -234,16 +224,7 @@
   width: 1.5rem;
   height: 1.5rem;
   color: var(--theme-primary);
-  animation: widgetSpin 1s linear infinite;
-}
-
-@keyframes widgetSpin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  animation: spin 1s linear infinite;
 }
 
 @media (max-width: 767px) {

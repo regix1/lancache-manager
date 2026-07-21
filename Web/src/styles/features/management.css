@@ -42,11 +42,9 @@
   color: var(--theme-nav-tab-active);
 }
 
-/* Focus-visible ring — scoped here in case a more-specific selector overrides
-   the global reset.css rule for these particular buttons */
+/* Outline comes from the shared .focus-ring--inset primitive; keep the stacking
+   bump so the focused tab paints above adjacent tab borders. */
 .management-nav-tab:focus-visible {
-  outline: 2px solid var(--theme-border-focus);
-  outline-offset: -2px; /* inset so it doesn't get clipped by the parent border-box */
   z-index: 1;
 }
 
@@ -242,13 +240,11 @@
   color: var(--theme-text-secondary);
 }
 
-/* Group label above each integrations group (Steam / Epic / Monitoring) */
-.integrations-group-label {
+/* Group label above each integrations group (Steam / Epic / Monitoring).
+   Base type from .caps-label; compound overrides size + tracking that differ. */
+.caps-label.integrations-group-label {
   font-size: var(--font-size-sm);
-  font-weight: 600;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--theme-text-muted);
   margin-bottom: 0.75rem;
 }
 
@@ -342,9 +338,9 @@
   color: var(--theme-button-text);
 }
 
+/* Outline comes from the shared .focus-ring--inset primitive; only the stacking
+   bump that lifts the focused segment above its neighbours' borders is bespoke. */
 .exclusion-mode-option:focus-visible {
-  outline: 2px solid var(--theme-border-focus);
-  outline-offset: -2px;
   z-index: 1;
 }
 

@@ -14,14 +14,10 @@
   background-clip: padding-box;
 }
 
-/* Sub-section label inside an expanded section ("Cache Size", "Deletion method"). */
+/* Sub-section label inside an expanded section ("Cache Size", "Deletion method").
+   Type stack comes from .caps-label on the element. */
 .mgmt-subhead {
   margin: 0;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--theme-text-muted);
 }
 
 /* Stat readout grid - auto-fits as many tiles per row as fit, then wraps. */
@@ -40,13 +36,9 @@
   border-radius: var(--theme-border-radius);
 }
 
+/* Type stack from .caps-label.caps-label--sm on the element. */
 .mgmt-stat__label {
   margin: 0;
-  font-size: var(--font-size-2xs);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--theme-text-muted);
   overflow-wrap: anywhere;
 }
 
@@ -132,11 +124,6 @@
 
 .mgmt-row--interactive {
   transition: background-color 0.15s ease;
-}
-
-.mgmt-row--interactive:focus-visible {
-  outline: 2px solid var(--theme-border-focus);
-  outline-offset: -2px;
 }
 
 .mgmt-row--interactive:hover {

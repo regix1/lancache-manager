@@ -379,7 +379,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           <>
             {/* Cache Size Info */}
             <div className="space-y-3">
-              <p className="mgmt-subhead">{t('management.cache.cacheSize')}</p>
+              <p className="mgmt-subhead caps-label">{t('management.cache.cacheSize')}</p>
 
               {cacheSizeError ? (
                 <Alert color="red">
@@ -396,25 +396,33 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               ) : cacheSize ? (
                 <div className="mgmt-stat-grid">
                   <div className="mgmt-stat">
-                    <p className="mgmt-stat__label">{t('management.cache.cacheSize')}</p>
+                    <p className="mgmt-stat__label caps-label caps-label--sm">
+                      {t('management.cache.cacheSize')}
+                    </p>
                     <p className="mgmt-stat__value">{formatBytes(cacheSize.totalBytes)}</p>
                   </div>
                   <div className="mgmt-stat">
-                    <p className="mgmt-stat__label">{t('management.cache.files')}</p>
+                    <p className="mgmt-stat__label caps-label caps-label--sm">
+                      {t('management.cache.files')}
+                    </p>
                     <p className="mgmt-stat__value">{formatCount(cacheSize.totalFiles)}</p>
                   </div>
                   <div className="mgmt-stat">
-                    <p className="mgmt-stat__label">{t('management.cache.directories')}</p>
+                    <p className="mgmt-stat__label caps-label caps-label--sm">
+                      {t('management.cache.directories')}
+                    </p>
                     <p className="mgmt-stat__value">{formatCount(cacheSize.hexDirectories)}</p>
                   </div>
                   {getEstimatedTime() && (
                     <div className="mgmt-stat">
-                      <p className="mgmt-stat__label">{t('management.cache.estDeletionTime')}</p>
+                      <p className="mgmt-stat__label caps-label caps-label--sm">
+                        {t('management.cache.estDeletionTime')}
+                      </p>
                       <p className="mgmt-stat__value">{getEstimatedTime()}</p>
                     </div>
                   )}
                   <div className="mgmt-stat">
-                    <p className="mgmt-stat__label">
+                    <p className="mgmt-stat__label caps-label caps-label--sm">
                       {cacheSize.isCached
                         ? t('management.cache.cachedScan', 'Cached scan')
                         : t('management.cache.freshScan', 'Fresh scan')}
@@ -433,7 +441,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             <div className="mgmt-panel">
               {/* Delete Mode Configuration */}
               <div>
-                <p className="mgmt-subhead">{t('management.cache.deletionMethod')}</p>
+                <p className="mgmt-subhead caps-label">{t('management.cache.deletionMethod')}</p>
                 <p className="text-xs text-themed-muted mt-1">
                   {deleteMode === 'rsync'
                     ? t('management.cache.deletionMethods.rsyncDesc')

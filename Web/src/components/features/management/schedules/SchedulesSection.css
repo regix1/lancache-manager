@@ -124,17 +124,13 @@
   padding: 0 1rem;
 }
 
+/* Type comes from the shared .caps-label (added on the element). */
 .schedule-table-head {
   padding-top: 0.5rem;
   padding-bottom: 0.5rem;
   background: var(--theme-bg-tertiary);
   /* Inset by the container's 1px border so the fill never pokes past the rounding. */
   border-radius: var(--theme-border-radius-inner) var(--theme-border-radius-inner) 0 0;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--theme-text-muted);
 }
 
 .schedule-row {
@@ -360,12 +356,10 @@
     min-width: 6.5rem;
   }
 
-  .schedule-cell-label {
-    font-size: var(--font-size-xs);
+  /* Base type from shared .caps-label; this label reads at weight 500 not 600.
+     Compounded so the weight wins regardless of bundle order (see patterns.css). */
+  .caps-label.schedule-cell-label {
     font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--theme-text-muted);
   }
 
   .schedule-detail-row {
@@ -518,13 +512,11 @@
   }
 }
 
-/* Caps readout label - the scheduled-prefill table's mobile cell labels reuse this. */
-.schedule-timing-label {
-  font-size: var(--font-size-xs);
+/* Caps readout label - the scheduled-prefill table's mobile cell labels reuse this.
+   Base type from shared .caps-label; this label reads at weight 500 not 600.
+   Compounded so the weight wins regardless of bundle order (see patterns.css). */
+.caps-label.schedule-timing-label {
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--theme-text-muted);
 }
 
 .schedule-timing-value {
@@ -751,7 +743,9 @@
     border-radius: var(--theme-border-radius);
   }
 
-  .scheduled-prefill-schedule-table__head {
+  /* Base type from shared .caps-label; this header reads at weight 500 not 600.
+     Compounded so the weight wins regardless of bundle order (see patterns.css). */
+  .caps-label.scheduled-prefill-schedule-table__head {
     display: grid;
     grid-template-columns: var(--scheduled-prefill-schedule-cols);
     gap: 0.75rem;
@@ -760,11 +754,7 @@
     background: var(--theme-bg-tertiary);
     /* Inset by the container's 1px border so the fill never pokes past the rounding. */
     border-radius: var(--theme-border-radius-inner) var(--theme-border-radius-inner) 0 0;
-    font-size: var(--font-size-xs);
     font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--theme-text-muted);
   }
 
   .scheduled-prefill-schedule-table__row {
@@ -1259,14 +1249,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-}
-
-.scheduled-prefill-persistent-card__meta-label {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--theme-text-muted);
 }
 
 .scheduled-prefill-persistent-card__meta-value {

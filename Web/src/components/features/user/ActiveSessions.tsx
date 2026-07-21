@@ -918,7 +918,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     return (
       <div key={session.id} className="session-item">
         <div
-          className="mgmt-row mgmt-row--interactive session-row"
+          className="mgmt-row mgmt-row--interactive focus-ring--inset session-row"
           role="button"
           tabIndex={0}
           aria-expanded={isExpanded}
@@ -1024,7 +1024,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <div className="mgmt-stat-grid">
                 {session.publicIpAddress && (
                   <div className="mgmt-stat">
-                    <span className="mgmt-stat__label">
+                    <span className="mgmt-stat__label caps-label caps-label--sm">
                       {t('activeSessions.labels.publicIp', 'Public IP')}
                     </span>
                     <span className="mgmt-stat__value">{session.publicIpAddress}</span>
@@ -1032,7 +1032,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 )}
                 {location && (
                   <div className="mgmt-stat">
-                    <span className="mgmt-stat__label">
+                    <span className="mgmt-stat__label caps-label caps-label--sm">
                       {t('activeSessions.labels.location', 'Location')}
                     </span>
                     <span className="mgmt-stat__value">
@@ -1043,7 +1043,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 )}
                 {session.ispName && (
                   <div className="mgmt-stat">
-                    <span className="mgmt-stat__label">
+                    <span className="mgmt-stat__label caps-label caps-label--sm">
                       {t('activeSessions.labels.isp', 'ISP')}
                     </span>
                     <span className="mgmt-stat__value">{session.ispName}</span>
@@ -1051,7 +1051,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 )}
                 {session.timezone && (
                   <div className="mgmt-stat">
-                    <span className="mgmt-stat__label">
+                    <span className="mgmt-stat__label caps-label caps-label--sm">
                       {t('activeSessions.labels.timezoneHeading', 'Timezone')}
                     </span>
                     <span className="mgmt-stat__value">{session.timezone}</span>
@@ -1059,7 +1059,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 )}
                 {session.browserLanguage && (
                   <div className="mgmt-stat">
-                    <span className="mgmt-stat__label">
+                    <span className="mgmt-stat__label caps-label caps-label--sm">
                       {t('activeSessions.labels.language', 'Language')}
                     </span>
                     <span className="mgmt-stat__value">{session.browserLanguage}</span>
@@ -1067,7 +1067,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 )}
                 {session.screenResolution && (
                   <div className="mgmt-stat">
-                    <span className="mgmt-stat__label">
+                    <span className="mgmt-stat__label caps-label caps-label--sm">
                       {t('activeSessions.labels.screen', 'Screen')}
                     </span>
                     <span className="mgmt-stat__value">{session.screenResolution}</span>
@@ -1078,7 +1078,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
             {!session.isRevoked && !session.isExpired && (
               <div className="space-y-2">
-                <p className="mgmt-subhead">
+                <p className="mgmt-subhead caps-label">
                   {t('activeSessions.labels.preferences', 'Preferences')}
                 </p>
                 {isLoadingPrefs ? (
@@ -1089,20 +1089,20 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 ) : prefs ? (
                   <div className="mgmt-stat-grid">
                     <div className="mgmt-stat">
-                      <span className="mgmt-stat__label">
+                      <span className="mgmt-stat__label caps-label caps-label--sm">
                         {t('activeSessions.labels.theme', 'Theme')}
                       </span>
                       <span className="mgmt-stat__value">{themeName}</span>
                     </div>
                     <div className="mgmt-stat">
-                      <span className="mgmt-stat__label">
+                      <span className="mgmt-stat__label caps-label caps-label--sm">
                         {t('activeSessions.labels.timezoneHeading', 'Timezone')}
                       </span>
                       <span className="mgmt-stat__value">{timezoneLabel}</span>
                     </div>
                     {prefs.sharpCorners && (
                       <div className="mgmt-stat">
-                        <span className="mgmt-stat__label">
+                        <span className="mgmt-stat__label caps-label caps-label--sm">
                           {t('user.guest.preferences.sharpCorners.label')}
                         </span>
                         <span className="mgmt-stat__value">
@@ -1112,7 +1112,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     )}
                     {!prefs.showDatasourceLabels && (
                       <div className="mgmt-stat">
-                        <span className="mgmt-stat__label">
+                        <span className="mgmt-stat__label caps-label caps-label--sm">
                           {t('user.guest.preferences.datasourceLabels.label')}
                         </span>
                         <span className="mgmt-stat__value">
@@ -1127,7 +1127,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
             {guest && !session.isRevoked && !session.isExpired && (
               <div className="space-y-2">
-                <p className="mgmt-subhead">
+                <p className="mgmt-subhead caps-label">
                   {t('activeSessions.prefill.title', 'Prefill Access')}
                 </p>
                 <div className="session-prefill-readout">
@@ -1176,7 +1176,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <span className="dash-readout-value">
                   <FormattedTimestamp timestamp={session.createdAt} />
                 </span>
-                <span className="dash-readout-label">
+                <span className="caps-label caps-label--wide dash-readout-label">
                   {t('activeSessions.labels.createdShort', 'Created')}
                 </span>
               </div>
@@ -1188,7 +1188,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     t('activeSessions.labels.never', 'Never')
                   )}
                 </span>
-                <span className="dash-readout-label">
+                <span className="caps-label caps-label--wide dash-readout-label">
                   {t('activeSessions.labels.lastSeenShort', 'Last Seen')}
                 </span>
               </div>
@@ -1200,7 +1200,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     <FormattedTimestamp timestamp={session.expiresAt} />
                   )}
                 </span>
-                <span className="dash-readout-label">
+                <span className="caps-label caps-label--wide dash-readout-label">
                   {t('activeSessions.labels.expires', 'Expires')}
                 </span>
               </div>
@@ -1209,7 +1209,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   <span className="dash-readout-value is-error">
                     <FormattedTimestamp timestamp={session.revokedAt} />
                   </span>
-                  <span className="dash-readout-label">
+                  <span className="caps-label caps-label--wide dash-readout-label">
                     {t('activeSessions.labels.revokedShort', 'Revoked')}
                   </span>
                 </div>

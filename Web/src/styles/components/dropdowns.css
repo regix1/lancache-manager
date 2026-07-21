@@ -76,8 +76,9 @@
     }
   }
 
-  /* EnhancedDropdown */
-  .ed-trigger {
+  /* EnhancedDropdown / MultiSelectDropdown — shared trigger surface */
+  .ed-trigger,
+  .msd-trigger {
     /* Raised control fill — beats the themed-card class the non-button variant
        carries, same as the hover rule below (uniform with Button neutrals) */
     background-color: var(--theme-bg-surface) !important;
@@ -150,7 +151,8 @@
     }
   }
 
-  .ed-trigger:not(:disabled):hover {
+  .ed-trigger:not(:disabled):hover,
+  .msd-trigger:not(:disabled):hover {
     background-color: var(--theme-bg-surface-hover) !important;
   }
 
@@ -172,7 +174,9 @@
     box-shadow: var(--shadow-dropdown);
   }
 
-  .ed-option {
+  .ed-option,
+  .ed-submenu-option,
+  .msd-option {
     transition: background-color 0.15s ease;
   }
 
@@ -192,29 +196,11 @@
     background-color: var(--theme-selected-bg-hover) !important;
   }
 
-  .ed-submenu-option {
-    transition: background-color 0.15s ease;
-  }
-
   .ed-submenu-option:not(.ed-submenu-selected):hover {
     background-color: var(--theme-bg-hover) !important;
   }
 
   /* MultiSelectDropdown */
-  .msd-trigger {
-    transition:
-      background-color 0.15s ease,
-      border-color 0.15s ease;
-  }
-
-  .msd-trigger {
-    background-color: var(--theme-bg-surface) !important;
-  }
-
-  .msd-trigger:not(:disabled):hover {
-    background-color: var(--theme-bg-surface-hover) !important;
-  }
-
   .msd-trigger-open {
     background-color: var(--theme-bg-surface-active) !important;
   }
@@ -228,7 +214,6 @@
   }
 
   .msd-option {
-    transition: background-color 0.15s ease;
     position: relative;
     contain: layout style;
   }
@@ -499,16 +484,13 @@
     gap: 0.75rem;
   }
 
+  /* Layout/size/radius come from the shared .icon-box; width/height stay local so
+     the mobile shrink below can override them. */
   .github-repo-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
     width: 2rem;
     height: 2rem;
-    border-radius: var(--theme-border-radius, 0.375rem);
     background-color: var(--theme-bg-tertiary);
     color: var(--theme-text-secondary);
-    flex-shrink: 0;
     transition-property: background-color, border-color, color, box-shadow, transform, opacity;
     transition-duration: 0.2s;
     transition-timing-function: ease;

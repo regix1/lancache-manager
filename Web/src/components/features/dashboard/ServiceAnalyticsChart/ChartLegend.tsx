@@ -15,7 +15,7 @@ const ChartLegend: React.FC<ChartLegendProps> = React.memo(({ items }) => {
   return (
     <div className="data-side">
       <CustomScrollbar maxHeight="100%" paddingMode="none" radius="none" className="legend-scroll">
-        <div className="legend-list">
+        <div className="legend-list divided-list">
           {items.map((item) => {
             const fillPct = Math.max(item.percentage, 0.5);
             const meterStyle: MeterStyle = { '--meter-fill': `${fillPct}%` };

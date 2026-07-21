@@ -352,12 +352,16 @@ const ScheduleRow = memo(function ScheduleRow({
           </div>
 
           <div className="schedule-cell schedule-cell-last">
-            <span className="schedule-cell-label">{t('management.schedules.lastRun')}</span>
+            <span className="caps-label schedule-cell-label">
+              {t('management.schedules.lastRun')}
+            </span>
             <span className="schedule-timing-value">{formatLastRun(service.lastRunUtc, t)}</span>
           </div>
 
           <div className="schedule-cell schedule-cell-next">
-            <span className="schedule-cell-label">{t('management.schedules.nextRun')}</span>
+            <span className="caps-label schedule-cell-label">
+              {t('management.schedules.nextRun')}
+            </span>
             <CountdownDisplay
               nextRunUtc={service.nextRunUtc}
               intervalHours={service.intervalHours}
@@ -436,7 +440,9 @@ const ScheduleRow = memo(function ScheduleRow({
           </div>
 
           <div className="schedule-cell schedule-cell-interval" onClick={stopRowToggle}>
-            <span className="schedule-cell-label">{t('management.schedules.runEvery')}</span>
+            <span className="caps-label schedule-cell-label">
+              {t('management.schedules.runEvery')}
+            </span>
             <ScheduleIntervalPicker
               intervalHours={service.intervalHours}
               isDisabled={isDisabled}
@@ -1029,7 +1035,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
       {genericSchedules.length > 0 && (
         <div className="schedule-table divided-list">
-          <div className="schedule-table-cols schedule-table-head">
+          <div className="schedule-table-cols schedule-table-head caps-label">
             <span>{t('management.schedules.taskColumn')}</span>
             <span>{t('management.schedules.lastRun')}</span>
             <span>{t('management.schedules.nextRun')}</span>

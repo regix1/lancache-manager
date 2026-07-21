@@ -390,13 +390,15 @@
     accent-color: var(--theme-primary);
   }
 
-  /* Segmented Control */
+  /* Segmented Control. Squared to the base radius (not -lg) so it matches the icon
+     buttons and dropdowns in the same control clusters. The inner button steps down by
+     the container's 3px padding so the active pill still nests cleanly into the corners. */
   .segmented-control-container {
-    border-radius: var(--theme-border-radius-lg);
+    border-radius: var(--theme-border-radius);
   }
 
   .segmented-control-button {
-    border-radius: var(--theme-border-radius);
+    border-radius: calc(var(--theme-border-radius) - 3px);
   }
 
   .segmented-control-label {

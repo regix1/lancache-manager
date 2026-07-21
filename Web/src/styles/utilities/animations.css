@@ -23,12 +23,14 @@
   }
 }
 
-@keyframes gentleFadeIn {
+/* Shared 0-360 rotation for spinner/refresh glyphs (replaces the per-file widgetSpin /
+   active-rotate-slow copies). */
+@keyframes spin {
   from {
-    opacity: 0;
+    transform: rotate(0deg);
   }
   to {
-    opacity: 1;
+    transform: rotate(360deg);
   }
 }
 
@@ -93,9 +95,9 @@
   animation: fadeIn 0.5s ease-out;
 }
 
-/* Smooth data transition animations */
+/* Smooth data transition animations (shares the fadeIn keyframes above). */
 .animate-fadeIn {
-  animation: gentleFadeIn 0.4s ease-out;
+  animation: fadeIn 0.4s ease-out;
 }
 
 /* Respect reduced-motion: skip the tab/section fade-in entrance animations. */

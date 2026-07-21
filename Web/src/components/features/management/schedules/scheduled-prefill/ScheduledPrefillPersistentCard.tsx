@@ -264,7 +264,7 @@ export function ScheduledPrefillPersistentCard({
           {!isAnonymous && container && isRunning && (
             <div className="scheduled-prefill-persistent-card__meta">
               <div className="scheduled-prefill-persistent-card__meta-item">
-                <span className="scheduled-prefill-persistent-card__meta-label">
+                <span className="caps-label scheduled-prefill-persistent-card__meta-label">
                   {t('prefill.persistent.reloginRequiredBy')}
                 </span>
                 <span className="scheduled-prefill-persistent-card__meta-value">

@@ -42,7 +42,6 @@
   padding: 0 5px;
   font-size: var(--font-size-2xs);
   font-weight: 700;
-  font-variant-numeric: tabular-nums;
   border-radius: 3px;
   border: 1px solid var(--theme-badge-white-subtle);
   background: var(--theme-success);
@@ -135,12 +134,8 @@
 
 /* ----- The list well: one bordered surface, hairline dividers ----- */
 
-.rdl-well {
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-well);
-  border-radius: var(--theme-border-radius);
-  overflow: hidden;
-}
+/* .rdl-well surface (bg/border/radius/overflow) comes from .well-surface; this
+   rule only keeps the well's spacing. */
 
 /* Only gap the well from a following footer — when the footer is hidden (empty
    panel) the well is the last child and fills to the card bottom, matching the
@@ -273,7 +268,6 @@
   font-size: var(--font-size-md);
   font-weight: 700;
   color: var(--theme-success);
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -320,7 +314,6 @@
 .rdl-hit {
   font-size: var(--font-size-xs);
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   flex-shrink: 0;
 }

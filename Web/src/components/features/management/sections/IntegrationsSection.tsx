@@ -44,7 +44,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
       <div className="space-y-8">
         {/* Steam - merged PICS authentication + Web API card */}
         <section>
-          <h3 className="integrations-group-label">
+          <h3 className="integrations-group-label caps-label">
             {t('management.sections.integrations.steamIntegration')}
           </h3>
           <HighlightGlow enabled={highlightSteamApi} scrollIntoView>
@@ -59,7 +59,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
 
         {/* Epic Games - merged authentication + library card */}
         <section>
-          <h3 className="integrations-group-label">
+          <h3 className="integrations-group-label caps-label">
             {t('management.sections.integrations.epicIntegration')}
           </h3>
           <HighlightGlow enabled={highlightEpic} scrollIntoView>
@@ -74,7 +74,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
 
         {/* Battle.net - anonymous prefill daemon status (no account login) */}
         <section>
-          <h3 className="integrations-group-label">
+          <h3 className="integrations-group-label caps-label">
             {t('management.sections.integrations.battlenetIntegration', 'Battle.net Integration')}
           </h3>
           <HighlightGlow enabled={highlightBattleNet} scrollIntoView>
@@ -84,7 +84,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
 
         {/* Riot - anonymous prefill daemon status (no account login) */}
         <section>
-          <h3 className="integrations-group-label">
+          <h3 className="integrations-group-label caps-label">
             {t('management.sections.integrations.riotIntegration', 'Riot Integration')}
           </h3>
           <RiotDaemonStatus onError={onError} />
@@ -92,7 +92,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
 
         {/* Xbox - login-required mapping status (admin signs in here via device-code, no prefill) */}
         <section>
-          <h3 className="integrations-group-label">
+          <h3 className="integrations-group-label caps-label">
             {t('management.sections.integrations.xboxIntegration', 'Xbox Integration')}
           </h3>
           <HighlightGlow enabled={highlightXbox} scrollIntoView>
@@ -107,7 +107,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
 
         {/* Monitoring - Grafana endpoints */}
         <section>
-          <h3 className="integrations-group-label">
+          <h3 className="integrations-group-label caps-label">
             {t('management.sections.integrations.monitoringMetrics')}
           </h3>
           <Suspense

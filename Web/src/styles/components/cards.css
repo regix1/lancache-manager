@@ -54,40 +54,9 @@
 
   /* ===== GLASSMORPHISM STYLES ===== */
 
-  /* Glass card base - works with both dark and light themes */
-  .glass-card {
-    background: var(--theme-card-bg-emphasis);
-    color: var(--theme-text-primary);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--theme-card-border);
-    box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.2),
-      inset 0 1px 0 var(--theme-text-primary-faint);
-    transition:
-      background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-      border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-      box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    contain: paint;
-  }
-
-  .glass-card:hover {
-    background: var(--theme-card-bg-full);
-    border-color: var(--theme-border-secondary);
-    box-shadow:
-      0 12px 40px rgba(0, 0, 0, 0.3),
-      inset 0 1px 0 var(--theme-text-primary-faint);
-  }
-
-  /* Widget card styles - p-6 matches the analytics/downloads panels above so
-     content edges align down the dashboard column */
-  .widget-card {
-    @apply p-6 flex flex-col;
-    border-radius: var(--theme-border-radius-lg);
-    background: var(--theme-card-bg);
-    border: 1px solid var(--theme-card-border);
-  }
-
+  /* Shared glass surface — composed by .glass-card and .widget-card.glass */
+  .glass-surface,
+  .glass-card,
   .widget-card.glass {
     background: var(--theme-card-bg-emphasis);
     color: var(--theme-text-primary);
@@ -104,12 +73,23 @@
     contain: paint;
   }
 
+  .glass-surface:hover,
+  .glass-card:hover,
   .widget-card.glass:hover {
     background: var(--theme-card-bg-full);
     border-color: var(--theme-border-secondary);
     box-shadow:
       0 12px 40px rgba(0, 0, 0, 0.3),
       inset 0 1px 0 var(--theme-text-primary-faint);
+  }
+
+  /* Widget card styles - p-6 matches the analytics/downloads panels above so
+     content edges align down the dashboard column */
+  .widget-card {
+    @apply p-6 flex flex-col;
+    border-radius: var(--theme-border-radius-lg);
+    background: var(--theme-card-bg);
+    border: 1px solid var(--theme-card-border);
   }
 
   /* Bulk action card */

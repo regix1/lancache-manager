@@ -141,7 +141,7 @@ function ScheduledPrefillServiceScheduleRow({
       </div>
       <div role="cell" className="scheduled-prefill-schedule-table__cell">
         <span
-          className="schedule-timing-label scheduled-prefill-schedule-table__cell-label"
+          className="caps-label schedule-timing-label scheduled-prefill-schedule-table__cell-label"
           aria-hidden="true"
         >
           {t('management.schedules.nextRun')}
@@ -153,7 +153,7 @@ function ScheduledPrefillServiceScheduleRow({
       </div>
       <div role="cell" className="scheduled-prefill-schedule-table__cell">
         <span
-          className="schedule-timing-label scheduled-prefill-schedule-table__cell-label"
+          className="caps-label schedule-timing-label scheduled-prefill-schedule-table__cell-label"
           aria-hidden="true"
         >
           {t('management.schedules.lastRun')}
@@ -167,7 +167,7 @@ function ScheduledPrefillServiceScheduleRow({
         className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--interval"
       >
         <span
-          className="schedule-timing-label scheduled-prefill-schedule-table__cell-label"
+          className="caps-label schedule-timing-label scheduled-prefill-schedule-table__cell-label"
           aria-hidden="true"
         >
           {t('management.schedules.runEvery')}
@@ -572,7 +572,7 @@ export function ScheduledPrefillScheduleDetail({
                   aria-label={t(`${baseKey}.servicesTitle`)}
                   className="scheduled-prefill-schedule-table"
                 >
-                  <div role="row" className="scheduled-prefill-schedule-table__head">
+                  <div role="row" className="scheduled-prefill-schedule-table__head caps-label">
                     <span role="columnheader">{t(`${baseKey}.service`)}</span>
                     <span role="columnheader">{t('management.schedules.nextRun')}</span>
                     <span role="columnheader">{t('management.schedules.lastRun')}</span>

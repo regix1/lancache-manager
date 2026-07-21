@@ -117,7 +117,7 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
         />
         <div className="chart-center">
           <div className="chart-center-value">{formatBytes(total)}</div>
-          <div className="chart-center-label">{centerLabel}</div>
+          <div className="chart-center-label caps-label caps-label--wide">{centerLabel}</div>
         </div>
       </div>
     );

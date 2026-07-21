@@ -308,13 +308,13 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                   >
                     {stat.value}
                   </div>
-                  <div className="dash-readout-label">{stat.label}</div>
+                  <div className="caps-label caps-label--wide dash-readout-label">{stat.label}</div>
                 </div>
               ))}
             </div>
           </>
         ) : (
-          <div className="dash-well p-3 flex flex-1">
+          <div className="well-surface dash-well p-3 flex flex-1">
             <EmptyState
               variant="panel"
               icon={PieChart}

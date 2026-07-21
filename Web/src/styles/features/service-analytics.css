@@ -409,10 +409,12 @@
   }
 }
 
-.chart-center-label {
-  font-size: var(--font-size-xs);
-  color: var(--theme-text-muted);
-  text-transform: uppercase;
+/* Type (size/uppercase/colour) comes from the shared .caps-label; keep the
+   wider 0.12em tracking, normal weight and top gap. */
+/* Compounds .caps-label (element also carries .caps-label--wide) so the 0.12em tracking
+   and normal weight win over the shared label regardless of chunk order. */
+.caps-label.chart-center-label {
+  font-weight: 400;
   letter-spacing: 0.12em;
   margin-top: 0.3rem;
 }
@@ -464,9 +466,8 @@
   transition: background 0.15s ease;
 }
 
-.legend-item + .legend-item {
-  border-top: 1px solid var(--theme-border-secondary);
-}
+/* Hairline dividers between rows come from the shared .divided-list class on
+   .legend-list. */
 
 .legend-item:hover {
   background: var(--theme-bg-hover);
@@ -590,7 +591,6 @@
       margin-top: 0.15rem;
     }
   }
-
 }
 
 .legend-color-steam {
@@ -930,7 +930,6 @@
     min-height: 18rem;
     max-height: 26rem;
   }
-
 }
 
 @media (max-width: 639px) {

@@ -137,7 +137,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
                   disabled={isDisabled}
                   onClick={() => !isDisabled && onSectionChange(tab.id)}
                   className={`
-                    management-nav-tab
+                    management-nav-tab focus-ring--inset
                     relative flex-grow flex-shrink-0 flex items-center justify-center gap-2
                     px-5 py-3.5 font-medium text-sm
                     border-r last:border-r-0
@@ -199,7 +199,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
                 disabled={isDisabled}
                 onClick={() => !isDisabled && onSectionChange(tab.id)}
                 className={`
-                  management-nav-tab management-nav-tab--mobile
+                  management-nav-tab management-nav-tab--mobile focus-ring--inset
                   flex-shrink-0 flex items-center justify-center gap-1.5
                   px-3 text-xs font-medium rounded-md
                   ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}

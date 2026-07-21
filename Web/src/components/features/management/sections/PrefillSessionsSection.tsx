@@ -218,8 +218,8 @@ const StatCard: React.FC<{
   label: string;
   iconBgClass: string;
 }> = ({ icon, value, label, iconBgClass }) => (
-  <div className="prefill-stat-card">
-    <div className={`prefill-stat-icon ${iconBgClass}`}>{icon}</div>
+  <div className="well-surface prefill-stat-card">
+    <div className={`icon-box icon-box--md prefill-stat-icon ${iconBgClass}`}>{icon}</div>
     <div className="prefill-stat-content">
       <div className="prefill-stat-value">{value == null ? '—' : value}</div>
       <div className="prefill-stat-label">{label}</div>
@@ -341,7 +341,7 @@ const SessionCard: React.FC<{
           <div className="prefill-session-main">
             {/* Status indicator */}
             <div
-              className={`prefill-session-indicator ${
+              className={`icon-box icon-box--md prefill-session-indicator ${
                 isPrefilling
                   ? 'prefill-indicator-downloading'
                   : isLive
@@ -643,9 +643,9 @@ const BannedUserCard: React.FC<{
   const { t } = useTranslation();
 
   return (
-    <div className="prefill-ban-card">
+    <div className="well-surface prefill-ban-card">
       <div
-        className={`prefill-ban-icon ${ban.isActive ? 'prefill-ban-active' : 'prefill-ban-lifted'}`}
+        className={`icon-box icon-box--md prefill-ban-icon ${ban.isActive ? 'prefill-ban-active' : 'prefill-ban-lifted'}`}
       >
         <Ban className="w-4 h-4" />
       </div>
@@ -774,7 +774,7 @@ const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerD
 
         {container.isRunning && !isAnonymous && container.daemonAuthExpiresAtUtc && (
           <div className="prefill-persistent-card__meta-item">
-            <span className="prefill-persistent-card__meta-label">
+            <span className="caps-label prefill-persistent-card__meta-label">
               {t(`${baseKey}.tokenExpiresAt`)}
             </span>
             <span className="prefill-persistent-card__meta-value">
@@ -1596,7 +1596,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 banConfirm && setBanConfirm({ ...banConfirm, reason: e.target.value })
               }
               placeholder={t('management.prefillSessions.modals.ban.reasonPlaceholder')}
-              className="prefill-input"
+              className="focus-ring prefill-input"
             />
           </div>
           <Alert color="red">

@@ -104,12 +104,12 @@ export function PrefillHomePage({
         {showSteam && (
           <div className="prefill-service-card prefill-service-card--steam">
             <div className="prefill-service-card-top">
-              <div className="prefill-service-icon">
+              <div className="icon-box icon-box--lg prefill-service-icon">
                 <SteamIcon size={28} className="text-white" />
               </div>
               <div className="prefill-service-meta">
                 <h2 className="prefill-service-name">Steam</h2>
-                <div className="prefill-service-status">
+                <div className="caps-label prefill-service-status">
                   <span>{t('prefill.home.ready', 'Ready')}</span>
                 </div>
               </div>
@@ -154,12 +154,12 @@ export function PrefillHomePage({
         {showEpic && (
           <div className="prefill-service-card prefill-service-card--epic">
             <div className="prefill-service-card-top">
-              <div className="prefill-service-icon">
+              <div className="icon-box icon-box--lg prefill-service-icon">
                 <EpicIcon size={28} className="text-white" />
               </div>
               <div className="prefill-service-meta">
                 <h2 className="prefill-service-name">Epic Games</h2>
-                <div className="prefill-service-status">
+                <div className="caps-label prefill-service-status">
                   <span>{t('prefill.home.ready', 'Ready')}</span>
                 </div>
               </div>
@@ -204,12 +204,12 @@ export function PrefillHomePage({
         {showBattlenet && (
           <div className="prefill-service-card prefill-service-card--battlenet">
             <div className="prefill-service-card-top">
-              <div className="prefill-service-icon">
+              <div className="icon-box icon-box--lg prefill-service-icon">
                 <BlizzardIcon size={28} className="text-white" />
               </div>
               <div className="prefill-service-meta">
                 <h2 className="prefill-service-name">Battle.net</h2>
-                <div className="prefill-service-status">
+                <div className="caps-label prefill-service-status">
                   <span>{t('prefill.home.ready', 'Ready')}</span>
                 </div>
               </div>
@@ -259,12 +259,12 @@ export function PrefillHomePage({
         {showRiot && (
           <div className="prefill-service-card prefill-service-card--riot">
             <div className="prefill-service-card-top">
-              <div className="prefill-service-icon">
+              <div className="icon-box icon-box--lg prefill-service-icon">
                 <RiotIcon size={28} className="text-white" />
               </div>
               <div className="prefill-service-meta">
                 <h2 className="prefill-service-name">Riot Games</h2>
-                <div className="prefill-service-status">
+                <div className="caps-label prefill-service-status">
                   <span>{t('prefill.home.ready', 'Ready')}</span>
                 </div>
               </div>
@@ -309,12 +309,12 @@ export function PrefillHomePage({
         {showXbox && (
           <div className="prefill-service-card prefill-service-card--xbox">
             <div className="prefill-service-card-top">
-              <div className="prefill-service-icon">
+              <div className="icon-box icon-box--lg prefill-service-icon">
                 <XboxIcon size={28} className="text-white" />
               </div>
               <div className="prefill-service-meta">
                 <h2 className="prefill-service-name">Xbox</h2>
-                <div className="prefill-service-status">
+                <div className="caps-label prefill-service-status">
                   <span>{t('prefill.home.ready', 'Ready')}</span>
                 </div>
               </div>

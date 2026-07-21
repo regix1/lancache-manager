@@ -321,7 +321,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                             key={ip}
                             type="button"
                             onClick={() => handleChooseIp(ip)}
-                            className="mgmt-row mgmt-row--interactive clientgroup-ip-row w-full text-left"
+                            className="mgmt-row mgmt-row--interactive focus-ring--inset clientgroup-ip-row w-full text-left"
                           >
                             <span className="mgmt-row__title font-mono truncate">{ip}</span>
                             <Plus className="w-3.5 h-3.5 flex-shrink-0 text-themed-muted" />

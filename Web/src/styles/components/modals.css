@@ -52,13 +52,8 @@
    * FULL SCAN REQUIRED MODAL
    * ============================================== */
 
+  /* Layout/size/radius come from the shared .icon-box + .icon-box--sm. */
   .full-scan-modal-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    border-radius: var(--theme-border-radius);
     background-color: var(--theme-warning-bg);
     color: var(--theme-warning);
   }
@@ -85,16 +80,13 @@
     border: 1px solid var(--theme-border-primary);
   }
 
+  /* Layout/radius come from the shared .icon-box; width/height stay local so the
+     mobile shrink below can override them. */
   .full-scan-modal-stat-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
     width: 2rem;
     height: 2rem;
-    border-radius: var(--theme-border-radius);
     background-color: var(--theme-warning-bg);
     color: var(--theme-warning);
-    flex-shrink: 0;
   }
 
   .full-scan-modal-stat-content {

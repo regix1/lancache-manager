@@ -1217,7 +1217,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                   return (
                     <div key={`corruption-${service}`}>
                       <div
-                        className="mgmt-row mgmt-row--interactive flex-wrap cursor-pointer"
+                        className="mgmt-row mgmt-row--interactive focus-ring--inset flex-wrap cursor-pointer"
                         {...rowToggleHandlers(service)}
                       >
                         <Checkbox

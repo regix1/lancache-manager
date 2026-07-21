@@ -1005,13 +1005,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   </p>
                   <div className="mgmt-stat-grid">
                     <div className="mgmt-stat">
-                      <p className="mgmt-stat__label">
+                      <p className="mgmt-stat__label caps-label caps-label--sm">
                         {t('management.gameDetection.servicesSection')}
                       </p>
                       <p className="mgmt-stat__value">{filteredServices.length}</p>
                     </div>
                     <div className="mgmt-stat">
-                      <p className="mgmt-stat__label">
+                      <p className="mgmt-stat__label caps-label caps-label--sm">
                         {t('management.gameDetection.gamesSection')}
                       </p>
                       <p className="mgmt-stat__value">{filteredGames.length}</p>

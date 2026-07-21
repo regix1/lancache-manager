@@ -133,7 +133,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
         <div className="grid gap-4 sm:grid-cols-2">
           {/* Left column: Appearance */}
           <div className="user-settings-group">
-            <p className="mgmt-subhead">{t('user.guest.sections.appearance')}</p>
+            <p className="mgmt-subhead caps-label">{t('user.guest.sections.appearance')}</p>
             <div className="mgmt-list divided-list user-settings-list">
               <div className="mgmt-row">
                 <div className="mgmt-row__body">
@@ -206,7 +206,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
 
           {/* Right column: Date & Time */}
           <div className="user-settings-group">
-            <p className="mgmt-subhead">{t('user.guest.sections.dateTime')}</p>
+            <p className="mgmt-subhead caps-label">{t('user.guest.sections.dateTime')}</p>
             <div className="mgmt-list divided-list user-settings-list">
               <div className="mgmt-row">
                 <div className="mgmt-row__body">

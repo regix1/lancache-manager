@@ -163,7 +163,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
         </div>
 
         {loading ? (
-          <div className="dash-well">
+          <div className="well-surface dash-well">
             <div className="overflow-x-auto">
               <table className="top-clients-table">
                 <thead>
@@ -214,7 +214,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             </div>
           </div>
         ) : displayClients.length > 0 ? (
-          <div className="dash-well">
+          <div className="well-surface dash-well">
             <div className="overflow-x-auto">
               <table className="top-clients-table">
                 <thead>
@@ -258,7 +258,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             </div>
           </div>
         ) : (
-          <div className="dash-well p-3">
+          <div className="well-surface dash-well p-3">
             <EmptyState
               variant="panel"
               icon={Users}

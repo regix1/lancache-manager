@@ -239,7 +239,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
         {/* Sparkline. flex-1 so the small row-stretch remainder lands inside
             the well instead of as dead card space */}
         {sparklineData.length > 1 ? (
-          <div className="dash-well p-3 flex-1 flex flex-col justify-center">
+          <div className="well-surface dash-well p-3 flex-1 flex flex-col justify-center">
             <Sparkline
               data={sparklineData}
               color={hasDataDeletion ? 'var(--theme-info)' : 'var(--theme-primary)'}
@@ -257,7 +257,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             )}
           </div>
         ) : (
-          <div className="dash-well p-3 flex-1 flex flex-col">
+          <div className="well-surface dash-well p-3 flex-1 flex flex-col">
             <EmptyState
               variant="panel"
               icon={TrendingUp}
@@ -279,7 +279,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
                     ? `-${formatBytes(Math.abs(growthRatePerDay))}/day`
                     : t('widgets.cacheGrowthTrend.stable')}
               </div>
-              <div className="dash-readout-label">
+              <div className="caps-label caps-label--wide dash-readout-label">
                 {isHistoricalView
                   ? t('widgets.cacheGrowthTrend.avgGrowth')
                   : cacheWasCleared
@@ -303,7 +303,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
                         ? t('widgets.cacheGrowthTrend.used', { percent: usagePercent.toFixed(1) })
                         : t('widgets.cacheGrowthTrend.empty')}
               </div>
-              <div className="dash-readout-label">
+              <div className="caps-label caps-label--wide dash-readout-label">
                 {daysUntilFull !== null && daysUntilFull > 0
                   ? t('widgets.cacheGrowthTrend.estFull')
                   : t('widgets.cacheGrowthTrend.status')}

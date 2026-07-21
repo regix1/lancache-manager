@@ -91,7 +91,9 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           <div className="speed-content">
             {isHistoricalView ? (
               <>
-                <span className="speed-label">{t('downloads.header.historical.title')}</span>
+                <span className="speed-label caps-label">
+                  {t('downloads.header.historical.title')}
+                </span>
                 <div className="stats-row">
                   <span className="stat-chip">{t('downloads.header.historical.viewing')}</span>
                   <span className="stat-chip">{t('downloads.header.historical.unavailable')}</span>
@@ -99,7 +101,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
               </>
             ) : (
               <>
-                <span className="speed-label">
+                <span className="speed-label caps-label">
                   {isActive ? t('downloads.header.transferSpeed') : t('downloads.header.idle')}
                 </span>
                 <div className="speed-value">

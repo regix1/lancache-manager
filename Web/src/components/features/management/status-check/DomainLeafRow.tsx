@@ -223,7 +223,9 @@ const DomainLeafRow: React.FC<DomainLeafRowProps> = ({ result }) => {
           const content = (
             <>
               <CheckIcon state={line.state} />
-              <span className="status-check-check-label">{line.label}</span>
+              <span className="status-check-check-label caps-label caps-label--sm">
+                {line.label}
+              </span>
               <span className="status-check-check-detail tabular-nums">{line.detail}</span>
             </>
           );

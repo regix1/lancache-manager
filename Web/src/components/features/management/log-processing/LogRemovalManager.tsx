@@ -110,7 +110,7 @@ const ServiceRow: React.FC<{
   );
 
   return (
-    <div className="mgmt-row mgmt-row--interactive">
+    <div className="mgmt-row mgmt-row--interactive focus-ring--inset">
       {selectable && (
         <Checkbox
           checked={selected}

@@ -412,7 +412,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         <div className="mgmt-stat-grid mt-4">
           {statTiles.map((tile) => (
             <div key={tile.id} className="mgmt-stat">
-              <p className="mgmt-stat__label">{tile.label}</p>
+              <p className="mgmt-stat__label caps-label caps-label--sm">{tile.label}</p>
               <p
                 className={`mgmt-stat__value tabular-nums${
                   tile.isZero
@@ -472,12 +472,16 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
             slot.tooltip ? (
               <Tooltip key={slot.id} content={slot.tooltip} className="status-check-meta-item">
                 <span className="status-check-meta-value">{slot.value}</span>
-                <span className="status-check-meta-label">{slot.label}</span>
+                <span className="status-check-meta-label caps-label caps-label--sm">
+                  {slot.label}
+                </span>
               </Tooltip>
             ) : (
               <div key={slot.id} className="status-check-meta-item">
                 <span className="status-check-meta-value">{slot.value}</span>
-                <span className="status-check-meta-label">{slot.label}</span>
+                <span className="status-check-meta-label caps-label caps-label--sm">
+                  {slot.label}
+                </span>
               </div>
             )
           )}

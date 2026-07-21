@@ -1,4 +1,14 @@
-/* Shared structural/text patterns reused across pages. */
+/* Shared structural/text patterns reused across pages.
+
+   These are BASE styles a component's own rule is meant to be able to override (e.g. a
+   label keeps .caps-label for weight/case/colour but sets a smaller font-size). The
+   production build STRIPS @layer and code-splits CSS, so a plain single-class override
+   (.dl-stat-label) ties with the shared single class (.caps-label) at 0,1,0 and the
+   winner is decided by bundle order - which Vite derives from the module graph, not
+   import order, so it is not reliable. Any rule that must override one of these therefore
+   COMPOUNDS the shared class into its selector (.caps-label.dl-stat-label = 0,2,0) so it
+   wins by specificity regardless of chunk order. Kept unlayered here to match the rest of
+   the app's stylesheets (see .control-h-md in forms.css). */
 
 /* Hairline divider between direct children (list rows, stacked rows). */
 .divided-list > * + * {
@@ -34,4 +44,119 @@
 .caps-label--sm {
   font-size: var(--font-size-2xs);
   font-weight: 500;
+}
+
+/* Wider-tracked variant for chart axis / table-header eyebrows that read better with
+   more letter-spacing than the default label (both classes go on the element). */
+.caps-label--wide {
+  letter-spacing: 0.1em;
+}
+
+/* Tabular figures so numeric columns and live-updating readouts don't jitter as digits
+   change width. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inset keyboard focus outline for controls whose edge sits flush with a container
+   (rows, tabs) where the default +2px ring would clip; pairs with .focus-ring. */
+.focus-ring--inset:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: -2px;
+}
+
+/* Recessed panel surface: the standard tinted well used for stat/list/section boxes.
+   Callers that need a different border weight or radius COMPOUND this class into their
+   own selector (e.g. .well-surface.prefill-stat-card) to override just that property. */
+.well-surface {
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-well);
+  border-radius: var(--theme-border-radius);
+  overflow: hidden;
+}
+
+/* Square, centered container for a non-interactive icon (brand tiles, stat glyphs).
+   Distinct from .btn-icon-square, which is for actual icon BUTTONS. Colour/background
+   are set by the caller; size comes from a modifier. */
+.icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--theme-border-radius);
+}
+
+.icon-box--sm {
+  width: 2rem;
+  height: 2rem;
+}
+
+.icon-box--md {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.icon-box--lg {
+  width: 3rem;
+  height: 3rem;
+}
+
+/* App-wide status dot: a small round indicator with a ring halo. Promoted here from the
+   user page so schedule/prefill/connection/session dots can share one base. The colour
+   and any pulse come from a state class. */
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px var(--theme-bg-secondary);
+}
+
+.status-dot.active {
+  background: var(--theme-success);
+  animation: pulse-dot-ring 2s infinite;
+}
+
+.status-dot.away {
+  background: var(--theme-warning);
+  animation: pulse-dot-away 3s infinite;
+}
+
+.status-dot.inactive {
+  background: var(--theme-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.active,
+  .status-dot.away {
+    animation: none;
+  }
+}
+
+@keyframes pulse-dot-ring {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px var(--theme-bg-secondary),
+      0 0 0 4px var(--theme-success-strong);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px var(--theme-bg-secondary),
+      0 0 0 6px var(--theme-success-faint);
+  }
+}
+
+@keyframes pulse-dot-away {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px var(--theme-bg-secondary),
+      0 0 0 4px var(--theme-warning-strong);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px var(--theme-bg-secondary),
+      0 0 0 6px var(--theme-warning-faint);
+  }
 }

@@ -346,7 +346,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
         <div className="dl-card-stats">
           <div className="dl-stat">
             <span className="dl-stat-value">{formatBytes(group.totalBytes)}</span>
-            <span className="dl-stat-label">{t('downloads.tab.normal.stats.downloaded')}</span>
+            <span className="dl-stat-label caps-label">
+              {t('downloads.tab.normal.stats.downloaded')}
+            </span>
           </div>
           {showCacheHitBar && (
             <div className="dl-stat">
@@ -355,20 +357,26 @@ const GroupCard: React.FC<GroupCardProps> = ({
               >
                 {hitPercent > 0 ? formatPercent(hitPercent) : '—'}
               </span>
-              <span className="dl-stat-label">{t('downloads.tab.normal.stats.cacheHit')}</span>
+              <span className="dl-stat-label caps-label">
+                {t('downloads.tab.normal.stats.cacheHit')}
+              </span>
             </div>
           )}
           {diskSizeBytes ? (
             <div className="dl-stat">
               <span className="dl-stat-value">{formatBytes(diskSizeBytes)}</span>
-              <span className="dl-stat-label">{t('downloads.tab.normal.stats.onDisk')}</span>
+              <span className="dl-stat-label caps-label">
+                {t('downloads.tab.normal.stats.onDisk')}
+              </span>
             </div>
           ) : null}
           <div className="dl-stat">
             <span className="dl-stat-value dl-stat-value-muted">
               {formatRelativeTime(group.lastSeen)}
             </span>
-            <span className="dl-stat-label">{t('downloads.tab.normal.stats.lastActivity')}</span>
+            <span className="dl-stat-label caps-label">
+              {t('downloads.tab.normal.stats.lastActivity')}
+            </span>
           </div>
         </div>
 

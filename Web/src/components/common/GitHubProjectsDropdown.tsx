@@ -767,7 +767,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
                   }}
                 >
                   <div className="github-repo-main">
-                    <div className="github-repo-icon">
+                    <div className="icon-box github-repo-icon">
                       <Github size={16} />
                     </div>
                     <div className="github-repo-info">
@@ -821,7 +821,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
                   }}
                 >
                   <div className="github-repo-main">
-                    <div className="github-repo-icon">
+                    <div className="icon-box github-repo-icon">
                       <Github size={16} />
                     </div>
                     <div className="github-repo-info">

@@ -42,7 +42,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
       onClose={onCancel}
       title={
         <div className="flex items-center gap-3">
-          <div className="full-scan-modal-icon">
+          <div className="icon-box icon-box--sm full-scan-modal-icon">
             <AlertTriangle className="w-5 h-5" />
           </div>
           <span>{title}</span>
@@ -55,7 +55,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
         <div className="full-scan-modal-stats">
           {changeGap && (
             <div className="full-scan-modal-stat">
-              <div className="full-scan-modal-stat-icon">
+              <div className="icon-box full-scan-modal-stat-icon">
                 <RefreshCw className="w-4 h-4" />
               </div>
               <div className="full-scan-modal-stat-content">

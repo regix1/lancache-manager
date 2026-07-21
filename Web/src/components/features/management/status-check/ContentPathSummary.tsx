@@ -85,7 +85,7 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
         <div className="mgmt-stat-grid mt-3">
           {stats.map((stat) => (
             <div key={stat.id} className="mgmt-stat">
-              <p className="mgmt-stat__label">{stat.label}</p>
+              <p className="mgmt-stat__label caps-label caps-label--sm">{stat.label}</p>
               <p
                 className={`mgmt-stat__value tabular-nums${
                   stat.value === 0

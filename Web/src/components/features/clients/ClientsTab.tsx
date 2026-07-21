@@ -188,7 +188,7 @@ const ClientsTab: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="clients-well" aria-hidden="true">
+          <div className="clients-well divided-list" aria-hidden="true">
             {Array.from({ length: 8 }, (_, i) => (
               <div key={i} className="clients-grid">
                 <div className="clients-cell clients-cell--client">
@@ -216,7 +216,7 @@ const ClientsTab: React.FC = () => {
             ))}
           </div>
         ) : sortedClients.length > 0 ? (
-          <div className="clients-well">
+          <div className="clients-well divided-list">
             <div className="clients-grid clients-grid--header">
               <div className="clients-cell clients-cell--client">{t('clients.table.client')}</div>
               <div className="clients-cell clients-cell--num">
@@ -235,7 +235,7 @@ const ClientsTab: React.FC = () => {
             ))}
           </div>
         ) : (
-          <div className="dash-well p-3">
+          <div className="well-surface dash-well p-3">
             <EmptyState variant="panel" icon={Users} title={t('clients.empty')} />
           </div>
         )}

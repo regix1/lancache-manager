@@ -87,7 +87,8 @@
     background: var(--theme-bg-tertiary);
   }
 
-  .dl-card-banner-img {
+  .dl-card-banner-img,
+  .card-grid-banner-image {
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -188,12 +189,13 @@
     color: var(--theme-success-text);
   }
 
-  .dl-stat-label {
+  /* Weight/uppercase/colour come from the shared .caps-label; keep the smaller
+     2xs size, 0.07em tracking and truncation. */
+  /* Compounds .caps-label so the smaller size + wider tracking win regardless of
+     cross-chunk bundle order (see patterns.css). */
+  .caps-label.dl-stat-label {
     font-size: var(--font-size-2xs);
-    font-weight: 600;
     letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: var(--theme-text-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -206,7 +208,8 @@
     overflow: hidden;
   }
 
-  .dl-card-cache-bar-fill {
+  .dl-card-cache-bar-fill,
+  .card-grid-item-cache-bar-fill {
     height: 100%;
     border-radius: 2px;
     background: var(--theme-success);
@@ -365,12 +368,10 @@
     gap: 0.25rem;
   }
 
+  /* Size/weight/uppercase/colour come from the shared .caps-label; keep the
+     wider 0.08em tracking. */
   .downloads-header .speed-label {
-    font-size: var(--font-size-xs);
-    font-weight: 600;
-    text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--theme-text-muted);
   }
 
   .downloads-header .speed-value {
@@ -688,13 +689,6 @@
     background: var(--theme-bg-secondary);
   }
 
-  .card-grid-banner-image {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: center;
-  }
-
   .card-grid-item-info {
     padding: 0.75rem;
   }
@@ -723,13 +717,6 @@
     background: var(--theme-bg-tertiary);
     margin-top: 0.5rem;
     overflow: hidden;
-  }
-
-  .card-grid-item-cache-bar-fill {
-    height: 100%;
-    background: var(--theme-success);
-    transition: width 0.3s ease;
-    border-radius: 2px;
   }
 
   .card-grid-item-collapse-btn {
@@ -819,16 +806,7 @@
     inset: 0;
     border-radius: 50%;
     border: 2px dashed var(--theme-border-secondary);
-    animation: active-rotate-slow 20s linear infinite;
-  }
-
-  @keyframes active-rotate-slow {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
+    animation: spin 20s linear infinite;
   }
 
   .active-empty-state .empty-icon {
@@ -1146,7 +1124,7 @@
     width: 2rem;
     height: 2rem;
     color: var(--theme-text-muted);
-    animation: active-rotate-slow 1s linear infinite;
+    animation: spin 1s linear infinite;
   }
 
   /* Active Downloads View - Mobile overrides */
@@ -1244,12 +1222,11 @@
     position: relative;
   }
 
-  .session-filter-label {
+  /* Weight/uppercase/colour come from the shared .caps-label; keep the smaller
+     2xs size and 0.07em tracking. */
+  .caps-label.session-filter-label {
     font-size: var(--font-size-2xs);
-    font-weight: 600;
-    text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: var(--theme-text-muted);
     white-space: nowrap;
   }
 

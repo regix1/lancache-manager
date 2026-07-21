@@ -336,7 +336,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
 
   const renderGroup = (labelKey: string, groupEntries: CorruptionScanHistoryEntry[]) => (
     <div className="space-y-2">
-      <p className="mgmt-subhead">{t(labelKey)}</p>
+      <p className="mgmt-subhead caps-label">{t(labelKey)}</p>
       {groupEntries.length === 0 ? (
         <p className="mgmt-scanmeta">{t('management.corruption.history.methodEmpty')}</p>
       ) : (

@@ -13,13 +13,7 @@
   margin-bottom: 1rem;
 }
 
-.status-check-resolver-label {
-  font-size: var(--font-size-2xs);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--theme-text-muted);
-}
+/* Label text comes from the shared .caps-label .caps-label--sm primitive. */
 
 /* Hero status glyph - icon-in-rounded-box, colored by overall verdict. */
 .status-check-glyph {
@@ -177,13 +171,7 @@
   overflow-wrap: anywhere;
 }
 
-.status-check-meta-label {
-  font-size: var(--font-size-2xs);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--theme-text-muted);
-}
+/* Meta-slot label text comes from the shared .caps-label .caps-label--sm primitive. */
 
 @media (max-width: 640px) {
   .status-check-meta {
@@ -543,15 +531,12 @@
   margin-top: 0.15rem;
 }
 
+/* Type comes from the shared .caps-label .caps-label--sm primitive; only the
+   fixed-width column layout is bespoke. */
 .status-check-check-label {
   flex-shrink: 0;
   width: 5.75rem;
   margin-top: 0.1rem;
-  font-size: var(--font-size-2xs);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--theme-text-muted);
 }
 
 .status-check-check-detail {

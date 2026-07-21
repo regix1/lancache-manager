@@ -103,7 +103,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
 
   return (
     <div>
-      <div className="mgmt-row mgmt-row--interactive">
+      <div className="mgmt-row mgmt-row--interactive focus-ring--inset">
         {selectable && (
           <Checkbox
             checked={selected}
