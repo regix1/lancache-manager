@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import './SchedulesSection.css';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight } from 'lucide-react';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -152,6 +152,77 @@ const DepotScheduleModeDropdown = memo(function DepotScheduleModeDropdown({
       disabled={isDisabled}
       variant="button"
     />
+  );
+});
+
+interface NotificationModeAccordionProps {
+  value: string;
+  options: DropdownOption[];
+  isDisabled: boolean;
+  onChange: (value: string) => void;
+}
+
+// Inline accordion replacement for the Notifications dropdown: the current mode shows in the
+// header and the options reveal in place (via CollapsibleRegion) rather than a floating menu.
+// Option rows reuse the dropdown's selected/hover styling so it still reads as one control set
+// alongside the Notification style dropdown next to it.
+const NotificationModeAccordion = memo(function NotificationModeAccordion({
+  value,
+  options,
+  isDisabled,
+  onChange
+}: NotificationModeAccordionProps) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value);
+
+  const handleSelect = useCallback(
+    (next: string) => {
+      onChange(next);
+      setOpen(false);
+    },
+    [onChange]
+  );
+
+  return (
+    <div className={`schedule-notif-accordion${open ? ' open' : ''}`}>
+      <button
+        type="button"
+        className="schedule-notif-accordion-header"
+        onClick={() => setOpen((prev) => !prev)}
+        disabled={isDisabled}
+        aria-expanded={open}
+      >
+        <span className="schedule-notif-accordion-value">{selected?.label}</span>
+        <ChevronDown className="schedule-notif-accordion-chevron" />
+      </button>
+      <CollapsibleRegion open={open}>
+        <div className="schedule-notif-accordion-options" role="listbox">
+          {options.map((option) => {
+            const isSelected = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                className={`schedule-notif-accordion-option${isSelected ? ' selected' : ''}`}
+                onClick={() => handleSelect(option.value)}
+              >
+                <span className="schedule-notif-accordion-option-copy">
+                  <span className="schedule-notif-accordion-option-label">{option.label}</span>
+                  {option.description && (
+                    <span className="schedule-notif-accordion-option-desc">
+                      {option.description}
+                    </span>
+                  )}
+                </span>
+                {isSelected && <Check className="schedule-notif-accordion-check" />}
+              </button>
+            );
+          })}
+        </div>
+      </CollapsibleRegion>
+    </div>
   );
 });
 
@@ -497,13 +568,11 @@ const ScheduleCard = memo(function ScheduleCard({
                           </span>
                         </Tooltip>
                         <div className="schedule-settings-control">
-                          <EnhancedDropdown
+                          <NotificationModeAccordion
                             options={notificationModeOptions}
                             value={service.notificationMode}
                             onChange={handleNotificationModeChange}
-                            disabled={isDisabled}
-                            variant="button"
-                            className="w-full"
+                            isDisabled={isDisabled}
                           />
                         </div>
                       </div>

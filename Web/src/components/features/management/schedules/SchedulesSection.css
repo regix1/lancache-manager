@@ -1995,6 +1995,11 @@
   /* Fixed label column sized to the longest label, so every row's control starts at the same
      left edge instead of drifting with each label's own width. */
   min-width: 8rem;
+  /* Centre the label against a 40px control header while the row itself is top-aligned, so an
+     expanded Notifications accordion grows downward without dragging the label to its middle. */
+  display: flex;
+  align-items: center;
+  min-height: 40px;
 }
 
 /* Equal-split width recipe (mirrors .scheduled-prefill-segment-uniform) so the 3-option
@@ -2131,7 +2136,9 @@
    control starts at the same x and is the same width. */
 .schedule-settings-row {
   display: flex;
-  align-items: center;
+  /* Top-aligned so an expanded accordion in the control column grows downward instead of
+     re-centring the whole row (the label + control stay put via their 40px min-height). */
+  align-items: flex-start;
   gap: 1rem;
 }
 
@@ -2140,6 +2147,11 @@
    longer truncates the option descriptions. Shrinks as one on tight cards, keeping them equal. */
 .schedule-settings-control {
   flex: 0 1 16rem;
+  /* Vertically centre the 32px toggle / 40px dropdown against the label; the accordion (also
+     40px collapsed) grows past this floor when opened. */
+  min-height: 40px;
+  display: flex;
+  align-items: center;
 }
 
 @media (max-width: 480px) {
@@ -2151,9 +2163,116 @@
 
   .schedule-row-label {
     min-width: 0;
+    min-height: 0;
   }
 
   .schedule-settings-control {
     flex: 1 1 auto;
   }
+}
+
+/* Notifications accordion: an inline expand/collapse select that stands in for the dropdown.
+   Header matches the ed-trigger (button variant) surface; the options reveal below it via
+   CollapsibleRegion using the same selected/hover treatment as the real dropdown menu. */
+.schedule-notif-accordion {
+  width: 100%;
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius);
+  background: var(--theme-bg-surface);
+  overflow: hidden;
+}
+
+.schedule-notif-accordion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 40px;
+  padding: 0 0.75rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--theme-text-primary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+
+.schedule-notif-accordion-header:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.schedule-notif-accordion-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schedule-notif-accordion-chevron {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.schedule-notif-accordion.open .schedule-notif-accordion-chevron {
+  transform: rotate(180deg);
+}
+
+.schedule-notif-accordion-options {
+  border-top: 1px solid var(--theme-border-primary);
+  padding: 0.25rem 0;
+}
+
+.schedule-notif-accordion-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease;
+}
+
+.schedule-notif-accordion-option:hover {
+  background: var(--theme-bg-hover);
+}
+
+.schedule-notif-accordion-option.selected {
+  background: var(--theme-bg-tertiary);
+}
+
+.schedule-notif-accordion-option-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.schedule-notif-accordion-option-label {
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-primary);
+}
+
+.schedule-notif-accordion-option.selected .schedule-notif-accordion-option-label {
+  color: var(--theme-primary);
+}
+
+.schedule-notif-accordion-option-desc {
+  margin-top: 0.12rem;
+  font-size: var(--font-size-xs);
+  line-height: 1.35;
+  color: var(--theme-text-secondary);
+}
+
+.schedule-notif-accordion-check {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--theme-primary);
 }
