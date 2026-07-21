@@ -168,25 +168,38 @@
   animation: condensedStripPulse 2.2s ease-in-out infinite;
 }
 
-/* The glow is a dedicated row of per-segment shadow casters occupying exactly the line's own
-   box, so each caster inherits its segment's width and the light lands under the segment that
-   emits it. Blur only, NO spread: spread inflates the caster into a hard-edged slab thicker
-   than the line, which reads as a second fat bar rather than light coming off the first. The
-   clip keeps only the light cast BELOW the line (top inset rides the caster's own height), the
-   sides stay square so the light reaches the page edges, and the bottom is free for falloff. */
+/* The glow is a dedicated row of per-segment shadow casters, one per segment so the light lands
+   under the segment that emits it. Blur only, NO spread: spread inflates the caster into a
+   hard-edged slab thicker than the line, which reads as a second fat bar rather than light
+   coming off the first.
+
+   The glow occupies a fixed-height band pinned directly BELOW the line (top: 100%) and shows
+   only the light cast into that band, clipped by overflow: hidden. It deliberately does NOT
+   clip a box-shadow with clip-path: Chromium computes the clip-path reference box to include the
+   shadow's own boundaries, so when the fade-in opacity transition forces a recomposite the clip
+   can stop containing the shadow and it blooms in every direction, upward over the line as well
+   as down. That made the thin line intermittently render as a fat slab. overflow: hidden clips a
+   child's box-shadow reliably, so the upward bloom can never escape the band and the line's
+   painted height is fixed no matter when the browser recomposites. */
 .condensed-strip-glow {
   position: absolute;
-  inset: 0;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 1.25rem;
   display: flex;
   gap: 1px;
   pointer-events: none;
-  clip-path: inset(100% 0 -1.25rem 0);
+  overflow: hidden;
   opacity: 0;
   transition: opacity 0.35s ease-out;
 }
 
+/* A hairline caster pinned to the band's top edge (flush under the line): its blur reaches down
+   into the band and up over the line, and the band's overflow keeps only the downward half. */
 .condensed-strip-glow-seg {
   flex: 1 1 0%;
+  height: 1px;
   box-shadow: 0 0 0.625rem 0 var(--seg-glow-color);
 }
 
