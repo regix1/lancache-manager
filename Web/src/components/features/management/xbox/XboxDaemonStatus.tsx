@@ -5,6 +5,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { XboxIcon } from '@components/ui/XboxIcon';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { XboxMappingProgressEvent } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
@@ -39,6 +40,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   const [hasError, setHasError] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const loadStatus = useCallback(async () => {
     // Demo/mock mode has no admin session, and auth-status is AdminOnly, so a fetch would 401/403
@@ -71,7 +73,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   }, [mockMode]);
 
   useEffect(() => {
-    loadStatus();
+    loadStatus().finally(() => setLoading(false));
   }, [loadStatus]);
 
   // Refresh on relevant events
@@ -205,101 +207,115 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
               )}
             </HelpNote>
           </HelpPopover>
-          <div className="ml-auto flex-shrink-0">
-            {isAuthenticated ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-                <CheckCircle size={14} />
-                {t('management.sections.integrations.xboxDaemonStatus.connected', 'Connected')}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-                <XCircle size={14} />
-                {t(
-                  'management.sections.integrations.xboxDaemonStatus.notConnected',
-                  'Not Connected'
-                )}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Error Warning */}
-        {hasError && (
-          <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
-            {t(
-              'management.sections.integrations.xboxDaemonStatus.loadError',
-              'Failed to load Xbox status. Displaying default values.'
-            )}
-          </div>
-        )}
-
-        {/* Auth Status Row */}
-        <div className="p-3 rounded-lg bg-themed-tertiary">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-themed-primary text-sm font-medium mb-1">
-                {isAuthenticated
-                  ? t('management.sections.integrations.xboxDaemonStatus.connectedAs', {
-                      name: authStatus?.displayName ?? 'Xbox User',
-                      defaultValue: 'Connected as {{name}}'
-                    })
-                  : t(
-                      'management.sections.integrations.xboxDaemonStatus.notConnected',
-                      'Not Connected'
-                    )}
-              </p>
-              <p className="text-xs text-themed-muted">
-                {isAuthenticated
-                  ? t(
-                      'management.sections.integrations.xboxDaemonStatus.connectedDesc',
-                      'Library synced. Game detection is active.'
-                    )
-                  : t(
-                      'management.sections.integrations.xboxDaemonStatus.notConnectedDesc',
-                      'Sign in with your Microsoft account to enable Xbox game discovery.'
-                    )}
-              </p>
-              {isAuthenticated && loginExpiresInDays !== null && (
-                <p className="text-xs text-themed-muted mt-1">
-                  {t('management.sections.integrations.xboxDaemonStatus.loginExpiresInDays', {
-                    count: loginExpiresInDays,
-                    defaultValue:
-                      'Login valid for about {{count}} more days (auto-renews while running)'
-                  })}
-                </p>
+          {!loading && (
+            <div className="ml-auto flex-shrink-0">
+              {isAuthenticated ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
+                  <CheckCircle size={14} />
+                  {t('management.sections.integrations.xboxDaemonStatus.connected', 'Connected')}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
+                  <XCircle size={14} />
+                  {t(
+                    'management.sections.integrations.xboxDaemonStatus.notConnected',
+                    'Not Connected'
+                  )}
+                </span>
               )}
             </div>
-            {authMode === 'authenticated' && !mockMode && (
-              <div className="flex-shrink-0">
-                {isAuthenticated ? (
-                  <Button
-                    onClick={handleLogout}
-                    loading={loggingOut}
-                    variant="filled"
-                    color="red"
-                    size="sm"
-                  >
-                    {t('management.sections.integrations.xboxDaemonStatus.logout', 'Logout')}
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={handleLoginClick}
-                    loading={loginState.loading}
-                    disabled={showAuthModal || loginState.loading}
-                    variant="filled"
-                    color="blue"
-                    size="sm"
-                  >
-                    {t(
-                      'management.sections.integrations.xboxDaemonStatus.loginButton',
-                      'Login with Xbox'
-                    )}
-                  </Button>
+          )}
+        </div>
+
+        {loading ? (
+          <LoadingState
+            message={t(
+              'management.sections.integrations.xboxDaemonStatus.loadingStatus',
+              'Loading Xbox status...'
+            )}
+            rows={1}
+          />
+        ) : (
+          <>
+            {/* Error Warning */}
+            {hasError && (
+              <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
+                {t(
+                  'management.sections.integrations.xboxDaemonStatus.loadError',
+                  'Failed to load Xbox status. Displaying default values.'
                 )}
               </div>
             )}
-          </div>
-        </div>
+
+            {/* Auth Status Row */}
+            <div className="p-3 rounded-lg bg-themed-tertiary">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-themed-primary text-sm font-medium mb-1">
+                    {isAuthenticated
+                      ? t('management.sections.integrations.xboxDaemonStatus.connectedAs', {
+                          name: authStatus?.displayName ?? 'Xbox User',
+                          defaultValue: 'Connected as {{name}}'
+                        })
+                      : t(
+                          'management.sections.integrations.xboxDaemonStatus.notConnected',
+                          'Not Connected'
+                        )}
+                  </p>
+                  <p className="text-xs text-themed-muted">
+                    {isAuthenticated
+                      ? t(
+                          'management.sections.integrations.xboxDaemonStatus.connectedDesc',
+                          'Library synced. Game detection is active.'
+                        )
+                      : t(
+                          'management.sections.integrations.xboxDaemonStatus.notConnectedDesc',
+                          'Sign in with your Microsoft account to enable Xbox game discovery.'
+                        )}
+                  </p>
+                  {isAuthenticated && loginExpiresInDays !== null && (
+                    <p className="text-xs text-themed-muted mt-1">
+                      {t('management.sections.integrations.xboxDaemonStatus.loginExpiresInDays', {
+                        count: loginExpiresInDays,
+                        defaultValue:
+                          'Login valid for about {{count}} more days (auto-renews while running)'
+                      })}
+                    </p>
+                  )}
+                </div>
+                {authMode === 'authenticated' && !mockMode && (
+                  <div className="flex-shrink-0">
+                    {isAuthenticated ? (
+                      <Button
+                        onClick={handleLogout}
+                        loading={loggingOut}
+                        variant="filled"
+                        color="red"
+                        size="sm"
+                      >
+                        {t('management.sections.integrations.xboxDaemonStatus.logout', 'Logout')}
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={handleLoginClick}
+                        loading={loginState.loading}
+                        disabled={showAuthModal || loginState.loading}
+                        variant="filled"
+                        color="blue"
+                        size="sm"
+                      >
+                        {t(
+                          'management.sections.integrations.xboxDaemonStatus.loginButton',
+                          'Login with Xbox'
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Game Library (aggregated across all discovery sources) - collapsible dropdown */}
         <div className="mt-4">

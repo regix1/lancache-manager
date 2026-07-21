@@ -167,6 +167,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // /api/games/cached-detection instead of the slim dashboard batch context.
   const [evictedGames, setEvictedGames] = useState<GameCacheInfo[]>([]);
   const [evictedServices, setEvictedServices] = useState<ServiceCacheInfo[]>([]);
+  const [evictedItemsLoading, setEvictedItemsLoading] = useState(true);
   const allEvictedNginxReopenGate = getNginxReopenGateForEntities(datasources, [
     ...evictedServices,
     ...evictedGames
@@ -204,8 +205,14 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const scheduleEvictedItemsRefresh = useTimeoutCallback(CACHED_DETECTION_RELOAD_DELAY_MS);
   const scheduleRemovalRefresh = useScheduledRemovalRefresh();
 
-  // Fetch full detection data (fat shape) for evicted items rendering
+  // Fetch full detection data (fat shape) for evicted items rendering. Only the very first
+  // call shows the loading skeleton - later calls are silent background refreshes (post-removal,
+  // post-scan) that should update the list in place rather than blanking it back to a skeleton.
+  const hasLoadedEvictedItemsRef = useRef(false);
   const fetchEvictedItems = useCallback(async () => {
+    if (!hasLoadedEvictedItemsRef.current) {
+      setEvictedItemsLoading(true);
+    }
     try {
       const snapshot = await loadCachedDetectionSnapshot();
       const games = getEvictedGames(snapshot.games);
@@ -223,6 +230,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
           logLabel: 'Failed to fetch evicted items'
         }
       );
+    } finally {
+      hasLoadedEvictedItemsRef.current = true;
+      setEvictedItemsLoading(false);
     }
   }, [notifyError, t]);
 
@@ -1087,6 +1097,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                     diskActionBlocked={diskActionBlocked}
                     servicesSelection={evictedServicesSelectionProp}
                     gamesSelection={evictedGamesSelectionProp}
+                    loading={evictedItemsLoading}
                   />
                 </AccordionSection>
               </div>

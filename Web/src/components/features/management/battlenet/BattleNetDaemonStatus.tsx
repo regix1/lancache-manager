@@ -4,6 +4,7 @@ import { CheckCircle, XCircle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import ApiService from '@services/api.service';
 import type { EpicDaemonStatusDto } from '../../../../types';
@@ -22,6 +23,7 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
   const { on, off, connectionState } = useSignalR();
   const [status, setStatus] = useState<EpicDaemonStatusDto | null>(null);
   const [hasError, setHasError] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -46,7 +48,7 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
   }, [onError, t]);
 
   useEffect(() => {
-    loadStatus();
+    loadStatus().finally(() => setLoading(false));
   }, [loadStatus]);
 
   // Refresh when the daemon reports a status change over the Battle.net hub
@@ -124,76 +126,90 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
             )}
           </HelpNote>
         </HelpPopover>
-        <div className="ml-auto flex-shrink-0">
-          {isReady ? (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-              <CheckCircle size={14} />
-              {t('management.sections.integrations.battlenetDaemonStatus.connected', 'Connected')}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-              <XCircle size={14} />
+        {!loading && (
+          <div className="ml-auto flex-shrink-0">
+            {isReady ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
+                <CheckCircle size={14} />
+                {t('management.sections.integrations.battlenetDaemonStatus.connected', 'Connected')}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
+                <XCircle size={14} />
+                {t(
+                  'management.sections.integrations.battlenetDaemonStatus.notConnected',
+                  'Not Connected'
+                )}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <LoadingState
+          message={t(
+            'management.sections.integrations.battlenetDaemonStatus.loadingStatus',
+            'Loading Battle.net status...'
+          )}
+          rows={1}
+        />
+      ) : (
+        <>
+          {/* Error Warning */}
+          {hasError && (
+            <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
               {t(
-                'management.sections.integrations.battlenetDaemonStatus.notConnected',
-                'Not Connected'
+                'management.sections.integrations.battlenetDaemonStatus.loadError',
+                'Failed to load Battle.net status. Displaying default values.'
               )}
-            </span>
+            </div>
           )}
-        </div>
-      </div>
 
-      {/* Error Warning */}
-      {hasError && (
-        <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
-          {t(
-            'management.sections.integrations.battlenetDaemonStatus.loadError',
-            'Failed to load Battle.net status. Displaying default values.'
-          )}
-        </div>
+          {/* Status Row */}
+          <div className="p-3 rounded-lg bg-themed-tertiary">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="text-themed-primary text-sm font-medium mb-1">
+                  {isReady
+                    ? t(
+                        'management.sections.integrations.battlenetDaemonStatus.dockerStatus',
+                        'Docker Service'
+                      )
+                    : t(
+                        'management.sections.integrations.battlenetDaemonStatus.notConnected',
+                        'Not Connected'
+                      )}
+                </p>
+                <p className="text-xs text-themed-muted">
+                  {isReady
+                    ? t(
+                        'management.sections.integrations.battlenetDaemonStatus.dockerAvailableDesc',
+                        'Docker is available and ready for Battle.net prefill sessions. No account login required.'
+                      )
+                    : t(
+                        'management.sections.integrations.battlenetDaemonStatus.dockerUnavailableDesc',
+                        'Start Docker to enable Battle.net prefill sessions.'
+                      )}
+                </p>
+              </div>
+              <div className="flex-shrink-0">
+                <span className="text-xs text-themed-muted">
+                  {activeSessions > 0
+                    ? t('management.sections.integrations.battlenetDaemonStatus.activeSessions', {
+                        count: activeSessions,
+                        defaultValue: '{{count}} active session'
+                      })
+                    : t(
+                        'management.sections.integrations.battlenetDaemonStatus.noActiveSessions',
+                        'No active sessions'
+                      )}
+                </span>
+              </div>
+            </div>
+          </div>
+        </>
       )}
-
-      {/* Status Row */}
-      <div className="p-3 rounded-lg bg-themed-tertiary">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <p className="text-themed-primary text-sm font-medium mb-1">
-              {isReady
-                ? t(
-                    'management.sections.integrations.battlenetDaemonStatus.dockerStatus',
-                    'Docker Service'
-                  )
-                : t(
-                    'management.sections.integrations.battlenetDaemonStatus.notConnected',
-                    'Not Connected'
-                  )}
-            </p>
-            <p className="text-xs text-themed-muted">
-              {isReady
-                ? t(
-                    'management.sections.integrations.battlenetDaemonStatus.dockerAvailableDesc',
-                    'Docker is available and ready for Battle.net prefill sessions. No account login required.'
-                  )
-                : t(
-                    'management.sections.integrations.battlenetDaemonStatus.dockerUnavailableDesc',
-                    'Start Docker to enable Battle.net prefill sessions.'
-                  )}
-            </p>
-          </div>
-          <div className="flex-shrink-0">
-            <span className="text-xs text-themed-muted">
-              {activeSessions > 0
-                ? t('management.sections.integrations.battlenetDaemonStatus.activeSessions', {
-                    count: activeSessions,
-                    defaultValue: '{{count}} active session'
-                  })
-                : t(
-                    'management.sections.integrations.battlenetDaemonStatus.noActiveSessions',
-                    'No active sessions'
-                  )}
-            </span>
-          </div>
-        </div>
-      </div>
     </Card>
   );
 };

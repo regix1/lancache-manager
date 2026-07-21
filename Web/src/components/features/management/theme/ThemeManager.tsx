@@ -25,6 +25,7 @@ import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { API_BASE } from '@utils/constants';
@@ -48,7 +49,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   // State Management
   const [themes, setThemes] = useState<Theme[]>([]);
   const [currentTheme, setCurrentTheme] = useState('dark-default');
-  const { isLoading, setLoading } = useManagerLoading(false);
+  const { isLoading, setLoading, hasInitiallyLoaded, markLoaded } = useManagerLoading(false);
   const [dragActive, setDragActive] = useState(false);
   const [previewTheme, setPreviewTheme] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -94,7 +95,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
   // Load themes on mount
   useEffect(() => {
-    loadThemes();
+    loadThemes().finally(() => markLoaded());
 
     // Load preview state first
     const savedPreview = themeService.getPreviewTheme();
@@ -760,27 +761,31 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                   {t('management.themes.custom')}
                 </span>
               </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {themes.map((theme) => (
-                  <ThemeCard
-                    key={theme.meta.id}
-                    theme={theme}
-                    isActive={currentTheme === theme.meta.id && !previewTheme}
-                    isPreviewing={previewTheme === theme.meta.id}
-                    isSystem={isSystemTheme(theme.meta.id)}
-                    isAdmin={isAdmin}
-                    isGuest={authService.authMode === 'guest'}
-                    themeActionMenu={themeActionMenu}
-                    currentMenuId={theme.meta.id}
-                    onApplyTheme={handleThemeChange}
-                    onPreview={handlePreview}
-                    onEdit={handleEditTheme}
-                    onExport={handleExportTheme}
-                    onDelete={handleDelete}
-                    onMenuToggle={setThemeActionMenu}
-                  />
-                ))}
-              </div>
+              {!hasInitiallyLoaded ? (
+                <LoadingState message={t('management.themes.loadingThemes')} rows={2} />
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {themes.map((theme) => (
+                    <ThemeCard
+                      key={theme.meta.id}
+                      theme={theme}
+                      isActive={currentTheme === theme.meta.id && !previewTheme}
+                      isPreviewing={previewTheme === theme.meta.id}
+                      isSystem={isSystemTheme(theme.meta.id)}
+                      isAdmin={isAdmin}
+                      isGuest={authService.authMode === 'guest'}
+                      themeActionMenu={themeActionMenu}
+                      currentMenuId={theme.meta.id}
+                      onApplyTheme={handleThemeChange}
+                      onPreview={handlePreview}
+                      onEdit={handleEditTheme}
+                      onExport={handleExportTheme}
+                      onDelete={handleDelete}
+                      onMenuToggle={setThemeActionMenu}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Community Themes */}

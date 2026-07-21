@@ -2143,6 +2143,7 @@
         "loadingEndpoints": "加载端点中...",
         "epicDaemonStatus": {
           "title": "Epic Games",
+          "loadingStatus": "正在加载 Epic 状态...",
           "ready": "就绪",
           "unavailable": "不可用",
           "connected": "已连接",
@@ -2178,6 +2179,7 @@
         },
         "battlenetDaemonStatus": {
           "title": "Battle.net",
+          "loadingStatus": "正在加载战网状态...",
           "ready": "就绪",
           "unavailable": "不可用",
           "connected": "已连接",
@@ -2213,6 +2215,7 @@
         },
         "riotDaemonStatus": {
           "title": "Riot Games",
+          "loadingStatus": "正在加载拳头游戏状态...",
           "ready": "就绪",
           "unavailable": "不可用",
           "connected": "已连接",
@@ -2241,6 +2244,7 @@
         },
         "xboxDaemonStatus": {
           "title": "Xbox",
+          "loadingStatus": "正在加载 Xbox 状态...",
           "ready": "就绪",
           "unavailable": "不可用",
           "connected": "已连接",
@@ -3293,6 +3297,7 @@
     },
     "themes": {
       "title": "主题管理",
+      "loadingThemes": "正在加载主题...",
       "themesAvailable": "{{count}} 个主题可用",
       "createNewTheme": "创建新主题",
       "deleteAllCustom": "删除所有自定义主题",
@@ -3956,6 +3961,7 @@
       "guestMode": "访客模式",
       "guest": "访客",
       "authenticate": "验证身份",
+      "checkingStatus": "正在检查身份验证状态...",
       "auth": "认证",
       "fullAccess": "完全访问",
       "sessionExpires": "会话在 {{time}} 后过期",

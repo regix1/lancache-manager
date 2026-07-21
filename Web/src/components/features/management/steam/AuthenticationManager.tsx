@@ -6,6 +6,7 @@ import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { useGuestConfig } from '@contexts/useGuestConfig';
 import { useAuth } from '@contexts/useAuth';
 import { formatSessionTimeRemaining } from '@utils/timeFormatters';
@@ -203,7 +204,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   };
 
   if (authChecking) {
-    return null;
+    return <LoadingState message={t('management.auth.checkingStatus')} rows={1} />;
   }
 
   // When authentication is disabled via Security:EnableAuthentication, the auth

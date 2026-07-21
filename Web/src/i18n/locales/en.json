@@ -2143,6 +2143,7 @@
         "loadingEndpoints": "Loading endpoints...",
         "epicDaemonStatus": {
           "title": "Epic Games",
+          "loadingStatus": "Loading Epic status...",
           "ready": "Ready",
           "unavailable": "Unavailable",
           "connected": "Connected",
@@ -2178,6 +2179,7 @@
         },
         "battlenetDaemonStatus": {
           "title": "Battle.net",
+          "loadingStatus": "Loading Battle.net status...",
           "ready": "Ready",
           "unavailable": "Unavailable",
           "connected": "Connected",
@@ -2213,6 +2215,7 @@
         },
         "riotDaemonStatus": {
           "title": "Riot Games",
+          "loadingStatus": "Loading Riot status...",
           "ready": "Ready",
           "unavailable": "Unavailable",
           "connected": "Connected",
@@ -2241,6 +2244,7 @@
         },
         "xboxDaemonStatus": {
           "title": "Xbox",
+          "loadingStatus": "Loading Xbox status...",
           "ready": "Ready",
           "unavailable": "Unavailable",
           "connected": "Connected",
@@ -3293,6 +3297,7 @@
     },
     "themes": {
       "title": "Theme Management",
+      "loadingThemes": "Loading themes...",
       "themesAvailable": "{{count}} themes available",
       "createNewTheme": "Create new theme",
       "deleteAllCustom": "Delete all custom themes",
@@ -3957,6 +3962,7 @@
       "guestMode": "Guest Mode",
       "guest": "Guest",
       "authenticate": "Authenticate",
+      "checkingStatus": "Checking authentication status...",
       "auth": "Auth",
       "fullAccess": "Full Access",
       "sessionExpires": "Session expires in {{time}}",
