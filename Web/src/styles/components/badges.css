@@ -106,10 +106,14 @@
     color: var(--theme-info-text);
   }
 
+  /* Grey-tinted fill derived from the badge's own text colour, so the neutral badge
+     reads as a real filled chip like the warning/error/success badges (each a muted
+     tint of its text) instead of a transparent grey label. No border: the fill defines
+     it, matching the borderless coloured badges. Count chips re-add their own border
+     via .badge-count below, so those are unaffected. */
   .status-badge-neutral {
-    background-color: var(--theme-bg-tertiary);
+    background-color: var(--theme-text-secondary-muted);
     color: var(--theme-text-secondary);
-    border: 1px solid var(--theme-border-secondary);
   }
 
   /* Notification-visibility pill — one soft violet hue, two treatments, so the
