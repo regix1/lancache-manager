@@ -682,7 +682,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                     onClick={handleAddExcluded}
                     variant="filled"
                     color="blue"
-                    className="clients-row-button sm:w-32"
+                    className="clients-row-button sm:w-40"
                     disabled={
                       loadingExcluded ||
                       savingExcluded ||
