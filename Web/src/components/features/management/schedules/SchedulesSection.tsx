@@ -368,19 +368,12 @@ const ScheduleRow = memo(function ScheduleRow({
             )}
           </div>
 
-          <div className="schedule-cell schedule-cell-interval" onClick={stopRowToggle}>
-            <span className="schedule-cell-label">{t('management.schedules.runEvery')}</span>
-            <ScheduleIntervalPicker
-              intervalHours={service.intervalHours}
-              isDisabled={isDisabled}
-              onChange={handleIntervalChange}
-            />
-          </div>
-
           {/* Settings-at-a-glance pills mirroring the detail well, so the state is readable
-          without expanding the row. One shared width (they stretch to the fixed column) and
-          the same colour axes as the scheduled-prefill platform badges: filled purple = all
-          runs, filled blue = manual only, dotted outline = silent. */}
+          without expanding the row. They sit with the readouts, before the interval picker,
+          so the text-like cells stay together and the controls group on the right. One
+          shared width (they stretch to the fixed column) and the same colour axes as the
+          scheduled-prefill platform badges: filled purple = all runs, filled blue = manual
+          only, dotted outline = silent. */}
           <div className="schedule-cell-flags">
             {hasDetail && (
               <>
@@ -442,6 +435,15 @@ const ScheduleRow = memo(function ScheduleRow({
             )}
           </div>
 
+          <div className="schedule-cell schedule-cell-interval" onClick={stopRowToggle}>
+            <span className="schedule-cell-label">{t('management.schedules.runEvery')}</span>
+            <ScheduleIntervalPicker
+              intervalHours={service.intervalHours}
+              isDisabled={isDisabled}
+              onChange={handleIntervalChange}
+            />
+          </div>
+
           <div className="schedule-cell-actions" onClick={stopRowToggle}>
             <Button
               variant="subtle"
@@ -450,6 +452,7 @@ const ScheduleRow = memo(function ScheduleRow({
               disabled={isDisabled || isDimmed}
               loading={isRunningThis}
               stableWidth
+              className="schedule-control-button"
             >
               {t('management.schedules.runNow')}
             </Button>
@@ -1028,8 +1031,8 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             <span>{t('management.schedules.taskColumn')}</span>
             <span>{t('management.schedules.lastRun')}</span>
             <span>{t('management.schedules.nextRun')}</span>
-            <span>{t('management.schedules.runEvery')}</span>
             <span>{t('management.schedules.settingsColumn')}</span>
+            <span>{t('management.schedules.runEvery')}</span>
             <span aria-hidden="true" />
           </div>
           {genericSchedules.map((service) => (
