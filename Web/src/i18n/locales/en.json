@@ -3540,6 +3540,7 @@
       "title": "Service Schedules",
       "subtitle": "Configure how often background services run",
       "taskColumn": "Task",
+      "settingsColumn": "Settings",
       "startupOn": "Startup on",
       "startupOff": "Startup off",
       "configuredInSchedules": "Schedule is configured in the Schedules section.",
@@ -3621,6 +3622,7 @@
         "depotMapping": {
           "displayName": "Steam Game Mapping",
           "description": "Pulls the latest Steam depot-to-game lookup table from Steam PICS or a GitHub mirror. Game Detection uses this table to label your cached files with the right game names.",
+          "summary": "Keeps the Steam depot-to-game lookup up to date.",
           "gain": "New game downloads are identified faster, reducing the time items appear as 'Unknown Game'",
           "loss": "Delisted or newly released games may show as 'Unknown Game' until the next mapping refresh detects them",
           "scanModeLabel": "Scheduled Scan Mode",
@@ -3631,6 +3633,7 @@
         "scheduledPrefill": {
           "displayName": "Scheduled Prefill",
           "description": "Runs selected prefill services automatically using the schedule and per-service download settings below.",
+          "summary": "Runs selected prefill services on their own schedule.",
           "gain": "Game content can be warmed into the cache before users need it, including account libraries when login is configured.",
           "loss": "Disabled services or services needing login will be skipped until their configuration is completed.",
           "config": {
@@ -3871,24 +3874,28 @@
         "epicMapping": {
           "displayName": "Epic Game Mapping",
           "description": "Refreshes the Epic Games Store catalog used to identify Epic downloads in your cache: game titles, CDN URL patterns, and depot mappings.",
+          "summary": "Keeps the Epic Games Store catalog up to date.",
           "gain": "Newly released or updated Epic games are mapped to their cached downloads sooner, allowing them to appear in the game list without waiting for the next detection cycle",
           "loss": "New or renamed Epic games may not appear in the game list until the next scheduled refresh"
         },
         "xboxMapping": {
           "displayName": "Xbox Game Mapping",
           "description": "Refreshes the Xbox / Microsoft Store catalog used to name Xbox downloads in your cache. Reads the owned-games list and per-file CDN patterns from your authenticated Xbox prefill session, with no prefill download required.",
+          "summary": "Keeps the Xbox catalog up to date.",
           "gain": "Owned Xbox games are mapped to their cached downloads on a schedule, so titles downloaded on a real Xbox or PC are named without starting a prefill",
           "loss": "Newly acquired Xbox games may not appear in the game list until the next scheduled refresh or a daemon login"
         },
         "logRotation": {
           "displayName": "Log Rotation",
           "description": "Tells nginx to reopen its access log. Fixes the case where log rotation leaves nginx writing to a deleted file and your stats stop updating.",
+          "summary": "Reopens the nginx access log so stats keep updating.",
           "gain": "Nginx reliably reattaches to the log file, ensuring download activity is captured correctly",
           "loss": "If nginx has lost log access, new download activity will not be recorded until the next rotation run"
         },
         "cacheReconciliation": {
           "displayName": "Eviction Scan",
           "description": "Compares your cache directory against the database to see what is still on disk vs. what nginx has evicted. Keeps the 'evicted' badges in the UI accurate.",
+          "summary": "Checks which cached files nginx has evicted.",
           "gain": "Eviction badges and cache status in the UI are more accurate and up to date",
           "loss": "The UI may show stale eviction status - items marked as cached might actually be evicted, or vice versa",
           "viewManagement": "View Eviction Settings"
@@ -3896,48 +3903,56 @@
         "cacheSizeScan": {
           "displayName": "Cache File Scan",
           "description": "Walks the entire cache directory and totals every file on disk (mapped and unmapped). Updates the Cache Files dashboard stat, scan timestamp, and unmapped-cache hint.",
+          "summary": "Totals every cached file on disk.",
           "gain": "File counts and unmapped-cache totals stay current without clicking Refresh in Management → Cache",
           "loss": "The Cache Files stat and unmapped-cache subtitle may stay outdated until the next scan runs"
         },
         "gameDetection": {
           "displayName": "Game Detection",
           "description": "Scans your cache directory and labels each chunk of cached data with the game it belongs to, using the Steam and Epic depot mappings. Incremental scans skip games already detected; previously 'Unknown' depots are resolved as new mappings arrive.",
+          "summary": "Labels cached data with the game it belongs to.",
           "gain": "Newly downloaded games appear in the game list sooner, and previously unknown depots are resolved as new mappings arrive",
           "loss": "Games downloaded between scans won't show up in the game list until the next detection run"
         },
         "gameImageFetch": {
           "displayName": "Game Artwork",
           "description": "Downloads the cover art shown next to each detected game. Fills in missing artwork and refreshes any image older than 7 days, trying multiple Steam and Epic CDNs.",
+          "summary": "Downloads cover art for detected games.",
           "gain": "Game cards get their artwork faster and stale images are kept up to date",
           "loss": "Some game cards may display without artwork for longer until the next image fetch cycle"
         },
         "steamService": {
           "displayName": "Steam Game Info",
           "description": "Steam caches content by depot ID (a number), not by game name, so it needs a lookup to turn those IDs into games. This service keeps the whole depot-to-game lookup in memory so Steam downloads resolve to game names instantly, caches Steam Store names and cover art on demand, and reloads the lookup after Steam Game Mapping discovers new mappings.",
+          "summary": "Turns Steam depot IDs into game names.",
           "gain": "Depot-to-app lookups stay fast and newly discovered PICS mappings are picked up sooner",
           "loss": "Newly discovered PICS mappings may take longer to appear in depot lookups until the next reload"
         },
         "cacheSnapshot": {
           "displayName": "Cache Snapshots",
           "description": "Saves a periodic snapshot of used cache size and total capacity so the dashboard can chart growth over time. Snapshots older than 90 days are deleted automatically.",
+          "summary": "Records cache usage over time for the dashboard chart.",
           "gain": "The cache growth chart has finer granularity, making it easier to spot trends and spikes",
           "loss": "The growth chart will have wider gaps between data points, making short-term trends harder to see"
         },
         "operationHistoryCleanup": {
           "displayName": "Operation History Cleanup",
           "description": "Removes cache-clear operation records older than 24 hours from the history page. Doesn't touch your actual cache files - those are only cleared from the Cache Management page.",
+          "summary": "Clears cache-clear records older than 24 hours.",
           "gain": "Completed operation records are automatically cleaned up after 24 hours, keeping the history tidy",
           "loss": "Operation records older than 24 hours are permanently removed and cannot be reviewed later"
         },
         "performanceOptimization": {
           "displayName": "Performance Optimizations",
           "description": "Watches memory use and triggers garbage collection only when it crosses your configured threshold. Also clears stale database connections. Off by default - enable on the Performance Optimizations page if you're memory-constrained.",
+          "summary": "Frees memory when usage crosses your threshold.",
           "gain": "Memory usage stays lower and the UI feels snappier on memory-constrained hosts",
           "loss": "Brief CPU spikes during each collection pass can cause small pauses in background work"
         },
         "dashboardCacheWarmer": {
           "displayName": "Dashboard Preloader",
           "description": "Pre-loads dashboard data (active downloads, stats, metrics) in the background so the page opens instantly instead of waiting on a cold database query.",
+          "summary": "Preloads dashboard data so the page opens instantly.",
           "gain": "Dashboard opens immediately even after the server has been idle; users never see a cold-fetch spinner",
           "loss": "A small amount of background CPU is used each cycle, and cached values may briefly lag real-time changes until the next warm"
         }

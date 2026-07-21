@@ -346,7 +346,7 @@ const ScheduleRow = memo(function ScheduleRow({
                 </span>
               </span>
               <span className="schedule-task-meta">
-                {t(`management.schedules.services.${service.key}.description`)}
+                {t(`management.schedules.services.${service.key}.summary`)}
               </span>
             </div>
           </div>
@@ -1029,7 +1029,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             <span>{t('management.schedules.lastRun')}</span>
             <span>{t('management.schedules.nextRun')}</span>
             <span>{t('management.schedules.runEvery')}</span>
-            <span aria-hidden="true" />
+            <span>{t('management.schedules.settingsColumn')}</span>
             <span aria-hidden="true" />
           </div>
           {genericSchedules.map((service) => (
