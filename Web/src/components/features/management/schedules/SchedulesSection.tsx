@@ -503,6 +503,7 @@ const ScheduleCard = memo(function ScheduleCard({
                             onChange={handleNotificationModeChange}
                             disabled={isDisabled}
                             variant="button"
+                            className="w-full"
                           />
                         </div>
                       </div>
@@ -525,6 +526,7 @@ const ScheduleCard = memo(function ScheduleCard({
                             onChange={handleNotificationDisplayModeChange}
                             disabled={isDisabled}
                             variant="button"
+                            className="w-full"
                           />
                         </div>
                       </div>

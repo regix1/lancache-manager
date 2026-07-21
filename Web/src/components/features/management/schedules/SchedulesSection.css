@@ -2124,29 +2124,36 @@
   border-radius: var(--theme-border-radius);
 }
 
+/* Fixed label column (via .schedule-row-label min-width) + fixed control column, grouped
+   left with a single gap - NOT space-between. space-between let each control drift to its
+   own right edge, and because the dropdown sized to its own selected-value text the three
+   controls ended up different widths starting at different x positions. Now every row's
+   control starts at the same x and is the same width. */
 .schedule-settings-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
 }
 
-/* Fixed control column so the toggle and both dropdowns share one right edge and one width. */
+/* One fixed control width for the toggle and both dropdowns. The dropdowns fill it (w-full on
+   the EnhancedDropdown) so all three are identical width and wide enough that the menu no
+   longer truncates the option descriptions. Shrinks as one on tight cards, keeping them equal. */
 .schedule-settings-control {
-  flex: 0 0 13rem;
-  display: flex;
-  justify-content: flex-end;
+  flex: 0 1 16rem;
 }
 
-@media (max-width: 420px) {
+@media (max-width: 480px) {
   .schedule-settings-row {
     flex-direction: column;
     align-items: stretch;
     gap: 0.35rem;
   }
 
+  .schedule-row-label {
+    min-width: 0;
+  }
+
   .schedule-settings-control {
     flex: 1 1 auto;
-    justify-content: flex-start;
   }
 }
