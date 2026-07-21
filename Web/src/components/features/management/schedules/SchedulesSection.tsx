@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import './SchedulesSection.css';
 import { useTranslation } from 'react-i18next';
-import { Check, ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -37,7 +37,7 @@ interface SchedulesSectionProps {
   onNavigateToSteamApi?: () => void;
 }
 
-// Isolated countdown component - ticks every second without re-rendering the parent card
+// Isolated countdown component - ticks every second without re-rendering the parent row
 const CountdownDisplay = memo(function CountdownDisplay({
   nextRunUtc,
   intervalHours,
@@ -151,82 +151,12 @@ const DepotScheduleModeDropdown = memo(function DepotScheduleModeDropdown({
       onChange={handleChange}
       disabled={isDisabled}
       variant="button"
+      className="w-full"
     />
   );
 });
 
-interface NotificationModeAccordionProps {
-  value: string;
-  options: DropdownOption[];
-  isDisabled: boolean;
-  onChange: (value: string) => void;
-}
-
-// Inline accordion replacement for the Notifications dropdown: the current mode shows in the
-// header and the options reveal in place (via CollapsibleRegion) rather than a floating menu.
-// Option rows reuse the dropdown's selected/hover styling so it still reads as one control set
-// alongside the Notification style dropdown next to it.
-const NotificationModeAccordion = memo(function NotificationModeAccordion({
-  value,
-  options,
-  isDisabled,
-  onChange
-}: NotificationModeAccordionProps) {
-  const [open, setOpen] = useState(false);
-  const selected = options.find((option) => option.value === value);
-
-  const handleSelect = useCallback(
-    (next: string) => {
-      onChange(next);
-      setOpen(false);
-    },
-    [onChange]
-  );
-
-  return (
-    <div className={`schedule-notif-accordion${open ? ' open' : ''}`}>
-      <button
-        type="button"
-        className="schedule-notif-accordion-header"
-        onClick={() => setOpen((prev) => !prev)}
-        disabled={isDisabled}
-        aria-expanded={open}
-      >
-        <span className="schedule-notif-accordion-value">{selected?.label}</span>
-        <ChevronDown className="schedule-notif-accordion-chevron" />
-      </button>
-      <CollapsibleRegion open={open}>
-        <div className="schedule-notif-accordion-options" role="listbox">
-          {options.map((option) => {
-            const isSelected = option.value === value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={isSelected}
-                className={`schedule-notif-accordion-option${isSelected ? ' selected' : ''}`}
-                onClick={() => handleSelect(option.value)}
-              >
-                <span className="schedule-notif-accordion-option-copy">
-                  <span className="schedule-notif-accordion-option-label">{option.label}</span>
-                  {option.description && (
-                    <span className="schedule-notif-accordion-option-desc">
-                      {option.description}
-                    </span>
-                  )}
-                </span>
-                {isSelected && <Check className="schedule-notif-accordion-check" />}
-              </button>
-            );
-          })}
-        </div>
-      </CollapsibleRegion>
-    </div>
-  );
-});
-
-interface ScheduleCardProps {
+interface ScheduleRowProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
   onIntervalChange: (key: string, intervalHours: number) => Promise<void>;
@@ -244,7 +174,10 @@ interface ScheduleCardProps {
   onNavigateToSteamApi?: () => void;
 }
 
-const ScheduleCard = memo(function ScheduleCard({
+// One schedule = one row of the shared table. The whole row toggles a detail well
+// (CollapsibleRegion) holding the secondary settings, so opening a row only ever grows
+// that row - no other row or column moves.
+const ScheduleRow = memo(function ScheduleRow({
   service,
   isAdmin,
   onIntervalChange,
@@ -260,28 +193,36 @@ const ScheduleCard = memo(function ScheduleCard({
   onNotificationModeChange,
   onNotificationDisplayModeChange,
   onNavigateToSteamApi
-}: ScheduleCardProps) {
+}: ScheduleRowProps) {
   const { t } = useTranslation();
   const formattedNextRun = useFormattedDateTime(service.nextRunUtc);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const isDepotMapping = service.key === 'depotMapping';
-  const isScheduledPrefill = service.key === 'scheduledPrefill';
   const isCacheReconciliation = service.key === 'cacheReconciliation';
   const isRunningThis = runningKey === service.key;
-  // Zero interval means the schedule effectively won't run (for scheduled prefill this is
-  // the HasAnyEnabledService gate reporting "no services enabled"). The dim only lives on
-  // wrapper divs around the card body, not the Card itself, so ScheduledPrefillScheduleDetail
-  // can keep its own Configure button and warning text at full opacity - opacity on an
-  // ancestor cannot be undone by a descendant's own opacity.
+  // Zero interval means the schedule effectively won't run; the informational cells dim
+  // but the interval picker stays fully legible - it is the way back out of the state.
   const isDimmed = service.intervalHours === 0;
 
-  // Run-on-startup is hidden when the interval is "Startup only" (-1) - that schedule already
-  // runs at startup, so the toggle is redundant - and for scheduled prefill, where startup is
-  // set per platform. The settings disclosure only appears when it has at least one control.
-  const hasStartupToggle = service.intervalHours !== -1 && !isScheduledPrefill;
-  const showSettingsDisclosure =
-    !isScheduledPrefill && (hasStartupToggle || service.supportsNotifications);
+  // Run-on-startup is hidden when the interval is "Startup only" (-1): that schedule
+  // already runs at startup, so the toggle is redundant.
+  const hasStartupToggle = service.intervalHours !== -1;
+  const hasDetail =
+    hasStartupToggle ||
+    service.supportsNotifications ||
+    isDepotMapping ||
+    (isCacheReconciliation && !!onNavigateToEvictionSettings);
+
+  const toggleDetail = useCallback(() => {
+    setDetailOpen((open) => !open);
+  }, []);
+
+  // The interval picker, action buttons and help popover live inside the clickable row;
+  // their clicks must not double as a row toggle.
+  const stopRowToggle = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+  }, []);
 
   const handleIntervalChange = useCallback(
     (hours: number) => {
@@ -356,17 +297,270 @@ const ScheduleCard = memo(function ScheduleCard({
   ];
 
   // NOTE: do NOT include a "saving" flag here. Toggling isDisabled on and off for the
-  // ~50ms an API save is in flight causes every control on the card to briefly flash to
-  // disabled styling and back - that's the source of the flicker the user reported on the
-  // interval dropdown and Run Now button. Optimistic updates already make the UI feel
-  // instant; there's no UX benefit to disabling siblings mid-save.
+  // ~50ms an API save is in flight causes every control on the row to briefly flash to
+  // disabled styling and back - that was the source of the flicker previously reported
+  // on the interval dropdown and Run Now button. Optimistic updates already make the UI
+  // feel instant; there's no UX benefit to disabling siblings mid-save.
   const isDisabled = !isAdmin || isRunningThis;
+
+  return (
+    <HighlightGlow enabled={justCompleted} variant={completedVariant}>
+      <div
+        className={`schedule-item${detailOpen ? ' schedule-item--open' : ''}`}
+        data-schedule-key={service.key}
+      >
+        {/* Whole-row click is a pointer convenience only: the row holds nested buttons and
+        dropdowns, so it must not be a button itself (nested-interactive). The chevron is
+        the accessible toggle - real button, aria-expanded, focus ring. */}
+        <div
+          className={`schedule-table-cols schedule-row${
+            hasDetail ? ' schedule-row--interactive' : ''
+          }${isDimmed ? ' schedule-row--dimmed' : ''}`}
+          onClick={hasDetail ? toggleDetail : undefined}
+        >
+          <div className="schedule-cell-task">
+            <span
+              className={`schedule-status-dot${service.isRunning && service.intervalHours > 0 ? ' running' : ''}`}
+              aria-label={
+                service.isRunning
+                  ? t('management.schedules.statusRunning')
+                  : t('management.schedules.statusIdle')
+              }
+            />
+            <div className="schedule-task-text">
+              <span className="schedule-task-name">
+                {t(`management.schedules.services.${service.key}.displayName`)}
+                <span className="schedule-task-help" onClick={stopRowToggle}>
+                  <HelpPopover position="left" width={320}>
+                    <p className="schedule-help-description">
+                      {t(`management.schedules.services.${service.key}.description`)}
+                    </p>
+                    <HelpNote type="success">
+                      {t(`management.schedules.services.${service.key}.gain`)}
+                    </HelpNote>
+                    <HelpNote type="warning">
+                      {t(`management.schedules.services.${service.key}.loss`)}
+                    </HelpNote>
+                  </HelpPopover>
+                </span>
+              </span>
+              <span className="schedule-task-meta">
+                {t(`management.schedules.services.${service.key}.description`)}
+              </span>
+            </div>
+          </div>
+
+          <div className="schedule-cell schedule-cell-last">
+            <span className="schedule-cell-label">{t('management.schedules.lastRun')}</span>
+            <span className="schedule-timing-value">{formatLastRun(service.lastRunUtc, t)}</span>
+          </div>
+
+          <div className="schedule-cell schedule-cell-next">
+            <span className="schedule-cell-label">{t('management.schedules.nextRun')}</span>
+            <CountdownDisplay
+              nextRunUtc={service.nextRunUtc}
+              intervalHours={service.intervalHours}
+              isRunning={service.isRunning}
+            />
+            {service.nextRunUtc && service.intervalHours > 0 && !service.isRunning && (
+              <span className="schedule-next-run-date">{formattedNextRun}</span>
+            )}
+          </div>
+
+          <div className="schedule-cell schedule-cell-interval" onClick={stopRowToggle}>
+            <span className="schedule-cell-label">{t('management.schedules.runEvery')}</span>
+            <ScheduleIntervalPicker
+              intervalHours={service.intervalHours}
+              isDisabled={isDisabled}
+              onChange={handleIntervalChange}
+            />
+          </div>
+
+          <div className="schedule-cell-actions" onClick={stopRowToggle}>
+            <Button
+              variant="subtle"
+              size="sm"
+              onClick={handleRunNow}
+              disabled={isDisabled || isDimmed}
+              loading={isRunningThis}
+              stableWidth
+            >
+              {t('management.schedules.runNow')}
+            </Button>
+            {hasDetail && (
+              <button
+                type="button"
+                className="schedule-chevron themed-border-radius-sm"
+                onClick={toggleDetail}
+                aria-expanded={detailOpen}
+                aria-label={
+                  detailOpen
+                    ? t('management.schedules.hideDetails')
+                    : t('management.schedules.showDetails')
+                }
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {hasDetail && (
+          <CollapsibleRegion open={detailOpen} contentClassName="schedule-row-detail">
+            {isDepotMapping && (
+              <div className="schedule-detail-row">
+                <Tooltip
+                  content={t('management.schedules.services.depotMapping.scanModeHelp')}
+                  className="inline-flex flex-shrink-0"
+                >
+                  <span className="schedule-detail-label">
+                    {t('management.schedules.services.depotMapping.scanModeLabel')}
+                  </span>
+                </Tooltip>
+                <div className="schedule-detail-control">
+                  <DepotScheduleModeDropdown
+                    mode={depotScheduledMode}
+                    isDisabled={isDisabled}
+                    isSteamWebApiAvailable={isSteamWebApiAvailable}
+                    onChange={handleDepotScanModeChange}
+                  />
+                </div>
+                {onNavigateToSteamApi && (
+                  <Button variant="subtle" size="sm" onClick={onNavigateToSteamApi}>
+                    {t('management.schedules.services.depotMapping.configureSteamApi')}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {hasStartupToggle && (
+              <div className="schedule-detail-row">
+                <span className="schedule-detail-label">
+                  {t('management.schedules.runOnStartup')}
+                </span>
+                <div className="schedule-detail-control">
+                  <ToggleSwitch
+                    options={[
+                      {
+                        value: 'false',
+                        label: t('management.schedules.toggleOff'),
+                        activeColor: 'default'
+                      },
+                      {
+                        value: 'true',
+                        label: t('management.schedules.toggleOn'),
+                        activeColor: 'success'
+                      }
+                    ]}
+                    value={service.runOnStartup ? 'true' : 'false'}
+                    onChange={handleRunOnStartupChange}
+                    disabled={isDisabled}
+                    title={t('management.schedules.runOnStartupTooltip')}
+                    size="sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            {service.supportsNotifications && (
+              <div className="schedule-detail-row">
+                <Tooltip
+                  content={t('management.schedules.notificationsHelp')}
+                  className="inline-flex flex-shrink-0"
+                >
+                  <span className="schedule-detail-label">
+                    {t('management.schedules.notificationsLabel')}
+                  </span>
+                </Tooltip>
+                <div className="schedule-detail-control">
+                  <EnhancedDropdown
+                    options={notificationModeOptions}
+                    value={service.notificationMode}
+                    onChange={handleNotificationModeChange}
+                    disabled={isDisabled}
+                    variant="button"
+                    className="w-full"
+                  />
+                </div>
+              </div>
+            )}
+
+            {service.supportsNotifications && (
+              <div className="schedule-detail-row">
+                <Tooltip
+                  content={t('management.schedules.notificationStyleHelp')}
+                  className="inline-flex flex-shrink-0"
+                >
+                  <span className="schedule-detail-label">
+                    {t('management.schedules.notificationStyleLabel')}
+                  </span>
+                </Tooltip>
+                <div className="schedule-detail-control">
+                  <EnhancedDropdown
+                    options={notificationStyleOptions}
+                    value={service.notificationDisplayMode}
+                    onChange={handleNotificationDisplayModeChange}
+                    disabled={isDisabled}
+                    variant="button"
+                    className="w-full"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Reverse of the management-side "View Schedule" button: jumps to the Eviction
+            Detection and Removal card in the Storage section and glows it into view. */}
+            {isCacheReconciliation && onNavigateToEvictionSettings && (
+              <div className="schedule-detail-nav">
+                <Button variant="subtle" size="sm" onClick={onNavigateToEvictionSettings}>
+                  {t('management.schedules.services.cacheReconciliation.viewManagement')}
+                </Button>
+              </div>
+            )}
+          </CollapsibleRegion>
+        )}
+      </div>
+    </HighlightGlow>
+  );
+});
+
+interface ScheduledPrefillCardProps {
+  service: ServiceScheduleInfo;
+  isAdmin: boolean;
+  onRunNow: (key: string) => Promise<void>;
+  runningKey: string | null;
+  justCompleted: boolean;
+  completedVariant: HighlightGlowVariant;
+}
+
+// Scheduled prefill keeps its own full-width card: it carries five independent service
+// schedules and container states in ScheduledPrefillScheduleDetail, which doesn't fit a
+// single table row.
+const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
+  service,
+  isAdmin,
+  onRunNow,
+  runningKey,
+  justCompleted,
+  completedVariant
+}: ScheduledPrefillCardProps) {
+  const { t } = useTranslation();
+  const isRunningThis = runningKey === service.key;
+  // The HasAnyEnabledService gate reports "no services enabled" as interval 0. The dim
+  // only wraps the header, not the detail, so its Configure button and warning text (the
+  // way out of the disabled state) stay at full opacity - opacity on an ancestor cannot
+  // be undone by a descendant's own opacity.
+  const isDimmed = service.intervalHours === 0;
+  const isDisabled = !isAdmin || isRunningThis;
+
+  const handleRunNow = useCallback(() => {
+    onRunNow(service.key);
+  }, [service.key, onRunNow]);
 
   return (
     <HighlightGlow enabled={justCompleted} variant={completedVariant}>
       <Card className="schedule-card">
         <div className={`schedule-card-body${isDimmed ? ' schedule-card-disabled' : ''}`}>
-          {/* Header */}
           <div className="schedule-card-header">
             <div className="schedule-card-title-group">
               <h3 className="schedule-card-name">
@@ -395,217 +589,16 @@ const ScheduleCard = memo(function ScheduleCard({
                 {t(`management.schedules.services.${service.key}.description`)}
               </p>
             </div>
-            {!isScheduledPrefill && (
-              <div className="schedule-card-header-actions">
-                <Button
-                  variant="filled"
-                  color="green"
-                  size="sm"
-                  onClick={handleRunNow}
-                  disabled={isDisabled || isDimmed}
-                  loading={isRunningThis}
-                  stableWidth
-                  className="schedule-control-button"
-                >
-                  {t('management.schedules.runNow')}
-                </Button>
-              </div>
-            )}
-          </div>
-
-          {/* Readout: last/next run and the interval picker as three labelled slots on
-          one shared grid. Scheduled prefill replaces this single aggregate row (which
-          only surfaced the MIN next-run / MAX last-run across services) with a
-          per-service table inside ScheduledPrefillScheduleDetail below, where Run Now
-          sits in that card's own command strip next to Configure. */}
-          {!isScheduledPrefill && (
-            <div className="schedule-readout-row">
-              <div className="schedule-timing-item">
-                <span className="schedule-timing-label">{t('management.schedules.lastRun')}</span>
-                <span className="schedule-timing-value">
-                  {formatLastRun(service.lastRunUtc, t)}
-                </span>
-              </div>
-              <div className="schedule-timing-item">
-                <span className="schedule-timing-label">{t('management.schedules.nextRun')}</span>
-                <CountdownDisplay
-                  nextRunUtc={service.nextRunUtc}
-                  intervalHours={service.intervalHours}
-                  isRunning={service.isRunning}
-                />
-                {service.nextRunUtc && service.intervalHours > 0 && !service.isRunning && (
-                  <span className="schedule-next-run-date">{formattedNextRun}</span>
-                )}
-              </div>
-              <div className="schedule-timing-item schedule-readout-interval">
-                <span className="schedule-timing-label">{t('management.schedules.runEvery')}</span>
-                <ScheduleIntervalPicker
-                  intervalHours={service.intervalHours}
-                  isDisabled={isDisabled}
-                  onChange={handleIntervalChange}
-                />
-              </div>
-            </div>
-          )}
-
-          {isDepotMapping && (
-            <div className="schedule-extra-row">
-              <div className="schedule-extra-copy">
-                <span className="schedule-extra-label">
-                  {t('management.schedules.services.depotMapping.scanModeLabel')}
-                </span>
-                <p className="schedule-extra-help">
-                  {t('management.schedules.services.depotMapping.scanModeHelp')}
-                </p>
-              </div>
-              <div className="schedule-extra-control">
-                <DepotScheduleModeDropdown
-                  mode={depotScheduledMode}
-                  isDisabled={isDisabled}
-                  isSteamWebApiAvailable={isSteamWebApiAvailable}
-                  onChange={handleDepotScanModeChange}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {isScheduledPrefill && (
-          <ScheduledPrefillScheduleDetail
-            disabled={isDisabled}
-            dimmed={isDimmed}
-            onRunNow={handleRunNow}
-            runNowLoading={isRunningThis}
-            runNowDisabled={isDisabled || isDimmed}
-          />
-        )}
-
-        {/* Footer cluster: settings links, startup toggle, notifications control and
-        Run Now in one fixed zone order, pinned to the card's bottom edge (margin-top:
-        auto on .schedule-card-footer). The header + readout section above is the
-        flexible middle region, so every card in a row shows these controls at the
-        same position regardless of description length or how many info rows exist. */}
-        <div className="schedule-card-footer">
-          <div className={`schedule-card-body${isDimmed ? ' schedule-card-disabled' : ''}`}>
-            {/* Reverse of the management-side "View Schedule" button: jumps to the Eviction
-            Detection and Removal card in the Storage section and glows it into view. */}
-            {isCacheReconciliation && onNavigateToEvictionSettings && (
-              <div className="schedule-nav-row">
-                <Button
-                  variant="filled"
-                  color="blue"
-                  size="sm"
-                  onClick={onNavigateToEvictionSettings}
-                >
-                  {t('management.schedules.services.cacheReconciliation.viewManagement')}
-                </Button>
-              </div>
-            )}
-
-            {isDepotMapping && onNavigateToSteamApi && (
-              <div className="schedule-nav-row">
-                <Button variant="filled" color="blue" size="sm" onClick={onNavigateToSteamApi}>
-                  {t('management.schedules.services.depotMapping.configureSteamApi')}
-                </Button>
-              </div>
-            )}
-
-            {/* Run-on-startup, notifications and notification style are folded behind one
-            disclosure so the resting card stays quiet - the primary controls (Run every, Run
-            Now) live up top, and these per-run settings only appear when the row is expanded.
-            Startup stays a toggle; the two notification settings use the shared dropdown so
-            their selected value reads as plain text instead of a wide segmented bar. */}
-            {showSettingsDisclosure && (
-              <div className="schedule-settings">
-                <button
-                  type="button"
-                  className={`schedule-settings-toggle${settingsOpen ? ' open' : ''}`}
-                  onClick={() => setSettingsOpen((open) => !open)}
-                  aria-expanded={settingsOpen}
-                >
-                  <ChevronRight className="schedule-settings-chevron" />
-                  {t('management.schedules.settingsDisclosure')}
-                </button>
-                <CollapsibleRegion open={settingsOpen}>
-                  <div className="schedule-settings-well">
-                    {hasStartupToggle && (
-                      <div className="schedule-settings-row">
-                        <span className="schedule-row-label">
-                          {t('management.schedules.runOnStartup')}
-                        </span>
-                        <div className="schedule-settings-control">
-                          <ToggleSwitch
-                            options={[
-                              {
-                                value: 'false',
-                                label: t('management.schedules.toggleOff'),
-                                activeColor: 'default'
-                              },
-                              {
-                                value: 'true',
-                                label: t('management.schedules.toggleOn'),
-                                activeColor: 'success'
-                              }
-                            ]}
-                            value={service.runOnStartup ? 'true' : 'false'}
-                            onChange={handleRunOnStartupChange}
-                            disabled={isDisabled}
-                            title={t('management.schedules.runOnStartupTooltip')}
-                            size="sm"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {service.supportsNotifications && (
-                      <div className="schedule-settings-row">
-                        <Tooltip
-                          content={t('management.schedules.notificationsHelp')}
-                          className="inline-flex flex-shrink-0"
-                        >
-                          <span className="schedule-row-label">
-                            {t('management.schedules.notificationsLabel')}
-                          </span>
-                        </Tooltip>
-                        <div className="schedule-settings-control">
-                          <NotificationModeAccordion
-                            options={notificationModeOptions}
-                            value={service.notificationMode}
-                            onChange={handleNotificationModeChange}
-                            isDisabled={isDisabled}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {service.supportsNotifications && (
-                      <div className="schedule-settings-row">
-                        <Tooltip
-                          content={t('management.schedules.notificationStyleHelp')}
-                          className="inline-flex flex-shrink-0"
-                        >
-                          <span className="schedule-row-label">
-                            {t('management.schedules.notificationStyleLabel')}
-                          </span>
-                        </Tooltip>
-                        <div className="schedule-settings-control">
-                          <EnhancedDropdown
-                            options={notificationStyleOptions}
-                            value={service.notificationDisplayMode}
-                            onChange={handleNotificationDisplayModeChange}
-                            disabled={isDisabled}
-                            variant="button"
-                            className="w-full"
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </CollapsibleRegion>
-              </div>
-            )}
           </div>
         </div>
+
+        <ScheduledPrefillScheduleDetail
+          disabled={isDisabled}
+          dimmed={isDimmed}
+          onRunNow={handleRunNow}
+          runNowLoading={isRunningThis}
+          runNowDisabled={isDisabled || isDimmed}
+        />
       </Card>
     </HighlightGlow>
   );
@@ -625,7 +618,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const [runningAll, setRunningAll] = useState(false);
   // Map of schedule key -> glow variant. `navigate` is the default (2-pulse attention
   // grab) used by Run Now and external View Schedule navigation. `subtle` is used by
-  // Reset to Defaults where every card flashes at once and needs to feel like an
+  // Reset to Defaults where every row flashes at once and needs to feel like an
   // acknowledgement rather than an attention-grab.
   const [completedKeys, setCompletedKeys] = useState<Record<string, HighlightGlowVariant>>({});
   const { on, off, connectionState } = useSignalR();
@@ -734,7 +727,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const handleNotificationModeChange = useCallback(
     async (key: string, mode: NotificationMode) => {
       const displayName = t(`management.schedules.services.${key}.displayName`);
-      // Optimistic update so the segmented control flips immediately even before the server responds
+      // Optimistic update so the dropdown flips immediately even before the server responds
       setSchedules((prev) =>
         prev.map((s) => (s.key === key ? { ...s, notificationMode: mode } : s))
       );
@@ -758,7 +751,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const handleNotificationDisplayModeChange = useCallback(
     async (key: string, mode: NotificationDisplayMode) => {
       const displayName = t(`management.schedules.services.${key}.displayName`);
-      // Optimistic update so the segmented control flips immediately even before the server responds
+      // Optimistic update so the dropdown flips immediately even before the server responds
       setSchedules((prev) =>
         prev.map((s) => (s.key === key ? { ...s, notificationDisplayMode: mode } : s))
       );
@@ -831,7 +824,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         details: { notificationType: 'success' }
       });
 
-      // Flash all cards to confirm reset - subtle variant since every card glows at
+      // Flash every row to confirm reset - subtle variant since they all glow at
       // once. The 1400ms reset just re-arms the trigger; the glow itself ends on its
       // own animationend.
       const flashed = Object.fromEntries(schedules.map((s) => [s.key, 'subtle' as const]));
@@ -862,8 +855,8 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         details: { notificationType: 'success' }
       });
 
-      // Flash all cards to acknowledge - same subtle variant as reset since the
-      // entire grid lights up at once.
+      // Flash every row to acknowledge - same subtle variant as reset since the
+      // entire list lights up at once.
       const flashed = Object.fromEntries(schedules.map((s) => [s.key, 'subtle' as const]));
       setCompletedKeys(flashed);
       setTimeout(() => setCompletedKeys({}), 1400);
@@ -884,7 +877,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       const displayName = t(`management.schedules.services.${key}.displayName`);
       setRunningKey(key);
 
-      // Flash the card border immediately on click
+      // Flash the row border immediately on click
       setCompletedKeys((prev) => ({ ...prev, [key]: 'navigate' }));
       setTimeout(
         () =>
@@ -930,6 +923,9 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     return <div className="management-section animate-fade-in schedules-error">{error}</div>;
   }
 
+  const genericSchedules = schedules.filter((service) => service.key !== 'scheduledPrefill');
+  const prefillSchedule = schedules.find((service) => service.key === 'scheduledPrefill');
+
   return (
     <div className="management-section animate-fade-in schedules-section">
       <div className="schedules-section-header">
@@ -960,16 +956,18 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         </div>
       </div>
 
-      <div className="schedules-grid">
-        {schedules.map((service) => (
-          <div
-            key={service.key}
-            data-schedule-key={service.key}
-            className={`schedules-grid-item${
-              service.key === 'scheduledPrefill' ? ' schedules-grid-item--full' : ''
-            }`}
-          >
-            <ScheduleCard
+      {genericSchedules.length > 0 && (
+        <div className="schedule-table">
+          <div className="schedule-table-cols schedule-table-head">
+            <span>{t('management.schedules.taskColumn')}</span>
+            <span>{t('management.schedules.lastRun')}</span>
+            <span>{t('management.schedules.nextRun')}</span>
+            <span>{t('management.schedules.runEvery')}</span>
+            <span aria-hidden="true" />
+          </div>
+          {genericSchedules.map((service) => (
+            <ScheduleRow
+              key={service.key}
               service={service}
               isAdmin={isAdmin}
               onIntervalChange={handleIntervalChange}
@@ -992,9 +990,20 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
               onNotificationModeChange={handleNotificationModeChange}
               onNotificationDisplayModeChange={handleNotificationDisplayModeChange}
             />
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {prefillSchedule && (
+        <ScheduledPrefillCard
+          service={prefillSchedule}
+          isAdmin={isAdmin}
+          onRunNow={handleRunNow}
+          runningKey={runningKey}
+          justCompleted={!!completedKeys[prefillSchedule.key]}
+          completedVariant={completedKeys[prefillSchedule.key] ?? 'navigate'}
+        />
+      )}
     </div>
   );
 };

@@ -3539,6 +3539,7 @@
     "schedules": {
       "title": "Service Schedules",
       "subtitle": "Configure how often background services run",
+      "taskColumn": "Task",
       "configuredInSchedules": "Schedule is configured in the Schedules section.",
       "fetchError": "Failed to load schedules",
       "resetToDefaults": "Reset to Defaults",
@@ -3590,7 +3591,6 @@
         "condensed": "Compact bar",
         "condensedDescription": "Show a thin status-coloured bar; hover or tap to expand it."
       },
-      "settingsDisclosure": "Notification & startup settings",
       "gain": "More frequent",
       "loss": "Less frequent",
       "everyNMinutes": "Every {{count}} minutes",
@@ -3622,7 +3622,7 @@
           "gain": "New game downloads are identified faster, reducing the time items appear as 'Unknown Game'",
           "loss": "Delisted or newly released games may show as 'Unknown Game' until the next mapping refresh detects them",
           "scanModeLabel": "Scheduled Scan Mode",
-          "scanModeHelp": "Controls automatic runs and this card's Run Now button.",
+          "scanModeHelp": "Controls automatic runs and this task's Run Now button.",
           "scanModeFailed": "Failed to update scheduled scan mode for {{service}}",
           "configureSteamApi": "Configure Steam API"
         },

@@ -81,56 +81,269 @@
   font-size: var(--font-size-md);
 }
 
-/* Grid */
-.schedules-grid {
+/* ===== Schedule list =====
+   One divided list for every single-service schedule: a card-level surface sitting
+   directly on the page, replacing the old two-column card grid whose stretched rows
+   left short cards with large empty voids. The scheduled-prefill card below keeps its
+   own full-width Card. No overflow: hidden here - the per-row HighlightGlow flash is
+   an outward box-shadow that a clipping container would swallow - so the head strip
+   and last row carry their own inset corner radii instead, the same recipe the
+   scheduled-prefill table already uses. */
+.schedule-table {
+  background: var(--theme-card-bg);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: var(--theme-border-radius);
+}
+
+/* Hairline divider between the head strip and each item. Direct children are the head
+   plus one glow wrapper per schedule, so dividers land between items, never between a
+   row and its own detail well. */
+.schedule-table > * + * {
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+/* Shared column grid for the head strip and every row: task identity, the two
+   readouts, the interval picker, then the actions cluster. */
+.schedule-table-cols {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
+  grid-template-columns: minmax(0, 2.3fr) minmax(0, 0.8fr) minmax(0, 1.05fr) minmax(
+      10rem,
+      11.5rem
+    ) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0 1rem;
 }
 
-@media (min-width: 768px) {
-  .schedules-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+.schedule-table-head {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  background: var(--theme-bg-tertiary);
+  /* Inset by the container's 1px border so the fill never pokes past the rounding. */
+  border-radius: calc(var(--theme-border-radius) - 1px) calc(var(--theme-border-radius) - 1px) 0 0;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--theme-text-muted);
 }
 
-/* Wrapper around each ScheduleCard - carries the data-schedule-key attribute so
-   external callers (e.g. View Schedule buttons in DataSection) can scrollIntoView
-   the target card. Layout chain (.schedules-grid-item -> .highlight-glow-wrapper
-   -> .themed-card) is forced to height:100% so every card in the row stretches
-   to match the tallest card, even when cards have different amounts of content. */
-.schedules-grid-item {
+.schedule-row {
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+  min-height: 3.75rem;
+}
+
+.schedule-row--interactive {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.schedule-row--interactive:hover {
+  background-color: var(--theme-bg-hover);
+}
+
+/* Bottom corners: the last item's row fill (resting or hover) and, when that item is
+   expanded, its detail well form the container's bottom edge. */
+.schedule-table > :last-child .schedule-item:not(.schedule-item--open) .schedule-row {
+  border-radius: 0 0 calc(var(--theme-border-radius) - 1px) calc(var(--theme-border-radius) - 1px);
+}
+
+.schedule-table > :last-child .schedule-row-detail {
+  border-radius: 0 0 calc(var(--theme-border-radius) - 1px) calc(var(--theme-border-radius) - 1px);
+}
+
+/* Disabled schedule (interval 0): dim the informational cells only - the interval
+   picker and actions stay fully legible since they are the way back out. */
+.schedule-row--dimmed .schedule-cell-task,
+.schedule-row--dimmed .schedule-cell-last,
+.schedule-row--dimmed .schedule-cell-next {
+  opacity: 0.55;
+}
+
+.schedule-cell-task {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 0.625rem;
   min-width: 0;
 }
 
-/* Scheduled prefill carries five independent service schedules and container states. It needs the
-   full workbench width instead of being squeezed into the same half-width card used by the simpler
-   single-service schedules. */
-@media (min-width: 768px) {
-  .schedules-grid-item--full {
+.schedule-task-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.schedule-task-name {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  color: var(--theme-text-primary);
+}
+
+.schedule-task-help {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+/* Single truncated line; the full text lives in the (?) help popover. */
+.schedule-task-meta {
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schedule-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.schedule-cell-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.375rem;
+}
+
+/* Expand affordance sized to the sm Run Now button beside it (one height per cluster). */
+.schedule-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--theme-text-muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.schedule-chevron:hover {
+  background-color: var(--theme-bg-hover);
+  color: var(--theme-text-secondary);
+}
+
+.schedule-chevron svg {
+  transition: transform 0.2s ease;
+}
+
+.schedule-item--open .schedule-chevron svg {
+  transform: rotate(180deg);
+}
+
+/* Recessed settings well under the row. Opening it only grows this item downward -
+   no other row or column moves. */
+.schedule-row-detail {
+  background: var(--theme-bg-tertiary);
+  border-top: 1px solid var(--theme-border-secondary);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Fixed label column + fixed control column, grouped left with a single gap - NOT
+   space-between - so every row's control starts at the same x and shares one width. */
+.schedule-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.schedule-detail-label {
+  width: 10.5rem;
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-secondary);
+}
+
+.schedule-detail-control {
+  display: flex;
+  align-items: center;
+  width: 19rem;
+  max-width: 100%;
+}
+
+.schedule-detail-nav {
+  display: flex;
+}
+
+/* Below the desktop table width each row folds into a tile: identity across the top,
+   the readouts pairing up beneath it with their own caps labels (the head strip stays
+   for screen readers only), then the interval and actions each take a full line. */
+@media (max-width: 767px) {
+  .schedule-table-head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .schedule-table-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .schedule-cell-task,
+  .schedule-cell-interval,
+  .schedule-cell-actions {
     grid-column: 1 / -1;
+  }
+
+  .schedule-cell-actions {
+    justify-content: flex-start;
+  }
+
+  .schedule-cell-label {
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--theme-text-muted);
+  }
+
+  .schedule-detail-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+  }
+
+  .schedule-detail-label {
+    width: auto;
+  }
+
+  .schedule-detail-control {
+    width: 100%;
   }
 }
 
-.schedules-grid-item > .highlight-glow-wrapper {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
+@media (min-width: 768px) {
+  .schedule-cell-label {
+    display: none;
+  }
 }
 
-.schedules-grid-item .themed-card {
-  flex: 1;
-  width: 100%;
-  transition:
-    transform 0.15s ease-out,
-    box-shadow 0.15s ease-out;
-}
-
-.schedules-grid-item .themed-card:hover {
-  transform: translateY(-1px);
+@media (max-width: 379px) {
+  .schedule-table-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Individual Schedule Card - Card component provides bg, border, radius, padding */
@@ -209,13 +422,6 @@
   color: var(--theme-text-secondary);
 }
 
-/* Run Now moved out of the old bottom action row into the card header's top-right, so the
-   primary action sits at a fixed spot on every card and the footer is free for the settings
-   disclosure. flex-shrink keeps it from being squeezed by a long title. */
-.schedule-card-header-actions {
-  flex-shrink: 0;
-}
-
 /* Status indicator */
 .schedule-status-dot {
   display: inline-block;
@@ -242,52 +448,7 @@
   }
 }
 
-/* Readout row: Last run / Next run / interval picker as three labelled slots sharing
-   one grid, replacing the old full-width dropdown + button controls row. The picker
-   spans its own full-width line until the card is wide enough for a third column. */
-.schedule-readout-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
-  align-items: start;
-}
-
-.schedule-readout-interval {
-  grid-column: 1 / -1;
-}
-
-/* Slightly looser than the text slots' 0.125rem so the 40px picker box clears its label. */
-.schedule-readout-interval.schedule-timing-item {
-  gap: 0.375rem;
-}
-
-@media (min-width: 1100px) {
-  .schedule-readout-row {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(10rem, 12rem);
-  }
-
-  .schedule-readout-interval {
-    grid-column: auto;
-  }
-}
-
-@media (max-width: 379px) {
-  .schedule-readout-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  /* The Notifications control needs no width safety net here: its row wraps the control onto its
-     own full-width line before this width is reached, which is far more room than the options
-     need. Letting the labels wrap instead (the old net) traded a horizontal overflow for a
-     vertical one, since a second line of text cannot fit the control's fixed 2rem height. */
-}
-
-.schedule-timing-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
+/* Caps readout label - the scheduled-prefill table's mobile cell labels reuse this. */
 .schedule-timing-label {
   font-size: var(--font-size-xs);
   font-weight: 500;
@@ -320,50 +481,19 @@
   font-weight: normal;
 }
 
-/* Match the Run Now / Configure buttons to the interval dropdown trigger height
-   (.ed-trigger md = 2.5rem/40px since the 2026-06-30 control-height unification;
-   the sm Button is shorter at py-1.5 with no border). */
+/* Match the scheduled-prefill Run Now / Configure buttons to the interval dropdown
+   trigger height (.ed-trigger md = 2.5rem/40px since the 2026-06-30 control-height
+   unification; the sm Button is shorter at py-1.5 with no border). */
 .schedule-control-button {
   min-height: 2.5rem;
 }
 
-/* Navigation row holding the "View Eviction Settings" button on the Eviction Scan
-   card - the reverse counterpart of the management-side "View Schedule" button. */
-.schedule-nav-row {
-  display: flex;
-  justify-content: flex-start;
-  padding-top: 0.25rem;
-}
-
-.schedule-extra-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.schedule-extra-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.schedule-extra-label {
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--theme-text-muted);
-}
-
+/* Quiet help copy - the scheduled-prefill config modal's help list items reuse this. */
 .schedule-extra-help {
   margin: 0;
   font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
   line-height: 1.4;
-}
-
-.schedule-extra-control {
-  min-width: 0;
 }
 
 /* Scheduled prefill card detail */
@@ -1972,57 +2102,10 @@
   }
 }
 
-/* Run-on-startup and Notifications rows sit between the controls row and the bottom
-   action row, sharing one rhythm so a card with both stacks them identically. */
-.schedule-startup-row,
-.schedule-notifications-row,
-.schedule-notification-style-row {
-  display: flex;
-  /* The control drops onto its own full-width line once it can no longer fit beside the fixed
-     label column, which is the only way a 3-option control keeps readable labels inside a narrow
-     phone-width card. Demand-driven, so the wide cards keep the control on the label's line. */
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  padding-top: 0.5rem;
-  font-size: var(--font-size-sm);
-  color: var(--theme-text-muted);
-}
-
-.schedule-row-label {
-  color: var(--theme-text-secondary);
-  flex-shrink: 0;
-  /* Fixed label column sized to the longest label, so every row's control starts at the same
-     left edge instead of drifting with each label's own width. */
-  min-width: 8rem;
-  /* Centre the label against a 40px control header while the row itself is top-aligned, so an
-     expanded Notifications accordion grows downward without dragging the label to its middle. */
-  display: flex;
-  align-items: center;
-  min-height: 40px;
-}
-
-/* Equal-split width recipe (mirrors .scheduled-prefill-segment-uniform) so the 3-option
-   Notifications control fills the row instead of falling back to its inline-flex content
-   width, which overflows a narrow grid card. The card body is a fresh CSS context from the
-   config modal, so this class is added fresh rather than assumed inherited. */
-.schedule-segment-uniform {
-  /* Takes the rest of the row, but measured from its own content rather than a 100% basis:
-     the row wraps (see .schedule-notifications-row) only once the options genuinely stop
-     fitting beside the label column. A 100% basis is always wider than the space left next to
-     the label, so it would drop the control onto its own line at EVERY width, including the
-     desktop cards that have room to spare. */
-  flex: 1 1 auto;
-}
-
-.schedule-segment-uniform .segmented-control-button {
-  flex: 1 1 0%;
-}
-
 /* When an option carries a tooltip, SegmentedControl wraps the button in a Tooltip
    trigger div (.segmented-control-slot), which becomes the container's flex item in
-   the button's place - so the equal-split basis above must move to the wrapper and
-   the button fills it. Covers both uniform recipes (card + config modal).
+   the button's place - so the equal-split basis must move to the wrapper and the
+   button fills it.
 
    The floor here is deliberately left at the default min-width: auto. A `min-width: 0` waives
    each option's min-content floor, which reads as a harmless "let it shrink" but is what lets a
@@ -2031,248 +2114,23 @@
    modal's auto-sized actions column, so that track measures narrower than the control it is
    supposed to be sized by. Equal thirds are still the outcome wherever the row can afford them:
    the floor only binds when it cannot, and then the options size to their labels instead. */
-.schedule-segment-uniform .segmented-control-slot,
 .scheduled-prefill-segment-uniform .segmented-control-slot {
   flex: 1 1 0%;
 }
 
-/* Roomier than the shared sm control's px-2: these labels are whole words ("Manual only") rather
-   than the one-word options the base padding was tuned for, so they need the extra breathing
-   room on both sides to stop reading as one mashed-together string. Compounded with the recipe
-   class so it outranks the size class the component sets inline. */
-.schedule-segment-uniform .segmented-control-button,
+/* Roomier than the shared sm control's px-2: these labels are whole words rather than
+   the one-word options the base padding was tuned for, so they need the extra breathing
+   room on both sides to stop reading as one mashed-together string. Compounded with the
+   recipe class so it outranks the size class the component sets inline. */
 .scheduled-prefill-segment-uniform .segmented-control-button {
   padding-left: 0.75rem;
   padding-right: 0.75rem;
 }
 
-.schedule-segment-uniform .segmented-control-slot > .segmented-control-button,
 .scheduled-prefill-segment-uniform .segmented-control-slot > .segmented-control-button {
   width: 100%;
-}
-
-/* Footer cluster: settings links, startup toggle, notifications control, Run Now.
-   One fixed zone order pinned to the card's bottom edge - margin-top: auto absorbs
-   the card's free space ABOVE the cluster, so on the equal-height cards of a grid
-   row every control lands at the same position regardless of how long each card's
-   description is or how many info rows it has. The auto margin lives here and ONLY
-   here: a second auto margin inside (e.g. on .schedule-card-actions) would split the
-   free space and open a gap in the middle of the cluster. */
-.schedule-card-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-top: auto;
-}
-
-/* Run Now sits at the card's true bottom-right corner as the footer cluster's last
-   row - a fixed position on every card, not one that drifts with content length. */
-.schedule-card-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 0.25rem;
 }
 
 /* The just-completed flash is provided by the shared HighlightGlow component
    (see utils/highlightGlow.ts + animations.css), so the Schedules page uses the
    same pulse animation as the Integrations-section navigation glow. */
-
-/* Settings disclosure: run-on-startup + the two notification controls collapse behind one
-   toggle so the resting card is quiet. Pinned to the card's bottom edge via the footer's
-   margin-top: auto, the toggle lands at the same spot on every equal-height card in a row. */
-.schedule-settings {
-  display: flex;
-  flex-direction: column;
-}
-
-.schedule-settings-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.4rem 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--theme-text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  text-align: left;
-}
-
-.schedule-settings-toggle:hover {
-  color: var(--theme-text-primary);
-}
-
-.schedule-settings-chevron {
-  width: 15px;
-  height: 15px;
-  flex-shrink: 0;
-  color: var(--theme-text-muted);
-  transition: transform 0.2s ease;
-}
-
-.schedule-settings-toggle.open .schedule-settings-chevron {
-  transform: rotate(90deg);
-}
-
-/* Recessed block that steps toward the card tone (bg-tertiary), matching the app's other
-   in-card wells, so the grouped settings read as one panel rather than loose rows. */
-.schedule-settings-well {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.85rem 0.95rem;
-  margin-top: 0.55rem;
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-primary);
-  border-radius: var(--theme-border-radius);
-}
-
-/* Fixed label column (via .schedule-row-label min-width) + fixed control column, grouped
-   left with a single gap - NOT space-between. space-between let each control drift to its
-   own right edge, and because the dropdown sized to its own selected-value text the three
-   controls ended up different widths starting at different x positions. Now every row's
-   control starts at the same x and is the same width. */
-.schedule-settings-row {
-  display: flex;
-  /* Top-aligned so an expanded accordion in the control column grows downward instead of
-     re-centring the whole row (the label + control stay put via their 40px min-height). */
-  align-items: flex-start;
-  gap: 1rem;
-}
-
-/* The control column fills the width from the label to the card's right edge so there is no
-   empty gap beside it. The dropdown and accordion are w-full, so they span that full width and
-   share one left and right edge; the toggle keeps its natural width, left-aligned. */
-.schedule-settings-control {
-  flex: 1 1 auto;
-  /* Vertically centre the 32px toggle / 40px dropdown against the label; the accordion (also
-     40px collapsed) grows past this floor when opened. */
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-}
-
-@media (max-width: 480px) {
-  .schedule-settings-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.35rem;
-  }
-
-  .schedule-row-label {
-    min-width: 0;
-    min-height: 0;
-  }
-
-  .schedule-settings-control {
-    flex: 1 1 auto;
-  }
-}
-
-/* Notifications accordion: an inline expand/collapse select that stands in for the dropdown.
-   Header matches the ed-trigger (button variant) surface; the options reveal below it via
-   CollapsibleRegion using the same selected/hover treatment as the real dropdown menu. */
-.schedule-notif-accordion {
-  width: 100%;
-  border: 1px solid var(--theme-border-secondary);
-  border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-surface);
-  overflow: hidden;
-}
-
-.schedule-notif-accordion-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  height: 40px;
-  padding: 0 0.75rem;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--theme-text-primary);
-  font-size: var(--font-size-sm);
-  text-align: left;
-}
-
-.schedule-notif-accordion-header:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.schedule-notif-accordion-value {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.schedule-notif-accordion-chevron {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  transition: transform 0.2s ease;
-}
-
-.schedule-notif-accordion.open .schedule-notif-accordion-chevron {
-  transform: rotate(180deg);
-}
-
-.schedule-notif-accordion-options {
-  border-top: 1px solid var(--theme-border-primary);
-  padding: 0.25rem 0;
-}
-
-.schedule-notif-accordion-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  transition: background-color 0.15s ease;
-}
-
-.schedule-notif-accordion-option:hover {
-  background: var(--theme-bg-hover);
-}
-
-.schedule-notif-accordion-option.selected {
-  background: var(--theme-bg-tertiary);
-}
-
-.schedule-notif-accordion-option-copy {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.schedule-notif-accordion-option-label {
-  font-weight: 500;
-  font-size: var(--font-size-sm);
-  color: var(--theme-text-primary);
-}
-
-.schedule-notif-accordion-option.selected .schedule-notif-accordion-option-label {
-  color: var(--theme-primary);
-}
-
-.schedule-notif-accordion-option-desc {
-  margin-top: 0.12rem;
-  font-size: var(--font-size-xs);
-  line-height: 1.35;
-  color: var(--theme-text-secondary);
-}
-
-.schedule-notif-accordion-check {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  margin-top: 2px;
-  color: var(--theme-primary);
-}

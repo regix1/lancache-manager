@@ -3539,6 +3539,7 @@
     "schedules": {
       "title": "服务计划",
       "subtitle": "配置后台服务的运行频率",
+      "taskColumn": "任务",
       "configuredInSchedules": "计划在计划部分配置。",
       "fetchError": "加载计划失败",
       "resetToDefaults": "重置为默认值",
@@ -3590,7 +3591,6 @@
         "condensed": "紧凑条",
         "condensedDescription": "显示细状态色条；悬停或点击即可展开。"
       },
-      "settingsDisclosure": "通知和启动设置",
       "gain": "更频繁",
       "loss": "较低频率",
       "everyNMinutes": "每 {{count}} 分钟",
@@ -3622,7 +3622,7 @@
           "gain": "新游戏下载被更快识别，减少项目显示为\"未知游戏\"的时间",
           "loss": "已下架或新发布的游戏可能显示为\"未知游戏\"，直到下次映射刷新检测到它们",
           "scanModeLabel": "计划扫描模式",
-          "scanModeHelp": "控制自动运行和此卡片的\"立即运行\"按钮。",
+          "scanModeHelp": "控制自动运行和此任务的\"立即运行\"按钮。",
           "scanModeFailed": "更新 {{service}} 的计划扫描模式失败",
           "configureSteamApi": "配置 Steam API"
         },
