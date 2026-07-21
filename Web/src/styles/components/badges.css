@@ -165,4 +165,11 @@
   .badge-count-warning {
     color: var(--theme-warning-text);
   }
+
+  /* Live status pill — shared success-muted fill so DateRangePicker and TimeFilter
+   * do not each hand-roll the same static inline style for the active-event badge. */
+  .live-badge {
+    background-color: var(--theme-success-muted);
+    color: var(--theme-success);
+  }
 }

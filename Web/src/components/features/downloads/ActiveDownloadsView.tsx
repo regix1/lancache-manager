@@ -136,7 +136,7 @@ const ActiveDownloadsView: React.FC = () => {
 
                 <div className="download-speed">
                   <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
-                  <span className="speed-label">{t('downloads.active.speed')}</span>
+                  <span className="speed-label caps-label">{t('downloads.active.speed')}</span>
                 </div>
               </div>
             ))
@@ -162,7 +162,7 @@ const ActiveDownloadsView: React.FC = () => {
 
                 <div className="download-speed">
                   <span className="speed-value">{formatSpeed(client.bytesPerSecond)}</span>
-                  <span className="speed-label">{t('downloads.active.speed')}</span>
+                  <span className="speed-label caps-label">{t('downloads.active.speed')}</span>
                 </div>
               </div>
             ))}

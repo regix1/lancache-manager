@@ -32,6 +32,15 @@
   animation: header-shadow-pulse 2.5s ease-in-out infinite;
 }
 
+.header-icon-shadow {
+  background: radial-gradient(
+    ellipse at center,
+    var(--theme-text-primary-emphasis) 0%,
+    var(--theme-text-primary-strong) 40%,
+    transparent 70%
+  );
+}
+
 @media (prefers-reduced-motion: reduce) {
   .header-float-bounce {
     animation: none;

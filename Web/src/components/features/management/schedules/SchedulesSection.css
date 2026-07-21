@@ -645,14 +645,11 @@
   align-items: center;
 }
 
+/* Layout/radius from shared .icon-box; 2.25rem is between --sm/--md so size stays local. */
 .scheduled-prefill-schedule-table__service-icon {
   grid-row: 1 / span 2;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 2.25rem;
   height: 2.25rem;
-  border-radius: var(--theme-border-radius);
   background: var(--theme-bg-tertiary);
   color: var(--theme-text-secondary);
 }
@@ -727,19 +724,18 @@
   background: var(--theme-warning);
 }
 
-/* Time values are static data, not controls: tabular figures for column alignment, no
-   hover / focus / pointer affordance. Wrap rather than overflow on narrow widths. */
+/* Time values are static data, not controls: no hover / focus / pointer affordance.
+   Tabular figures come from shared .tabular-nums on the element. Wrap rather than
+   overflow on narrow widths. */
 .scheduled-prefill-schedule-table__value {
   font-size: var(--font-size-sm);
   color: var(--theme-text-secondary);
-  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
 .scheduled-prefill-schedule-table__date {
   font-size: var(--font-size-xs);
   color: var(--theme-text-muted);
-  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
@@ -1279,6 +1275,11 @@
 .scheduled-prefill-persistent-card__games strong {
   font-weight: 700;
   color: var(--theme-text-primary);
+}
+
+/* Shared .tabular-nums is tabular only; lining figures must be restated with tabular
+   because font-variant-numeric replaces rather than merges across rules. */
+.tabular-nums.scheduled-prefill-persistent-card__games-count {
   font-variant-numeric: tabular-nums lining-nums;
 }
 
@@ -1567,24 +1568,6 @@
 .scheduled-prefill-segment-uniform .segmented-control-button {
   flex: 1 1 0%;
 }
-
-/* Plain row inside the auth Card — the Card already supplies containment{
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.85rem;
-}
-
-
-/* Status chip shares the action-button height for a clean cluster baseline.
-   It stays a Badge (tonal, no hover/focus/cursor) — data{
-  flex-shrink: 0;
-  min-height: 2.5rem;
-  padding-block: 0.4rem;
-}
-
-/* The anonymous-service branch renders this chip as a direct child of the column-direction
-   default align-items: stretch would otherwise blow the pill out to the full card width. */
 
 @media (min-width: 768px) {
   .scheduled-prefill-config-modal__skeleton-body {

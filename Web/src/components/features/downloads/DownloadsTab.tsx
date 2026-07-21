@@ -1883,9 +1883,7 @@ const DownloadsTab: React.FC = () => {
                 <div className="downloads-settings-panel-content space-y-4">
                   {/* Quick Presets - Mobile-friendly segmented control */}
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                      {t('downloads.tab.presets.title')}
-                    </div>
+                    <div className="caps-label mb-2">{t('downloads.tab.presets.title')}</div>
                     {(() => {
                       const activePreset = detectActivePreset(settings);
                       return (
@@ -1923,9 +1921,7 @@ const DownloadsTab: React.FC = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-x-6 sm:gap-y-1">
                     {/* Filters Column */}
                     <div className="space-y-1">
-                      <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                        {t('downloads.tab.sections.filters')}
-                      </div>
+                      <div className="caps-label mb-2">{t('downloads.tab.sections.filters')}</div>
                       <Checkbox
                         checked={settings.hideMetadata}
                         onChange={(e) =>
@@ -1965,9 +1961,7 @@ const DownloadsTab: React.FC = () => {
 
                     {/* Display Column */}
                     <div className="space-y-1">
-                      <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                        {t('downloads.tab.sections.display')}
-                      </div>
+                      <div className="caps-label mb-2">{t('downloads.tab.sections.display')}</div>
                       {['compact', 'normal'].includes(settings.viewMode) && (
                         <Checkbox
                           checked={settings.aestheticMode}
@@ -2066,7 +2060,7 @@ const DownloadsTab: React.FC = () => {
                     {/* Behavior Column - card view with banner-only exposes no behavior options, so drop the empty column */}
                     {(settings.viewMode !== 'card' || !settings.bannerOnly) && (
                       <div className="space-y-1">
-                        <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
+                        <div className="caps-label mb-2">
                           {t('downloads.tab.sections.behavior')}
                         </div>
                         {['compact', 'normal'].includes(settings.viewMode) && (

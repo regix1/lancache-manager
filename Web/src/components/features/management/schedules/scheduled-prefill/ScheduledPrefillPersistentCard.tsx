@@ -280,7 +280,10 @@ export function ScheduledPrefillPersistentCard({
           )}
 
           <p className="scheduled-prefill-persistent-card__games">
-            {t(`${containersKey}.stats.gamesSelected`)}: <strong>{selectedGamesCount}</strong>
+            {t(`${containersKey}.stats.gamesSelected`)}:{' '}
+            <strong className="tabular-nums scheduled-prefill-persistent-card__games-count">
+              {selectedGamesCount}
+            </strong>
           </p>
 
           {isPrefilling && container && (

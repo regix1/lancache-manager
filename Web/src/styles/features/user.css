@@ -51,16 +51,12 @@
  * SESSION ROW (built on top of the shared .mgmt-row)
  * ============================================== */
 
-/* The whole row is the expand/collapse control, so it needs a pointer + a
-   visible keyboard focus ring (inset so the .mgmt-list overflow clip keeps it). */
+/* The whole row is the expand/collapse control, so it needs a pointer; the visible
+   keyboard focus ring comes from the shared .focus-ring--inset applied on the element
+   (inset so the .mgmt-list overflow clip keeps it). */
 .session-row {
   flex-wrap: wrap;
   cursor: pointer;
-}
-
-.session-row:focus-visible {
-  outline: 2px solid var(--theme-accent);
-  outline-offset: -2px;
 }
 
 .session-row__titleline {

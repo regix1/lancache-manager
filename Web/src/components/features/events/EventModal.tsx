@@ -218,7 +218,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t('events.modal.placeholders.name')}
-              className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)] focus:outline-none focus:border-[var(--theme-primary)]"
+              className="themed-input w-full px-3 py-2"
               autoFocus
             />
           </div>
@@ -231,7 +231,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
               onChange={(e) => setDescription(e.target.value)}
               placeholder={t('events.modal.placeholders.description')}
               rows={3}
-              className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)] focus:outline-none focus:border-[var(--theme-primary)] resize-none"
+              className="themed-input w-full px-3 py-2 resize-none"
             />
           </div>
 

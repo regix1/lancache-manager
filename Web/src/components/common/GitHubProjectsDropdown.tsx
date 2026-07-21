@@ -744,7 +744,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
           {/* Installable Projects */}
           <div className="github-dropdown-section">
             <div className="github-section-header">
-              <span className="github-section-label installable">
+              <span className="caps-label github-section-label installable">
                 {t('nav.githubProjects.installable')}
               </span>
               <span className="github-section-hint">{t('nav.githubProjects.installableHint')}</span>
@@ -796,7 +796,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
           {/* Dependencies */}
           <div className="github-dropdown-section">
             <div className="github-section-header">
-              <span className="github-section-label dependency">
+              <span className="caps-label github-section-label dependency">
                 {t('nav.githubProjects.dependencies')}
               </span>
               <span className="github-section-hint">

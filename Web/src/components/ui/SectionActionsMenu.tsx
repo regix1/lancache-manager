@@ -37,7 +37,7 @@ export function SectionActionsMenu({
           variant="filled"
           color="gray"
           size="sm"
-          className="!px-0 w-10 h-10 justify-center"
+          className="btn-icon-square"
           onClick={() => setOpen((o) => !o)}
           disabled={disabled}
           aria-label={label}

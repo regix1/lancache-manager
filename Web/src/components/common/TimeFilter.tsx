@@ -523,13 +523,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                                       {event.name}
                                     </span>
                                     {status === 'active' && (
-                                      <span
-                                        className="px-1.5 py-0.5 text-[10px] rounded-full font-medium"
-                                        style={{
-                                          backgroundColor: 'var(--theme-success-muted)',
-                                          color: 'var(--theme-success)'
-                                        }}
-                                      >
+                                      <span className="live-badge px-1.5 py-0.5 text-[10px] rounded-full font-medium">
                                         {t('common.timeFilter.liveBadge')}
                                       </span>
                                     )}

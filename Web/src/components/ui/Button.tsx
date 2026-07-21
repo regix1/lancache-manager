@@ -102,7 +102,7 @@ export const Button: React.FC<ButtonProps> = ({
         ${sizes[size]}
         ${fullWidth ? 'w-full' : ''}
         ${stableWidth ? 'relative' : ''}
-        themed-button-radius font-medium
+        themed-button-radius font-medium whitespace-nowrap
         smooth-transition
         disabled:opacity-50 disabled:cursor-not-allowed
         flex items-center justify-center gap-2

@@ -84,3 +84,20 @@
   text-align: center;
   color: var(--theme-text-muted);
 }
+
+/* Page-number / jump buttons: theme tokens live here so callers avoid repeated inline styles. */
+.pagination-page-btn {
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-primary);
+  border: 1px solid var(--theme-border-secondary);
+}
+
+.pagination-page-btn.pagination-page-btn--active {
+  background-color: var(--theme-primary);
+  color: var(--theme-button-text);
+  border: 1px solid var(--theme-primary);
+}
+
+.pagination-page-btn.pagination-page-btn--jump {
+  color: var(--theme-text-secondary);
+}

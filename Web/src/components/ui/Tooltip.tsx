@@ -110,6 +110,10 @@ export const Tooltip: React.FC<TooltipProps> = ({
   );
   const childContent = children ?? defaultChildren;
 
+  // A tooltip with no content must not render an empty hover box. Callers commonly pass
+  // content conditionally (e.g. only when a control is disabled/read-only), so guard on it.
+  const hasContent = content != null && content !== '';
+
   // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
@@ -188,11 +192,13 @@ export const Tooltip: React.FC<TooltipProps> = ({
       </div>
 
       {show &&
+        hasContent &&
         !tooltipsDisabled &&
         strategy === 'overlay' &&
         createPortal(<OverlayTooltip x={x} y={y} content={content} />, document.body)}
 
       {show &&
+        hasContent &&
         !tooltipsDisabled &&
         strategy === 'edge' &&
         triggerRef.current &&

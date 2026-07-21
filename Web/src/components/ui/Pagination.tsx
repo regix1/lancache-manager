@@ -429,21 +429,11 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
                 <button
                   key={pageNum}
                   onClick={() => onPageChange(pageNum)}
-                  className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
-                    currentPage === pageNum ? 'shadow-md' : 'hover:bg-opacity-80'
+                  className={`pagination-page-btn min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
+                    currentPage === pageNum
+                      ? 'pagination-page-btn--active shadow-md'
+                      : 'hover:bg-opacity-80'
                   }`}
-                  style={{
-                    backgroundColor:
-                      currentPage === pageNum ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
-                    color:
-                      currentPage === pageNum
-                        ? 'var(--theme-button-text)'
-                        : 'var(--theme-text-primary)',
-                    border:
-                      currentPage === pageNum
-                        ? '1px solid var(--theme-primary)'
-                        : '1px solid var(--theme-border-secondary)'
-                  }}
                   aria-label={t('ui.pagination.goToPage', { page: pageNum })}
                   aria-current={currentPage === pageNum ? 'page' : undefined}
                 >
@@ -454,19 +444,11 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
               <>
                 <button
                   onClick={() => onPageChange(1)}
-                  className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
-                    currentPage === 1 ? 'shadow-md' : 'hover:bg-opacity-80'
+                  className={`pagination-page-btn min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
+                    currentPage === 1
+                      ? 'pagination-page-btn--active shadow-md'
+                      : 'hover:bg-opacity-80'
                   }`}
-                  style={{
-                    backgroundColor:
-                      currentPage === 1 ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
-                    color:
-                      currentPage === 1 ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
-                    border:
-                      currentPage === 1
-                        ? '1px solid var(--theme-primary)'
-                        : '1px solid var(--theme-border-secondary)'
-                  }}
                   aria-label={t('ui.pagination.goToPage', { page: 1 })}
                   aria-current={currentPage === 1 ? 'page' : undefined}
                 >
@@ -477,12 +459,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
                   <Tooltip content={t('ui.pagination.jumpBack', { count: 5 })} position="top">
                     <button
                       onClick={() => onPageChange(Math.max(1, currentPage - 5))}
-                      className="min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 hover:bg-opacity-80 cursor-pointer"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        color: 'var(--theme-text-secondary)',
-                        border: '1px solid var(--theme-border-secondary)'
-                      }}
+                      className="pagination-page-btn pagination-page-btn--jump min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 hover:bg-opacity-80 cursor-pointer"
                       aria-label={t('ui.pagination.jumpBack', { count: 5 })}
                     >
                       •••
@@ -497,23 +474,11 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
                     <button
                       key={pageNum}
                       onClick={() => onPageChange(pageNum)}
-                      className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
-                        currentPage === pageNum ? 'shadow-md' : 'hover:bg-opacity-80'
+                      className={`pagination-page-btn min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
+                        currentPage === pageNum
+                          ? 'pagination-page-btn--active shadow-md'
+                          : 'hover:bg-opacity-80'
                       }`}
-                      style={{
-                        backgroundColor:
-                          currentPage === pageNum
-                            ? 'var(--theme-primary)'
-                            : 'var(--theme-bg-tertiary)',
-                        color:
-                          currentPage === pageNum
-                            ? 'var(--theme-button-text)'
-                            : 'var(--theme-text-primary)',
-                        border:
-                          currentPage === pageNum
-                            ? '1px solid var(--theme-primary)'
-                            : '1px solid var(--theme-border-secondary)'
-                      }}
                       aria-label={t('ui.pagination.goToPage', { page: pageNum })}
                       aria-current={currentPage === pageNum ? 'page' : undefined}
                     >
@@ -526,12 +491,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
                   <Tooltip content={t('ui.pagination.jumpForward', { count: 5 })} position="top">
                     <button
                       onClick={() => onPageChange(Math.min(totalPages, currentPage + 5))}
-                      className="min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 hover:bg-opacity-80 cursor-pointer"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        color: 'var(--theme-text-secondary)',
-                        border: '1px solid var(--theme-border-secondary)'
-                      }}
+                      className="pagination-page-btn pagination-page-btn--jump min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow] hover:scale-105 hover:bg-opacity-80 cursor-pointer"
                       aria-label={t('ui.pagination.jumpForward', { count: 5 })}
                     >
                       •••
@@ -541,23 +501,11 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
 
                 <button
                   onClick={() => onPageChange(totalPages)}
-                  className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
-                    currentPage === totalPages ? 'shadow-md' : 'hover:bg-opacity-80'
+                  className={`pagination-page-btn min-w-[32px] h-8 px-2 rounded-lg font-medium transition-[transform,box-shadow,background-color] hover:scale-105 ${
+                    currentPage === totalPages
+                      ? 'pagination-page-btn--active shadow-md'
+                      : 'hover:bg-opacity-80'
                   }`}
-                  style={{
-                    backgroundColor:
-                      currentPage === totalPages
-                        ? 'var(--theme-primary)'
-                        : 'var(--theme-bg-tertiary)',
-                    color:
-                      currentPage === totalPages
-                        ? 'var(--theme-button-text)'
-                        : 'var(--theme-text-primary)',
-                    border:
-                      currentPage === totalPages
-                        ? '1px solid var(--theme-primary)'
-                        : '1px solid var(--theme-border-secondary)'
-                  }}
                   aria-label={t('ui.pagination.goToPage', { page: totalPages })}
                   aria-current={currentPage === totalPages ? 'page' : undefined}
                 >

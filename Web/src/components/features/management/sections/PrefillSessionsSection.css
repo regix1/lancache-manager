@@ -258,7 +258,6 @@
 
 .prefill-downloading-size {
   font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
   color: var(--theme-text-muted);
   flex-shrink: 0;
 }
@@ -333,18 +332,6 @@
   gap: 0.5rem;
 }
 
-/* All icon buttons in the session action cluster are 40px squares — one height, one radius.
-   Descendant (not direct-child) combinator so Tooltip-wrapped buttons (ban/terminate) are caught too. */
-.prefill-action-buttons button,
-.prefill-expand-btn {
-  min-width: 2.5rem; /* 40px — matches size="md" height */
-  min-height: 2.5rem;
-  padding-left: 0;
-  padding-right: 0;
-  width: 2.5rem;
-  justify-content: center;
-}
-
 /* Session status line — ONE Badge (see badges.css .themed-badge / .status-badge-*) carries
    lifecycle state; the live dot is not a second pill, just a tone signal for "currently live
    in memory", which only ever needs to be visible in Session History. */
@@ -355,11 +342,9 @@
   flex-wrap: wrap;
 }
 
-.prefill-status-live-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background-color: var(--theme-success);
+/* Shared .status-dot.active uses pulse-dot-ring (box-shadow); this live indicator blinks
+   opacity instead — compound to keep that motion while reusing geometry/colour/ring. */
+.status-dot.active.prefill-status-live-dot {
   animation: pulse 2s ease-in-out infinite;
 }
 
@@ -374,7 +359,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .prefill-status-live-dot {
+  /* Compound so this wins over the opacity override above when motion is reduced
+     (shared .status-dot.active already clears pulse-dot-ring, but not this local keyframe). */
+  .status-dot.active.prefill-status-live-dot {
     animation: none;
   }
 
@@ -801,27 +788,21 @@
   gap: 0.5rem;
 }
 
-.prefill-persistent-card__status-dot {
-  flex-shrink: 0;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
+/* Geometry/ring from .status-dot; tone colours stay local — cannot map to
+   .active/.away/.inactive: --active is info (not success), and shared states pulse. */
+.status-dot.prefill-persistent-card__status-dot--idle {
   background-color: var(--theme-text-muted);
 }
 
-.prefill-persistent-card__status-dot--idle {
-  background-color: var(--theme-text-muted);
-}
-
-.prefill-persistent-card__status-dot--running {
+.status-dot.prefill-persistent-card__status-dot--running {
   background-color: var(--theme-success);
 }
 
-.prefill-persistent-card__status-dot--warning {
+.status-dot.prefill-persistent-card__status-dot--warning {
   background-color: var(--theme-warning);
 }
 
-.prefill-persistent-card__status-dot--active {
+.status-dot.prefill-persistent-card__status-dot--active {
   background-color: var(--theme-info);
 }
 
@@ -847,7 +828,6 @@
 
 .prefill-persistent-card__meta-value {
   font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
   color: var(--theme-text-secondary);
 }
 

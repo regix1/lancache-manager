@@ -586,13 +586,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                       />
                       <span className="truncate max-w-[100px]">{event.name}</span>
                       {status === 'active' && (
-                        <span
-                          className="px-1 py-0.5 text-[9px] rounded font-medium"
-                          style={{
-                            backgroundColor: 'var(--theme-success-muted)',
-                            color: 'var(--theme-success)'
-                          }}
-                        >
+                        <span className="live-badge px-1 py-0.5 text-[9px] rounded font-medium">
                           {t('common.dateRangePicker.liveBadge')}
                         </span>
                       )}

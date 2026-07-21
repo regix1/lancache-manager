@@ -102,7 +102,10 @@ function ScheduledPrefillServiceScheduleRow({
         role="cell"
         className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--service"
       >
-        <span className="scheduled-prefill-schedule-table__service-icon" aria-hidden="true">
+        <span
+          className="icon-box scheduled-prefill-schedule-table__service-icon"
+          aria-hidden="true"
+        >
           <ServiceIcon size={18} />
         </span>
         <span className="scheduled-prefill-schedule-table__service-name">{label}</span>
@@ -146,9 +149,9 @@ function ScheduledPrefillServiceScheduleRow({
         >
           {t('management.schedules.nextRun')}
         </span>
-        <span className="scheduled-prefill-schedule-table__value">{nextTiming}</span>
+        <span className="scheduled-prefill-schedule-table__value tabular-nums">{nextTiming}</span>
         {nextRunUtc && (
-          <span className="scheduled-prefill-schedule-table__date">{nextRunDate}</span>
+          <span className="scheduled-prefill-schedule-table__date tabular-nums">{nextRunDate}</span>
         )}
       </div>
       <div role="cell" className="scheduled-prefill-schedule-table__cell">
@@ -158,7 +161,7 @@ function ScheduledPrefillServiceScheduleRow({
         >
           {t('management.schedules.lastRun')}
         </span>
-        <span className="scheduled-prefill-schedule-table__value">
+        <span className="scheduled-prefill-schedule-table__value tabular-nums">
           {formatLastRun(lastRunUtc, t)}
         </span>
       </div>

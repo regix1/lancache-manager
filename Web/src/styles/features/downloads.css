@@ -1081,10 +1081,10 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .active-downloads-view .speed-label {
+  /* Uppercase/muted/weight come from .caps-label; keep 2xs size + 0.05em tracking.
+     Compounds so overrides win regardless of chunk order. */
+  .active-downloads-view .caps-label.speed-label {
     font-size: var(--font-size-2xs);
-    color: var(--theme-text-muted);
-    text-transform: uppercase;
     letter-spacing: 0.05em;
   }
 
@@ -1199,16 +1199,15 @@
     margin-bottom: 0.75rem;
   }
 
+  /* Surface (bg/border/radius/overflow) comes from .well-surface; menus portal to
+     document body so overflow:hidden on the bar does not clip them. */
   .session-filter-bar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem 0.75rem;
     padding: 0.5rem 0.625rem;
-    background: var(--theme-bg-tertiary);
-    border: 1px solid var(--theme-border-well);
     background-clip: padding-box;
-    border-radius: var(--theme-border-radius);
   }
 
   .session-filter-group {

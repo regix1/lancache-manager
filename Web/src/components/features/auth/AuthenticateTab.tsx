@@ -85,7 +85,7 @@ const AuthenticateTab: React.FC = () => {
                   onChange={(e) => setApiKey(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleAuthenticate()}
                   placeholder={t('auth.form.placeholder')}
-                  className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted focus:outline-none bg-themed-secondary border border-themed rounded-lg"
+                  className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted bg-themed-secondary border border-themed rounded-lg"
                   disabled={loading}
                 />
               </div>

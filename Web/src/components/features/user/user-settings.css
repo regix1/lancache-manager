@@ -71,11 +71,10 @@
   gap: 1rem;
 }
 
-.user-settings-service-section {
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-well);
+/* Composes the shared .well-surface (bg-tertiary + border-well + overflow:hidden);
+   only the larger radius differs, so compound the shared class to override just it. */
+.well-surface.user-settings-service-section {
   border-radius: var(--theme-border-radius-lg);
-  overflow: hidden;
 }
 
 /* Narrow screens: let a settings row wrap its trailing controls onto their own
@@ -90,6 +89,7 @@
   .user-settings-list .mgmt-row__actions,
   .user-settings-service-section .mgmt-row__actions {
     width: 100%;
+    flex-wrap: wrap;
     justify-content: flex-start;
   }
 }

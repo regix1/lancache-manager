@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, type ChangeEvent } from 'rea
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
+import { Tooltip } from '@components/ui/Tooltip';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { Search, Check, Gamepad2, Import, Database, EyeOff, Eye } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -244,23 +245,28 @@ export function GameSelectionModal({
               {t('prefill.gameSelection.importAppIds')}
             </Button>
             {cachedCount > 0 && (
-              <Button
-                variant="filled"
-                color={hideCached ? 'blue' : 'gray'}
-                size="sm"
-                onClick={() => setHideCached(!hideCached)}
-                title={
+              <Tooltip
+                content={
                   hideCached
                     ? t('prefill.gameSelection.showCachedTitle')
                     : t('prefill.gameSelection.hideCachedTitle')
                 }
-                fullWidth
+                position="top"
+                className="w-full"
               >
-                {hideCached ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                {hideCached
-                  ? t('prefill.gameSelection.showCached')
-                  : t('prefill.gameSelection.hideCached')}
-              </Button>
+                <Button
+                  variant="filled"
+                  color={hideCached ? 'blue' : 'gray'}
+                  size="sm"
+                  onClick={() => setHideCached(!hideCached)}
+                  fullWidth
+                >
+                  {hideCached ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  {hideCached
+                    ? t('prefill.gameSelection.showCached')
+                    : t('prefill.gameSelection.hideCached')}
+                </Button>
+              </Tooltip>
             )}
             <Button variant="filled" color="gray" size="sm" onClick={selectAll} fullWidth>
               {t('common.selectAll')}

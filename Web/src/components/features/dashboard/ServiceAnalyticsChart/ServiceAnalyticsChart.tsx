@@ -225,7 +225,6 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                   onClick={handleToggleList}
                   aria-pressed={!showList}
                   aria-label={toggleAriaLabel}
-                  title={toggleAriaLabel}
                   className="service-analytics-toggle btn-icon-square btn-icon-square--sm"
                 >
                   {showList ? (
@@ -278,7 +277,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
 
                   {/* Legend with progress bars */}
                   {showList && (
-                    <div className="analytics-list-container">
+                    <div className="well-surface analytics-list-container">
                       <div className="analytics-list-header">
                         <span>{activeTabConfig.tooltip ?? activeTabConfig.label}</span>
                         <span

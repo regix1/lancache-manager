@@ -330,8 +330,7 @@
   min-width: 0;
 }
 
-/* The breakdown list is a data well: one bordered surface with hairline
-   dividers, matching the Recent Downloads panel and the mgmt-list language. */
+/* Surface from .well-surface. Layout/flex fill stays local. */
 .analytics-list-container {
   flex: 1;
   display: flex;
@@ -339,10 +338,6 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
-  overflow: hidden;
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-well);
-  border-radius: var(--theme-border-radius);
 }
 
 .analytics-list-header {

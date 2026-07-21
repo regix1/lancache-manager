@@ -435,9 +435,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
               >
                 {/* Efficiency & Savings */}
                 <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-                  <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
-                    Efficiency
-                  </h5>
+                  <h5 className="caps-label mb-3">Efficiency</h5>
                   <div className="flex flex-col gap-4">
                     <div className="flex items-baseline justify-between">
                       <span className="text-sm text-[var(--theme-text-secondary)]">
@@ -469,7 +467,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 {/* Disk Usage */}
                 {diskSizeBytes ? (
                   <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-                    <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+                    <h5 className="caps-label mb-3">
                       {t('downloads.tab.normal.stats.diskUsage', 'Disk Usage')}
                     </h5>
                     <div className="flex flex-col gap-4">
@@ -497,7 +495,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
                 {/* Network Traffic */}
                 <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-                  <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+                  <h5 className="caps-label mb-3">
                     {t('downloads.tab.normal.stats.networkTraffic', 'Network Traffic')}
                   </h5>
                   <div className="space-y-3">
@@ -530,9 +528,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
                 {/* Activity Summary */}
                 <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-                  <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
-                    Activity
-                  </h5>
+                  <h5 className="caps-label mb-3">Activity</h5>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[var(--theme-text-secondary)]">
@@ -1275,9 +1271,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
         <div className="flex flex-col gap-3">
           {/* Efficiency */}
           <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-            <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
-              Efficiency
-            </h5>
+            <h5 className="caps-label mb-3">Efficiency</h5>
             <div className="flex flex-col gap-4">
               <div className="flex items-baseline justify-between">
                 <span className="text-sm text-[var(--theme-text-secondary)]">
@@ -1309,7 +1303,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
           {/* Disk Usage */}
           {diskSizeBytes ? (
             <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-              <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+              <h5 className="caps-label mb-3">
                 {t('downloads.tab.normal.stats.diskUsage', 'Disk Usage')}
               </h5>
               <div className="flex flex-col gap-4">
@@ -1337,7 +1331,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
 
           {/* Network Traffic */}
           <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-            <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+            <h5 className="caps-label mb-3">
               {t('downloads.tab.normal.stats.networkTraffic', 'Network Traffic')}
             </h5>
             <div className="space-y-3">
@@ -1370,9 +1364,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
 
           {/* Activity */}
           <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-            <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
-              Activity
-            </h5>
+            <h5 className="caps-label mb-3">Activity</h5>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-[var(--theme-text-secondary)]">

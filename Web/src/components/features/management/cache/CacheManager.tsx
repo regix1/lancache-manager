@@ -451,43 +451,17 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 </p>
               </div>
               <div className="mgmt-segment-row">
-                <Button
-                  size="sm"
+                <Tooltip
+                  content={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
+                  position="top"
                   className="flex-1 basis-0"
-                  variant={deleteMode === 'preserve' ? 'filled' : 'default'}
-                  color={deleteMode === 'preserve' ? 'blue' : undefined}
-                  onClick={() => handleDeleteModeChange('preserve')}
-                  awaitPermissions
-                  loading={deleteModeLoading}
-                  disabled={
-                    mockMode || isAnyRemovalRunning || authMode !== 'authenticated' || cacheReadOnly
-                  }
-                  title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
                 >
-                  {t('management.cache.deleteModes.preserve')}
-                </Button>
-                <Button
-                  size="sm"
-                  className="flex-1 basis-0"
-                  variant={deleteMode === 'full' ? 'filled' : 'default'}
-                  color={deleteMode === 'full' ? 'green' : undefined}
-                  onClick={() => handleDeleteModeChange('full')}
-                  awaitPermissions
-                  loading={deleteModeLoading}
-                  disabled={
-                    mockMode || isAnyRemovalRunning || authMode !== 'authenticated' || cacheReadOnly
-                  }
-                  title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
-                >
-                  {t('management.cache.deleteModes.removeAll')}
-                </Button>
-                {rsyncAvailable && (
                   <Button
                     size="sm"
-                    className="flex-1 basis-0"
-                    variant={deleteMode === 'rsync' ? 'filled' : 'default'}
-                    color={deleteMode === 'rsync' ? 'purple' : undefined}
-                    onClick={() => handleDeleteModeChange('rsync')}
+                    className="w-full"
+                    variant={deleteMode === 'preserve' ? 'filled' : 'default'}
+                    color={deleteMode === 'preserve' ? 'blue' : undefined}
+                    onClick={() => handleDeleteModeChange('preserve')}
                     awaitPermissions
                     loading={deleteModeLoading}
                     disabled={
@@ -496,10 +470,59 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       authMode !== 'authenticated' ||
                       cacheReadOnly
                     }
-                    title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
                   >
-                    {t('management.cache.deleteModes.rsync')}
+                    {t('management.cache.deleteModes.preserve')}
                   </Button>
+                </Tooltip>
+                <Tooltip
+                  content={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
+                  position="top"
+                  className="flex-1 basis-0"
+                >
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    variant={deleteMode === 'full' ? 'filled' : 'default'}
+                    color={deleteMode === 'full' ? 'green' : undefined}
+                    onClick={() => handleDeleteModeChange('full')}
+                    awaitPermissions
+                    loading={deleteModeLoading}
+                    disabled={
+                      mockMode ||
+                      isAnyRemovalRunning ||
+                      authMode !== 'authenticated' ||
+                      cacheReadOnly
+                    }
+                  >
+                    {t('management.cache.deleteModes.removeAll')}
+                  </Button>
+                </Tooltip>
+                {rsyncAvailable && (
+                  <Tooltip
+                    content={
+                      cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined
+                    }
+                    position="top"
+                    className="flex-1 basis-0"
+                  >
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      variant={deleteMode === 'rsync' ? 'filled' : 'default'}
+                      color={deleteMode === 'rsync' ? 'purple' : undefined}
+                      onClick={() => handleDeleteModeChange('rsync')}
+                      awaitPermissions
+                      loading={deleteModeLoading}
+                      disabled={
+                        mockMode ||
+                        isAnyRemovalRunning ||
+                        authMode !== 'authenticated' ||
+                        cacheReadOnly
+                      }
+                    >
+                      {t('management.cache.deleteModes.rsync')}
+                    </Button>
+                  </Tooltip>
                 )}
               </div>
             </div>
@@ -517,25 +540,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 >
                   {/* Expanded content */}
                   <div className="pt-3 flex justify-end">
-                    <Button
-                      variant="filled"
-                      color="red"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleClearCache(ds.name);
-                      }}
-                      awaitPermissions
-                      loading={isCacheClearing && clearingDatasource === ds.name}
-                      disabled={
-                        actionLoading ||
-                        isCacheClearActive ||
-                        mockMode ||
-                        authMode !== 'authenticated' ||
-                        diskActionBlocked ||
-                        !ds.cacheWritable
-                      }
-                      title={
+                    <Tooltip
+                      content={
                         !ds.cacheWritable
                           ? t('management.cache.alerts.readOnly.title')
                           : !isCacheClearActive && (isAnyRemovalRunning || isCacheSizeScanRunning)
@@ -544,11 +550,32 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                                 datasource: ds.name
                               })
                       }
+                      position="top"
                     >
-                      {isCacheClearing && clearingDatasource === ds.name
-                        ? t('common.clearing')
-                        : t('management.cache.clearCache')}
-                    </Button>
+                      <Button
+                        variant="filled"
+                        color="red"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleClearCache(ds.name);
+                        }}
+                        awaitPermissions
+                        loading={isCacheClearing && clearingDatasource === ds.name}
+                        disabled={
+                          actionLoading ||
+                          isCacheClearActive ||
+                          mockMode ||
+                          authMode !== 'authenticated' ||
+                          diskActionBlocked ||
+                          !ds.cacheWritable
+                        }
+                      >
+                        {isCacheClearing && clearingDatasource === ds.name
+                          ? t('common.clearing')
+                          : t('management.cache.clearCache')}
+                      </Button>
+                    </Tooltip>
                   </div>
                 </DatasourceListItem>
               ))}

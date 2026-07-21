@@ -154,7 +154,7 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
 
   return (
     <div className="session-filter-bar-wrapper">
-      <div className="session-filter-bar">
+      <div className="session-filter-bar well-surface">
         {uniqueIps.length > 1 && (
           <div className="session-filter-group">
             <span className="session-filter-label caps-label">IP</span>

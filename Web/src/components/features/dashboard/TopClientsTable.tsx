@@ -190,22 +190,22 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
                   {Array.from({ length: 5 }, (_, i) => (
                     <tr key={i}>
                       <td>
-                        <div className="h-4 w-24 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                        <div className="h-4 w-24 rounded skeleton-shimmer" />
                       </td>
                       <td className="hidden sm:table-cell">
-                        <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                        <div className="h-4 w-16 rounded skeleton-shimmer ml-auto" />
                       </td>
                       <td className="hidden md:table-cell">
-                        <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                        <div className="h-4 w-16 rounded skeleton-shimmer ml-auto" />
                       </td>
                       <td className="hidden md:table-cell">
-                        <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                        <div className="h-4 w-16 rounded skeleton-shimmer ml-auto" />
                       </td>
                       <td>
-                        <div className="h-4 w-12 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                        <div className="h-4 w-12 rounded skeleton-shimmer ml-auto" />
                       </td>
                       <td className="text-right hidden lg:table-cell">
-                        <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                        <div className="h-4 w-20 rounded skeleton-shimmer ml-auto" />
                       </td>
                     </tr>
                   ))}

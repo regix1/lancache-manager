@@ -47,9 +47,7 @@ export const ManagerCardHeader: React.FC<ManagerCardHeaderProps> = ({
   return (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
       <div className="flex items-center gap-3 min-w-0">
-        <div
-          className={`w-10 h-10 rounded-lg flex items-center justify-center icon-bg-${iconColor} flex-shrink-0`}
-        >
+        <div className={`icon-box icon-box--md icon-bg-${iconColor}`}>
           <Icon className={`w-5 h-5 icon-${iconColor}`} />
         </div>
         <div className="min-w-0 flex-1">
@@ -104,7 +102,8 @@ export const LoadingState: React.FC<LoadingStateProps> = ({
     );
   }
 
-  const block = 'bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse rounded';
+  // Shared shimmer supplies gradient + sweep + reduced-motion; keep local radius/dims.
+  const block = 'skeleton-shimmer rounded';
   return (
     <div className="flex flex-col gap-3 py-2" role="status" aria-live="polite" aria-busy="true">
       <span className="sr-only">{message || t('common.loading')}</span>

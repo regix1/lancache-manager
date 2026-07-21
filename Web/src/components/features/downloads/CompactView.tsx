@@ -742,9 +742,7 @@ const CompactView = React.memo(function CompactView({
           : labels.individual;
     return (
       <div className="px-3 py-1.5 mt-2 mb-1">
-        <div className="text-xs font-semibold text-themed-muted uppercase tracking-wide">
-          {text}
-        </div>
+        <div className="caps-label">{text}</div>
       </div>
     );
   };

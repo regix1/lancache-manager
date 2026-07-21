@@ -291,12 +291,12 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
               </Tooltip>
             </div>
 
-            {/* Settings */}
-            <div className="px-4 py-2 space-y-1 overflow-y-auto flex-1 min-h-0">
+            {/* Settings — hairlines from .divided-list; row py-2.5 keeps gap without space-y */}
+            <div className="px-4 py-2 divided-list overflow-y-auto flex-1 min-h-0">
               {/* Event Opacity */}
               <div className="flex items-start justify-between gap-3 py-2.5">
                 <div className="flex items-start gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <div className="icon-box w-7 h-7 bg-[var(--theme-bg-tertiary)]">
                     <Layers className="w-4 h-4 text-[var(--theme-icon-purple)]" />
                   </div>
                   <div className="min-w-0">
@@ -323,12 +323,10 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                 </div>
               </div>
 
-              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
               {/* Event Layout */}
               <div className="flex items-start justify-between gap-3 py-2.5">
                 <div className="flex items-start gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <div className="icon-box w-7 h-7 bg-[var(--theme-bg-tertiary)]">
                     <LayoutGrid className="w-4 h-4 text-[var(--theme-icon-blue)]" />
                   </div>
                   <div className="min-w-0">
@@ -352,12 +350,10 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                 </div>
               </div>
 
-              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
               {/* Week Start Day */}
               <div className="flex items-start justify-between gap-3 py-2.5">
                 <div className="flex items-start gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <div className="icon-box w-7 h-7 bg-[var(--theme-bg-tertiary)]">
                     <Calendar className="w-4 h-4 text-[var(--theme-icon-cyan)]" />
                   </div>
                   <div className="min-w-0">
@@ -378,12 +374,10 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                 </div>
               </div>
 
-              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
               {/* Show Week Numbers */}
               <div className="flex items-start justify-between gap-3 py-2.5">
                 <div className="flex items-start gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <div className="icon-box w-7 h-7 bg-[var(--theme-bg-tertiary)]">
                     <Hash className="w-4 h-4 text-[var(--theme-icon-orange)]" />
                   </div>
                   <div className="min-w-0">
@@ -403,12 +397,10 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                 </div>
               </div>
 
-              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
               {/* Show Adjacent Months */}
               <div className="flex items-start justify-between gap-3 py-2.5">
                 <div className="flex items-start gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <div className="icon-box w-7 h-7 bg-[var(--theme-bg-tertiary)]">
                     <CalendarRange className="w-4 h-4 text-[var(--theme-icon-purple)]" />
                   </div>
                   <div className="min-w-0">
@@ -428,12 +420,10 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                 </div>
               </div>
 
-              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
               {/* Hide Ended Events */}
               <div className="flex items-start justify-between gap-3 py-2.5">
                 <div className="flex items-start gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <div className="icon-box w-7 h-7 bg-[var(--theme-bg-tertiary)]">
                     <EyeOff className="w-4 h-4 text-[var(--theme-icon-red)]" />
                   </div>
                   <div className="min-w-0">
@@ -453,12 +443,10 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                 </div>
               </div>
 
-              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
               {/* Compact Mode */}
               <div className="flex items-start justify-between gap-3 py-2.5">
                 <div className="flex items-start gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <div className="icon-box w-7 h-7 bg-[var(--theme-bg-tertiary)]">
                     <Eye className="w-4 h-4 text-[var(--theme-icon-green)]" />
                   </div>
                   <div className="min-w-0">

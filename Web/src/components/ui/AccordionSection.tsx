@@ -122,7 +122,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
           {/* Icon with animated background */}
           {Icon && (
             <div
-              className={`w-8 h-8 themed-border-radius flex items-center justify-center transition duration-300 flex-shrink-0 ${
+              className={`icon-box icon-box--sm transition duration-300 ${
                 isExpanded ? 'scale-105' : 'scale-100'
               }`}
               style={{

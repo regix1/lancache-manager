@@ -153,7 +153,7 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
                           onChange={handleDurationChange}
                           disabled={dropdownDisabled}
                           size="md"
-                          className="w-40"
+                          className="w-40 control-h-md"
                         />
                         {isSaving && (
                           <LoadingSpinner
@@ -179,6 +179,7 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
                       variant="filled"
                       color="gray"
                       size="md"
+                      className="control-h-md"
                       disabled={state.source !== 'ui' || isSaving}
                       onClick={handleResetToDefault}
                     >

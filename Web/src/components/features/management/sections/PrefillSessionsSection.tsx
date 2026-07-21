@@ -200,7 +200,7 @@ const StatusBadge: React.FC<{ status: string; isLive?: boolean }> = ({ status, i
     <div className="prefill-status-line">
       {isLive && (
         <Tooltip content={t('management.prefillSessions.tooltips.sessionActive')}>
-          <span className="prefill-status-live-dot" aria-hidden="true" />
+          <span className="status-dot active prefill-status-live-dot" aria-hidden="true" />
         </Tooltip>
       )}
       <Badge variant={getStatusBadgeVariant(status)}>{label}</Badge>
@@ -399,7 +399,7 @@ const SessionCard: React.FC<{
                     {currentAppName || t('management.prefillSessions.labels.loading')}
                   </span>
                   {(totalBytesTransferred ?? 0) > 0 && (
-                    <span className="prefill-downloading-size">
+                    <span className="prefill-downloading-size tabular-nums">
                       {formatBytes(totalBytesTransferred!)}
                     </span>
                   )}
@@ -477,6 +477,7 @@ const SessionCard: React.FC<{
                       size="md"
                       onClick={() => setMenuOpen((prev) => !prev)}
                       aria-label={t('common.moreActions', 'More actions')}
+                      className="btn-icon-square"
                     >
                       <MoreVertical className="w-4 h-4" />
                     </Button>
@@ -514,7 +515,7 @@ const SessionCard: React.FC<{
                 color="gray"
                 size="md"
                 onClick={onToggleHistory}
-                className="prefill-expand-btn"
+                className="prefill-expand-btn btn-icon-square"
               >
                 {isLoadingHistory ? (
                   <LoadingSpinner inline size="sm" />
@@ -742,7 +743,7 @@ const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerD
 
         <div className="prefill-persistent-card__status-row">
           <span
-            className={`prefill-persistent-card__status-dot prefill-persistent-card__status-dot--${runTone}`}
+            className={`status-dot prefill-persistent-card__status-dot prefill-persistent-card__status-dot--${runTone}`}
             aria-hidden="true"
           />
           <span className="prefill-persistent-card__status-text">{runLabel}</span>
@@ -751,7 +752,7 @@ const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerD
         {showLoginState && (
           <div className="prefill-persistent-card__status-row">
             <span
-              className={`prefill-persistent-card__status-dot prefill-persistent-card__status-dot--${loginTone}`}
+              className={`status-dot prefill-persistent-card__status-dot prefill-persistent-card__status-dot--${loginTone}`}
               aria-hidden="true"
             />
             <span className="prefill-persistent-card__status-text">{loginLabel}</span>
@@ -777,7 +778,7 @@ const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerD
             <span className="caps-label prefill-persistent-card__meta-label">
               {t(`${baseKey}.tokenExpiresAt`)}
             </span>
-            <span className="prefill-persistent-card__meta-value">
+            <span className="prefill-persistent-card__meta-value tabular-nums">
               <FormattedTimestamp timestamp={container.daemonAuthExpiresAtUtc} />
             </span>
           </div>

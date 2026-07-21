@@ -188,7 +188,7 @@ const EventCard = React.memo(
                       e.stopPropagation();
                       setMenuOpen((prev) => !prev);
                     }}
-                    className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]"
+                    className="btn-icon-square btn-icon-square--sm flex items-center hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]"
                     aria-label={t('events.list.actionsMenuLabel', 'Event actions')}
                   >
                     <MoreVertical className="w-4 h-4" />
@@ -240,7 +240,7 @@ const EventCard = React.memo(
                 <span className="text-xs font-medium text-[var(--theme-text-secondary)]">
                   {t('events.list.gamesDuringEvent')}
                 </span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--theme-bg-secondary)] text-[var(--theme-text-muted)]">
+                <span className="themed-badge status-badge-neutral badge-count">
                   {t('events.list.gameCount', { count: groupedDownloads.length })}
                 </span>
               </div>

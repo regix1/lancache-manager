@@ -48,26 +48,6 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
 
   return (
     <>
-      <style>{`
-        @keyframes float-bounce {
-          0%, 100% {
-            transform: translateY(0px);
-          }
-          50% {
-            transform: translateY(-4px);
-          }
-        }
-        @keyframes shadow-pulse {
-          0%, 100% {
-            transform: scale(1);
-            opacity: 0.3;
-          }
-          50% {
-            transform: scale(0.85);
-            opacity: 0.15;
-          }
-        }
-      `}</style>
       <header className="border-b bg-themed-nav border-themed-nav">
         <div className="container mx-auto px-4">
           {/* Desktop: Single row layout */}
@@ -76,19 +56,11 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
               <div className="p-1.5 sm:p-2 rounded-lg flex-shrink-0 bg-themed-tertiary relative">
                 <div className="relative w-9 h-9 flex items-center justify-center">
                   <LancacheIcon
-                    className="flex-shrink-0 relative z-[1]"
+                    className="flex-shrink-0 relative z-[1] header-float-bounce"
                     size={36}
-                    style={{ animation: 'float-bounce 2.5s ease-in-out infinite' }}
                   />
                   {/* Static shadow below the floating icon */}
-                  <div
-                    className="absolute bottom-0 left-1 w-7 h-1.5 rounded-full pointer-events-none z-0"
-                    style={{
-                      background:
-                        'radial-gradient(ellipse at center, var(--theme-text-primary-emphasis) 0%, var(--theme-text-primary-strong) 40%, transparent 70%)',
-                      animation: 'shadow-pulse 2.5s ease-in-out infinite'
-                    }}
-                  />
+                  <div className="absolute bottom-0 left-1 w-7 h-1.5 rounded-full pointer-events-none z-0 header-icon-shadow header-shadow-pulse" />
                 </div>
               </div>
               <div className="min-w-0 flex-1">
@@ -151,31 +123,15 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                 <div className="p-1.5 rounded-lg flex items-center justify-center bg-themed-tertiary">
                   <div className="relative w-9 h-9 flex items-center justify-center">
                     <LancacheIcon
-                      className="flex-shrink-0 relative z-[1]"
+                      className="flex-shrink-0 relative z-[1] header-float-bounce"
                       size={36}
-                      style={{ animation: 'float-bounce 2.5s ease-in-out infinite' }}
                     />
-                    <div
-                      className="absolute bottom-0 left-1 w-7 h-1.5 rounded-full pointer-events-none z-0"
-                      style={{
-                        background:
-                          'radial-gradient(ellipse at center, var(--theme-text-primary-emphasis) 0%, var(--theme-text-primary-strong) 40%, transparent 70%)',
-                        animation: 'shadow-pulse 2.5s ease-in-out infinite'
-                      }}
-                    />
+                    <div className="absolute bottom-0 left-1 w-7 h-1.5 rounded-full pointer-events-none z-0 header-icon-shadow header-shadow-pulse" />
                   </div>
                 </div>
                 {/* Status indicator */}
                 <div
-                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[var(--theme-nav-bg)] z-10 ${connectionStatus === 'reconnecting' ? 'animate-pulse' : ''}`}
-                  style={{
-                    backgroundColor:
-                      connectionStatus === 'connected'
-                        ? 'var(--theme-success)'
-                        : connectionStatus === 'disconnected'
-                          ? 'var(--theme-error)'
-                          : 'var(--theme-warning)'
-                  }}
+                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full connection-dot connection-dot--${connectionStatus} z-10 ${connectionStatus === 'reconnecting' ? 'animate-pulse' : ''}`}
                 />
               </div>
 
