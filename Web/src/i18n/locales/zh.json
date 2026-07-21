@@ -3540,6 +3540,8 @@
       "title": "服务计划",
       "subtitle": "配置后台服务的运行频率",
       "taskColumn": "任务",
+      "startupOn": "启动开启",
+      "startupOff": "启动关闭",
       "configuredInSchedules": "计划在计划部分配置。",
       "fetchError": "加载计划失败",
       "resetToDefaults": "重置为默认值",

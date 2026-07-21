@@ -5,6 +5,7 @@ import { ChevronDown } from 'lucide-react';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
+import Badge from '@components/ui/Badge';
 import HighlightGlow from '@components/ui/HighlightGlow';
 import type { HighlightGlowVariant } from '@utils/highlightGlow';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
@@ -374,6 +375,71 @@ const ScheduleRow = memo(function ScheduleRow({
               isDisabled={isDisabled}
               onChange={handleIntervalChange}
             />
+          </div>
+
+          {/* Settings-at-a-glance pills mirroring the detail well, so the state is readable
+          without expanding the row. One shared width (they stretch to the fixed column) and
+          the same colour axes as the scheduled-prefill platform badges: filled purple = all
+          runs, filled blue = manual only, dotted outline = silent. */}
+          <div className="schedule-cell-flags">
+            {hasDetail && (
+              <>
+                <Tooltip
+                  content={`${t('management.schedules.runOnStartup')}: ${service.runOnStartup ? t('management.schedules.toggleOn') : t('management.schedules.toggleOff')}`}
+                  className="schedule-flag-slot"
+                >
+                  <Badge
+                    variant={service.runOnStartup ? 'success' : 'neutral'}
+                    className="schedule-flag"
+                  >
+                    {service.runOnStartup
+                      ? t('management.schedules.startupOn')
+                      : t('management.schedules.startupOff')}
+                  </Badge>
+                </Tooltip>
+                {service.supportsNotifications && (
+                  <>
+                    <Tooltip
+                      content={`${t('management.schedules.notificationsLabel')}: ${t(`management.schedules.notificationMode.${service.notificationMode}`)}`}
+                      className="schedule-flag-slot"
+                    >
+                      <Badge
+                        variant={
+                          service.notificationMode === 'silent'
+                            ? 'waiting-outline'
+                            : service.notificationMode === 'manual'
+                              ? 'info'
+                              : 'waiting'
+                        }
+                        className="schedule-flag"
+                      >
+                        {t(`management.schedules.notificationMode.${service.notificationMode}`)}
+                      </Badge>
+                    </Tooltip>
+                    <Tooltip
+                      content={`${t('management.schedules.notificationStyleLabel')}: ${t(`management.schedules.notificationStyle.${service.notificationDisplayMode}`)}`}
+                      className="schedule-flag-slot"
+                    >
+                      <Badge variant="neutral" className="schedule-flag">
+                        {t(
+                          `management.schedules.notificationStyle.${service.notificationDisplayMode}`
+                        )}
+                      </Badge>
+                    </Tooltip>
+                  </>
+                )}
+                {isDepotMapping && (
+                  <Tooltip
+                    content={`${t('management.schedules.services.depotMapping.scanModeLabel')}: ${t(`management.depotMapping.modes.${depotScheduledMode}`)}`}
+                    className="schedule-flag-slot"
+                  >
+                    <Badge variant="neutral" className="schedule-flag">
+                      {t(`management.depotMapping.modes.${depotScheduledMode}`)}
+                    </Badge>
+                  </Tooltip>
+                )}
+              </>
+            )}
           </div>
 
           <div className="schedule-cell-actions" onClick={stopRowToggle}>
@@ -963,6 +1029,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             <span>{t('management.schedules.lastRun')}</span>
             <span>{t('management.schedules.nextRun')}</span>
             <span>{t('management.schedules.runEvery')}</span>
+            <span aria-hidden="true" />
             <span aria-hidden="true" />
           </div>
           {genericSchedules.map((service) => (
