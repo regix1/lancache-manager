@@ -620,7 +620,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                           color="green"
                           size="sm"
                           className="datasource-row-btn"
-                          leftSection={<PlayCircle className="w-3 h-3" />}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleProcessDatasource(ds.name);

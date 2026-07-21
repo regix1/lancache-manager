@@ -68,7 +68,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
 
   const subtitle =
     !isEvicted && variant === 'active' && (service.evicted_downloads_count ?? 0) > 0 ? (
-      <Badge variant="warning" emphasis>
+      <Badge variant="warning">
         {t('management.gameDetection.partialEvictedBadge', {
           count: service.evicted_downloads_count
         })}

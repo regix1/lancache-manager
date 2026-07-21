@@ -4,7 +4,8 @@
  * ============================================== */
 
 @keyframes eventFrameBorderPulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.25;
     box-shadow: 0 0 8px var(--event-frame-color);
   }
@@ -15,7 +16,8 @@
 }
 
 @keyframes eventFrameLiveDotPulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     box-shadow: 0 0 6px var(--theme-error);
   }
@@ -103,9 +105,8 @@
   border-radius: 1rem;
   font-size: var(--font-size-md);
   font-weight: 600;
-  color: var(--event-frame-color, var(--theme-primary));
-  background: var(--theme-bg-primary);
-  border: 2px solid var(--event-frame-color, var(--theme-primary));
+  color: var(--theme-button-text);
+  background: var(--event-frame-color, var(--theme-primary));
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   letter-spacing: 0.02em;
 }
@@ -167,7 +168,9 @@
 .event-frame-badge-interactive {
   cursor: pointer;
   pointer-events: auto;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .event-frame-badge-interactive:hover {

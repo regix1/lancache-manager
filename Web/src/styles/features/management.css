@@ -190,65 +190,56 @@
 
 /* Mapping-Login: user logged in, library scanned (green/success) */
 .source-badge-mapping-login {
-  background-color: var(--theme-success-subtle);
-  color: var(--theme-success);
-  border: 1px solid var(--theme-success-muted);
+  background-color: var(--theme-success-bg);
+  color: var(--theme-success-text);
 }
 
-/* Prefill-Login: prefill daemon authenticated (blue/primary) */
+/* Prefill-Login: prefill daemon authenticated (blue) */
 .source-badge-prefill-login {
-  background-color: var(--theme-primary-subtle);
-  color: var(--theme-primary);
-  border: 1px solid var(--theme-primary-muted);
+  background-color: var(--theme-info-bg);
+  color: var(--theme-info-text);
 }
 
 /* Free-Games: Epic free games catalog (purple/epic) */
 .source-badge-free-games {
-  background-color: var(--theme-epic-subtle);
-  color: var(--theme-epic);
-  border: 1px solid var(--theme-epic-muted);
+  background-color: var(--theme-waiting-bg);
+  color: var(--theme-waiting-text);
 }
 
 /* Library: user's owned games */
 .source-badge-library {
-  background-color: var(--theme-success-subtle);
-  color: var(--theme-success);
-  border: 1px solid var(--theme-success-muted);
+  background-color: var(--theme-success-bg);
+  color: var(--theme-success-text);
 }
 
 /* Wishlist */
 .source-badge-wishlist {
-  background-color: var(--theme-epic-subtle);
-  color: var(--theme-epic);
-  border: 1px solid var(--theme-epic-muted);
+  background-color: var(--theme-waiting-bg);
+  color: var(--theme-waiting-text);
 }
 
 /* Store catalog (orange/warning) */
 .source-badge-store {
-  background-color: var(--theme-warning-subtle);
-  color: var(--theme-warning);
-  border: 1px solid var(--theme-warning-muted);
+  background-color: var(--theme-warning-bg);
+  color: var(--theme-warning-text);
 }
 
 /* Manual entry (gray) */
 .source-badge-manual {
-  background-color: var(--theme-text-secondary-subtle);
+  background-color: var(--theme-bg-tertiary);
   color: var(--theme-text-secondary);
-  border: 1px solid var(--theme-text-secondary-muted);
 }
 
-/* Daemon discovered */
+/* Daemon discovered (blue) */
 .source-badge-daemon {
-  background-color: var(--theme-primary-subtle);
-  color: var(--theme-primary);
-  border: 1px solid var(--theme-primary-muted);
+  background-color: var(--theme-info-bg);
+  color: var(--theme-info-text);
 }
 
 /* Default/unknown */
 .source-badge-default {
-  background-color: var(--theme-text-secondary-subtle);
+  background-color: var(--theme-bg-tertiary);
   color: var(--theme-text-secondary);
-  border: 1px solid var(--theme-text-secondary-muted);
 }
 
 /* Group label above each integrations group (Steam / Epic / Monitoring) */

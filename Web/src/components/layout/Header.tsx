@@ -123,14 +123,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                 <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted">
                   <span className="truncate">{resolvedSubtitle}</span>
                   {isGuestMode && (
-                    <div
-                      className="px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap"
-                      style={{
-                        backgroundColor: 'var(--theme-warning-bg)',
-                        color: 'var(--theme-warning-text)',
-                        border: '1px solid var(--theme-warning)'
-                      }}
-                    >
+                    <div className="px-2 py-0.5 text-xs font-medium themed-badge status-badge-warning whitespace-nowrap">
                       {t('guest.guestMode')}
                       {timeRemaining ? ` \u00B7 ${timeRemaining}` : ''}
                     </div>
@@ -201,14 +194,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
             {/* Guest Mode Pill - Mobile (below controls if present) */}
             {isGuestMode && (
               <div className="flex justify-center mt-1.5">
-                <div
-                  className="px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap"
-                  style={{
-                    backgroundColor: 'var(--theme-warning-bg)',
-                    color: 'var(--theme-warning-text)',
-                    border: '1px solid var(--theme-warning)'
-                  }}
-                >
+                <div className="px-2 py-0.5 text-xs font-medium themed-badge status-badge-warning whitespace-nowrap">
                   {t('guest.guest')}
                   {timeRemaining ? ` \u00B7 ${timeRemaining}` : ''}
                 </div>

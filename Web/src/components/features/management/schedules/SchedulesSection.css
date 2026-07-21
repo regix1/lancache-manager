@@ -194,6 +194,26 @@
   color: var(--theme-text-muted);
   margin: 0;
   line-height: 1.4;
+  /* Trim to two lines on the card; the full text is repeated in the (?) help popover so a
+     long service description no longer pushes the card taller than its neighbours in a row. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Full, unclamped copy of the description shown inside the (?) HelpPopover, above the
+   more-frequent / less-frequent notes. */
+.schedule-help-description {
+  margin: 0 0 0.75rem;
+  color: var(--theme-text-secondary);
+}
+
+/* Run Now moved out of the old bottom action row into the card header's top-right, so the
+   primary action sits at a fixed spot on every card and the footer is free for the settings
+   disclosure. flex-shrink keeps it from being squeezed by a long title. */
+.schedule-card-header-actions {
+  flex-shrink: 0;
 }
 
 /* Status indicator */
@@ -2051,3 +2071,82 @@
 /* The just-completed flash is provided by the shared HighlightGlow component
    (see utils/highlightGlow.ts + animations.css), so the Schedules page uses the
    same pulse animation as the Integrations-section navigation glow. */
+
+/* Settings disclosure: run-on-startup + the two notification controls collapse behind one
+   toggle so the resting card is quiet. Pinned to the card's bottom edge via the footer's
+   margin-top: auto, the toggle lands at the same spot on every equal-height card in a row. */
+.schedule-settings {
+  display: flex;
+  flex-direction: column;
+}
+
+.schedule-settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--theme-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  text-align: left;
+}
+
+.schedule-settings-toggle:hover {
+  color: var(--theme-text-primary);
+}
+
+.schedule-settings-chevron {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--theme-text-muted);
+  transition: transform 0.2s ease;
+}
+
+.schedule-settings-toggle.open .schedule-settings-chevron {
+  transform: rotate(90deg);
+}
+
+/* Recessed block that steps toward the card tone (bg-tertiary), matching the app's other
+   in-card wells, so the grouped settings read as one panel rather than loose rows. */
+.schedule-settings-well {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem 0.95rem;
+  margin-top: 0.55rem;
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: var(--theme-border-radius);
+}
+
+.schedule-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+/* Fixed control column so the toggle and both dropdowns share one right edge and one width. */
+.schedule-settings-control {
+  flex: 0 0 13rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 420px) {
+  .schedule-settings-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+  }
+
+  .schedule-settings-control {
+    flex: 1 1 auto;
+    justify-content: flex-start;
+  }
+}

@@ -3590,6 +3590,7 @@
         "condensed": "紧凑条",
         "condensedDescription": "显示细状态色条；悬停或点击即可展开。"
       },
+      "settingsDisclosure": "通知和启动设置",
       "gain": "更频繁",
       "loss": "较低频率",
       "everyNMinutes": "每 {{count}} 分钟",

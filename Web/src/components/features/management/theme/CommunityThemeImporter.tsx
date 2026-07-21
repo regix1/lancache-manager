@@ -1,15 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  Download,
-  Globe,
-  Check,
-  Moon,
-  Sun,
-  ExternalLink,
-  Eye,
-  EyeOff,
-  RefreshCw
-} from 'lucide-react';
+import { Globe, Check, Moon, Sun, ExternalLink, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -630,17 +620,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                     disabled={!isAdmin || isImporting || isImported || isInstalled}
                     loading={isImporting}
                   >
-                    {isImported || isInstalled ? (
-                      <>
-                        <Check className="w-3 h-3 mr-1" />
-                        {t('management.themes.community.installed')}
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-3 h-3 mr-1" />
-                        {t('management.themes.community.import')}
-                      </>
-                    )}
+                    {isImported || isInstalled
+                      ? t('management.themes.community.installed')
+                      : t('management.themes.community.import')}
                   </Button>
                 </div>
               );

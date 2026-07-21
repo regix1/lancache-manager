@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Key, Lock, Unlock, Eye, LogOut } from 'lucide-react';
+import { Key, Lock, Unlock, Eye } from 'lucide-react';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
@@ -297,7 +297,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 variant="filled"
                 color="gray"
                 size="sm"
-                leftSection={<LogOut className="w-3 h-3" />}
                 onClick={handleLogout}
                 loading={authLoading}
                 className="flex-1 sm:flex-none"
@@ -313,7 +312,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                   <Button
                     variant="filled"
                     color="blue"
-                    leftSection={<Eye className="w-4 h-4" />}
                     onClick={handleStartGuestMode}
                     disabled={authLoading}
                     size="sm"
@@ -326,7 +324,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 <Button
                   variant="filled"
                   color="yellow"
-                  leftSection={<Key className="w-4 h-4" />}
                   onClick={() => setShowAuthModal(true)}
                   size="sm"
                   className="flex-1 sm:flex-none"
@@ -342,7 +339,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 variant="filled"
                 color="yellow"
                 size="sm"
-                leftSection={<Key className="w-3 h-3" />}
                 onClick={() => setShowAuthModal(true)}
                 className="w-full sm:w-auto"
               >
@@ -433,7 +429,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 <Button
                   variant="filled"
                   color="blue"
-                  leftSection={<Eye className="w-4 h-4" />}
                   onClick={handleStartGuestMode}
                   disabled={authLoading}
                 >
@@ -445,7 +440,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
             <Button
               variant="filled"
               color="green"
-              leftSection={<Lock className="w-4 h-4" />}
               onClick={handleAuthenticate}
               loading={authLoading}
               disabled={!apiKey.trim()}

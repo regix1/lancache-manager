@@ -1,6 +1,6 @@
 import React, { useCallback, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Shield, Sparkles, Settings, ToggleLeft, ToggleRight, Gauge } from 'lucide-react';
+import { Shield, Sparkles, Settings, Gauge } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -91,13 +91,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
                 onClick={() => setMockMode(!mockMode)}
                 variant="filled"
                 color={mockMode ? 'blue' : 'gray'}
-                leftSection={
-                  mockMode ? (
-                    <ToggleRight className="w-4 h-4" />
-                  ) : (
-                    <ToggleLeft className="w-4 h-4" />
-                  )
-                }
                 className="w-full sm:w-36"
               >
                 {mockMode

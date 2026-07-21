@@ -3590,6 +3590,7 @@
         "condensed": "Compact bar",
         "condensedDescription": "Show a thin status-coloured bar; hover or tap to expand it."
       },
+      "settingsDisclosure": "Notification & startup settings",
       "gain": "More frequent",
       "loss": "Less frequent",
       "everyNMinutes": "Every {{count}} minutes",

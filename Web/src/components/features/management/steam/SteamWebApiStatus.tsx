@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, CheckCircle, XCircle, Key, Trash2, AlertTriangle } from 'lucide-react';
+import { AlertCircle, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
@@ -170,16 +170,16 @@ const SteamWebApiStatus: React.FC = () => {
   const getVersionBadge = (version: string, available: boolean, needsKey?: boolean) => {
     const Icon = available ? CheckCircle : needsKey ? AlertTriangle : XCircle;
     const colorClass = available
-      ? 'bg-themed-success text-themed-success border-[var(--theme-success)]'
+      ? 'bg-themed-success text-themed-success'
       : needsKey
-        ? 'bg-themed-warning text-themed-warning border-[var(--theme-warning)]'
-        : 'bg-themed-error text-themed-error border-[var(--theme-error)]';
+        ? 'bg-themed-warning text-themed-warning'
+        : 'bg-themed-error text-themed-error';
 
     return (
       <span
         // py-[7px] (not the default py-1) so this tonal, non-interactive badge lands on the
         // same 32px height as the adjacent Button size="sm" refresh action in this row.
-        className={`inline-flex items-center gap-1.5 px-2.5 py-[7px] rounded-md text-xs font-medium border ${colorClass}`}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-[7px] rounded-md text-xs font-medium ${colorClass}`}
       >
         <Icon className="w-3.5 h-3.5" />
         {version}
@@ -308,7 +308,6 @@ const SteamWebApiStatus: React.FC = () => {
               <Button
                 variant="filled"
                 color="blue"
-                leftSection={<Key className="w-4 h-4" />}
                 onClick={() => setShowConfigModal(true)}
                 disabled={removing}
               >
@@ -320,7 +319,6 @@ const SteamWebApiStatus: React.FC = () => {
                 <Button
                   variant="filled"
                   color="red"
-                  leftSection={<Trash2 className="w-4 h-4" />}
                   onClick={() => setShowRemoveModal(true)}
                   disabled={removing || loading}
                 >
@@ -373,13 +371,7 @@ const SteamWebApiStatus: React.FC = () => {
             <Button variant="default" onClick={() => setShowRemoveModal(false)} disabled={removing}>
               {t('common.cancel')}
             </Button>
-            <Button
-              variant="filled"
-              color="red"
-              leftSection={<Trash2 className="w-4 h-4" />}
-              onClick={confirmRemoveApiKey}
-              loading={removing}
-            >
+            <Button variant="filled" color="red" onClick={confirmRemoveApiKey} loading={removing}>
               {t('management.steamWebApi.removeModal.confirm')}
             </Button>
           </div>

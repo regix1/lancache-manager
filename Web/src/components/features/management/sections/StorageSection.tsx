@@ -2,7 +2,6 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import './StorageSection.css';
 import { useTranslation } from 'react-i18next';
 import {
-  RefreshCw,
   AlertTriangle,
   Archive,
   Sliders,
@@ -770,11 +769,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
               onClick={handleRecheckPermissions}
               disabled={isRechecking}
             >
-              {isRechecking ? (
-                <LoadingSpinner inline size="sm" className="mr-1.5" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-              )}
+              {isRechecking && <LoadingSpinner inline size="sm" className="mr-1.5" />}
               {isRechecking
                 ? t('management.sections.storage.recheckingPermissions')
                 : t('management.sections.storage.recheckPermissions')}

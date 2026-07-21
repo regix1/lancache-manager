@@ -620,9 +620,7 @@ const Dashboard: React.FC = () => {
                 .join(' • '),
         badge:
           hasCacheScan && cacheInfo?.scanStale ? (
-            <Badge variant="warning" emphasis>
-              {t('dashboard.cards.staleScanData')}
-            </Badge>
+            <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
           ) : undefined,
         icon: Files,
         color: 'teal' as const,
@@ -652,11 +650,9 @@ const Dashboard: React.FC = () => {
         // staleness, so neither card's scan can flag or clear the other. The staleness badge
         // outranks the evicted badge: it prompts the rerun that also refreshes evicted state.
         badge: gamesOnDiskStats?.isStale ? (
-          <Badge variant="warning" emphasis>
-            {t('dashboard.cards.staleScanData')}
-          </Badge>
+          <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
         ) : gamesOnDiskStats?.includesEvicted ? (
-          <Badge variant="warning" emphasis>
+          <Badge variant="warning">
             {t('dashboard.cards.evictedIncluded', { count: gamesOnDiskStats.evictedCount })}
           </Badge>
         ) : undefined,

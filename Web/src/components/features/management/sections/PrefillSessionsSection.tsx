@@ -9,7 +9,6 @@ import {
   Shield,
   AlertTriangle,
   Clock,
-  RefreshCw,
   User,
   ChevronDown,
   ChevronUp,
@@ -1194,17 +1193,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               loadPersistentContainers();
             }}
             disabled={loadingSessions || loadingBans || loadingPersistent}
-            // min-h-10 holds this steady when its label collapses to icon-only below sm - its
-            // "Terminate All" row-mate never fully collapses (keeps a count digit), so without
-            // this it visibly shrinks next to that one on mobile.
-            className="min-h-10"
           >
-            <RefreshCw
-              className={`w-4 h-4 ${
-                loadingSessions || loadingBans || loadingPersistent ? 'animate-spin' : ''
-              }`}
-            />
-            <span className="hidden sm:inline">{t('common.refresh')}</span>
+            {t('common.refresh')}
           </Button>
           {isAdmin && guestActiveSessions.length > 0 && (
             <Button
@@ -1214,11 +1204,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               onClick={() => setTerminateAllConfirm(true)}
               disabled={terminatingAll}
             >
-              <StopCircle className="w-4 h-4" />
-              <span className="hidden sm:inline">
-                {t('management.prefillSessions.endAll', { count: guestActiveSessions.length })}
-              </span>
-              <span className="sm:hidden">{guestActiveSessions.length}</span>
+              {t('management.prefillSessions.endAll', { count: guestActiveSessions.length })}
             </Button>
           )}
         </div>

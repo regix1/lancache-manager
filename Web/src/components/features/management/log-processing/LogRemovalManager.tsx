@@ -860,7 +860,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                 variant="filled"
                                 size="sm"
                                 color="red"
-                                leftSection={<Trash2 className="w-3 h-3" />}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setPendingLogFileDeletion(ds.datasource);

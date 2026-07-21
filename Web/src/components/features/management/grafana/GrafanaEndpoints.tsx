@@ -1,15 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Link,
-  Copy,
-  CheckCircle,
-  Lock,
-  Unlock,
-  Lightbulb,
-  RefreshCw,
-  Clock,
-  Settings
-} from 'lucide-react';
+import { Link, Lock, Unlock, Lightbulb, RefreshCw, Clock, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -409,13 +399,6 @@ const GrafanaEndpoints: React.FC = () => {
             variant={copiedEndpoint === 'prometheus' ? 'filled' : 'default'}
             color={copiedEndpoint === 'prometheus' ? 'green' : undefined}
             onClick={() => copyToClipboard(`${apiBaseUrl}/metrics`, 'prometheus')}
-            leftSection={
-              copiedEndpoint === 'prometheus' ? (
-                <CheckCircle className="w-3 h-3" />
-              ) : (
-                <Copy className="w-3 h-3" />
-              )
-            }
           >
             {copiedEndpoint === 'prometheus' ? t('management.grafana.copied') : t('common.copy')}
           </Button>

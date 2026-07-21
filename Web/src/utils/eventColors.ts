@@ -19,7 +19,9 @@ export function getEventColorVar(colorIndex: number): string {
 
 /**
  * Get inline styles for an event/tag badge with the color index.
- * Returns styles for background, text color, and border that adapt to the theme.
+ * Returns a solid-fill look (tinted background + matching text, no border) that
+ * adapts to the theme, consistent with the status-badge and session-badge fills
+ * elsewhere in the app rather than an outlined pill.
  * @param colorIndex - 1-8, the color index
  * @returns Style object for the badge
  */
@@ -27,7 +29,6 @@ export function getEventColorStyles(colorIndex: number): React.CSSProperties {
   const colorVar = getEventColorVar(colorIndex);
   return {
     backgroundColor: colorVar.replace(')', '-muted)'),
-    color: colorVar,
-    border: `1px solid ${colorVar.replace(')', '-strong)')}`
+    color: colorVar
   };
 }

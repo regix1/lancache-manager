@@ -1,13 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Palette,
-  Download,
   RefreshCw,
-  Plus,
   Sparkles,
   Layers,
   Brush,
-  Edit,
   FileText,
   Settings2,
   Moon,
@@ -807,7 +804,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                     variant="filled"
                     color="gray"
                     size="xs"
-                    leftSection={<Download className="w-3 h-3" />}
                     onClick={downloadSampleTheme}
                     className="self-start sm:self-auto"
                   >
@@ -873,7 +869,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                 <Button
                   variant="default"
                   size="sm"
-                  leftSection={<Plus className="w-4 h-4" />}
                   onClick={openCreateModal}
                   disabled={!isAdmin}
                   className="w-full sm:w-auto"
@@ -883,7 +878,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                 <Button
                   variant="default"
                   size="sm"
-                  leftSection={<Download className="w-4 h-4" />}
                   onClick={downloadSampleTheme}
                   className="w-full sm:w-auto"
                 >
@@ -893,7 +887,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                   <Button
                     variant="default"
                     size="sm"
-                    leftSection={<Edit className="w-4 h-4" />}
                     onClick={() => handleEditTheme(themes.find((t) => t.meta.id === currentTheme)!)}
                     disabled={!isAdmin}
                     className="w-full sm:w-auto"

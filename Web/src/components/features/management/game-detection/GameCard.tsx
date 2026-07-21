@@ -131,7 +131,7 @@ const GameCard: React.FC<GameCardProps> = ({
       )}
       {isEvicted && <EvictedBadge />}
       {!isEvicted && variant === 'active' && (game.evicted_downloads_count ?? 0) > 0 && (
-        <Badge variant="warning" emphasis>
+        <Badge variant="warning">
           {t('management.gameDetection.partialEvictedBadge', {
             count: game.evicted_downloads_count
           })}

@@ -1240,12 +1240,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               {admin ? t('activeSessions.labels.userBadge') : t('activeSessions.labels.guestBadge')}
             </span>
             {session.isRevoked && (
-              <span className="themed-badge status-badge-error badge-outline session-type-badge">
+              <span className="themed-badge status-badge-error session-type-badge">
                 {t('activeSessions.status.revoked')}
               </span>
             )}
             {session.isExpired && !session.isRevoked && (
-              <span className="themed-badge status-badge-warning badge-outline session-type-badge">
+              <span className="themed-badge status-badge-warning session-type-badge">
                 {t('activeSessions.prefill.status.expired')}
               </span>
             )}
@@ -2032,7 +2032,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             </div>
                             <div className="mgmt-row__actions">
                               <span
-                                className={`px-2 py-0.5 text-xs font-medium themed-badge badge-outline ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                                className={`px-2 py-0.5 text-xs font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
                               >
                                 {effective
                                   ? t('activeSessions.prefill.status.enabled')
@@ -2073,7 +2073,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             </div>
                             <div className="mgmt-row__actions">
                               <span
-                                className={`px-2 py-0.5 text-xs font-medium themed-badge badge-outline ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                                className={`px-2 py-0.5 text-xs font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
                               >
                                 {effective
                                   ? t('activeSessions.prefill.status.enabled')
@@ -2117,7 +2117,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             </div>
                             <div className="mgmt-row__actions">
                               <span
-                                className={`px-2 py-0.5 text-xs font-medium themed-badge badge-outline ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                                className={`px-2 py-0.5 text-xs font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
                               >
                                 {effective
                                   ? t('activeSessions.prefill.status.enabled')
@@ -2158,7 +2158,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             </div>
                             <div className="mgmt-row__actions">
                               <span
-                                className={`px-2 py-0.5 text-xs font-medium themed-badge badge-outline ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                                className={`px-2 py-0.5 text-xs font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
                               >
                                 {effective
                                   ? t('activeSessions.prefill.status.enabled')
@@ -2199,7 +2199,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             </div>
                             <div className="mgmt-row__actions">
                               <span
-                                className={`px-2 py-0.5 text-xs font-medium themed-badge badge-outline ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                                className={`px-2 py-0.5 text-xs font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
                               >
                                 {effective
                                   ? t('activeSessions.prefill.status.enabled')

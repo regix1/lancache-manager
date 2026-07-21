@@ -344,20 +344,6 @@
   color: var(--theme-warning-text);
 }
 
-/* Evicted badges in the recent list keep the badge format but go tonal:
-   no bright fill, just tinted text and a hairline so ten rows don't shout. */
-.rdl-row-meta .status-badge-warning {
-  background: transparent;
-  color: var(--theme-warning-text);
-  border: 1px solid var(--theme-warning-bg);
-}
-
-.rdl-row-meta .status-badge-error {
-  background: transparent;
-  color: var(--theme-error-text);
-  border: 1px solid var(--theme-error-bg);
-}
-
 .rdl-hit.critical {
   color: var(--theme-error-text);
 }

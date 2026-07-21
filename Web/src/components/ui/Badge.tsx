@@ -13,13 +13,6 @@ interface BadgeProps {
   variant: BadgeVariant;
   children: ReactNode;
   className?: string;
-  /**
-   * Filled emphasis: keep the solid tinted fill instead of the default quiet
-   * outline. Reserve for deliberate emphasis (a single per-card warning, a
-   * stale-scan callout), never inside a dense row of peer badges. Ignored for
-   * the neutral and waiting variants, which are their own axes.
-   */
-  emphasis?: boolean;
 }
 
 // Literal class names (never `status-badge-${variant}`) so Tailwind's content
@@ -36,16 +29,9 @@ const VARIANT_CLASS: Record<BadgeVariant, string> = {
   'waiting-outline': 'status-badge-waiting-outline'
 };
 
-// Status variants that default to the quiet outline treatment. The neutral
-// count-chip axis and the notification waiting pills always keep their own look.
-const OUTLINE_VARIANTS = new Set<BadgeVariant>(['error', 'warning', 'success', 'info']);
-
-export default function Badge({ variant, children, className, emphasis }: BadgeProps) {
-  const outline = !emphasis && OUTLINE_VARIANTS.has(variant);
+export default function Badge({ variant, children, className }: BadgeProps) {
   return (
-    <span
-      className={`themed-badge ${VARIANT_CLASS[variant]}${outline ? ' badge-outline' : ''}${className ? ` ${className}` : ''}`}
-    >
+    <span className={`themed-badge ${VARIANT_CLASS[variant]}${className ? ` ${className}` : ''}`}>
       {children}
     </span>
   );
