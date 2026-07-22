@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, Lock, Unlock, Lightbulb, RefreshCw, Clock, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -116,6 +115,7 @@ const GrafanaEndpoints: React.FC = () => {
   const [isToggling, setIsToggling] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(false);
   const [areRatesExpanded, setAreRatesExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const fetchMetricsSecurity = useCallback(
     async (signal?: AbortSignal) => {
@@ -293,39 +293,58 @@ const GrafanaEndpoints: React.FC = () => {
 
   const apiBaseUrl = window.location.origin;
 
+  const accessBadge =
+    metricsSecurity != null ? (
+      <span
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${
+          metricsSecurity.requiresAuthentication
+            ? 'bg-themed-success text-themed-success'
+            : 'bg-themed-secondary text-themed-muted'
+        }`}
+      >
+        {metricsSecurity.requiresAuthentication ? <Lock size={14} /> : <Unlock size={14} />}
+        {metricsSecurity.requiresAuthentication
+          ? t('management.grafana.securedOption')
+          : t('management.grafana.publicOption')}
+      </span>
+    ) : undefined;
+
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.grafana.help.metrics.title')} variant="subtle">
+        <HelpDefinition
+          items={[
+            {
+              term: t('management.grafana.help.metrics.cache.term'),
+              description: t('management.grafana.help.metrics.cache.description')
+            },
+            {
+              term: t('management.grafana.help.metrics.activity.term'),
+              description: t('management.grafana.help.metrics.activity.description')
+            }
+          ]}
+        />
+      </HelpSection>
+
+      <HelpSection title={t('management.grafana.help.integration.title')} variant="subtle">
+        {t('management.grafana.help.integration.description')}
+      </HelpSection>
+
+      <HelpNote type="info">{t('management.grafana.help.note')}</HelpNote>
+    </HelpPopover>
+  );
+
   return (
-    <Card>
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-indigo">
-          <Link className="w-5 h-5 icon-indigo" />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary">
-          {t('management.grafana.title')}
-        </h3>
-        <HelpPopover position="left" width={320}>
-          <HelpSection title={t('management.grafana.help.metrics.title')} variant="subtle">
-            <HelpDefinition
-              items={[
-                {
-                  term: t('management.grafana.help.metrics.cache.term'),
-                  description: t('management.grafana.help.metrics.cache.description')
-                },
-                {
-                  term: t('management.grafana.help.metrics.activity.term'),
-                  description: t('management.grafana.help.metrics.activity.description')
-                }
-              ]}
-            />
-          </HelpSection>
-
-          <HelpSection title={t('management.grafana.help.integration.title')} variant="subtle">
-            {t('management.grafana.help.integration.description')}
-          </HelpSection>
-
-          <HelpNote type="info">{t('management.grafana.help.note')}</HelpNote>
-        </HelpPopover>
-      </div>
-
+    <AccordionSection
+      title={t('management.grafana.title')}
+      description={t('management.grafana.summary')}
+      titleAccessory={helpAccessory}
+      icon={Link}
+      iconColor="var(--theme-icon-indigo)"
+      isExpanded={expanded}
+      onToggle={() => setExpanded((prev) => !prev)}
+      badge={accessBadge}
+    >
       <p className="text-themed-muted text-sm mb-4">
         {metricsSecurity?.requiresAuthentication
           ? t('management.grafana.securedDescription')
@@ -417,6 +436,7 @@ const GrafanaEndpoints: React.FC = () => {
           icon={RefreshCw}
           isExpanded={areRatesExpanded}
           onToggle={() => setAreRatesExpanded((prev) => !prev)}
+          surface="well"
         >
           {/* Data Refresh Rate - Controls how often the app updates metrics */}
           <div className="p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
@@ -495,6 +515,7 @@ const GrafanaEndpoints: React.FC = () => {
           icon={Settings}
           isExpanded={isConfigExpanded}
           onToggle={() => setIsConfigExpanded((prev) => !prev)}
+          surface="well"
         >
           {/* Prometheus Configuration - shows config based on current auth state */}
           <div className="p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
@@ -605,7 +626,7 @@ const GrafanaEndpoints: React.FC = () => {
           </div>
         </AccordionSection>
       </div>
-    </Card>
+    </AccordionSection>
   );
 };
 

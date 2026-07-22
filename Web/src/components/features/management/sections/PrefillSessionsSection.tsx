@@ -15,11 +15,17 @@ import {
   Gamepad2,
   XCircle,
   Activity,
-  Server
+  Server,
+  RefreshCw
 } from 'lucide-react';
 import { Card, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
-import { ActionMenu, ActionMenuDangerItem } from '@components/ui/ActionMenu';
+import {
+  ActionMenu,
+  ActionMenuItem,
+  ActionMenuDangerItem,
+  ActionMenuDivider
+} from '@components/ui/ActionMenu';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -28,6 +34,7 @@ import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Checkbox } from '@components/ui/Checkbox';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import Badge from '@components/ui/Badge';
 import ApiService, {
   type PrefillSessionDto,
@@ -1170,6 +1177,14 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   );
   const hasVisibleBans = visibleBans.length > 0;
 
+  const handleRefreshAll = () => {
+    loadSessions();
+    loadBans();
+    loadPersistentContainers();
+  };
+
+  const isRefreshing = loadingSessions || loadingBans || loadingPersistent;
+
   return (
     <div
       className="management-section prefill-sessions-section animate-fade-in"
@@ -1177,357 +1192,400 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       id="panel-prefill-sessions"
       aria-labelledby="tab-prefill-sessions"
     >
-      {/* Section Header */}
-      <div className="prefill-section-header">
-        <div className="prefill-section-title">
-          <h2>{t('management.prefillSessions.title')}</h2>
-          <p>{t('management.prefillSessions.subtitle')}</p>
+      {/* ==================== SESSIONS ==================== */}
+      <div className="mb-6 sm:mb-8">
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('management.sections.prefillSessions.groupSessions')}
+          </h3>
         </div>
-        <div className="prefill-header-actions">
-          <Button
-            variant="filled"
-            color="gray"
-            size="md"
-            onClick={() => {
-              loadSessions();
-              loadBans();
-              loadPersistentContainers();
-            }}
-            disabled={loadingSessions || loadingBans || loadingPersistent}
+
+        <div className="prefill-stats-grid mb-4">
+          <StatCard
+            icon={<Play className="w-5 h-5 icon-green" />}
+            value={guestActiveSessions.length}
+            label={t('management.prefillSessions.activeSessions')}
+            iconBgClass="icon-bg-green"
+          />
+          <StatCard
+            icon={<Container className="w-5 h-5 icon-primary" />}
+            value={totalCount}
+            label={t('management.prefillSessions.totalSessions')}
+            iconBgClass="icon-bg-blue"
+          />
+          <StatCard
+            icon={<Ban className="w-5 h-5 icon-red" />}
+            value={activeBansCount}
+            label={t('management.prefillSessions.activeBans')}
+            iconBgClass="icon-bg-red"
+          />
+        </div>
+
+        <div className="space-y-4">
+          <AccordionSection
+            title={t('management.prefillSessions.liveSessions')}
+            description={t('management.prefillSessions.liveSessionsSummary')}
+            count={guestActiveSessions.length}
+            icon={Play}
+            iconColor="var(--theme-icon-green)"
+            isExpanded={liveSessionsExpanded}
+            onToggle={() => setLiveSessionsExpanded(!liveSessionsExpanded)}
+            badge={
+              <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+                <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+                  {(close) => (
+                    <>
+                      <ActionMenuItem
+                        icon={<RefreshCw className="w-3.5 h-3.5" />}
+                        disabled={isRefreshing}
+                        onClick={() => {
+                          handleRefreshAll();
+                          close();
+                        }}
+                      >
+                        {t('common.refresh')}
+                      </ActionMenuItem>
+                      {isAdmin && guestActiveSessions.length > 0 && (
+                        <>
+                          <ActionMenuDivider />
+                          <ActionMenuDangerItem
+                            icon={<StopCircle className="w-3.5 h-3.5" />}
+                            disabled={terminatingAll}
+                            onClick={() => {
+                              setTerminateAllConfirm(true);
+                              close();
+                            }}
+                          >
+                            {t('management.prefillSessions.endAll', {
+                              count: guestActiveSessions.length
+                            })}
+                          </ActionMenuDangerItem>
+                        </>
+                      )}
+                    </>
+                  )}
+                </SectionActionsMenu>
+              </div>
+            }
           >
-            {t('common.refresh')}
-          </Button>
-          {isAdmin && guestActiveSessions.length > 0 && (
-            <Button
-              variant="filled"
-              color="red"
-              size="md"
-              onClick={() => setTerminateAllConfirm(true)}
-              disabled={terminatingAll}
-            >
-              {t('management.prefillSessions.endAll', { count: guestActiveSessions.length })}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Summary Stats */}
-      <div className="prefill-stats-grid">
-        <StatCard
-          icon={<Play className="w-5 h-5 icon-green" />}
-          value={guestActiveSessions.length}
-          label={t('management.prefillSessions.activeSessions')}
-          iconBgClass="icon-bg-green"
-        />
-        <StatCard
-          icon={<Container className="w-5 h-5 icon-primary" />}
-          value={totalCount}
-          label={t('management.prefillSessions.totalSessions')}
-          iconBgClass="icon-bg-blue"
-        />
-        <StatCard
-          icon={<Ban className="w-5 h-5 icon-red" />}
-          value={activeBansCount}
-          label={t('management.prefillSessions.activeBans')}
-          iconBgClass="icon-bg-red"
-        />
-      </div>
-
-      {/* Live Sessions Accordion */}
-      <AccordionSection
-        title={t('management.prefillSessions.liveSessions')}
-        count={guestActiveSessions.length}
-        icon={Play}
-        iconColor="var(--theme-icon-green)"
-        isExpanded={liveSessionsExpanded}
-        onToggle={() => setLiveSessionsExpanded(!liveSessionsExpanded)}
-      >
-        {loadingSessions ? (
-          <div className="prefill-loading-state">
-            <LoadingSpinner inline size="lg" className="text-themed-muted" />
-            <span>{t('management.prefillSessions.loadingSessions')}</span>
-          </div>
-        ) : sessionsError && guestActiveSessions.length === 0 ? (
-          <PrefillErrorBlock
-            title={t('management.prefillSessions.errors.loadSessions')}
-            message={sessionsError}
-            retryLabel={t('common.retry')}
-            onRetry={loadSessions}
-          />
-        ) : guestActiveSessions.length === 0 ? (
-          <div className="prefill-empty-state">
-            <Container className="w-12 h-12 opacity-50" />
-            <p className="prefill-empty-title">
-              {t('management.prefillSessions.noActiveSessions')}
-            </p>
-            <p className="prefill-empty-desc">
-              {t('management.prefillSessions.noActiveSessionsDesc')}
-            </p>
-          </div>
-        ) : (
-          <div className="prefill-sessions-list">
-            {guestActiveSessions.map((session) => (
-              <SessionCard
-                key={session.id}
-                session={session}
-                isLive={true}
-                isAdmin={isAdmin}
-                historyData={historyData[session.id] || []}
-                isHistoryExpanded={expandedHistory.has(session.id)}
-                isLoadingHistory={loadingHistory.has(session.id)}
-                onToggleHistory={() => toggleHistory(session.id)}
-                onTerminate={() => handleTerminateSession(session.id)}
-                onBan={
-                  session.id
-                    ? () => setBanConfirm({ sessionId: session.id, reason: '' })
-                    : undefined
-                }
-                isTerminating={terminatingSession === session.id}
-                isBanning={banningSession === session.id}
-                historyPage={historyPage[session.id] || 1}
-                onHistoryPageChange={(p) =>
-                  setHistoryPage((prev) => ({ ...prev, [session.id]: p }))
-                }
+            {loadingSessions ? (
+              <div className="prefill-loading-state">
+                <LoadingSpinner inline size="lg" className="text-themed-muted" />
+                <span>{t('management.prefillSessions.loadingSessions')}</span>
+              </div>
+            ) : sessionsError && guestActiveSessions.length === 0 ? (
+              <PrefillErrorBlock
+                title={t('management.prefillSessions.errors.loadSessions')}
+                message={sessionsError}
+                retryLabel={t('common.retry')}
+                onRetry={loadSessions}
               />
-            ))}
-          </div>
-        )}
-      </AccordionSection>
-
-      {/* Persistent Sessions Accordion — system-owned containers, read-only monitoring */}
-      <AccordionSection
-        title={t('management.prefillSessions.persistentSessions.title')}
-        count={persistentContainers.length}
-        icon={Server}
-        iconColor="var(--theme-icon-blue)"
-        isExpanded={persistentExpanded}
-        onToggle={() => setPersistentExpanded(!persistentExpanded)}
-      >
-        {loadingPersistent && persistentContainers.length === 0 ? (
-          <div className="prefill-loading-state">
-            <LoadingSpinner inline size="lg" className="text-themed-muted" />
-            <span>{t('management.prefillSessions.persistentSessions.loading')}</span>
-          </div>
-        ) : persistentError && persistentContainers.length === 0 ? (
-          <PrefillErrorBlock
-            title={t('management.prefillSessions.persistentSessions.errors.load')}
-            message={persistentError}
-            retryLabel={t('common.retry')}
-            onRetry={loadPersistentContainers}
-          />
-        ) : persistentContainers.length === 0 ? (
-          <div className="prefill-empty-state">
-            <Server className="w-12 h-12 opacity-50" />
-            <p className="prefill-empty-title">
-              {t('management.prefillSessions.persistentSessions.noContainers')}
-            </p>
-            <p className="prefill-empty-desc">
-              {t('management.prefillSessions.persistentSessions.noContainersDesc')}
-            </p>
-          </div>
-        ) : (
-          <div className="prefill-persistent-list">
-            {persistentContainers.map((container) => (
-              <PersistentContainerCard key={container.sessionId} container={container} />
-            ))}
-          </div>
-        )}
-      </AccordionSection>
-
-      {/* Session History Accordion */}
-      <AccordionSection
-        title={t('management.prefillSessions.sessionHistory')}
-        count={totalCount}
-        icon={Clock}
-        iconColor="var(--theme-icon-blue)"
-        isExpanded={historyExpanded}
-        onToggle={() => setHistoryExpanded(!historyExpanded)}
-        badge={
-          <div className="prefill-filter-inline">
-            <EnhancedDropdown
-              variant="button"
-              options={
-                [
-                  { value: '', label: t('management.prefillSessions.statusFilters.all') },
-                  { value: 'Active', label: t('management.prefillSessions.statusFilters.active') },
-                  {
-                    value: 'Terminated',
-                    label: t('management.prefillSessions.statusFilters.terminated')
-                  },
-                  {
-                    value: 'Orphaned',
-                    label: t('management.prefillSessions.statusFilters.orphaned')
-                  },
-                  { value: 'Cleaned', label: t('management.prefillSessions.statusFilters.cleaned') }
-                ] as DropdownOption[]
-              }
-              value={statusFilter}
-              onChange={(value: string) => {
-                // Dropdown values are fixed to '' | 'Active' | 'Terminated' | 'Orphaned' | 'Cleaned'
-                // (see options above) - narrow to PrefillSessionStatus for the typed state setter.
-                setStatusFilter(value as PrefillSessionStatus | '');
-                setPage(1);
-              }}
-              placeholder={t('management.prefillSessions.statusFilters.all')}
-              className="min-w-[90px] sm:min-w-[120px] h-10"
-              dropdownWidth="140px"
-            />
-            <EnhancedDropdown
-              variant="button"
-              options={
-                [
-                  { value: 'all', label: t('management.prefillSessions.platformFilters.all') },
-                  { value: 'Steam', label: t('management.prefillSessions.platformFilters.steam') },
-                  { value: 'Epic', label: t('management.prefillSessions.platformFilters.epic') },
-                  {
-                    value: 'BattleNet',
-                    label: t('management.prefillSessions.platformFilters.battlenet')
-                  },
-                  { value: 'Riot', label: t('management.prefillSessions.platformFilters.riot') },
-                  { value: 'Xbox', label: t('management.prefillSessions.platformFilters.xbox') }
-                ] as DropdownOption[]
-              }
-              value={platformFilter}
-              onChange={(value: string) => {
-                setPlatformFilter(value);
-                setPage(1);
-              }}
-              placeholder={t('management.prefillSessions.platformFilters.all')}
-              className="min-w-[90px] sm:min-w-[120px] h-10"
-              dropdownWidth="140px"
-            />
-          </div>
-        }
-      >
-        {loadingSessions ? (
-          <div className="prefill-loading-state">
-            <LoadingSpinner inline size="lg" className="text-themed-muted" />
-            <span>{t('management.prefillSessions.loading')}</span>
-          </div>
-        ) : sessionsError && sessions.length === 0 ? (
-          <PrefillErrorBlock
-            title={t('management.prefillSessions.errors.loadHistory')}
-            message={sessionsError}
-            retryLabel={t('common.retry')}
-            onRetry={loadSessions}
-          />
-        ) : sessions.length === 0 ? (
-          <div className="prefill-empty-state">
-            <Clock className="w-12 h-12 opacity-50" />
-            <p className="prefill-empty-title">{t('management.prefillSessions.noSessionsFound')}</p>
-            <p className="prefill-empty-desc">
-              {t('management.prefillSessions.noSessionsFoundDesc')}
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="prefill-sessions-list">
-              {sessions.map((session) => (
-                <SessionCard
-                  key={session.id}
-                  session={session}
-                  isLive={session.isLive}
-                  isAdmin={isAdmin}
-                  historyData={historyData[session.sessionId] || []}
-                  isHistoryExpanded={expandedHistory.has(session.sessionId)}
-                  isLoadingHistory={loadingHistory.has(session.sessionId)}
-                  onToggleHistory={() => toggleHistory(session.sessionId)}
-                  onTerminate={
-                    session.isLive && !session.isPersistent
-                      ? () => handleTerminateSession(session.sessionId)
-                      : undefined
-                  }
-                  onBan={
-                    session.isLive && !session.isPersistent && session.sessionId
-                      ? () => setBanConfirm({ sessionId: session.sessionId, reason: '' })
-                      : undefined
-                  }
-                  isTerminating={terminatingSession === session.sessionId}
-                  isBanning={banningSession === session.sessionId}
-                  historyPage={historyPage[session.sessionId] || 1}
-                  onHistoryPageChange={(p) =>
-                    setHistoryPage((prev) => ({ ...prev, [session.sessionId]: p }))
-                  }
-                />
-              ))}
-            </div>
-
-            {totalPages > 1 && (
-              <div className="prefill-pagination">
-                <Pagination
-                  currentPage={page}
-                  totalPages={totalPages}
-                  totalItems={totalCount}
-                  itemsPerPage={pageSize}
-                  onPageChange={setPage}
-                  itemLabel={t('management.prefillSessions.labels.sessions', 'sessions')}
-                />
+            ) : guestActiveSessions.length === 0 ? (
+              <div className="prefill-empty-state">
+                <Container className="w-12 h-12 opacity-50" />
+                <p className="prefill-empty-title">
+                  {t('management.prefillSessions.noActiveSessions')}
+                </p>
+                <p className="prefill-empty-desc">
+                  {t('management.prefillSessions.noActiveSessionsDesc')}
+                </p>
+              </div>
+            ) : (
+              <div className="prefill-sessions-list">
+                {guestActiveSessions.map((session) => (
+                  <SessionCard
+                    key={session.id}
+                    session={session}
+                    isLive={true}
+                    isAdmin={isAdmin}
+                    historyData={historyData[session.id] || []}
+                    isHistoryExpanded={expandedHistory.has(session.id)}
+                    isLoadingHistory={loadingHistory.has(session.id)}
+                    onToggleHistory={() => toggleHistory(session.id)}
+                    onTerminate={() => handleTerminateSession(session.id)}
+                    onBan={
+                      session.id
+                        ? () => setBanConfirm({ sessionId: session.id, reason: '' })
+                        : undefined
+                    }
+                    isTerminating={terminatingSession === session.id}
+                    isBanning={banningSession === session.id}
+                    historyPage={historyPage[session.id] || 1}
+                    onHistoryPageChange={(p) =>
+                      setHistoryPage((prev) => ({ ...prev, [session.id]: p }))
+                    }
+                  />
+                ))}
               </div>
             )}
-          </>
-        )}
-      </AccordionSection>
+          </AccordionSection>
 
-      {/* Banned Users Accordion */}
-      <AccordionSection
-        title={t('management.prefillSessions.bannedUsers.title')}
-        count={activeBansCount}
-        icon={Ban}
-        iconColor="var(--theme-icon-red)"
-        isExpanded={bansExpanded}
-        onToggle={() => setBansExpanded(!bansExpanded)}
-        badge={
-          // h-10 matches the accordion's own chevron/badge-slot height (see Session
-          // History's EnhancedDropdown pair above) - Checkbox has no explicit height of
-          // its own, so without this it renders far shorter than the 40px chevron next
-          // to it in the same header row.
-          <div className="flex items-center h-10">
-            <Checkbox
-              label={t('management.prefillSessions.bannedUsers.showLifted')}
-              checked={includeLifted}
-              onChange={(e) => setIncludeLifted(e.target.checked)}
-            />
-          </div>
-        }
-      >
-        {loadingBans && !hasVisibleBans ? (
-          <div className="prefill-loading-state">
-            <LoadingSpinner inline size="lg" className="text-themed-muted" />
-            <span>{t('management.prefillSessions.bannedUsers.loadingBans')}</span>
-          </div>
-        ) : bansError && !hasVisibleBans ? (
-          <PrefillErrorBlock
-            title={t('management.prefillSessions.errors.loadBans')}
-            message={bansError}
-            retryLabel={t('common.retry')}
-            onRetry={loadBans}
-          />
-        ) : !loadingBans && !hasVisibleBans ? (
-          <div className="prefill-empty-state">
-            <Shield className="w-12 h-12 opacity-50" />
-            <p className="prefill-empty-title">
-              {t('management.prefillSessions.bannedUsers.noBannedUsers')}
-            </p>
-            <p className="prefill-empty-desc">
-              {t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}
-            </p>
-          </div>
-        ) : (
-          <div
-            className={`prefill-bans-list ${loadingBans ? 'opacity-60 pointer-events-none' : ''}`}
+          <AccordionSection
+            title={t('management.prefillSessions.persistentSessions.title')}
+            description={t('management.prefillSessions.persistentSessions.summary')}
+            count={persistentContainers.length}
+            icon={Server}
+            iconColor="var(--theme-icon-blue)"
+            isExpanded={persistentExpanded}
+            onToggle={() => setPersistentExpanded(!persistentExpanded)}
           >
-            {visibleBans.map((ban) => (
-              <BannedUserCard
-                key={ban.id}
-                ban={ban}
-                isAdmin={isAdmin}
-                onLiftBan={() => setLiftBanConfirm(ban)}
-                isLifting={liftingBan === ban.id}
+            {loadingPersistent && persistentContainers.length === 0 ? (
+              <div className="prefill-loading-state">
+                <LoadingSpinner inline size="lg" className="text-themed-muted" />
+                <span>{t('management.prefillSessions.persistentSessions.loading')}</span>
+              </div>
+            ) : persistentError && persistentContainers.length === 0 ? (
+              <PrefillErrorBlock
+                title={t('management.prefillSessions.persistentSessions.errors.load')}
+                message={persistentError}
+                retryLabel={t('common.retry')}
+                onRetry={loadPersistentContainers}
               />
-            ))}
-          </div>
-        )}
-      </AccordionSection>
+            ) : persistentContainers.length === 0 ? (
+              <div className="prefill-empty-state">
+                <Server className="w-12 h-12 opacity-50" />
+                <p className="prefill-empty-title">
+                  {t('management.prefillSessions.persistentSessions.noContainers')}
+                </p>
+                <p className="prefill-empty-desc">
+                  {t('management.prefillSessions.persistentSessions.noContainersDesc')}
+                </p>
+              </div>
+            ) : (
+              <div className="prefill-persistent-list">
+                {persistentContainers.map((container) => (
+                  <PersistentContainerCard key={container.sessionId} container={container} />
+                ))}
+              </div>
+            )}
+          </AccordionSection>
+        </div>
+      </div>
+
+      {/* ==================== HISTORY ==================== */}
+      <div>
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('management.sections.prefillSessions.groupHistory')}
+          </h3>
+        </div>
+
+        <div className="space-y-4">
+          <AccordionSection
+            title={t('management.prefillSessions.sessionHistory')}
+            description={t('management.prefillSessions.historySummary')}
+            count={totalCount}
+            icon={Clock}
+            iconColor="var(--theme-icon-blue)"
+            isExpanded={historyExpanded}
+            onToggle={() => setHistoryExpanded(!historyExpanded)}
+            badge={
+              <div className="prefill-filter-inline">
+                <EnhancedDropdown
+                  variant="button"
+                  options={
+                    [
+                      { value: '', label: t('management.prefillSessions.statusFilters.all') },
+                      {
+                        value: 'Active',
+                        label: t('management.prefillSessions.statusFilters.active')
+                      },
+                      {
+                        value: 'Terminated',
+                        label: t('management.prefillSessions.statusFilters.terminated')
+                      },
+                      {
+                        value: 'Orphaned',
+                        label: t('management.prefillSessions.statusFilters.orphaned')
+                      },
+                      {
+                        value: 'Cleaned',
+                        label: t('management.prefillSessions.statusFilters.cleaned')
+                      }
+                    ] as DropdownOption[]
+                  }
+                  value={statusFilter}
+                  onChange={(value: string) => {
+                    // Dropdown values are fixed to '' | 'Active' | 'Terminated' | 'Orphaned' | 'Cleaned'
+                    // (see options above) - narrow to PrefillSessionStatus for the typed state setter.
+                    setStatusFilter(value as PrefillSessionStatus | '');
+                    setPage(1);
+                  }}
+                  placeholder={t('management.prefillSessions.statusFilters.all')}
+                  className="min-w-[90px] sm:min-w-[120px] h-10"
+                  dropdownWidth="140px"
+                />
+                <EnhancedDropdown
+                  variant="button"
+                  options={
+                    [
+                      { value: 'all', label: t('management.prefillSessions.platformFilters.all') },
+                      {
+                        value: 'Steam',
+                        label: t('management.prefillSessions.platformFilters.steam')
+                      },
+                      {
+                        value: 'Epic',
+                        label: t('management.prefillSessions.platformFilters.epic')
+                      },
+                      {
+                        value: 'BattleNet',
+                        label: t('management.prefillSessions.platformFilters.battlenet')
+                      },
+                      {
+                        value: 'Riot',
+                        label: t('management.prefillSessions.platformFilters.riot')
+                      },
+                      { value: 'Xbox', label: t('management.prefillSessions.platformFilters.xbox') }
+                    ] as DropdownOption[]
+                  }
+                  value={platformFilter}
+                  onChange={(value: string) => {
+                    setPlatformFilter(value);
+                    setPage(1);
+                  }}
+                  placeholder={t('management.prefillSessions.platformFilters.all')}
+                  className="min-w-[90px] sm:min-w-[120px] h-10"
+                  dropdownWidth="140px"
+                />
+              </div>
+            }
+          >
+            {loadingSessions ? (
+              <div className="prefill-loading-state">
+                <LoadingSpinner inline size="lg" className="text-themed-muted" />
+                <span>{t('management.prefillSessions.loading')}</span>
+              </div>
+            ) : sessionsError && sessions.length === 0 ? (
+              <PrefillErrorBlock
+                title={t('management.prefillSessions.errors.loadHistory')}
+                message={sessionsError}
+                retryLabel={t('common.retry')}
+                onRetry={loadSessions}
+              />
+            ) : sessions.length === 0 ? (
+              <div className="prefill-empty-state">
+                <Clock className="w-12 h-12 opacity-50" />
+                <p className="prefill-empty-title">
+                  {t('management.prefillSessions.noSessionsFound')}
+                </p>
+                <p className="prefill-empty-desc">
+                  {t('management.prefillSessions.noSessionsFoundDesc')}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="prefill-sessions-list">
+                  {sessions.map((session) => (
+                    <SessionCard
+                      key={session.id}
+                      session={session}
+                      isLive={session.isLive}
+                      isAdmin={isAdmin}
+                      historyData={historyData[session.sessionId] || []}
+                      isHistoryExpanded={expandedHistory.has(session.sessionId)}
+                      isLoadingHistory={loadingHistory.has(session.sessionId)}
+                      onToggleHistory={() => toggleHistory(session.sessionId)}
+                      onTerminate={
+                        session.isLive && !session.isPersistent
+                          ? () => handleTerminateSession(session.sessionId)
+                          : undefined
+                      }
+                      onBan={
+                        session.isLive && !session.isPersistent && session.sessionId
+                          ? () => setBanConfirm({ sessionId: session.sessionId, reason: '' })
+                          : undefined
+                      }
+                      isTerminating={terminatingSession === session.sessionId}
+                      isBanning={banningSession === session.sessionId}
+                      historyPage={historyPage[session.sessionId] || 1}
+                      onHistoryPageChange={(p) =>
+                        setHistoryPage((prev) => ({ ...prev, [session.sessionId]: p }))
+                      }
+                    />
+                  ))}
+                </div>
+
+                {totalPages > 1 && (
+                  <div className="prefill-pagination">
+                    <Pagination
+                      currentPage={page}
+                      totalPages={totalPages}
+                      totalItems={totalCount}
+                      itemsPerPage={pageSize}
+                      onPageChange={setPage}
+                      itemLabel={t('management.prefillSessions.labels.sessions', 'sessions')}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </AccordionSection>
+
+          <AccordionSection
+            title={t('management.prefillSessions.bannedUsers.title')}
+            description={t('management.prefillSessions.bannedUsers.summary')}
+            count={activeBansCount}
+            icon={Ban}
+            iconColor="var(--theme-icon-red)"
+            isExpanded={bansExpanded}
+            onToggle={() => setBansExpanded(!bansExpanded)}
+            badge={
+              // h-10 matches the accordion's own chevron/badge-slot height (see Session
+              // History's EnhancedDropdown pair above) - Checkbox has no explicit height of
+              // its own, so without this it renders far shorter than the 40px chevron next
+              // to it in the same header row.
+              <div className="flex items-center h-10">
+                <Checkbox
+                  label={t('management.prefillSessions.bannedUsers.showLifted')}
+                  checked={includeLifted}
+                  onChange={(e) => setIncludeLifted(e.target.checked)}
+                />
+              </div>
+            }
+          >
+            {loadingBans && !hasVisibleBans ? (
+              <div className="prefill-loading-state">
+                <LoadingSpinner inline size="lg" className="text-themed-muted" />
+                <span>{t('management.prefillSessions.bannedUsers.loadingBans')}</span>
+              </div>
+            ) : bansError && !hasVisibleBans ? (
+              <PrefillErrorBlock
+                title={t('management.prefillSessions.errors.loadBans')}
+                message={bansError}
+                retryLabel={t('common.retry')}
+                onRetry={loadBans}
+              />
+            ) : !loadingBans && !hasVisibleBans ? (
+              <div className="prefill-empty-state">
+                <Shield className="w-12 h-12 opacity-50" />
+                <p className="prefill-empty-title">
+                  {t('management.prefillSessions.bannedUsers.noBannedUsers')}
+                </p>
+                <p className="prefill-empty-desc">
+                  {t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}
+                </p>
+              </div>
+            ) : (
+              <div
+                className={`prefill-bans-list ${loadingBans ? 'opacity-60 pointer-events-none' : ''}`}
+              >
+                {visibleBans.map((ban) => (
+                  <BannedUserCard
+                    key={ban.id}
+                    ban={ban}
+                    isAdmin={isAdmin}
+                    onLiftBan={() => setLiftBanConfirm(ban)}
+                    isLifting={liftingBan === ban.id}
+                  />
+                ))}
+              </div>
+            )}
+          </AccordionSection>
+        </div>
+      </div>
 
       {/* Terminate All Confirmation Modal */}
       <Modal

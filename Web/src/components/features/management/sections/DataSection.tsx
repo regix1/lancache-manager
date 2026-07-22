@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import './DataSection.css';
 import { useTranslation } from 'react-i18next';
 import { Database, AlertTriangle } from 'lucide-react';
-import { Card } from '@components/ui/Card';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
@@ -12,6 +12,7 @@ import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import DataImporter from '../data/DataImporter';
+
 interface DataSectionProps {
   isAdmin: boolean;
   authMode: AuthMode;
@@ -38,6 +39,7 @@ const DataSection: React.FC<DataSectionProps> = ({
   const [loading, setLoading] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  const [databaseManagementExpanded, setDatabaseManagementExpanded] = useState(false);
   const clearInProgressRef = useRef(false);
 
   // Get table definitions from translations
@@ -261,6 +263,31 @@ const DataSection: React.FC<DataSectionProps> = ({
 
   const getSelectedTableInfo = () => tables.filter((t) => selectedTables.includes(t.name));
 
+  const databaseHelp = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.database.help.whatGetsCleared.title')} variant="subtle">
+        <HelpDefinition
+          items={[
+            {
+              term: t('management.database.help.whatGetsCleared.logEntries.term'),
+              description: t('management.database.help.whatGetsCleared.logEntries.description')
+            },
+            {
+              term: t('management.database.help.whatGetsCleared.downloads.term'),
+              description: t('management.database.help.whatGetsCleared.downloads.description')
+            },
+            {
+              term: t('management.database.help.whatGetsCleared.depotMappings.term'),
+              description: t('management.database.help.whatGetsCleared.depotMappings.description')
+            }
+          ]}
+        />
+      </HelpSection>
+
+      <HelpNote type="info">{t('management.database.help.note')}</HelpNote>
+    </HelpPopover>
+  );
+
   return (
     <div
       className="management-section animate-fade-in"
@@ -269,140 +296,112 @@ const DataSection: React.FC<DataSectionProps> = ({
       aria-labelledby="tab-data"
     >
       {/* Subsection: Data Import */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
+      <div className="mb-6 sm:mb-8">
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             {t('management.sections.data.dataImport')}
           </h3>
         </div>
 
-        <DataImporter
-          isAdmin={isAdmin}
-          mockMode={mockMode}
-          onError={onError}
-          onSuccess={onSuccess}
-          onDataRefresh={onDataRefresh}
-        />
+        <div className="space-y-4">
+          <DataImporter
+            isAdmin={isAdmin}
+            mockMode={mockMode}
+            onError={onError}
+            onSuccess={onSuccess}
+            onDataRefresh={onDataRefresh}
+          />
+        </div>
       </div>
 
       {/* Subsection: Database Management */}
       <div>
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-cyan)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             {t('management.sections.data.databaseManagement')}
           </h3>
         </div>
 
-        <Card>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
-              <Database className="w-5 h-5 icon-cyan" />
+        <div className="space-y-4">
+          <AccordionSection
+            title={t('management.sections.data.databaseManagement')}
+            description={t('management.database.description')}
+            titleAccessory={databaseHelp}
+            icon={Database}
+            iconColor="var(--theme-icon-cyan)"
+            isExpanded={databaseManagementExpanded}
+            onToggle={() => setDatabaseManagementExpanded((prev) => !prev)}
+          >
+            {/* Select All / Deselect All */}
+            <div className="mb-4 pb-4 border-b border-themed-primary">
+              <Checkbox
+                checked={selectedTables.length === tables.length}
+                onChange={handleSelectAll}
+                label={
+                  selectedTables.length === tables.length
+                    ? t('management.sections.data.deselectAllTables')
+                    : t('management.sections.data.selectAllTables')
+                }
+                variant="rounded"
+              />
             </div>
-            <h3 className="text-lg font-semibold text-themed-primary">
-              {t('management.sections.data.databaseManagement')}
-            </h3>
-            <HelpPopover position="left" width={320}>
-              <HelpSection
-                title={t('management.database.help.whatGetsCleared.title')}
-                variant="subtle"
-              >
-                <HelpDefinition
-                  items={[
-                    {
-                      term: t('management.database.help.whatGetsCleared.logEntries.term'),
-                      description: t(
-                        'management.database.help.whatGetsCleared.logEntries.description'
-                      )
-                    },
-                    {
-                      term: t('management.database.help.whatGetsCleared.downloads.term'),
-                      description: t(
-                        'management.database.help.whatGetsCleared.downloads.description'
-                      )
-                    },
-                    {
-                      term: t('management.database.help.whatGetsCleared.depotMappings.term'),
-                      description: t(
-                        'management.database.help.whatGetsCleared.depotMappings.description'
-                      )
-                    }
-                  ]}
-                />
-              </HelpSection>
 
-              <HelpNote type="info">{t('management.database.help.note')}</HelpNote>
-            </HelpPopover>
-          </div>
-
-          <p className="text-themed-secondary mb-4">{t('management.database.description')}</p>
-
-          {/* Select All / Deselect All */}
-          <div className="mb-4 pb-4 border-b border-themed-primary">
-            <Checkbox
-              checked={selectedTables.length === tables.length}
-              onChange={handleSelectAll}
-              label={
-                selectedTables.length === tables.length
-                  ? t('management.sections.data.deselectAllTables')
-                  : t('management.sections.data.selectAllTables')
-              }
-              variant="rounded"
-            />
-          </div>
-
-          {/* Table Selection - Grid on larger screens */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-            {tables.map((table) => (
-              <label
-                key={table.name}
-                className={`db-table-item p-3 rounded-lg cursor-pointer flex items-start gap-3 transition duration-150 bg-themed-tertiary${selectedTables.includes(table.name) ? ' db-table-item-selected' : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedTables.includes(table.name)}
-                  onChange={() => handleTableToggle(table.name)}
-                  className="rounded mt-1"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-themed-primary">{table.label}</div>
-                  <div className="text-sm text-themed-secondary mt-1 line-clamp-1">
-                    {table.description}
+            {/* Table Selection - Grid on larger screens */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+              {tables.map((table) => (
+                <label
+                  key={table.name}
+                  className={`db-table-item p-3 rounded-lg cursor-pointer flex items-start gap-3 transition duration-150 bg-themed-tertiary${selectedTables.includes(table.name) ? ' db-table-item-selected' : ''}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedTables.includes(table.name)}
+                    onChange={() => handleTableToggle(table.name)}
+                    className="rounded mt-1"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-themed-primary">{table.label}</div>
+                    <div className="text-sm text-themed-secondary mt-1 line-clamp-1">
+                      {table.description}
+                    </div>
+                    <div className="text-xs text-themed-muted mt-1.5 flex items-center gap-1">
+                      <span className="opacity-70">{t('management.sections.data.affects')}</span>
+                      <span className="text-themed-warning">{table.affectedPages}</span>
+                    </div>
                   </div>
-                  <div className="text-xs text-themed-muted mt-1.5 flex items-center gap-1">
-                    <span className="opacity-70">{t('management.sections.data.affects')}</span>
-                    <span className="text-themed-warning">{table.affectedPages}</span>
-                  </div>
-                </div>
-              </label>
-            ))}
-          </div>
-
-          {/* Action Button */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t border-themed-primary">
-            <div className="text-sm text-themed-secondary">
-              {selectedTables.length > 0
-                ? t('management.sections.data.selectedTables', { count: selectedTables.length })
-                : t('management.sections.data.noTablesSelected')}
+                </label>
+              ))}
             </div>
-            <Button
-              onClick={handleClearSelected}
-              disabled={
-                loading || mockMode || authMode !== 'authenticated' || selectedTables.length === 0
-              }
-              loading={loading}
-              variant="filled"
-              color="red"
-              className="w-full sm:w-auto"
-            >
-              <span className="hidden sm:inline">
-                {t('management.sections.data.clearSelected')}
-              </span>
-              <span className="sm:hidden">{t('management.sections.data.clearSelectedShort')}</span>
-            </Button>
-          </div>
-        </Card>
+
+            {/* Action Button */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t border-themed-primary">
+              <div className="text-sm text-themed-secondary">
+                {selectedTables.length > 0
+                  ? t('management.sections.data.selectedTables', { count: selectedTables.length })
+                  : t('management.sections.data.noTablesSelected')}
+              </div>
+              <Button
+                onClick={handleClearSelected}
+                disabled={
+                  loading || mockMode || authMode !== 'authenticated' || selectedTables.length === 0
+                }
+                loading={loading}
+                variant="filled"
+                color="red"
+                className="w-full sm:w-auto"
+              >
+                <span className="hidden sm:inline">
+                  {t('management.sections.data.clearSelected')}
+                </span>
+                <span className="sm:hidden">
+                  {t('management.sections.data.clearSelectedShort')}
+                </span>
+              </Button>
+            </div>
+          </AccordionSection>
+        </div>
       </div>
 
       {/* Confirmation Modal */}

@@ -98,7 +98,9 @@ const OptionItem = memo<OptionItemProps>(
             {option.label}
           </div>
           {option.description && (
-            <div className="text-xs leading-[1.4] mt-1 text-themed-muted">{option.description}</div>
+            <div className="msd-option-desc text-xs leading-[1.4] mt-1 text-themed-muted">
+              {option.description}
+            </div>
           )}
         </div>
       </button>
@@ -303,7 +305,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
               </div>
             )}
 
-            <CustomScrollbar maxHeight="280px" variant="float">
+            <CustomScrollbar maxHeight="280px" variant="float" radius="none">
               <div
                 className="bg-themed-secondary"
                 style={{ overscrollBehavior: 'contain' }}

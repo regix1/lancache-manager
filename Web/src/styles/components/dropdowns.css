@@ -236,6 +236,13 @@
     background-color: var(--theme-selected-bg-hover) !important;
   }
 
+  /* On the selected tint the muted description grey reads too dark; step it up
+     to the selected-state text color, softened so the label still leads. */
+  .msd-option-selected .msd-option-desc {
+    color: var(--theme-selected-text);
+    opacity: 0.75;
+  }
+
   .msd-checkbox {
     transition:
       background-color 0.15s ease,

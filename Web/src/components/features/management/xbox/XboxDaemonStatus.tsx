@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, XCircle } from 'lucide-react';
-import { Card } from '@components/ui/Card';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { XboxIcon } from '@components/ui/XboxIcon';
@@ -41,6 +41,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   const loadStatus = useCallback(async () => {
     // Demo/mock mode has no admin session, and auth-status is AdminOnly, so a fetch would 401/403
@@ -153,80 +154,75 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
         )
       : null;
 
+  const statusBadge = !loading ? (
+    isAuthenticated ? (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
+        <CheckCircle size={14} />
+        {t('management.sections.integrations.xboxDaemonStatus.connected', 'Connected')}
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
+        <XCircle size={14} />
+        {t('management.sections.integrations.xboxDaemonStatus.notConnected', 'Not Connected')}
+      </span>
+    )
+  ) : undefined;
+
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection
+        title={t(
+          'management.sections.integrations.xboxDaemonStatus.help.authentication.title',
+          'Xbox Authentication'
+        )}
+        variant="subtle"
+      >
+        <HelpDefinition
+          items={[
+            {
+              term: t(
+                'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.term',
+                'Login Required'
+              ),
+              description: t(
+                'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.description',
+                'Xbox requires a Microsoft account login to discover your game library. Sign-in uses a device code entered in your own browser. No password ever enters the server.'
+              )
+            },
+            {
+              term: t(
+                'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.term',
+                'Game Discovery'
+              ),
+              description: t(
+                'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.description',
+                'Once connected, your Xbox and Microsoft Store library is scanned to identify cached downloads and match them to game titles.'
+              )
+            }
+          ]}
+        />
+      </HelpSection>
+      <HelpNote type="info">
+        {t(
+          'management.sections.integrations.xboxDaemonStatus.help.note',
+          'Sign in to enable Xbox game discovery. Docker is not required. Authentication runs directly in the manager.'
+        )}
+      </HelpNote>
+    </HelpPopover>
+  );
+
   return (
     <>
-      {/* This component's root is a Fragment (Card + a sibling modal below), so
-          HighlightGlow's default first-child heuristic can't be trusted to always
-          land on the Card - mark it explicitly. */}
-      <Card className="highlight-glow-target">
-        {/* Header: Xbox icon + Title + HelpPopover */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-xbox-subtle)] text-[var(--theme-xbox)]">
-            <XboxIcon size={20} />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary">
-            {t('management.sections.integrations.xboxDaemonStatus.title', 'Xbox')}
-          </h3>
-          <HelpPopover position="left" width={320}>
-            <HelpSection
-              title={t(
-                'management.sections.integrations.xboxDaemonStatus.help.authentication.title',
-                'Xbox Authentication'
-              )}
-              variant="subtle"
-            >
-              <HelpDefinition
-                items={[
-                  {
-                    term: t(
-                      'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.term',
-                      'Login Required'
-                    ),
-                    description: t(
-                      'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.description',
-                      'Xbox requires a Microsoft account login to discover your game library. Sign-in uses a device code entered in your own browser. No password ever enters the server.'
-                    )
-                  },
-                  {
-                    term: t(
-                      'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.term',
-                      'Game Discovery'
-                    ),
-                    description: t(
-                      'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.description',
-                      'Once connected, your Xbox and Microsoft Store library is scanned to identify cached downloads and match them to game titles.'
-                    )
-                  }
-                ]}
-              />
-            </HelpSection>
-            <HelpNote type="info">
-              {t(
-                'management.sections.integrations.xboxDaemonStatus.help.note',
-                'Sign in to enable Xbox game discovery. Docker is not required. Authentication runs directly in the manager.'
-              )}
-            </HelpNote>
-          </HelpPopover>
-          {!loading && (
-            <div className="ml-auto flex-shrink-0">
-              {isAuthenticated ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-                  <CheckCircle size={14} />
-                  {t('management.sections.integrations.xboxDaemonStatus.connected', 'Connected')}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-                  <XCircle size={14} />
-                  {t(
-                    'management.sections.integrations.xboxDaemonStatus.notConnected',
-                    'Not Connected'
-                  )}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
+      <AccordionSection
+        title={t('management.sections.integrations.xboxDaemonStatus.title', 'Xbox')}
+        description={t('management.sections.integrations.xboxDaemonStatus.summary')}
+        titleAccessory={helpAccessory}
+        icon={XboxIcon}
+        iconColor="var(--theme-xbox)"
+        isExpanded={expanded}
+        onToggle={() => setExpanded((prev) => !prev)}
+        badge={statusBadge}
+      >
         {loading ? (
           <LoadingState
             message={t(
@@ -237,7 +233,6 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
           />
         ) : (
           <>
-            {/* Error Warning */}
             {hasError && (
               <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
                 {t(
@@ -247,7 +242,6 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
               </div>
             )}
 
-            {/* Auth Status Row */}
             <div className="p-3 rounded-lg bg-themed-tertiary">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex-1 min-w-0">
@@ -317,13 +311,11 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
           </>
         )}
 
-        {/* Game Library (aggregated across all discovery sources) - collapsible dropdown */}
         <div className="mt-4">
           <XboxGameMappings />
         </div>
-      </Card>
+      </AccordionSection>
 
-      {/* Auth Modal */}
       <XboxMappingLoginModal
         opened={showAuthModal}
         onClose={() => setShowAuthModal(false)}

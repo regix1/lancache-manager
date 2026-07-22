@@ -372,7 +372,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                   {t('common.timeFilter.title')}
                 </div>
 
-                <CustomScrollbar maxHeight="min(70vh, 32rem)" variant="float">
+                <CustomScrollbar maxHeight="min(70vh, 32rem)" variant="float" radius="none">
                   {/* Time Range Options */}
                   <div>
                     {timeOptions.map((option) => {

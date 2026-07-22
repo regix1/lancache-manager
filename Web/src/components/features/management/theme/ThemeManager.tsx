@@ -3,13 +3,12 @@ import {
   Palette,
   RefreshCw,
   Sparkles,
-  Layers,
   Brush,
   FileText,
   Settings2,
   Moon,
   Sun,
-  MoreVertical
+  Plus
 } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 import themeService from '@services/theme.service';
@@ -21,13 +20,14 @@ import { getErrorMessage } from '@utils/error';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
-import { Card } from '@components/ui/Card';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { API_BASE } from '@utils/constants';
-import { Tooltip } from '@components/ui/Tooltip';
-import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
+import { AccordionSection } from '@components/ui/AccordionSection';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
+import Badge from '@components/ui/Badge';
 import { ThemeCard } from './ThemeCard';
 import CreateThemeModal from '@components/modals/theme/CreateThemeModal';
 import EditThemeModal from '@components/modals/theme/EditThemeModal';
@@ -57,9 +57,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   } | null>(null);
   const [showCleanupModal, setShowCleanupModal] = useState(false);
   const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
-  const [activeTab, setActiveTab] = useState<'themes' | 'customize'>('themes');
+  const [themeManagementExpanded, setThemeManagementExpanded] = useState(true);
+  const [customizeExpanded, setCustomizeExpanded] = useState(false);
   const [themeActionMenu, setThemeActionMenu] = useState<string | null>(null);
-  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
 
   const [editedTheme, setEditedTheme] = useState<EditableTheme>({
     name: '',
@@ -558,385 +558,363 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   const systemThemes = themes.filter((t) => isSystemTheme(t.meta.id));
   const customThemes = themes.filter((t) => !isSystemTheme(t.meta.id));
 
-  return (
-    <>
-      <Card>
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple flex-shrink-0">
-              <Palette className="w-5 h-5 icon-purple" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-lg font-semibold text-themed-primary">
-                {t('management.themes.title')}
-              </h3>
-              <p className="text-xs text-themed-muted">
-                {t('management.themes.themesAvailable', { count: themes.length })}
-              </p>
-            </div>
-            <HelpPopover position="left" width={320}>
-              <HelpSection title={t('management.themes.help.themeTypes.title')} variant="subtle">
-                <HelpDefinition
-                  items={[
-                    {
-                      term: t('management.themes.help.themeTypes.system.term'),
-                      description: t('management.themes.help.themeTypes.system.description')
-                    },
-                    {
-                      term: t('management.themes.help.themeTypes.custom.term'),
-                      description: t('management.themes.help.themeTypes.custom.description')
-                    }
-                  ]}
-                />
-              </HelpSection>
+  const helpContent = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.themes.help.themeTypes.title')} variant="subtle">
+        <HelpDefinition
+          items={[
+            {
+              term: t('management.themes.help.themeTypes.system.term'),
+              description: t('management.themes.help.themeTypes.system.description')
+            },
+            {
+              term: t('management.themes.help.themeTypes.custom.term'),
+              description: t('management.themes.help.themeTypes.custom.description')
+            }
+          ]}
+        />
+      </HelpSection>
 
-              <HelpSection title={t('management.themes.help.previewMode.title')} variant="subtle">
-                {t('management.themes.help.previewMode.description')}
-              </HelpSection>
+      <HelpSection title={t('management.themes.help.previewMode.title')} variant="subtle">
+        {t('management.themes.help.previewMode.description')}
+      </HelpSection>
 
-              <HelpNote type="info">{t('management.themes.help.note')}</HelpNote>
-            </HelpPopover>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {isAdmin ? (
-              <Button variant="filled" color="blue" size="md" onClick={openCreateModal}>
-                {t('management.themes.createNewTheme')}
-              </Button>
-            ) : (
-              <Tooltip content={t('common.authRequired')} position="bottom">
-                <Button variant="default" size="md" disabled>
-                  {t('management.themes.createNewTheme')}
-                </Button>
-              </Tooltip>
-            )}
-            <ActionMenu
-              isOpen={headerMenuOpen}
-              onClose={() => setHeaderMenuOpen(false)}
-              align="right"
-              trigger={
-                <Button
-                  variant="default"
-                  size="md"
-                  onClick={() => setHeaderMenuOpen((prev) => !prev)}
-                  aria-label={t('common.moreActions', 'More actions')}
-                >
-                  <MoreVertical className="w-4 h-4" />
-                </Button>
-              }
+      <HelpNote type="info">{t('management.themes.help.note')}</HelpNote>
+    </HelpPopover>
+  );
+
+  const themeManagementActions = (
+    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+      {previewTheme && authService.authMode !== 'guest' && (
+        <Badge variant="warning">{t('management.themes.previewBadge')}</Badge>
+      )}
+      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+        {(close) => (
+          <>
+            <ActionMenuItem
+              icon={<Plus className="w-3.5 h-3.5" />}
+              disabled={!isAdmin}
+              onClick={() => {
+                openCreateModal();
+                close();
+              }}
             >
-              {isAdmin && (
-                <ActionMenuItem
-                  onClick={() => {
-                    setHeaderMenuOpen(false);
-                    cleanupThemes();
-                  }}
-                  icon={<Sparkles className="w-4 h-4" />}
+              {t('management.themes.createNewTheme')}
+            </ActionMenuItem>
+            <ActionMenuItem
+              icon={<RefreshCw className="w-3.5 h-3.5" />}
+              disabled={isLoading}
+              onClick={() => {
+                void loadThemes();
+                close();
+              }}
+            >
+              {t('management.themes.refreshThemes')}
+            </ActionMenuItem>
+            {isAdmin && (
+              <>
+                <ActionMenuDivider />
+                <ActionMenuDangerItem
+                  icon={<Sparkles className="w-3.5 h-3.5" />}
                   disabled={isLoading || customThemes.length === 0}
+                  onClick={() => {
+                    void cleanupThemes();
+                    close();
+                  }}
                 >
                   {t('management.themes.deleteAllCustom')}
-                </ActionMenuItem>
-              )}
-              <ActionMenuItem
-                onClick={() => {
-                  setHeaderMenuOpen(false);
-                  loadThemes();
-                }}
-                icon={<RefreshCw className="w-4 h-4" />}
-                disabled={isLoading}
-              >
-                {t('management.themes.refreshThemes')}
-              </ActionMenuItem>
-            </ActionMenu>
-          </div>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="flex gap-1 mb-6 p-1 rounded-lg bg-themed-tertiary">
-          <button
-            onClick={() => setActiveTab('themes')}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition ${
-              activeTab === 'themes'
-                ? 'text-themed-primary shadow-sm tab-active'
-                : 'text-themed-muted hover:text-themed-secondary tab-inactive'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            {t('management.themes.tabs.themes')}
-          </button>
-          <button
-            onClick={() => setActiveTab('customize')}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition ${
-              activeTab === 'customize'
-                ? 'text-themed-primary shadow-sm tab-active'
-                : 'text-themed-muted hover:text-themed-secondary tab-inactive'
-            }`}
-          >
-            <Brush className="w-4 h-4" />
-            {t('management.themes.tabs.customize')}
-          </button>
-        </div>
-
-        {activeTab === 'themes' ? (
-          <div className="space-y-6">
-            {/* Guest User Alert */}
-            {authService.authMode === 'guest' && (
-              <Alert color="blue">
-                <div>
-                  <p className="text-sm font-medium mb-1">
-                    {t('management.themes.guestMode.title')}
-                  </p>
-                  <p className="text-sm">{t('management.themes.guestMode.description')}</p>
-                </div>
-              </Alert>
+                </ActionMenuDangerItem>
+              </>
             )}
+          </>
+        )}
+      </SectionActionsMenu>
+    </div>
+  );
 
-            {/* Current Theme Section */}
-            <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
-              <div className="flex items-center gap-2 mb-4">
-                <Settings2 className="w-4 h-4 text-themed-accent" />
-                <span className="text-sm font-medium text-themed-primary">
-                  {t('management.themes.activeTheme')}
-                </span>
+  return (
+    <>
+      <div>
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-purple)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('management.sections.theme.groupAppearance')}
+          </h3>
+        </div>
+
+        <div className="space-y-4">
+          <AccordionSection
+            title={t('management.themes.title')}
+            description={t('management.themes.summary')}
+            titleAccessory={helpContent}
+            icon={Palette}
+            iconColor="var(--theme-icon-purple)"
+            count={themes.length > 0 ? themes.length : undefined}
+            isExpanded={themeManagementExpanded}
+            onToggle={() => setThemeManagementExpanded((prev) => !prev)}
+            badge={themeManagementActions}
+          >
+            <div className="space-y-6">
+              {authService.authMode === 'guest' && (
+                <Alert color="blue">
+                  <div>
+                    <p className="text-sm font-medium mb-1">
+                      {t('management.themes.guestMode.title')}
+                    </p>
+                    <p className="text-sm">{t('management.themes.guestMode.description')}</p>
+                  </div>
+                </Alert>
+              )}
+
+              <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
+                <div className="flex items-center gap-2 mb-4">
+                  <Settings2 className="w-4 h-4 text-themed-accent" />
+                  <span className="text-sm font-medium text-themed-primary">
+                    {t('management.themes.activeTheme')}
+                  </span>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                  <div className="flex-1 min-w-0">
+                    <EnhancedDropdown
+                      options={themes.map((theme) => ({
+                        value: theme.meta.id,
+                        label: `${theme.meta.name}${isSystemTheme(theme.meta.id) ? ` (${t('management.themes.systemBadge')})` : ''}${previewTheme === theme.meta.id ? ` (${t('management.themes.previewBadge')})` : ''}`
+                      }))}
+                      value={previewTheme || currentTheme}
+                      onChange={handleThemeChange}
+                      placeholder={t('management.themes.selectTheme')}
+                      className="w-full"
+                      disabled={authService.authMode === 'guest'}
+                    />
+                  </div>
+                  {currentThemeData && (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {currentThemeData.meta.isDark ? (
+                        <Moon className="w-4 h-4 text-themed-muted" />
+                      ) : (
+                        <Sun className="w-4 h-4 icon-yellow" />
+                      )}
+                      <div className="flex gap-0.5">
+                        {[
+                          currentThemeData.colors.primaryColor,
+                          currentThemeData.colors.secondaryColor,
+                          currentThemeData.colors.accentColor
+                        ]
+                          .filter(Boolean)
+                          .map((color, i) => (
+                            <div
+                              key={i}
+                              className="w-5 h-5 rounded"
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {previewTheme && authService.authMode !== 'guest' && (
+                  <p className="text-xs mt-2 text-themed-warning">
+                    {t('management.themes.previewActive')}
+                  </p>
+                )}
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                <div className="flex-1 min-w-0">
-                  <EnhancedDropdown
-                    options={themes.map((theme) => ({
-                      value: theme.meta.id,
-                      label: `${theme.meta.name}${isSystemTheme(theme.meta.id) ? ` (${t('management.themes.systemBadge')})` : ''}${previewTheme === theme.meta.id ? ` (${t('management.themes.previewBadge')})` : ''}`
-                    }))}
-                    value={previewTheme || currentTheme}
-                    onChange={handleThemeChange}
-                    placeholder={t('management.themes.selectTheme')}
-                    className="w-full"
-                    disabled={authService.authMode === 'guest'}
-                  />
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <h4 className="text-sm font-medium text-themed-secondary">
+                    {t('management.themes.installedThemes')}
+                  </h4>
+                  <span className="text-xs text-themed-muted">
+                    {systemThemes.length} {t('management.themes.system')}, {customThemes.length}{' '}
+                    {t('management.themes.custom')}
+                  </span>
                 </div>
-                {currentThemeData && (
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {currentThemeData.meta.isDark ? (
-                      <Moon className="w-4 h-4 text-themed-muted" />
-                    ) : (
-                      <Sun className="w-4 h-4 icon-yellow" />
-                    )}
-                    <div className="flex gap-0.5">
-                      {[
-                        currentThemeData.colors.primaryColor,
-                        currentThemeData.colors.secondaryColor,
-                        currentThemeData.colors.accentColor
-                      ]
-                        .filter(Boolean)
-                        .map((color, i) => (
-                          <div
-                            key={i}
-                            className="w-5 h-5 rounded"
-                            style={{ backgroundColor: color }}
-                          />
-                        ))}
-                    </div>
+                {!hasInitiallyLoaded ? (
+                  <LoadingState message={t('management.themes.loadingThemes')} rows={2} />
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    {themes.map((theme) => (
+                      <ThemeCard
+                        key={theme.meta.id}
+                        theme={theme}
+                        isActive={currentTheme === theme.meta.id && !previewTheme}
+                        isPreviewing={previewTheme === theme.meta.id}
+                        isSystem={isSystemTheme(theme.meta.id)}
+                        isAdmin={isAdmin}
+                        isGuest={authService.authMode === 'guest'}
+                        themeActionMenu={themeActionMenu}
+                        currentMenuId={theme.meta.id}
+                        onApplyTheme={handleThemeChange}
+                        onPreview={handlePreview}
+                        onEdit={handleEditTheme}
+                        onExport={handleExportTheme}
+                        onDelete={handleDelete}
+                        onMenuToggle={setThemeActionMenu}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
 
-              {previewTheme && authService.authMode !== 'guest' && (
-                <p className="text-xs mt-2 text-themed-warning">
-                  {t('management.themes.previewActive')}
-                </p>
-              )}
-            </div>
-
-            {/* Installed Themes */}
-            <div>
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <h4 className="text-sm font-medium text-themed-secondary">
-                  {t('management.themes.installedThemes')}
-                </h4>
-                <span className="text-xs text-themed-muted">
-                  {systemThemes.length} {t('management.themes.system')}, {customThemes.length}{' '}
-                  {t('management.themes.custom')}
-                </span>
-              </div>
-              {!hasInitiallyLoaded ? (
-                <LoadingState message={t('management.themes.loadingThemes')} rows={2} />
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  {themes.map((theme) => (
-                    <ThemeCard
-                      key={theme.meta.id}
-                      theme={theme}
-                      isActive={currentTheme === theme.meta.id && !previewTheme}
-                      isPreviewing={previewTheme === theme.meta.id}
-                      isSystem={isSystemTheme(theme.meta.id)}
-                      isAdmin={isAdmin}
-                      isGuest={authService.authMode === 'guest'}
-                      themeActionMenu={themeActionMenu}
-                      currentMenuId={theme.meta.id}
-                      onApplyTheme={handleThemeChange}
-                      onPreview={handlePreview}
-                      onEdit={handleEditTheme}
-                      onExport={handleExportTheme}
-                      onDelete={handleDelete}
-                      onMenuToggle={setThemeActionMenu}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Community Themes */}
-            <CommunityThemeImporter
-              isAdmin={isAdmin}
-              onThemeImported={loadThemes}
-              installedThemes={themes}
-              autoCheckUpdates={true}
-            />
-
-            {/* Upload Section */}
-            {isAdmin && (
-              <div>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                  <h4 className="text-sm font-medium text-themed-secondary">
-                    {t('management.themes.uploadCustomTheme')}
-                  </h4>
-                  <Button
-                    variant="filled"
-                    color="gray"
-                    size="xs"
-                    onClick={downloadSampleTheme}
-                    className="self-start sm:self-auto"
-                  >
-                    {t('management.themes.downloadSample')}
-                  </Button>
-                </div>
-                <div
-                  className="rounded-lg p-6 text-center transition border-2 border-dashed"
-                  style={{
-                    borderColor: dragActive
-                      ? 'var(--theme-secondary)'
-                      : 'var(--theme-border-secondary)',
-                    backgroundColor: dragActive ? 'var(--theme-secondary-bg)' : 'transparent'
-                  }}
-                  onDragEnter={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDragOver={handleDrag}
-                  onDrop={handleDrop}
-                >
-                  <div className="w-12 h-12 rounded-lg mx-auto mb-3 flex items-center justify-center bg-themed-tertiary">
-                    <FileText className="w-6 h-6 text-themed-muted" />
+              {isAdmin && (
+                <div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                    <h4 className="text-sm font-medium text-themed-secondary">
+                      {t('management.themes.uploadCustomTheme')}
+                    </h4>
+                    <Button
+                      variant="filled"
+                      color="gray"
+                      size="xs"
+                      onClick={downloadSampleTheme}
+                      className="self-start sm:self-auto"
+                    >
+                      {t('management.themes.downloadSample')}
+                    </Button>
                   </div>
-                  <p className="text-sm text-themed-secondary mb-1">
-                    {t('management.themes.dropzone.title')}
-                  </p>
-                  <p className="text-xs text-themed-muted mb-3">
-                    {t('management.themes.dropzone.format')}
-                  </p>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".toml"
-                    onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-                    className="hidden"
-                  />
-                  <Button
-                    variant="filled"
-                    color="purple"
-                    size="sm"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isLoading}
-                    loading={isLoading}
+                  <div
+                    className={`rounded-lg p-6 text-center transition border-2 border-dashed ${
+                      dragActive
+                        ? 'border-themed-accent bg-themed-secondary'
+                        : 'border-themed-secondary'
+                    }`}
+                    onDragEnter={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDragOver={handleDrag}
+                    onDrop={handleDrop}
                   >
-                    {t('management.themes.browseFiles')}
-                  </Button>
+                    <div className="w-12 h-12 rounded-lg mx-auto mb-3 flex items-center justify-center bg-themed-tertiary">
+                      <FileText className="w-6 h-6 text-themed-muted" />
+                    </div>
+                    <p className="text-sm text-themed-secondary mb-1">
+                      {t('management.themes.dropzone.title')}
+                    </p>
+                    <p className="text-xs text-themed-muted mb-3">
+                      {t('management.themes.dropzone.format')}
+                    </p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".toml"
+                      onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+                      className="hidden"
+                    />
+                    <Button
+                      variant="filled"
+                      color="purple"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isLoading}
+                      loading={isLoading}
+                    >
+                      {t('management.themes.browseFiles')}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {!isAdmin && <Alert color="yellow">{t('management.themes.authRequired')}</Alert>}
-          </div>
-        ) : (
-          /* Customize Tab */
-          <div className="space-y-4">
-            <Alert color="blue">{t('management.themes.customize.selectThemeHint')}</Alert>
+              {!isAdmin && <Alert color="yellow">{t('management.themes.authRequired')}</Alert>}
+            </div>
+          </AccordionSection>
 
-            {/* Quick Actions */}
-            <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
-              <h4 className="text-sm font-semibold text-themed-primary mb-3">
-                {t('management.themes.customize.quickActions')}
-              </h4>
-              <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap">
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={openCreateModal}
-                  disabled={!isAdmin}
-                  className="w-full sm:w-auto"
-                >
-                  {t('management.themes.customize.createNewTheme')}
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={downloadSampleTheme}
-                  className="w-full sm:w-auto"
-                >
-                  {t('management.themes.customize.downloadSample')}
-                </Button>
-                {themes.find((t) => t.meta.id === currentTheme) && !isSystemTheme(currentTheme) && (
+          <CommunityThemeImporter
+            isAdmin={isAdmin}
+            onThemeImported={loadThemes}
+            installedThemes={themes}
+            autoCheckUpdates={true}
+          />
+
+          <AccordionSection
+            title={t('management.themes.tabs.customize')}
+            description={t('management.themes.customizeSummary')}
+            icon={Brush}
+            iconColor="var(--theme-icon-orange)"
+            isExpanded={customizeExpanded}
+            onToggle={() => setCustomizeExpanded((prev) => !prev)}
+          >
+            <div className="space-y-4">
+              <Alert color="blue">{t('management.themes.customize.selectThemeHint')}</Alert>
+
+              <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
+                <h4 className="text-sm font-semibold text-themed-primary mb-3">
+                  {t('management.themes.customize.quickActions')}
+                </h4>
+                <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap">
                   <Button
                     variant="default"
                     size="sm"
-                    onClick={() => handleEditTheme(themes.find((t) => t.meta.id === currentTheme)!)}
+                    onClick={openCreateModal}
                     disabled={!isAdmin}
                     className="w-full sm:w-auto"
                   >
-                    {t('management.themes.customize.editCurrentTheme')}
+                    {t('management.themes.customize.createNewTheme')}
                   </Button>
-                )}
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={downloadSampleTheme}
+                    className="w-full sm:w-auto"
+                  >
+                    {t('management.themes.customize.downloadSample')}
+                  </Button>
+                  {themes.find((t) => t.meta.id === currentTheme) &&
+                    !isSystemTheme(currentTheme) && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() =>
+                          handleEditTheme(themes.find((t) => t.meta.id === currentTheme)!)
+                        }
+                        disabled={!isAdmin}
+                        className="w-full sm:w-auto"
+                      >
+                        {t('management.themes.customize.editCurrentTheme')}
+                      </Button>
+                    )}
+                </div>
+              </div>
+
+              <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
+                <h4 className="text-sm font-semibold text-themed-primary mb-2">
+                  {t('management.themes.customize.colorGroups')}
+                </h4>
+                <p className="text-xs text-themed-muted mb-4">
+                  {t('management.themes.customize.colorGroupsInfo', {
+                    totalColors: colorGroups.reduce((acc, g) => acc + g.colors.length, 0),
+                    groupCount: colorGroups.length
+                  })}
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {colorGroups.map((group) => {
+                    const Icon = group.icon;
+                    return (
+                      <div
+                        key={group.name}
+                        className="flex items-start gap-3 p-3 rounded-lg transition-colors hover:bg-themed-hover"
+                      >
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-themed-secondary">
+                          <Icon className="w-4 h-4 text-themed-accent" />
+                        </div>
+                        <div className="min-w-0">
+                          <span className="text-sm text-themed-primary font-medium capitalize block">
+                            {group.name.replace(/([A-Z])/g, ' $1').trim()}
+                          </span>
+                          <span className="text-xs text-themed-muted">
+                            {group.colors.length} {t('management.themes.customize.colors')}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
+          </AccordionSection>
+        </div>
+      </div>
 
-            {/* Color Groups Overview */}
-            <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
-              <h4 className="text-sm font-semibold text-themed-primary mb-2">
-                {t('management.themes.customize.colorGroups')}
-              </h4>
-              <p className="text-xs text-themed-muted mb-4">
-                {t('management.themes.customize.colorGroupsInfo', {
-                  totalColors: colorGroups.reduce((acc, g) => acc + g.colors.length, 0),
-                  groupCount: colorGroups.length
-                })}
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {colorGroups.map((group) => {
-                  const Icon = group.icon;
-                  return (
-                    <div
-                      key={group.name}
-                      className="flex items-start gap-3 p-3 rounded-lg transition-colors hover:bg-themed-hover"
-                    >
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-themed-secondary">
-                        <Icon className="w-4 h-4 text-themed-accent" />
-                      </div>
-                      <div className="min-w-0">
-                        <span className="text-sm text-themed-primary font-medium capitalize block">
-                          {group.name.replace(/([A-Z])/g, ' $1').trim()}
-                        </span>
-                        <span className="text-xs text-themed-muted">
-                          {group.colors.length} {t('management.themes.customize.colors')}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-      </Card>
-
-      {/* Modals */}
       <CreateThemeModal
         opened={createModalOpen}
         onClose={() => setCreateModalOpen(false)}

@@ -4,66 +4,6 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useTranslation } from 'react-i18next';
 
 // ============================================================================
-// TYPES
-// ============================================================================
-
-type IconColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'cyan' | 'indigo';
-
-// Safelist for CSS purging - these classes are used dynamically via `icon-bg-${iconColor}`
-// prettier-ignore
-const _iconClassSafelist = [
-  'icon-bg-red', 'icon-bg-orange', 'icon-bg-yellow', 'icon-bg-green',
-  'icon-bg-blue', 'icon-bg-purple', 'icon-bg-cyan', 'icon-bg-indigo',
-  'icon-red', 'icon-orange', 'icon-yellow', 'icon-green',
-  'icon-blue', 'icon-purple', 'icon-cyan', 'icon-indigo',
-];
-void _iconClassSafelist;
-
-// ============================================================================
-// MANAGER CARD HEADER
-// ============================================================================
-
-interface ManagerCardHeaderProps {
-  icon: React.ElementType;
-  iconColor: IconColor;
-  title: string;
-  subtitle: string;
-  helpContent?: React.ReactNode;
-  actions?: React.ReactNode;
-}
-
-/**
- * Standardized header for all management cards.
- * Includes: Icon, Title, Subtitle, Help popover, Action buttons
- */
-export const ManagerCardHeader: React.FC<ManagerCardHeaderProps> = ({
-  icon: Icon,
-  iconColor,
-  title,
-  subtitle,
-  helpContent,
-  actions
-}) => {
-  return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className={`icon-box icon-box--md icon-bg-${iconColor}`}>
-          <Icon className={`w-5 h-5 icon-${iconColor}`} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h3 className="text-lg font-semibold text-themed-primary truncate">{title}</h3>
-          <p className="text-xs text-themed-muted truncate">{subtitle}</p>
-        </div>
-        {helpContent}
-      </div>
-      <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end sm:justify-start flex-shrink-0">
-        {actions}
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
 // LOADING STATE
 // ============================================================================
 

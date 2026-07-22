@@ -2,57 +2,10 @@
  * PREFILL SESSIONS SECTION - Mobile-first responsive styles
  * ============================================== */
 
-/* Section Container */
+/* Section Container — group wrappers (mb-6 / space-y-4) own vertical rhythm */
 .prefill-sessions-section {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-}
-
-/* Section Header */
-.prefill-section-header {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 0.5rem;
-}
-
-@media (min-width: 640px) {
-  .prefill-section-header {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-}
-
-.prefill-section-title h2 {
-  font-size: var(--font-size-xl);
-  font-weight: 600;
-  color: var(--theme-text-primary);
-  margin-bottom: 0.25rem;
-}
-
-.prefill-section-title p {
-  font-size: var(--font-size-md);
-  color: var(--theme-text-secondary);
-}
-
-.prefill-header-actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-@media (max-width: 639px) {
-  .prefill-header-actions {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .prefill-header-actions > button {
-    flex: 0 0 auto;
-  }
 }
 
 /* Stats Grid */
@@ -68,8 +21,6 @@
   }
 }
 
-/* Surface (bg/border) comes from the shared .well-surface; these tiles sit INSIDE the
-   AccordionSection card shell so the recessed well is what separates them from it. */
 /* Compounds .well-surface so the wider radius wins over the shared default regardless
    of bundle order (see patterns.css). */
 .well-surface.prefill-stat-card {

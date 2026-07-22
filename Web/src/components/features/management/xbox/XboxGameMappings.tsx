@@ -177,6 +177,7 @@ const XboxGameMappings: React.FC = () => {
       count={stats?.totalGames}
       isExpanded={expanded}
       onToggle={() => setExpanded((prev) => !prev)}
+      surface="well"
     >
       <div className="space-y-3">
         {/* Description */}

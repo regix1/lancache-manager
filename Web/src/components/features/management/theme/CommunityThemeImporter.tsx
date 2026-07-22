@@ -4,11 +4,17 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { AccordionSection } from '@components/ui/AccordionSection';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { ActionMenuItem } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import themeService from '@services/theme.service';
 import ApiService from '@services/api.service';
 import { APP_EVENTS, API_BASE } from '@utils/constants';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
+
+const COMMUNITY_THEMES_GITHUB_URL =
+  'https://github.com/regix1/lancache-manager/tree/main/community-themes';
 
 interface ColorPreview {
   primaryColor?: string;
@@ -80,6 +86,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   const [importedThemes, setImportedThemes] = useState<Set<string>>(new Set());
   const [showImported, setShowImported] = useState(false);
   const [updatingThemes, setUpdatingThemes] = useState<Set<string>>(new Set());
+  const [sectionExpanded, setSectionExpanded] = useState(false);
   const loadingInProgressRef = useRef(false);
   const importingThemeRef = useRef<string | null>(null);
   const rateLimitRemaining = useRef<number | null>(null);
@@ -425,211 +432,196 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
   const allImported = communityThemes.length > 0 && visibleThemesCount === 0 && !showImported;
 
-  return (
-    <div className="rounded-lg border bg-themed-tertiary border-themed-secondary">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-themed-secondary">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center icon-bg-purple flex-shrink-0">
-            <Globe className="w-4 h-4 icon-purple" />
-          </div>
-          <div className="min-w-0">
-            <h4 className="text-sm font-semibold text-themed-primary">
-              {t('management.themes.community.title')}
-            </h4>
-            <p className="text-xs text-themed-muted">
-              {communityThemes.length} {t('management.themes.community.available')}
-              {installedThemes.filter((t) =>
-                communityThemes.some((ct) => ct.meta?.id === t.meta.id)
-              ).length > 0 && (
-                <span>
-                  {' '}
-                  ·{' '}
-                  {
-                    installedThemes.filter((t) =>
-                      communityThemes.some((ct) => ct.meta?.id === t.meta.id)
-                    ).length
-                  }{' '}
-                  {t('management.themes.community.installed')}
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {communityThemes.length > 0 && (
-            <Tooltip
-              content={
-                showImported
+  const headerActions = (
+    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+        {(close) => (
+          <>
+            {communityThemes.length > 0 && (
+              <ActionMenuItem
+                icon={
+                  showImported ? (
+                    <EyeOff className="w-3.5 h-3.5" />
+                  ) : (
+                    <Eye className="w-3.5 h-3.5" />
+                  )
+                }
+                onClick={() => {
+                  setShowImported(!showImported);
+                  close();
+                }}
+              >
+                {showImported
                   ? t('management.themes.community.hideImported')
-                  : t('management.themes.community.showImported')
-              }
-              position="bottom"
+                  : t('management.themes.community.showImported')}
+              </ActionMenuItem>
+            )}
+            <ActionMenuItem
+              icon={<RefreshCw className="w-3.5 h-3.5" />}
+              disabled={loading}
+              onClick={() => {
+                void loadCommunityThemes();
+                close();
+              }}
             >
-              <Button variant="default" size="xs" onClick={() => setShowImported(!showImported)}>
-                {showImported ? (
-                  <EyeOff className="w-3.5 h-3.5" />
-                ) : (
-                  <Eye className="w-3.5 h-3.5" />
-                )}
-              </Button>
-            </Tooltip>
-          )}
-          <Tooltip content={t('management.themes.community.refresh')} position="bottom">
-            <Button variant="default" size="xs" onClick={loadCommunityThemes} disabled={loading}>
-              {loading ? (
-                <LoadingSpinner inline size="sm" className="w-3.5 h-3.5" />
-              ) : (
-                <RefreshCw className="w-3.5 h-3.5" />
-              )}
-            </Button>
-          </Tooltip>
-          <a
-            href="https://github.com/regix1/lancache-manager/tree/main/community-themes"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-themed-accent hover:text-themed-primary flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-themed-hover"
-          >
-            <ExternalLink className="w-3 h-3" />
-            {t('management.themes.community.github')}
-          </a>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="p-4">
-        {/* Auto-Update Progress */}
-        {updatingThemes.size > 0 && (
-          <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-themed-info">
-            <LoadingSpinner inline size="sm" className="icon-info" />
-            <span className="text-sm text-themed-info">
-              {t('management.themes.community.autoUpdating', { count: updatingThemes.size })}...
-            </span>
-          </div>
+              {t('management.themes.community.refresh')}
+            </ActionMenuItem>
+            <ActionMenuItem
+              icon={<ExternalLink className="w-3.5 h-3.5" />}
+              onClick={() => {
+                window.open(COMMUNITY_THEMES_GITHUB_URL, '_blank', 'noopener,noreferrer');
+                close();
+              }}
+            >
+              {t('management.themes.community.github')}
+            </ActionMenuItem>
+          </>
         )}
-
-        {/* Loading State */}
-        {loading && communityThemes.length === 0 && (
-          <div className="flex items-center justify-center py-8 text-themed-muted">
-            <LoadingSpinner inline size="md" className="mr-2" />
-            <span className="text-sm">{t('management.themes.community.loading')}</span>
-          </div>
-        )}
-
-        {/* Empty State */}
-        {!loading && communityThemes.length === 0 && (
-          <div className="text-center py-8 text-themed-muted">
-            <Globe className="w-10 h-10 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">{t('management.themes.community.noThemes')}</p>
-          </div>
-        )}
-
-        {/* All Imported State */}
-        {allImported && (
-          <EmptyState
-            icon={Check}
-            title={t('management.themes.community.allImported.title')}
-            subtitle={t('management.themes.community.allImported.description')}
-          />
-        )}
-
-        {/* Community Themes Grid */}
-        {communityThemes.length > 0 && !allImported && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {communityThemes.map((theme) => {
-              const isInstalled = isThemeInstalled(theme.meta?.id || '');
-              const isImported = importedThemes.has(theme.fileName);
-              const isImporting = importing === theme.fileName;
-              const isUpdating = updatingThemes.has(theme.fileName);
-              const colorPreview = getColorPreview(theme.colors);
-              const shouldHide = !showImported && (isInstalled || isImported);
-
-              if (shouldHide) return null;
-
-              return (
-                <div
-                  key={theme.fileName}
-                  className={`rounded-lg border p-3 transition hover:border-themed-primary bg-themed-secondary ${
-                    isInstalled || isImported ? 'border-success' : 'border-themed-secondary'
-                  }`}
-                >
-                  {/* Theme Header */}
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-themed-primary text-sm truncate">
-                          {theme.meta?.name || theme.name}
-                        </span>
-                        {theme.meta?.isDark ? (
-                          <Moon className="w-3 h-3 text-themed-muted flex-shrink-0" />
-                        ) : (
-                          <Sun className="w-3 h-3 icon-yellow flex-shrink-0" />
-                        )}
-                      </div>
-                      {theme.meta?.description && (
-                        <p className="text-xs text-themed-muted line-clamp-2 mb-1">
-                          {theme.meta.description}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-2 text-xs text-themed-muted">
-                        {theme.meta?.author && <span>by {theme.meta.author}</span>}
-                        {theme.meta?.version && (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-themed-tertiary">
-                            v{theme.meta.version}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {(isImported || isInstalled) && !isUpdating && (
-                      <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-themed-success">
-                        <Check className="w-3 h-3 icon-success" />
-                      </div>
-                    )}
-                    {isUpdating && (
-                      <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-themed-info">
-                        <LoadingSpinner inline size="xs" className="icon-info" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Color Preview */}
-                  <div className="flex gap-1 mb-3">
-                    {colorPreview.map((color, idx) => (
-                      <Tooltip key={idx} content={color} position="bottom" className="flex-1">
-                        <div
-                          className="h-5 rounded"
-                          style={{
-                            backgroundColor: color,
-                            border:
-                              color === '#ffffff' || color.toLowerCase().includes('fff')
-                                ? '1px solid var(--theme-border-secondary)'
-                                : 'none'
-                          }}
-                        />
-                      </Tooltip>
-                    ))}
-                  </div>
-
-                  {/* Import Button */}
-                  <Button
-                    variant={isImported || isInstalled ? 'default' : 'filled'}
-                    color={isImported || isInstalled ? 'default' : 'purple'}
-                    size="xs"
-                    fullWidth
-                    onClick={() => handleImportTheme(theme)}
-                    disabled={!isAdmin || isImporting || isImported || isInstalled}
-                    loading={isImporting}
-                  >
-                    {isImported || isInstalled
-                      ? t('management.themes.community.installed')
-                      : t('management.themes.community.import')}
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      </SectionActionsMenu>
     </div>
+  );
+
+  return (
+    <AccordionSection
+      title={t('management.themes.community.title')}
+      description={t('management.themes.community.summary')}
+      icon={Globe}
+      iconColor="var(--theme-icon-blue)"
+      count={communityThemes.length > 0 ? communityThemes.length : undefined}
+      isExpanded={sectionExpanded}
+      onToggle={() => setSectionExpanded((prev) => !prev)}
+      badge={headerActions}
+    >
+      {/* Auto-Update Progress */}
+      {updatingThemes.size > 0 && (
+        <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-themed-info">
+          <LoadingSpinner inline size="sm" className="icon-info" />
+          <span className="text-sm text-themed-info">
+            {t('management.themes.community.autoUpdating', { count: updatingThemes.size })}...
+          </span>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && communityThemes.length === 0 && (
+        <div className="flex items-center justify-center py-8 text-themed-muted">
+          <LoadingSpinner inline size="md" className="mr-2" />
+          <span className="text-sm">{t('management.themes.community.loading')}</span>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!loading && communityThemes.length === 0 && (
+        <div className="text-center py-8 text-themed-muted">
+          <p className="text-sm">{t('management.themes.community.noThemes')}</p>
+        </div>
+      )}
+
+      {/* All Imported State */}
+      {allImported && (
+        <EmptyState
+          icon={Check}
+          title={t('management.themes.community.allImported.title')}
+          subtitle={t('management.themes.community.allImported.description')}
+        />
+      )}
+
+      {/* Community Themes Grid */}
+      {communityThemes.length > 0 && !allImported && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {communityThemes.map((theme) => {
+            const isInstalled = isThemeInstalled(theme.meta?.id || '');
+            const isImported = importedThemes.has(theme.fileName);
+            const isImporting = importing === theme.fileName;
+            const isUpdating = updatingThemes.has(theme.fileName);
+            const colorPreview = getColorPreview(theme.colors);
+            const shouldHide = !showImported && (isInstalled || isImported);
+
+            if (shouldHide) return null;
+
+            return (
+              <div
+                key={theme.fileName}
+                className={`rounded-lg border p-3 transition hover:border-themed-primary bg-themed-secondary ${
+                  isInstalled || isImported ? 'border-success' : 'border-themed-secondary'
+                }`}
+              >
+                {/* Theme Header */}
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-themed-primary text-sm truncate">
+                        {theme.meta?.name || theme.name}
+                      </span>
+                      {theme.meta?.isDark ? (
+                        <Moon className="w-3 h-3 text-themed-muted flex-shrink-0" />
+                      ) : (
+                        <Sun className="w-3 h-3 icon-yellow flex-shrink-0" />
+                      )}
+                    </div>
+                    {theme.meta?.description && (
+                      <p className="text-xs text-themed-muted line-clamp-2 mb-1">
+                        {theme.meta.description}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2 text-xs text-themed-muted">
+                      {theme.meta?.author && <span>by {theme.meta.author}</span>}
+                      {theme.meta?.version && (
+                        <span className="px-1.5 py-0.5 rounded text-xs bg-themed-tertiary">
+                          v{theme.meta.version}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {(isImported || isInstalled) && !isUpdating && (
+                    <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-themed-success">
+                      <Check className="w-3 h-3 icon-success" />
+                    </div>
+                  )}
+                  {isUpdating && (
+                    <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-themed-info">
+                      <LoadingSpinner inline size="xs" className="icon-info" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Color Preview */}
+                <div className="flex gap-1 mb-3">
+                  {colorPreview.map((color, idx) => (
+                    <Tooltip key={idx} content={color} position="bottom" className="flex-1">
+                      <div
+                        className="h-5 rounded"
+                        style={{
+                          backgroundColor: color,
+                          border:
+                            color === '#ffffff' || color.toLowerCase().includes('fff')
+                              ? '1px solid var(--theme-border-secondary)'
+                              : 'none'
+                        }}
+                      />
+                    </Tooltip>
+                  ))}
+                </div>
+
+                {/* Import Button */}
+                <Button
+                  variant={isImported || isInstalled ? 'default' : 'filled'}
+                  color={isImported || isInstalled ? 'default' : 'purple'}
+                  size="xs"
+                  fullWidth
+                  onClick={() => handleImportTheme(theme)}
+                  disabled={!isAdmin || isImporting || isImported || isInstalled}
+                  loading={isImporting}
+                >
+                  {isImported || isInstalled
+                    ? t('management.themes.community.installed')
+                    : t('management.themes.community.import')}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </AccordionSection>
   );
 };

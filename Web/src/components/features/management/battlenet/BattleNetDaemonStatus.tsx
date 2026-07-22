@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, XCircle } from 'lucide-react';
-import { Card } from '@components/ui/Card';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { LoadingState } from '@components/ui/ManagerCard';
@@ -24,6 +24,7 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
   const [status, setStatus] = useState<EpicDaemonStatusDto | null>(null);
   const [hasError, setHasError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -76,76 +77,74 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
   const isReady = status?.dockerAvailable ?? false;
   const activeSessions = status?.activeSessions ?? 0;
 
-  return (
-    <Card>
-      {/* Header: Battle.net icon + Title + HelpPopover */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-blizzard-subtle)] text-[var(--theme-blizzard)]">
-          <BlizzardIcon size={20} />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary">
-          {t('management.sections.integrations.battlenetDaemonStatus.title', 'Battle.net')}
-        </h3>
-        <HelpPopover position="left" width={320}>
-          <HelpSection
-            title={t(
-              'management.sections.integrations.battlenetDaemonStatus.help.anonymous.title',
-              'Anonymous Prefill'
-            )}
-            variant="subtle"
-          >
-            <HelpDefinition
-              items={[
-                {
-                  term: t(
-                    'management.sections.integrations.battlenetDaemonStatus.help.anonymous.noLogin.term',
-                    'No Account Login'
-                  ),
-                  description: t(
-                    'management.sections.integrations.battlenetDaemonStatus.help.anonymous.noLogin.description',
-                    'Battle.net prefill downloads public Blizzard CDN content and requires no account, credentials, or login.'
-                  )
-                },
-                {
-                  term: t(
-                    'management.sections.integrations.battlenetDaemonStatus.help.anonymous.products.term',
-                    'Product Catalog'
-                  ),
-                  description: t(
-                    'management.sections.integrations.battlenetDaemonStatus.help.anonymous.products.description',
-                    'The daemon exposes the full fixed Battle.net product catalog for prefill selection.'
-                  )
-                }
-              ]}
-            />
-          </HelpSection>
-          <HelpNote type="info">
-            {t(
-              'management.sections.integrations.battlenetDaemonStatus.help.note',
-              'No login required. The daemon container only needs Docker to be available to run prefill sessions.'
-            )}
-          </HelpNote>
-        </HelpPopover>
-        {!loading && (
-          <div className="ml-auto flex-shrink-0">
-            {isReady ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-                <CheckCircle size={14} />
-                {t('management.sections.integrations.battlenetDaemonStatus.connected', 'Connected')}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-                <XCircle size={14} />
-                {t(
-                  'management.sections.integrations.battlenetDaemonStatus.notConnected',
-                  'Not Connected'
-                )}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
+  const statusBadge = !loading ? (
+    isReady ? (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
+        <CheckCircle size={14} />
+        {t('management.sections.integrations.battlenetDaemonStatus.connected', 'Connected')}
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
+        <XCircle size={14} />
+        {t('management.sections.integrations.battlenetDaemonStatus.notConnected', 'Not Connected')}
+      </span>
+    )
+  ) : undefined;
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection
+        title={t(
+          'management.sections.integrations.battlenetDaemonStatus.help.anonymous.title',
+          'Anonymous Prefill'
+        )}
+        variant="subtle"
+      >
+        <HelpDefinition
+          items={[
+            {
+              term: t(
+                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.noLogin.term',
+                'No Account Login'
+              ),
+              description: t(
+                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.noLogin.description',
+                'Battle.net prefill downloads public Blizzard CDN content and requires no account, credentials, or login.'
+              )
+            },
+            {
+              term: t(
+                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.products.term',
+                'Product Catalog'
+              ),
+              description: t(
+                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.products.description',
+                'The daemon exposes the full fixed Battle.net product catalog for prefill selection.'
+              )
+            }
+          ]}
+        />
+      </HelpSection>
+      <HelpNote type="info">
+        {t(
+          'management.sections.integrations.battlenetDaemonStatus.help.note',
+          'No login required. The daemon container only needs Docker to be available to run prefill sessions.'
+        )}
+      </HelpNote>
+    </HelpPopover>
+  );
+
+  return (
+    <AccordionSection
+      title={t('management.sections.integrations.battlenetDaemonStatus.title', 'Battle.net')}
+      description={t('management.sections.integrations.battlenetDaemonStatus.summary')}
+      titleAccessory={helpAccessory}
+      icon={BlizzardIcon}
+      iconColor="var(--theme-blizzard)"
+      isExpanded={expanded}
+      onToggle={() => setExpanded((prev) => !prev)}
+      badge={statusBadge}
+    >
       {loading ? (
         <LoadingState
           message={t(
@@ -156,7 +155,6 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
         />
       ) : (
         <>
-          {/* Error Warning */}
           {hasError && (
             <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
               {t(
@@ -166,7 +164,6 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
             </div>
           )}
 
-          {/* Status Row */}
           <div className="p-3 rounded-lg bg-themed-tertiary">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex-1 min-w-0">
@@ -210,7 +207,7 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
           </div>
         </>
       )}
-    </Card>
+    </AccordionSection>
   );
 };
 

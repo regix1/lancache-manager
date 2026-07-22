@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shield } from 'lucide-react';
-import { Card } from '@components/ui/Card';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
@@ -29,6 +30,7 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
   const { notifyError } = useErrorHandler();
   const { on, off, connectionState } = useSignalR();
 
+  const [expanded, setExpanded] = useState(false);
   const [state, setState] = useState<GuestDurationResponse | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -46,26 +48,21 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
     [notifyError, t]
   );
 
-  // Initial load
   useEffect(() => {
     const controller = new AbortController();
     void fetchGuestDuration(controller.signal);
     return () => controller.abort();
   }, [fetchGuestDuration]);
 
-  // Live updates via SignalR (broadcasts effective duration from controller after every change)
   useEffect(() => {
     const handleDurationUpdated = (data: { durationHours: number }) => {
       setState((prev) => (prev ? { ...prev, durationHours: data.durationHours } : prev));
-      // Refetch full payload to refresh source/envVarValue (the broadcast only contains
-      // durationHours, but a clear-override flips `source` from 'ui' to 'config').
       void fetchGuestDuration();
     };
     on('GuestDurationUpdated', handleDurationUpdated);
     return () => off('GuestDurationUpdated', handleDurationUpdated);
   }, [on, off, fetchGuestDuration]);
 
-  // Recover after SignalR reconnect
   useEffect(() => {
     if (connectionState === 'connected') {
       void fetchGuestDuration();
@@ -74,8 +71,6 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
 
   const persistDuration = async (next: number | null, previous: GuestDurationResponse) => {
     setIsSaving(true);
-    // Optimistic update — only the durationHours can be guessed; source/envVarValue
-    // resolve from server response.
     if (next !== null) {
       setState((prev) => (prev ? { ...prev, durationHours: next } : prev));
     }
@@ -83,7 +78,6 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
       const data = await ApiService.setGuestSessionDuration(next);
       setState(data);
     } catch (error: unknown) {
-      // Revert optimistic update
       setState(previous);
       notifyError(t('user.guest.guestDurationToggle.error'), error, {
         logLabel: 'Failed to update guest session duration'
@@ -121,78 +115,76 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
   const dropdownDisabled = !isAdmin || isSaving || state === null;
   const dropdownTitle = !isAdmin ? t('user.guest.guestDurationToggle.adminRequired') : undefined;
 
+  const durationBadgeLabel =
+    state === null
+      ? null
+      : (durationOptions.find((option) => option.value === state.durationHours.toString())?.label ??
+        t(`user.guest.durationOptions.${state.durationHours}`));
+
   return (
-    <Card padding="none">
-      {/* Header */}
-      <div className="p-4 sm:p-5 border-b border-themed-secondary">
-        <h3 className="text-lg font-semibold flex items-center gap-2 text-themed-primary">
-          <Shield className="w-5 h-5 text-themed-accent" />
-          {t('user.guest.sections.accessSecurity')}
-        </h3>
-      </div>
+    <AccordionSection
+      title={t('user.guest.sections.accessSecurity')}
+      description={t('user.guest.sections.accessSecuritySubtitle')}
+      icon={Shield}
+      iconColor="var(--theme-icon-green)"
+      isExpanded={expanded}
+      onToggle={() => setExpanded((prev) => !prev)}
+      badge={durationBadgeLabel ? <Badge variant="neutral">{durationBadgeLabel}</Badge> : undefined}
+    >
+      <div className="mgmt-list divided-list user-settings-list">
+        <div className="mgmt-row">
+          <div className="mgmt-row__body">
+            <p className="mgmt-row__title">{t('user.guest.sections.sessionDuration')}</p>
+            {state && <p className="mgmt-row__meta">{getSourceLabel(state)}</p>}
+          </div>
 
-      <div className="p-4 sm:p-5">
-        <div className="mgmt-list divided-list user-settings-list">
-          <div className="mgmt-row">
-            <div className="mgmt-row__body">
-              <p className="mgmt-row__title">{t('user.guest.sections.sessionDuration')}</p>
-              {state && <p className="mgmt-row__meta">{getSourceLabel(state)}</p>}
-            </div>
-
-            <div className="mgmt-row__actions">
-              {state === null ? (
-                <LoadingSpinner inline size="sm" />
-              ) : (
-                <>
-                  {(() => {
-                    const durationControl = (
-                      <span className="user-settings-dropdown">
-                        <EnhancedDropdown
-                          options={durationOptions}
-                          value={state.durationHours.toString()}
-                          onChange={handleDurationChange}
-                          disabled={dropdownDisabled}
-                          size="md"
-                          className="w-40 control-h-md"
-                        />
-                        {isSaving && (
-                          <LoadingSpinner
-                            inline
-                            size="sm"
-                            className="user-settings-inline-spinner"
-                          />
-                        )}
-                      </span>
-                    );
-                    // Wrap in a Tooltip only when there is an explanatory title
-                    // (non-admins); an empty title would render a blank hover box.
-                    return dropdownTitle ? (
-                      <Tooltip content={dropdownTitle} position="top">
-                        {durationControl}
-                      </Tooltip>
-                    ) : (
-                      durationControl
-                    );
-                  })()}
-                  {isAdmin && (
-                    <Button
-                      variant="filled"
-                      color="gray"
-                      size="md"
-                      className="control-h-md"
-                      disabled={state.source !== 'ui' || isSaving}
-                      onClick={handleResetToDefault}
-                    >
-                      {t('user.guest.guestDurationToggle.resetToDefault')}
-                    </Button>
-                  )}
-                </>
-              )}
-            </div>
+          <div className="mgmt-row__actions">
+            {state === null ? (
+              <LoadingSpinner inline size="sm" />
+            ) : (
+              <>
+                {(() => {
+                  const durationControl = (
+                    <span className="user-settings-dropdown">
+                      <EnhancedDropdown
+                        options={durationOptions}
+                        value={state.durationHours.toString()}
+                        onChange={handleDurationChange}
+                        disabled={dropdownDisabled}
+                        size="md"
+                        className="w-40 control-h-md"
+                      />
+                      {isSaving && (
+                        <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
+                      )}
+                    </span>
+                  );
+                  return dropdownTitle ? (
+                    <Tooltip content={dropdownTitle} position="top">
+                      {durationControl}
+                    </Tooltip>
+                  ) : (
+                    durationControl
+                  );
+                })()}
+                {isAdmin && (
+                  <Button
+                    variant="filled"
+                    color="gray"
+                    size="md"
+                    className="control-h-md"
+                    disabled={state.source !== 'ui' || isSaving}
+                    onClick={handleResetToDefault}
+                  >
+                    {t('user.guest.guestDurationToggle.resetToDefault')}
+                  </Button>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>
-    </Card>
+    </AccordionSection>
   );
 };
 

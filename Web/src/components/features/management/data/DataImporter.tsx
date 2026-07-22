@@ -1,9 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload } from 'lucide-react';
-import { Card } from '@components/ui/Card';
 import { Alert } from '@components/ui/Alert';
-import { ManagerCardHeader } from '@components/ui/ManagerCard';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { DatabaseImportForm } from './DatabaseImportForm';
 import type { ImportResult } from '@/types/migration';
 
@@ -22,6 +21,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
   onDataRefresh
 }) => {
   const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const handleImportComplete = (result: ImportResult) => {
     onSuccess?.(
@@ -35,14 +35,14 @@ const DataImporter: React.FC<DataImporterProps> = ({
   };
 
   return (
-    <Card>
-      <ManagerCardHeader
-        icon={Upload}
-        iconColor="blue"
-        title={t('management.dataImporter.title')}
-        subtitle={t('management.dataImporter.subtitle')}
-      />
-
+    <AccordionSection
+      title={t('management.dataImporter.title')}
+      description={t('management.dataImporter.subtitle')}
+      icon={Upload}
+      iconColor="var(--theme-icon-blue)"
+      isExpanded={isExpanded}
+      onToggle={() => setIsExpanded((prev) => !prev)}
+    >
       {mockMode && (
         <Alert color="yellow" className="mb-4">
           {t('management.dataImporter.alerts.mockMode')}
@@ -68,7 +68,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
           className="opacity-50 pointer-events-none"
         />
       )}
-    </Card>
+    </AccordionSection>
   );
 };
 

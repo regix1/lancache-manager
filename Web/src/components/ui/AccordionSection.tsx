@@ -3,13 +3,18 @@ import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { formatCount } from '@utils/formatters';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 
+/** Lucide icons or brand SVG components (SteamIcon, EpicIcon, …) that accept size/className/style. */
+type AccordionIcon =
+  | LucideIcon
+  | React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
+
 interface AccordionSectionProps {
   title: string;
   titleAccessory?: React.ReactNode;
   /** One-line summary under the title so a collapsed section still says what it does. */
   description?: string;
   count?: number;
-  icon?: LucideIcon;
+  icon?: AccordionIcon;
   iconColor?: string;
   children: React.ReactNode;
   isExpanded: boolean;

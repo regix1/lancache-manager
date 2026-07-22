@@ -12,10 +12,23 @@
   min-width: 0;
 }
 
+/* Recessed panel for Appearance / Date & Time columns nested inside the
+   Appearance accordion — well-surface provides fill + border; padding keeps
+   the caps-label and mgmt-list clear of the well edge. */
+.well-surface.user-settings-group-panel {
+  padding: 0.75rem;
+  border-radius: var(--theme-border-radius-lg);
+}
+
 .user-settings-dropdown {
   position: relative;
   display: inline-flex;
   align-items: center;
+  /* Fixed control width: the multi-select trigger's label changes with the
+     selection ("2 selected" / "All selected"), and a content-sized wrapper made
+     the control and its menu shift on every change. 10rem matches the width the
+     row's EnhancedDropdown controls already render at, so the column is uniform. */
+  width: 10rem;
 }
 
 .user-settings-inline-spinner {
@@ -27,19 +40,14 @@
   pointer-events: none;
 }
 
-.user-settings-service-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 1.75rem;
-  height: 1.75rem;
-}
-
 .user-settings-detail-stack {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.user-settings-service-body {
+  margin-top: 0.75rem;
 }
 
 .user-settings-field-row {
@@ -60,34 +68,24 @@
   white-space: nowrap;
 }
 
-/* Prefill Services: each service is its OWN recessed section (user feedback:
-   "split these into their own sections instead of grouped together as one").
-   Mirrors the .mgmt-list/.dash-well surface (bg-tertiary + border-well token =
-   borderless-in-dark, framed-in-light), one box per service, stacked with gaps.
-   The inner .mgmt-row header + .mgmt-row-detail body keep their family styling. */
+/* Prefill Services: each service is its own nested AccordionSection (surface=well).
+   Stack with gaps between wells. */
 .user-settings-service-sections {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-}
-
-/* Composes the shared .well-surface (bg-tertiary + border-well + overflow:hidden);
-   only the larger radius differs, so compound the shared class to override just it. */
-.well-surface.user-settings-service-section {
-  border-radius: var(--theme-border-radius-lg);
+  gap: 0.75rem;
 }
 
 /* Narrow screens: let a settings row wrap its trailing controls onto their own
-   line instead of overflowing. Scoped to markup inside a service section so it
+   line instead of overflowing. Scoped to markup inside guest-defaults lists so it
    never touches other .mgmt-row consumers elsewhere in the app. */
 @media (max-width: 480px) {
   .user-settings-list .mgmt-row,
-  .user-settings-service-section .mgmt-row {
+  .user-settings-service-body .user-settings-field-row {
     flex-wrap: wrap;
   }
 
-  .user-settings-list .mgmt-row__actions,
-  .user-settings-service-section .mgmt-row__actions {
+  .user-settings-list .mgmt-row__actions {
     width: 100%;
     flex-wrap: wrap;
     justify-content: flex-start;

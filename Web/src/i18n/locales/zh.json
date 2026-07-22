@@ -1058,6 +1058,10 @@
         },
         "confirm": "清除所有访客"
       }
+    },
+    "groups": {
+      "sessions": "会话",
+      "guestDefaults": "访客默认设置"
     }
   },
   "actions": {
@@ -1073,7 +1077,8 @@
     "resultCount": "{{count}} 个会话",
     "resultCount_other": "{{count}} 个会话",
     "history": {
-      "title": "会话历史"
+      "title": "会话历史",
+      "summary": "已退出或过期的会话。"
     },
     "unknownDevice": "未知设备",
     "labels": {
@@ -1261,7 +1266,9 @@
       "savePreferences": "保存首选项失败",
       "updatePrefill": "更新预填充权限失败",
       "logout": "登出失败"
-    }
+    },
+    "searchPlaceholder": "按设备、IP 或浏览器搜索",
+    "summary": "当前已登录的设备及其偏好设置。"
   },
   "downloads": {
     "header": {
@@ -2106,7 +2113,10 @@
         "performanceOptimizationsDesc": "垃圾回收与内存管理",
         "performanceOptimizationsDisabled": "性能优化已禁用",
         "performanceOptimizationsEnvVar": "将以下环境变量添加到您的 docker-compose.yml：",
-        "loadingGcSettings": "加载 GC 设置中..."
+        "loadingGcSettings": "加载 GC 设置中...",
+        "groupSystem": "系统",
+        "groupPreferences": "偏好设置",
+        "groupPerformance": "性能"
       },
       "preferences": {
         "title": "主题",
@@ -2134,7 +2144,8 @@
         "title": "集成与服务",
         "subtitle": "连接到 Steam、配置 Grafana 端点和管理外部服务集成",
         "steamCard": {
-          "title": "Steam"
+          "title": "Steam",
+          "summary": "Steam 登录与 Web API 访问，用于识别游戏名称。"
         },
         "steamIntegration": "Steam 集成",
         "monitoringMetrics": "监控与指标",
@@ -2176,7 +2187,8 @@
               }
             },
             "note": "加密的 OAuth 刷新令牌存储在本地以允许自动重新连接。它仅用于游戏库发现。"
-          }
+          },
+          "summary": "用于登录并识别 Epic 下载的 Epic 守护进程。"
         },
         "battlenetDaemonStatus": {
           "title": "Battle.net",
@@ -2212,7 +2224,8 @@
               }
             },
             "note": "不存储任何凭据。Battle.net 预填充仅下载公开的暴雪 CDN 内容。"
-          }
+          },
+          "summary": "用于预填会话和游戏识别的 Battle.net 守护进程。"
         },
         "riotDaemonStatus": {
           "title": "Riot Games",
@@ -2241,7 +2254,8 @@
               }
             },
             "note": "无需登录。守护进程容器仅需 Docker 可用即可运行预填充会话。"
-          }
+          },
+          "summary": "用于预填会话和游戏识别的 Riot 守护进程。"
         },
         "xboxDaemonStatus": {
           "title": "Xbox",
@@ -2277,7 +2291,8 @@
               }
             },
             "note": "加密的令牌存储在本地以允许自动重新连接。它仅用于游戏库发现。"
-          }
+          },
+          "summary": "用于预填会话和游戏识别的 Xbox 守护进程。"
         },
         "epicGameMappings": {
           "title": "游戏库",
@@ -2371,7 +2386,15 @@
         "errors": {
           "failedToUpdateExcluded": "更新排除的 IP 失败",
           "failedToLoadExcluded": "加载排除的 IP 失败"
-        }
+        },
+        "groupManagement": "客户端管理"
+      },
+      "theme": {
+        "groupAppearance": "外观"
+      },
+      "prefillSessions": {
+        "groupSessions": "会话",
+        "groupHistory": "历史记录"
       }
     },
     "cache": {
@@ -3375,7 +3398,7 @@
         "noThemes": "没有可用的社区主题",
         "allImported": {
           "title": "所有主题已导入！",
-          "description": "点击眼睛图标查看已安装的主题"
+          "description": "所有社区主题均已导入。可通过分区菜单再次显示。"
         },
         "showImported": "显示已导入的主题",
         "hideImported": "隐藏已导入的主题",
@@ -3387,7 +3410,8 @@
         "importError": "导入主题失败",
         "authRequired": "导入主题需要身份验证",
         "autoUpdateSuccess": "已将 {{count}} 个主题自动更新到最新版本！",
-        "autoUpdateSuccess_other": "已将 {{count}} 个主题自动更新到最新版本！"
+        "autoUpdateSuccess_other": "已将 {{count}} 个主题自动更新到最新版本！",
+        "summary": "可从 GitHub 导入的现成主题。"
       },
       "help": {
         "themeTypes": {
@@ -3417,7 +3441,9 @@
         "uploadFailed": "上传主题失败",
         "nameRequired": "主题名称不能为空",
         "deleteFailed": "删除主题失败"
-      }
+      },
+      "summary": "选择激活主题并管理已安装的主题。",
+      "customizeSummary": "调整当前主题的颜色和样式。"
     },
     "grafana": {
       "title": "Grafana 实时 API 端点",
@@ -3511,7 +3537,8 @@
           "config": "来源：环境变量",
           "default": "来源：默认值"
         }
-      }
+      },
+      "summary": "Grafana 和 Prometheus 监控的端点与设置。"
     },
     "gc": {
       "statusSection": "状态",
@@ -4112,7 +4139,8 @@
         },
         "prefilling": "正在预填充 {{game}}",
         "prefillingGeneric": "正在预填充",
-        "tokenExpiresAt": "需在此前重新登录"
+        "tokenExpiresAt": "需在此前重新登录",
+        "summary": "由计划任务页面管理的常驻守护容器。"
       },
       "tooltips": {
         "sessionActive": "会话当前在内存中活跃",
@@ -4136,7 +4164,8 @@
         "banned": "封禁时间：{{time}}",
         "reason": "原因：{{reason}}",
         "expires": "过期时间：{{time}}",
-        "liftedAt": "解除时间：{{time}}"
+        "liftedAt": "解除时间：{{time}}",
+        "summary": "被禁止启动新预填会话的用户。"
       },
       "modals": {
         "terminateAll": {
@@ -4166,7 +4195,9 @@
         "terminateSession": "会话已终止",
         "banUser": "用户已成功封禁",
         "liftBan": "封禁已成功解除"
-      }
+      },
+      "liveSessionsSummary": "当前正在进行的预填会话。",
+      "historySummary": "过去的预填运行及其结果。"
     },
     "clients": {
       "selectClients": "选择客户端",

@@ -13,12 +13,11 @@ import {
   ChevronDown,
   Download,
   History,
-  MoreVertical,
   RotateCcw,
-  Eraser
+  Eraser,
+  Search
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
-import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
@@ -33,13 +32,11 @@ import { Pagination } from '@components/ui/Pagination';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import { AccordionSection } from '@components/ui/AccordionSection';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import {
-  ActionMenu,
-  ActionMenuItem,
-  ActionMenuDivider,
-  ActionMenuDangerItem
-} from '@components/ui/ActionMenu';
+import { ActionMenuItem, ActionMenuDivider, ActionMenuDangerItem } from '@components/ui/ActionMenu';
 import { EmptyState } from '@components/ui/ManagerCard';
 import '../management/managementSectionContent.css';
 import ApiService from '@services/api.service';
@@ -57,6 +54,7 @@ import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useActivityTracker } from '@hooks/useActivityTracker';
 import { useClientInfoReporter } from '@hooks/useClientInfoReporter';
+import { storage } from '@utils/storage';
 import {
   type Session,
   type SessionFilter,
@@ -69,6 +67,49 @@ import {
   showToast,
   parseUserAgent
 } from './types';
+
+// ============================================================
+// Local storage / page-size helpers (not exported — Fast Refresh)
+// ============================================================
+
+const STORAGE_KEYS = {
+  PAGE_SIZE: 'lancache_active_sessions_page_size'
+} as const;
+
+const PAGE_SIZE_OPTIONS = [5, 10, 15, 20] as const;
+type SessionPageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+const DEFAULT_PAGE_SIZE: SessionPageSize = 5;
+
+const isSessionPageSize = (value: number): value is SessionPageSize =>
+  (PAGE_SIZE_OPTIONS as readonly number[]).includes(value);
+
+const loadPageSize = (): SessionPageSize => {
+  const saved = storage.getItem(STORAGE_KEYS.PAGE_SIZE);
+  if (saved === null) return DEFAULT_PAGE_SIZE;
+  const parsed = Number.parseInt(saved, 10);
+  return Number.isFinite(parsed) && isSessionPageSize(parsed) ? parsed : DEFAULT_PAGE_SIZE;
+};
+
+const sessionMatchesSearch = (session: Session, query: string): boolean => {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+
+  const parsedUA = parseUserAgent(session.userAgent);
+  const ip = session.ipAddress ? cleanIpAddress(session.ipAddress) : '';
+  const haystack = [
+    parsedUA.title,
+    parsedUA.browser,
+    parsedUA.os,
+    session.userAgent ?? '',
+    session.ipAddress ?? '',
+    ip,
+    session.publicIpAddress ?? ''
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes(normalized);
+};
 
 // ============================================================
 // Props Interface
@@ -162,8 +203,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     }
   };
 
+  // Section expand state (primary open by default; no localStorage)
+  const [sessionsExpanded, setSessionsExpanded] = useState(true);
+
   // Bulk actions state
-  const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
   const [showBulkResetConfirm, setShowBulkResetConfirm] = useState(false);
   const [showClearGuestsConfirm, setShowClearGuestsConfirm] = useState(false);
   const [bulkActionInProgress, setBulkActionInProgress] = useState<string | null>(null);
@@ -195,11 +238,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
 
-  // Pagination state — pages are computed client-side over the FILTERED group
-  // (all/admin/guest), so each filter paginates its own sessions instead of the
-  // server's all-sessions page count overriding the active filter.
+  // Text search (not persisted) + pagination over the filtered group.
+  // Pages are computed client-side over type + text filters so each filter
+  // paginates its own sessions instead of the server's all-sessions page count.
+  const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(20);
+  const [pageSize, setPageSize] = useState<SessionPageSize>(loadPageSize);
 
   // History state
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -288,11 +332,26 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     [setLoading, setSessions]
   );
 
-  // Each filter group paginates independently — always restart at page 1 when
-  // the filter changes so a deep page in one group can't strand another.
+  // Restart at page 1 when type filter, text search, or page size changes so a
+  // deep page can't strand the user on an empty slice.
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeFilterValue]);
+  }, [activeFilterValue, searchQuery, pageSize]);
+
+  const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
+    setSearchQuery(event.target.value);
+  };
+
+  const handleClearSearch = (): void => {
+    setSearchQuery('');
+  };
+
+  const handlePageSizeChange = (value: string): void => {
+    const parsed = Number.parseInt(value, 10);
+    if (!isSessionPageSize(parsed)) return;
+    setPageSize(parsed);
+    storage.setItem(STORAGE_KEYS.PAGE_SIZE, String(parsed));
+  };
 
   const confirmRevokeSession = async () => {
     if (!pendingRevokeSession) return;
@@ -642,16 +701,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // Helper Functions
   // ============================================================
 
+  // Exclusive expansion: opening a session closes any other, so the list reads
+  // as one detail at a time. The Set shape stays because the lazy pref-loading
+  // effect iterates it.
   const toggleSessionExpanded = (sessionId: string) => {
-    setExpandedSessions((prev) => {
-      const next = new Set(prev);
-      if (next.has(sessionId)) {
-        next.delete(sessionId);
-      } else {
-        next.add(sessionId);
-      }
-      return next;
-    });
+    setExpandedSessions((prev) => (prev.has(sessionId) ? new Set() : new Set([sessionId])));
   };
 
   const handleRevokeSession = (session: Session) => {
@@ -864,12 +918,21 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // Sessions from API are already active-only (paginated); history comes separately
   const activeSessions = sessions;
 
-  const filteredActiveSessions =
+  const typeFilteredSessions =
     activeFilterValue === 'all'
       ? activeSessions
       : activeFilterValue === 'admin'
         ? activeSessions.filter((s: Session) => isAdminSession(s))
         : activeSessions.filter((s: Session) => isGuestSession(s));
+
+  const filteredActiveSessions = searchQuery.trim()
+    ? typeFilteredSessions.filter((s: Session) => sessionMatchesSearch(s, searchQuery))
+    : typeFilteredSessions;
+
+  const pageSizeOptions = PAGE_SIZE_OPTIONS.map((size: SessionPageSize) => ({
+    value: String(size),
+    label: String(size)
+  }));
 
   // Client-side pagination over the filtered group. Clamp the page so deleting
   // sessions (or a stale page) can never point past the end.
@@ -1287,14 +1350,19 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   return (
     <div className="session-console">
-      <Card padding="none">
-        {/* ---- Header: Title + Guest Lock ---- */}
-        <div className="p-4 sm:p-5 border-b border-themed-secondary">
-          <div className="flex flex-wrap items-center justify-between gap-y-3">
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold text-themed-primary">
-                {t('activeSessions.title')}
-              </h2>
+      <div>
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('user.groups.sessions')}
+          </h3>
+        </div>
+
+        <div className="space-y-4">
+          <AccordionSection
+            title={t('activeSessions.title')}
+            description={t('activeSessions.summary')}
+            titleAccessory={
               <HelpPopover width={320}>
                 <HelpSection title={t('activeSessions.help.sessionTypes.title')} variant="subtle">
                   <HelpDefinition
@@ -1327,205 +1395,206 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   />
                 </HelpSection>
               </HelpPopover>
-            </div>
-
-            <ToggleSwitch
-              options={[
-                {
-                  value: 'unlocked',
-                  label: t('activeSessions.toggle.unlocked'),
-                  icon: <Unlock />,
-                  activeColor: 'success'
-                },
-                {
-                  value: 'locked',
-                  label: t('activeSessions.toggle.locked'),
-                  icon: <Lock />,
-                  activeColor: 'error'
-                }
-              ]}
-              value={guestModeLocked ? 'locked' : 'unlocked'}
-              onChange={onToggleGuestLock}
-              disabled={updatingGuestLock}
-              loading={updatingGuestLock}
-              title={
-                guestModeLocked
-                  ? t('activeSessions.toggle.lockedTitle')
-                  : t('activeSessions.toggle.unlockedTitle')
-              }
-            />
-          </div>
-        </div>
-
-        {/* ---- Sub-header: Filters + result meta + Bulk Actions ---- */}
-        {!loading && activeSessions.length > 0 && (
-          <div className="px-4 sm:px-5 py-3 border-b border-themed-secondary">
-            <div className="mgmt-toolbar">
-              {/* Filter cluster: quiet count badges, active state via filled variant */}
-              <div className="session-filter-cluster">
-                {(['all', 'admin', 'guest'] as const).map((filter: SessionFilter) => {
-                  const isActive = activeFilterValue === filter;
-                  return (
-                    <Button
-                      key={filter}
-                      variant={isActive ? 'filled' : 'default'}
-                      color={isActive ? 'blue' : 'gray'}
-                      size="sm"
-                      aria-pressed={isActive}
-                      onClick={() => setActiveFilter(filter)}
-                      rightSection={
-                        <span
-                          className={`themed-badge badge-count ${isActive ? 'badge-count-on-color' : 'status-badge-neutral'}`}
-                        >
-                          {getCountForFilter(filter)}
-                        </span>
-                      }
-                    >
-                      {getFilterLabel(filter)}
-                    </Button>
-                  );
-                })}
-              </div>
-
-              <div className="session-toolbar__right">
-                <span className="mgmt-scanmeta">
-                  {t('activeSessions.resultCount', {
-                    count: filteredActiveSessions.length,
-                    defaultValue: '{{count}} sessions'
-                  })}
-                </span>
-
-                {/* Bulk Actions Dropdown */}
-                <ActionMenu
-                  isOpen={bulkMenuOpen}
-                  onClose={() => setBulkMenuOpen(false)}
-                  trigger={
-                    <Button
-                      variant="filled"
-                      color="gray"
-                      size="sm"
-                      leftSection={<MoreVertical className="w-4 h-4" />}
-                      onClick={() => setBulkMenuOpen((prev: boolean) => !prev)}
-                    >
-                      {t('user.bulkActions.title', 'Actions')}
-                    </Button>
-                  }
+            }
+            icon={Users}
+            iconColor="var(--theme-icon-blue)"
+            count={
+              !loading && activeSessions.length > 0 ? filteredActiveSessions.length : undefined
+            }
+            isExpanded={sessionsExpanded}
+            onToggle={() => setSessionsExpanded((prev: boolean) => !prev)}
+            badge={
+              <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+                <Badge variant={guestModeLocked ? 'error' : 'success'}>
+                  {guestModeLocked
+                    ? t('activeSessions.toggle.locked')
+                    : t('activeSessions.toggle.unlocked')}
+                </Badge>
+                <SectionActionsMenu
+                  label={t('management.actions.menuLabel', 'Actions')}
                   width="w-56"
                 >
-                  <ActionMenuItem
-                    icon={<RotateCcw className="w-4 h-4" />}
-                    onClick={() => {
-                      setBulkMenuOpen(false);
-                      setShowBulkResetConfirm(true);
-                    }}
-                  >
-                    {t('user.bulkActions.buttons.reset', 'Reset All to Defaults')}
-                  </ActionMenuItem>
-                  <ActionMenuDivider />
-                  <ActionMenuDangerItem
-                    icon={<Eraser className="w-4 h-4" />}
-                    onClick={() => {
-                      setBulkMenuOpen(false);
-                      setShowClearGuestsConfirm(true);
-                    }}
-                  >
-                    {t('user.bulkActions.buttons.clear', 'Clear All Guest Sessions')}
-                  </ActionMenuDangerItem>
-                </ActionMenu>
+                  {(close) => (
+                    <>
+                      <ActionMenuItem
+                        icon={<RotateCcw className="w-4 h-4" />}
+                        onClick={() => {
+                          close();
+                          setShowBulkResetConfirm(true);
+                        }}
+                      >
+                        {t('user.bulkActions.buttons.reset', 'Reset All to Defaults')}
+                      </ActionMenuItem>
+                      <ActionMenuDivider />
+                      <ActionMenuDangerItem
+                        icon={<Eraser className="w-4 h-4" />}
+                        onClick={() => {
+                          close();
+                          setShowClearGuestsConfirm(true);
+                        }}
+                      >
+                        {t('user.bulkActions.buttons.clear', 'Clear All Guest Sessions')}
+                      </ActionMenuDangerItem>
+                    </>
+                  )}
+                </SectionActionsMenu>
               </div>
-            </div>
-          </div>
-        )}
+            }
+          >
+            <div className="space-y-4">
+              {/* Guest lock control stays visible (not buried in kebab); filters stay in-body */}
+              <div className="mgmt-toolbar session-toolbar">
+                {!loading && activeSessions.length > 0 ? (
+                  <div className="session-filter-cluster">
+                    {(['all', 'admin', 'guest'] as const).map((filter: SessionFilter) => {
+                      const isActive = activeFilterValue === filter;
+                      return (
+                        <Button
+                          key={filter}
+                          variant={isActive ? 'filled' : 'default'}
+                          color={isActive ? 'blue' : 'gray'}
+                          size="sm"
+                          aria-pressed={isActive}
+                          onClick={() => setActiveFilter(filter)}
+                          rightSection={
+                            <span
+                              className={`themed-badge badge-count ${isActive ? 'badge-count-on-color' : 'status-badge-neutral'}`}
+                            >
+                              {getCountForFilter(filter)}
+                            </span>
+                          }
+                        >
+                          {getFilterLabel(filter)}
+                        </Button>
+                      );
+                    })}
 
-        {/* ---- Main Content ---- */}
-        <div className="p-4 sm:p-5">
-          {loading && (
-            <div className="text-center py-12">
-              <LoadingSpinner inline size="xl" className="mx-auto text-themed-accent" />
-              <p className="text-sm mt-3 text-themed-muted">{t('activeSessions.loading')}</p>
-            </div>
-          )}
+                    <div className="relative min-w-[19rem] max-w-md flex-1">
+                      <Search className="input-icon absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={handleSearchChange}
+                        placeholder={t('activeSessions.searchPlaceholder')}
+                        aria-label={t('activeSessions.searchPlaceholder')}
+                        className="themed-input input-search-sm w-full pl-10 pr-12"
+                      />
+                      {searchQuery ? (
+                        <button
+                          type="button"
+                          onClick={handleClearSearch}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-themed-muted hover:text-themed-primary text-xs"
+                        >
+                          {t('common.clear')}
+                        </button>
+                      ) : null}
+                    </div>
 
-          {!loading && activeSessions.length === 0 && (
-            <EmptyState
-              variant="panel"
-              icon={Users}
-              title={t('activeSessions.empty.title')}
-              subtitle={t('activeSessions.empty.subtitle')}
-            />
-          )}
+                    <EnhancedDropdown
+                      variant="button"
+                      size="sm"
+                      options={pageSizeOptions}
+                      value={String(pageSize)}
+                      onChange={handlePageSizeChange}
+                      prefix={t('downloads.tab.filters.showPrefix')}
+                      className="min-w-[5.5rem]"
+                      dropdownWidth="100px"
+                    />
+                  </div>
+                ) : (
+                  <div />
+                )}
 
-          {/* One responsive divided list (reflows via CSS at every breakpoint) */}
-          {!loading && filteredActiveSessions.length > 0 && (
-            <div className="mgmt-list divided-list">{pagedSessions.map(renderSessionItem)}</div>
-          )}
+                <div className="session-toolbar__right">
+                  <ToggleSwitch
+                    options={[
+                      {
+                        value: 'unlocked',
+                        label: t('activeSessions.toggle.unlocked'),
+                        icon: <Unlock />,
+                        activeColor: 'success'
+                      },
+                      {
+                        value: 'locked',
+                        label: t('activeSessions.toggle.locked'),
+                        icon: <Lock />,
+                        activeColor: 'error'
+                      }
+                    ]}
+                    value={guestModeLocked ? 'locked' : 'unlocked'}
+                    onChange={onToggleGuestLock}
+                    disabled={updatingGuestLock}
+                    loading={updatingGuestLock}
+                    title={
+                      guestModeLocked
+                        ? t('activeSessions.toggle.lockedTitle')
+                        : t('activeSessions.toggle.unlockedTitle')
+                    }
+                  />
+                </div>
+              </div>
 
-          {/* Filtered but no results */}
-          {!loading && activeSessions.length > 0 && filteredActiveSessions.length === 0 && (
-            <EmptyState
-              variant="panel"
-              icon={Users}
-              title={t('activeSessions.empty.filteredTitle', 'No matching sessions')}
-              subtitle={t(
-                'activeSessions.empty.filtered',
-                'No sessions match the selected filter.'
+              {loading && (
+                <div className="text-center py-12">
+                  <LoadingSpinner inline size="xl" className="mx-auto text-themed-accent" />
+                  <p className="text-sm mt-3 text-themed-muted">{t('activeSessions.loading')}</p>
+                </div>
               )}
-            />
+
+              {!loading && activeSessions.length === 0 && (
+                <EmptyState
+                  variant="panel"
+                  icon={Users}
+                  title={t('activeSessions.empty.title')}
+                  subtitle={t('activeSessions.empty.subtitle')}
+                />
+              )}
+
+              {!loading && filteredActiveSessions.length > 0 && (
+                <div className="mgmt-list divided-list">{pagedSessions.map(renderSessionItem)}</div>
+              )}
+
+              {!loading && activeSessions.length > 0 && filteredActiveSessions.length === 0 && (
+                <EmptyState
+                  variant="panel"
+                  icon={Users}
+                  title={t('activeSessions.empty.filteredTitle', 'No matching sessions')}
+                  subtitle={t(
+                    'activeSessions.empty.filtered',
+                    'No sessions match the selected filter.'
+                  )}
+                />
+              )}
+
+              {!loading && totalPages > 1 && (
+                <Pagination
+                  currentPage={safePage}
+                  totalPages={totalPages}
+                  totalItems={filteredActiveSessions.length}
+                  itemsPerPage={pageSize}
+                  onPageChange={(newPage: number) => setCurrentPage(newPage)}
+                  itemLabel={t('activeSessions.paginationLabel')}
+                  showCard={false}
+                />
+              )}
+            </div>
+          </AccordionSection>
+
+          {!loading && historySessions.length > 0 && (
+            <AccordionSection
+              title={t('activeSessions.history.title')}
+              description={t('activeSessions.history.summary')}
+              icon={History}
+              iconColor="var(--theme-icon-purple)"
+              count={historySessions.length}
+              isExpanded={historyExpanded}
+              onToggle={() => setHistoryExpanded((prev: boolean) => !prev)}
+            >
+              <div className="mgmt-list divided-list">{historySessions.map(renderHistoryCard)}</div>
+            </AccordionSection>
           )}
         </div>
-
-        {/* ---- Pagination (per filtered group — every session is already
-            loaded, so page flips are instant and each filter pages only its
-            own sessions) ---- */}
-        {!loading && totalPages > 1 && (
-          <div className="px-4 sm:px-5 py-3 border-t border-themed-secondary">
-            <Pagination
-              currentPage={safePage}
-              totalPages={totalPages}
-              totalItems={filteredActiveSessions.length}
-              itemsPerPage={pageSize}
-              onPageChange={(newPage: number) => setCurrentPage(newPage)}
-              itemLabel={t('activeSessions.paginationLabel')}
-              showCard={false}
-            />
-          </div>
-        )}
-      </Card>
-
-      {/* ============================================================ */}
-      {/* Session History */}
-      {/* ============================================================ */}
-
-      {!loading && historySessions.length > 0 && (
-        <Card padding="none">
-          <button
-            type="button"
-            className="w-full text-left p-4 sm:p-5 cursor-pointer select-none"
-            aria-expanded={historyExpanded}
-            onClick={() => setHistoryExpanded((prev: boolean) => !prev)}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <History className="w-5 h-5 text-themed-muted" />
-                <h2 className="text-lg font-semibold text-themed-primary">
-                  {t('activeSessions.history.title')}
-                </h2>
-                <span className="themed-badge status-badge-neutral badge-count">
-                  {historySessions.length}
-                </span>
-              </div>
-              <ChevronDown
-                className={`w-5 h-5 transition-transform duration-200 text-themed-muted ${historyExpanded ? 'rotate-180' : ''}`}
-              />
-            </div>
-          </button>
-          <CollapsibleRegion open={historyExpanded}>
-            <div className="px-4 sm:px-5 pb-4 sm:pb-5">
-              <div className="mgmt-list divided-list">{historySessions.map(renderHistoryCard)}</div>
-            </div>
-          </CollapsibleRegion>
-        </Card>
-      )}
+      </div>
 
       {/* ============================================================ */}
       {/* Modals */}

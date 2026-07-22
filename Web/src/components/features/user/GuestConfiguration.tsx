@@ -1,7 +1,9 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download } from 'lucide-react';
-import { Card } from '@components/ui/Card';
+import { Download, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { AccordionSection } from '@components/ui/AccordionSection';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { ActionMenuItem } from '@components/ui/ActionMenu';
 import ApiService from '@services/api.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -23,6 +25,18 @@ import PrefillServicePanel from './PrefillServicePanel';
 import AppearanceDisplayCard from './AppearanceDisplayCard';
 import '@components/features/management/managementSectionContent.css';
 import './user-settings.css';
+
+type PrefillServiceKey = 'steam' | 'epic' | 'battlenet' | 'riot' | 'xbox';
+
+const PREFILL_SERVICE_KEYS: PrefillServiceKey[] = ['steam', 'epic', 'battlenet', 'riot', 'xbox'];
+
+const INITIAL_PREFILL_EXPANDED: Record<PrefillServiceKey, boolean> = {
+  steam: false,
+  epic: false,
+  battlenet: false,
+  riot: false,
+  xbox: false
+};
 
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
 
@@ -144,6 +158,45 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   });
   const [loadingXboxPrefillConfig, setLoadingXboxPrefillConfig] = useState(false);
   const [updatingXboxPrefillConfig, setUpdatingXboxPrefillConfig] = useState(false);
+
+  const [prefillSectionExpanded, setPrefillSectionExpanded] = useState(false);
+  const [prefillServiceExpanded, setPrefillServiceExpanded] =
+    useState<Record<PrefillServiceKey, boolean>>(INITIAL_PREFILL_EXPANDED);
+
+  const enabledPrefillCount = useMemo(() => {
+    return [
+      prefillConfig.enabledByDefault,
+      epicPrefillConfig.enabledByDefault,
+      battlenetPrefillConfig.enabledByDefault,
+      riotPrefillConfig.enabledByDefault,
+      xboxPrefillConfig.enabledByDefault
+    ].filter(Boolean).length;
+  }, [
+    prefillConfig.enabledByDefault,
+    epicPrefillConfig.enabledByDefault,
+    battlenetPrefillConfig.enabledByDefault,
+    riotPrefillConfig.enabledByDefault,
+    xboxPrefillConfig.enabledByDefault
+  ]);
+
+  const allPrefillServicesExpanded = PREFILL_SERVICE_KEYS.every(
+    (key) => prefillServiceExpanded[key]
+  );
+
+  const togglePrefillService = (key: PrefillServiceKey) => {
+    setPrefillServiceExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handlePrefillExpandCollapseAll = () => {
+    const next = !allPrefillServicesExpanded;
+    setPrefillServiceExpanded({
+      steam: next,
+      epic: next,
+      battlenet: next,
+      riot: next,
+      xbox: next
+    });
+  };
 
   // Helper to update default time format based on a format value
   const updateDefaultTimeFormat = async (format: TimeSettingValue) => {
@@ -870,143 +923,187 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   ]);
 
   return (
-    <div className="space-y-4">
-      {/* Access & Security card */}
-      <AccessSecurityCard
-        guestDurationHours={guestDurationHours}
-        onDurationChange={onDurationChange}
-        updatingDuration={updatingDuration}
-        durationOptions={translatedDurationOptions}
-      />
+    <div>
+      <div className="flex items-center gap-2 mb-3 sm:mb-4">
+        <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-purple)]" />
+        <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+          {t('user.groups.guestDefaults')}
+        </h3>
+      </div>
 
-      {/* Prefill Services card */}
-      <Card padding="none">
-        <div className="p-4 sm:p-5 border-b border-themed-secondary">
-          <h3 className="text-lg font-semibold flex items-center gap-2 text-themed-primary">
-            <Download className="w-5 h-5 text-themed-accent" />
-            {t('user.guest.prefill.sectionTitle')}
-          </h3>
-        </div>
-        <div className="p-4 sm:p-5 space-y-4">
-          <p className="text-xs text-themed-muted">{t('user.guest.prefill.existingGuestsNote')}</p>
-          <div className="user-settings-service-sections">
-            <PrefillServicePanel
-              serviceName="Steam"
-              serviceNameClass="text-steam"
-              serviceIcon={<SteamIcon size={14} />}
-              config={prefillConfig}
-              onToggleEnabled={handleSteamToggleEnabled}
-              onDurationChange={handleSteamDurationChange}
-              onMaxThreadsChange={handleSteamMaxThreadsChange}
-              loading={loadingPrefillConfig}
-              updating={updatingPrefillConfig}
-              warningText={t('user.guest.prefill.warning')}
-              durationLabel={t('user.guest.prefill.duration.label')}
-              durationHelpText={t('user.guest.prefill.duration.description')}
-              maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
-              enableLabel={t('user.guest.prefill.enableByDefault.label')}
-              enableDescription={t('user.guest.prefill.enableByDefault.description')}
-              prefillDurationOptions={prefillDurationOptions}
-              maxThreadOptions={maxThreadOptions}
-            />
-            <PrefillServicePanel
-              serviceName="Epic Games"
-              serviceNameClass="text-epic"
-              serviceIcon={<EpicIcon size={14} />}
-              config={epicPrefillConfig}
-              onToggleEnabled={handleEpicToggleEnabled}
-              onDurationChange={handleEpicDurationChange}
-              onMaxThreadsChange={handleEpicMaxThreadsChange}
-              loading={loadingEpicPrefillConfig}
-              updating={updatingEpicPrefillConfig}
-              warningText={t('user.guest.prefill.warning')}
-              durationLabel={t('user.guest.prefill.duration.label')}
-              durationHelpText={t('user.guest.prefill.duration.description')}
-              maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
-              enableLabel={t('user.guest.prefill.enableByDefault.label')}
-              enableDescription={t('user.guest.prefill.enableByDefault.description')}
-              prefillDurationOptions={prefillDurationOptions}
-              maxThreadOptions={maxThreadOptions}
-            />
-            <PrefillServicePanel
-              serviceName="Battle.net"
-              serviceNameClass="text-blizzard"
-              serviceIcon={<BlizzardIcon size={14} />}
-              config={battlenetPrefillConfig}
-              onToggleEnabled={handleBattlenetToggleEnabled}
-              onDurationChange={handleBattlenetDurationChange}
-              onMaxThreadsChange={handleBattlenetMaxThreadsNoop}
-              loading={loadingBattlenetPrefillConfig}
-              updating={updatingBattlenetPrefillConfig}
-              warningText={t('user.guest.prefill.warning')}
-              durationLabel={t('user.guest.prefill.duration.label')}
-              durationHelpText={t('user.guest.prefill.duration.description')}
-              enableLabel={t('user.guest.prefill.enableByDefault.label')}
-              enableDescription={t('user.guest.prefill.enableByDefault.description')}
-              prefillDurationOptions={prefillDurationOptions}
-              showMaxThreads={false}
-            />
-            <PrefillServicePanel
-              serviceName="Riot Games"
-              serviceNameClass="text-riot"
-              serviceIcon={<RiotIcon size={14} />}
-              config={riotPrefillConfig}
-              onToggleEnabled={handleRiotToggleEnabled}
-              onDurationChange={handleRiotDurationChange}
-              onMaxThreadsChange={handleRiotMaxThreadsNoop}
-              loading={loadingRiotPrefillConfig}
-              updating={updatingRiotPrefillConfig}
-              warningText={t('user.guest.prefill.warning')}
-              durationLabel={t('user.guest.prefill.duration.label')}
-              durationHelpText={t('user.guest.prefill.duration.description')}
-              enableLabel={t('user.guest.prefill.enableByDefault.label')}
-              enableDescription={t('user.guest.prefill.enableByDefault.description')}
-              prefillDurationOptions={prefillDurationOptions}
-              showMaxThreads={false}
-            />
-            <PrefillServicePanel
-              serviceName="Xbox"
-              serviceNameClass="text-xbox"
-              serviceIcon={<XboxIcon size={14} />}
-              config={xboxPrefillConfig}
-              onToggleEnabled={handleXboxToggleEnabled}
-              onDurationChange={handleXboxDurationChange}
-              onMaxThreadsChange={handleXboxMaxThreadsChange}
-              loading={loadingXboxPrefillConfig}
-              updating={updatingXboxPrefillConfig}
-              warningText={t('user.guest.prefill.warning')}
-              durationLabel={t('user.guest.prefill.duration.label')}
-              durationHelpText={t('user.guest.prefill.duration.description')}
-              maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
-              enableLabel={t('user.guest.prefill.enableByDefault.label')}
-              enableDescription={t('user.guest.prefill.enableByDefault.description')}
-              prefillDurationOptions={prefillDurationOptions}
-              maxThreadOptions={maxThreadOptions}
-            />
+      <div className="space-y-4">
+        <AccessSecurityCard
+          guestDurationHours={guestDurationHours}
+          onDurationChange={onDurationChange}
+          updatingDuration={updatingDuration}
+          durationOptions={translatedDurationOptions}
+        />
+
+        <AccordionSection
+          title={t('user.guest.prefill.sectionTitle')}
+          description={t('user.guest.prefill.sectionSubtitle')}
+          icon={Download}
+          iconColor="var(--theme-icon-blue)"
+          isExpanded={prefillSectionExpanded}
+          onToggle={() => setPrefillSectionExpanded((prev) => !prev)}
+          count={enabledPrefillCount}
+          badge={
+            <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+              {(close) => (
+                <ActionMenuItem
+                  icon={
+                    allPrefillServicesExpanded ? (
+                      <ChevronsDownUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronsUpDown className="w-3.5 h-3.5" />
+                    )
+                  }
+                  disabled={!prefillSectionExpanded}
+                  onClick={() => {
+                    handlePrefillExpandCollapseAll();
+                    close();
+                  }}
+                >
+                  {allPrefillServicesExpanded
+                    ? t('management.gameDetection.collapseAll')
+                    : t('management.gameDetection.expandAll')}
+                </ActionMenuItem>
+              )}
+            </SectionActionsMenu>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-themed-muted">
+              {t('user.guest.prefill.existingGuestsNote')}
+            </p>
+            <div className="user-settings-service-sections">
+              <PrefillServicePanel
+                serviceName="Steam"
+                serviceIcon={SteamIcon}
+                iconColor="var(--theme-steam)"
+                config={prefillConfig}
+                onToggleEnabled={handleSteamToggleEnabled}
+                onDurationChange={handleSteamDurationChange}
+                onMaxThreadsChange={handleSteamMaxThreadsChange}
+                loading={loadingPrefillConfig}
+                updating={updatingPrefillConfig}
+                warningText={t('user.guest.prefill.warning')}
+                durationLabel={t('user.guest.prefill.duration.label')}
+                durationHelpText={t('user.guest.prefill.duration.description')}
+                maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
+                enableLabel={t('user.guest.prefill.enableByDefault.label')}
+                enableDescription={t('user.guest.prefill.enableByDefault.description')}
+                prefillDurationOptions={prefillDurationOptions}
+                maxThreadOptions={maxThreadOptions}
+                isExpanded={prefillServiceExpanded.steam}
+                onToggle={() => togglePrefillService('steam')}
+              />
+              <PrefillServicePanel
+                serviceName="Epic Games"
+                serviceIcon={EpicIcon}
+                iconColor="var(--theme-epic)"
+                config={epicPrefillConfig}
+                onToggleEnabled={handleEpicToggleEnabled}
+                onDurationChange={handleEpicDurationChange}
+                onMaxThreadsChange={handleEpicMaxThreadsChange}
+                loading={loadingEpicPrefillConfig}
+                updating={updatingEpicPrefillConfig}
+                warningText={t('user.guest.prefill.warning')}
+                durationLabel={t('user.guest.prefill.duration.label')}
+                durationHelpText={t('user.guest.prefill.duration.description')}
+                maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
+                enableLabel={t('user.guest.prefill.enableByDefault.label')}
+                enableDescription={t('user.guest.prefill.enableByDefault.description')}
+                prefillDurationOptions={prefillDurationOptions}
+                maxThreadOptions={maxThreadOptions}
+                isExpanded={prefillServiceExpanded.epic}
+                onToggle={() => togglePrefillService('epic')}
+              />
+              <PrefillServicePanel
+                serviceName="Battle.net"
+                serviceIcon={BlizzardIcon}
+                iconColor="var(--theme-blizzard)"
+                config={battlenetPrefillConfig}
+                onToggleEnabled={handleBattlenetToggleEnabled}
+                onDurationChange={handleBattlenetDurationChange}
+                onMaxThreadsChange={handleBattlenetMaxThreadsNoop}
+                loading={loadingBattlenetPrefillConfig}
+                updating={updatingBattlenetPrefillConfig}
+                warningText={t('user.guest.prefill.warning')}
+                durationLabel={t('user.guest.prefill.duration.label')}
+                durationHelpText={t('user.guest.prefill.duration.description')}
+                enableLabel={t('user.guest.prefill.enableByDefault.label')}
+                enableDescription={t('user.guest.prefill.enableByDefault.description')}
+                prefillDurationOptions={prefillDurationOptions}
+                showMaxThreads={false}
+                isExpanded={prefillServiceExpanded.battlenet}
+                onToggle={() => togglePrefillService('battlenet')}
+              />
+              <PrefillServicePanel
+                serviceName="Riot Games"
+                serviceIcon={RiotIcon}
+                iconColor="var(--theme-riot)"
+                config={riotPrefillConfig}
+                onToggleEnabled={handleRiotToggleEnabled}
+                onDurationChange={handleRiotDurationChange}
+                onMaxThreadsChange={handleRiotMaxThreadsNoop}
+                loading={loadingRiotPrefillConfig}
+                updating={updatingRiotPrefillConfig}
+                warningText={t('user.guest.prefill.warning')}
+                durationLabel={t('user.guest.prefill.duration.label')}
+                durationHelpText={t('user.guest.prefill.duration.description')}
+                enableLabel={t('user.guest.prefill.enableByDefault.label')}
+                enableDescription={t('user.guest.prefill.enableByDefault.description')}
+                prefillDurationOptions={prefillDurationOptions}
+                showMaxThreads={false}
+                isExpanded={prefillServiceExpanded.riot}
+                onToggle={() => togglePrefillService('riot')}
+              />
+              <PrefillServicePanel
+                serviceName="Xbox"
+                serviceIcon={XboxIcon}
+                iconColor="var(--theme-xbox)"
+                config={xboxPrefillConfig}
+                onToggleEnabled={handleXboxToggleEnabled}
+                onDurationChange={handleXboxDurationChange}
+                onMaxThreadsChange={handleXboxMaxThreadsChange}
+                loading={loadingXboxPrefillConfig}
+                updating={updatingXboxPrefillConfig}
+                warningText={t('user.guest.prefill.warning')}
+                durationLabel={t('user.guest.prefill.duration.label')}
+                durationHelpText={t('user.guest.prefill.duration.description')}
+                maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
+                enableLabel={t('user.guest.prefill.enableByDefault.label')}
+                enableDescription={t('user.guest.prefill.enableByDefault.description')}
+                prefillDurationOptions={prefillDurationOptions}
+                maxThreadOptions={maxThreadOptions}
+                isExpanded={prefillServiceExpanded.xbox}
+                onToggle={() => togglePrefillService('xbox')}
+              />
+            </div>
           </div>
-        </div>
-      </Card>
+        </AccordionSection>
 
-      {/* Appearance & Display card - spans full width as last child */}
-      <AppearanceDisplayCard
-        defaultGuestTheme={defaultGuestTheme}
-        onGuestThemeChange={onGuestThemeChange}
-        updatingGuestTheme={updatingGuestTheme}
-        availableThemes={availableThemes}
-        defaultGuestRefreshRate={defaultGuestRefreshRate}
-        onGuestRefreshRateChange={onGuestRefreshRateChange}
-        updatingGuestRefreshRate={updatingGuestRefreshRate}
-        guestRefreshRateLocked={guestRefreshRateLocked}
-        onGuestRefreshRateLockChange={onGuestRefreshRateLockChange}
-        updatingGuestRefreshRateLock={updatingGuestRefreshRateLock}
-        refreshRateOptions={translatedRefreshRateOptions}
-        defaultGuestPreferences={defaultGuestPreferences}
-        onUpdateDefaultPref={handleUpdateDefaultGuestPref}
-        updatingDefaultPref={updatingDefaultPref}
-        loadingDefaultPrefs={loadingDefaultPrefs}
-        onAllowedFormatsChange={handleAllowedFormatsChange}
-        updatingAllowedFormats={updatingAllowedFormats}
-      />
+        <AppearanceDisplayCard
+          defaultGuestTheme={defaultGuestTheme}
+          onGuestThemeChange={onGuestThemeChange}
+          updatingGuestTheme={updatingGuestTheme}
+          availableThemes={availableThemes}
+          defaultGuestRefreshRate={defaultGuestRefreshRate}
+          onGuestRefreshRateChange={onGuestRefreshRateChange}
+          updatingGuestRefreshRate={updatingGuestRefreshRate}
+          guestRefreshRateLocked={guestRefreshRateLocked}
+          onGuestRefreshRateLockChange={onGuestRefreshRateLockChange}
+          updatingGuestRefreshRateLock={updatingGuestRefreshRateLock}
+          refreshRateOptions={translatedRefreshRateOptions}
+          defaultGuestPreferences={defaultGuestPreferences}
+          onUpdateDefaultPref={handleUpdateDefaultGuestPref}
+          updatingDefaultPref={updatingDefaultPref}
+          loadingDefaultPrefs={loadingDefaultPrefs}
+          onAllowedFormatsChange={handleAllowedFormatsChange}
+          updatingAllowedFormats={updatingAllowedFormats}
+        />
+      </div>
     </div>
   );
 };

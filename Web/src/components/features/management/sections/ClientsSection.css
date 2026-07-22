@@ -1,4 +1,4 @@
-/* ClientsSection — exclude-IP card control rows.
+/* ClientsSection — exclude-IP control rows inside AccordionSection bodies.
 
    Each "add IPs" / "known clients" row pairs a bordered control (the .themed-input
    text field or the MultiSelectDropdown .msd-trigger) with a borderless md Button.
@@ -23,24 +23,6 @@
   min-height: 2.5rem;
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
-}
-
-/* Flat card shell for the two page sections: icon-tile header with the body
-   below it, always visible (only two sections here, so no accordions). */
-.clients-card-header {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--theme-border-secondary);
-}
-
-/* Icon tile layout/size comes from the shared .icon-box .icon-box--sm primitive;
-   the card supplies only the colour via .icon-bg-* on the element. */
-
-.clients-card-body {
-  padding: 1rem 1.25rem 1.25rem;
 }
 
 /* The segmented mode toggle and the remove button sit in one action cluster;

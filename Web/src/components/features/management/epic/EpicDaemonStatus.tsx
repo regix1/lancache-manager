@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, XCircle } from 'lucide-react';
-import { Card } from '@components/ui/Card';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EpicIcon } from '@components/ui/EpicIcon';
@@ -35,6 +35,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -113,69 +114,65 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
 
   const isAuthenticated = authStatus?.isAuthenticated ?? false;
 
+  const statusBadge = !loading ? (
+    isAuthenticated ? (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
+        <CheckCircle size={14} />
+        {t('management.sections.integrations.epicDaemonStatus.connected')}
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
+        <XCircle size={14} />
+        {t('management.sections.integrations.epicDaemonStatus.notConnected')}
+      </span>
+    )
+  ) : undefined;
+
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection
+        title={t('management.sections.integrations.epicDaemonStatus.help.authentication.title')}
+        variant="subtle"
+      >
+        <HelpDefinition
+          items={[
+            {
+              term: t(
+                'management.sections.integrations.epicDaemonStatus.help.authentication.loginRequired.term'
+              ),
+              description: t(
+                'management.sections.integrations.epicDaemonStatus.help.authentication.loginRequired.description'
+              )
+            },
+            {
+              term: t(
+                'management.sections.integrations.epicDaemonStatus.help.authentication.gameDiscovery.term'
+              ),
+              description: t(
+                'management.sections.integrations.epicDaemonStatus.help.authentication.gameDiscovery.description'
+              )
+            }
+          ]}
+        />
+      </HelpSection>
+      <HelpNote type="info">
+        {t('management.sections.integrations.epicDaemonStatus.help.note')}
+      </HelpNote>
+    </HelpPopover>
+  );
+
   return (
     <>
-      {/* This component's root is a Fragment (Card + a sibling modal below), so
-          HighlightGlow's default first-child heuristic can't be trusted to always
-          land on the Card - mark it explicitly. */}
-      <Card className="highlight-glow-target">
-        {/* Header: Epic icon + Title + HelpPopover */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-epic-subtle)] text-[var(--theme-epic)]">
-            <EpicIcon size={20} />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary">
-            {t('management.sections.integrations.epicDaemonStatus.title')}
-          </h3>
-          <HelpPopover position="left" width={320}>
-            <HelpSection
-              title={t(
-                'management.sections.integrations.epicDaemonStatus.help.authentication.title'
-              )}
-              variant="subtle"
-            >
-              <HelpDefinition
-                items={[
-                  {
-                    term: t(
-                      'management.sections.integrations.epicDaemonStatus.help.authentication.loginRequired.term'
-                    ),
-                    description: t(
-                      'management.sections.integrations.epicDaemonStatus.help.authentication.loginRequired.description'
-                    )
-                  },
-                  {
-                    term: t(
-                      'management.sections.integrations.epicDaemonStatus.help.authentication.gameDiscovery.term'
-                    ),
-                    description: t(
-                      'management.sections.integrations.epicDaemonStatus.help.authentication.gameDiscovery.description'
-                    )
-                  }
-                ]}
-              />
-            </HelpSection>
-            <HelpNote type="info">
-              {t('management.sections.integrations.epicDaemonStatus.help.note')}
-            </HelpNote>
-          </HelpPopover>
-          {!loading && (
-            <div className="ml-auto flex-shrink-0">
-              {isAuthenticated ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-                  <CheckCircle size={14} />
-                  {t('management.sections.integrations.epicDaemonStatus.connected')}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-                  <XCircle size={14} />
-                  {t('management.sections.integrations.epicDaemonStatus.notConnected')}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
+      <AccordionSection
+        title={t('management.sections.integrations.epicDaemonStatus.title')}
+        description={t('management.sections.integrations.epicDaemonStatus.summary')}
+        titleAccessory={helpAccessory}
+        icon={EpicIcon}
+        iconColor="var(--theme-epic)"
+        isExpanded={expanded}
+        onToggle={() => setExpanded((prev) => !prev)}
+        badge={statusBadge}
+      >
         {loading ? (
           <LoadingState
             message={t(
@@ -186,7 +183,6 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
           />
         ) : (
           <>
-            {/* Error Warning */}
             {hasError && (
               <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
                 {t(
@@ -196,7 +192,6 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
               </div>
             )}
 
-            {/* Auth Status Row */}
             <div className="p-3 rounded-lg bg-themed-tertiary">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex-1 min-w-0">
@@ -237,13 +232,11 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
           </>
         )}
 
-        {/* Game Library (aggregated across all discovery sources) - collapsible dropdown */}
         <div className="mt-4">
           <EpicGameMappings />
         </div>
-      </Card>
+      </AccordionSection>
 
-      {/* Auth Modal */}
       <EpicAuthModal
         opened={showAuthModal}
         onClose={() => setShowAuthModal(false)}

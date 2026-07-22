@@ -431,3 +431,14 @@
 .control-h-md {
   min-height: 2.5rem !important;
 }
+
+/* Compact search input for toolbar clusters: pins the box to the 32px sm control
+   height so it lines up with size="sm" buttons and dropdowns beside it. Compound
+   with .themed-input so the height/padding win over the base input recipe
+   regardless of bundle order. Pair with a wrapper-positioned leading icon. */
+.themed-input.input-search-sm {
+  height: 2rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: var(--font-size-sm);
+}

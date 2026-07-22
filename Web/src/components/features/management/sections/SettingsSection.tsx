@@ -1,10 +1,12 @@
-import React, { useCallback, Suspense } from 'react';
+import React, { useCallback, useState, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shield, Sparkles, Settings, Gauge } from 'lucide-react';
-import { Card } from '@components/ui/Card';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import Badge from '@components/ui/Badge';
 import { useMockMode } from '@contexts/useMockMode';
+import { useAuth } from '@contexts/useAuth';
 import { useNotifications } from '@contexts/notifications';
 import AuthenticationManager from '../steam/AuthenticationManager';
 import DisplayPreferences from './DisplayPreferences';
@@ -18,9 +20,14 @@ interface SettingsSectionProps {
 const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled, isAdmin }) => {
   const { t } = useTranslation();
   const { mockMode, setMockMode } = useMockMode();
+  const { authenticationEnabled } = useAuth();
   const { addNotification } = useNotifications();
 
-  // Error/Success handlers for AuthenticationManager
+  const [apiAuthExpanded, setApiAuthExpanded] = useState(false);
+  const [demoModeExpanded, setDemoModeExpanded] = useState(false);
+  const [displayPrefsExpanded, setDisplayPrefsExpanded] = useState(false);
+  const [performanceExpanded, setPerformanceExpanded] = useState(false);
+
   const handleError = useCallback(
     (message: string) => {
       addNotification({
@@ -52,119 +59,151 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
       id="panel-settings"
       aria-labelledby="tab-settings"
     >
-      <div className="space-y-4">
-        {/* Authentication Card */}
-        <Card>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-green">
-              <Shield className="w-5 h-5 icon-green" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-themed-primary">
-                {t('management.sections.settings.apiAuth')}
-              </h3>
-            </div>
-          </div>
-          <AuthenticationManager onError={handleError} onSuccess={handleSuccess} />
-        </Card>
+      {/* SYSTEM */}
+      <div className="mb-6 sm:mb-8">
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('management.sections.settings.groupSystem')}
+          </h3>
+        </div>
 
-        {/* Demo Mode Card */}
-        <Card>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-              <Sparkles className="w-5 h-5 icon-purple" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-themed-primary">
-                {t('management.sections.settings.demoMode')}
-              </h3>
-            </div>
-          </div>
-          <div className="p-4 rounded-lg bg-themed-tertiary">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div className="flex-1">
-                <p className="text-themed-primary text-sm font-medium">
-                  {t('management.sections.settings.mockData')}
-                </p>
-              </div>
-              <Button
-                onClick={() => setMockMode(!mockMode)}
-                variant="filled"
-                color={mockMode ? 'blue' : 'gray'}
-                className="w-full sm:w-36"
-              >
+        <div className="space-y-4">
+          <AccordionSection
+            title={t('management.sections.settings.apiAuth')}
+            description={t('management.sections.settings.apiAuthDesc')}
+            icon={Shield}
+            iconColor="var(--theme-icon-green)"
+            isExpanded={apiAuthExpanded}
+            onToggle={() => setApiAuthExpanded((prev) => !prev)}
+            badge={
+              <Badge variant={authenticationEnabled ? 'success' : 'neutral'}>
+                {authenticationEnabled
+                  ? t('management.sections.settings.enabled')
+                  : t('management.sections.settings.disabled')}
+              </Badge>
+            }
+          >
+            <AuthenticationManager onError={handleError} onSuccess={handleSuccess} />
+          </AccordionSection>
+
+          <AccordionSection
+            title={t('management.sections.settings.demoMode')}
+            description={t('management.sections.settings.demoModeDesc')}
+            icon={Sparkles}
+            iconColor="var(--theme-icon-purple)"
+            isExpanded={demoModeExpanded}
+            onToggle={() => setDemoModeExpanded((prev) => !prev)}
+            badge={
+              <Badge variant={mockMode ? 'success' : 'neutral'}>
                 {mockMode
                   ? t('management.sections.settings.enabled')
                   : t('management.sections.settings.disabled')}
-              </Button>
-            </div>
-          </div>
-          {mockMode && (
-            <div className="mt-4">
-              <Alert color="blue">
-                <span className="text-sm">{t('management.sections.settings.mockModeActive')}</span>
-              </Alert>
-            </div>
-          )}
-        </Card>
-
-        {/* Display Preferences Card */}
-        <Card>
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-blue">
-              <Settings className="w-5 h-5 icon-blue" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-themed-primary">
-                {t('management.sections.settings.displayPreferences')}
-              </h3>
-            </div>
-          </div>
-          <DisplayPreferences />
-        </Card>
-
-        {/* Performance Optimizations Card */}
-        <Card>
-          <div className="flex items-center gap-3 mb-4">
-            <div
-              className={`w-10 h-10 rounded-lg flex items-center justify-center ${optimizationsEnabled ? 'icon-bg-orange' : 'icon-bg-gray'}`}
-            >
-              <Gauge className={`w-5 h-5 ${optimizationsEnabled ? 'icon-orange' : 'icon-gray'}`} />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-themed-primary">
-                {t('management.sections.settings.performanceOptimizations')}
-              </h3>
-            </div>
-          </div>
-          {optimizationsEnabled ? (
-            <Suspense
-              fallback={
-                <div className="flex items-center justify-center py-8">
-                  <div className="text-themed-muted">
-                    {t('management.sections.settings.loadingGcSettings')}
-                  </div>
+              </Badge>
+            }
+          >
+            <div className="p-4 rounded-lg bg-themed-tertiary">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex-1">
+                  <p className="text-themed-primary text-sm font-medium">
+                    {t('management.sections.settings.mockData')}
+                  </p>
                 </div>
-              }
-            >
-              <GcManager isAdmin={isAdmin} />
-            </Suspense>
-          ) : (
-            <Alert color="yellow">
-              <div className="min-w-0">
-                <p className="font-medium">
-                  {t('management.sections.settings.performanceOptimizationsDisabled')}
-                </p>
-                <p className="text-sm mt-1 mb-2">
-                  {t('management.sections.settings.performanceOptimizationsEnvVar')}
-                </p>
-                <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
-                  - Optimizations__EnableGarbageCollectionManagement=true
-                </pre>
+                <Button
+                  onClick={() => setMockMode(!mockMode)}
+                  variant="filled"
+                  color={mockMode ? 'blue' : 'gray'}
+                  className="w-full sm:w-36"
+                >
+                  {mockMode
+                    ? t('management.sections.settings.enabled')
+                    : t('management.sections.settings.disabled')}
+                </Button>
               </div>
-            </Alert>
-          )}
-        </Card>
+            </div>
+            {mockMode && (
+              <div className="mt-4">
+                <Alert color="blue">
+                  <span className="text-sm">
+                    {t('management.sections.settings.mockModeActive')}
+                  </span>
+                </Alert>
+              </div>
+            )}
+          </AccordionSection>
+        </div>
+      </div>
+
+      {/* PREFERENCES */}
+      <div className="mb-6 sm:mb-8">
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-purple)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('management.sections.settings.groupPreferences')}
+          </h3>
+        </div>
+
+        <div className="space-y-4">
+          <AccordionSection
+            title={t('management.sections.settings.displayPreferences')}
+            description={t('management.sections.settings.displayPreferencesDesc')}
+            icon={Settings}
+            iconColor="var(--theme-icon-blue)"
+            isExpanded={displayPrefsExpanded}
+            onToggle={() => setDisplayPrefsExpanded((prev) => !prev)}
+          >
+            <DisplayPreferences />
+          </AccordionSection>
+        </div>
+      </div>
+
+      {/* PERFORMANCE */}
+      <div>
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-orange)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('management.sections.settings.groupPerformance')}
+          </h3>
+        </div>
+
+        <div className="space-y-4">
+          <AccordionSection
+            title={t('management.sections.settings.performanceOptimizations')}
+            description={t('management.sections.settings.performanceOptimizationsDesc')}
+            icon={Gauge}
+            iconColor="var(--theme-icon-orange)"
+            isExpanded={performanceExpanded}
+            onToggle={() => setPerformanceExpanded((prev) => !prev)}
+          >
+            {optimizationsEnabled ? (
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center py-8">
+                    <div className="text-themed-muted">
+                      {t('management.sections.settings.loadingGcSettings')}
+                    </div>
+                  </div>
+                }
+              >
+                <GcManager isAdmin={isAdmin} />
+              </Suspense>
+            ) : (
+              <Alert color="yellow">
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    {t('management.sections.settings.performanceOptimizationsDisabled')}
+                  </p>
+                  <p className="text-sm mt-1 mb-2">
+                    {t('management.sections.settings.performanceOptimizationsEnvVar')}
+                  </p>
+                  <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
+                    - Optimizations__EnableGarbageCollectionManagement=true
+                  </pre>
+                </div>
+              </Alert>
+            )}
+          </AccordionSection>
+        </div>
       </div>
     </div>
   );

@@ -191,6 +191,12 @@
  * SESSION TOOLBAR (filter cluster + result meta + bulk actions)
  * ============================================== */
 
+/* Breathing room above and below the sessions toolbar controls so the filter
+   row does not sit cramped between the accordion header and the list. */
+.session-toolbar {
+  padding: 0.75rem 0;
+}
+
 .session-filter-cluster {
   display: flex;
   flex-wrap: wrap;

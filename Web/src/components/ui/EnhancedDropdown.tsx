@@ -695,7 +695,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                 {option.submenuTitle}
                               </div>
                             )}
-                            <CustomScrollbar maxHeight="240px" variant="float">
+                            <CustomScrollbar maxHeight="240px" variant="float" radius="none">
                               <div>
                                 {option.submenu.map((subItem) => {
                                   const isSubSelected =

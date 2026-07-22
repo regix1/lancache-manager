@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Palette, Lock, Unlock, Globe, MapPin, Monitor } from 'lucide-react';
-import { Card } from '@components/ui/Card';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
-import { AccordionSection } from '@components/ui/AccordionSection';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
+import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 
 interface AppearanceDisplayCardProps {
@@ -62,6 +62,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
   updatingAllowedFormats
 }) => {
   const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
   const [displayTogglesExpanded, setDisplayTogglesExpanded] = useState(false);
 
   const themeOptions = availableThemes.map((theme: { id: string; name: string }) => ({
@@ -119,144 +120,153 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
   };
 
   return (
-    <Card padding="none">
-      {/* Header */}
-      <div className="p-4 sm:p-5 border-b border-themed-secondary">
-        <h3 className="text-lg font-semibold flex items-center gap-2 text-themed-primary">
-          <Palette className="w-5 h-5 text-themed-accent" />
-          {t('user.guest.sections.appearanceDisplay')}
-        </h3>
-      </div>
-
-      <div className="p-4 sm:p-5 space-y-4">
-        {/* Two-column grid: Appearance + Date & Time */}
+    <AccordionSection
+      title={t('user.guest.sections.appearanceDisplay')}
+      description={t('user.guest.sections.appearanceDisplaySubtitle')}
+      icon={Palette}
+      iconColor="var(--theme-icon-purple)"
+      isExpanded={expanded}
+      onToggle={() => setExpanded((prev) => !prev)}
+      badge={
+        <Badge variant={guestRefreshRateLocked ? 'warning' : 'neutral'}>
+          {guestRefreshRateLocked
+            ? t('activeSessions.toggle.locked')
+            : t('activeSessions.toggle.unlocked')}
+        </Badge>
+      }
+    >
+      <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          {/* Left column: Appearance */}
-          <div className="user-settings-group">
-            <p className="mgmt-subhead caps-label">{t('user.guest.sections.appearance')}</p>
-            <div className="mgmt-list divided-list user-settings-list">
-              <div className="mgmt-row">
-                <div className="mgmt-row__body">
-                  <p className="mgmt-row__title">{t('user.guest.sections.defaultTheme')}</p>
+          <div className="well-surface user-settings-group-panel">
+            <div className="user-settings-group">
+              <p className="mgmt-subhead caps-label">{t('user.guest.sections.appearance')}</p>
+              <div className="mgmt-list divided-list user-settings-list">
+                <div className="mgmt-row">
+                  <div className="mgmt-row__body">
+                    <p className="mgmt-row__title">{t('user.guest.sections.defaultTheme')}</p>
+                  </div>
+                  <div className="mgmt-row__actions">
+                    <span className="user-settings-dropdown">
+                      <EnhancedDropdown
+                        options={themeOptions}
+                        value={defaultGuestTheme}
+                        onChange={onGuestThemeChange}
+                        disabled={updatingGuestTheme}
+                        size="md"
+                        className="w-40"
+                      />
+                      {updatingGuestTheme && (
+                        <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
+                      )}
+                    </span>
+                  </div>
                 </div>
-                <div className="mgmt-row__actions">
-                  <span className="user-settings-dropdown">
-                    <EnhancedDropdown
-                      options={themeOptions}
-                      value={defaultGuestTheme}
-                      onChange={onGuestThemeChange}
-                      disabled={updatingGuestTheme}
-                      size="md"
-                      className="w-40"
-                    />
-                    {updatingGuestTheme && (
-                      <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
-                    )}
-                  </span>
-                </div>
-              </div>
 
-              <div className="mgmt-row">
-                <div className="mgmt-row__body">
-                  <p className="mgmt-row__title">{t('user.guest.sections.refreshRate')}</p>
+                <div className="mgmt-row">
+                  <div className="mgmt-row__body">
+                    <p className="mgmt-row__title">{t('user.guest.sections.refreshRate')}</p>
+                  </div>
+                  <div className="mgmt-row__actions">
+                    <span className="user-settings-dropdown">
+                      <EnhancedDropdown
+                        options={refreshRateOptions}
+                        value={defaultGuestRefreshRate}
+                        onChange={onGuestRefreshRateChange}
+                        disabled={updatingGuestRefreshRate}
+                        size="md"
+                        className="w-40"
+                      />
+                      {updatingGuestRefreshRate && (
+                        <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
+                      )}
+                    </span>
+                  </div>
                 </div>
-                <div className="mgmt-row__actions">
-                  <span className="user-settings-dropdown">
-                    <EnhancedDropdown
-                      options={refreshRateOptions}
-                      value={defaultGuestRefreshRate}
-                      onChange={onGuestRefreshRateChange}
-                      disabled={updatingGuestRefreshRate}
-                      size="md"
-                      className="w-40"
-                    />
-                    {updatingGuestRefreshRate && (
-                      <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
-                    )}
-                  </span>
-                </div>
-              </div>
 
-              <div className="mgmt-row">
-                <div className="mgmt-row__body">
-                  <p className="mgmt-row__title flex items-center gap-1.5">
-                    {guestRefreshRateLocked ? (
-                      <Lock className="w-3.5 h-3.5 text-themed-accent" />
-                    ) : (
-                      <Unlock className="w-3.5 h-3.5 text-themed-accent" />
-                    )}
-                    {t('user.guest.preferences.lockRefreshRate.label')}
-                  </p>
-                  <p className="mgmt-row__meta">
-                    {t('user.guest.preferences.lockRefreshRate.description')}
-                  </p>
-                </div>
-                <div className="mgmt-row__actions">
-                  <ToggleSwitch
-                    options={onOffOptions()}
-                    value={guestRefreshRateLocked ? 'on' : 'off'}
-                    onChange={handleRefreshRateLockChange}
-                    loading={updatingGuestRefreshRateLock}
-                    size="sm"
-                  />
+                <div className="mgmt-row">
+                  <div className="mgmt-row__body">
+                    <p className="mgmt-row__title flex items-center gap-1.5">
+                      {guestRefreshRateLocked ? (
+                        <Lock className="w-3.5 h-3.5 text-themed-accent" />
+                      ) : (
+                        <Unlock className="w-3.5 h-3.5 text-themed-accent" />
+                      )}
+                      {t('user.guest.preferences.lockRefreshRate.label')}
+                    </p>
+                    <p className="mgmt-row__meta">
+                      {t('user.guest.preferences.lockRefreshRate.description')}
+                    </p>
+                  </div>
+                  <div className="mgmt-row__actions">
+                    <ToggleSwitch
+                      options={onOffOptions()}
+                      value={guestRefreshRateLocked ? 'on' : 'off'}
+                      onChange={handleRefreshRateLockChange}
+                      loading={updatingGuestRefreshRateLock}
+                      size="sm"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Right column: Date & Time */}
-          <div className="user-settings-group">
-            <p className="mgmt-subhead caps-label">{t('user.guest.sections.dateTime')}</p>
-            <div className="mgmt-list divided-list user-settings-list">
-              <div className="mgmt-row">
-                <div className="mgmt-row__body">
-                  <p className="mgmt-row__title">{t('user.guest.timeFormats.title')}</p>
-                  <p className="mgmt-row__meta">{t('user.guest.timeFormats.note')}</p>
+          <div className="well-surface user-settings-group-panel">
+            <div className="user-settings-group">
+              <p className="mgmt-subhead caps-label">{t('user.guest.sections.dateTime')}</p>
+              <div className="mgmt-list divided-list user-settings-list">
+                <div className="mgmt-row">
+                  <div className="mgmt-row__body">
+                    <p className="mgmt-row__title">{t('user.guest.timeFormats.title')}</p>
+                    <p className="mgmt-row__meta">{t('user.guest.timeFormats.note')}</p>
+                  </div>
+                  <div className="mgmt-row__actions">
+                    <span className="user-settings-dropdown">
+                      <MultiSelectDropdown
+                        options={timeFormatOptions}
+                        values={defaultGuestPreferences.allowedTimeFormats}
+                        onChange={onAllowedFormatsChange}
+                        placeholder={t('user.guest.timeFormats.placeholder')}
+                        minSelections={1}
+                        disabled={updatingAllowedFormats || loadingDefaultPrefs}
+                        dropdownWidth="w-80"
+                        className="w-full"
+                      />
+                      {updatingAllowedFormats && (
+                        <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
+                      )}
+                    </span>
+                  </div>
                 </div>
-                <div className="mgmt-row__actions">
-                  <span className="user-settings-dropdown">
-                    <MultiSelectDropdown
-                      options={timeFormatOptions}
-                      values={defaultGuestPreferences.allowedTimeFormats}
-                      onChange={onAllowedFormatsChange}
-                      placeholder={t('user.guest.timeFormats.placeholder')}
-                      minSelections={1}
-                      disabled={updatingAllowedFormats || loadingDefaultPrefs}
-                      dropdownWidth="w-80"
-                    />
-                    {updatingAllowedFormats && (
-                      <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
-                    )}
-                  </span>
-                </div>
-              </div>
 
-              <div className="mgmt-row">
-                <div className="mgmt-row__body">
-                  <p className="mgmt-row__title">{t('user.guest.preferences.showYear.label')}</p>
-                  <p className="mgmt-row__meta">
-                    {t('user.guest.preferences.showYear.description')}
-                  </p>
-                </div>
-                <div className="mgmt-row__actions">
-                  <ToggleSwitch
-                    options={onOffOptions()}
-                    value={defaultGuestPreferences.showYearInDates ? 'on' : 'off'}
-                    onChange={(value) => handlePrefToggleChange('showYearInDates', value)}
-                    disabled={loadingDefaultPrefs}
-                    loading={updatingDefaultPref === 'showYearInDates'}
-                    size="sm"
-                  />
+                <div className="mgmt-row">
+                  <div className="mgmt-row__body">
+                    <p className="mgmt-row__title">{t('user.guest.preferences.showYear.label')}</p>
+                    <p className="mgmt-row__meta">
+                      {t('user.guest.preferences.showYear.description')}
+                    </p>
+                  </div>
+                  <div className="mgmt-row__actions">
+                    <ToggleSwitch
+                      options={onOffOptions()}
+                      value={defaultGuestPreferences.showYearInDates ? 'on' : 'off'}
+                      onChange={(value) => handlePrefToggleChange('showYearInDates', value)}
+                      disabled={loadingDefaultPrefs}
+                      loading={updatingDefaultPref === 'showYearInDates'}
+                      size="sm"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Display Toggles - Accordion (collapsed by default) */}
         <AccordionSection
           title={t('user.guest.sections.display')}
           icon={Monitor}
+          iconColor="var(--theme-icon-blue)"
+          surface="well"
           isExpanded={displayTogglesExpanded}
           onToggle={handleDisplayTogglesToggle}
         >
@@ -324,7 +334,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
           </div>
         </AccordionSection>
       </div>
-    </Card>
+    </AccordionSection>
   );
 };
 

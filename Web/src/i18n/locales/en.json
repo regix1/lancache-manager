@@ -1058,6 +1058,10 @@
         },
         "confirm": "Clear All Guests"
       }
+    },
+    "groups": {
+      "sessions": "Sessions",
+      "guestDefaults": "Guest defaults"
     }
   },
   "actions": {
@@ -1073,7 +1077,8 @@
     "resultCount": "{{count}} session",
     "resultCount_other": "{{count}} sessions",
     "history": {
-      "title": "Session History"
+      "title": "Session History",
+      "summary": "Sessions that signed out or expired."
     },
     "unknownDevice": "Unknown Device",
     "labels": {
@@ -1261,7 +1266,9 @@
       "savePreferences": "Failed to save preferences",
       "updatePrefill": "Failed to update prefill permission",
       "logout": "Failed to log out"
-    }
+    },
+    "searchPlaceholder": "Search by device, IP, or browser",
+    "summary": "Devices signed in right now and their preferences."
   },
   "downloads": {
     "header": {
@@ -2106,7 +2113,10 @@
         "performanceOptimizationsDesc": "Garbage collection and memory management",
         "performanceOptimizationsDisabled": "Performance optimizations are disabled",
         "performanceOptimizationsEnvVar": "Add the following environment variable to your docker-compose.yml:",
-        "loadingGcSettings": "Loading GC settings..."
+        "loadingGcSettings": "Loading GC settings...",
+        "groupSystem": "System",
+        "groupPreferences": "Preferences",
+        "groupPerformance": "Performance"
       },
       "preferences": {
         "title": "Theme",
@@ -2134,7 +2144,8 @@
         "title": "Integration & Services",
         "subtitle": "Connect to Steam, configure Grafana endpoints, and manage external service integrations",
         "steamCard": {
-          "title": "Steam"
+          "title": "Steam",
+          "summary": "Steam sign-in and Web API access for naming games."
         },
         "steamIntegration": "Steam Integration",
         "monitoringMetrics": "Monitoring & Metrics",
@@ -2176,7 +2187,8 @@
               }
             },
             "note": "An encrypted OAuth refresh token is stored locally to allow automatic reconnection. It is used only for game library discovery."
-          }
+          },
+          "summary": "Epic daemon that signs in and identifies Epic downloads."
         },
         "battlenetDaemonStatus": {
           "title": "Battle.net",
@@ -2212,7 +2224,8 @@
               }
             },
             "note": "No credentials are stored. Battle.net prefill only downloads public Blizzard CDN content."
-          }
+          },
+          "summary": "Battle.net daemon for prefill sessions and game naming."
         },
         "riotDaemonStatus": {
           "title": "Riot Games",
@@ -2241,7 +2254,8 @@
               }
             },
             "note": "No login required. The daemon container only needs Docker to be available to run prefill sessions."
-          }
+          },
+          "summary": "Riot daemon for prefill sessions and game naming."
         },
         "xboxDaemonStatus": {
           "title": "Xbox",
@@ -2277,7 +2291,8 @@
               }
             },
             "note": "An encrypted token is stored locally to allow automatic reconnection. It is used only for game library discovery."
-          }
+          },
+          "summary": "Xbox daemon for prefill sessions and game naming."
         },
         "epicGameMappings": {
           "title": "Game Library",
@@ -2371,7 +2386,15 @@
         "errors": {
           "failedToUpdateExcluded": "Failed to update excluded IPs",
           "failedToLoadExcluded": "Failed to load excluded IPs"
-        }
+        },
+        "groupManagement": "Client Management"
+      },
+      "theme": {
+        "groupAppearance": "Appearance"
+      },
+      "prefillSessions": {
+        "groupSessions": "Sessions",
+        "groupHistory": "History"
       }
     },
     "cache": {
@@ -3375,7 +3398,7 @@
         "noThemes": "No community themes available",
         "allImported": {
           "title": "All themes imported!",
-          "description": "Click the eye icon to view installed themes"
+          "description": "All community themes are already imported. Use the section menu to show them again."
         },
         "showImported": "Show imported themes",
         "hideImported": "Hide imported themes",
@@ -3387,7 +3410,8 @@
         "importError": "Failed to import theme",
         "authRequired": "Authentication required to import themes",
         "autoUpdateSuccess": "Auto-updated {{count}} theme to latest version!",
-        "autoUpdateSuccess_other": "Auto-updated {{count}} themes to latest version!"
+        "autoUpdateSuccess_other": "Auto-updated {{count}} themes to latest version!",
+        "summary": "Ready-made themes you can import from GitHub."
       },
       "help": {
         "themeTypes": {
@@ -3417,7 +3441,9 @@
         "uploadFailed": "Failed to upload theme",
         "nameRequired": "Theme name cannot be empty",
         "deleteFailed": "Failed to delete theme"
-      }
+      },
+      "summary": "Pick the active theme and manage installed ones.",
+      "customizeSummary": "Tweak the active theme's colors and style."
     },
     "grafana": {
       "title": "Live API Endpoints for Grafana",
@@ -3511,7 +3537,8 @@
           "config": "Source: environment variable",
           "default": "Source: default"
         }
-      }
+      },
+      "summary": "Endpoints and settings for Grafana and Prometheus monitoring."
     },
     "gc": {
       "statusSection": "Status",
@@ -4113,7 +4140,8 @@
         },
         "prefilling": "Prefilling {{game}}",
         "prefillingGeneric": "Prefilling",
-        "tokenExpiresAt": "Re-login required by"
+        "tokenExpiresAt": "Re-login required by",
+        "summary": "Long-lived daemon containers managed from Schedules."
       },
       "tooltips": {
         "sessionActive": "Session is currently active in memory",
@@ -4137,7 +4165,8 @@
         "banned": "Banned: {{time}}",
         "reason": "Reason: {{reason}}",
         "expires": "Expires: {{time}}",
-        "liftedAt": "Lifted: {{time}}"
+        "liftedAt": "Lifted: {{time}}",
+        "summary": "Users blocked from starting new prefill sessions."
       },
       "modals": {
         "terminateAll": {
@@ -4167,7 +4196,9 @@
         "terminateSession": "Session terminated",
         "banUser": "User banned successfully",
         "liftBan": "Ban lifted successfully"
-      }
+      },
+      "liveSessionsSummary": "Prefill runs happening right now.",
+      "historySummary": "Past prefill runs and how they ended."
     },
     "clients": {
       "selectClients": "Select clients",
