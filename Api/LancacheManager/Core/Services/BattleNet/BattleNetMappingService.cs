@@ -77,7 +77,18 @@ public class BattleNetMappingService
             var segment = ExtractTactSegment(download.LastUrl);
             if (segment == null)
             {
-                continue;
+                // Some products publish a CDN path with no tpr/ prefix (btlr is
+                // cortez/Cerberus-B-Live), so fall back to the first path segment, but only
+                // when the catalog knows it. An unknown root is an arbitrary Blizzard-vhost
+                // path, not a product, and must stay unnamed without tripping the
+                // unmapped-segment warning below.
+                var rootSegment = ExtractCdnPathRootSegment(download.LastUrl);
+                if (rootSegment == null
+                    || _catalog.Value.Resolve(rootSegment).Kind == TactResolutionKind.Unknown)
+                {
+                    continue;
+                }
+                segment = rootSegment;
             }
 
             var resolution = _catalog.Value.Resolve(segment);
@@ -147,6 +158,19 @@ public class BattleNetMappingService
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// First path segment of a Blizzard CDN URL, lowercased: the CDN path root for
+    /// products that publish a non-tpr path (verified against the live cdns configs,
+    /// btlr uses <c>cortez/Cerberus-B-Live</c>). Callers must catalog-gate the result;
+    /// an arbitrary path also has a first segment.
+    /// </summary>
+    internal static string? ExtractCdnPathRootSegment(string url)
+    {
+        if (string.IsNullOrEmpty(url)) return null;
+        var segments = url.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 0 ? null : segments[0].ToLowerInvariant();
     }
 
     private TactCatalog LoadCatalog()

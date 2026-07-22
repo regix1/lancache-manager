@@ -89,9 +89,12 @@ fn catalog() -> &'static Catalog {
 
 /// Parse the TACT CDN-path / product segment from a Blizzard CDN request URL.
 ///
-/// Blizzard lancache URLs follow the pattern `/tpr/<seg>/...` where `<seg>` is the
-/// CDN path (usually the TACT product code). Returns the lowercased segment, or
-/// `None` if the URL does not contain a `/tpr/<segment>/` path.
+/// Most products publish a `tpr/<seg>/...` CDN path where `<seg>` is the TACT product
+/// code (or a path alias). A few publish a path with NO `tpr/` prefix: verified against
+/// the live `/cdns` configs, `btlr` is `cortez/Cerberus-B-Live` while every other
+/// catalog product is `tpr/<code>`. When `tpr` is absent the FIRST path segment is the
+/// CDN path root, and that fallback is accepted ONLY when the catalog resolves it, so
+/// arbitrary Blizzard-vhost paths keep returning `None` instead of inventing segments.
 ///
 /// Unlike the old implementation this does NOT special-case `configs`: the shared
 /// segments are now resolved (to the shared label) rather than dropped, so the
@@ -100,12 +103,19 @@ fn catalog() -> &'static Catalog {
 pub(crate) fn extract_tact_product(url: &str) -> Option<String> {
     let segments: Vec<&str> = url.split('/').filter(|s| !s.is_empty()).collect();
     // Find the "tpr" segment and take the following segment as the CDN path / product code.
-    let tpr_idx = segments.iter().position(|&s| s == "tpr")?;
-    let product = segments.get(tpr_idx + 1)?;
-    if product.is_empty() {
-        return None;
+    if let Some(tpr_idx) = segments.iter().position(|&s| s == "tpr") {
+        let product = segments.get(tpr_idx + 1)?;
+        if product.is_empty() {
+            return None;
+        }
+        return Some(product.to_lowercase());
     }
-    Some(product.to_lowercase())
+
+    let first = segments.first()?.to_lowercase();
+    match resolve_tact_segment(&first) {
+        TactResolution::Unknown => None,
+        _ => Some(first),
+    }
 }
 
 /// Resolve a TACT CDN-path / product segment to a game name, shared label, or unknown.
@@ -129,6 +139,27 @@ pub(crate) fn resolve_tact_segment(segment: &str) -> TactResolution {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_tact_product_falls_back_to_catalog_known_path_root() {
+        // btlr publishes a non-tpr CDN path (cortez/Cerberus-B-Live).
+        assert_eq!(
+            extract_tact_product("/cortez/Cerberus-B-Live/data/81/1d/811de194873df83c").as_deref(),
+            Some("cortez")
+        );
+        assert_eq!(
+            resolve_tact_segment("cortez"),
+            TactResolution::Game("Call of Duty: Black Ops 6".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_tact_product_rejects_unknown_path_roots() {
+        // Arbitrary Blizzard-vhost paths must not invent product segments.
+        assert_eq!(extract_tact_product("/filestreamingservice/files/abc"), None);
+        assert_eq!(extract_tact_product("/Cerberus-B-Live/data/81/1d/abc"), None);
+        assert_eq!(extract_tact_product("/"), None);
+    }
 
     #[test]
     fn extract_tact_product_parses_product_segment() {
