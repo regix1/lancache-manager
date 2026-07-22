@@ -174,11 +174,15 @@ const LINE_BUFFER_CAPACITY: usize = 1024;
 const LOG_ENTRY_INSERT_SQL: &str = r#"INSERT INTO "LogEntries" ("Timestamp", "ClientIp", "Service", "Method", "HttpRange", "Url", "StatusCode", "BytesServed", "CacheStatus", "DepotId", "DownloadId", "CreatedAt", "Datasource")
        SELECT * FROM UNNEST($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::int[], $8::bigint[], $9::text[], $10::bigint[], $11::bigint[], $12::timestamptz[], $13::text[])"#;
 
-/// Character limit of the bounded "Method" and "CacheStatus" varchar(16) columns on
-/// "LogEntries". Values are clamped to it before insert so a single oversized token
-/// cannot abort the whole batch transaction, which is what happened when varchar(10)
-/// rejected nginx's REVALIDATED status and zero entries from the batch survived.
+/// Character limits for bounded string columns on "LogEntries". Every value is clamped
+/// to its varchar width before insert so one oversized value from any service cannot
+/// abort the whole batch transaction.
+const LOG_ENTRY_CLIENT_IP_MAX_CHARS: usize = 50;
+const LOG_ENTRY_SERVICE_MAX_CHARS: usize = 50;
 const LOG_ENTRY_VARCHAR_MAX_CHARS: usize = 16;
+const LOG_ENTRY_HTTP_RANGE_MAX_CHARS: usize = 2000;
+const LOG_ENTRY_URL_MAX_CHARS: usize = 2000;
+const LOG_ENTRY_DATASOURCE_MAX_CHARS: usize = 100;
 
 /// Clamp a value to a column's character limit without splitting a char boundary.
 fn clamp_chars(value: &str, max_chars: usize) -> String {
@@ -1927,18 +1931,18 @@ impl Processor {
         for entry in &new_entries {
             pending_inserts.push(PendingLogEntry {
                 timestamp: Utc.from_utc_datetime(&entry.timestamp),
-                client_ip: entry.client_ip.clone(),
-                service: entry.service.clone(),
+                client_ip: clamp_chars(&entry.client_ip, LOG_ENTRY_CLIENT_IP_MAX_CHARS),
+                service: clamp_chars(&entry.service, LOG_ENTRY_SERVICE_MAX_CHARS),
                 method: clamp_chars(&entry.method, LOG_ENTRY_VARCHAR_MAX_CHARS),
-                http_range: entry.http_range.clone(),
-                url: entry.url.clone(),
+                http_range: clamp_chars(&entry.http_range, LOG_ENTRY_HTTP_RANGE_MAX_CHARS),
+                url: clamp_chars(&entry.url, LOG_ENTRY_URL_MAX_CHARS),
                 status_code: entry.status_code,
                 bytes_served: entry.bytes_served,
                 cache_status: clamp_chars(&entry.cache_status, LOG_ENTRY_VARCHAR_MAX_CHARS),
                 depot_id: entry.depot_id.map(|d| d as i64),
                 download_id,
                 created_at: now,
-                datasource: self.datasource_name.clone(),
+                datasource: clamp_chars(&self.datasource_name, LOG_ENTRY_DATASOURCE_MAX_CHARS),
             });
         }
 
@@ -2475,7 +2479,11 @@ mod classification_tests {
 
 #[cfg(test)]
 mod log_entry_clamp_tests {
-    use super::{clamp_chars, LOG_ENTRY_VARCHAR_MAX_CHARS};
+    use super::{
+        clamp_chars, LOG_ENTRY_CLIENT_IP_MAX_CHARS, LOG_ENTRY_DATASOURCE_MAX_CHARS,
+        LOG_ENTRY_HTTP_RANGE_MAX_CHARS, LOG_ENTRY_SERVICE_MAX_CHARS,
+        LOG_ENTRY_URL_MAX_CHARS, LOG_ENTRY_VARCHAR_MAX_CHARS,
+    };
 
     #[test]
     fn values_within_the_column_limit_pass_through_unchanged() {
@@ -2500,6 +2508,47 @@ mod log_entry_clamp_tests {
         let clamped = clamp_chars(&multibyte, LOG_ENTRY_VARCHAR_MAX_CHARS);
         assert_eq!(clamped.chars().count(), LOG_ENTRY_VARCHAR_MAX_CHARS);
         assert!(multibyte.starts_with(&clamped));
+    }
+
+    #[test]
+    fn oversized_http_range_clamps_to_its_column_limit() {
+        let oversized = format!("bytes={}", "0-100,".repeat(400));
+        let clamped = clamp_chars(&oversized, LOG_ENTRY_HTTP_RANGE_MAX_CHARS);
+        assert_eq!(clamped.chars().count(), LOG_ENTRY_HTTP_RANGE_MAX_CHARS);
+    }
+
+    #[test]
+    fn oversized_url_clamps_to_its_column_limit() {
+        let oversized = "u".repeat(LOG_ENTRY_URL_MAX_CHARS + 1);
+        let clamped = clamp_chars(&oversized, LOG_ENTRY_URL_MAX_CHARS);
+        assert_eq!(clamped.chars().count(), LOG_ENTRY_URL_MAX_CHARS);
+    }
+
+    #[test]
+    fn oversized_client_ip_clamps_to_its_column_limit() {
+        let oversized = "1".repeat(LOG_ENTRY_CLIENT_IP_MAX_CHARS + 1);
+        let clamped = clamp_chars(&oversized, LOG_ENTRY_CLIENT_IP_MAX_CHARS);
+        assert_eq!(clamped.chars().count(), LOG_ENTRY_CLIENT_IP_MAX_CHARS);
+    }
+
+    #[test]
+    fn oversized_service_clamps_to_its_column_limit() {
+        let oversized = "s".repeat(LOG_ENTRY_SERVICE_MAX_CHARS + 1);
+        let clamped = clamp_chars(&oversized, LOG_ENTRY_SERVICE_MAX_CHARS);
+        assert_eq!(clamped.chars().count(), LOG_ENTRY_SERVICE_MAX_CHARS);
+    }
+
+    #[test]
+    fn oversized_datasource_clamps_to_its_column_limit() {
+        let oversized = "d".repeat(LOG_ENTRY_DATASOURCE_MAX_CHARS + 1);
+        let clamped = clamp_chars(&oversized, LOG_ENTRY_DATASOURCE_MAX_CHARS);
+        assert_eq!(clamped.chars().count(), LOG_ENTRY_DATASOURCE_MAX_CHARS);
+    }
+
+    #[test]
+    fn normal_http_range_passes_through_unchanged() {
+        let normal = "bytes=0-1048575";
+        assert_eq!(clamp_chars(normal, LOG_ENTRY_HTTP_RANGE_MAX_CHARS), normal);
     }
 }
 

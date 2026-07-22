@@ -36,10 +36,11 @@ public class LogEntryRecord
     public string CacheStatus { get; set; } = string.Empty;
 
     /// <summary>
-    /// Raw HTTP Range request value for newly ingested access-log rows. Historical
-    /// rows remain null and are retained by range-specific cleanup.
+    /// Raw HTTP Range request value, including multi-range headers, for newly ingested
+    /// access-log rows. The processor clamps it to the column width. Historical rows
+    /// remain null and are retained by range-specific cleanup.
     /// </summary>
-    [MaxLength(200)]
+    [MaxLength(2000)]
     public string? HttpRange { get; set; }
 
     public long? DepotId { get; set; }
