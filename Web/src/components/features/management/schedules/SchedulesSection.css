@@ -213,6 +213,9 @@
 
 .schedule-task-flags .schedule-task-flag {
   width: 100%;
+  /* Height in the shared rule, not per variant: the outline variants carry a border
+     the filled ones don't, which otherwise leaves sibling pills 2px apart in height. */
+  height: 1.125rem;
   justify-content: center;
   text-align: center;
   font-size: var(--font-size-2xs);

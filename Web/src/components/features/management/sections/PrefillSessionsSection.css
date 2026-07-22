@@ -145,6 +145,17 @@
   gap: 0.5rem;
 }
 
+/* Status / platform / Persistent pills share one fixed width and height so they read
+   as aligned columns across session rows whatever each label's length - the same
+   fixed-slot recipe as the schedules table's settings pills. */
+.prefill-session-header .themed-badge {
+  width: 6.5rem;
+  height: 1.125rem;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .prefill-session-username {
   display: flex;
   align-items: center;
@@ -321,8 +332,16 @@
   }
 }
 
-/* History Status Badges */
+/* History Status Badges. Fixed width and height, not content-sized: the pill sits at
+   the end of every entry row, so a shared size keeps the rail aligned down the list. */
 .prefill-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 6.5rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 0.0625rem 0.375rem;
   border-radius: var(--theme-border-radius, 0.5rem);
   font-size: var(--font-size-2xs);
