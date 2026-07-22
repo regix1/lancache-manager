@@ -280,6 +280,12 @@
   }
 }
 
+/* The run button's text label only exists on folded mobile tiles (see the 767px
+   block); in the desktop table the play glyph alone is the whole button. */
+.schedule-run-label {
+  display: none;
+}
+
 .schedule-chevron svg {
   transition: transform 0.2s ease;
 }
@@ -361,6 +367,36 @@
   .schedule-cell-interval,
   .schedule-cell-actions {
     grid-column: 1 / -1;
+  }
+
+  .schedule-cell-actions {
+    gap: 0.5rem;
+  }
+
+  /* Run Now regains its label and field chrome on the folded tiles: an unlabeled
+     ghost glyph floating in a mostly-empty line read as decoration, and stretching
+     the button restores the full-width tap target the fold had before the icon
+     pass. The slot is the flex item (Tooltip wraps the button), so it stretches
+     and the button fills it. */
+  .schedule-cell-actions > .schedule-action-slot {
+    flex: 1 1 auto;
+  }
+
+  .schedule-icon-btn.schedule-run-now {
+    width: 100%;
+    background-color: var(--theme-bg-surface);
+    border: 1px solid var(--theme-border-secondary);
+    color: var(--theme-text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+  }
+
+  .schedule-run-now .schedule-run-icon {
+    display: none;
+  }
+
+  .schedule-run-now .schedule-run-label {
+    display: inline;
   }
 
   /* Base type from shared .caps-label; this label reads at weight 500 not 600.

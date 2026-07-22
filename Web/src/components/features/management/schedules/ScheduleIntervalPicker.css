@@ -7,37 +7,42 @@
    rows doesn't render a column of bordered fields; the field chrome (surface + border)
    returns on hover, keyboard focus and while the menu is open. The base trigger fill in
    dropdowns.css is !important, so the background overrides must be !important too, with
-   the compound selectors deciding the tie deterministically whatever the bundle order. */
-.schedule-interval-picker--ghost .ed-trigger {
-  background-color: transparent !important;
-  border-color: transparent;
-  /* Content width so the dropdown arrow hugs its label: the full-width trigger parked
+   the compound selectors deciding the tie deterministically whatever the bundle order.
+   DESKTOP TABLE ONLY: below 768px the schedule rows fold into tiles and the picker
+   reverts to the plain bordered field, which aligns under its caps label and gives a
+   full-width touch target (borderless text reads as static copy on a phone). */
+@media (min-width: 768px) {
+  .schedule-interval-picker--ghost .ed-trigger {
+    background-color: transparent !important;
+    border-color: transparent;
+    /* Content width so the dropdown arrow hugs its label: the full-width trigger parked
      the arrow at the far column edge, where it read as one confusing icon run with the
      row's play + expand buttons. */
-  width: auto;
-  max-width: 100%;
-  /* Tighter inline padding, pulled left by its own width so the label TEXT (not the
+    width: auto;
+    max-width: 100%;
+    /* Tighter inline padding, pulled left by its own width so the label TEXT (not the
      ghost hover pill) sits on the column edge, aligned under the head label. */
-  padding-inline: 0.5rem;
-  margin-left: -0.5rem;
-}
+    padding-inline: 0.5rem;
+    margin-left: -0.5rem;
+  }
 
-/* The trigger's label div is flex-1, so at content width the arrow lands flush against
+  /* The trigger's label div is flex-1, so at content width the arrow lands flush against
    the text; a small margin on the arrow itself restores the gap without the flex-gap
    truncation trap fixed-width callers have. */
-.schedule-interval-picker--ghost .ed-trigger > svg:last-child {
-  margin-left: 0.375rem;
-}
+  .schedule-interval-picker--ghost .ed-trigger > svg:last-child {
+    margin-left: 0.375rem;
+  }
 
-.schedule-interval-picker--ghost .ed-trigger:hover:not(:disabled),
-.schedule-interval-picker--ghost .ed-trigger:focus-visible {
-  background-color: var(--theme-bg-surface) !important;
-  border-color: var(--theme-border-secondary);
-}
+  .schedule-interval-picker--ghost .ed-trigger:hover:not(:disabled),
+  .schedule-interval-picker--ghost .ed-trigger:focus-visible {
+    background-color: var(--theme-bg-surface) !important;
+    border-color: var(--theme-border-secondary);
+  }
 
-.schedule-interval-picker--ghost .ed-trigger.ed-trigger--open {
-  background-color: var(--theme-bg-surface) !important;
-  border-color: var(--theme-border-focus);
+  .schedule-interval-picker--ghost .ed-trigger.ed-trigger--open {
+    background-color: var(--theme-bg-surface) !important;
+    border-color: var(--theme-border-focus);
+  }
 }
 
 /* Minutes editor for the Custom option: an anchored popover, not an in-flow row, so

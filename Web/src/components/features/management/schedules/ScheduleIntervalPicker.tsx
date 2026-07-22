@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, memo } from '
 import { useTranslation } from 'react-i18next';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Button } from '@components/ui/Button';
+import { useMediaQuery } from '@hooks/useMediaQuery';
 import { getScheduleIntervalOptions } from './constants';
 import './ScheduleIntervalPicker.css';
 
@@ -46,6 +47,9 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // The ghost treatment only exists in the desktop table (its CSS is scoped to the
+  // same breakpoint); on folded mobile tiles the picker is a plain full-width field.
+  const isTableLayout = useMediaQuery('(min-width: 768px)');
 
   // A sub-hour interval displays as a regular "Every N minutes" option in the closed
   // trigger; the minutes editor only exists while this popover is open. The editor
@@ -160,10 +164,11 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
         onChange={handleDropdownChange}
         disabled={isDisabled}
         variant="button"
-        /* The menu defaults to the trigger's width, and the ghost trigger is
+        /* The menu defaults to the trigger's width, and the desktop ghost trigger is
            content-sized - a short value like "Daily" would leave the menu too narrow
-           for its longest options, truncating them. */
-        dropdownWidth={variant === 'ghost' ? '12rem' : undefined}
+           for its longest options, truncating them. On mobile the trigger is a
+           full-width field again, so the menu should follow it. */
+        dropdownWidth={variant === 'ghost' && isTableLayout ? '12rem' : undefined}
       />
       {customOpen && (
         <div

@@ -473,7 +473,17 @@ const ScheduleRow = memo(function ScheduleRow({
                 disabled={isDisabled || isDimmed}
                 aria-label={t('management.schedules.runNow')}
               >
-                {isRunningThis ? <LoadingSpinner size="xs" inline /> : <Play className="w-4 h-4" />}
+                {isRunningThis ? (
+                  <LoadingSpinner size="xs" inline />
+                ) : (
+                  <>
+                    {/* Desktop shows the glyph, phones swap it for the label (CSS):
+                    icon-only reads fine in a table's action rail but as decoration
+                    on a stretched tile button. */}
+                    <Play className="w-4 h-4 schedule-run-icon" />
+                    <span className="schedule-run-label">{t('management.schedules.runNow')}</span>
+                  </>
+                )}
               </button>
             </Tooltip>
             {hasDetail && (
