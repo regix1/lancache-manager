@@ -160,6 +160,10 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
         onChange={handleDropdownChange}
         disabled={isDisabled}
         variant="button"
+        /* The menu defaults to the trigger's width, and the ghost trigger is
+           content-sized - a short value like "Daily" would leave the menu too narrow
+           for its longest options, truncating them. */
+        dropdownWidth={variant === 'ghost' ? '12rem' : undefined}
       />
       {customOpen && (
         <div
