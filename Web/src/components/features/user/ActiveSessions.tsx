@@ -1497,7 +1497,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       value={String(pageSize)}
                       onChange={handlePageSizeChange}
                       prefix={t('downloads.tab.filters.showPrefix')}
-                      className="min-w-[5.5rem]"
+                      className="min-w-[6.5rem]"
                       dropdownWidth="100px"
                     />
                   </div>

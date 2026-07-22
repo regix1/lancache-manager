@@ -96,35 +96,21 @@
 }
 
 /* Shared column grid for the head strip and every row: task identity, the two
-   readouts, the interval picker, the settings pills, then the actions cluster.
+   readouts, the interval picker, then the actions cluster.
    Every track is width-deterministic (fr or fixed rem) on purpose: the head and each
    row are SEPARATE grids sharing this template, so a content-sized track (auto /
    max-content) would resolve differently in the head (empty actions cell) than in the
    rows and shear every column edge - that was exactly the header-vs-value
    misalignment bug on the readout columns. */
 .schedule-table-cols {
-  /* Column-air knobs. Desktop gets the roomier values; the 768-1023px band drops
-     back to the compact originals below - the extra air otherwise comes straight
-     out of the flexible text columns, crushing the task cell on tablets. The
-     settings track is always pill width (7.25rem) + its left and right inline
-     padding, so the pills keep their width. The right pad is deliberately larger:
-     it is the Settings <-> Run every separation, and widening it pulls space out
-     of the flexible task column (the widest fr track), which has room to give. */
+  /* The 768-1023px band drops the gap back to a compact value below - extra air
+     otherwise comes straight out of the flexible text columns, crushing the task
+     cell on tablets. */
   --schedule-col-gap: 1.25rem;
-  --schedule-settings-pad: 2.25rem;
-  --schedule-settings-pad-right: 6rem;
-  --schedule-settings-track: calc(
-    7.25rem + var(--schedule-settings-pad) + var(--schedule-settings-pad-right)
-  );
-  /* The Run Now / chevron cluster is right-aligned in this track, so widening it
-     past the cluster's own ~8.25rem leaves the slack on the LEFT - that slack plus
-     the column gap is the breathing room between the Run Every dropdown and Run
-     Now, without shifting the chevron off the table's right edge. */
-  --schedule-actions-track: 11rem;
   display: grid;
   grid-template-columns:
-    minmax(0, 2.5fr) minmax(0, 0.85fr) minmax(0, 1.05fr) var(--schedule-settings-track)
-    minmax(9.5rem, 11rem) var(--schedule-actions-track);
+    minmax(0, 2.6fr) minmax(0, 0.9fr) minmax(0, 1.1fr) minmax(10rem, 11.5rem)
+    6rem;
   gap: var(--schedule-col-gap);
   align-items: center;
   padding: 0 1rem;
@@ -204,11 +190,42 @@
   flex-shrink: 0;
 }
 
-/* Full description, wrapping - rows size to their own content. */
-.schedule-task-meta {
-  font-size: var(--font-size-xs);
-  color: var(--theme-text-muted);
-  line-height: 1.45;
+/* Settings-at-a-glance pills under the task name: one horizontal row of FIXED-WIDTH
+   slots, not content-sized chips, so pill N sits at the same x with the same width in
+   every row whatever each label's length. (A grid with auto-fill tracks collapses to
+   one column here - the task cell's width is indefinite during flex layout - which
+   stacked the pills vertically; fixed-width flex slots keep the row horizontal and
+   wrap only when the cell genuinely runs out of room.) */
+.schedule-task-flags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.125rem;
+  min-width: 0;
+}
+
+.schedule-flag-slot {
+  display: flex;
+  width: 6.5rem;
+  flex-shrink: 0;
+}
+
+.schedule-task-flags .schedule-task-flag {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+  font-size: var(--font-size-2xs);
+  white-space: nowrap;
+}
+
+/* Tooltip wrappers around row text need an inline footprint so the hover area hugs
+   the text instead of stretching to the cell edge. */
+.schedule-countdown-slot,
+.schedule-action-slot {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .schedule-cell {
@@ -225,30 +242,9 @@
   gap: 0.375rem;
 }
 
-/* Settings pills: a vertical stack filling its fixed column, so every pill in the
-   table shares one width and one left/right edge instead of sizing to its own label. */
-.schedule-cell-flags {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.25rem;
-  min-width: 0;
-}
-
-.schedule-flag-slot {
-  display: flex;
-}
-
-.schedule-cell-flags .schedule-flag {
-  width: 100%;
-  justify-content: center;
-  text-align: center;
-  white-space: nowrap;
-}
-
-/* Expand affordance sized to the Run Now button beside it (one height per cluster;
-   both match the 2.5rem ed-trigger via .control-h-md). */
-.schedule-chevron {
+/* Quiet square icon buttons for the row actions (Run Now play + expand chevron):
+   one 2.5rem footprint matching the ed-trigger height, no chrome at rest. */
+.schedule-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -264,10 +260,20 @@
     color 0.15s ease;
 }
 
+.schedule-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 @media (hover: hover) {
-  .schedule-chevron:hover {
+  .schedule-icon-btn:hover:not(:disabled) {
     background-color: var(--theme-bg-hover);
     color: var(--theme-text-secondary);
+  }
+
+  /* Run Now is the row's primary action; its hover picks up the accent. */
+  .schedule-run-now:hover:not(:disabled) {
+    color: var(--theme-text-accent);
   }
 }
 
@@ -288,6 +294,14 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+/* One-line service summary at the top of the detail well. */
+.schedule-detail-summary {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-muted);
+  line-height: 1.45;
 }
 
 /* Fixed label column + fixed control column, grouped left with a single gap - NOT
@@ -342,30 +356,8 @@
 
   .schedule-cell-task,
   .schedule-cell-interval,
-  .schedule-cell-flags,
   .schedule-cell-actions {
     grid-column: 1 / -1;
-  }
-
-  .schedule-cell-actions {
-    justify-content: flex-start;
-  }
-
-  /* Run Now stretches to fill the line (minus the chevron) instead of sitting at the
-     left edge of a mostly-empty row - bigger tap target, no dead space. */
-  .schedule-cell-actions > :first-child {
-    flex: 1 1 auto;
-  }
-
-  /* Pills switch to one wrapping row; a shared floor keeps them equal-width here too. */
-  .schedule-cell-flags {
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-
-  .schedule-cell-flags .schedule-flag {
-    width: auto;
-    min-width: 6.5rem;
   }
 
   /* Base type from shared .caps-label; this label reads at weight 500 not 600.
@@ -393,25 +385,12 @@
   .schedule-cell-label {
     display: none;
   }
-
-  /* Grid has no per-column gap, so the settings column carries its own inline padding
-     to sit clear of the readouts on its left and the interval picker on its right.
-     Targeted by position so the head label and the row pills inset identically (both
-     grids share the template; column 4 is the settings column in each). The settings
-     track is pill width plus both pads, so the pills keep their width. */
-  .schedule-table-cols > :nth-child(4) {
-    padding-inline: var(--schedule-settings-pad) var(--schedule-settings-pad-right);
-  }
 }
 
-/* Tablet band: the compact original spacing - see the knobs comment above. The
-   track re-derives from the calc, so only the pads need restating here. */
+/* Tablet band: compact gap - see the knob comment above. */
 @media (min-width: 768px) and (max-width: 1023px) {
   .schedule-table-cols {
     --schedule-col-gap: 0.75rem;
-    --schedule-settings-pad: 0.75rem;
-    --schedule-settings-pad-right: 0.75rem;
-    --schedule-actions-track: 8.25rem;
   }
 }
 
@@ -535,12 +514,6 @@
 .schedule-timing-value {
   font-size: var(--font-size-base);
   color: var(--theme-text-secondary);
-}
-
-.schedule-next-run-date {
-  font-size: var(--font-size-xs);
-  color: var(--theme-text-muted);
-  margin-top: 0.125rem;
 }
 
 .schedule-countdown {

@@ -90,7 +90,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         onToggle();
       }}
       className={`flex items-center justify-center ${
-        surface === 'well' ? 'w-7 h-7 themed-border-radius-sm' : 'w-10 h-10 themed-border-radius'
+        surface === 'well' ? 'w-7 h-7 themed-border-radius-sm' : 'w-10 h-10 themed-border-radius-sm'
       } transition duration-300 flex-shrink-0 ${
         isExpanded ? 'bg-[var(--theme-accent-subtle)]' : 'bg-transparent hover:bg-themed-tertiary'
       }`}

@@ -133,8 +133,8 @@ const StatCard: React.FC<StatCardProps> = ({
             </div>
           ) : null}
         </div>
-        <div className="stat-card-icon p-3 rounded-lg flex-shrink-0" data-color={color}>
-          <Icon className="w-6 h-6 text-[var(--theme-button-text)]" />
+        <div className="stat-card-icon p-2.5 rounded-lg flex-shrink-0" data-color={color}>
+          <Icon className="w-5 h-5 text-[var(--theme-button-text)]" />
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import './SchedulesSection.css';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Play } from 'lucide-react';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -74,7 +74,10 @@ const CountdownDisplay = memo(function CountdownDisplay({
   if (secondsRemaining <= 0) {
     display = t('management.schedules.soon');
   } else if (h > 0) {
-    display = `${h}h ${m}m ${s}s`;
+    // Minute precision an hour out: a dozen rows each ticking a seconds digit reads
+    // as constant motion across the table. Seconds only appear inside the final hour,
+    // where imminence is the information.
+    display = `${h}h ${m}m`;
   } else if (m > 0) {
     display = `${m}m ${s}s`;
   } else {
@@ -304,6 +307,10 @@ const ScheduleRow = memo(function ScheduleRow({
   // feel instant; there's no UX benefit to disabling siblings mid-save.
   const isDisabled = !isAdmin || isRunningThis;
 
+  // Settings-at-a-glance under the task name; the detail well below stays the place
+  // where they are edited.
+  const hasSettingsFlags = hasStartupToggle || service.supportsNotifications || isDepotMapping;
+
   return (
     <HighlightGlow enabled={justCompleted} variant={completedVariant}>
       <div
@@ -345,9 +352,69 @@ const ScheduleRow = memo(function ScheduleRow({
                   </HelpPopover>
                 </span>
               </span>
-              <span className="schedule-task-meta">
-                {t(`management.schedules.services.${service.key}.summary`)}
-              </span>
+              {/* Compact pills, same colour axes as the scheduled-prefill platform
+              badges: filled purple = all runs, filled blue = manual only, dotted
+              outline = silent. Each tooltip pairs the value with its label. */}
+              {hasSettingsFlags && (
+                <span className="schedule-task-flags">
+                  {hasStartupToggle && (
+                    <Tooltip
+                      content={`${t('management.schedules.runOnStartup')}: ${service.runOnStartup ? t('management.schedules.toggleOn') : t('management.schedules.toggleOff')}`}
+                      className="schedule-flag-slot"
+                    >
+                      <Badge
+                        variant={service.runOnStartup ? 'success' : 'neutral'}
+                        className="schedule-task-flag"
+                      >
+                        {service.runOnStartup
+                          ? t('management.schedules.startupOn')
+                          : t('management.schedules.startupOff')}
+                      </Badge>
+                    </Tooltip>
+                  )}
+                  {service.supportsNotifications && (
+                    <>
+                      <Tooltip
+                        content={`${t('management.schedules.notificationsLabel')}: ${t(`management.schedules.notificationMode.${service.notificationMode}`)}`}
+                        className="schedule-flag-slot"
+                      >
+                        <Badge
+                          variant={
+                            service.notificationMode === 'silent'
+                              ? 'waiting-outline'
+                              : service.notificationMode === 'manual'
+                                ? 'info'
+                                : 'waiting'
+                          }
+                          className="schedule-task-flag"
+                        >
+                          {t(`management.schedules.notificationMode.${service.notificationMode}`)}
+                        </Badge>
+                      </Tooltip>
+                      <Tooltip
+                        content={`${t('management.schedules.notificationStyleLabel')}: ${t(`management.schedules.notificationStyle.${service.notificationDisplayMode}`)}`}
+                        className="schedule-flag-slot"
+                      >
+                        <Badge variant="neutral" className="schedule-task-flag">
+                          {t(
+                            `management.schedules.notificationStyle.${service.notificationDisplayMode}`
+                          )}
+                        </Badge>
+                      </Tooltip>
+                    </>
+                  )}
+                  {isDepotMapping && (
+                    <Tooltip
+                      content={`${t('management.schedules.services.depotMapping.scanModeLabel')}: ${t(`management.depotMapping.modes.${depotScheduledMode}`)}`}
+                      className="schedule-flag-slot"
+                    >
+                      <Badge variant="neutral" className="schedule-task-flag">
+                        {t(`management.depotMapping.modes.${depotScheduledMode}`)}
+                      </Badge>
+                    </Tooltip>
+                  )}
+                </span>
+              )}
             </div>
           </div>
 
@@ -362,80 +429,26 @@ const ScheduleRow = memo(function ScheduleRow({
             <span className="caps-label schedule-cell-label">
               {t('management.schedules.nextRun')}
             </span>
-            <CountdownDisplay
-              nextRunUtc={service.nextRunUtc}
-              intervalHours={service.intervalHours}
-              isRunning={service.isRunning}
-            />
-            {service.nextRunUtc && service.intervalHours > 0 && !service.isRunning && (
-              <span className="schedule-next-run-date">{formattedNextRun}</span>
-            )}
-          </div>
-
-          {/* Settings-at-a-glance pills mirroring the detail well, so the state is readable
-          without expanding the row. They sit with the readouts, before the interval picker,
-          so the text-like cells stay together and the controls group on the right. One
-          shared width (they stretch to the fixed column) and the same colour axes as the
-          scheduled-prefill platform badges: filled purple = all runs, filled blue = manual
-          only, dotted outline = silent. */}
-          <div className="schedule-cell-flags">
-            {hasDetail && (
-              <>
-                <Tooltip
-                  content={`${t('management.schedules.runOnStartup')}: ${service.runOnStartup ? t('management.schedules.toggleOn') : t('management.schedules.toggleOff')}`}
-                  className="schedule-flag-slot"
-                >
-                  <Badge
-                    variant={service.runOnStartup ? 'success' : 'neutral'}
-                    className="schedule-flag"
-                  >
-                    {service.runOnStartup
-                      ? t('management.schedules.startupOn')
-                      : t('management.schedules.startupOff')}
-                  </Badge>
-                </Tooltip>
-                {service.supportsNotifications && (
-                  <>
-                    <Tooltip
-                      content={`${t('management.schedules.notificationsLabel')}: ${t(`management.schedules.notificationMode.${service.notificationMode}`)}`}
-                      className="schedule-flag-slot"
-                    >
-                      <Badge
-                        variant={
-                          service.notificationMode === 'silent'
-                            ? 'waiting-outline'
-                            : service.notificationMode === 'manual'
-                              ? 'info'
-                              : 'waiting'
-                        }
-                        className="schedule-flag"
-                      >
-                        {t(`management.schedules.notificationMode.${service.notificationMode}`)}
-                      </Badge>
-                    </Tooltip>
-                    <Tooltip
-                      content={`${t('management.schedules.notificationStyleLabel')}: ${t(`management.schedules.notificationStyle.${service.notificationDisplayMode}`)}`}
-                      className="schedule-flag-slot"
-                    >
-                      <Badge variant="neutral" className="schedule-flag">
-                        {t(
-                          `management.schedules.notificationStyle.${service.notificationDisplayMode}`
-                        )}
-                      </Badge>
-                    </Tooltip>
-                  </>
-                )}
-                {isDepotMapping && (
-                  <Tooltip
-                    content={`${t('management.schedules.services.depotMapping.scanModeLabel')}: ${t(`management.depotMapping.modes.${depotScheduledMode}`)}`}
-                    className="schedule-flag-slot"
-                  >
-                    <Badge variant="neutral" className="schedule-flag">
-                      {t(`management.depotMapping.modes.${depotScheduledMode}`)}
-                    </Badge>
-                  </Tooltip>
-                )}
-              </>
+            {/* The absolute date lives in the tooltip rather than a second line under
+            every countdown - the relative time is the readout, the exact timestamp is
+            the detail. */}
+            {service.nextRunUtc && service.intervalHours > 0 && !service.isRunning ? (
+              <Tooltip
+                content={`${t('management.schedules.nextRun')}: ${formattedNextRun}`}
+                className="schedule-countdown-slot"
+              >
+                <CountdownDisplay
+                  nextRunUtc={service.nextRunUtc}
+                  intervalHours={service.intervalHours}
+                  isRunning={service.isRunning}
+                />
+              </Tooltip>
+            ) : (
+              <CountdownDisplay
+                nextRunUtc={service.nextRunUtc}
+                intervalHours={service.intervalHours}
+                isRunning={service.isRunning}
+              />
             )}
           </div>
 
@@ -447,25 +460,26 @@ const ScheduleRow = memo(function ScheduleRow({
               intervalHours={service.intervalHours}
               isDisabled={isDisabled}
               onChange={handleIntervalChange}
+              variant="ghost"
             />
           </div>
 
           <div className="schedule-cell-actions" onClick={stopRowToggle}>
-            <Button
-              variant="subtle"
-              size="sm"
-              onClick={handleRunNow}
-              disabled={isDisabled || isDimmed}
-              loading={isRunningThis}
-              stableWidth
-              className="control-h-md"
-            >
-              {t('management.schedules.runNow')}
-            </Button>
+            <Tooltip content={t('management.schedules.runNow')} className="schedule-action-slot">
+              <button
+                type="button"
+                className="schedule-icon-btn schedule-run-now themed-border-radius-sm"
+                onClick={handleRunNow}
+                disabled={isDisabled || isDimmed}
+                aria-label={t('management.schedules.runNow')}
+              >
+                {isRunningThis ? <LoadingSpinner size="xs" inline /> : <Play className="w-4 h-4" />}
+              </button>
+            </Tooltip>
             {hasDetail && (
               <button
                 type="button"
-                className="schedule-chevron themed-border-radius-sm"
+                className="schedule-icon-btn schedule-chevron themed-border-radius-sm"
                 onClick={toggleDetail}
                 aria-expanded={detailOpen}
                 aria-label={
@@ -482,6 +496,11 @@ const ScheduleRow = memo(function ScheduleRow({
 
         {hasDetail && (
           <CollapsibleRegion open={detailOpen} contentClassName="schedule-row-detail">
+            {/* One-line summary anchors the expanded view now that the row itself no
+            longer carries the description; the full copy stays in the (?) popover. */}
+            <p className="schedule-detail-summary">
+              {t(`management.schedules.services.${service.key}.summary`)}
+            </p>
             {isDepotMapping && (
               <div className="schedule-detail-row">
                 <Tooltip
@@ -1021,8 +1040,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             {t('management.schedules.runAll')}
           </Button>
           <Button
-            variant="filled"
-            color="yellow"
+            variant="default"
             size="md"
             onClick={handleResetDefaults}
             disabled={!isAdmin || resetting || runningAll}
@@ -1039,7 +1057,6 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             <span>{t('management.schedules.taskColumn')}</span>
             <span>{t('management.schedules.lastRun')}</span>
             <span>{t('management.schedules.nextRun')}</span>
-            <span>{t('management.schedules.settingsColumn')}</span>
             <span>{t('management.schedules.runEvery')}</span>
             <span aria-hidden="true" />
           </div>

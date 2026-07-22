@@ -1,4 +1,138 @@
-/* Pagination - styles for 'group' and 'inline' variants (merged from former GroupPagination). */
+/* Pagination - segmented pager bar (default + compact) and the lightweight group/inline chevron variants. */
+
+/* Row holding the info text on the left and the pager controls on the right. */
+.pagination-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  flex-wrap: wrap;
+}
+
+.pagination-info {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-secondary);
+}
+
+.pagination-info__muted {
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* One joined control: flat cells inside a single bordered bar. Cells have fixed
+   widths and a constant count, so the chevrons never move while paging.
+   Height matches the md EnhancedDropdown trigger (h-10) it often sits beside. */
+.pagination-bar {
+  display: inline-flex;
+  align-items: stretch;
+  height: 2.5rem;
+  background-color: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius);
+  /* Cell hover fills would otherwise paint over the rounded corners. */
+  overflow: hidden;
+}
+
+/* Tooltip wraps some cells in a positioning div; flatten it into the bar row. */
+.pagination-bar > * {
+  display: flex;
+  align-items: stretch;
+}
+
+/* Hairlines only where the chevrons meet the middle, so the number strip stays
+   quiet. Some cells are bare buttons and some are Tooltip wrapper divs; the
+   (0,2,0) pseudo-class specificity keeps this ahead of the button border reset
+   on both, independent of bundle order. */
+.pagination-bar > :nth-child(2),
+.pagination-bar > :last-child {
+  border-left: 1px solid var(--theme-border-secondary);
+}
+
+.pagination-bar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  border: none;
+  background-color: transparent;
+  color: var(--theme-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.pagination-bar__btn:hover:not(:disabled) {
+  background-color: var(--theme-bg-surface-hover);
+  color: var(--theme-text-primary);
+}
+
+.pagination-bar__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pagination-bar__btn--num {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--theme-text-primary);
+}
+
+.pagination-bar__btn--gap {
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-muted);
+}
+
+/* Compound selectors so the active fill beats the base hover regardless of
+   bundle order (prod strips @layer and code-splits CSS). */
+.pagination-bar__btn.pagination-bar__btn--active {
+  background-color: var(--theme-selected-bg);
+  color: var(--theme-selected-text);
+  font-weight: 600;
+}
+
+.pagination-bar__btn.pagination-bar__btn--active:hover:not(:disabled) {
+  background-color: var(--theme-selected-bg-hover);
+  color: var(--theme-selected-text);
+}
+
+/* Small bar: shorter with narrower cells. Mirrors the Button 'xs' size step. */
+.pagination-bar--xs {
+  height: 2rem;
+}
+
+.pagination-bar--xs .pagination-bar__btn {
+  width: 2rem;
+}
+
+.pagination-bar__label {
+  display: inline-grid;
+  align-items: center;
+  text-align: center;
+  padding: 0 0.625rem;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--theme-text-secondary);
+}
+
+.pagination-bar__label > * {
+  grid-area: 1 / 1;
+}
+
+/* Invisible widest-value copy stacked under the live label: pins the label
+   width so the next chevron never shifts as the digit count changes. */
+.pagination-ghost {
+  visibility: hidden;
+}
 
 .pagination-group {
   display: flex;
@@ -35,12 +169,18 @@
 }
 
 .pagination-group__label {
+  display: inline-grid;
+  text-align: center;
   font-size: var(--font-size-sm);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-weight: 500;
   padding-left: 0.5rem;
   padding-right: 0.5rem;
   color: var(--theme-text-secondary);
+}
+
+.pagination-group__label > * {
+  grid-area: 1 / 1;
 }
 
 .pagination-inline {
@@ -77,27 +217,14 @@
 }
 
 .pagination-inline__label {
+  display: inline-grid;
+  text-align: center;
   font-size: var(--font-size-2xs);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-weight: 500;
-  min-width: 28px;
-  text-align: center;
   color: var(--theme-text-muted);
 }
 
-/* Page-number / jump buttons: theme tokens live here so callers avoid repeated inline styles. */
-.pagination-page-btn {
-  background-color: var(--theme-bg-tertiary);
-  color: var(--theme-text-primary);
-  border: 1px solid var(--theme-border-secondary);
-}
-
-.pagination-page-btn.pagination-page-btn--active {
-  background-color: var(--theme-primary);
-  color: var(--theme-button-text);
-  border: 1px solid var(--theme-primary);
-}
-
-.pagination-page-btn.pagination-page-btn--jump {
-  color: var(--theme-text-secondary);
+.pagination-inline__label > * {
+  grid-area: 1 / 1;
 }

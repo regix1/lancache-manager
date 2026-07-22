@@ -13,13 +13,10 @@ interface ScheduleIntervalPickerProps {
   intervalHours: number;
   isDisabled: boolean;
   onChange: (hours: number) => void;
-}
-
-function deriveInitialMode(hours: number): { mode: 'preset' | 'custom'; minutes: string } {
-  if (hours > 0 && hours < 1) {
-    return { mode: 'custom', minutes: String(Math.round(hours * 60)) };
-  }
-  return { mode: 'preset', minutes: '30' };
+  /** 'field' keeps the bordered input look for forms and modals. 'ghost' renders the
+      closed trigger as plain text for table rows; the field chrome returns on hover,
+      keyboard focus and while the menu is open. */
+  variant?: 'field' | 'ghost';
 }
 
 function formatIntervalLabel(hours: number, t: ReturnType<typeof useTranslation>['t']): string {
@@ -31,120 +28,103 @@ function formatIntervalLabel(hours: number, t: ReturnType<typeof useTranslation>
   return t('management.schedules.everyNHours', { count: hours });
 }
 
+function parseCustomMinutes(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return null;
+  if (parsed < MIN_CUSTOM_MINUTES || parsed > MAX_CUSTOM_MINUTES) return null;
+  return parsed;
+}
+
 const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
   intervalHours,
   isDisabled,
-  onChange
+  onChange,
+  variant = 'field'
 }: ScheduleIntervalPickerProps) {
   const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const [mode, setMode] = useState<'preset' | 'custom'>(
-    () => deriveInitialMode(intervalHours).mode
-  );
-  const [customMinutes, setCustomMinutes] = useState<string>(
-    () => deriveInitialMode(intervalHours).minutes
-  );
-
-  useEffect(() => {
-    const derived = deriveInitialMode(intervalHours);
-    setMode(derived.mode);
-    setCustomMinutes(derived.minutes);
-  }, [intervalHours]);
-
-  const presetsWithoutCustom = useMemo((): DropdownOption[] => {
-    const all = getScheduleIntervalOptions(t);
-    return all.filter((opt) => opt.value !== CUSTOM_SENTINEL);
-  }, [t]);
+  // A sub-hour interval displays as a regular "Every N minutes" option in the closed
+  // trigger; the minutes editor only exists while this popover is open. The editor
+  // used to live in the flow below the trigger, which permanently grew any row whose
+  // schedule held a custom interval - the popover keeps every row one height.
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customMinutes, setCustomMinutes] = useState('30');
 
   const dropdownOptions = useMemo((): DropdownOption[] => {
-    if (mode === 'custom') {
-      const trimmed = customMinutes.trim();
-      const parsed = Number(trimmed);
-      const isValid =
-        trimmed.length > 0 &&
-        Number.isFinite(parsed) &&
-        Number.isInteger(parsed) &&
-        parsed >= MIN_CUSTOM_MINUTES &&
-        parsed <= MAX_CUSTOM_MINUTES;
-
-      const topOption: DropdownOption = isValid
-        ? { value: String(parsed / 60), label: formatIntervalLabel(parsed / 60, t) }
-        : { value: CUSTOM_SENTINEL, label: t('management.schedules.intervals.custom') };
-
-      return [topOption, ...presetsWithoutCustom];
-    }
-
-    // preset mode
     const standardOptions = getScheduleIntervalOptions(t);
     const currentVal =
       intervalHours === 0 ? '0' : intervalHours === -1 ? '-1' : String(intervalHours);
-    const hasCurrentOption = standardOptions.some((opt) => opt.value === currentVal);
-
-    if (!hasCurrentOption && intervalHours > 0) {
-      const dynamicOption: DropdownOption = {
-        value: currentVal,
-        label: formatIntervalLabel(intervalHours, t)
-      };
-      return [dynamicOption, ...standardOptions];
+    if (intervalHours > 0 && !standardOptions.some((opt) => opt.value === currentVal)) {
+      return [
+        { value: currentVal, label: formatIntervalLabel(intervalHours, t) },
+        ...standardOptions
+      ];
     }
-
     return standardOptions;
-  }, [mode, customMinutes, intervalHours, presetsWithoutCustom, t]);
+  }, [intervalHours, t]);
 
-  const dropdownValue = useMemo((): string => {
-    if (mode === 'custom') {
-      const trimmed = customMinutes.trim();
-      const parsed = Number(trimmed);
-      const isValid =
-        trimmed.length > 0 &&
-        Number.isFinite(parsed) &&
-        Number.isInteger(parsed) &&
-        parsed >= MIN_CUSTOM_MINUTES &&
-        parsed <= MAX_CUSTOM_MINUTES;
-      return isValid ? String(parsed / 60) : CUSTOM_SENTINEL;
-    }
-    return intervalHours === 0 ? '0' : intervalHours === -1 ? '-1' : String(intervalHours);
-  }, [mode, customMinutes, intervalHours]);
+  // While the minutes popover is open the trigger reads as Custom; dismissing the
+  // popover without applying falls straight back to the saved interval's label.
+  const savedValue =
+    intervalHours === 0 ? '0' : intervalHours === -1 ? '-1' : String(intervalHours);
+  const dropdownValue = customOpen ? CUSTOM_SENTINEL : savedValue;
 
-  const isCustomInputValid = useMemo((): boolean => {
-    const trimmed = customMinutes.trim();
-    if (trimmed.length === 0) return false;
-    const parsed = Number(trimmed);
-    return (
-      Number.isFinite(parsed) &&
-      Number.isInteger(parsed) &&
-      parsed >= MIN_CUSTOM_MINUTES &&
-      parsed <= MAX_CUSTOM_MINUTES
-    );
-  }, [customMinutes]);
+  const customMinutesValue = parseCustomMinutes(customMinutes);
 
   const handleDropdownChange = useCallback(
     (value: string) => {
       if (value === CUSTOM_SENTINEL) {
-        setMode('custom');
-        requestAnimationFrame(() => {
-          if (inputRef.current) {
-            inputRef.current.focus();
-            inputRef.current.select();
-          }
-        });
+        setCustomMinutes(
+          intervalHours > 0 && intervalHours < 1 ? String(Math.round(intervalHours * 60)) : '30'
+        );
+        setCustomOpen(true);
         return;
       }
       const parsed = Number(value);
       if (Number.isFinite(parsed)) {
-        setMode('preset');
+        setCustomOpen(false);
         onChange(parsed);
       }
     },
-    [onChange]
+    [intervalHours, onChange]
   );
 
+  // Focus lands in the input as soon as the popover mounts so Enter applies directly.
+  useEffect(() => {
+    if (!customOpen) return;
+    const id = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [customOpen]);
+
+  // Click-away dismissal, the same contract as the dropdown panel itself.
+  useEffect(() => {
+    if (!customOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        containerRef.current &&
+        event.target instanceof Node &&
+        !containerRef.current.contains(event.target)
+      ) {
+        setCustomOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [customOpen]);
+
   const handleApply = useCallback(() => {
-    if (!isCustomInputValid) return;
-    const minutes = Number(customMinutes.trim());
+    const minutes = parseCustomMinutes(customMinutes);
+    if (minutes === null) return;
+    setCustomOpen(false);
     onChange(minutes / 60);
-  }, [isCustomInputValid, customMinutes, onChange]);
+  }, [customMinutes, onChange]);
 
   const handleInputKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -156,23 +136,38 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
     [handleApply]
   );
 
+  const handlePopoverKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      setCustomOpen(false);
+    }
+  }, []);
+
   const handleCustomInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     setCustomMinutes(event.target.value);
   }, []);
 
   return (
-    <div className="schedule-interval-picker">
-      <div className="schedule-interval-picker-dropdown">
-        <EnhancedDropdown
-          options={dropdownOptions}
-          value={dropdownValue}
-          onChange={handleDropdownChange}
-          disabled={isDisabled}
-          variant="button"
-        />
-      </div>
-      {mode === 'custom' && (
-        <div className="schedule-interval-picker-custom-row">
+    <div
+      ref={containerRef}
+      className={`schedule-interval-picker${
+        variant === 'ghost' ? ' schedule-interval-picker--ghost' : ''
+      }`}
+    >
+      <EnhancedDropdown
+        options={dropdownOptions}
+        value={dropdownValue}
+        onChange={handleDropdownChange}
+        disabled={isDisabled}
+        variant="button"
+      />
+      {customOpen && (
+        <div
+          className="schedule-interval-popover themed-border-radius-sm"
+          role="group"
+          aria-label={t('management.schedules.customMinutes.aria')}
+          onKeyDown={handlePopoverKeyDown}
+        >
           <input
             ref={inputRef}
             type="number"
@@ -185,7 +180,9 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
             disabled={isDisabled}
             placeholder={t('management.schedules.customMinutes.placeholder')}
             aria-label={t('management.schedules.customMinutes.aria')}
-            className={`schedule-interval-picker-input focus-ring${isCustomInputValid ? '' : ' has-error'}`}
+            className={`schedule-interval-picker-input focus-ring${
+              customMinutesValue === null ? ' has-error' : ''
+            }`}
           />
           <span className="schedule-interval-picker-suffix">
             {t('management.schedules.customMinutes.suffix')}
@@ -195,7 +192,7 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
             color="green"
             size="sm"
             onClick={handleApply}
-            disabled={isDisabled || !isCustomInputValid}
+            disabled={isDisabled || customMinutesValue === null}
           >
             {t('management.schedules.customMinutes.apply')}
           </Button>
