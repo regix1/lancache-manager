@@ -609,6 +609,9 @@ builder.Services.AddSingletonHostedService<EpicMappingService>();
 // Register BattleNetMappingService for re-mapping existing Blizzard downloads to game
 // names from the single-sourced TACT catalog (anonymous/static - no login, no schedule).
 builder.Services.AddSingleton<LancacheManager.Core.Services.BattleNet.BattleNetMappingService>();
+// One-shot startup resolve so a TACT catalog shipped in a new build renames existing
+// unnamed Blizzard downloads immediately instead of waiting for the next ingest batch.
+builder.Services.AddHostedService<LancacheManager.Infrastructure.Services.BattleNetMappingStartupResolveService>();
 
 // Register XboxApiDirectClient for direct HTTP calls to the public Microsoft Store DisplayCatalog
 // (no auth, no Docker) - used to fetch Xbox game banner art by ProductId at mapping time.
