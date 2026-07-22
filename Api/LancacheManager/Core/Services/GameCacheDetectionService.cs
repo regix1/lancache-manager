@@ -452,6 +452,12 @@ public partial class GameCacheDetectionService : IDisposable
             var gameIdentityMap = new Dictionary<string, GameCacheInfo>(StringComparer.Ordinal); // identity -> aggregated game
             var serviceNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // Track unique services
 
+            // Full-scan reports that indexed zero cache files prove nothing about the disk
+            // (wrong mount or path); count them so an all-empty scan can refuse to replace a
+            // non-empty snapshot instead of silently wiping it.
+            var fullScanReports = 0;
+            var emptyIndexFullScanReports = 0;
+
             // Scan each datasource
             var datasourceIndex = 0;
             progressFilePath = Path.Combine(operationsDir, $"game_detection_progress_{operationId}.json");
@@ -591,6 +597,20 @@ public partial class GameCacheDetectionService : IDisposable
                     throw new Exception($"Failed to parse detection results for datasource '{datasource.Name}'");
                 }
 
+                if (detectionResult.IndexedCacheFiles is { } indexedCacheFiles)
+                {
+                    fullScanReports++;
+                    if (indexedCacheFiles == 0)
+                    {
+                        emptyIndexFullScanReports++;
+                        _logger.LogWarning(
+                            "[GameDetection] Datasource '{DatasourceName}' cache directory {CachePath} exists but contained no cache files; the report is not detection evidence and its empty results are skipped",
+                            datasource.Name, cachePath);
+                        detectionResult.Games.Clear();
+                        detectionResult.Services.Clear();
+                    }
+                }
+
                 // Aggregate games (deduplicate by GameAppId)
                 // Progress range for game aggregation: from current progress to next datasource's base
                 var totalGamesInResult = detectionResult.Games.Count;
@@ -667,6 +687,21 @@ public partial class GameCacheDetectionService : IDisposable
 
             // Check for cancellation before finalizing
             cancellationToken.ThrowIfCancellationRequested();
+
+            // Every full-scan report came from an empty index: nothing about the disk was
+            // observed, so replacing a non-empty snapshot would wipe real detections over a
+            // mount or path problem. Fail the operation visibly instead; a fresh install
+            // (no previous detections) still completes normally with an empty result.
+            if (fullScanReports > 0 && emptyIndexFullScanReports == fullScanReports)
+            {
+                await using var snapshotContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+                var previousDetections = await snapshotContext.CachedGameDetections.CountAsync(cancellationToken);
+                if (previousDetections > 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Game detection indexed zero cache files in every scanned cache directory, but {previousDetections} previously detected entries exist. The previous snapshot was kept; verify the datasource cache paths point at real cache data.");
+                }
+            }
 
             // Progress: Datasource scanning complete
             await SendProgressAsync("processing", "signalr.gameDetect.writing", aggregatedGames.Count, aggregatedServices.Count, 70);
@@ -1432,6 +1467,14 @@ public partial class GameCacheDetectionService : IDisposable
 
         [System.Text.Json.Serialization.JsonPropertyName("total_services_detected")]
         public int TotalServicesDetected { get; set; }
+
+        /// <summary>
+        /// Full-scan only (null for incremental reports): how many cache files the Rust walk
+        /// indexed. Zero from an existing directory is indistinguishable from a wrong mount or
+        /// path, so such a report must not replace previously detected entries.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("indexed_cache_files")]
+        public long? IndexedCacheFiles { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("games")]
         public List<GameCacheInfo> Games { get; set; } = new();

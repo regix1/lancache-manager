@@ -287,6 +287,30 @@ pub(crate) struct RepeatedMissCachePath {
     pub expected_key: Option<String>,
 }
 
+/// Slack when comparing a repeated-MISS window against a cache file's mtime, covering
+/// one-second log resolution and filesystem timestamp rounding.
+const BARE_METAL_FILL_WINDOW_TOLERANCE_SECONDS: i64 = 5;
+
+/// Whether a qualified repeated-MISS window is corruption evidence for the file it maps to.
+/// Monolithic and sliced bare-metal recipes qualify unconditionally: their keys are
+/// per-slice, so one client download cannot log repeated MISSes against a single identity.
+/// Bare-metal non-sliced vhosts key the WHOLE object, and one ranged download normally logs
+/// several MISSes for that key while nginx fills the object (concurrent range requests
+/// during the fill are proxied upstream and never cached). Those misses precede the file's
+/// mtime and prove nothing about the finished object; only a window that STARTS after the
+/// file was written is evidence nginx cannot serve what it stored.
+pub(crate) fn repeated_miss_window_is_corruption_evidence(
+    key_scheme: cache_utils::CacheKeyScheme,
+    service_slices: bool,
+    first_observation: NaiveDateTime,
+    file_mtime: NaiveDateTime,
+) -> bool {
+    if key_scheme != cache_utils::CacheKeyScheme::BareMetal || service_slices {
+        return true;
+    }
+    first_observation > file_mtime + Duration::seconds(BARE_METAL_FILL_WINDOW_TOLERANCE_SECONDS)
+}
+
 fn cache_path_for_key(cache_dir: &Path, key: &str) -> PathBuf {
     let hash = cache_utils::calculate_md5(key);
     let len = hash.len();
@@ -751,10 +775,41 @@ impl CorruptionDetector {
         let normalized_uri = cache_utils::nginx_cache_uri(&raw_url).into_owned();
         let observed_range = first_internal.observed_range.clone();
 
+        let service_slices = cache_utils::bare_metal_service_slices(&service);
         let present = self
             .paths_for_slice(&service, &raw_url, &normalized_uri, &key.cache_slice)
             .into_iter()
             .filter(|candidate| path_is_safe_regular(&candidate.path))
+            .filter(|candidate| {
+                // The stat is needed only for bare-metal whole-object keys; every other
+                // recipe qualifies unconditionally, so skip the syscall for them. A metadata
+                // error keeps the candidate: the safe-regular check just stat'ed this path,
+                // so suppression must come only from a readable mtime.
+                if self.key_scheme != cache_utils::CacheKeyScheme::BareMetal || service_slices {
+                    return true;
+                }
+                let Ok(mtime) = std::fs::metadata(&candidate.path).and_then(|m| m.modified())
+                else {
+                    return true;
+                };
+                let file_mtime = DateTime::<Utc>::from(mtime).naive_utc();
+                let is_evidence = repeated_miss_window_is_corruption_evidence(
+                    self.key_scheme,
+                    service_slices,
+                    first_internal.timestamp,
+                    file_mtime,
+                );
+                if !is_evidence {
+                    eprintln!(
+                        "Repeated-MISS window for {} {} starts before the cached file finished writing (window start {}, file mtime {}) - normal ranged fill, not corruption evidence",
+                        service,
+                        normalized_uri,
+                        format_timestamp(first_internal.timestamp),
+                        format_timestamp(file_mtime),
+                    );
+                }
+                is_evidence
+            })
             .collect::<Vec<_>>();
         if present.is_empty() {
             return Ok(Vec::new());
@@ -1046,6 +1101,61 @@ mod tests {
 
     const BASE: &str = "2024-01-31T00:00:00Z";
 
+    fn naive(ts: &str) -> NaiveDateTime {
+        DateTime::parse_from_rfc3339(ts).unwrap().naive_utc()
+    }
+
+    // --- repeated_miss_window_is_corruption_evidence: fill-window gate ---
+
+    #[test]
+    fn bare_metal_whole_object_fill_window_is_not_corruption_evidence() {
+        // Misses logged during (or just after) the object's fill are one normal ranged
+        // download, not proof the stored object is broken.
+        assert!(!repeated_miss_window_is_corruption_evidence(
+            cache_utils::CacheKeyScheme::BareMetal,
+            false,
+            naive("2024-01-31T00:00:03Z"),
+            naive("2024-01-31T00:00:10Z"),
+        ));
+        // Within the mtime tolerance still counts as the fill.
+        assert!(!repeated_miss_window_is_corruption_evidence(
+            cache_utils::CacheKeyScheme::BareMetal,
+            false,
+            naive("2024-01-31T00:00:14Z"),
+            naive("2024-01-31T00:00:10Z"),
+        ));
+    }
+
+    #[test]
+    fn bare_metal_whole_object_post_write_window_is_corruption_evidence() {
+        assert!(repeated_miss_window_is_corruption_evidence(
+            cache_utils::CacheKeyScheme::BareMetal,
+            false,
+            naive("2024-01-31T00:00:16Z"),
+            naive("2024-01-31T00:00:10Z"),
+        ));
+    }
+
+    #[test]
+    fn sliced_bare_metal_windows_qualify_regardless_of_mtime() {
+        assert!(repeated_miss_window_is_corruption_evidence(
+            cache_utils::CacheKeyScheme::BareMetal,
+            true,
+            naive("2024-01-31T00:00:03Z"),
+            naive("2024-01-31T00:00:10Z"),
+        ));
+    }
+
+    #[test]
+    fn monolithic_windows_qualify_regardless_of_mtime() {
+        assert!(repeated_miss_window_is_corruption_evidence(
+            cache_utils::CacheKeyScheme::Monolithic,
+            false,
+            naive("2024-01-31T00:00:03Z"),
+            naive("2024-01-31T00:00:10Z"),
+        ));
+    }
+
     fn scan_start() -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(BASE)
             .unwrap()
@@ -1101,6 +1211,58 @@ mod tests {
     fn write_slice(path: &Path) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, b"slice").unwrap();
+        // Backdate the mtime so the fixture models a long-cached object: every observation
+        // window in these tests postdates the file, which is the shape the whole-object
+        // fill-window gate requires before a bare-metal candidate counts as evidence.
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap();
+    }
+
+    /// Writes a cache file whose mtime stays "now", i.e. newer than every BASE-dated
+    /// observation window - the freshly-filled-object shape the fill-window gate suppresses.
+    fn write_slice_filled_now(path: &Path) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"slice").unwrap();
+    }
+
+    #[test]
+    fn bare_metal_whole_object_fill_window_misses_are_suppressed_end_to_end() {
+        // A ranged client filling a bare-metal whole-object key logs several MISSes for
+        // that one key while nginx writes the object; the finished file is NEWER than the
+        // window, so the report must carry no candidate for it.
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let log_dir = temp.path().join("logs");
+        let url = "/depot/1/chunk/abcdef";
+        let expected_key = format!("lancache-steam{url}");
+        write_slice_filled_now(&path_for_literal_key(&cache_dir, &expected_key));
+        write_log(
+            &log_dir,
+            &(0..3)
+                .map(|second| {
+                    service_log_line(
+                        "steam",
+                        scan_start() - Duration::seconds(2 - second),
+                        "GET",
+                        206,
+                        "MISS",
+                        url,
+                        Some("bytes=0-1048575"),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
+            .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
+            .generate_report(&log_dir, chrono_tz::UTC, None)
+            .unwrap();
+
+        assert_eq!(result.total, 0);
     }
 
     fn ranged_path(cache_dir: &Path, url: &str) -> PathBuf {

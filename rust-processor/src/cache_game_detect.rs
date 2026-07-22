@@ -147,6 +147,11 @@ struct ServiceCacheInfo {
 struct DetectionReport {
     total_games_detected: usize,
     total_services_detected: usize,
+    /// Full-scan only: how many cache files the directory walk indexed. Zero from an
+    /// existing directory is indistinguishable from a wrong mount or path, so the host
+    /// must not replace a non-empty snapshot with this report's (empty) results.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    indexed_cache_files: Option<usize>,
     games: Vec<GameCacheInfo>,
     services: Vec<ServiceCacheInfo>,
 }
@@ -271,6 +276,7 @@ async fn main() -> Result<()> {
 
     // Variables that may or may not be used depending on mode
     let cache_files_index: Option<HashMap<u128, u64>>;
+    let indexed_cache_files: Option<usize>;
 
     if incremental_mode {
         // INCREMENTAL MODE: Skip expensive cache directory scan
@@ -279,11 +285,19 @@ async fn main() -> Result<()> {
         write_progress(progress_path.as_deref(), "scanning", "signalr.gameDetect.scan.skippedIncremental", json!({}), 20.0, 0, 0)?;
         reporter.emit_progress(20.0, "signalr.gameDetect.scan.skippedIncremental", json!({}));
         cache_files_index = None;
+        indexed_cache_files = None;
     } else {
         // FULL SCAN: Build in-memory index of all cache files
         write_progress(progress_path.as_deref(), "scanning", "signalr.gameDetect.scan.inProgress", json!({}), 5.0, 0, 0)?;
         reporter.emit_progress(5.0, "signalr.gameDetect.scan.inProgress", json!({}));
         let index = scan_cache_directory(&cache_dir)?;
+        if index.is_empty() {
+            eprintln!(
+                "WARNING: cache directory {} exists but contains no cache files - this scan carries no detection evidence (wrong mount or path?)",
+                cache_dir.display()
+            );
+        }
+        indexed_cache_files = Some(index.len());
         write_progress(progress_path.as_deref(), "scanning", "signalr.gameDetect.scan.complete", json!({}), 20.0, 0, 0)?;
         reporter.emit_progress(20.0, "signalr.gameDetect.scan.complete", json!({}));
         cache_files_index = Some(index);
@@ -840,6 +854,7 @@ async fn main() -> Result<()> {
     let report = DetectionReport {
         total_games_detected: detected_games.len(),
         total_services_detected: detected_services.len(),
+        indexed_cache_files,
         games: detected_games,
         services: detected_services,
     };
