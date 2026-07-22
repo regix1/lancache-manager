@@ -673,6 +673,11 @@ export interface GameSpeedInfo {
   service: string;
   clientIp?: string;
   bytesPerSecond: number;
+  /**
+   * Bytes observed in the tracker's current rolling window (windowSeconds) only. NOT a
+   * session or transfer total, and consecutive windows overlap, so values must never be
+   * accumulated across snapshots or shown as a download size.
+   */
   totalBytes: number;
   requestCount: number;
   cacheHitBytes: number;

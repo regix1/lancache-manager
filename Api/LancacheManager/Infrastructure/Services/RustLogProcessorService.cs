@@ -557,6 +557,42 @@ public class RustLogProcessorService
         progress is { SchemaVersion: 1 } &&
         _validTerminalStatuses.Contains(progress.TerminalStatus);
 
+    /// <summary>
+    /// True when a run's terminal checkpoint proves committed download rows exist: a valid
+    /// terminal checkpoint with at least one saved entry. Rust commits every batch transaction
+    /// before writing the checkpoint, so an event emitted on this predicate can never precede
+    /// the rows it announces. Partial and cancelled runs with committed batches qualify; a
+    /// missing or invalid checkpoint never does (its entry count cannot be trusted).
+    /// </summary>
+    public static bool HasCommittedDownloads(ProgressData? progress) =>
+        IsValidTerminalCheckpoint(progress) && progress!.EntriesSaved > 0;
+
+    /// <summary>
+    /// Emits the committed-boundary <see cref="SignalREvents.DownloadsRefresh"/>: fired once
+    /// per run, immediately after terminal-checkpoint validation and BEFORE the auto-tag and
+    /// mapping post-passes, so the frontend refetches inserted rows at commit latency instead
+    /// of post-pass latency. Must stay on NotifyAllAsync: it bumps the dashboard batch cache
+    /// generation before the hub send, which is what guarantees the event-driven refetch can
+    /// never be served a stale cached batch. The payload is diagnostic only; the frontend must
+    /// not depend on any of its fields.
+    /// </summary>
+    private async Task NotifyCommittedDownloadsAsync(ProgressData? finalProgress)
+    {
+        if (!HasCommittedDownloads(finalProgress))
+        {
+            return;
+        }
+
+        await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
+        {
+            source = "rust-insert-early",
+            terminalStatus = finalProgress!.TerminalStatus,
+            logEntriesSaved = finalProgress.EntriesSaved,
+            runId = finalProgress.RunId,
+            timestamp = DateTime.UtcNow
+        });
+    }
+
     public async Task<bool> StartProcessingAsync(
         string logFilePath,
         long startPosition = 0,
@@ -826,6 +862,13 @@ public class RustLogProcessorService
                  finalProgress?.Status == OperationStatus.Cancelled.ToWireString() ||
                  exitCode != 0);
 
+            // Committed rows become visible NOW, before any cancellation/partial/success
+            // branching and before the post-passes below (auto-tag and the Epic/Blizzard/Xbox
+            // resolves each emit their own conditional refresh when they change rows). A
+            // partial or cancelled run whose earlier batches committed still exposes that
+            // data here without ever being reported as a completed operation.
+            await NotifyCommittedDownloadsAsync(finalProgress);
+
             if (wasCancelled)
             {
                 _logger.LogInformation("Processing was cancelled (exit code: {ExitCode}, progress: {Progress}%)",
@@ -990,19 +1033,15 @@ public class RustLogProcessorService
                     }
                 }
 
-                // Invalidate cache for new entries
-                // Rust processor automatically maps depots during processing (auto_map_depots = 1)
-                // We still need to fetch game images from Steam API after processing
+                // Rust processor automatically maps depots during processing (auto_map_depots = 1);
+                // game images are fetched from the Steam API in the background task below.
                 if (finalProgress?.EntriesSaved > 0)
                 {
-                    // Auto-tag new downloads to active events IMMEDIATELY for live monitoring
-                    // This must happen BEFORE the UI refresh so downloads show with their event tags
-                    // Run for BOTH silent and interactive mode to prevent duplicate grouping issues
+                    // Auto-tag new downloads to active events for BOTH silent and interactive
+                    // mode (prevents duplicate grouping issues). The committed-boundary refresh
+                    // above already made the inserted rows visible; the tag pass emits its own
+                    // conditional DownloadsRefresh when it changes associations.
                     await AutoTagNewDownloadsAsync();
-
-                    // NOTE: We no longer broadcast NewDownloads directly - the frontend relies on
-                    // DownloadsRefresh event which triggers a database fetch. This ensures all data
-                    // (downloads, stats, aggregates) comes from the same source and stays in sync.
                 }
 
                 // Resolve Epic downloads BEFORE the UI refresh so downloads show with game names.
@@ -1152,16 +1191,11 @@ public class RustLogProcessorService
                 }
                 else if (shouldFinalizeOperation)
                 {
-                    // In silent mode, we can set IsProcessing to false immediately
+                    // In silent mode, we can set IsProcessing to false immediately. No trailing
+                    // refresh here: the committed-boundary DownloadsRefresh already fired, and
+                    // the auto-tag/mapping passes emit their own conditional refreshes when
+                    // they change rows.
                     IsProcessing = false;
-
-                    // Send a lightweight notification that downloads have been updated
-                    // This allows the frontend to refresh active downloads without progress bars
-                    await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
-                    {
-                        entriesProcessed = finalProgress?.EntriesSaved ?? 0,
-                        timestamp = DateTime.UtcNow
-                    });
                 }
 
                 // Complete the operation successfully
@@ -1470,28 +1504,43 @@ public class RustLogProcessorService
     }
 
     /// <summary>
-    /// Auto-tag newly processed downloads to any currently active events
+    /// Auto-tags newly processed downloads to any currently active events and returns the
+    /// tagged count. Best-effort: a failure is logged and reported as zero tags, never as an
+    /// operation failure. When rows were tagged, emits its own conditional DownloadsRefresh
+    /// AFTER the service has committed the associations — DownloadAssociationsContext listens
+    /// to DownloadsRefresh (not LogProcessingComplete), and the committed-boundary refresh
+    /// fires before this pass runs, so without this emission a client could cache the newly
+    /// inserted rows and never invalidate their association state.
     /// </summary>
-    private async Task AutoTagNewDownloadsAsync()
+    private async Task<int> AutoTagNewDownloadsAsync()
     {
         try
         {
             using var scope = _serviceProvider.CreateScope();
             var eventsService = scope.ServiceProvider.GetRequiredService<IEventsService>();
 
+            // AutoTagActiveEventsAsync saves its changes before returning the count, so the
+            // refresh below is post-commit. NotifyAllAsync only: the cache generation bump
+            // must precede the hub send (never fire-and-forget for DownloadsRefresh).
             var taggedCount = await eventsService.AutoTagActiveEventsAsync();
             if (taggedCount > 0)
             {
                 _logger.LogInformation("Auto-tagged {Count} downloads to active events", taggedCount);
 
-                // NOTE: We no longer send DownloadsRefresh here to avoid duplicate events.
-                // The main completion handler already sends DownloadsRefresh for silent mode
-                // or LogProcessingComplete for non-silent mode which triggers UI refresh.
+                await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
+                {
+                    source = "auto-tag",
+                    taggedCount,
+                    timestamp = DateTime.UtcNow
+                });
             }
+
+            return taggedCount;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error auto-tagging downloads to events - this is non-critical");
+            return 0;
         }
     }
 

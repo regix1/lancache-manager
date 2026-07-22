@@ -313,7 +313,12 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const interval = getRefreshIntervalRef.current() || 500;
       const runFetch = () => {
         lastRefreshFetchRef.current = Date.now();
-        fetchAllData({ trigger: `signalr:${eventName || 'unknown'}` });
+        // Force the fetch: a server refresh event means committed rows exist, so this
+        // request must supersede any in-flight batch that may have started before the
+        // commit (the requestId guard then discards the superseded response). A non-forced
+        // call here could be swallowed by the 250ms debounce or the in-progress guard and
+        // leave a pre-commit response as the final state.
+        fetchAllData({ forceRefresh: true, trigger: `signalr:${eventName || 'unknown'}` });
       };
       const elapsed = Date.now() - lastRefreshFetchRef.current;
       if (refreshDebounceTimerRef.current) clearTimeout(refreshDebounceTimerRef.current);

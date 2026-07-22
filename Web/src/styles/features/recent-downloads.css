@@ -306,6 +306,25 @@
   box-shadow: 0 0 8px var(--theme-success);
 }
 
+/* ----- In-progress preview rows (live traffic without a recorded row yet) -----
+   Reuse the active pulse row layout; the badge and the window-bytes figure are
+   what distinguish a preview from a recorded row. Fixed line-height figures so
+   per-tick speed updates cannot shift the layout. */
+
+.rdl-live-badge {
+  font-size: 0.625rem;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.rdl-window-bytes {
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+  white-space: nowrap;
+}
+
 /* ----- Hit-rate readout bands: quiet colored text, not a pill per row ----- */
 
 .rdl-hit {

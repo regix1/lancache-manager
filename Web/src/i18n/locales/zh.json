@@ -563,6 +563,7 @@
       "recent": "最近",
       "active": "活跃",
       "activeWithCount": "活跃（{{count}}）",
+      "inProgress": "进行中",
       "allServices": "所有服务",
       "allClients": "所有客户端",
       "clear": "清除",
@@ -1271,6 +1272,12 @@
     "summary": "当前已登录的设备及其偏好设置。"
   },
   "downloads": {
+    "provisional": {
+      "inProgress": "进行中",
+      "liveSpeed": "实时",
+      "lastSeconds": "近{{seconds}}秒",
+      "windowTooltip": "当前 {{seconds}} 秒滚动窗口内观察到的流量，不计入已记录的统计。"
+    },
     "header": {
       "historical": {
         "title": "历史视图",

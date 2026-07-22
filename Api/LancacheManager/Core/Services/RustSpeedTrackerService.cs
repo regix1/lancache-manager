@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using LancacheManager.Core.Constants;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
@@ -19,9 +20,13 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private readonly ISignalRNotificationService _notifications;
     private readonly ProcessManager _processManager;
     private readonly DatasourceCapabilityService _capabilityService;
+    private readonly IStateService _stateService;
     private bool _loggedNoTrackableDatasources;
     private string? _rustExecutablePath;
     private Process? _rustProcess;
+    // Raw tracker output, kept private so diagnostics can still inspect actual tracker state.
+    // Everything user-facing (REST + SignalR) goes through BuildClientVisibleSnapshot so hidden
+    // clients and prefill traffic can never leak through either transport.
     // Initial value before the first Rust snapshot arrives. Two seconds is the minimum/default
     // window; the Rust tracker reports a window that adapts upward from there toward the
     // observed log-delivery cadence.
@@ -41,7 +46,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         DatasourceService datasourceService,
         ISignalRNotificationService notifications,
         ProcessManager processManager,
-        DatasourceCapabilityService capabilityService)
+        DatasourceCapabilityService capabilityService,
+        IStateService stateService)
         : base(logger, configuration)
     {
         _pathResolver = pathResolver;
@@ -49,18 +55,89 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         _notifications = notifications;
         _processManager = processManager;
         _capabilityService = capabilityService;
+        _stateService = stateService;
     }
 
     /// <summary>
-    /// Get the current speed snapshot
+    /// Gets the current CLIENT-VISIBLE speed snapshot: hidden clients and prefill traffic are
+    /// filtered out and the evicted-data display mode is applied, exactly as the SignalR
+    /// broadcast does, so REST and SignalR always expose identical visibility semantics.
     /// </summary>
     public DownloadSpeedSnapshot GetCurrentSnapshot()
     {
+        DownloadSpeedSnapshot raw;
         lock (_snapshotLock)
         {
-            return _currentSnapshot;
+            raw = _currentSnapshot;
         }
+
+        return BuildClientVisibleSnapshot(
+            raw, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
     }
+
+    /// <summary>
+    /// Builds the client-visible snapshot from the raw tracker snapshot. Hidden clients and
+    /// prefill traffic (the same exclusions the dashboard applies to recorded downloads) are
+    /// removed, the evicted-data display mode is applied, and the top-level totals are
+    /// recomputed from the retained entries. Retained game entries are copied so display
+    /// rewrites (ShowClean) can never mutate the tracker's raw snapshot.
+    /// </summary>
+    public static DownloadSpeedSnapshot BuildClientVisibleSnapshot(
+        DownloadSpeedSnapshot snapshot,
+        IReadOnlyCollection<string> hiddenClientIps,
+        string evictedMode)
+    {
+        var filteredClients = snapshot.ClientSpeeds
+            .Where(c => IsVisibleClient(c.ClientIp, hiddenClientIps))
+            .ToList();
+
+        var filteredGames = snapshot.GameSpeeds
+            .Where(g => string.IsNullOrWhiteSpace(g.ClientIp) || IsVisibleClient(g.ClientIp, hiddenClientIps))
+            .Select(CloneGameSpeed)
+            .ToList();
+
+        if (evictedMode == EvictedDataMode.Hide.ToWireString() ||
+            evictedMode == EvictedDataMode.Remove.ToWireString())
+        {
+            filteredGames = filteredGames.Where(g => !g.IsEvicted).ToList();
+        }
+        else if (evictedMode == EvictedDataMode.ShowClean.ToWireString())
+        {
+            foreach (var g in filteredGames)
+            {
+                g.IsEvicted = false;
+            }
+        }
+
+        return new DownloadSpeedSnapshot
+        {
+            TimestampUtc = snapshot.TimestampUtc,
+            WindowSeconds = snapshot.WindowSeconds,
+            TotalBytesPerSecond = filteredClients.Sum(c => c.BytesPerSecond),
+            EntriesInWindow = filteredGames.Sum(g => g.RequestCount),
+            GameSpeeds = filteredGames,
+            ClientSpeeds = filteredClients
+        };
+    }
+
+    private static bool IsVisibleClient(string clientIp, IReadOnlyCollection<string> hiddenClientIps) =>
+        !hiddenClientIps.Contains(clientIp) &&
+        !string.Equals(clientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase);
+
+    private static GameSpeedInfo CloneGameSpeed(GameSpeedInfo game) => new()
+    {
+        DepotId = game.DepotId,
+        GameName = game.GameName,
+        GameAppId = game.GameAppId,
+        Service = game.Service,
+        ClientIp = game.ClientIp,
+        BytesPerSecond = game.BytesPerSecond,
+        TotalBytes = game.TotalBytes,
+        RequestCount = game.RequestCount,
+        CacheHitBytes = game.CacheHitBytes,
+        CacheMissBytes = game.CacheMissBytes,
+        IsEvicted = game.IsEvicted
+    };
 
     protected override bool IsEnabled()
     {
@@ -213,7 +290,17 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                             _currentSnapshot = snapshot;
                         }
 
-                        var hasActivity = snapshot.HasActiveDownloads;
+                        // Broadcast the client-visible projection: hidden clients and prefill
+                        // traffic must be filtered BEFORE the hub send (the REST endpoint uses
+                        // the same builder), otherwise a hidden client leaks through SignalR
+                        // even though it is absent from every REST response. Activity gating
+                        // uses the same projection so hidden-only traffic broadcasts nothing.
+                        var visibleSnapshot = BuildClientVisibleSnapshot(
+                            snapshot,
+                            _stateService.GetHiddenClientIps(),
+                            _stateService.GetEvictedDataMode());
+
+                        var hasActivity = visibleSnapshot.HasActiveDownloads;
 
                         // Broadcast every active snapshot plus exactly one trailing zero so a
                         // real end-of-activity edge is reported once, then stay silent while
@@ -223,7 +310,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                         // needed to smooth it for the frontend.
                         if (hasActivity || _previousHadActivity)
                         {
-                            await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, snapshot);
+                            await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, visibleSnapshot);
                         }
 
                         if (_previousHadActivity && !hasActivity)
@@ -238,6 +325,30 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                 catch (JsonException ex)
                 {
                     _logger.LogDebug(ex, "Failed to parse speed snapshot JSON: {Line}", line);
+                }
+            }
+
+            // Reaching here without a stop request means the tracker process died. Clear the
+            // stored snapshot so the restart gap can never keep serving the last active
+            // reading, and close out visible activity with one trailing zero broadcast (an
+            // application shutdown exits via OperationCanceledException above instead).
+            if (!stoppingToken.IsCancellationRequested)
+            {
+                var emptySnapshot = new DownloadSpeedSnapshot { WindowSeconds = 2 };
+                lock (_snapshotLock)
+                {
+                    _currentSnapshot = emptySnapshot;
+                }
+
+                if (_previousHadActivity)
+                {
+                    _previousHadActivity = false;
+                    await _notifications.NotifyAllAsync(
+                        SignalREvents.DownloadSpeedUpdate,
+                        BuildClientVisibleSnapshot(
+                            emptySnapshot,
+                            _stateService.GetHiddenClientIps(),
+                            _stateService.GetEvictedDataMode()));
                 }
             }
         }

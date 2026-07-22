@@ -14,6 +14,7 @@
     "lint": "eslint . --max-warnings 0 && npm run validate:notifications && node scripts/validate-badges.mjs",
     "lint:fix": "eslint . --fix",
     "test:nginx-reopen": "node --test scripts/test-nginx-reopen-availability.mjs",
+    "test:live-previews": "node --test scripts/test-live-download-previews.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "knip": "knip",
     "knip:fix": "knip --fix --fix-type exports,types --format",

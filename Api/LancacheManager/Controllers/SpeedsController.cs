@@ -29,49 +29,16 @@ public class SpeedsController : ControllerBase
     }
 
     /// <summary>
-    /// Get current download speeds for all active games and clients
+    /// Get current download speeds for all active games and clients. Hidden-client, prefill,
+    /// and evicted-data filtering happen inside the tracker's shared client-visible snapshot
+    /// builder, which the SignalR broadcast also uses, so both transports always expose
+    /// identical visibility semantics.
     /// </summary>
     [HttpGet("current")]
     [ProducesResponseType(typeof(DownloadSpeedSnapshot), StatusCodes.Status200OK)]
     public ActionResult<DownloadSpeedSnapshot> GetCurrentSpeeds()
     {
-        var snapshot = _speedTrackerService.GetCurrentSnapshot();
-
-        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
-        var evictedMode = _stateRepository.GetEvictedDataMode();
-
-        var filteredClients = snapshot.ClientSpeeds
-            .Where(c => !hiddenClientIps.Contains(c.ClientIp))
-            .ToList();
-
-        var filteredGames = snapshot.GameSpeeds
-            .Where(g => string.IsNullOrWhiteSpace(g.ClientIp) || !hiddenClientIps.Contains(g.ClientIp))
-            .ToList();
-
-        // Apply eviction filter (hide/remove modes exclude evicted entries from speed data)
-        if (evictedMode == EvictedDataMode.Hide.ToWireString() || evictedMode == EvictedDataMode.Remove.ToWireString())
-        {
-            filteredGames = filteredGames.Where(g => !g.IsEvicted).ToList();
-        }
-        else if (evictedMode == EvictedDataMode.ShowClean.ToWireString())
-        {
-            foreach (var g in filteredGames) g.IsEvicted = false;
-        }
-
-        var totalBytesPerSecond = filteredClients.Sum(c => c.BytesPerSecond);
-        var entriesInWindow = filteredGames.Sum(g => g.RequestCount);
-
-        var filteredSnapshot = new DownloadSpeedSnapshot
-        {
-            TimestampUtc = snapshot.TimestampUtc,
-            WindowSeconds = snapshot.WindowSeconds,
-            TotalBytesPerSecond = totalBytesPerSecond,
-            EntriesInWindow = entriesInWindow,
-            GameSpeeds = filteredGames,
-            ClientSpeeds = filteredClients
-        };
-
-        return Ok(filteredSnapshot);
+        return Ok(_speedTrackerService.GetCurrentSnapshot());
     }
 
     /// <summary>

@@ -563,6 +563,7 @@
       "recent": "Recent",
       "active": "Active",
       "activeWithCount": "Active ({{count}})",
+      "inProgress": "In progress",
       "allServices": "All Services",
       "allClients": "All Clients",
       "clear": "Clear",
@@ -1271,6 +1272,12 @@
     "summary": "Devices signed in right now and their preferences."
   },
   "downloads": {
+    "provisional": {
+      "inProgress": "In progress",
+      "liveSpeed": "Live",
+      "lastSeconds": "Last {{seconds}}s",
+      "windowTooltip": "Traffic observed in the current {{seconds}}-second rolling window. Not included in recorded totals."
+    },
     "header": {
       "historical": {
         "title": "Historical View",

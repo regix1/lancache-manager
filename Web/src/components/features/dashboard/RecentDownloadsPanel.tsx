@@ -19,6 +19,9 @@ import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
+import LiveDownloadRows from '../downloads/LiveDownloadRows';
+import { useLiveDownloadPreviews } from '../downloads/useLiveDownloadPreviews';
+import { filterLivePreviews } from '../downloads/liveDownloadPreviews';
 import { storage } from '@utils/storage';
 import { APP_EVENTS, STORAGE_KEYS } from '@utils/constants';
 import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
@@ -329,6 +332,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   // Match Dashboard/DownloadsTab: non-live time range or event filter disables live Active tab
   const isHistoricalView = contextTimeRange !== 'live' || selectedEventIds.length > 0;
 
+  // In-progress previews for the Recent view (live range, no event filter only). Matching
+  // runs against the FULL latestDownloads list - reconciliation must see rows the panel
+  // filters hide - while the panel's own service/client filters are applied separately
+  // below. Previews never enter latestDownloads, the grouped items, the footer stats, or
+  // the association fetches.
+  const livePreviews = useLiveDownloadPreviews(
+    latestDownloads,
+    viewMode === 'recent' && !isHistoricalView
+  );
+
   // Auto-switch to Recent view when user switches to historical view while on Active tab
   useEffect(() => {
     if (isHistoricalView && viewMode === 'active') {
@@ -511,6 +524,27 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     });
   }, [latestDownloads, selectedService, selectedClient, clientGroups]);
 
+  // Panel filters applied to previews with the same predicates as the recorded rows.
+  const visibleLivePreviews = useMemo(() => {
+    if (livePreviews.length === 0) return livePreviews;
+    const clientFilter =
+      selectedClient === 'all'
+        ? { type: 'all' as const }
+        : selectedClient.startsWith('group-')
+          ? {
+              type: 'group' as const,
+              memberIps:
+                clientGroups.find(
+                  (g) => g.id === parseInt(selectedClient.replace('group-', ''), 10)
+                )?.memberIps ?? []
+            }
+          : { type: 'ip' as const, ip: selectedClient };
+    return filterLivePreviews(livePreviews, {
+      serviceFilterKey: selectedService,
+      clientFilter
+    });
+  }, [livePreviews, selectedService, selectedClient, clientGroups]);
+
   const displayCount = 10;
   const groupedItems = useMemo(() => {
     const { groups, individuals } = createGroups(filteredDownloads);
@@ -546,6 +580,14 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       totalGroups: allItems.length
     };
   }, [filteredDownloads, createGroups]);
+
+  // Live previews render above the recorded rows and share the 10-row cap. Recorded rows
+  // yield space to previews; footer stats and the association fetch stay recorded-only.
+  const displayedLivePreviews = visibleLivePreviews.slice(0, displayCount);
+  const visibleDbItems = groupedItems.displayedItems.slice(
+    0,
+    Math.max(0, displayCount - displayedLivePreviews.length)
+  );
 
   // Fetch associations for all downloads in displayed groups
   useEffect(() => {
@@ -708,55 +750,62 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                   subtitle={t('dashboard.downloadsPanel.emptyStates.noActiveDesc')}
                 />
               )
-            ) : loading ? (
-              <div className="recent-downloads-skeleton">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="recent-downloads-skeleton-row">
-                    <div className="recent-downloads-skeleton-icon skeleton-shimmer" />
-                    <div className="recent-downloads-skeleton-content">
-                      <div className="recent-downloads-skeleton-title skeleton-shimmer" />
-                      <div className="recent-downloads-skeleton-meta skeleton-shimmer" />
-                    </div>
-                    <div className="recent-downloads-skeleton-stats">
-                      <div className="recent-downloads-skeleton-size skeleton-shimmer" />
-                      <div className="recent-downloads-skeleton-date skeleton-shimmer" />
-                      <div className="recent-downloads-skeleton-hit-rate skeleton-shimmer" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : groupedItems.displayedItems.length > 0 ? (
-              groupedItems.displayedItems.map((item, idx) => {
-                const isGroup = 'downloads' in item;
-                const events = isGroup
-                  ? Array.from(
-                      item.downloads.reduce((acc, d) => {
-                        getAssociations(d.id).events.forEach((e) => acc.set(e.id, e));
-                        return acc;
-                      }, new Map<number, EventSummary>())
-                    ).map(([, e]) => e)
-                  : getAssociations(item.id).events;
-                return (
-                  <RecentDownloadItem
-                    key={isGroup ? item.id : item.id || idx}
-                    item={item}
-                    events={events}
-                    detectionLookup={detectionLookup}
-                    detectionByName={detectionByName}
-                    detectionByService={detectionByService}
-                    detailed={showDetails}
-                  />
-                );
-              })
             ) : (
-              <EmptyState
-                variant="panel"
-                icon={Clock}
-                title={t('dashboard.downloadsPanel.emptyStates.noDownloads')}
-                subtitle={t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
-                  period: getTimeRangeLabel.toLowerCase()
-                })}
-              />
+              <>
+                {/* In-progress previews stay visible even while the recorded list is
+                    loading or empty - they come from the speed snapshot, not the DB. */}
+                <LiveDownloadRows previews={displayedLivePreviews} variant="panel" />
+                {loading ? (
+                  <div className="recent-downloads-skeleton">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="recent-downloads-skeleton-row">
+                        <div className="recent-downloads-skeleton-icon skeleton-shimmer" />
+                        <div className="recent-downloads-skeleton-content">
+                          <div className="recent-downloads-skeleton-title skeleton-shimmer" />
+                          <div className="recent-downloads-skeleton-meta skeleton-shimmer" />
+                        </div>
+                        <div className="recent-downloads-skeleton-stats">
+                          <div className="recent-downloads-skeleton-size skeleton-shimmer" />
+                          <div className="recent-downloads-skeleton-date skeleton-shimmer" />
+                          <div className="recent-downloads-skeleton-hit-rate skeleton-shimmer" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : visibleDbItems.length > 0 ? (
+                  visibleDbItems.map((item, idx) => {
+                    const isGroup = 'downloads' in item;
+                    const events = isGroup
+                      ? Array.from(
+                          item.downloads.reduce((acc, d) => {
+                            getAssociations(d.id).events.forEach((e) => acc.set(e.id, e));
+                            return acc;
+                          }, new Map<number, EventSummary>())
+                        ).map(([, e]) => e)
+                      : getAssociations(item.id).events;
+                    return (
+                      <RecentDownloadItem
+                        key={isGroup ? item.id : item.id || idx}
+                        item={item}
+                        events={events}
+                        detectionLookup={detectionLookup}
+                        detectionByName={detectionByName}
+                        detectionByService={detectionByService}
+                        detailed={showDetails}
+                      />
+                    );
+                  })
+                ) : displayedLivePreviews.length === 0 ? (
+                  <EmptyState
+                    variant="panel"
+                    icon={Clock}
+                    title={t('dashboard.downloadsPanel.emptyStates.noDownloads')}
+                    subtitle={t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
+                      period: getTimeRangeLabel.toLowerCase()
+                    })}
+                  />
+                ) : null}
+              </>
             )}
           </div>
         </CustomScrollbar>
@@ -828,8 +877,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               {groupedItems.totalGroups > 0 && (
                 <div className="dash-readout-item">
                   <div className="dash-readout-value">
-                    {Math.min(displayCount, groupedItems.displayedItems.length)} /{' '}
-                    {groupedItems.totalGroups}
+                    {visibleDbItems.length} / {groupedItems.totalGroups}
                   </div>
                   <div className="caps-label caps-label--wide dash-readout-label">
                     {t('dashboard.downloadsPanel.showingLabel')}
