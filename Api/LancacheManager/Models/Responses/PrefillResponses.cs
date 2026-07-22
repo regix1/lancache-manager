@@ -108,6 +108,14 @@ public class PrefillSessionsResponse
     public int TotalCount { get; set; }
     public int Page { get; set; }
     public int PageSize { get; set; }
+
+    /// <summary>
+    /// Cache server IP most recently injected into a prefill daemon container (any service), plus
+    /// the locator source it was found through (config | dns | dockerInspect | envFile | detected |
+    /// none). Both are null until the first prefill container is created this process lifetime.
+    /// </summary>
+    public string? LastPrefillCacheIp { get; set; }
+    public string? LastPrefillCacheIpSource { get; set; }
 }
 
 /// <summary>

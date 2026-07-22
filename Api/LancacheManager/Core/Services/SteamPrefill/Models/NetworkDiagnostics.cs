@@ -40,7 +40,7 @@ public class NetworkDiagnostics
     public string? LancacheIpInjected { get; set; }
 
     /// <summary>
-    /// How the injected lancache IP was located: <c>config</c> | <c>dockerInspect</c> |
+    /// How the injected lancache IP was located: <c>config</c> | <c>dns</c> | <c>dockerInspect</c> |
     /// <c>envFile</c> | <c>detected</c> | <c>none</c>. Lets the frontend report a positive
     /// detected-source ("auto-detected at X, heartbeat verified") instead of a generic
     /// resolution-failed warning. <c>null</c>/<c>none</c> when no cache IP was determined.

@@ -189,6 +189,17 @@ const STATUS_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'error' | 'ne
   error: 'error'
 };
 
+// Locator source values are opaque backend strings; unknown values fall back to the "unknown"
+// label instead of throwing. dockerInspect and envFile share one label since both mean the value
+// came from the lancache-dns container's settings.
+const CACHE_ROUTE_SOURCE_KEY: Record<string, string> = {
+  config: 'config',
+  dns: 'dns',
+  dockerInspect: 'lancacheDns',
+  envFile: 'lancacheDns',
+  detected: 'detected'
+};
+
 const getStatusBadgeVariant = (status: string): 'success' | 'warning' | 'error' | 'neutral' =>
   STATUS_BADGE_VARIANT[status.toLowerCase()] ?? 'neutral';
 
@@ -830,6 +841,12 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const [statusFilter, setStatusFilter] = useState<PrefillSessionStatus | ''>('');
   const [platformFilter, setPlatformFilter] = useState<string>('all');
 
+  // Cache routing target injected into prefill daemon containers; null until the sessions
+  // response has loaded once (the backend reports null values until the first container starts).
+  const [cacheRoute, setCacheRoute] = useState<{ ip: string | null; source: string | null } | null>(
+    null
+  );
+
   // In-view load-error states (per data view; null = no error)
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [bansError, setBansError] = useState<string | null>(null);
@@ -873,6 +890,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       setSessions(sessionsRes.sessions);
       setTotalCount(sessionsRes.totalCount);
       setActiveSessions(activeRes);
+      setCacheRoute({
+        ip: sessionsRes.lastPrefillCacheIp ?? null,
+        source: sessionsRes.lastPrefillCacheIpSource ?? null
+      });
 
       // Pre-fetch history for all sessions
       const historyPromises = sessionsRes.sessions.map(async (session) => {
@@ -1221,6 +1242,21 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             iconBgClass="icon-bg-red"
           />
         </div>
+
+        {cacheRoute && (
+          <p className="text-xs text-themed-muted mb-4">
+            {cacheRoute.ip
+              ? t('management.prefillSessions.cacheRoute.routesThrough', {
+                  ip: cacheRoute.ip,
+                  source: t(
+                    `management.prefillSessions.cacheRoute.sources.${
+                      CACHE_ROUTE_SOURCE_KEY[cacheRoute.source ?? ''] ?? 'unknown'
+                    }`
+                  )
+                })
+              : t('management.prefillSessions.cacheRoute.notDetermined')}
+          </p>
+        )}
 
         <div className="space-y-4">
           <AccordionSection

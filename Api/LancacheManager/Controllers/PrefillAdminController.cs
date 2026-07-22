@@ -101,13 +101,43 @@ public class PrefillAdminController : ControllerBase
             return PrefillSessionDto.FromEntity(s, liveSession);
         }).ToList();
 
+        var (lastCacheIp, lastCacheIpSource) = GetLastPrefillCacheRouting();
+
         return Ok(new PrefillSessionsResponse
         {
             Sessions = enrichedSessions,
             TotalCount = totalCount,
             Page = page,
-            PageSize = pageSize
+            PageSize = pageSize,
+            LastPrefillCacheIp = lastCacheIp,
+            LastPrefillCacheIpSource = lastCacheIpSource
         });
+    }
+
+    /// <summary>
+    /// Most recent LANCACHE_IP injection across the five daemon services. All services resolve
+    /// through the same shared locator, so any recorded value is representative; a service that
+    /// found an IP wins over one that only recorded a source with no IP.
+    /// </summary>
+    private (string? Ip, string? Source) GetLastPrefillCacheRouting()
+    {
+        var services = new PrefillDaemonServiceBase[]
+        {
+            _steamDaemonService,
+            _epicDaemonService,
+            _battleNetDaemonService,
+            _riotDaemonService,
+            _xboxDaemonService
+        };
+
+        var withIp = services.FirstOrDefault(s => s.LastInjectedLancacheIp != null);
+        if (withIp != null)
+        {
+            return (withIp.LastInjectedLancacheIp, withIp.LastLancacheIpSource);
+        }
+
+        var attempted = services.FirstOrDefault(s => s.LastLancacheIpSource != null);
+        return (null, attempted?.LastLancacheIpSource);
     }
 
     /// <summary>

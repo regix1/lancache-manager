@@ -78,11 +78,13 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
   const isAutoDetectedLancache =
     !!diagnostics.lancacheIpInjected && !!lancacheIpSource && lancacheIpSource !== 'config';
   const lancacheSourceLabel =
-    lancacheIpSource === 'dockerInspect'
-      ? t('prefill.network.lancacheSourceDockerInspect')
-      : lancacheIpSource === 'envFile'
-        ? t('prefill.network.lancacheSourceEnvFile')
-        : t('prefill.network.lancacheSourceDetected');
+    lancacheIpSource === 'dns'
+      ? t('prefill.network.lancacheSourceDns')
+      : lancacheIpSource === 'dockerInspect'
+        ? t('prefill.network.lancacheSourceDockerInspect')
+        : lancacheIpSource === 'envFile'
+          ? t('prefill.network.lancacheSourceEnvFile')
+          : t('prefill.network.lancacheSourceDetected');
 
   return (
     <Card padding="md">

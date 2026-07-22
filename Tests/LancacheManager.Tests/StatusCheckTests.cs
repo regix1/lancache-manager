@@ -1,3 +1,4 @@
+using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.StatusCheck;
 using LancacheManager.Models;
@@ -1069,6 +1070,37 @@ public class StatusCheckTests
         Assert.Null(LancacheServerLocator.SelectDnsBridgeIp(isHostNetworked: false, Array.Empty<string?>()));
     }
 
+    // ===== DNS-answer selection (the "dns" locate tier / DNS-candidate verification) =====
+
+    [Fact]
+    public void SelectPrivateDnsAnswers_KeepsAnswerOrderAndDedupes()
+    {
+        // lancache-dns can round-robin several cache IPs in one response; every distinct private
+        // answer is an expected cache IP, in the order the resolver advertised them.
+        var result = LancacheServerLocator.SelectPrivateDnsAnswers(
+            new[] { "10.0.0.4", "10.0.0.5", "10.0.0.4" });
+
+        Assert.Equal(new[] { "10.0.0.4", "10.0.0.5" }, result);
+    }
+
+    [Fact]
+    public void SelectPrivateDnsAnswers_DropsPublicLoopbackAndBlackholeAnswers()
+    {
+        // A public answer is the cache-bypass this tool exists to detect, loopback is nonsense as a
+        // cache IP, and 0.0.0.0 is the deliberate blocklist blackhole - none may become a CacheIp.
+        var result = LancacheServerLocator.SelectPrivateDnsAnswers(
+            new[] { "23.45.67.89", "127.0.0.1", "0.0.0.0", "192.168.1.10" });
+
+        Assert.Equal(new[] { "192.168.1.10" }, result);
+    }
+
+    [Fact]
+    public void SelectPrivateDnsAnswers_NoUsableAnswers_YieldsEmpty()
+    {
+        Assert.Empty(LancacheServerLocator.SelectPrivateDnsAnswers(new[] { "23.45.67.89", "", (string?)null }));
+        Assert.Empty(LancacheServerLocator.SelectPrivateDnsAnswers(Array.Empty<string?>()));
+    }
+
     // ===== LocateAsync / DetectDnsContainerBridgeIpAsync delegation (config tier, no Docker, no network) =====
 
     [Fact]
@@ -1096,7 +1128,8 @@ public class StatusCheckTests
     private static LancacheServerLocator CreateLocator(PrefillNetworkOptions options) =>
         new(NullLogger<LancacheServerLocator>.Instance,
             new FixedOptionsMonitor(options),
-            new NullEnvironmentSource());
+            new NullEnvironmentSource(),
+            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>()!);
 
     private sealed class FixedOptionsMonitor : IOptionsMonitor<PrefillNetworkOptions>
     {
@@ -1110,5 +1143,22 @@ public class StatusCheckTests
     {
         public Task<EnvValueResult> GetValueAsync(string key, CancellationToken cancellationToken) =>
             Task.FromResult(new EnvValueResult { Value = null, Source = EnvValueSource.EnvFile });
+    }
+
+    /// <summary>Returns null/default from every <see cref="IStateService"/> member. These tests only
+    /// exercise the config tier, which short-circuits before any state is read; if the resolver-mode
+    /// read ever runs, Normalize maps the null to "auto".</summary>
+    private class NullReturningProxy : DispatchProxy
+    {
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            var returnType = targetMethod?.ReturnType;
+            if (returnType is null || returnType == typeof(void) || !returnType.IsValueType)
+            {
+                return null;
+            }
+
+            return Activator.CreateInstance(returnType);
+        }
     }
 }

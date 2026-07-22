@@ -109,10 +109,11 @@ public class StatusCheckResult
 
     public List<string> ExpectedCacheIps { get; set; } = new();
 
-    /// <summary>"config" | "dockerInspect" | "envFile" | "detected" | "none" — where
+    /// <summary>"config" | "dns" | "dockerInspect" | "envFile" | "detected" | "none" — where
     /// <see cref="ExpectedCacheIps"/> came from (contract amendments v1.1/v1.2). "none" is an
     /// additive honest state for "nothing determined the cache IP", not part of the original
-    /// frozen enum but harmless for consumers that only switch on the known values.</summary>
+    /// frozen enum but harmless for consumers that only switch on the known values. "dns" is the
+    /// heartbeat-verified answer the detected lancache DNS advertises for the test domain.</summary>
     public string ExpectedIpSource { get; set; } = string.Empty;
 
     public HeartbeatResult Heartbeat { get; set; } = new();

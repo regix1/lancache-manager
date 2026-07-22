@@ -1763,6 +1763,7 @@
         "expectedIp": "预期缓存位于 {{ips}}({{source}})。",
         "expectedIpSource": {
           "config": "来自 Prefill LancacheIp 设置",
+          "dns": "由 lancache DNS 通告",
           "dockerInspect": "读取自正在运行的容器",
           "envFile": "来自 lancache .env 文件",
           "detected": "通过 Docker 自动检测",
@@ -4051,6 +4052,17 @@
       "activeSessions": "活跃会话",
       "totalSessions": "总会话数",
       "activeBans": "活跃封禁",
+      "cacheRoute": {
+        "routesThrough": "预填充流量经由 {{ip}}（{{source}}）",
+        "notDetermined": "缓存路由尚未确定。下次启动预填充容器时会确定。",
+        "sources": {
+          "config": "手动配置",
+          "dns": "通过 DNS 自动检测",
+          "lancacheDns": "来自 lancache-dns 设置",
+          "detected": "自动检测到的容器",
+          "unknown": "未知"
+        }
+      },
       "liveSessions": "实时会话",
       "loadingSessions": "加载会话中...",
       "noActiveSessions": "没有活跃的预填充会话",
@@ -4509,6 +4521,7 @@
       "lancacheIpInjected": "Lancache 服务器：{{ip}}（直接，与 DNS 无关）",
       "lancacheIpDetected": "Lancache 服务器：{{ip}}（通过{{source}}自动检测，心跳已验证）",
       "lancacheSourceDetected": "网络扫描",
+      "lancacheSourceDns": "lancache DNS",
       "lancacheSourceDockerInspect": "Docker inspect",
       "lancacheSourceEnvFile": "lancache .env 文件",
       "lancacheIpResolutionFailed": "Prefill__LancacheIp 未设置，且无法自动检测到 lancache 服务器。守护进程将回退到容器 DNS，这可能无法解析所有 CDN 域名（战网/暴雪的 CDN 通常不在 lancache DNS 中），并可能导致预填充挂起。在 docker-compose 中设置 Prefill__LancacheIp=<您的-lancache-服务器-ip> 以确保预填充可靠运行。",

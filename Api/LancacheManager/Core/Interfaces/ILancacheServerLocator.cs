@@ -10,7 +10,7 @@ public sealed class LancacheServerLocation
     /// a fallback value.</summary>
     public List<string> CacheIps { get; init; } = new();
 
-    /// <summary>"configured" | "detected" | "none".</summary>
+    /// <summary>"config" | "dns" | "dockerInspect" | "envFile" | "detected" | "none".</summary>
     public string Source { get; init; } = "none";
 }
 
@@ -25,7 +25,9 @@ public sealed class LancacheServerLocation
 public interface ILancacheServerLocator
 {
     /// <summary>Resolves the expected cache server IP(s) via <c>Prefill__LancacheIp</c> (IP literal
-    /// or DNS-resolved hostname) or, when unset, heartbeat-verified Docker container auto-detection.</summary>
+    /// or DNS-resolved hostname) or, when unset, the heartbeat-verified answer(s) the detected
+    /// lancache DNS advertises for the test domain, then the lancache-dns <c>LANCACHE_IP</c>
+    /// declaration, then heartbeat-verified Docker container auto-detection.</summary>
     Task<LancacheServerLocation> LocateAsync(CancellationToken cancellationToken);
 
     /// <summary>Cache-server resolution that opts into host-side candidates (the Docker bridge default

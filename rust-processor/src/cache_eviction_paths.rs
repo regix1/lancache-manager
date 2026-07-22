@@ -205,15 +205,20 @@ impl ProbeKey {
         }
     }
 
-    /// True when this key's resolved datasource cache root was indexed and its service has a
-    /// known recipe under the selected scheme. A missing root means "we never looked here";
-    /// an unknown bare-metal service means "we do not know which key to look for". Neither miss
-    /// is eviction evidence.
+    /// True when this key's resolved datasource cache root was indexed with at least one cache
+    /// file and its service has a known recipe under the selected scheme. A missing root means
+    /// "we never looked here"; an indexed-but-empty root is indistinguishable from a wrong
+    /// mount or path, so it abstains exactly like a missing root (a genuinely emptied cache is
+    /// reconciled by the cache-clear flow, not this scan); an unknown bare-metal service means
+    /// "we do not know which key to look for". None of these misses is eviction evidence.
     pub(super) fn can_verify_absence(&self, files_on_disk: &FilesOnDisk) -> bool {
         let ProbeRecipe::Resolved { root, .. } = &self.recipe else {
             return false;
         };
-        if files_on_disk.digests_for_root(root).is_none() {
+        let root_indexed_with_files = files_on_disk
+            .digests_for_root(root)
+            .is_some_and(|digests| !digests.is_empty());
+        if !root_indexed_with_files {
             return false;
         }
 
@@ -244,7 +249,7 @@ impl ProbeKey {
         ) && !self.has_known_recipe()
     }
 
-    fn is_bare_metal(&self) -> bool {
+    pub(super) fn is_bare_metal(&self) -> bool {
         matches!(
             &self.recipe,
             ProbeRecipe::Resolved {
@@ -339,6 +344,16 @@ where
                 }
             }
         }
+
+        // A directory that exists but yields zero hash-named cache files is indistinguishable
+        // from a wrong mount or path; a genuinely emptied cache is reconciled by the
+        // cache-clear flow, not this scan, so this root abstains from absence verification.
+        if root_digests.is_empty() {
+            eprintln!(
+                "[EvictionScan] Cache directory for datasource '{}' exists but contains no cache files: {} - absence cannot be verified under this root, so its downloads will not be marked evicted",
+                ds.name, ds.cache_path
+            );
+        }
     }
 
     if non_hash_names > 0 {
@@ -430,7 +445,7 @@ mod tests {
             datasource("bare", root, "bare_metal"),
         ];
         let roots = DatasourceRoots::from_configs(&datasources);
-        let files = indexed_root(root, []);
+        let files = indexed_root(root, [1]);
         let resolved = ProbeKey::new("steam", "/known".to_string(), Some("monolithic"), 0, &roots);
         let unresolved = ProbeKey::new(
             "steam",
@@ -470,7 +485,7 @@ mod tests {
             datasource("bare", root, "bare_metal"),
         ];
         let roots = DatasourceRoots::from_configs(&datasources);
-        let files = indexed_root(root, []);
+        let files = indexed_root(root, [1]);
         let monolithic = ProbeKey::new(
             "unsupported",
             "/content".to_string(),
@@ -501,7 +516,7 @@ mod tests {
             datasource("offline", offline, "monolithic"),
         ];
         let roots = DatasourceRoots::from_configs(&datasources);
-        let files = indexed_root(indexed, []);
+        let files = indexed_root(indexed, [1]);
         let indexed_key = ProbeKey::new(
             "steam",
             "/content".to_string(),
@@ -513,5 +528,32 @@ mod tests {
             ProbeKey::new("steam", "/content".to_string(), Some("offline"), 0, &roots);
 
         assert!(keys_can_verify_absence(&[indexed_key, offline_key], &files));
+    }
+
+    #[test]
+    fn empty_indexed_root_cannot_verify_absence() {
+        // An indexed-but-empty root is indistinguishable from a wrong mount or path, so it
+        // abstains exactly like a missing root instead of confirming every probe as absent.
+        let root = Path::new("cache");
+        let datasources = [datasource("monolithic", root, "monolithic")];
+        let roots = DatasourceRoots::from_configs(&datasources);
+        let key = ProbeKey::new("steam", "/content".to_string(), Some("monolithic"), 0, &roots);
+        let files = indexed_root(root, []);
+
+        assert!(!key.has_cache_file(&files));
+        assert!(!key.can_verify_absence(&files));
+        assert!(!keys_can_verify_absence(&[key], &files));
+    }
+
+    #[test]
+    fn indexed_root_with_cache_files_verifies_absence() {
+        let root = Path::new("cache");
+        let datasources = [datasource("monolithic", root, "monolithic")];
+        let roots = DatasourceRoots::from_configs(&datasources);
+        let key = ProbeKey::new("steam", "/content".to_string(), Some("monolithic"), 0, &roots);
+        let files = indexed_root(root, [1]);
+
+        assert!(key.can_verify_absence(&files));
+        assert!(keys_can_verify_absence(&[key], &files));
     }
 }

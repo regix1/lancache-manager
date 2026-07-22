@@ -1763,6 +1763,7 @@
         "expectedIp": "Cache expected at {{ips}} ({{source}}).",
         "expectedIpSource": {
           "config": "from the Prefill LancacheIp setting",
+          "dns": "advertised by the lancache DNS",
           "dockerInspect": "read from the running container",
           "envFile": "from the lancache .env file",
           "detected": "auto-detected from Docker",
@@ -4052,6 +4053,17 @@
       "activeSessions": "Active Sessions",
       "totalSessions": "Total Sessions",
       "activeBans": "Active Bans",
+      "cacheRoute": {
+        "routesThrough": "Prefill routes through {{ip}} ({{source}})",
+        "notDetermined": "Cache route not determined yet. It is set the next time a prefill container starts.",
+        "sources": {
+          "config": "configured manually",
+          "dns": "auto-detected from DNS",
+          "lancacheDns": "from lancache-dns settings",
+          "detected": "auto-detected container",
+          "unknown": "unknown"
+        }
+      },
       "liveSessions": "Live Sessions",
       "loadingSessions": "Loading sessions...",
       "noActiveSessions": "No active prefill sessions",
@@ -4510,6 +4522,7 @@
       "lancacheIpInjected": "Lancache server: {{ip}} (direct, DNS-independent)",
       "lancacheIpDetected": "Lancache server: {{ip}} (auto-detected via {{source}}, heartbeat verified)",
       "lancacheSourceDetected": "network scan",
+      "lancacheSourceDns": "lancache DNS",
       "lancacheSourceDockerInspect": "Docker inspect",
       "lancacheSourceEnvFile": "lancache .env",
       "lancacheIpResolutionFailed": "Prefill__LancacheIp is not set and a lancache server could not be auto-detected. The daemon will fall back to container DNS, which may not resolve every CDN domain (Battle.net/Blizzard CDNs are often missing from lancache DNS) and can cause prefill to hang. Set Prefill__LancacheIp=<your-lancache-server-ip> in your docker-compose for reliable prefill.",

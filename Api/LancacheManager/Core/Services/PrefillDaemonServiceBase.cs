@@ -57,13 +57,21 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// <summary>
     /// The lancache server IP most recently injected into a daemon container via the
     /// <c>LANCACHE_IP</c> env var, plus the <see cref="LancacheServerLocation.Source"/> it was located
-    /// through (config | dockerInspect | envFile | detected | none). Set during container creation
+    /// through (config | dns | dockerInspect | envFile | detected | none). Set during container creation
     /// from <see cref="ILancacheServerLocator.LocateAsync(bool, System.Threading.CancellationToken)"/>
     /// and read by the diagnostics builder to surface on the frontend. IP is null when no cache IP
     /// could be determined.
     /// </summary>
     private string? _lastInjectedLancacheIp;
     private string? _lastLancacheIpSource;
+
+    /// <summary>
+    /// Read-only view of the most recent LANCACHE_IP injection for this service, surfaced on the
+    /// admin sessions endpoint. Null until the first daemon container is created this process
+    /// lifetime.
+    /// </summary>
+    public string? LastInjectedLancacheIp => _lastInjectedLancacheIp;
+    public string? LastLancacheIpSource => _lastLancacheIpSource;
 
     /// <summary>
     /// Serializes the persistent-session start span (reuse-check through container creation) per
@@ -1609,6 +1617,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // (URL-rewrite + Host-header spoof). It is NOT a fallback for HostConfig.DNS -
         // they serve different purposes and may be used together or independently.
         // Delegated to the shared locator: config (Prefill__LancacheIp literal/hostname) ->
+        // heartbeat-verified answer the detected lancache DNS advertises for the test domain ->
         // lancache-dns .env/docker-inspect LANCACHE_IP -> heartbeat-verified auto-detect. Passing
         // includeHostSideCandidates:true additionally probes the Docker bridge gateway and
         // host.docker.internal, so a HOST-NETWORKED lancache box now auto-detects too. Loopback is

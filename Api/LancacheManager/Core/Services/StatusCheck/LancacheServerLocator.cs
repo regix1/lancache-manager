@@ -22,9 +22,13 @@ namespace LancacheManager.Core.Services.StatusCheck;
 /// prefill share one code path without either weakening the other's contract.
 ///
 /// Expected-cache-IP priority (contract amendments v1.1/v1.2): <c>Prefill__LancacheIp</c> config
-/// ("config") -&gt; lancache-dns <c>.env</c>/Docker-inspect <c>LANCACHE_IP</c> via
+/// ("config") -&gt; heartbeat-verified private answer(s) the detected lancache DNS advertises for the
+/// test domain ("dns") -&gt; lancache-dns <c>.env</c>/Docker-inspect <c>LANCACHE_IP</c> via
 /// <see cref="ILancacheEnvironmentSource"/> ("dockerInspect"/"envFile") -&gt; heartbeat-verified
-/// Docker container auto-detection ("detected") -&gt; none determined ("none").
+/// Docker container auto-detection ("detected") -&gt; none determined ("none"). The "dns" tier
+/// outranks the declared env value because the DNS answer is where the LAN's clients are actually
+/// steered - a docker stack's LANCACHE_IP can describe a cache the LAN's DNS no longer advertises
+/// (e.g. a bare-metal cache stood up in front of it).
 /// </summary>
 public sealed class LancacheServerLocator : ILancacheServerLocator
 {
@@ -67,16 +71,19 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
     private readonly ILogger<LancacheServerLocator> _logger;
     private readonly IOptionsMonitor<PrefillNetworkOptions> _networkOptions;
     private readonly ILancacheEnvironmentSource _environmentSource;
+    private readonly IStateService _stateService;
     private readonly DockerClient? _dockerClient;
 
     public LancacheServerLocator(
         ILogger<LancacheServerLocator> logger,
         IOptionsMonitor<PrefillNetworkOptions> networkOptions,
-        ILancacheEnvironmentSource environmentSource)
+        ILancacheEnvironmentSource environmentSource,
+        IStateService stateService)
     {
         _logger = logger;
         _networkOptions = networkOptions;
         _environmentSource = environmentSource;
+        _stateService = stateService;
 
         try
         {
@@ -104,6 +111,15 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
             // Configured but unresolvable is still "config" sourced - explicit "no cache IP known"
             // state (empty CacheIps), never a guessed fallback to a lower-priority tier.
             return new LancacheServerLocation { CacheIps = resolved, Source = "config" };
+        }
+
+        // DNS-answer tier: what the LAN's lancache DNS actually advertises for the test domain
+        // outranks any locally-declared LANCACHE_IP - the env/inspect value describes the docker
+        // stack's own cache, while the DNS answer is the cache clients are really steered to.
+        var dnsAnswers = await LocateViaDnsAnswerAsync(cancellationToken);
+        if (dnsAnswers.Count > 0)
+        {
+            return new LancacheServerLocation { CacheIps = dnsAnswers, Source = "dns" };
         }
 
         var envResult = await _environmentSource.GetValueAsync("LANCACHE_IP", cancellationToken);
@@ -170,6 +186,32 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
             _logger.LogWarning(ex, "Status Check: '{Value}' could not be resolved to an IP address", ipOrHostname);
             return new List<string>();
         }
+    }
+
+    /// <summary>DNS-answer tier of <see cref="LocateAsync(bool, CancellationToken)"/>: finds the
+    /// LAN's lancache DNS server (scoped by the same user-selected resolver mode the Status Check
+    /// sweep uses; no cache IPs are known yet at this tier, so none are passed as candidates) and
+    /// returns the heartbeat-verified private answer(s) it advertises for
+    /// <see cref="LancacheTestDomain"/>. Empty == no lancache DNS found or nothing verified
+    /// (best-effort probe tier) - the caller falls through to the env tier.</summary>
+    private async Task<List<string>> LocateViaDnsAnswerAsync(CancellationToken cancellationToken)
+    {
+        var mode = StatusCheckResolverModes.Normalize(_stateService.GetStatusCheckResolverMode());
+        var dnsServerIp = await DetectDnsServerIpAsync(mode, knownCacheIps: null, cancellationToken);
+        if (string.IsNullOrWhiteSpace(dnsServerIp))
+        {
+            return new List<string>();
+        }
+
+        var answers = await QueryVerifiedDnsAnswersAsync(dnsServerIp, cancellationToken);
+        if (answers.Count > 0)
+        {
+            _logger.LogInformation(
+                "Status Check: lancache DNS {DnsIp} advertises cache IP(s) {CacheIps} for {TestDomain}",
+                dnsServerIp, string.Join(", ", answers), LancacheTestDomain);
+        }
+
+        return answers;
     }
 
     public async Task<string?> DetectDnsServerIpAsync(string mode, IReadOnlyList<string>? knownCacheIps, CancellationToken cancellationToken)
@@ -365,16 +407,26 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
         return ordered;
     }
 
-    /// <summary>Verifies a candidate really is a lancache DNS: point a 2s no-retry <see cref="LookupClient"/>
-    /// at it, query the test domain, accept iff an A-record answer is a private IP that also passes a
-    /// <c>/lancache-heartbeat</c> probe (proves a real lancache sits at the poisoned answer, not merely a
-    /// private-answering resolver). Never constructs a resolver against a non-private/non-loopback IP (SSRF).</summary>
+    /// <summary>Verifies a candidate really is a lancache DNS: it must advertise at least one
+    /// heartbeat-verified private answer for the test domain
+    /// (see <see cref="QueryVerifiedDnsAnswersAsync"/>).</summary>
     private async Task<bool> VerifyDnsCandidateAsync(string candidateIp, CancellationToken cancellationToken)
+        => (await QueryVerifiedDnsAnswersAsync(candidateIp, cancellationToken)).Count > 0;
+
+    /// <summary>Points a 2s no-retry <see cref="LookupClient"/> at a candidate lancache DNS server,
+    /// queries the test domain, and returns every PRIVATE A answer that also passes a
+    /// <c>/lancache-heartbeat</c> probe (proves a real lancache sits at each poisoned answer, not
+    /// merely a private-answering resolver), deduped and in answer order - lancache-dns can
+    /// round-robin multiple cache IPs and each verified one is an expected cache IP. Empty == query
+    /// failed, no private answer, or nothing heartbeat-verified (best-effort probe; failures are
+    /// logged at debug, never thrown). Never constructs a resolver against a
+    /// non-private/non-loopback IP (SSRF).</summary>
+    private async Task<List<string>> QueryVerifiedDnsAnswersAsync(string candidateIp, CancellationToken cancellationToken)
     {
         // SSRF bound: only ever build a resolver against a private/loopback candidate.
         if (!IsProbeableCandidateIp(candidateIp) || !IPAddress.TryParse(candidateIp, out var candidateAddress))
         {
-            return false;
+            return new List<string>();
         }
 
         try
@@ -388,37 +440,54 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
             var client = new LookupClient(options);
             var response = await client.QueryAsync(LancacheTestDomain, QueryType.A, cancellationToken: cancellationToken);
 
-            // Accept only a PRIVATE answer - a public answer is exactly the cache-bypass this tool detects.
-            var privateAnswer = response.Answers.ARecords()
-                .Select(r => r.Address.ToString())
-                .FirstOrDefault(IsPrivateIp);
+            // Accept only PRIVATE answers - a public answer is exactly the cache-bypass this tool detects.
+            var privateAnswers = SelectPrivateDnsAnswers(response.Answers.ARecords().Select(r => r.Address.ToString()));
 
-            if (privateAnswer == null)
+            var verified = new List<string>();
+            foreach (var answer in privateAnswers)
             {
-                return false;
+                // Confidence booster: prove an actual lancache is serving that IP.
+                var heartbeat = await ProbeHeartbeatAsync(answer, cancellationToken);
+                if (heartbeat.Reachable)
+                {
+                    _logger.LogDebug(
+                        "Status Check: DNS candidate {Candidate} poisons {TestDomain} -> {Answer} (heartbeat verified)",
+                        candidateIp, LancacheTestDomain, answer);
+                    verified.Add(answer);
+                }
             }
 
-            // Confidence booster: prove an actual lancache is serving that IP.
-            var heartbeat = await ProbeHeartbeatAsync(privateAnswer, cancellationToken);
-            if (heartbeat.Reachable)
-            {
-                _logger.LogDebug(
-                    "Status Check: DNS candidate {Candidate} poisons {TestDomain} -> {Answer} (heartbeat verified)",
-                    candidateIp, LancacheTestDomain, privateAnswer);
-                return true;
-            }
-
-            return false;
+            return verified;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return false;
+            return new List<string>();
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Status Check: DNS candidate {Candidate} did not verify", candidateIp);
-            return false;
+            return new List<string>();
         }
+    }
+
+    /// <summary>Pure answer-selection for a lancache DNS response: keeps only PRIVATE A answers
+    /// (loopback, public, and blackhole answers all fail <see cref="IsPrivateIp"/>), deduped, in
+    /// answer order. Static/pure so the selection is unit-testable without the network, mirroring
+    /// <see cref="SelectDnsBridgeIp"/>.</summary>
+    internal static List<string> SelectPrivateDnsAnswers(IEnumerable<string?> answerIps)
+    {
+        var ordered = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var ip in answerIps)
+        {
+            if (!string.IsNullOrEmpty(ip) && IsPrivateIp(ip!) && seen.Add(ip!))
+            {
+                ordered.Add(ip!);
+            }
+        }
+
+        return ordered;
     }
 
     /// <summary>Resolves <c>host.docker.internal</c> to its private IPv4 address(es), or an empty list

@@ -3821,7 +3821,7 @@ export interface StatusCheckResult {
   expectedCacheIps: string[];
   /** Where the expected cache IP(s) came from (contract amendment v1.1/v1.2); "none" means no
    *  source could determine one (expectedCacheIps is empty in that case). */
-  expectedIpSource: 'config' | 'dockerInspect' | 'envFile' | 'detected' | 'none';
+  expectedIpSource: 'config' | 'dns' | 'dockerInspect' | 'envFile' | 'detected' | 'none';
   heartbeat: StatusCheckHeartbeatResult;
   services: StatusCheckServiceResult[];
   summary: StatusCheckSummary;
@@ -3956,6 +3956,8 @@ interface PrefillSessionsResponse {
   totalCount: number;
   page: number;
   pageSize: number;
+  lastPrefillCacheIp?: string | null;
+  lastPrefillCacheIpSource?: string | null;
 }
 
 export interface BannedSteamUserDto {

@@ -120,8 +120,8 @@ enum VerifiableAction {
 /// metadata-only rows) from being mislabeled "evicted", and heals rows already wrongly flagged.
 ///
 /// `has_cache_file` is the ANY-probe-key on-disk result; `is_evicted` is the current DB flag;
-/// `was_cached` is true when nginx actually served bytes for the download (HIT or MISS - a
-/// lancache MISS writes the content to cache, so both prove the content landed on disk).
+/// `was_cached` is true when nginx provably wrote the download's content to cache (see
+/// `download_was_cached` for the per-scheme evidence rule).
 fn classify_verifiable(
     has_cache_file: bool,
     is_evicted: bool,
@@ -150,6 +150,27 @@ fn classify_verifiable(
             VerifiableAction::NoOp
         }
     }
+}
+
+/// Whether nginx provably wrote this download's content to the cache. HIT bytes are always
+/// proof: a HIT can only be served from a file that existed on disk. MISS bytes are proof only
+/// under the monolithic scheme, where a lancache MISS proxies the content AND writes it to
+/// cache - gating on CacheHitBytes alone made every game downloaded exactly once (pure-MISS,
+/// the common case) permanently undetectable as evicted. Bare-metal nginx breaks that premise:
+/// a concurrent ranged request logs MISS with a response that is never written to cache, and
+/// uncacheable or duplicate fetches do the same, so bare-metal MISS bytes are not evidence
+/// that content landed on disk. Any bare-metal probe key therefore disqualifies MISS bytes for
+/// the whole download (fail-closed for mixed-scheme key sets). Zero-byte rows (aborted
+/// transfers / metadata-only sessions where nothing was ever written) remain excluded.
+fn download_was_cached(
+    hit_bytes: i64,
+    miss_bytes: i64,
+    keys: &[cache_eviction_paths::ProbeKey],
+) -> bool {
+    let miss_bytes_are_evidence = !keys
+        .iter()
+        .any(cache_eviction_paths::ProbeKey::is_bare_metal);
+    hit_bytes > 0 || (miss_bytes > 0 && miss_bytes_are_evidence)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -436,18 +457,15 @@ async fn run_scan(
             .iter()
             .map(|r| (r.get("download_id"), r.get("is_evicted")))
             .collect();
-        // Positive cache evidence per download: any bytes actually served (HIT or MISS). A
-        // lancache MISS proxies the content AND writes it to the cache, so MISS bytes are
-        // just as much proof the content landed on disk as HIT bytes are - gating on
-        // CacheHitBytes alone made every game downloaded exactly once (pure-MISS, the common
-        // case) permanently undetectable as evicted. Zero-byte rows (aborted transfers /
-        // metadata-only sessions where nothing was ever written) remain excluded.
-        let download_served_bytes: HashMap<i64, i64> = download_rows
+        // Cache-evidence inputs per download, kept as separate (hit, miss) byte counts
+        // because MISS bytes only count as evidence under the monolithic key scheme - the
+        // rule lives in download_was_cached, which also needs the download's probe keys.
+        let download_cache_bytes: HashMap<i64, (i64, i64)> = download_rows
             .iter()
             .map(|r| {
                 let hit: i64 = r.get("cache_hit_bytes");
                 let miss: i64 = r.get("cache_miss_bytes");
-                (r.get("download_id"), hit.saturating_add(miss))
+                (r.get("download_id"), (hit, miss))
             })
             .collect();
 
@@ -568,7 +586,11 @@ async fn run_scan(
             let has_unknown_recipe = keys_for_probe
                 .iter()
                 .any(cache_eviction_paths::ProbeKey::has_unknown_recipe);
-            let was_cached = download_served_bytes.get(download_id).copied().unwrap_or(0) > 0;
+            let (hit_bytes, miss_bytes) = download_cache_bytes
+                .get(download_id)
+                .copied()
+                .unwrap_or((0, 0));
+            let was_cached = download_was_cached(hit_bytes, miss_bytes, keys_for_probe);
             match classify_download(
                 has_cache_file,
                 can_verify_absence,
@@ -777,9 +799,28 @@ fn write_progress_file(
 #[cfg(test)]
 mod tests {
     use super::{
-        cache_utils, classify_download, classify_unverifiable, classify_verifiable,
-        DatasourceConfig, DownloadAction, UnverifiableAction, VerifiableAction,
+        cache_eviction_paths, cache_utils, classify_download, classify_unverifiable,
+        classify_verifiable, download_was_cached, DatasourceConfig, DownloadAction,
+        UnverifiableAction, VerifiableAction,
     };
+
+    /// Builds a resolved ProbeKey under the given key scheme for the was_cached tests.
+    fn scheme_key(key_scheme: &str) -> cache_eviction_paths::ProbeKey {
+        let datasources = [DatasourceConfig {
+            name: "ds".to_string(),
+            cache_path: "cache".to_string(),
+            is_default: true,
+            key_scheme: key_scheme.to_string(),
+        }];
+        let roots = cache_eviction_paths::DatasourceRoots::from_configs(&datasources);
+        cache_eviction_paths::ProbeKey::new(
+            "steam",
+            "/depot/1/chunk/abcdef".to_string(),
+            Some("ds"),
+            0,
+            &roots,
+        )
+    }
 
     #[test]
     fn omitted_key_scheme_keeps_monolithic_default() {
@@ -918,5 +959,55 @@ mod tests {
             classify_verifiable(true, false, false),
             VerifiableAction::NoOp
         );
+    }
+
+    // --- download_was_cached: per-scheme MISS-byte evidence ---
+
+    #[test]
+    fn bare_metal_miss_only_bytes_are_not_cached_evidence() {
+        // Bare-metal nginx logs MISS for responses it never writes to cache, so miss-only
+        // bytes must not make the download evictable.
+        let keys = [scheme_key("bare_metal")];
+        let was_cached = download_was_cached(0, 500, &keys);
+        assert!(!was_cached);
+        assert_eq!(
+            classify_download(false, true, true, false, false, was_cached),
+            DownloadAction::NoOp
+        );
+    }
+
+    #[test]
+    fn bare_metal_hit_bytes_keep_download_evictable() {
+        // A HIT can only be served from a file that existed on disk, on every scheme.
+        let keys = [scheme_key("bare_metal")];
+        assert!(download_was_cached(1, 0, &keys));
+        assert!(download_was_cached(1, 500, &keys));
+        assert_eq!(
+            classify_download(false, true, true, false, false, true),
+            DownloadAction::Evict
+        );
+    }
+
+    #[test]
+    fn monolithic_miss_only_bytes_remain_cached_evidence() {
+        // Monolithic lancache writes the content to cache on MISS, so pure-MISS downloads
+        // (the common downloaded-exactly-once case) stay detectable as evicted.
+        let keys = [scheme_key("monolithic")];
+        let was_cached = download_was_cached(0, 500, &keys);
+        assert!(was_cached);
+        assert!(!download_was_cached(0, 0, &keys));
+        assert_eq!(
+            classify_download(false, true, true, false, false, was_cached),
+            DownloadAction::Evict
+        );
+    }
+
+    #[test]
+    fn mixed_scheme_miss_only_bytes_are_not_cached_evidence() {
+        // Any bare-metal key disqualifies MISS bytes for the whole download (fail-closed);
+        // HIT bytes still count.
+        let keys = [scheme_key("monolithic"), scheme_key("bare_metal")];
+        assert!(!download_was_cached(0, 500, &keys));
+        assert!(download_was_cached(3, 500, &keys));
     }
 }
