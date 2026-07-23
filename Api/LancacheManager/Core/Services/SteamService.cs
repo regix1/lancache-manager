@@ -1,68 +1,22 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using LancacheManager.Core.Interfaces;
 using LancacheManager.Extensions;
-using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Services;
-using LancacheManager.Infrastructure.Services.Base;
-using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
 
 /// <summary>
-/// Unified Steam service that combines app info handling, depot mapping, and game information retrieval
-/// Uses real Steam API data with proper depot-to-app mapping instead of URL pattern guessing
+/// On-demand Steam game information retrieval (Store API) and depot→app owner lookups.
 /// </summary>
-public class SteamService : ScopedScheduledBackgroundService
+public class SteamService : IDisposable
 {
     private readonly HttpClient _httpClient;
+    private readonly ILogger<SteamService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IStateService _stateService;
-    private readonly ISignalRNotificationService _notifications;
-    private readonly IUnifiedOperationTracker _operationTracker;
     private readonly SemaphoreSlim _apiSemaphore = new(5);
-
-    private const string StageBase = "signalr.scheduledRun.steamService";
-    private static readonly ScheduledRunEventNames _eventNames = new(
-        SignalREvents.SteamServiceRefreshStarted,
-        SignalREvents.SteamServiceRefreshProgress,
-        SignalREvents.SteamServiceRefreshComplete);
-
-    // Fires once SteamKit2Service finishes its startup PICS/GitHub import. Subscribed in the
-    // ctor so it is live before any hosted service's ExecuteAsync runs - the DI container
-    // constructs SteamService while resolving SteamKit2Service, so we're always subscribed
-    // before SteamKit2Service can fire the event.
-    private readonly TaskCompletionSource<bool> _steamKit2StartupCompleted =
-        new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-    // ConfigurableScheduledService fires ServiceWorkCompleted with the subclass's ServiceName.
-    private const string SteamKit2ServiceName = "SteamKit2Service";
 
     // Caches for performance
     private readonly ConcurrentDictionary<long, GameInfo> _gameCache = new();
-    // depot -> representative (lowest) AppId, swapped by reference on reload. The old shape
-    // held every mapped app per depot in a HashSet<long> AND eagerly duplicated the Min()
-    // into a second ConcurrentDictionary - tens of MB resident for values only ever read as
-    // Count/Sum (logging) and Min() (the representative).
-    private Dictionary<long, long> _depotMappings = new();
-    private int _totalDepotMappingCount;
-
-    // Steam API data
-    private Dictionary<long, SteamAppInfo> _steamApps = new();
-    private DateTime _lastRefresh = DateTime.MinValue;
-    private bool _isReady = false;
-
-    protected override string ServiceName => "SteamService";
-    protected override TimeSpan Interval => TimeSpan.FromHours(6);
-    public override bool DefaultRunOnStartup => true;
-    protected override bool SupportsNotifications => true;
-
-    // Routine background chore: scheduled runs stay quiet by default; manually triggered runs
-    // still notify.
-    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
-
-    public override string ServiceKey => "steamService";
 
     public class GameInfo
     {
@@ -75,275 +29,18 @@ public class SteamService : ScopedScheduledBackgroundService
         public DateTime CacheTime { get; set; } = DateTime.UtcNow;
     }
 
-    public class SteamAppInfo
-    {
-        public long AppId { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string Type { get; set; } = "game";
-        public string? HeaderImage { get; set; }
-        public string? Description { get; set; }
-        public DateTime CacheTime { get; set; } = DateTime.UtcNow;
-        public List<long> Depots { get; set; } = new();
-    }
-
     public SteamService(
-        IServiceProvider serviceProvider,
-        ILogger<SteamService> logger,
-        IConfiguration configuration,
         HttpClient httpClient,
-        IServiceScopeFactory scopeFactory,
-        IStateService stateService,
-        ISignalRNotificationService notifications,
-        IUnifiedOperationTracker operationTracker)
-        : base(serviceProvider, logger, configuration)
+        ILogger<SteamService> logger,
+        IServiceScopeFactory scopeFactory)
     {
         _httpClient = httpClient;
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
+        _logger = logger;
         _scopeFactory = scopeFactory;
-        _stateService = stateService;
-        _notifications = notifications;
-        _operationTracker = operationTracker;
-
-        LoadStateOverrides(stateService);
-
-        ConfigurableScheduledService.ServiceWorkCompleted += OnServiceWorkCompleted;
     }
-
-    private void OnServiceWorkCompleted(string serviceName)
-    {
-        if (string.Equals(serviceName, SteamKit2ServiceName, StringComparison.Ordinal))
-        {
-            _steamKit2StartupCompleted.TrySetResult(true);
-        }
-    }
-
-    protected override async Task OnStartupAsync(CancellationToken stoppingToken)
-    {
-        // Wait for setup to complete so the database is configured before making API calls
-        await _stateService.WaitForSetupCompletedAsync(stoppingToken);
-
-        // SteamKit2Service may be doing a startup PICS/GitHub import in parallel. If we
-        // warm this service against an empty or mid-replace depot table, the in-memory
-        // cache stays stale until the next interval. Wait briefly for that startup work
-        // to settle before loading the mappings we cache in memory.
-        await WaitForDepotMappingStartupAsync(stoppingToken);
-
-        // Run initial refresh during startup
-        await RefreshWithReportingAsync(stoppingToken);
-    }
-
-    protected override async Task ExecuteWorkAsync(
-        IServiceProvider scopedServices,
-        CancellationToken stoppingToken)
-    {
-        await RefreshWithReportingAsync(stoppingToken);
-    }
-
-    /// <summary>
-    /// Wraps a mappings refresh in a run lifecycle so the Schedules card shows progress. The refresh
-    /// reports whether it ended with usable data; the run's single completion is stamped with that
-    /// outcome here so a refresh that failed with no usable data surfaces a failure terminal instead
-    /// of a false success. The PICS refresh work is not countable at this level, so progress is stepped.
-    /// </summary>
-    private async Task RefreshWithReportingAsync(CancellationToken stoppingToken)
-    {
-        var show = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
-        await using var reporter = new ScheduledRunReporter(
-            _notifications,
-            _operationTracker,
-            ServiceKey,
-            OperationType.SteamServiceRefresh,
-            _eventNames,
-            $"{StageBase}.complete",
-            show,
-            stoppingToken);
-
-        await reporter.StartAsync($"{StageBase}.starting");
-        var refreshed = await RefreshMappingsAsync(reporter);
-        await reporter.CompleteAsync(
-            refreshed,
-            error: refreshed ? null : "Steam metadata refresh failed; no usable depot data is available");
-    }
-
-    private async Task WaitForDepotMappingStartupAsync(CancellationToken stoppingToken)
-    {
-        var steamKit2StartupEnabled =
-            _stateService.GetCrawlIntervalHours() > 0 &&
-            (_stateService.GetServiceRunOnStartup("depotMapping") ?? true);
-
-        if (!steamKit2StartupEnabled || _steamKit2StartupCompleted.Task.IsCompleted)
-        {
-            return;
-        }
-
-        _logger.LogInformation(
-            "Waiting for SteamKit2 startup depot mapping to finish before refreshing Steam metadata");
-
-        try
-        {
-            await _steamKit2StartupCompleted.Task.WaitAsync(TimeSpan.FromSeconds(30), stoppingToken);
-            _logger.LogInformation(
-                "SteamKit2 startup depot mapping finished; refreshing Steam metadata from the database");
-        }
-        catch (TimeoutException)
-        {
-            _logger.LogWarning(
-                "Timed out waiting for SteamKit2 startup depot mapping to finish; proceeding with current Steam metadata state");
-        }
-    }
-
-    #region Steam API Data Management
-
-    /// <summary>
-    /// Refresh depot mappings and app info from Steam API. Reports a stepped progress milestone
-    /// through the supplied reporter (the run completion is owned by the caller). Returns whether the
-    /// refresh ended with usable data: <c>true</c> when the refresh's database read succeeded
-    /// (including the cached early return; a successful read with zero mappings still counts, since a
-    /// fresh database is legitimately empty), <c>false</c> when both the refresh and the database
-    /// fallback failed to read, leaving nothing usable to serve. The caller stamps the run terminal
-    /// with this outcome, so <c>false</c> means "failed / no usable data".
-    /// </summary>
-    private async Task<bool> RefreshMappingsAsync(ScheduledRunReporter reporter)
-    {
-        try
-        {
-            _logger.LogInformation("Refreshing Steam depot mappings and app info...");
-
-            await reporter.ReportAsync(30, $"{StageBase}.running");
-
-            // Load from database first; the load reports whether its read succeeded.
-            var loaded = await LoadFromDatabaseAsync();
-
-            await reporter.ReportAsync(80, $"{StageBase}.running");
-
-            // Check if we need to refresh from Steam API (daily refresh)
-            if (DateTime.UtcNow - _lastRefresh < TimeSpan.FromDays(1) && _steamApps.Count > 0)
-            {
-                _logger.LogInformation(
-                    "Using cached Steam data ({AppCount} apps, {DepotCount} depots, {MappingCount} depot mappings)",
-                    _steamApps.Count,
-                    _depotMappings.Count,
-                    _totalDepotMappingCount);
-                _isReady = true;
-                return true;
-            }
-
-            if (!loaded)
-            {
-                // The database read failed, so this refresh produced nothing fresh. Only data left
-                // over from an earlier successful load is usable; without it the run must report
-                // failure and the service must not claim readiness.
-                _isReady = _steamApps.Count > 0;
-                return _isReady;
-            }
-
-            // App names are now provided by PICS data - no need to refresh from Steam Web API V2
-            _logger.LogInformation("App names are provided by PICS depot mappings. Use 'Download Pre-created Data' or run an incremental PICS scan to update app data.");
-
-            _lastRefresh = DateTime.UtcNow;
-            _isReady = true;
-
-            _logger.LogInformation(
-                "Steam data refreshed: {AppCount} apps, {DepotCount} depots, {MappingCount} depot mappings",
-                _steamApps.Count,
-                _depotMappings.Count,
-                _totalDepotMappingCount);
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error refreshing Steam mappings");
-
-            // Try to load from database as fallback. The fallback reports whether its read
-            // succeeded (skipped when in-memory data already exists); when the refresh failed AND
-            // the fallback read failed, nothing usable remains, so the run reports failure and the
-            // service does not claim readiness.
-            var fallbackLoaded = _steamApps.Count > 0 || await LoadFromDatabaseAsync();
-
-            _isReady = fallbackLoaded;
-            return _isReady;
-        }
-    }
-
-
-    #endregion
-
-    #region Database Operations
-
-    /// <summary>
-    /// Loads depot mappings from the database into the in-memory maps. Returns whether the read
-    /// succeeded: a successful read that finds zero mappings still counts as success (a fresh
-    /// database is legitimately empty), while a read that threw returns false and leaves the
-    /// current in-memory maps untouched.
-    /// </summary>
-    private async Task<bool> LoadFromDatabaseAsync()
-    {
-        try
-        {
-            using var scopedDb = _scopeFactory.CreateScopedDbContext();
-
-            // Load depot mappings from database, projected to the two columns this map needs
-            // (full entities would also materialize every name column transiently), and keep
-            // only the lowest AppId per depot - the sole value ever read from the mapping.
-            var depotMappings = await scopedDb.DbContext.SteamDepotMappings
-                .AsNoTracking()
-                .Select(m => new { m.DepotId, m.AppId })
-                .ToListAsync();
-
-            var grouped = new Dictionary<long, long>();
-            var distinctPairs = new HashSet<(long DepotId, long AppId)>();
-            foreach (var mapping in depotMappings)
-            {
-                distinctPairs.Add((mapping.DepotId, mapping.AppId));
-                if (!grouped.TryGetValue(mapping.DepotId, out var representative) || mapping.AppId < representative)
-                {
-                    grouped[mapping.DepotId] = mapping.AppId;
-                }
-            }
-
-            _depotMappings = grouped;
-            _totalDepotMappingCount = distinctPairs.Count;
-
-            _logger.LogInformation(
-                "Loaded {DepotCount} depots with {MappingCount} mappings from database",
-                grouped.Count,
-                _totalDepotMappingCount);
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error loading depot mappings from database");
-            return false;
-        }
-    }
-
-    #endregion
 
     #region Public API Methods
-
-    /// <summary>
-    /// Get app ID from depot using real Steam API relationships
-    /// </summary>
-    public long? GetAppIdFromDepot(long depotId)
-    {
-        try
-        {
-            // The map stores the representative (lowest) AppId per depot directly.
-            if (_depotMappings.TryGetValue(depotId, out var selectedAppId))
-            {
-                return selectedAppId;
-            }
-
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error getting app ID from depot {depotId}");
-            return null;
-        }
-    }
 
     /// <summary>
     /// Get all app IDs associated with a depot.
@@ -387,24 +84,11 @@ public class SteamService : ScopedScheduledBackgroundService
                 }
             }
 
-            // Check if we have basic app info
-            if (_steamApps.TryGetValue(appId, out var steamApp))
+            var gameInfo = await GetDetailedGameInfoAsync(appId);
+            if (gameInfo != null)
             {
-                // Try to get detailed info from Steam Store API
-                var detailedInfo = await GetDetailedGameInfoAsync(appId, steamApp.Name);
-                if (detailedInfo != null)
-                {
-                    _gameCache[appId] = detailedInfo;
-                    return detailedInfo;
-                }
-            }
-
-            // Fallback: try to get info directly from Steam Store API
-            var fallbackInfo = await GetDetailedGameInfoAsync(appId);
-            if (fallbackInfo != null)
-            {
-                _gameCache[appId] = fallbackInfo;
-                return fallbackInfo;
+                _gameCache[appId] = gameInfo;
+                return gameInfo;
             }
 
             return null;
@@ -512,17 +196,10 @@ public class SteamService : ScopedScheduledBackgroundService
         _logger.LogInformation("Cleared all Steam service caches");
     }
 
-    /// <summary>
-    /// Check if Steam API session is ready
-    /// </summary>
-    public bool IsReady => _isReady;
-
     #endregion
 
-    public override void Dispose()
+    public void Dispose()
     {
-        ConfigurableScheduledService.ServiceWorkCompleted -= OnServiceWorkCompleted;
         _apiSemaphore.Dispose();
-        base.Dispose();
     }
 }

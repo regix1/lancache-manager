@@ -1695,17 +1695,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     staleMessage: 'Game images updated'
   }),
   buildScheduledRunEntry({
-    type: 'steam_service_refresh',
-    id: NOTIFICATION_IDS.STEAM_SERVICE_REFRESH,
-    storageKey: NOTIFICATION_STORAGE_KEYS.STEAM_SERVICE_REFRESH,
-    serviceKey: 'steamService',
-    eventPrefix: 'SteamServiceRefresh',
-    i18nBase: 'signalr.scheduledRun.steamService',
-    countable: false,
-    defaultMessage: 'Refreshing Steam data...',
-    staleMessage: 'Steam data refreshed'
-  }),
-  buildScheduledRunEntry({
     type: 'cache_snapshot',
     id: NOTIFICATION_IDS.CACHE_SNAPSHOT,
     storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_SNAPSHOT,

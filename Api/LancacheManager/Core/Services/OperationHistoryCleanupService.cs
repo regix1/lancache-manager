@@ -24,7 +24,10 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
         SignalREvents.OperationHistoryCleanupComplete);
 
     protected override string ServiceName => "OperationHistoryCleanupService";
-    protected override TimeSpan Interval => TimeSpan.FromMinutes(5);
+    // Only prunes cache-clear records already older than 24h, so a sub-hourly cadence buys
+    // nothing (and a "Every 5 minutes" entry in the Schedules list reads as alarming for what is
+    // trivial housekeeping). Hourly is plenty to keep the list bounded.
+    protected override TimeSpan Interval => TimeSpan.FromHours(1);
     public override bool DefaultRunOnStartup => false;
     public override string ServiceKey => "operationHistoryCleanup";
     protected override bool SupportsNotifications => true;

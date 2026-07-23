@@ -45,7 +45,6 @@ export const SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: Partial<Record<Notifica
   {
     log_rotation: 'logRotation',
     game_image_fetch: 'gameImageFetch',
-    steam_service_refresh: 'steamService',
     cache_snapshot: 'cacheSnapshot',
     operation_history_cleanup: 'operationHistoryCleanup',
     performance_optimization: 'performanceOptimization',
@@ -190,8 +189,6 @@ export const NOTIFICATION_STORAGE_KEYS = {
   LOG_ROTATION: 'notification_log_rotation',
   /** Key for scheduled game image fetch run state */
   GAME_IMAGE_FETCH: 'notification_game_image_fetch',
-  /** Key for scheduled Steam service refresh run state */
-  STEAM_SERVICE_REFRESH: 'notification_steam_service_refresh',
   /** Key for scheduled cache snapshot run state */
   CACHE_SNAPSHOT: 'notification_cache_snapshot',
   /** Key for scheduled operation history cleanup run state */
@@ -255,8 +252,6 @@ export const NOTIFICATION_IDS = {
   LOG_ROTATION: 'log_rotation',
   /** ID for scheduled game image fetch runs */
   GAME_IMAGE_FETCH: 'game_image_fetch',
-  /** ID for scheduled Steam service refresh runs */
-  STEAM_SERVICE_REFRESH: 'steam_service_refresh',
   /** ID for scheduled cache snapshot runs */
   CACHE_SNAPSHOT: 'cache_snapshot',
   /** ID for scheduled operation history cleanup runs */

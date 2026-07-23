@@ -21,6 +21,10 @@ namespace LancacheManager.Core.Services;
 /// </summary>
 public class DashboardBatchService : IDashboardBatchService
 {
+    // Shared with the scheduled warmer so the live entry stays useful between refreshes
+    // without turning the heavy query fan-out into a 15-second background workload.
+    internal static readonly TimeSpan LiveCacheWindow = TimeSpan.FromMinutes(5);
+
     private readonly CacheManagementService _cacheService;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
@@ -225,9 +229,9 @@ public class DashboardBatchService : IDashboardBatchService
             CacheGrowth = await cacheGrowthTask
         };
 
-        // Non-live ranges (startTime/endTime fixed) cache for 60s; live (no bounds) cache for 15s.
+        // Non-live ranges (startTime/endTime fixed) cache for 60s; live uses the shared warm window.
         var cacheOptions = new MemoryCacheEntryOptions()
-            .SetAbsoluteExpiration(TimeSpan.FromSeconds(isLive ? 15 : 60))
+            .SetAbsoluteExpiration(isLive ? LiveCacheWindow : TimeSpan.FromSeconds(60))
             .SetSize(50_000)
             .SetPriority(CacheItemPriority.High);
 

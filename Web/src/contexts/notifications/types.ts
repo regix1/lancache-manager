@@ -35,7 +35,6 @@ export type NotificationType =
   | 'scheduled_prefill'
   | 'log_rotation'
   | 'game_image_fetch'
-  | 'steam_service_refresh'
   | 'cache_snapshot'
   | 'operation_history_cleanup'
   | 'performance_optimization'

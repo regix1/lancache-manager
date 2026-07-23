@@ -194,48 +194,6 @@ public class ScheduledRunReporterTests
         Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
     }
 
-    /// <summary>
-    /// Locks the SteamService refresh outcome contract: RefreshMappingsAsync propagates whether the
-    /// run ended with usable data (a failed refresh whose database-fallback read also failed returns
-    /// false; a fallback read that succeeded returns true), and RefreshWithReportingAsync stamps the
-    /// run terminal with that result. A run with no usable data completes as a failure terminal, not
-    /// a false success, and the failure keeps the highest progress the refresh reached (its 80%
-    /// milestone) rather than snapping to 100.
-    /// </summary>
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task CompleteAsync_SteamRefreshTerminalMirrorsFallbackOutcomeAsync(bool fallbackLoaded)
-    {
-        var notifications = new CapturingNotificationService();
-        var tracker = CreateTracker();
-        await using var reporter = new ScheduledRunReporter(
-            notifications,
-            tracker,
-            "steamService",
-            OperationType.SteamServiceRefresh,
-            Events,
-            "signalr.scheduledRun.steamService.complete",
-            showNotification: true,
-            CancellationToken.None);
-
-        // The refresh reports its stepped milestones, then RefreshMappingsAsync resolves to the
-        // fallback outcome: true when the fallback read produced usable data, false when both the
-        // refresh and the fallback read failed.
-        await reporter.StartAsync("signalr.scheduledRun.steamService.starting");
-        await reporter.ReportAsync(30, "signalr.scheduledRun.steamService.running");
-        await reporter.ReportAsync(80, "signalr.scheduledRun.steamService.running");
-        var refreshed = fallbackLoaded;
-        await reporter.CompleteAsync(refreshed, error: refreshed ? null : "Steam metadata refresh failed");
-
-        var complete = await notifications.WhenEventAsync(CompleteEventName).WaitAsync(TimeSpan.FromSeconds(5));
-        var payload = Assert.IsType<ScheduledRunCompleteEvent>(complete.Payload);
-
-        Assert.Equal(fallbackLoaded, payload.Success);
-        Assert.Equal(fallbackLoaded ? 100 : 80, payload.PercentComplete);
-        Assert.Equal(fallbackLoaded ? null : "Steam metadata refresh failed", payload.Error);
-    }
-
     private sealed record CapturedEvent(string EventName, object? Payload);
 
     private sealed class CapturingNotificationService : ISignalRNotificationService

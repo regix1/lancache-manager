@@ -228,9 +228,6 @@ public static class SignalREvents
     public const string GameImageFetchStarted = "GameImageFetchStarted";
     public const string GameImageFetchProgress = "GameImageFetchProgress";
     public const string GameImageFetchComplete = "GameImageFetchComplete";
-    public const string SteamServiceRefreshStarted = "SteamServiceRefreshStarted";
-    public const string SteamServiceRefreshProgress = "SteamServiceRefreshProgress";
-    public const string SteamServiceRefreshComplete = "SteamServiceRefreshComplete";
     public const string CacheSnapshotStarted = "CacheSnapshotStarted";
     public const string CacheSnapshotProgress = "CacheSnapshotProgress";
     public const string CacheSnapshotComplete = "CacheSnapshotComplete";

@@ -177,7 +177,6 @@
         "scheduledPrefill": "Scheduled Prefill",
         "logRotation": "Log Rotation",
         "gameImageFetch": "Game Image Fetch",
-        "steamServiceRefresh": "Steam Data Refresh",
         "cacheSnapshot": "Cache Snapshot",
         "operationHistoryCleanup": "Operation History Cleanup",
         "performanceOptimization": "Performance Optimization",
@@ -3954,13 +3953,6 @@
           "gain": "Game cards get their artwork faster and stale images are kept up to date",
           "loss": "Some game cards may display without artwork for longer until the next image fetch cycle"
         },
-        "steamService": {
-          "displayName": "Steam Game Info",
-          "description": "Steam caches content by depot ID (a number), not by game name, so it needs a lookup to turn those IDs into games. This service keeps the whole depot-to-game lookup in memory so Steam downloads resolve to game names instantly, caches Steam Store names and cover art on demand, and reloads the lookup after Steam Game Mapping discovers new mappings.",
-          "summary": "Turns Steam depot IDs into game names.",
-          "gain": "Depot-to-app lookups stay fast and newly discovered PICS mappings are picked up sooner",
-          "loss": "Newly discovered PICS mappings may take longer to appear in depot lookups until the next reload"
-        },
         "cacheSnapshot": {
           "displayName": "Cache Snapshots",
           "description": "Saves a periodic snapshot of used cache size and total capacity so the dashboard can chart growth over time. Snapshots older than 90 days are deleted automatically.",
@@ -6993,11 +6985,6 @@
         "starting": "Starting game image fetch...",
         "running": "Fetching game images ({{processed}} of {{total}})...",
         "complete": "Game images updated"
-      },
-      "steamService": {
-        "starting": "Refreshing Steam data...",
-        "running": "Refreshing Steam depot data...",
-        "complete": "Steam data refreshed"
       },
       "cacheSnapshot": {
         "starting": "Starting cache snapshot...",

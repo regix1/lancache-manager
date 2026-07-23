@@ -518,8 +518,8 @@ builder.Services.AddSingleton<LancacheManager.Core.Services.ConnectionTrackingSe
 // Register SteamKit2Service for real-time Steam depot mapping
 builder.Services.AddSingletonHostedService<SteamKit2Service>();
 
-// Register SteamService as singleton and hosted service (replaces old SteamDepotMappingService)
-builder.Services.AddSingletonHostedService<SteamService>();
+// Register SteamService as singleton (on-demand game info / depot owner lookups; not scheduled)
+builder.Services.AddSingleton<SteamService>();
 
 // Register SteamWebApiService for V2/V1 fallback
 builder.Services.AddSingleton<SteamWebApiService>();

@@ -177,7 +177,6 @@
         "scheduledPrefill": "计划预填充",
         "logRotation": "日志轮换",
         "gameImageFetch": "游戏图片获取",
-        "steamServiceRefresh": "Steam 数据刷新",
         "cacheSnapshot": "缓存快照",
         "operationHistoryCleanup": "操作历史清理",
         "performanceOptimization": "性能优化",
@@ -3953,13 +3952,6 @@
           "gain": "游戏卡片更快获得其图片，过时图片保持更新",
           "loss": "部分游戏卡片可能更长时间无图片显示，直到下次图片获取周期"
         },
-        "steamService": {
-          "displayName": "Steam 游戏信息",
-          "description": "Steam 按 depot ID（数字）而非游戏名称缓存内容，因此需要一个查找表把这些 ID 转换成游戏。本服务将完整的 depot 到游戏的查找表保留在内存中，使 Steam 下载可即时解析为游戏名称，并按需缓存 Steam 商店的名称和封面，在 Steam 游戏映射发现新映射后重新加载该查找表。",
-          "summary": "将 Steam depot ID 解析为游戏名称。",
-          "gain": "仓库到应用的查找保持快速，新发现的 PICS 映射更快被拾取",
-          "loss": "新发现的 PICS 映射可能需要更长时间出现在仓库查找中，直到下次重新加载"
-        },
         "cacheSnapshot": {
           "displayName": "缓存快照",
           "description": "定期保存已用缓存大小和总容量的快照，以便仪表板可以绘制随时间变化的增长图。超过 90 天的快照会自动删除。",
@@ -6957,11 +6949,6 @@
         "starting": "正在启动游戏图片获取...",
         "running": "正在获取游戏图片（{{processed}}/{{total}}）...",
         "complete": "游戏图片已更新"
-      },
-      "steamService": {
-        "starting": "正在刷新 Steam 数据...",
-        "running": "正在刷新 Steam depot 数据...",
-        "complete": "Steam 数据已刷新"
       },
       "cacheSnapshot": {
         "starting": "正在启动缓存快照...",

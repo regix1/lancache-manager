@@ -15,7 +15,6 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         "cacheSizeScan",
         "gameDetection",
         "gameImageFetch",
-        "steamService",
         "cacheSnapshot",
         "operationHistoryCleanup",
         "logRotation",
@@ -30,7 +29,6 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         ["logRotation"] = OperationType.LogRotation,
         ["gameImageFetch"] = OperationType.GameImageFetch,
-        ["steamService"] = OperationType.SteamServiceRefresh,
         ["cacheSnapshot"] = OperationType.CacheSnapshot,
         ["operationHistoryCleanup"] = OperationType.OperationHistoryCleanup,
         ["performanceOptimization"] = OperationType.PerformanceOptimization,
@@ -48,10 +46,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     private readonly Dictionary<string, ConfigurableScheduledService> _configurableServices = new(StringComparer.OrdinalIgnoreCase);
 
     // ConfigurableScheduledService fires its static ServiceWorkCompleted event using the protected
-    // ServiceName (see ConfigurableScheduledService.cs's ExecuteAsync loop and SteamService's identical,
-    // documented dependency on that exact contract), NOT the ScheduleServiceKey that _configurableServices
-    // above is keyed by. Track each tracked configurable service's ServiceName here too so
-    // OnServiceWorkCompletedAsync's tracked-service guard recognizes the event when it arrives.
+    // ServiceName (see ConfigurableScheduledService.cs's ExecuteAsync loop), NOT the ScheduleServiceKey
+    // that _configurableServices above is keyed by. Track each tracked configurable service's
+    // ServiceName here too so OnServiceWorkCompletedAsync's tracked-service guard recognizes the
+    // event when it arrives.
     private readonly HashSet<string> _configurableServiceNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
