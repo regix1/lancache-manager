@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
+import { Tooltip } from '../../ui/Tooltip';
 import { Download } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatSpeed, formatPercent } from '@utils/formatters';
@@ -75,6 +76,11 @@ export function PrefillProgressCard({
       ? Math.floor(remainingBytes / progress.bytesPerSecond)
       : null;
 
+  const currentAppLabel =
+    (progress.currentAppName || t('prefill.progress.appId', { id: progress.currentAppId })) +
+    (progress.state === 'app_completed' ? ` - ${t('prefill.progress.complete')}` : '') +
+    (progress.state === 'already_cached' ? ` - ${t('prefill.progress.upToDate')}` : '');
+
   return (
     <Card padding="md" className="overflow-hidden prefill-progress-card">
       <div className="space-y-4">
@@ -90,12 +96,11 @@ export function PrefillProgressCard({
             <div>
               <p className="font-medium text-themed-primary">{getStateLabel()}</p>
               {showAppInfo && (
-                <p className="text-sm text-themed-muted truncate max-w-[180px] sm:max-w-[300px]">
-                  {progress.currentAppName ||
-                    t('prefill.progress.appId', { id: progress.currentAppId })}
-                  {progress.state === 'app_completed' && ` - ${t('prefill.progress.complete')}`}
-                  {progress.state === 'already_cached' && ` - ${t('prefill.progress.upToDate')}`}
-                </p>
+                <Tooltip content={currentAppLabel} position="top" className="block min-w-0">
+                  <p className="text-sm text-themed-muted truncate max-w-[180px] sm:max-w-[300px]">
+                    {currentAppLabel}
+                  </p>
+                </Tooltip>
               )}
             </div>
           </div>

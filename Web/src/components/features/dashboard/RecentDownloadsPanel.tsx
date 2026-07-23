@@ -49,6 +49,10 @@ interface RecentDownloadsPanelProps {
 
 // Active download item component using real-time speed data
 const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; t: TFunction }> = ({ game, t }) => {
+  const displayName =
+    game.gameName && game.gameName !== game.service && !game.gameName.match(/^Steam App \d+$/)
+      ? game.gameName
+      : game.gameName || (game.depotId ? `Depot ${game.depotId}` : game.service);
   return (
     <div className="rdl-row rdl-row-active">
       <div className="rdl-row-main">
@@ -58,13 +62,9 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; t: TFunction }> = ({ g
         </div>
         <div className="rdl-row-info">
           <div className="rdl-row-name">
-            <span className="rdl-name-text">
-              {game.gameName &&
-              game.gameName !== game.service &&
-              !game.gameName.match(/^Steam App \d+$/)
-                ? game.gameName
-                : game.gameName || (game.depotId ? `Depot ${game.depotId}` : game.service)}
-            </span>
+            <Tooltip content={displayName} position="top" className="flex min-w-0">
+              <span className="rdl-name-text">{displayName}</span>
+            </Tooltip>
           </div>
           <div className="rdl-row-meta">
             <BadgesRow service={game.service} showDatasource={false} />
@@ -231,7 +231,9 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
         <div className="rdl-row-info">
           <div className="rdl-row-name">
             {!detailed && <BadgesRow service={display.service} showDatasource={false} />}
-            <span className="rdl-name-text">{display.name}</span>
+            <Tooltip content={display.name} position="top" className="flex min-w-0">
+              <span className="rdl-name-text">{display.name}</span>
+            </Tooltip>
             {isGroup && display.count > 1 && (
               <span className="themed-badge status-badge-neutral badge-count">
                 {display.count}×

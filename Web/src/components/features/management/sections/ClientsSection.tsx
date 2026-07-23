@@ -435,12 +435,20 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   {clientGroups.map((group) => {
                     const isMultiIp = group.memberIps.length > 1;
                     const isExpanded = expandedGroupIds.has(group.id);
+                    const ipSummary = isMultiIp
+                      ? `${group.memberIps.length} ${t('management.sections.clients.ipsLabel')}`
+                      : group.memberIps[0];
+                    const metaText = group.description
+                      ? `${group.description} · ${ipSummary}`
+                      : ipSummary;
                     return (
                       <div key={group.id}>
                         <div className="mgmt-row">
                           <div className="mgmt-row__body">
                             <div className="flex items-center gap-2 min-w-0">
-                              <p className="mgmt-row__title truncate">{group.nickname}</p>
+                              <Tooltip content={group.nickname} className="flex min-w-0">
+                                <p className="mgmt-row__title truncate">{group.nickname}</p>
+                              </Tooltip>
                               {isMultiIp && (
                                 <Tooltip content={t('modals.clientGroup.multiIpWarning')}>
                                   <span className="flex flex-shrink-0 items-center gap-1 px-1.5 py-0.5 rounded text-xs icon-bg-orange icon-orange">
@@ -451,14 +459,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                                 </Tooltip>
                               )}
                             </div>
-                            <p className="mgmt-row__meta truncate">
-                              {group.description && <span>{group.description} · </span>}
-                              <span className="font-mono">
-                                {isMultiIp
-                                  ? `${group.memberIps.length} ${t('management.sections.clients.ipsLabel')}`
-                                  : group.memberIps[0]}
-                              </span>
-                            </p>
+                            <Tooltip content={metaText} className="block min-w-0">
+                              <p className="mgmt-row__meta truncate">
+                                {group.description && <span>{group.description} · </span>}
+                                <span className="font-mono">{ipSummary}</span>
+                              </p>
+                            </Tooltip>
                           </div>
                           <div className="mgmt-row__actions">
                             {isAdmin && (
@@ -595,7 +601,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                         {paginatedUngroupedClients.map((ip) => (
                           <div key={ip} className="mgmt-row clients-unnamed-row">
                             <div className="mgmt-row__body">
-                              <p className="mgmt-row__title font-mono truncate">{ip}</p>
+                              <Tooltip content={ip} className="block min-w-0">
+                                <p className="mgmt-row__title font-mono truncate">{ip}</p>
+                              </Tooltip>
                             </div>
                             {isAdmin && (
                               <div className="mgmt-row__actions">

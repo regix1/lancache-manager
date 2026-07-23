@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, type ChangeEvent } from 'rea
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
+import { Tooltip } from '../../ui/Tooltip';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { Search, Check, Gamepad2, Import, Database, EyeOff, Eye } from 'lucide-react';
@@ -443,9 +444,15 @@ export function GameSelectionModal({
                                 <Check className="h-3 w-3 text-[var(--theme-button-text)]" />
                               </div>
                               <div className="flex-1 min-w-0">
-                                <div className="truncate font-medium text-[var(--theme-text-primary)]">
-                                  {game.name}
-                                </div>
+                                <Tooltip
+                                  content={game.name}
+                                  position="top"
+                                  className="block min-w-0"
+                                >
+                                  <div className="truncate font-medium text-[var(--theme-text-primary)]">
+                                    {game.name}
+                                  </div>
+                                </Tooltip>
                                 <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
                                   <span>
                                     {t('prefill.gameSelection.appId', { id: game.appId })}
@@ -495,9 +502,15 @@ export function GameSelectionModal({
                             >
                               <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-transparent border-2 border-[var(--theme-border-primary)]" />
                               <div className="flex-1 min-w-0">
-                                <div className="truncate font-medium text-[var(--theme-text-primary)]">
-                                  {game.name}
-                                </div>
+                                <Tooltip
+                                  content={game.name}
+                                  position="top"
+                                  className="block min-w-0"
+                                >
+                                  <div className="truncate font-medium text-[var(--theme-text-primary)]">
+                                    {game.name}
+                                  </div>
+                                </Tooltip>
                                 <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
                                   <span>
                                     {t('prefill.gameSelection.appId', { id: game.appId })}

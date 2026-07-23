@@ -2,6 +2,7 @@ import React from 'react';
 import { FolderOpen, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import { Tooltip } from '@components/ui/Tooltip';
 
 interface DatasourceListItemProps {
   name: string;
@@ -62,13 +63,15 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
             </div>
 
             {/* Name */}
-            <span
-              className={`font-semibold transition-colors duration-200 truncate min-w-0 ${
-                isExpanded ? 'text-themed-primary' : 'text-themed-secondary'
-              }`}
-            >
-              {name}
-            </span>
+            <Tooltip content={name} position="top" className="min-w-0">
+              <span
+                className={`block font-semibold transition-colors duration-200 truncate min-w-0 ${
+                  isExpanded ? 'text-themed-primary' : 'text-themed-secondary'
+                }`}
+              >
+                {name}
+              </span>
+            </Tooltip>
 
             {/* Disabled Badge */}
             {!enabled && (
@@ -115,15 +118,17 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
             isExpanded ? 'opacity-100' : 'opacity-70'
           }`}
         >
-          <code
-            className={`text-xs px-2 py-1 rounded truncate transition duration-300 max-w-full ${
-              isExpanded
-                ? 'bg-[var(--theme-bg-tertiary-emphasis)] text-themed-secondary'
-                : 'bg-themed-tertiary text-themed-muted'
-            }`}
-          >
-            {path}
-          </code>
+          <Tooltip content={path} position="top" className="flex min-w-0 max-w-full">
+            <code
+              className={`min-w-0 text-xs px-2 py-1 rounded truncate transition duration-300 max-w-full ${
+                isExpanded
+                  ? 'bg-[var(--theme-bg-tertiary-emphasis)] text-themed-secondary'
+                  : 'bg-themed-tertiary text-themed-muted'
+              }`}
+            >
+              {path}
+            </code>
+          </Tooltip>
         </div>
       </button>
 

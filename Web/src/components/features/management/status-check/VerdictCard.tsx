@@ -403,9 +403,17 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
             {t(`${keys}.runCheck`)}
           </Button>
           {lastResult && (
-            <span className="text-xs text-themed-muted text-right max-w-[10rem] truncate">
-              {t(`${keys}.lastChecked`, { time: formatDateTime(lastResult.completedAtUtc) })}
-            </span>
+            <Tooltip
+              content={t(`${keys}.lastChecked`, {
+                time: formatDateTime(lastResult.completedAtUtc)
+              })}
+              position="top"
+              className="block min-w-0"
+            >
+              <span className="text-xs text-themed-muted text-right max-w-[10rem] truncate">
+                {t(`${keys}.lastChecked`, { time: formatDateTime(lastResult.completedAtUtc) })}
+              </span>
+            </Tooltip>
           )}
         </div>
       </div>

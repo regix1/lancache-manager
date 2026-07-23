@@ -7,6 +7,7 @@ import { formatBytes, formatPercent } from '@utils/formatters';
 import { DownloadTimestamp } from './DownloadTimestamp';
 import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
+import { Tooltip } from '@components/ui/Tooltip';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
@@ -262,9 +263,11 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     isPartiallyEvicted={isPartiallyEvicted}
                   />
                   {showGroupName && (
-                    <span className="text-sm font-medium text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate flex-1">
-                      {group.name}
-                    </span>
+                    <Tooltip content={group.name} position="top" className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate">
+                        {group.name}
+                      </span>
+                    </Tooltip>
                   )}
                 </div>
                 <div className="flex items-center justify-between gap-3 pl-6 text-xs">
@@ -320,9 +323,11 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     isPartiallyEvicted={isPartiallyEvicted}
                   />
                   {showGroupName && (
-                    <span className="text-sm font-medium text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate">
-                      {group.name}
-                    </span>
+                    <Tooltip content={group.name} position="top" className="block min-w-0">
+                      <span className="text-sm font-medium text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate">
+                        {group.name}
+                      </span>
+                    </Tooltip>
                   )}
                   {diskSizeBytes ? (
                     <span className="text-themed-muted text-xs">

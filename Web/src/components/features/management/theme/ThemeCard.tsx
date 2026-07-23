@@ -87,9 +87,11 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="font-semibold text-themed-primary text-sm truncate">
-              {theme.meta.name}
-            </span>
+            <Tooltip content={theme.meta.name} position="top" className="block min-w-0">
+              <span className="font-semibold text-themed-primary text-sm truncate">
+                {theme.meta.name}
+              </span>
+            </Tooltip>
             {theme.meta.isDark ? (
               <Moon className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
             ) : (

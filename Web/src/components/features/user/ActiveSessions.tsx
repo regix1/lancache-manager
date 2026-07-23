@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
+import { Tooltip } from '@components/ui/Tooltip';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
@@ -1003,7 +1004,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           <span className={`status-dot ${sessionStatus}`} aria-hidden="true" />
           <div className="mgmt-row__body">
             <div className="session-row__titleline">
-              <span className="mgmt-row__title truncate">{parsedUA.title}</span>
+              <Tooltip content={parsedUA.title} position="top" className="block min-w-0">
+                <span className="mgmt-row__title truncate">{parsedUA.title}</span>
+              </Tooltip>
               <span
                 className={`themed-badge session-type-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
               >
@@ -1303,7 +1306,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       <div key={session.id} className="mgmt-row">
         <div className="mgmt-row__body">
           <div className="session-row__titleline">
-            <span className="mgmt-row__title truncate">{parsedUA.title}</span>
+            <Tooltip content={parsedUA.title} position="top" className="block min-w-0">
+              <span className="mgmt-row__title truncate">{parsedUA.title}</span>
+            </Tooltip>
             <span
               className={`themed-badge session-type-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
             >

@@ -27,27 +27,33 @@ const ClientListItem: React.FC<ClientListItemProps> = ({ client }) => {
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
   const displayLabel = client.displayName || client.clientIp;
   const showGroupCount = !!(client.isGrouped && (client.groupMemberIps?.length ?? 0) > 1);
-  const ipTooltip =
-    client.isGrouped && client.groupMemberIps
-      ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps.join(', ') })
-      : client.displayName
-        ? t('clients.tooltips.singleIp', { ip: client.clientIp })
-        : undefined;
   const hitRateTone = client.cacheHitPercent > 50 ? 'is-success' : 'is-warning';
+
+  // The tooltip must reveal whatever text is actually truncated: the nickname
+  // when one is set (plus its IP(s) as supporting detail), or the raw IP itself
+  // when there is no nickname to show.
+  const identityTooltipContent = client.displayName ? (
+    <div>
+      <div>{displayLabel}</div>
+      <div className="text-themed-muted">
+        {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 0
+          ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps.join(', ') })
+          : t('clients.tooltips.singleIp', { ip: client.clientIp })}
+      </div>
+    </div>
+  ) : (
+    client.clientIp
+  );
 
   return (
     <div className="clients-grid">
       <div className="clients-cell clients-cell--client">
         {client.isGrouped && <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />}
-        {ipTooltip ? (
-          <Tooltip content={ipTooltip}>
-            <span className="cursor-help border-b border-dashed border-themed-muted truncate">
-              {displayLabel}
-            </span>
-          </Tooltip>
-        ) : (
-          <span className="truncate">{displayLabel}</span>
-        )}
+        <Tooltip content={identityTooltipContent}>
+          <span className="cursor-help border-b border-dashed border-themed-muted truncate">
+            {displayLabel}
+          </span>
+        </Tooltip>
         {showGroupCount && (
           <span
             className="themed-badge status-badge-neutral badge-count"

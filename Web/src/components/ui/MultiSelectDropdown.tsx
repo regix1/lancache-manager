@@ -10,6 +10,7 @@ import React, {
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
+import { Tooltip } from './Tooltip';
 import { useTranslation } from 'react-i18next';
 import { useAnchorFollow, type AnchorMoveHandler } from '@hooks/useAnchorFollow';
 
@@ -272,7 +273,9 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
           isOpen ? 'msd-trigger-open border-themed-focus' : 'border-themed-primary'
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
-        <span className="truncate flex-1">{displayLabel}</span>
+        <Tooltip content={displayLabel} position="top" className="flex-1 min-w-0">
+          <span className="block truncate">{displayLabel}</span>
+        </Tooltip>
         <div className="flex items-center gap-1.5 text-themed-muted">
           {selectedCount > 0 && (
             <span className="themed-badge badge-count badge-count-on-color font-semibold bg-[var(--theme-primary)] text-white">

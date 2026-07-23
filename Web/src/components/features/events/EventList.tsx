@@ -15,6 +15,7 @@ import { useTimezone } from '@contexts/useTimezone';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
+import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes } from '@utils/formatters';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
@@ -149,16 +150,20 @@ const EventCard = React.memo(
                       : t('events.list.status.ended')}
                 </span>
 
-                <h3 className="font-semibold truncate text-[var(--theme-text-primary)]">
-                  {event.name}
-                </h3>
+                <Tooltip content={event.name} position="top" className="flex min-w-0">
+                  <h3 className="font-semibold truncate text-[var(--theme-text-primary)]">
+                    {event.name}
+                  </h3>
+                </Tooltip>
               </div>
 
               {/* Description */}
               {event.description && (
-                <p className="text-sm mb-3 line-clamp-2 ml-6 text-[var(--theme-text-secondary)]">
-                  {event.description}
-                </p>
+                <Tooltip content={event.description} position="top" className="block min-w-0 ml-6">
+                  <p className="text-sm mb-3 line-clamp-2 text-[var(--theme-text-secondary)]">
+                    {event.description}
+                  </p>
+                </Tooltip>
               )}
 
               {/* Meta info row */}
@@ -253,9 +258,11 @@ const EventCard = React.memo(
                     <span className="themed-badge status-badge-neutral">
                       {game.service.toUpperCase()}
                     </span>
-                    <span className="text-sm font-medium truncate text-[var(--theme-text-primary)]">
-                      {game.name}
-                    </span>
+                    <Tooltip content={game.name} position="top" className="flex min-w-0">
+                      <span className="text-sm font-medium truncate text-[var(--theme-text-primary)]">
+                        {game.name}
+                      </span>
+                    </Tooltip>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <span className="text-xs text-[var(--theme-text-muted)]">{game.count}x</span>

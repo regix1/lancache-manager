@@ -571,7 +571,11 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
             <TriggerIcon className="flex-shrink-0 text-[var(--theme-primary)]" size={16} />
           )}
           {!iconOnly && (
-            <span className={compactMode ? 'font-medium' : 'truncate'}>{displayLabel}</span>
+            <Tooltip content={displayLabel} position="top" className="min-w-0">
+              <span className={compactMode ? 'block font-medium' : 'block truncate'}>
+                {displayLabel}
+              </span>
+            </Tooltip>
           )}
         </div>
         {!iconOnly && (
@@ -619,12 +623,16 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
               <div>
                 {options.map((option) =>
                   option.value === 'divider' ? (
-                    <div
+                    <Tooltip
                       key={option.value}
-                      className="px-3 py-2 text-xs font-medium border-t border-themed-primary mt-1 mb-1 truncate text-themed-muted bg-themed-tertiary"
+                      content={option.label}
+                      position="top"
+                      className="block"
                     >
-                      {option.label}
-                    </div>
+                      <div className="px-3 py-2 text-xs font-medium border-t border-themed-primary mt-1 mb-1 truncate text-themed-muted bg-themed-tertiary">
+                        {option.label}
+                      </div>
+                    </Tooltip>
                   ) : option.submenu && option.submenu.length > 0 ? (
                     <React.Fragment key={option.value}>
                       <Tooltip
@@ -725,9 +733,15 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                       )}
                                       <div className="flex-1 min-w-0 text-left">
                                         <div className="flex items-center gap-1.5">
-                                          <span className="font-medium truncate">
-                                            {subItem.label}
-                                          </span>
+                                          <Tooltip
+                                            content={subItem.label}
+                                            position="top"
+                                            className="min-w-0"
+                                          >
+                                            <span className="block font-medium truncate">
+                                              {subItem.label}
+                                            </span>
+                                          </Tooltip>
                                           {subItem.badge && (
                                             <span
                                               className="px-1.5 py-0.5 text-[10px] rounded-full font-medium"
@@ -746,11 +760,17 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                           )}
                                         </div>
                                         {subItem.description && (
-                                          <div
-                                            className={`text-xs truncate ${isSubSelected ? 'text-white/70' : 'text-themed-muted'}`}
+                                          <Tooltip
+                                            content={subItem.description}
+                                            position="top"
+                                            className="block min-w-0"
                                           >
-                                            {subItem.description}
-                                          </div>
+                                            <div
+                                              className={`text-xs truncate ${isSubSelected ? 'text-white/70' : 'text-themed-muted'}`}
+                                            >
+                                              {subItem.description}
+                                            </div>
+                                          </Tooltip>
                                         )}
                                       </div>
                                       {isSubSelected && (
@@ -814,12 +834,10 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                             </div>
                           </button>
                         );
-                        return option.tooltip ? (
-                          <Tooltip content={option.tooltip} className="w-full">
+                        return (
+                          <Tooltip content={option.tooltip || option.label} className="w-full">
                             {buttonContent}
                           </Tooltip>
-                        ) : (
-                          buttonContent
                         );
                       })()}
                     </React.Fragment>

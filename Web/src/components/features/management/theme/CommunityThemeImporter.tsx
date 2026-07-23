@@ -554,9 +554,15 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-themed-primary text-sm truncate">
-                        {theme.meta?.name || theme.name}
-                      </span>
+                      <Tooltip
+                        content={theme.meta?.name || theme.name}
+                        position="top"
+                        className="block min-w-0"
+                      >
+                        <span className="font-medium text-themed-primary text-sm truncate">
+                          {theme.meta?.name || theme.name}
+                        </span>
+                      </Tooltip>
                       {theme.meta?.isDark ? (
                         <Moon className="w-3 h-3 text-themed-muted flex-shrink-0" />
                       ) : (
