@@ -373,7 +373,7 @@ const SessionCard: React.FC<{
 
             {/* Session details */}
             <div className="prefill-session-details">
-              {/* Header: Username and status */}
+              {/* Title row: username / fallback label only */}
               <div className="prefill-session-header">
                 {displayUsername ? (
                   <span className={`prefill-session-username platform-${serviceId}`}>
@@ -391,6 +391,9 @@ const SessionCard: React.FC<{
                           : t('management.prefillSessions.labels.notLoggedInSession')}
                   </span>
                 )}
+              </div>
+              {/* Status / platform / Persistent pills: always on their own row */}
+              <div className="prefill-session-badges">
                 <StatusBadge status={status} />
                 <Badge variant="neutral">{platformDisplayName}</Badge>
                 {isPersistentSession && (
@@ -1416,78 +1419,76 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             iconColor="var(--theme-icon-blue)"
             isExpanded={historyExpanded}
             onToggle={() => setHistoryExpanded(!historyExpanded)}
-            badge={
-              <div className="prefill-filter-inline">
-                <EnhancedDropdown
-                  variant="button"
-                  options={
-                    [
-                      { value: '', label: t('management.prefillSessions.statusFilters.all') },
-                      {
-                        value: 'Active',
-                        label: t('management.prefillSessions.statusFilters.active')
-                      },
-                      {
-                        value: 'Terminated',
-                        label: t('management.prefillSessions.statusFilters.terminated')
-                      },
-                      {
-                        value: 'Orphaned',
-                        label: t('management.prefillSessions.statusFilters.orphaned')
-                      },
-                      {
-                        value: 'Cleaned',
-                        label: t('management.prefillSessions.statusFilters.cleaned')
-                      }
-                    ] as DropdownOption[]
-                  }
-                  value={statusFilter}
-                  onChange={(value: string) => {
-                    // Dropdown values are fixed to '' | 'Active' | 'Terminated' | 'Orphaned' | 'Cleaned'
-                    // (see options above) - narrow to PrefillSessionStatus for the typed state setter.
-                    setStatusFilter(value as PrefillSessionStatus | '');
-                    setPage(1);
-                  }}
-                  placeholder={t('management.prefillSessions.statusFilters.all')}
-                  className="min-w-[90px] sm:min-w-[120px] h-10"
-                  dropdownWidth="140px"
-                />
-                <EnhancedDropdown
-                  variant="button"
-                  options={
-                    [
-                      { value: 'all', label: t('management.prefillSessions.platformFilters.all') },
-                      {
-                        value: 'Steam',
-                        label: t('management.prefillSessions.platformFilters.steam')
-                      },
-                      {
-                        value: 'Epic',
-                        label: t('management.prefillSessions.platformFilters.epic')
-                      },
-                      {
-                        value: 'BattleNet',
-                        label: t('management.prefillSessions.platformFilters.battlenet')
-                      },
-                      {
-                        value: 'Riot',
-                        label: t('management.prefillSessions.platformFilters.riot')
-                      },
-                      { value: 'Xbox', label: t('management.prefillSessions.platformFilters.xbox') }
-                    ] as DropdownOption[]
-                  }
-                  value={platformFilter}
-                  onChange={(value: string) => {
-                    setPlatformFilter(value);
-                    setPage(1);
-                  }}
-                  placeholder={t('management.prefillSessions.platformFilters.all')}
-                  className="min-w-[90px] sm:min-w-[120px] h-10"
-                  dropdownWidth="140px"
-                />
-              </div>
-            }
           >
+            <div className="prefill-history-filters">
+              <EnhancedDropdown
+                variant="button"
+                options={
+                  [
+                    { value: '', label: t('management.prefillSessions.statusFilters.all') },
+                    {
+                      value: 'Active',
+                      label: t('management.prefillSessions.statusFilters.active')
+                    },
+                    {
+                      value: 'Terminated',
+                      label: t('management.prefillSessions.statusFilters.terminated')
+                    },
+                    {
+                      value: 'Orphaned',
+                      label: t('management.prefillSessions.statusFilters.orphaned')
+                    },
+                    {
+                      value: 'Cleaned',
+                      label: t('management.prefillSessions.statusFilters.cleaned')
+                    }
+                  ] as DropdownOption[]
+                }
+                value={statusFilter}
+                onChange={(value: string) => {
+                  // Dropdown values are fixed to '' | 'Active' | 'Terminated' | 'Orphaned' | 'Cleaned'
+                  // (see options above) - narrow to PrefillSessionStatus for the typed state setter.
+                  setStatusFilter(value as PrefillSessionStatus | '');
+                  setPage(1);
+                }}
+                placeholder={t('management.prefillSessions.statusFilters.all')}
+                className="min-w-[90px] sm:min-w-[120px] h-10"
+                dropdownWidth="140px"
+              />
+              <EnhancedDropdown
+                variant="button"
+                options={
+                  [
+                    { value: 'all', label: t('management.prefillSessions.platformFilters.all') },
+                    {
+                      value: 'Steam',
+                      label: t('management.prefillSessions.platformFilters.steam')
+                    },
+                    {
+                      value: 'Epic',
+                      label: t('management.prefillSessions.platformFilters.epic')
+                    },
+                    {
+                      value: 'BattleNet',
+                      label: t('management.prefillSessions.platformFilters.battlenet')
+                    },
+                    {
+                      value: 'Riot',
+                      label: t('management.prefillSessions.platformFilters.riot')
+                    },
+                    { value: 'Xbox', label: t('management.prefillSessions.platformFilters.xbox') }
+                  ] as DropdownOption[]
+                }
+                value={platformFilter}
+                onChange={(value: string) => {
+                  setPlatformFilter(value);
+                  setPage(1);
+                }}
+                placeholder={t('management.prefillSessions.platformFilters.all')}
+                className="min-w-[90px] sm:min-w-[120px] h-10"
+                dropdownWidth="140px"
+              />
+            </div>
             {loadingSessions ? (
               <div className="prefill-loading-state">
                 <LoadingSpinner inline size="lg" className="text-themed-muted" />

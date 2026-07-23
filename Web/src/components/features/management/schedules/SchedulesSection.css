@@ -355,6 +355,14 @@
     border: 0;
   }
 
+  /* The head strip is sr-only here, so the divided-list divider it would sit above
+     lands on top of the first visible row as a stray hairline against the card's own
+     top border. Drop that one divider; the folded row tiles are separated by their
+     own vertical air, not this line. */
+  .schedule-table.divided-list > :nth-child(2) {
+    border-top: none;
+  }
+
   .schedule-table-cols {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     /* Taller than the desktop rows on purpose: each folded row reads as its own card

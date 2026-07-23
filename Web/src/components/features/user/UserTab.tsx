@@ -245,6 +245,7 @@ const UserTab: React.FC = () => {
         onChange={(value: string) => setActiveTab(value as 'sessions' | 'defaults')}
         size="md"
         showLabels="responsive"
+        fullWidth
       />
 
       {/* Tab Content - keyed by activeTab so AccordionGroupProvider's registry always

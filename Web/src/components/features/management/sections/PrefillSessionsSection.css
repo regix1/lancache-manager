@@ -140,15 +140,22 @@
 
 .prefill-session-header {
   display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* Status / platform / Persistent pills on a dedicated row below the title so a long
+   username never shares a flex line with the pills. Fixed width/height keeps them
+   aligned across session rows (same fixed-slot recipe as schedules settings pills). */
+.prefill-session-badges {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
 }
 
-/* Status / platform / Persistent pills share one fixed width and height so they read
-   as aligned columns across session rows whatever each label's length - the same
-   fixed-slot recipe as the schedules table's settings pills. */
-.prefill-session-header .themed-badge {
+.prefill-session-badges .themed-badge {
   width: 6.5rem;
   height: 1.125rem;
   justify-content: center;
@@ -160,9 +167,13 @@
   display: flex;
   align-items: center;
   gap: 0.375rem;
+  min-width: 0;
   font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--theme-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .prefill-session-username svg {
@@ -170,8 +181,12 @@
 }
 
 .prefill-session-no-user {
+  min-width: 0;
   font-size: var(--font-size-md);
   color: var(--theme-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Currently-downloading indicator: compact inline pill, shrinks to its content */
@@ -621,37 +636,33 @@
   margin-top: 1rem;
 }
 
-/* Filter cluster in the Session History accordion header. On wide screens the two
-   dropdowns sit inline in the header's action slot next to the collapse chevron. */
-.prefill-filter-inline {
+/* Session History filters: full-width row inside the accordion body (not the
+   shared header badge slot), so they never collide with the title or chevron. */
+.prefill-history-filters {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+  margin-bottom: 0.75rem;
 }
 
-/* The dropdown trigger sizes to its content (~30px), leaving it shorter than the
-   40px collapse chevron beside it. Pin it to the chevron height so the whole
-   header control cluster shares one height. */
-.prefill-filter-inline .ed-trigger {
+.prefill-history-filters > div {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.prefill-history-filters .ed-trigger {
   min-height: 2.5rem;
+  width: 100%;
 }
 
-/* Below sm the accordion header cannot fit the title, count and both filters on one
-   line. The shared header (AccordionSection) then crushes the title column to zero
-   width and the count badge collides with the dropdowns. A percentage width here
-   would resolve against the shrink-to-fit filter cluster itself and never grow wide
-   enough to trip the header's wrap, so this forces it directly against the viewport:
-   wide enough that the cluster always wraps to its own line below the title/count
-   row, where the dropdowns then flex to fill it edge to edge. */
-@media (max-width: 639px) {
-  .prefill-filter-inline {
-    min-width: calc(100vw - 8rem);
+@media (min-width: 640px) {
+  .prefill-history-filters {
+    justify-content: flex-end;
   }
 
-  .prefill-filter-inline > div {
-    flex: 1 1 0;
-    min-width: 0;
+  .prefill-history-filters > div {
+    flex: 0 0 auto;
   }
 }
 

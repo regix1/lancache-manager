@@ -121,9 +121,9 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         onClick={handleHeaderClick}
         onKeyDown={handleKeyDown}
         onTouchEnd={handleTouchEnd}
-        className="w-full px-4 py-3 flex flex-wrap items-center gap-2 justify-between sm:gap-3 text-left transition duration-200 group/header bg-transparent cursor-pointer"
+        className="w-full px-4 py-3 flex flex-wrap items-center gap-2 sm:gap-3 text-left transition duration-200 group/header bg-transparent cursor-pointer"
       >
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div className="flex items-center gap-3 min-w-0 flex-1 order-1">
           {/* Icon with animated background */}
           {Icon && (
             <div
@@ -187,15 +187,25 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
           </div>
         </div>
 
-        {/* Action badge + chevron cluster — stays inline on the title row at every
-            width so the count/actions never wrap to a full-width second row. One
-            uniform gap so the count badge, actions menu, and chevron are evenly
-            spaced (the inner badge/menu group also uses gap-2). */}
-        <div className="flex items-center gap-2 flex-shrink-0 sm:justify-end">
-          {badge}
+        {/* Action badge / section actions. On phones it drops to its own full-width
+            row below the title so the header never crushes the title, count and
+            actions onto one cramped line; on sm+ it sits inline before the chevron.
+            Kept before the chevron in the DOM so keyboard focus reaches the section
+            actions before the collapse toggle, matching the sm+ visual order.
+            sm:flex-shrink-0 keeps a wide actions cluster from being squeezed/clipped
+            against the flex-1 title (the section wrapper is overflow-hidden). Consumers
+            that pass a plain badge fill this row left-aligned; those that want a
+            right-aligned inline cluster already wrap it in `w-full … sm:w-auto
+            sm:justify-end`. */}
+        {badge && (
+          <div className="flex flex-wrap items-center gap-2 w-full order-3 sm:w-auto sm:order-2 sm:flex-shrink-0">
+            {badge}
+          </div>
+        )}
 
-          <span className="flex flex-shrink-0">{chevronButton}</span>
-        </div>
+        {/* Chevron — pinned to the title row at every width (order keeps it right of
+            the title on mobile and far-right of the badge on desktop). */}
+        <span className="flex flex-shrink-0 order-2 sm:order-3">{chevronButton}</span>
       </div>
 
       {/* Content with real height animation; children unmount once collapsed */}
