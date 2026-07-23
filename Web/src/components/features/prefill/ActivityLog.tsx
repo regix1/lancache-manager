@@ -249,7 +249,7 @@ export function ActivityLog({
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
-                  className="flex items-center justify-center min-w-[44px] min-h-[44px] w-11 h-11 rounded-lg transition-[background-color,border-color] duration-150 disabled:opacity-30 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-hover)] hover:border-[var(--theme-border-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
+                  className="flex items-center justify-center w-9 h-9 rounded-lg transition-[background-color,border-color] duration-150 disabled:opacity-30 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-hover)] hover:border-[var(--theme-border-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
                   aria-label={t('aria.previousPage')}
                 >
                   <ChevronLeft size={14} />
@@ -263,7 +263,7 @@ export function ActivityLog({
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
-                  className="flex items-center justify-center min-w-[44px] min-h-[44px] w-11 h-11 rounded-lg transition-[background-color,border-color] duration-150 disabled:opacity-30 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-hover)] hover:border-[var(--theme-border-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
+                  className="flex items-center justify-center w-9 h-9 rounded-lg transition-[background-color,border-color] duration-150 disabled:opacity-30 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-hover)] hover:border-[var(--theme-border-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
                   aria-label={t('aria.nextPage')}
                 >
                   <ChevronRight size={14} />
