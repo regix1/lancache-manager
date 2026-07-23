@@ -2,10 +2,12 @@ import { useEffect, useCallback, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
+import { Tooltip } from '../../ui/Tooltip';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import { XboxAuthModal } from '@components/modals/auth/XboxAuthModal';
 import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
+import { useMediaQuery } from '@hooks/useMediaQuery';
 import { ActivityLog } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { NetworkStatusSection } from './NetworkStatusSection';
@@ -913,6 +915,8 @@ function ServicePrefillPanel({
   const isSessionActive =
     !!signalR.session && signalR.session.status === 'Active' && signalR.timeRemaining > 0;
   const isSessionExpired = !!signalR.session && !isSessionActive;
+  // Below sm the End Session label collapses to icon-only, so the button needs a Tooltip.
+  const isCompactHeader = useMediaQuery('(max-width: 639px)');
 
   // Battle.net and Riot prefill are fully anonymous - no account login ever. Treat the client
   // as always "logged in"/ready so the auth login card stays hidden, the "Login Required"
@@ -1089,9 +1093,10 @@ function ServicePrefillPanel({
         </div>
 
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          {/* Session Timer — non-interactive chip, h-10 matches End Session size="md" (~40px) */}
+          {/* Session Timer - non-interactive chip, matches End Session's height (44px on
+              touch layouts, h-10 from sm up) so the header cluster shares one baseline */}
           <div
-            className={`inline-flex items-center gap-2 h-10 px-4 rounded-lg flex-1 sm:flex-initial justify-center border ${
+            className={`inline-flex items-center gap-2 min-h-[44px] sm:min-h-0 sm:h-10 px-4 rounded-lg flex-1 sm:flex-initial justify-center border ${
               signalR.timeRemaining < 600
                 ? 'bg-[var(--theme-warning-subtle)] border-[var(--theme-warning-strong)]'
                 : 'bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]'
@@ -1115,21 +1120,34 @@ function ServicePrefillPanel({
             </span>
           </div>
 
-          {/* End Session Button */}
-          {!isSessionExpired && (
-            <Button
-              variant="filled"
-              color="red"
-              size="md"
-              onClick={handleEndSession}
-              // min-h-10 holds this at the Session Timer chip's fixed h-10 even when the label
-              // collapses to icon-only below sm - without it, icon+padding alone falls short.
-              className="flex-shrink-0 min-h-10"
-            >
-              <X className="h-4 w-4" />
-              <span className="hidden sm:inline">{t('prefill.endSession')}</span>
-            </Button>
-          )}
+          {/* End Session Button - icon-only below sm, so the compact layout wraps it in a
+              Tooltip carrying the label. min height tracks the Session Timer chip. */}
+          {!isSessionExpired &&
+            (() => {
+              const endSessionButton = (
+                <Button
+                  variant="filled"
+                  color="red"
+                  size="md"
+                  onClick={handleEndSession}
+                  className="flex-shrink-0 min-h-[44px] min-w-[44px] sm:min-h-10"
+                >
+                  <X className="h-4 w-4" />
+                  <span className="hidden sm:inline">{t('prefill.endSession')}</span>
+                </Button>
+              );
+              return isCompactHeader ? (
+                <Tooltip
+                  content={t('prefill.endSession')}
+                  position="top"
+                  className="flex flex-shrink-0"
+                >
+                  {endSessionButton}
+                </Tooltip>
+              ) : (
+                endSessionButton
+              );
+            })()}
         </div>
       </div>
 
@@ -1141,100 +1159,115 @@ function ServicePrefillPanel({
         </div>
       )}
 
-      {/* Main Content - Two Column Layout */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      {/* Main Content - Two Column Layout. While a job runs on stacked layouts the columns
+          flatten so the activity log orders directly after the progress card (CSS in
+          prefill.css); the xl grid is untouched. */}
+      <div
+        className={`grid grid-cols-1 xl:grid-cols-3 gap-4 prefill-layout ${
+          signalR.prefillProgress && isSessionActive ? 'prefill-layout--running' : ''
+        }`}
+      >
         {/* Left Column - Controls */}
-        <div className="xl:col-span-2 space-y-4">
+        <div className="xl:col-span-2 space-y-4 prefill-col-controls">
           {/* Authentication Card - Battle.net and Riot are anonymous (no login), so this is hidden */}
           {serviceId !== 'battlenet' && serviceId !== 'riot' && (
-            <Card padding="md">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                      signalR.isLoggedIn
-                        ? 'bg-[var(--theme-success-subtle)]'
-                        : 'bg-[var(--theme-warning-subtle)]'
-                    }`}
-                  >
-                    {signalR.isLoggedIn ? (
-                      <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
-                    ) : (
-                      <LogIn className="h-5 w-5 text-[var(--theme-warning)]" />
-                    )}
+            <div className="prefill-sec-auth">
+              <Card padding="md">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                        signalR.isLoggedIn
+                          ? 'bg-[var(--theme-success-subtle)]'
+                          : 'bg-[var(--theme-warning-subtle)]'
+                      }`}
+                    >
+                      {signalR.isLoggedIn ? (
+                        <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
+                      ) : (
+                        <LogIn className="h-5 w-5 text-[var(--theme-warning)]" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-medium text-themed-primary">
+                        {signalR.isLoggedIn
+                          ? t('prefill.auth.loggedIn', { service: serviceName })
+                          : t('prefill.auth.loginRequired', { service: serviceName })}
+                      </p>
+                      <p className="text-sm text-themed-muted">
+                        {signalR.isLoggedIn
+                          ? t('prefill.auth.canUsePrefill')
+                          : t('prefill.auth.authenticateToAccess')}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium text-themed-primary">
-                      {signalR.isLoggedIn
-                        ? t('prefill.auth.loggedIn', { service: serviceName })
-                        : t('prefill.auth.loginRequired', { service: serviceName })}
-                    </p>
-                    <p className="text-sm text-themed-muted">
-                      {signalR.isLoggedIn
-                        ? t('prefill.auth.canUsePrefill')
-                        : t('prefill.auth.authenticateToAccess')}
-                    </p>
-                  </div>
-                </div>
 
-                {!signalR.isLoggedIn && !isSessionExpired && (
-                  <Button
-                    variant="filled"
-                    size="md"
-                    onClick={handleOpenAuthModal}
-                    className="flex-shrink-0 w-full sm:w-auto"
-                  >
-                    <ServiceIcon size={18} className="text-[var(--theme-button-text)]" />
-                    {t('prefill.auth.loginToService', { service: serviceName })}
-                  </Button>
-                )}
-              </div>
-            </Card>
+                  {!signalR.isLoggedIn && !isSessionExpired && (
+                    <Button
+                      variant="filled"
+                      size="md"
+                      onClick={handleOpenAuthModal}
+                      className="flex-shrink-0 w-full sm:w-auto min-h-[44px] sm:min-h-10"
+                    >
+                      {t('prefill.auth.loginToService', { service: serviceName })}
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            </div>
           )}
 
           {/* Network Status Card */}
-          <NetworkStatusSection diagnostics={signalR.session?.networkDiagnostics} />
+          <div className="prefill-sec-network">
+            <NetworkStatusSection diagnostics={signalR.session?.networkDiagnostics} />
+          </div>
 
           {/* Background Completion Notification Banner */}
           {backgroundCompletion && !signalR.prefillProgress && (
-            <CompletionBanner
-              completion={backgroundCompletion}
-              onDismiss={clearBackgroundCompletion}
-            />
+            <div className="prefill-sec-completion">
+              <CompletionBanner
+                completion={backgroundCompletion}
+                onDismiss={clearBackgroundCompletion}
+              />
+            </div>
           )}
 
           {/* Download Progress Card */}
           {signalR.prefillProgress && isSessionActive && (
-            <PrefillProgressCard
-              progress={signalR.prefillProgress}
-              onCancel={handleCancelPrefill}
-              isCancelling={signalR.isCancellingState}
-            />
+            <div className="prefill-sec-progress">
+              <PrefillProgressCard
+                progress={signalR.prefillProgress}
+                onCancel={handleCancelPrefill}
+                isCancelling={signalR.isCancellingState}
+              />
+            </div>
           )}
 
           {/* Command Buttons */}
-          <PrefillCommandButtons
-            isLoggedIn={isReadyForCommands}
-            isExecuting={isExecuting}
-            isPrefillActive={signalR.isPrefillActive}
-            isSessionActive={isSessionActive}
-            isUserAuthenticated={isAdmin}
-            serviceName={serviceName}
-            selectedAppIds={selectedAppIds}
-            selectedOS={selectedOS}
-            maxConcurrency={maxConcurrency}
-            maxThreadLimit={maxThreadLimit}
-            supportedCommands={serviceConfig.prefillCommands}
-            supportedOperatingSystems={serviceConfig.supportedOperatingSystems}
-            onCommandClick={handleCommandClick}
-            onSelectedOSChange={handleOSChange}
-            onMaxConcurrencyChange={handleConcurrencyChange}
-          />
+          <div className="prefill-sec-commands">
+            <PrefillCommandButtons
+              isLoggedIn={isReadyForCommands}
+              isExecuting={isExecuting}
+              isPrefillActive={signalR.isPrefillActive}
+              isSessionActive={isSessionActive}
+              isUserAuthenticated={isAdmin}
+              serviceName={serviceName}
+              selectedAppIds={selectedAppIds}
+              selectedOS={selectedOS}
+              maxConcurrency={maxConcurrency}
+              maxThreadLimit={maxThreadLimit}
+              supportedCommands={serviceConfig.prefillCommands}
+              supportedOperatingSystems={serviceConfig.supportedOperatingSystems}
+              onCommandClick={handleCommandClick}
+              onSelectedOSChange={handleOSChange}
+              onMaxConcurrencyChange={handleConcurrencyChange}
+            />
+          </div>
         </div>
 
         {/* Right Column - Activity Log */}
-        <div className="xl:col-span-1">
-          <Card padding="none" className="overflow-hidden">
+        <div className="xl:col-span-1 prefill-col-log">
+          <Card padding="none" className="overflow-hidden prefill-log-card">
             <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-[var(--theme-border-primary)]">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-[var(--theme-accent-subtle)]">
                 <ScrollText className="h-4 w-4 text-[var(--theme-accent)]" />
@@ -1246,11 +1279,7 @@ function ServicePrefillPanel({
               </div>
             </div>
             <CardContent className="p-0">
-              <ActivityLog
-                entries={logEntries}
-                className="border-0 rounded-none"
-                serviceId={serviceId}
-              />
+              <ActivityLog entries={logEntries} serviceId={serviceId} nested />
             </CardContent>
           </Card>
         </div>

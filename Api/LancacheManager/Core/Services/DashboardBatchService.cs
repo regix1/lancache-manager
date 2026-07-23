@@ -3,6 +3,7 @@ using LancacheManager.Core.Constants;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Models.Responses;
@@ -35,6 +36,14 @@ public class DashboardBatchService : IDashboardBatchService
     // part of the key, and a response is cached only if its captured generations remain current.
     private long _liveCacheGeneration;
     private long _detectionCacheGeneration;
+
+    // One flight per cache key so concurrent misses share a single fan-out. Stored as a Lazy
+    // so GetOrAdd's value factory racing under contention never starts more than one recompute:
+    // constructing a Lazy is inert, and only the ONE instance that actually gets stored into the
+    // dictionary ever has its factory invoked. Whichever caller observes the flight complete
+    // (success or failure) retires it via the atomic key+value TryRemove, so a newer flight for
+    // the same key is never removed early and a cached failure is never replayed forever. [31]
+    private readonly ConcurrentDictionary<string, Lazy<Task<DashboardBatchResponse>>> _inflight = new();
 
     public DashboardBatchService(
         CacheManagementService cacheService,
@@ -79,36 +88,114 @@ public class DashboardBatchService : IDashboardBatchService
         var eventIdList = eventId.HasValue ? new List<long> { eventId.Value } : new List<long>();
 
         var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{liveCacheGeneration}:{detectionCacheGeneration}";
-        if (_memoryCache.TryGetValue(cacheKey, out DashboardBatchResponse? cachedResponse) && cachedResponse != null)
-        {
-            // Cache file scan stats (totalFiles, cacheScanTimestampUtc) change independently of
-            // traffic aggregates — always re-read mount + persisted scan on batch cache hits.
-            cachedResponse.Cache = await SafeExecuteAsync("cache", () => GetCacheInfoAsync());
-            return cachedResponse;
-        }
 
+        // Concurrent misses for one key share a single fan-out via a Lazy-backed single-flight.
+        // The Lazy is constructed before GetOrAdd (construction is inert - it never invokes
+        // RunSingleFlightAsync), so GetOrAdd's plain-value overload deterministically stores
+        // exactly one Lazy per key; ReferenceEquals against the caller's own Lazy then tells it
+        // whether it created that stored flight or only joined one already in progress. Every
+        // caller waits on its own token. A caller's own cancellation always rethrows immediately
+        // without touching the entry, since the flight may still be legitimately in progress for
+        // other callers. Anything else - a foreign cancellation or an ordinary fault - retires
+        // the entry (a Lazy with ExecutionAndPublication caches a thrown exception forever
+        // otherwise) and either rethrows, if this caller owns the failed flight, or loops back
+        // to mint its own fresh attempt, bounding every caller to at most two awaited flights. [31]
+        const int MaxContestedFlightAttempts = 2;
+        var attempt = 0;
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (_memoryCache.TryGetValue(cacheKey, out DashboardBatchResponse? cachedResponse) && cachedResponse != null)
+            {
+                return await WithFreshCacheInfoAsync(cachedResponse, ct);
+            }
+
+            if (attempt >= MaxContestedFlightAttempts)
+            {
+                // Continued contention kept handing this caller someone else's flight that
+                // then failed; stop contending for the shared slot and run this caller's own
+                // attempt directly, unregistered, so it is guaranteed to terminate instead of
+                // looping under pathological contention. [31]
+                return await RunSingleFlightAsync(
+                    cacheKey, startTime, endTime, eventIdList,
+                    hiddenClientIps, statsExcludedOnlyIps, evictedMode,
+                    isLive, liveCacheGeneration, detectionCacheGeneration, ct);
+            }
+
+            var myLazy = new Lazy<Task<DashboardBatchResponse>>(
+                () => RunSingleFlightAsync(
+                    cacheKey, startTime, endTime, eventIdList,
+                    hiddenClientIps, statsExcludedOnlyIps, evictedMode,
+                    isLive, liveCacheGeneration, detectionCacheGeneration, ct),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            var stored = _inflight.GetOrAdd(cacheKey, myLazy);
+            var mine = ReferenceEquals(stored, myLazy);
+
+            try
+            {
+                var result = await stored.Value.WaitAsync(ct);
+                _inflight.TryRemove(new KeyValuePair<string, Lazy<Task<DashboardBatchResponse>>>(cacheKey, stored));
+                return result;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                _inflight.TryRemove(new KeyValuePair<string, Lazy<Task<DashboardBatchResponse>>>(cacheKey, stored));
+                attempt++;
+                if (mine)
+                {
+                    // This caller's own fresh flight failed; propagate directly instead of
+                    // looping forever on a repeatable fault, matching the pre-single-flight
+                    // behavior where each waiter's own compute attempt threw straight up. [31]
+                    throw;
+                }
+                // A flight this caller only joined ended for a reason other than its own
+                // token; loop back and contend again, up to the attempt cap above.
+            }
+        }
+    }
+
+    /// <summary>
+    /// The actual cache-miss compute path for one single-flight: fans out every sub-query,
+    /// assembles the response, and writes it to the memory cache when every section
+    /// succeeded and the captured generations are still current. Runs entirely under the
+    /// creator's own token - a follower joining this same task never influences it.
+    /// </summary>
+    private async Task<DashboardBatchResponse> RunSingleFlightAsync(
+        string cacheKey,
+        long? startTime, long? endTime,
+        List<long> eventIdList,
+        List<string> hiddenClientIps, List<string> statsExcludedOnlyIps, string evictedMode,
+        bool isLive, long liveCacheGeneration, long detectionCacheGeneration,
+        CancellationToken ct)
+    {
         // Pre-fetch event download IDs once (shared by clients, services, dashboard, downloads)
         HashSet<long>? eventDownloadIds = eventIdList.Count > 0
-            ? await GetEventDownloadIdsAsync(eventIdList)
+            ? await GetEventDownloadIdsAsync(eventIdList, ct)
             : null;
 
         // Cache must complete first (cacheGrowth depends on its result)
-        var cacheResult = await SafeExecuteAsync("cache", () => GetCacheInfoAsync());
+        var cacheResult = await SafeExecuteAsync("cache", () => GetCacheInfoAsync(), ct);
         long actualCacheSize = cacheResult?.UsedCacheSize ?? 0;
         long totalCacheCapacity = cacheResult?.TotalCacheSize ?? 0;
 
         // Launch remaining 9 queries fully in parallel. AddPooledDbContextFactory bounds concurrency.
-        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode));
-        var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync(actualCacheSize));
-        var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime));
+        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
+        var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
+        var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
+        var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
+        var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync(actualCacheSize), ct);
+        var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
+        var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
+        var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime, ct), ct);
         var cacheGrowthTask = SafeExecuteAsync("cacheGrowth", () => GetCacheGrowthAsync(
             startTime, endTime, actualCacheSize, totalCacheCapacity,
-            eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+            eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
 
         await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask, cacheGrowthTask);
 
@@ -147,12 +234,40 @@ public class DashboardBatchService : IDashboardBatchService
         var generationsAreCurrent =
             detectionCacheGeneration == Volatile.Read(ref _detectionCacheGeneration)
             && (!isLive || liveCacheGeneration == Volatile.Read(ref _liveCacheGeneration));
-        if (generationsAreCurrent)
+        // A response with a failed (null) section would otherwise be served as-is for the
+        // whole cache window; skipping the write makes the next request recompute. [5]
+        if (generationsAreCurrent && !HasFailedSection(response))
         {
             _memoryCache.Set(cacheKey, response, cacheOptions);
         }
 
         return response;
+    }
+
+    /// <summary>
+    /// Serves a cache hit. Cache file scan stats (totalFiles, cacheScanTimestampUtc) change
+    /// independently of traffic aggregates, so mount + persisted scan are re-read on every
+    /// hit - onto a copy, because the cached instance is shared by concurrent requests. [7]
+    /// When the re-read fails, the copy keeps the cached section instead of reporting a
+    /// failure for data the cache still holds; the entry expires within its window and the
+    /// recompute path surfaces any persistent failure.
+    /// </summary>
+    private async Task<DashboardBatchResponse> WithFreshCacheInfoAsync(DashboardBatchResponse cached, CancellationToken ct)
+    {
+        var freshCache = await SafeExecuteAsync("cache", () => GetCacheInfoAsync(), ct);
+        return new DashboardBatchResponse
+        {
+            Cache = freshCache ?? cached.Cache,
+            Clients = cached.Clients,
+            Services = cached.Services,
+            Dashboard = cached.Dashboard,
+            Downloads = cached.Downloads,
+            Detection = cached.Detection,
+            Sparklines = cached.Sparklines,
+            HourlyActivity = cached.HourlyActivity,
+            CacheSnapshot = cached.CacheSnapshot,
+            CacheGrowth = cached.CacheGrowth
+        };
     }
 
     /// <inheritdoc />
@@ -169,6 +284,8 @@ public class DashboardBatchService : IDashboardBatchService
 
     // ───────────────────── Sub-query implementations ─────────────────────
 
+    // Deliberately takes no CancellationToken: the underlying call reads mount metadata and
+    // small persisted state files, not the database, and completes in milliseconds. [9]
     private async Task<CacheInfo> GetCacheInfoAsync()
     {
         return await _cacheService.GetCacheInfoAsync();
@@ -178,9 +295,9 @@ public class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps)
+        List<string> statsExcludedOnlyIps, CancellationToken ct)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var maxLimit = _apiOptions.Value.MaxClientsPerRequest;
         var defaultLimit = _apiOptions.Value.DefaultClientsLimit;
         var effectiveLimit = Math.Min(defaultLimit, maxLimit);
@@ -215,7 +332,7 @@ public class DashboardBatchService : IDashboardBatchService
                 MaxEndTimeUtc = g.Max(d => d.EndTimeUtc),
                 LastActivityUtc = g.Max(d => d.StartTimeUtc)
             })
-            .ToListAsync();
+            .ToListAsync(ct);
 
         // Calculate duration client-side (DateTime subtraction can't be translated to SQL)
         var ipStatsWithDuration = ipStats.Select(s => new
@@ -251,9 +368,9 @@ public class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps)
+        List<string> statsExcludedOnlyIps, CancellationToken ct)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var query = context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
@@ -287,7 +404,7 @@ public class DashboardBatchService : IDashboardBatchService
                 LastActivityLocal = g.Max(d => d.StartTimeLocal)
             })
             .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
-            .ToListAsync();
+            .ToListAsync(ct);
 
         // xboxlive and microsoft rows are folded into xbox before UTC marking
         return ServiceBreakdownMerger.MergeXboxRows(serviceStats).WithUtcMarking();
@@ -297,9 +414,9 @@ public class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps)
+        List<string> statsExcludedOnlyIps, CancellationToken ct)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         DateTime? cutoffTime = startTime.HasValue ? startTime.Value.FromUnixSeconds() : null;
         DateTime? endDateTime = endTime.HasValue ? endTime.Value.FromUnixSeconds() : null;
 
@@ -328,7 +445,7 @@ public class DashboardBatchService : IDashboardBatchService
                 MissBytes = g.Sum(d => d.CacheMissBytes),
                 Count = g.Count()
             })
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(ct);
 
         var periodHitBytes = periodAgg?.HitBytes ?? 0;
         var periodMissBytes = periodAgg?.MissBytes ?? 0;
@@ -341,13 +458,13 @@ public class DashboardBatchService : IDashboardBatchService
         var activeDownloads = await context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode)
-            .CountAsync(d => d.StartTimeUtc >= activeThreshold && d.EndTimeUtc == default);
+            .CountAsync(d => d.StartTimeUtc >= activeThreshold && d.EndTimeUtc == default, ct);
 
         // Unique clients in period
         var uniqueClientsQuery = statsExcludedOnlyIps.Count > 0
             ? downloadsQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
             : downloadsQuery;
-        var uniqueClientsCount = await uniqueClientsQuery.Select(d => d.ClientIp).Distinct().CountAsync();
+        var uniqueClientsCount = await uniqueClientsQuery.Select(d => d.ClientIp).Distinct().CountAsync(ct);
 
         // Combined all-time aggregates: hitBytes + missBytes in ONE query (was 2 round trips)
         var allTimeQuery = context.Downloads.AsNoTracking()
@@ -363,7 +480,7 @@ public class DashboardBatchService : IDashboardBatchService
                 HitBytes = g.Sum(d => d.CacheHitBytes),
                 MissBytes = g.Sum(d => d.CacheMissBytes)
             })
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(ct);
 
         var totalHitBytes = allTimeAgg?.HitBytes ?? 0;
         var totalMissBytes = allTimeAgg?.MissBytes ?? 0;
@@ -383,7 +500,7 @@ public class DashboardBatchService : IDashboardBatchService
                     : 0
             })
             .OrderByDescending(s => s.Bytes)
-            .ToListAsync());
+            .ToListAsync(ct));
 
         var topServiceName = serviceBreakdown.FirstOrDefault()?.Service ?? "N/A";
 
@@ -425,9 +542,9 @@ public class DashboardBatchService : IDashboardBatchService
     private async Task<object> GetLatestDownloadsAsync(
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
-        List<string> excludedClientIps, string evictedMode)
+        List<string> excludedClientIps, string evictedMode, CancellationToken ct)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         List<Download> downloads;
 
         if (!startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0)
@@ -436,7 +553,7 @@ public class DashboardBatchService : IDashboardBatchService
             // AppDbContext has a proper lifetime tied to this query.
             using var scope = _scopeFactory.CreateScope();
             var statsService = scope.ServiceProvider.GetRequiredService<IStatsDataService>();
-            downloads = await statsService.GetLatestDownloadsAsync(int.MaxValue);
+            downloads = await statsService.GetLatestDownloadsAsync(int.MaxValue, cancellationToken: ct);
         }
         else
         {
@@ -463,7 +580,7 @@ public class DashboardBatchService : IDashboardBatchService
             query = query.ApplyEvictedFilter(evictedMode).ApplyEmptySessionFilter();
             downloads = await query
                 .OrderByDescending(d => d.StartTimeUtc)
-                .ToListAsync();
+                .ToListAsync(ct);
         }
 
         // Filter out excluded and prefill client IPs in a single pass - in live mode this list
@@ -480,7 +597,7 @@ public class DashboardBatchService : IDashboardBatchService
         }
 
         // Resolve game names via Steam depot mappings + Epic lookup
-        await EnrichGameNamesAsync(context, downloads);
+        await EnrichGameNamesAsync(context, downloads, ct);
 
         return downloads;
     }
@@ -517,9 +634,9 @@ public class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps)
+        List<string> statsExcludedOnlyIps, CancellationToken ct)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
 
@@ -561,7 +678,7 @@ public class DashboardBatchService : IDashboardBatchService
                     CacheHitBytes = g.Sum(d => d.CacheHitBytes),
                     CacheMissBytes = g.Sum(d => d.CacheMissBytes)
                 })
-                .ToListAsync();
+                .ToListAsync(ct);
         }
         else if (bucketMinutes >= 60)
         {
@@ -573,7 +690,7 @@ public class DashboardBatchService : IDashboardBatchService
                     CacheHitBytes = g.Sum(d => d.CacheHitBytes),
                     CacheMissBytes = g.Sum(d => d.CacheMissBytes)
                 })
-                .ToListAsync();
+                .ToListAsync(ct);
         }
         else
         {
@@ -591,7 +708,7 @@ public class DashboardBatchService : IDashboardBatchService
                     CacheHitBytes = g.Sum(d => d.CacheHitBytes),
                     CacheMissBytes = g.Sum(d => d.CacheMissBytes)
                 })
-                .ToListAsync();
+                .ToListAsync(ct);
         }
 
         var bandwidthSavedData = bucketedData.Select(d => (double)d.CacheHitBytes).ToList();
@@ -617,9 +734,9 @@ public class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps)
+        List<string> statsExcludedOnlyIps, CancellationToken ct)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
 
@@ -652,7 +769,7 @@ public class DashboardBatchService : IDashboardBatchService
             var dateRange = await query
                 .Select(d => d.StartTimeLocal.Date)
                 .Distinct()
-                .ToListAsync();
+                .ToListAsync(ct);
 
             daysInPeriod = Math.Max(1, dateRange.Count);
 
@@ -679,7 +796,7 @@ public class DashboardBatchService : IDashboardBatchService
                 CacheHitBytes = g.Sum(d => d.CacheHitBytes),
                 CacheMissBytes = g.Sum(d => d.CacheMissBytes)
             })
-            .ToListAsync();
+            .ToListAsync(ct);
 
         var allHours = Enumerable.Range(0, 24)
             .Select(h => {
@@ -715,9 +832,9 @@ public class DashboardBatchService : IDashboardBatchService
         long actualCacheSize, long totalCacheCapacity,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps)
+        List<string> statsExcludedOnlyIps, CancellationToken ct)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         const string interval = "daily";
         DateTime? cutoffTime = startTime.HasValue
             ? startTime.Value.FromUnixSeconds()
@@ -731,8 +848,10 @@ public class DashboardBatchService : IDashboardBatchService
         long totalCapacity = totalCacheCapacity;
 
         var allTimeQuery = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
+        // Awaiting the sum directly keeps a cancelled query surfacing as a cancellation;
+        // reading Result through a continuation would rewrap it as an AggregateException. [8]
         var totalCacheMiss = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
-            q => q.SumAsync(d => (long?)d.CacheMissBytes).ContinueWith(t => t.Result ?? 0L));
+            async q => await q.SumAsync(d => (long?)d.CacheMissBytes, ct) ?? 0L);
 
         currentCacheSize = totalCacheMiss;
 
@@ -761,7 +880,7 @@ public class DashboardBatchService : IDashboardBatchService
                     CumulativeCacheMissBytes = 0,
                     GrowthFromPrevious = g.Sum(d => d.CacheMissBytes)
                 })
-                .ToListAsync();
+                .ToListAsync(ct);
         }
         else
         {
@@ -774,7 +893,7 @@ public class DashboardBatchService : IDashboardBatchService
                     CumulativeCacheMissBytes = 0,
                     GrowthFromPrevious = g.Sum(d => d.CacheMissBytes)
                 })
-                .ToListAsync();
+                .ToListAsync(ct);
         }
 
         long cumulative = 0;
@@ -878,7 +997,7 @@ public class DashboardBatchService : IDashboardBatchService
         };
     }
 
-    private async Task<object> GetCacheSnapshotAsync(long? startTime, long? endTime)
+    private async Task<object> GetCacheSnapshotAsync(long? startTime, long? endTime, CancellationToken ct)
     {
         if (!startTime.HasValue || !endTime.HasValue)
         {
@@ -888,7 +1007,7 @@ public class DashboardBatchService : IDashboardBatchService
         var startUtc = startTime.Value.FromUnixSeconds();
         var endUtc = endTime.Value.FromUnixSeconds();
 
-        var summary = await _cacheSnapshotService.GetSnapshotSummaryAsync(startUtc, endUtc);
+        var summary = await _cacheSnapshotService.GetSnapshotSummaryAsync(startUtc, endUtc, ct);
 
         if (summary == null)
         {
@@ -992,11 +1111,68 @@ public class DashboardBatchService : IDashboardBatchService
 
     // ───────────────────── Helpers ─────────────────────
 
-    private async Task<object?> SafeExecuteAsync(string name, Func<Task<object>> action)
+    /// <summary>
+    /// True when any sub-query section of the batch response is null. The wire contract uses
+    /// null for a failed sub-query and an empty collection / HasData=false for a successful
+    /// empty result, so a null section means the response is incomplete.
+    /// </summary>
+    internal static bool HasFailedSection(DashboardBatchResponse response)
+    {
+        return response.Cache == null
+            || response.Clients == null
+            || response.Services == null
+            || response.Dashboard == null
+            || response.Downloads == null
+            || response.Detection == null
+            || response.Sparklines == null
+            || response.HourlyActivity == null
+            || response.CacheSnapshot == null
+            || response.CacheGrowth == null;
+    }
+
+    /// <summary>
+    /// Classifies an exception from a sub-query as a cancellation. Covers direct
+    /// OperationCanceledException/TaskCanceledException, cancellations wrapped in an
+    /// AggregateException (e.g. from task combinators), and any exception observed after
+    /// the request token was cancelled.
+    /// </summary>
+    internal static bool IsCancellation(Exception ex, CancellationToken ct)
+    {
+        if (ex is OperationCanceledException)
+        {
+            return true;
+        }
+
+        if (ex is AggregateException aggregate)
+        {
+            foreach (var inner in aggregate.Flatten().InnerExceptions)
+            {
+                if (inner is OperationCanceledException)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return ct.IsCancellationRequested;
+    }
+
+    private async Task<object?> SafeExecuteAsync(string name, Func<Task<object>> action, CancellationToken ct)
     {
         try
         {
             return await action();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (IsCancellation(ex, ct))
+        {
+            // A cancelled request is not a failed sub-query; soft-nulling it here would let a
+            // client abort masquerade as missing data. [8]
+            _logger.LogInformation("sub-query '{Name}' cancelled", name);
+            throw new OperationCanceledException($"sub-query '{name}' was cancelled", ex, ct);
         }
         catch (Exception ex)
         {
@@ -1008,11 +1184,20 @@ public class DashboardBatchService : IDashboardBatchService
     /// <summary>
     /// Overload for CacheInfo (value type differs from object)
     /// </summary>
-    private async Task<CacheInfo?> SafeExecuteAsync(string name, Func<Task<CacheInfo>> action)
+    private async Task<CacheInfo?> SafeExecuteAsync(string name, Func<Task<CacheInfo>> action, CancellationToken ct)
     {
         try
         {
             return await action();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (IsCancellation(ex, ct))
+        {
+            _logger.LogInformation("sub-query '{Name}' cancelled", name);
+            throw new OperationCanceledException($"sub-query '{name}' was cancelled", ex, ct);
         }
         catch (Exception ex)
         {
@@ -1021,15 +1206,15 @@ public class DashboardBatchService : IDashboardBatchService
         }
     }
 
-    private async Task<HashSet<long>> GetEventDownloadIdsAsync(List<long> eventIdList)
+    private async Task<HashSet<long>> GetEventDownloadIdsAsync(List<long> eventIdList, CancellationToken ct)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var ids = await context.EventDownloads
             .AsNoTracking()
             .Where(ed => eventIdList.Contains(ed.EventId))
             .Select(ed => ed.DownloadId)
             .Distinct()
-            .ToListAsync();
+            .ToListAsync(ct);
         return new HashSet<long>(ids);
     }
 
@@ -1037,7 +1222,7 @@ public class DashboardBatchService : IDashboardBatchService
     /// Resolve game names for downloads using Steam depot mappings and Epic lookup.
     /// Mirrors the logic in DownloadsController.ResolveGameNamesAsync.
     /// </summary>
-    private static async Task EnrichGameNamesAsync(AppDbContext context, List<Download> downloads)
+    private static async Task EnrichGameNamesAsync(AppDbContext context, List<Download> downloads, CancellationToken ct)
     {
         if (downloads.Count == 0) return;
 
@@ -1052,7 +1237,7 @@ public class DashboardBatchService : IDashboardBatchService
             ? await context.SteamDepotMappings
                 .AsNoTracking()
                 .Where(m => m.IsOwner && depotIds.Contains(m.DepotId))
-                .ToDictionaryAsync(m => m.DepotId, m => m)
+                .ToDictionaryAsync(m => m.DepotId, m => m, ct)
             : new Dictionary<long, SteamDepotMapping>();
 
         // Build Epic game name lookup for Epic downloads
@@ -1066,7 +1251,7 @@ public class DashboardBatchService : IDashboardBatchService
             ? await context.EpicGameMappings
                 .AsNoTracking()
                 .Where(m => epicAppIds.Contains(m.AppId))
-                .ToDictionaryAsync(m => m.AppId, m => m.Name)
+                .ToDictionaryAsync(m => m.AppId, m => m.Name, ct)
             : new Dictionary<string, string>();
 
         // Build Xbox game name lookup for Xbox downloads (named-style: GameName from the shared
@@ -1081,7 +1266,7 @@ public class DashboardBatchService : IDashboardBatchService
             ? await context.XboxGameMappings
                 .AsNoTracking()
                 .Where(m => xboxProductIds.Contains(m.ProductId))
-                .ToDictionaryAsync(m => m.ProductId, m => m.Title)
+                .ToDictionaryAsync(m => m.ProductId, m => m.Title, ct)
             : new Dictionary<string, string>();
 
         // Apply name resolution priority: existing GameName -> Steam AppName -> Epic Name -> Xbox Title -> fallback to Service

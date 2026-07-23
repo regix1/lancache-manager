@@ -142,8 +142,12 @@ export function PrefillConfirmModal({
           </div>
         )}
 
-        <div className="flex justify-end gap-3 pt-2">
-          <Button variant="filled" color="gray" onClick={onCancel}>
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:gap-3 pt-2">
+          <Button
+            variant="subtle"
+            onClick={onCancel}
+            className="w-full sm:w-auto min-h-[44px] sm:min-h-10"
+          >
             {t('common.cancel')}
           </Button>
           <Button
@@ -151,6 +155,7 @@ export function PrefillConfirmModal({
             color="blue"
             onClick={onConfirm}
             disabled={pendingCommand === 'prefill' && estimatedSize.loading}
+            className="w-full sm:w-auto min-h-[44px] sm:min-h-10"
           >
             {pendingCommand === 'prefill'
               ? t('prefill.confirm.startDownload')

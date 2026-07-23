@@ -2,8 +2,10 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { ActionMenuDangerItem } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { Monitor, Link } from 'lucide-react';
+import { Database } from 'lucide-react';
 import {
   type CommandButton,
   type CommandType,
@@ -65,6 +67,18 @@ export function PrefillCommandButtons({
 
   const availablePrefillCommands = PREFILL_COMMANDS.filter((cmd: CommandButton) =>
     supportedCommands.includes(cmd.id)
+  );
+
+  // Clear Cache DB moves from a tile into the Utilities section menu; the auth gate is the
+  // same filter the tile row used (isUserAuthenticated is wired to isAdmin at the call
+  // site), so non-admins get neither the tile nor the menu. [27]
+  const clearCacheDbCommand = UTILITY_COMMANDS.find(
+    (cmd: CommandButton) => cmd.id === 'clear-cache-data'
+  );
+  const showClearCacheDb =
+    !!clearCacheDbCommand && (!clearCacheDbCommand.authOnly || isUserAuthenticated);
+  const utilityTileCommands = UTILITY_COMMANDS.filter(
+    (cmd: CommandButton) => cmd.id !== 'clear-cache-data'
   );
 
   const hasTargetPlatforms = supportedOperatingSystems.length > 0;
@@ -184,8 +198,7 @@ export function PrefillCommandButtons({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {hasTargetPlatforms && (
                 <div className="cmd-settings-field">
-                  <label className="caps-label cmd-settings-label flex items-center gap-1.5">
-                    <Monitor className="h-3 w-3" />
+                  <label className="caps-label cmd-settings-label">
                     {t('prefill.settings.targetPlatforms')}
                   </label>
                   <MultiSelectDropdown
@@ -205,8 +218,7 @@ export function PrefillCommandButtons({
                 </div>
               )}
               <div className={`cmd-settings-field ${hasTargetPlatforms ? '' : 'sm:col-span-2'}`}>
-                <label className="caps-label cmd-settings-label flex items-center gap-1.5">
-                  <Link className="w-3 h-3" />
+                <label className="caps-label cmd-settings-label">
                   {t('prefill.settings.downloadThreads')}
                 </label>
                 <EnhancedDropdown
@@ -242,15 +254,30 @@ export function PrefillCommandButtons({
         <div
           className={`cmd-section cmd-section--utility p-4 ${isGlobalDisabled ? 'cmd-section--disabled' : ''}`}
         >
-          <div className="cmd-section-header mb-3">
+          <div className="cmd-section-header mb-3 flex items-center justify-between gap-2">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
               {t('prefill.sections.utilities')}
             </h3>
+            {showClearCacheDb && !isGlobalDisabled && (
+              <SectionActionsMenu
+                label={t('prefill.sections.utilitiesActions', 'Utilities actions')}
+              >
+                {(close) => (
+                  <ActionMenuDangerItem
+                    onClick={() => {
+                      close();
+                      onCommandClick('clear-cache-data');
+                    }}
+                    icon={<Database className="w-4 h-4" />}
+                  >
+                    {t('prefill.commands.clear-cache-data.label')}
+                  </ActionMenuDangerItem>
+                )}
+              </SectionActionsMenu>
+            )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {UTILITY_COMMANDS.filter(
-              (cmd: CommandButton) => !cmd.authOnly || isUserAuthenticated
-            ).map(renderCommandTile)}
+            {utilityTileCommands.map(renderCommandTile)}
           </div>
         </div>
 

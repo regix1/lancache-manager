@@ -193,7 +193,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     /// <summary>
     /// Get the average cache size during a time range.
     /// </summary>
-    public async Task<CacheSnapshotSummary?> GetSnapshotSummaryAsync(DateTime startUtc, DateTime endUtc)
+    public async Task<CacheSnapshotSummary?> GetSnapshotSummaryAsync(DateTime startUtc, DateTime endUtc, CancellationToken cancellationToken = default)
     {
         using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
@@ -201,7 +201,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
             .AsNoTracking()
             .Where(s => s.TimestampUtc >= startUtc && s.TimestampUtc <= endUtc)
             .OrderBy(s => s.TimestampUtc)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         if (snapshots.Count == 0)
         {
@@ -210,7 +210,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
                 .AsNoTracking()
                 .Where(s => s.TimestampUtc < startUtc)
                 .OrderByDescending(s => s.TimestampUtc)
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(cancellationToken);
 
             if (fallbackSnapshot != null)
             {

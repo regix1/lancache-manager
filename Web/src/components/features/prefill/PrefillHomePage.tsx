@@ -1,14 +1,52 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../ui/Button';
+import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
-import { ArrowRight, Shield, AlertCircle } from 'lucide-react';
+import { Shield, AlertCircle, ChevronDown } from 'lucide-react';
+import { useMediaQuery } from '@hooks/useMediaQuery';
 import type { GameServiceId } from '@/types/gameService';
 import './PrefillHomePage.css';
+
+interface ServiceFeatureListProps {
+  items: string[];
+}
+
+/* The three feature bullets start collapsed on small viewports to keep each card's
+   Start Session action above the fold; wider viewports always show them and hide the
+   toggle via CSS. [30] */
+function ServiceFeatureList({ items }: ServiceFeatureListProps) {
+  const { t } = useTranslation();
+  const isWideViewport = useMediaQuery('(min-width: 769px)');
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="prefill-service-features-region">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={isWideViewport || open}
+        className="focus-ring prefill-features-toggle"
+      >
+        <span>{t('prefill.home.featuresToggle', "What's included")}</span>
+        <ChevronDown
+          className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      <CollapsibleRegion open={isWideViewport || open}>
+        <ul className="prefill-service-features">
+          {items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </CollapsibleRegion>
+    </div>
+  );
+}
 
 interface PrefillHomePageProps {
   onServiceStart: (serviceId: GameServiceId) => void;
@@ -122,13 +160,13 @@ export function PrefillHomePage({
               )}
             </p>
 
-            <ul className="prefill-service-features">
-              <li>
-                {t('prefill.home.steamFeature1', 'Prefill entire library or select specific games')}
-              </li>
-              <li>{t('prefill.home.steamFeature2', 'Recent and top games presets')}</li>
-              <li>{t('prefill.home.steamFeature3', 'Force re-download and cache management')}</li>
-            </ul>
+            <ServiceFeatureList
+              items={[
+                t('prefill.home.steamFeature1', 'Prefill entire library or select specific games'),
+                t('prefill.home.steamFeature2', 'Recent and top games presets'),
+                t('prefill.home.steamFeature3', 'Force re-download and cache management')
+              ]}
+            />
 
             {error && errorService === 'steam' && (
               <div className="prefill-service-error">
@@ -143,7 +181,6 @@ export function PrefillHomePage({
                 {t('prefill.home.requiresSteamLogin', 'Username, password & Steam Guard')}
               </span>
               <Button variant="filled" size="md" onClick={() => onServiceStart('steam')}>
-                <ArrowRight size={16} />
                 {t('prefill.home.startSession', 'Start Session')}
               </Button>
             </div>
@@ -172,13 +209,13 @@ export function PrefillHomePage({
               )}
             </p>
 
-            <ul className="prefill-service-features">
-              <li>
-                {t('prefill.home.epicFeature1', 'Prefill entire library or select specific games')}
-              </li>
-              <li>{t('prefill.home.epicFeature2', 'Recent and top games presets')}</li>
-              <li>{t('prefill.home.epicFeature3', 'Force re-download and cache management')}</li>
-            </ul>
+            <ServiceFeatureList
+              items={[
+                t('prefill.home.epicFeature1', 'Prefill entire library or select specific games'),
+                t('prefill.home.epicFeature2', 'Recent and top games presets'),
+                t('prefill.home.epicFeature3', 'Force re-download and cache management')
+              ]}
+            />
 
             {error && errorService === 'epic' && (
               <div className="prefill-service-error">
@@ -193,7 +230,6 @@ export function PrefillHomePage({
                 {t('prefill.home.requiresEpicLogin', 'Browser-based authorization code login')}
               </span>
               <Button variant="filled" size="md" onClick={() => onServiceStart('epic')}>
-                <ArrowRight size={16} />
                 {t('prefill.home.startSession', 'Start Session')}
               </Button>
             </div>
@@ -222,18 +258,16 @@ export function PrefillHomePage({
               )}
             </p>
 
-            <ul className="prefill-service-features">
-              <li>
-                {t(
+            <ServiceFeatureList
+              items={[
+                t(
                   'prefill.home.battlenetFeature1',
                   'Prefill all products or select specific titles'
-                )}
-              </li>
-              <li>{t('prefill.home.battlenetFeature2', 'No account or login required')}</li>
-              <li>
-                {t('prefill.home.battlenetFeature3', 'Force re-download and cache management')}
-              </li>
-            </ul>
+                ),
+                t('prefill.home.battlenetFeature2', 'No account or login required'),
+                t('prefill.home.battlenetFeature3', 'Force re-download and cache management')
+              ]}
+            />
 
             {error && errorService === 'battlenet' && (
               <div className="prefill-service-error">
@@ -248,7 +282,6 @@ export function PrefillHomePage({
                 {t('prefill.home.battlenetNoLogin', 'No account login required')}
               </span>
               <Button variant="filled" size="md" onClick={() => onServiceStart('battlenet')}>
-                <ArrowRight size={16} />
                 {t('prefill.home.startSession', 'Start Session')}
               </Button>
             </div>
@@ -277,13 +310,13 @@ export function PrefillHomePage({
               )}
             </p>
 
-            <ul className="prefill-service-features">
-              <li>
-                {t('prefill.home.riotFeature1', 'Prefill all products or select specific titles')}
-              </li>
-              <li>{t('prefill.home.riotFeature2', 'League of Legends and VALORANT content')}</li>
-              <li>{t('prefill.home.riotFeature3', 'Force re-download and cache management')}</li>
-            </ul>
+            <ServiceFeatureList
+              items={[
+                t('prefill.home.riotFeature1', 'Prefill all products or select specific titles'),
+                t('prefill.home.riotFeature2', 'League of Legends and VALORANT content'),
+                t('prefill.home.riotFeature3', 'Force re-download and cache management')
+              ]}
+            />
 
             {error && errorService === 'riot' && (
               <div className="prefill-service-error">
@@ -298,7 +331,6 @@ export function PrefillHomePage({
                 {t('prefill.home.riotNoLogin', 'No account login required')}
               </span>
               <Button variant="filled" size="md" onClick={() => onServiceStart('riot')}>
-                <ArrowRight size={16} />
                 {t('prefill.home.startSession', 'Start Session')}
               </Button>
             </div>
@@ -327,13 +359,13 @@ export function PrefillHomePage({
               )}
             </p>
 
-            <ul className="prefill-service-features">
-              <li>
-                {t('prefill.home.xboxFeature1', 'Prefill entire library or select specific games')}
-              </li>
-              <li>{t('prefill.home.xboxFeature2', 'Microsoft Store and Game Pass titles')}</li>
-              <li>{t('prefill.home.xboxFeature3', 'Force re-download and cache management')}</li>
-            </ul>
+            <ServiceFeatureList
+              items={[
+                t('prefill.home.xboxFeature1', 'Prefill entire library or select specific games'),
+                t('prefill.home.xboxFeature2', 'Microsoft Store and Game Pass titles'),
+                t('prefill.home.xboxFeature3', 'Force re-download and cache management')
+              ]}
+            />
 
             {error && errorService === 'xbox' && (
               <div className="prefill-service-error">
@@ -348,7 +380,6 @@ export function PrefillHomePage({
                 {t('prefill.home.requiresXboxLogin', 'Browser-based device code login')}
               </span>
               <Button variant="filled" size="md" onClick={() => onServiceStart('xbox')}>
-                <ArrowRight size={16} />
                 {t('prefill.home.startSession', 'Start Session')}
               </Button>
             </div>

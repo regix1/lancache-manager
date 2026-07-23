@@ -24,7 +24,8 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
   const { t } = useTranslation();
   const { mockMode } = useMockMode();
   const { authMode, sessionExpiresAt } = useAuth();
-  const { isRefreshing } = useStats();
+  const { isRefreshing, dataStale } = useStats();
+  const showStaleData = connectionStatus === 'connected' && dataStale;
   const isGuestMode = authMode === 'guest';
   const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
 
@@ -68,10 +69,22 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                   <h1 className="text-lg sm:text-xl font-bold text-themed-primary truncate">
                     {resolvedTitle}
                   </h1>
-                  {connectionStatus === 'connected' && (
+                  {connectionStatus === 'connected' && !showStaleData && (
                     <Tooltip content={t('status.connectedTooltip')}>
                       <div className="flex items-center">
                         <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-success)]"></div>
+                      </div>
+                    </Tooltip>
+                  )}
+                  {showStaleData && (
+                    <Tooltip
+                      content={t(
+                        'status.staleDataTooltip',
+                        'Connected. Part of the dashboard did not refresh and is showing the last known values.'
+                      )}
+                    >
+                      <div className="flex items-center">
+                        <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-warning)]"></div>
                       </div>
                     </Tooltip>
                   )}
@@ -131,7 +144,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                 </div>
                 {/* Status indicator */}
                 <div
-                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full connection-dot connection-dot--${connectionStatus} z-10 ${connectionStatus === 'reconnecting' ? 'animate-pulse' : ''}`}
+                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full connection-dot connection-dot--${connectionStatus} ${showStaleData ? 'connection-dot--stale' : ''} z-10 ${connectionStatus === 'reconnecting' ? 'animate-pulse' : ''}`}
                 />
               </div>
 

@@ -217,7 +217,9 @@ const Navigation: React.FC<NavigationProps> = React.memo(
               </div>
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="p-2 rounded-lg transition-colors flex items-center bg-transparent text-[var(--theme-nav-tab-inactive)] hover:bg-[var(--theme-nav-mobile-item-hover)]"
+                className="focus-ring p-2 min-w-[44px] min-h-[44px] rounded-lg transition-colors flex items-center justify-center bg-transparent text-[var(--theme-nav-tab-inactive)] hover:bg-[var(--theme-nav-mobile-item-hover)]"
+                aria-label={t('nav.mainNavigation')}
+                aria-expanded={mobileMenuOpen}
               >
                 <Menu className="w-5 h-5" />
               </button>

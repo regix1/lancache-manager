@@ -195,6 +195,24 @@
 }
 
 /* --- Feature list --- */
+/* On wide viewports the list is always expanded and the toggle is hidden; on small
+   viewports the toggle collapses the bullets so the card's action stays near the fold. */
+.prefill-features-toggle {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.375rem 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--theme-text-secondary);
+}
+
 .prefill-service-features {
   list-style: none;
   padding: 0;
@@ -309,6 +327,15 @@
 
   .prefill-service-action button {
     width: 100%;
+    min-height: 44px;
+  }
+
+  .prefill-features-toggle {
+    display: flex;
+  }
+
+  .prefill-service-features {
+    padding-bottom: 0.25rem;
   }
 }
 

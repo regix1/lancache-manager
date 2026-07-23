@@ -65,6 +65,12 @@
   background-color: var(--theme-success);
 }
 
+/* Connected but the last batch refresh had failed sections; compound selector
+   so it wins over the connected color regardless of bundle order. */
+.connection-dot--connected.connection-dot--stale {
+  background-color: var(--theme-warning);
+}
+
 .connection-dot--disconnected {
   background-color: var(--theme-error);
 }

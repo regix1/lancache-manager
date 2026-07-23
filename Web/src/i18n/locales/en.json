@@ -405,7 +405,8 @@
     "disconnectedTooltip": "API Status: Disconnected - Unable to connect to backend services",
     "reconnectingTooltip": "API Status: Reconnecting - Attempting to restore connection to backend services",
     "disconnectedLabel": "Disconnected",
-    "reconnectingLabel": "Reconnecting"
+    "reconnectingLabel": "Reconnecting",
+    "staleDataTooltip": "Some dashboard data could not be refreshed. Showing the last good values."
   },
   "guest": {
     "guestMode": "Guest Mode",
@@ -582,8 +583,6 @@
       "hitTooltip": "{{percent}} hit rate",
       "hitTooltipSaved": "{{percent}} hit rate · {{saved}} served from cache",
       "hitTooltipDetailed": "{{percent}} hit rate · {{saved}} served from cache ({{disk}} on disk)",
-      "downloading": "downloading",
-      "refresh": "Refresh",
       "showDetails": "Detailed stats",
       "showingLabel": "Showing",
       "totalDownloads": "total downloads",
@@ -4451,6 +4450,7 @@
       "subtitle": "Pre-download game content to your lancache before the event. Choose a platform to start a prefill session.",
       "ready": "Ready",
       "startSession": "Start Session",
+      "featuresToggle": "What's included",
       "steamDescription": "Prefill your Steam library including recent games, top titles, or hand-picked selections from your account.",
       "steamFeature1": "Prefill entire library or select specific games",
       "steamFeature2": "Recent and top games presets",
@@ -4508,6 +4508,10 @@
       "issuesDetected": "Some issues detected",
       "hostNetworking": "Host networking mode",
       "allChecksPassed": "All checks passed",
+      "groupCacheRouting": "Cache routing",
+      "groupInternet": "Internet connectivity",
+      "groupDns": "DNS resolution",
+      "details": "Details",
       "internetConnectivity": "Internet connectivity",
       "ipv4Connectivity": "IPv4 connectivity",
       "ipv6Connectivity": "IPv6 connectivity",
@@ -4582,7 +4586,8 @@
       "gameSelection": "Game Selection",
       "downloadSettings": "Download Settings",
       "prefillOptions": "Prefill Options",
-      "utilities": "Utilities"
+      "utilities": "Utilities",
+      "utilitiesActions": "Utilities actions"
     },
     "settings": {
       "targetPlatforms": "Target Platforms",

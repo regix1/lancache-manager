@@ -85,6 +85,8 @@ interface DashboardDataContextType {
   isRefreshing: boolean;
   error: string | null;
   connectionStatus: string;
+  /** True while the latest batch had failed sections; cleared by the next fully successful refresh. */
+  dataStale: boolean;
 
   // Methods
   refreshData: (forceRefresh?: boolean) => Promise<void>;

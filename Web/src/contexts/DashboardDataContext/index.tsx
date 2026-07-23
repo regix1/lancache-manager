@@ -26,6 +26,11 @@ import {
   type CachedDetectionResponse,
   type DashboardBatchResponse
 } from './types';
+import {
+  applyDashboardBatchResponse,
+  buildRangeKey,
+  type DashboardSlices
+} from './applyBatchResponse';
 import { APP_EVENTS } from '@utils/constants';
 
 export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
@@ -67,6 +72,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
+  // True while the latest batch had failed sections (kept or cleared slices);
+  // cleared again by the next fully successful apply.
+  const [dataStale, setDataStale] = useState(false);
 
   const [lastCustomDates, setLastCustomDates] = useState<{ start: Date | null; end: Date | null }>({
     start: null,
@@ -98,6 +106,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   }, [applyDetectionFromBatch]);
   const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
   const currentRequestIdRef = useRef(0);
+  // Range key of the currently displayed batch slices; a failed section only
+  // keeps previous data when a fetch targets this same range.
+  const appliedRangeKeyRef = useRef<string | null>(null);
 
   // IMPORTANT: These refs are updated on every render BEFORE effects run
   // This ensures that any function reading from these refs gets the current value
@@ -108,6 +119,17 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const selectedEventIdsRef = useRef<number[]>(selectedEventIds);
   const authLoadingRef = useRef(authLoading);
   const hasAccessRef = useRef(hasAccess);
+  const slicesRef = useRef<DashboardSlices>({
+    cacheInfo,
+    clientStats,
+    serviceStats,
+    dashboardStats,
+    latestDownloads,
+    sparklines,
+    hourlyActivity,
+    cacheSnapshot,
+    cacheGrowth
+  });
 
   // Update refs synchronously on every render
   currentTimeRangeRef.current = timeRange;
@@ -117,6 +139,17 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   selectedEventIdsRef.current = selectedEventIds;
   authLoadingRef.current = authLoading;
   hasAccessRef.current = hasAccess;
+  slicesRef.current = {
+    cacheInfo,
+    clientStats,
+    serviceStats,
+    dashboardStats,
+    latestDownloads,
+    sparklines,
+    hourlyActivity,
+    cacheSnapshot,
+    cacheGrowth
+  };
 
   // Single unified fetch function that fetches all data in parallel
   const fetchAllData = useCallback(
@@ -211,38 +244,50 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // requestId check above already ensures we're the latest request.
         // No additional filter validation needed - if requestId matches, this data is current.
 
-        // Apply state updates directly - React 18+ auto-batches setState in
-        // async handlers/microtasks, so no explicit transition wrapper is needed.
-        // Cache info is not time-range dependent, always apply (skip if server returned null)
-        if (batchResponse.cache !== null && batchResponse.cache !== undefined) {
-          setCacheInfo(batchResponse.cache);
-        }
-
-        // Game detection data is not time-range dependent, always apply
+        // Game detection data is not time-range dependent - apply only when the
+        // sub-query succeeded (the apply helper records the failure otherwise).
         if (batchResponse.detection !== null && batchResponse.detection !== undefined) {
           applyDetectionFromBatch(batchResponse.detection);
         }
 
-        // Time-range dependent data - apply unconditionally. A null from a failed
-        // sub-query should NOT freeze stale Live values; let it overwrite so the
-        // bug surfaces instead of silently preserving old data.
-        setClientStats(batchResponse.clients ?? []);
-        setServiceStats(batchResponse.services ?? []);
-        setDashboardStats(batchResponse.dashboard);
+        // Resolve each slice under the wire contract (null = failed sub-query,
+        // empty = successful empty): keep previous data on failure within the
+        // same range, clear on a range change, apply successful results. [13]
+        const rangeKey = buildRangeKey(startTime, endTime, eventId);
+        const { next, hadPartialFailure, failedSectionKeys } = applyDashboardBatchResponse(
+          slicesRef.current,
+          batchResponse,
+          { rangeKey, previousRangeKey: appliedRangeKeyRef.current }
+        );
+        appliedRangeKeyRef.current = rangeKey;
+
+        // Apply state updates directly - React 18+ auto-batches setState in
+        // async handlers/microtasks, so no explicit transition wrapper is needed.
+        // Kept sections pass their previous reference back, so React bails out
+        // of those updates.
+        setCacheInfo(next.cacheInfo);
+        setClientStats(next.clientStats);
+        setServiceStats(next.serviceStats);
+        setDashboardStats(next.dashboardStats);
         if (batchResponse.dashboard) {
           hasData.current = true;
         }
-        setLatestDownloads(batchResponse.downloads ?? []);
-        setSparklines(batchResponse.sparklines);
-        setHourlyActivity(batchResponse.hourlyActivity);
-        setCacheGrowth(batchResponse.cacheGrowth);
-        // cacheSnapshot is null in live mode - only update when backend returns data
-        if (batchResponse.cacheSnapshot !== null && batchResponse.cacheSnapshot !== undefined) {
-          setCacheSnapshot(batchResponse.cacheSnapshot);
-        }
+        setLatestDownloads(next.latestDownloads);
+        setSparklines(next.sparklines);
+        setHourlyActivity(next.hourlyActivity);
+        setCacheSnapshot(next.cacheSnapshot);
+        setCacheGrowth(next.cacheGrowth);
 
         setConnectionStatus('connected');
+        // A partial apply clears any prior hard error; the stale flag is now the
+        // degradation signal, so stale data never appears silently healthy. [35]
         setError(null);
+        if (hadPartialFailure) {
+          console.warn('Dashboard batch returned failed sections:', failedSectionKeys);
+          setDataStale(true);
+        } else {
+          setDataStale(false);
+        }
         setLoading(false);
       } catch (err: unknown) {
         // Check if we're still the current request before setting error state
@@ -344,6 +389,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           stageKey === 'signalr.dbReset.clearedServiceStats' ||
           stageKey === 'signalr.dbReset.clearedClientStats'
         ) {
+          // The dataset is being wiped from under the current range key; the next apply must treat every section as fresh, not "keep previous" filler from the pre-reset session. [32]
+          appliedRangeKeyRef.current = null;
+          setDataStale(false);
           setServiceStats([]);
           setClientStats([]);
           setLatestDownloads([]);
@@ -449,6 +497,16 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     }
   }, [mockMode]);
 
+  // Mock and real sessions must not let a partial response after the switch reuse the other session's slices for a matching range key. [32]
+  const prevMockModeRef = useRef(mockMode);
+  useEffect(() => {
+    if (prevMockModeRef.current !== mockMode) {
+      appliedRangeKeyRef.current = null;
+      setDataStale(false);
+    }
+    prevMockModeRef.current = mockMode;
+  }, [mockMode]);
+
   // Reset stale refs when access is lost (logout) so that re-login triggers
   // a clean initial load instead of racing with the time range change effect.
   const prevHasAccessRef = useRef(hasAccess);
@@ -457,6 +515,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       // Access lost - reset to initial state so the next login starts clean
       isInitialLoad.current = true;
       hasData.current = false;
+      // A stale range key or stale flag from the ended session must not survive into the next login. [32]
+      appliedRangeKeyRef.current = null;
+      setDataStale(false);
     }
     prevHasAccessRef.current = hasAccess;
   }, [hasAccess]);
@@ -599,6 +660,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       isRefreshing,
       error,
       connectionStatus,
+      dataStale,
       refreshData,
       updateData
     }),
@@ -620,6 +682,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       isRefreshing,
       error,
       connectionStatus,
+      dataStale,
       refreshData,
       updateData
     ]

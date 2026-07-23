@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
-import { Download, XCircle } from 'lucide-react';
+import { Download } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatSpeed, formatPercent } from '@utils/formatters';
 import { formatTimeRemaining, formatEtaShort } from './types';
@@ -78,7 +78,7 @@ export function PrefillProgressCard({
   return (
     <Card padding="md" className="overflow-hidden prefill-progress-card">
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-primary-subtle)]">
               {isReconnecting ? (
@@ -100,9 +100,9 @@ export function PrefillProgressCard({
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between gap-3 w-full sm:w-auto">
             {progress.state === 'downloading' && (
-              <div className="text-right">
+              <div className="text-left sm:text-right">
                 <p className="text-sm font-medium text-themed-primary">
                   {formatSpeed(progress.bytesPerSecond)}
                 </p>
@@ -120,10 +120,11 @@ export function PrefillProgressCard({
             )}
             <Button
               variant="filled"
-              color="gray"
+              color="red"
               size="md"
               onClick={onCancel}
               disabled={isCancelling}
+              className="min-h-[44px] sm:min-h-10 flex-1 sm:flex-initial"
             >
               {isCancelling ? (
                 <>
@@ -131,10 +132,7 @@ export function PrefillProgressCard({
                   {t('prefill.progress.cancelling', 'Cancelling...')}
                 </>
               ) : (
-                <>
-                  <XCircle className="h-4 w-4" />
-                  {t('common.cancel')}
-                </>
+                t('common.cancel')
               )}
             </Button>
           </div>
@@ -191,7 +189,7 @@ export function PrefillProgressCard({
                 ) : progress.state === 'downloading' || progress.state === 'app_completed' ? (
                   <div
                     key={`download-${progress.currentAppId}`}
-                    className="h-full rounded-full transition-[width] duration-300 ease-out bg-[var(--theme-primary)] prefill-progress-bar prefill-app-bar-enter"
+                    className="h-full rounded-full transition-[width] duration-300 ease-out bg-[var(--theme-primary)] prefill-progress-bar animate-progress-bar-enter"
                     style={{ '--progress-width': `${appPercent}%` } as React.CSSProperties}
                   />
                 ) : (

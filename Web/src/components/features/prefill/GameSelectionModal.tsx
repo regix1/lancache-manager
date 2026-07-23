@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, type ChangeEvent } from 'rea
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
-import { Tooltip } from '@components/ui/Tooltip';
+import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { Search, Check, Gamepad2, Import, Database, EyeOff, Eye } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -200,7 +200,7 @@ export function GameSelectionModal({
 
   return (
     <Modal opened={opened} onClose={onClose} title={t('prefill.gameSelection.title')} size="lg">
-      <div className="flex flex-col h-[70vh] sm:h-[60vh]">
+      <div className="flex flex-col h-[min(70vh,calc(100dvh-8rem))] sm:h-[60vh]">
         {/* Search and actions */}
         <div className="flex flex-col gap-3 mb-3">
           <div className="relative">
@@ -210,7 +210,7 @@ export function GameSelectionModal({
               placeholder={t('prefill.placeholders.searchGames')}
               value={search}
               onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg transition-[border-color,background-color] duration-150 ease-out bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
+              className="w-full pl-9 pr-3 py-2 min-h-[44px] sm:min-h-0 text-sm rounded-lg transition-[border-color,background-color] duration-150 ease-out bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
             />
           </div>
           {isUsingCache && (
@@ -226,7 +226,7 @@ export function GameSelectionModal({
                   size="sm"
                   onClick={onRescan}
                   disabled={isLoading}
-                  className="h-7 px-2 text-xs"
+                  className="min-h-[44px] sm:min-h-0 sm:h-7 px-2 text-xs"
                 >
                   {t('prefill.gameSelection.rescan')}
                 </Button>
@@ -240,45 +240,51 @@ export function GameSelectionModal({
               size="sm"
               onClick={() => setShowImport(!showImport)}
               fullWidth
+              className="min-h-[44px] sm:min-h-8"
             >
               <Import className="h-4 w-4" />
               {t('prefill.gameSelection.importAppIds')}
             </Button>
             {cachedCount > 0 && (
-              <Tooltip
-                content={
-                  hideCached
-                    ? t('prefill.gameSelection.showCachedTitle')
-                    : t('prefill.gameSelection.hideCachedTitle')
-                }
-                position="top"
-                className="w-full"
+              <Button
+                variant="filled"
+                color={hideCached ? 'blue' : 'gray'}
+                size="sm"
+                onClick={() => setHideCached(!hideCached)}
+                fullWidth
+                className="min-h-[44px] sm:min-h-8"
               >
-                <Button
-                  variant="filled"
-                  color={hideCached ? 'blue' : 'gray'}
-                  size="sm"
-                  onClick={() => setHideCached(!hideCached)}
-                  fullWidth
-                >
-                  {hideCached ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                  {hideCached
-                    ? t('prefill.gameSelection.showCached')
-                    : t('prefill.gameSelection.hideCached')}
-                </Button>
-              </Tooltip>
+                {hideCached ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                {hideCached
+                  ? t('prefill.gameSelection.showCached')
+                  : t('prefill.gameSelection.hideCached')}
+              </Button>
             )}
-            <Button variant="filled" color="gray" size="sm" onClick={selectAll} fullWidth>
+            <Button
+              variant="filled"
+              color="gray"
+              size="sm"
+              onClick={selectAll}
+              fullWidth
+              className="min-h-[44px] sm:min-h-8"
+            >
               {t('common.selectAll')}
             </Button>
-            <Button variant="filled" color="gray" size="sm" onClick={selectNone} fullWidth>
+            <Button
+              variant="filled"
+              color="gray"
+              size="sm"
+              onClick={selectNone}
+              fullWidth
+              className="min-h-[44px] sm:min-h-8"
+            >
               {t('common.clear')}
             </Button>
           </div>
         </div>
 
         {/* Import Section - Expandable */}
-        {showImport && (
+        <CollapsibleRegion open={showImport}>
           <div className="mb-3 p-3 rounded-lg bg-[var(--theme-bg-tertiary)] border border-dashed border-[var(--theme-primary)]">
             <p className="text-xs mb-2 text-[var(--theme-text-muted)]">
               {t('prefill.gameSelection.importHelp')}
@@ -348,7 +354,7 @@ export function GameSelectionModal({
               )}
             </div>
           </div>
-        )}
+        </CollapsibleRegion>
 
         {/* Selection count */}
         <div className="text-sm mb-2 text-[var(--theme-text-muted)] flex flex-wrap items-center gap-2">
@@ -379,8 +385,10 @@ export function GameSelectionModal({
         {/* Game list */}
         <div className="flex-1 relative rounded-lg overflow-hidden min-h-0 bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
           {isLoading ? (
-            <div className="flex items-center justify-center h-full">
-              <LoadingSpinner inline size="xl" className="text-[var(--theme-primary)]" />
+            <div className="p-3 space-y-2" aria-busy="true">
+              {[0, 1, 2, 3, 4].map((row) => (
+                <div key={row} className="skeleton-shimmer h-11 rounded-lg" />
+              ))}
             </div>
           ) : sortedGames.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-[var(--theme-text-muted)]">
@@ -401,7 +409,7 @@ export function GameSelectionModal({
                 <div
                   className={`flex flex-col ${
                     sortedGames.some((g) => !localSelected.has(g.appId))
-                      ? 'flex-shrink-0 max-h-[40%]'
+                      ? 'flex-shrink-0 max-h-[30%] sm:max-h-[40%]'
                       : 'flex-1 min-h-0'
                   }`}
                 >
@@ -418,7 +426,7 @@ export function GameSelectionModal({
                     className="flex-1 min-h-0"
                     paddingMode="compact"
                   >
-                    <div>
+                    <div className="divided-list">
                       {sortedGames
                         .filter((g) => localSelected.has(g.appId))
                         .map((game) => {
@@ -427,7 +435,7 @@ export function GameSelectionModal({
                             <button
                               key={game.appId}
                               onClick={() => toggleGame(game.appId)}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-[var(--theme-primary-faint)] border-b border-[var(--theme-border-secondary)] hover:bg-[var(--theme-primary-subtle)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
+                              className="w-full flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-[var(--theme-selected-bg)] hover:bg-[var(--theme-selected-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
                             >
                               <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-[var(--theme-primary)] border-2 border-[var(--theme-primary)]">
                                 <Check className="h-3 w-3 text-[var(--theme-button-text)]" />
@@ -470,7 +478,7 @@ export function GameSelectionModal({
                     className="flex-1 min-h-0"
                     paddingMode="compact"
                   >
-                    <div>
+                    <div className="divided-list">
                       {sortedGames
                         .filter((g) => !localSelected.has(g.appId))
                         .map((game) => {
@@ -479,7 +487,7 @@ export function GameSelectionModal({
                             <button
                               key={game.appId}
                               onClick={() => toggleGame(game.appId)}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-transparent border-b border-[var(--theme-border-secondary)] hover:bg-[var(--theme-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
+                              className="w-full flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-transparent hover:bg-[var(--theme-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
                             >
                               <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-transparent border-2 border-[var(--theme-border-primary)]" />
                               <div className="flex-1 min-w-0">
@@ -511,14 +519,19 @@ export function GameSelectionModal({
 
         {/* Actions */}
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-4 pt-4 border-t border-[var(--theme-border-secondary)]">
-          <Button variant="filled" color="gray" onClick={onClose} className="w-full sm:w-auto">
+          <Button
+            variant="filled"
+            color="gray"
+            onClick={onClose}
+            className="w-full sm:w-auto min-h-[44px] sm:min-h-10"
+          >
             {t('common.cancel')}
           </Button>
           <Button
             variant="filled"
             onClick={handleSave}
             disabled={isSaving}
-            className="w-full sm:w-auto"
+            className="w-full sm:w-auto min-h-[44px] sm:min-h-10"
           >
             {isSaving ? <LoadingSpinner inline size="sm" /> : <Check className="h-4 w-4" />}
             {t('prefill.gameSelection.saveSelection', { count: localSelected.size })}

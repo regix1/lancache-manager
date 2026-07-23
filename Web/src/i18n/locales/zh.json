@@ -405,7 +405,8 @@
     "disconnectedTooltip": "API 状态：已断开 - 无法连接到后端服务",
     "reconnectingTooltip": "API 状态：重新连接中 - 正在尝试恢复与后端服务的连接",
     "disconnectedLabel": "已断开",
-    "reconnectingLabel": "重新连接中"
+    "reconnectingLabel": "重新连接中",
+    "staleDataTooltip": "部分仪表盘数据无法刷新，正在显示最近的有效数据。"
   },
   "guest": {
     "guestMode": "访客模式",
@@ -582,8 +583,6 @@
       "hitTooltip": "{{percent}} 命中率",
       "hitTooltipSaved": "{{percent}} 命中率 · {{saved}} 从缓存提供",
       "hitTooltipDetailed": "{{percent}} 命中率 · {{saved}} 从缓存提供（磁盘 {{disk}}）",
-      "downloading": "下载中",
-      "refresh": "刷新",
       "showDetails": "详细统计",
       "showingLabel": "显示",
       "totalDownloads": "总下载量",
@@ -4450,6 +4449,7 @@
       "subtitle": "在活动开始前将游戏内容预下载到您的 lancache。选择一个平台以开始预填充会话。",
       "ready": "就绪",
       "startSession": "开始会话",
+      "featuresToggle": "功能介绍",
       "steamDescription": "预填充您的 Steam 库，包括最近游玩的游戏、热门游戏或您账户中手动挑选的游戏。",
       "steamFeature1": "预填充整个库或选择特定游戏",
       "steamFeature2": "最近游戏和热门游戏预设",
@@ -4507,6 +4507,10 @@
       "issuesDetected": "检测到一些问题",
       "hostNetworking": "主机网络模式",
       "allChecksPassed": "所有检查通过",
+      "groupCacheRouting": "缓存路由",
+      "groupInternet": "互联网连接",
+      "groupDns": "DNS 解析",
+      "details": "详情",
       "internetConnectivity": "互联网连接",
       "ipv4Connectivity": "IPv4 连接",
       "ipv6Connectivity": "IPv6 连接",
@@ -4581,7 +4585,8 @@
       "gameSelection": "游戏选择",
       "downloadSettings": "下载设置",
       "prefillOptions": "预填充选项",
-      "utilities": "工具"
+      "utilities": "工具",
+      "utilitiesActions": "工具操作"
     },
     "settings": {
       "targetPlatforms": "目标平台",

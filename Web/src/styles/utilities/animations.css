@@ -90,6 +90,24 @@
   animation: notificationProgressIndeterminate 1.4s linear infinite;
 }
 
+/* Progress fills that are keyed by an item id REMOUNT when the item changes; without an
+   enter animation the new bar paints at the previous bar's width and then jumps. Growing
+   the width from 0 to its target on mount reads as "a new item is starting" instead of a
+   snap-back. `backwards` applies the 0 start before the first frame paints. Pair with a
+   --progress-width custom property set on the element. */
+@keyframes progressBarEnter {
+  from {
+    width: 0;
+  }
+  to {
+    width: var(--progress-width);
+  }
+}
+
+.animate-progress-bar-enter {
+  animation: progressBarEnter 0.45s ease-out backwards;
+}
+
 /* Downloads page animations */
 .animate-fade-in {
   animation: fadeIn 0.5s ease-out;
@@ -115,6 +133,10 @@
 
   .animate-fade-in,
   .animate-fadeIn {
+    animation: none;
+  }
+
+  .animate-progress-bar-enter {
     animation: none;
   }
 }

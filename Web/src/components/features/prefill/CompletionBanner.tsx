@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
-import { CheckCircle2, X } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import type { BackgroundCompletion } from './hooks/prefillTypes';
 
 interface CompletionBannerProps {
@@ -17,7 +17,7 @@ export function CompletionBanner({ completion, onDismiss }: CompletionBannerProp
       padding="md"
       className="overflow-hidden border-[var(--theme-success-strong)] animate-fade-in"
     >
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-success-subtle)]">
             <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
@@ -32,9 +32,8 @@ export function CompletionBanner({ completion, onDismiss }: CompletionBannerProp
           color="gray"
           size="sm"
           onClick={onDismiss}
-          className="flex-shrink-0"
+          className="flex-shrink-0 min-h-[44px] sm:min-h-8 w-full sm:w-auto"
         >
-          <X className="h-4 w-4" />
           {t('common.dismiss')}
         </Button>
       </div>

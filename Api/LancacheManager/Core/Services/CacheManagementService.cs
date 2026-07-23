@@ -180,6 +180,11 @@ public partial class CacheManagementService
         _logger.LogInformation("CacheManagementService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
     }
 
+    /// <summary>
+    /// Reads live cache usage from the mount plus the persisted scan stats. Deliberately
+    /// non-cancellable: the work is drive metadata and small local state files, so a token
+    /// would add ceremony without a query to release.
+    /// </summary>
     public async Task<CacheInfo> GetCacheInfoAsync()
     {
         var info = new CacheInfo();

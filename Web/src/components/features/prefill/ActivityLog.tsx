@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePaginatedList } from '@/hooks/usePaginatedList';
+import { EmptyState } from '@components/ui/ManagerCard';
 import {
   CheckCircle2,
   AlertCircle,
@@ -22,6 +23,9 @@ interface ActivityLogProps {
   className?: string;
   /** Service whose accent colors the auth-log rows (defaults to Steam). */
   serviceId?: string;
+  /** When rendered inside a parent Card that already frames it, drops this component's own
+      surface (background, border, radius) so the log isn't double-painted. */
+  nested?: boolean;
 }
 
 // Per-service accent variables for the auth log row, set on the ActivityLog root so the Xbox
@@ -153,7 +157,12 @@ LogEntryRow.displayName = 'LogEntryRow';
 
 const ENTRIES_PER_PAGE = 10;
 
-export function ActivityLog({ entries, className = '', serviceId = 'steam' }: ActivityLogProps) {
+export function ActivityLog({
+  entries,
+  className = '',
+  serviceId = 'steam',
+  nested = false
+}: ActivityLogProps) {
   const { t, i18n } = useTranslation();
   const shouldAutoScroll = useRef(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -187,9 +196,13 @@ export function ActivityLog({ entries, className = '', serviceId = 'steam' }: Ac
   const endItem = Math.min(currentPage * ENTRIES_PER_PAGE, entries.length);
   const startItem = entries.length === 0 ? 0 : endItem - visibleEntries.length + 1;
 
+  const surfaceClass = nested
+    ? ''
+    : 'bg-[var(--theme-bg-tertiary)] rounded-xl border border-[var(--theme-border-secondary)]';
+
   return (
     <div
-      className={`${className} bg-[var(--theme-bg-tertiary)] rounded-xl border border-[var(--theme-border-secondary)] overflow-hidden`}
+      className={`${className} ${surfaceClass} overflow-hidden`}
       style={
         {
           '--prefill-auth-accent': authAccent.color,
@@ -198,17 +211,12 @@ export function ActivityLog({ entries, className = '', serviceId = 'steam' }: Ac
       }
     >
       {entries.length === 0 ? (
-        /* Empty State */
-        <div className="flex flex-col items-center justify-center py-12 px-6">
-          <div className="relative w-14 h-14 rounded-xl flex items-center justify-center mb-3 bg-[var(--theme-bg-secondary)]">
-            <Activity className="h-6 w-6 text-[var(--theme-text-muted)] opacity-40" />
-          </div>
-          <p className="text-sm font-medium mb-0.5 text-[var(--theme-text-primary)]">
-            {t('prefill.activityLog.waitingForActivity')}
-          </p>
-          <p className="text-xs text-center max-w-[180px] text-[var(--theme-text-muted)] opacity-60">
-            {t('prefill.activityLog.updatesWillAppear')}
-          </p>
+        <div className="py-4 px-6">
+          <EmptyState
+            icon={Activity}
+            title={t('prefill.activityLog.waitingForActivity')}
+            subtitle={t('prefill.activityLog.updatesWillAppear')}
+          />
         </div>
       ) : (
         <>
@@ -228,7 +236,7 @@ export function ActivityLog({ entries, className = '', serviceId = 'steam' }: Ac
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-2 sm:px-3 h-12 min-h-[48px] border-t border-[var(--theme-border-secondary)] bg-[var(--theme-bg-secondary)] rounded-b-xl">
               {/* Entry count - hidden on very small screens */}
-              <span className="hidden xs:block text-[10px] sm:text-[11px] tabular-nums text-[var(--theme-text-muted)]">
+              <span className="hidden sm:block text-[10px] sm:text-[11px] tabular-nums text-[var(--theme-text-muted)]">
                 {t('prefill.activityLog.paginationCount', {
                   start: startItem,
                   end: endItem,
@@ -237,7 +245,7 @@ export function ActivityLog({ entries, className = '', serviceId = 'steam' }: Ac
               </span>
 
               {/* Navigation controls - centered on very small screens */}
-              <div className="flex items-center gap-1 sm:gap-1.5 mx-auto xs:mx-0">
+              <div className="flex items-center gap-1 sm:gap-1.5 mx-auto sm:mx-0">
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}

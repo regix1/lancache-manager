@@ -15,35 +15,68 @@
     background-color: var(--log-line-color);
   }
 
-  /* Network Status Section - Status icon container */
-  .prefill-network-status-bg {
-    background-color: var(--network-status-bg);
+  /* Network Status Section - overall status icon container. Tone comes from a literal
+     class chosen in the component, so no inline style bridge is needed. */
+  .prefill-network-status-box--success {
+    background-color: var(--theme-success-subtle);
   }
 
-  .prefill-network-status-icon {
-    color: var(--network-status-color);
+  .prefill-network-status-box--success .prefill-network-status-icon {
+    color: var(--theme-success);
+  }
+
+  .prefill-network-status-box--info {
+    background-color: var(--theme-info-subtle);
+  }
+
+  .prefill-network-status-box--info .prefill-network-status-icon {
+    color: var(--theme-info);
+  }
+
+  .prefill-network-status-box--warning {
+    background-color: var(--theme-warning-subtle);
+  }
+
+  .prefill-network-status-box--warning .prefill-network-status-icon {
+    color: var(--theme-warning);
+  }
+
+  /* Network Status - grouped check wells. Compounds .well-surface so these overrides win
+     regardless of bundle order (prod strips @layer). */
+  .well-surface.prefill-network-well {
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  /* Group heading inside a network well; compounds .caps-label for the same reason. */
+  .caps-label.prefill-network-well-title {
+    margin-bottom: 0.125rem;
+  }
+
+  /* Disclosure toggle for long informational hints (kept out of the row rhythm). */
+  .prefill-network-hint-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.25rem;
+    border-radius: var(--theme-border-radius-sm, 0.25rem);
+    font-size: var(--font-size-xs);
+    color: var(--theme-text-muted);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  .prefill-network-hint-toggle:hover {
+    color: var(--theme-text-primary);
   }
 
   /* Progress Card - Progress bar widths (dynamic) */
   .prefill-progress-bar {
     width: var(--progress-width);
-  }
-
-  /* Per-app bar enter animation. The per-app bar is keyed by currentAppId so it REMOUNTS on each
-     game change; without this it would snap straight to the previous 100% then jump back. Animating
-     width from 0 to its target on mount reads as "a new game is starting" instead of a jarring
-     snap-back (O5). `backwards` fill applies the 0% start before the first frame paints. */
-  .prefill-app-bar-enter {
-    animation: prefill-app-bar-grow 0.45s ease-out backwards;
-  }
-
-  @keyframes prefill-app-bar-grow {
-    from {
-      width: 0;
-    }
-    to {
-      width: var(--progress-width);
-    }
   }
 
   /* Compact "Cancelling..." row shown in place of the frozen progress bars (O6). */
@@ -281,13 +314,9 @@
     animation-delay: 150ms;
   }
 
-  /* Reduced-motion: disable cmd-tile stagger and app-bar grow animation */
+  /* Reduced-motion: disable cmd-tile stagger */
   @media (prefers-reduced-motion: reduce) {
     .cmd-tile-enter {
-      animation: none;
-    }
-
-    .prefill-app-bar-enter {
       animation: none;
     }
 
@@ -295,6 +324,75 @@
       transition:
         background-color 0.01ms,
         border-color 0.01ms;
+    }
+  }
+
+  /* ===== MOBILE / TOUCH ===== */
+
+  /* Touch targets: tiles, the section kebab, and the settings dropdown triggers all reach
+     44px on touch layouts. The dropdown triggers ship a fixed h-10 utility, so height is
+     released to auto before the minimum applies. Scoped under .cmd-center so shared
+     dropdowns elsewhere keep their size. */
+  @media (max-width: 768px), (hover: none) {
+    .cmd-center .cmd-tile {
+      min-height: 44px;
+    }
+
+    .cmd-center .cmd-settings-field button {
+      height: auto;
+      min-height: 44px;
+    }
+
+    .cmd-center .cmd-section-header button {
+      min-height: 44px;
+      min-width: 44px;
+    }
+
+    .prefill-network-hint-toggle {
+      min-height: 44px;
+      padding: 0.25rem 0.375rem;
+    }
+  }
+
+  /* ===== RUNNING-STATE LOG PROMOTION (below xl only) ===== */
+
+  /* While a job is running on a stacked layout, the two grid columns flatten so every
+     section becomes a grid item, and the activity log is ordered directly after the
+     progress card. This keeps live log lines within reach of the progress bar instead of
+     below the whole command center. Wrapper margins are zeroed because the grid gap
+     already spaces the flattened items. [23] */
+  @media (max-width: 1279px) {
+    .prefill-layout--running .prefill-col-controls,
+    .prefill-layout--running .prefill-col-log {
+      display: contents;
+    }
+
+    .prefill-layout--running .prefill-col-controls > :not([hidden]) ~ :not([hidden]) {
+      margin-top: 0;
+    }
+
+    .prefill-layout--running .prefill-sec-auth {
+      order: 1;
+    }
+
+    .prefill-layout--running .prefill-sec-completion {
+      order: 2;
+    }
+
+    .prefill-layout--running .prefill-sec-progress {
+      order: 3;
+    }
+
+    .prefill-layout--running .prefill-log-card {
+      order: 4;
+    }
+
+    .prefill-layout--running .prefill-sec-commands {
+      order: 5;
+    }
+
+    .prefill-layout--running .prefill-sec-network {
+      order: 6;
     }
   }
 }

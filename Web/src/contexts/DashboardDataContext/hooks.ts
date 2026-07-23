@@ -27,6 +27,7 @@ export const useStats = () => {
     isRefreshing: context.isRefreshing,
     error: context.error,
     connectionStatus: context.connectionStatus,
+    dataStale: context.dataStale,
     refreshStats: context.refreshData,
     updateStats: (updater: {
       cacheInfo?: (prev: CacheInfo | null) => CacheInfo | null;

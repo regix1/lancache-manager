@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Activity, Clock, RefreshCw, Rows3 } from 'lucide-react';
+import { Activity, Clock, Rows3 } from 'lucide-react';
 import { type TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
@@ -320,13 +320,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const latestDownloads = useMemo(() => downloads, [downloads]);
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();
-  const {
-    speedSnapshot,
-    gameSpeeds,
-    activeDownloadCount,
-    isLoading: speedLoading,
-    refreshSpeed
-  } = useSpeed();
+  const { speedSnapshot, gameSpeeds, activeDownloadCount, isLoading: speedLoading } = useSpeed();
   const { timeRange: contextTimeRange, selectedEventIds } = useTimeFilter();
 
   // Match Dashboard/DownloadsTab: non-live time range or event filter disables live Active tab
@@ -810,21 +804,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           </div>
         </CustomScrollbar>
       </div>
-
-      {/* Footer */}
-      {viewMode === 'active' && hasActiveDownloads && (
-        <div className="rdl-footer">
-          <div className="rdl-footer-stat">
-            <strong>{activeGames.length}</strong>{' '}
-            {t('dashboard.downloadsPanel.game', { count: activeGames.length })}{' '}
-            {t('dashboard.downloadsPanel.downloading')}
-          </div>
-          <button className="rdl-refresh-btn" onClick={refreshSpeed}>
-            <RefreshCw />
-            {t('dashboard.downloadsPanel.refresh')}
-          </button>
-        </div>
-      )}
 
       {/* Labeled readout strip, pinned to the card bottom to mirror Service Analytics.
           Only shown once there's real data (no placeholder strip on an empty panel). */}
