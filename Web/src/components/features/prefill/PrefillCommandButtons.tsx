@@ -209,10 +209,6 @@ export function PrefillCommandButtons({
                 <span className="text-themed-muted">{t('prefill.commands.selectGamesFirst')}</span>
               )}
             </div>
-          </div>
-
-          <div className="cmd-split-right">
-            {prefillPrimaryCommand && renderCommandTile(prefillPrimaryCommand, true)}
             <div className="cmd-split-estimate">
               <span className="caps-label">
                 {t('prefill.settings.estimatedSize', 'Estimated size')}
@@ -231,6 +227,10 @@ export function PrefillCommandButtons({
                 )}
               </span>
             </div>
+          </div>
+
+          <div className="cmd-split-right">
+            {prefillPrimaryCommand && renderCommandTile(prefillPrimaryCommand, true)}
             {hasTargetPlatforms && (
               <div className="cmd-settings-field">
                 <label className="caps-label cmd-settings-label">
