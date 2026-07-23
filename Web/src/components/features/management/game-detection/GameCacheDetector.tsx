@@ -30,6 +30,7 @@ import { useBulkRemoval, type BulkQueueEntry } from '@contexts/BulkRemovalContex
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { useSelectionSet, type SelectionSet } from '@/hooks/useSelectionSet';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
@@ -82,7 +83,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const { t } = useTranslation();
   const { addNotification, updateNotification, notifications } = useNotifications();
   const { notifyError } = useErrorHandler();
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
   const { cacheReadOnly, logsReadOnly, cacheExist, logsExist, checkingPermissions } =
     useDirectoryPermissionsContext();
@@ -326,6 +327,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     void loadCachedGames();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
+
+  // A dropped socket can swallow the completion event of a scan or removal that
+  // finished while it was down; resync the cached detection snapshot on reconnect.
+  // Skip in mock mode: the global socket stays connected there, so a resync would pull
+  // real cache data into the mock view.
+  useReconnectRefetch(isConnected, () => {
+    if (!mockMode) syncCachedDetection('Failed to refresh cached results on reconnect');
+  });
 
   // Listen for notification events from SignalR (consolidated)
   useCompletedRemovalPruning({

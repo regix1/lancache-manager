@@ -248,6 +248,10 @@ function ServicePrefillPanel({
     }[];
     message?: string;
   }>({ bytes: 0, loading: false });
+  // Monotonic id for size-estimate requests. Each fetch captures the current id; a slower
+  // in-flight request whose id is no longer current (the selection changed, or a newer retry
+  // started) must not commit its result over the newer state.
+  const estimateRequestIdRef = useRef(0);
 
   // Handle auth state changes from backend SignalR events
   const handleAuthStateChanged = useCallback(
@@ -504,6 +508,11 @@ function ServicePrefillPanel({
         // Get cached apps via ApiService and verify against daemon manifests/build versions
         const cachedApps = await ApiService.getPrefillCachedApps();
         let cachedIds = cachedApps.map((a) => String(a.appId));
+        // Tracks whether the cached-status verification produced an authoritative answer. A
+        // transient failure here must not be persisted as "nothing is cached" for the whole
+        // cache window (that showed wrong cached badges until expiry) - mark the snapshot
+        // non-authoritative instead so the next load re-verifies.
+        let cacheStatusResolved = true;
 
         if (cachedIds.length > 0) {
           try {
@@ -517,16 +526,20 @@ function ServicePrefillPanel({
               : [];
           } catch {
             cachedIds = [];
+            cacheStatusResolved = false;
           }
         }
 
         setCachedAppIds(cachedIds);
+        // Only persist an authoritative snapshot: the cached-status check resolved AND the
+        // library actually came back. An empty/failed transient is left uncached (hasData:false)
+        // so a later load retries instead of reusing a wrong-empty library until cache expiry.
         gamesCacheRef.current = {
           sessionId: signalR.session.id,
           fetchedAt: Date.now(),
           ownedGames: normalizedGames,
           cachedAppIds: cachedIds,
-          hasData: true
+          hasData: cacheStatusResolved && normalizedGames.length > 0
         };
         if (cachedIds.length > 0) {
           addLog('info', t('prefill.log.gamesCached', { count: cachedIds.length }));
@@ -756,15 +769,49 @@ function ServicePrefillPanel({
   );
 
   // Confirmation dialog logic
-  const fetchEstimatedSize = useCallback(async () => {
-    if (!signalR.session || !signalR.hubConnection.current || selectedAppIds.length === 0) return;
+  // Resolves the estimate and reports whether the daemon has actually RESOLVED the current
+  // selection yet. The daemon returns per-app rows (`apps`) once it has looked the selection up;
+  // until then it answers with an empty list and a 0 total - which is "not computed yet", not a
+  // real answer. Callers use `ready` to refetch precisely while it is still resolving instead of
+  // blindly retrying on any 0 (a genuine 0, e.g. a fully cached or unavailable selection, comes
+  // back WITH resolved rows and is accepted immediately). Returns null when it could not run at
+  // all (no session / selection, hub not Connected, or the invoke threw).
+  // Depend on the session id, not the session object: the object is replaced on every
+  // timeRemaining tick, which would otherwise re-create this callback constantly and restart
+  // the warm-estimate effect's retry chain.
+  const estimateSessionId = signalR.session?.id ?? null;
+  const fetchEstimatedSize = useCallback(async (): Promise<{
+    bytes: number;
+    ready: boolean;
+  } | null> => {
+    if (!estimateSessionId || !signalR.hubConnection.current || selectedAppIds.length === 0) {
+      return null;
+    }
 
-    setEstimatedSize({ bytes: 0, loading: true });
+    // Claim this request. `commit` only writes state while this is still the newest request,
+    // so a slow invoke that resolves after the selection changed (or after a newer retry fired)
+    // cannot overwrite the fresher estimate.
+    const requestId = ++estimateRequestIdRef.current;
+    const commit = (next: Parameters<typeof setEstimatedSize>[0]) => {
+      if (estimateRequestIdRef.current === requestId) {
+        setEstimatedSize(next);
+      }
+    };
+
+    commit({ bytes: 0, loading: true });
+
+    // On mobile the hub can still be (re)connecting when this first runs; invoking then
+    // throws ("connection is not in the 'Connected' State") and would surface a spurious
+    // "Unable to estimate size" error. Stay in the loading state and return null so the
+    // caller refetches once the socket is up, instead of showing the scary error.
+    if (signalR.hubConnection.current.state !== 'Connected') {
+      return null;
+    }
 
     try {
       const status = (await signalR.hubConnection.current.invoke(
         'GetSelectedAppsStatusAsync',
-        signalR.session.id,
+        estimateSessionId,
         selectedOS
       )) as {
         totalDownloadSize: number;
@@ -778,29 +825,42 @@ function ServicePrefillPanel({
         }[];
       };
 
-      setEstimatedSize({
-        bytes: status.totalDownloadSize || 0,
-        loading: false,
-        apps: status.apps?.map((a) => ({
-          appId: a.appId,
-          name: a.name,
-          downloadSize: a.downloadSize,
-          isUnsupportedOs: a.isUnsupportedOs,
-          unavailableReason: a.unavailableReason
-        })),
-        message: status.message
-      });
+      const bytes = status.totalDownloadSize || 0;
+      // Resolved once the daemon has returned rows for the selection. An empty list back means
+      // it has not looked the selection up yet (the transient that showed "0 B" until revisit).
+      const ready = (status.apps?.length ?? 0) > 0;
+
+      if (ready) {
+        commit({
+          bytes,
+          loading: false,
+          apps: status.apps?.map((a) => ({
+            appId: a.appId,
+            name: a.name,
+            downloadSize: a.downloadSize,
+            isUnsupportedOs: a.isUnsupportedOs,
+            unavailableReason: a.unavailableReason
+          })),
+          message: status.message
+        });
+      } else {
+        // Keep the spinner rather than flashing a transient "0 B" while the daemon resolves.
+        commit({ bytes: 0, loading: true });
+      }
+
+      return { bytes, ready };
     } catch (err) {
       // Background size estimate - already has its own inline error slot (estimatedSize.error) that
       // the UI reads directly, so no notification is needed; log the detail for diagnosis.
       console.error('[PrefillPanel] Failed to estimate size:', getErrorMessage(err));
-      setEstimatedSize({
+      commit({
         bytes: 0,
         loading: false,
         error: t('prefill.errors.unableEstimateSize')
       });
+      return null;
     }
-  }, [signalR.session, signalR.hubConnection, selectedAppIds, selectedOS, t]);
+  }, [estimateSessionId, signalR.hubConnection, selectedAppIds, selectedOS, t]);
 
   const getConfirmationMessage = useCallback(
     (command: CommandType): { title: string; message: string } => {
@@ -861,14 +921,14 @@ function ServicePrefillPanel({
 
       if (requiresConfirmation) {
         setPendingConfirmCommand(command);
-        if (command === 'prefill') {
-          fetchEstimatedSize();
-        }
+        // No refetch here: the warm effect already keeps `estimatedSize` current for the
+        // selection (retrying while it resolves), and the confirm modal reads that live state.
+        // An uncoordinated one-shot fetch on open could stick in loading or clobber a good value.
       } else {
         executeCommand(command);
       }
     },
-    [executeCommand, fetchEstimatedSize]
+    [executeCommand]
   );
 
   const handleConfirmCommand = useCallback(() => {
@@ -879,7 +939,8 @@ function ServicePrefillPanel({
     if (pendingConfirmCommand.startsWith('prefill') && signalR.isPrefillActive) {
       addLog('warning', t('prefill.log.alreadyRunning'));
       setPendingConfirmCommand(null);
-      setEstimatedSize({ bytes: 0, loading: false });
+      // Keep the resolved estimate for the still-selected games; clearing it to 0 B would stick
+      // (the modal no longer refetches on open, and no warm-effect dependency changes here).
       return;
     }
 
@@ -903,12 +964,13 @@ function ServicePrefillPanel({
 
     executeCommand(pendingConfirmCommand);
     setPendingConfirmCommand(null);
-    setEstimatedSize({ bytes: 0, loading: false });
+    // Do NOT clear the estimate here: the selection is unchanged, so the warm effect's value is
+    // still correct. Clearing it to 0 B would stick (the modal no longer refetches on open).
   }, [pendingConfirmCommand, executeCommand, signalR, addLog, t]);
 
   const handleCancelConfirm = useCallback(() => {
     setPendingConfirmCommand(null);
-    setEstimatedSize({ bytes: 0, loading: false });
+    // Keep the resolved estimate for the still-selected games (see handleConfirmCommand).
   }, []);
 
   const isLoadingSession = signalR.isInitializing || signalR.isCreating;
@@ -940,14 +1002,65 @@ function ServicePrefillPanel({
   }, [signalR, clearLogs]);
 
   // Warm the size estimate as the selection changes so the split card can show it without
-  // waiting for the confirm modal. Debounced; the confirm flow still refetches on open.
+  // waiting for the confirm modal (which reads this live state). Debounced. On mobile the hub
+  // can still be (re)connecting or the server-side depot sizes still warming when this first
+  // runs, which returns "not ready" and used to stick until the page was revisited; the
+  // readiness-keyed refetch below self-heals it, and re-running on reconnect recovers after a
+  // long outage where the bounded retries had already given up.
   useEffect(() => {
     if (!isReadyForCommands || !isSessionActive || selectedAppIds.length === 0) return;
-    const handle = setTimeout(() => {
-      fetchEstimatedSize();
-    }, 400);
-    return () => clearTimeout(handle);
-  }, [selectedAppIds, selectedOS, isReadyForCommands, isSessionActive, fetchEstimatedSize]);
+
+    // Invalidate any estimate still in flight for a previous selection right now (not 400ms
+    // later when the debounced fetch claims its own id) so a slow prior response cannot commit
+    // over - or let the modal confirm - a stale size. Show the spinner immediately.
+    estimateRequestIdRef.current += 1;
+    setEstimatedSize({ bytes: 0, loading: true });
+
+    let cancelled = false;
+    let attempt = 0;
+    let handle: ReturnType<typeof setTimeout>;
+    const maxAttempts = 5;
+
+    const run = async () => {
+      const result = await fetchEstimatedSize();
+      if (cancelled) return;
+      // Refetch ONLY while the estimate is genuinely not ready - the hub was not Connected yet
+      // (result === null) or the daemon has not resolved the selection yet (result.ready ===
+      // false). A resolved result, even 0 bytes, is accepted immediately, so this is not a blind
+      // retry-on-zero. Linear backoff, bounded, so it can never spin.
+      const notReady = result === null || !result.ready;
+      if (notReady && attempt < maxAttempts) {
+        attempt += 1;
+        handle = setTimeout(run, 800 * attempt);
+      } else if (notReady) {
+        // Never became ready within the window (hub stayed down / daemon never answered):
+        // settle on the error instead of spinning forever.
+        setEstimatedSize({
+          bytes: 0,
+          loading: false,
+          error: t('prefill.errors.unableEstimateSize')
+        });
+      }
+    };
+
+    handle = setTimeout(run, 400);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+      // Retire this generation on teardown too, so a late response for a now-gone selection
+      // (selection cleared, unmount, or reconnect re-run) can never commit.
+      estimateRequestIdRef.current += 1;
+    };
+  }, [
+    selectedAppIds,
+    selectedOS,
+    isReadyForCommands,
+    isSessionActive,
+    fetchEstimatedSize,
+    t,
+    signalR.isConnected
+  ]);
 
   // No session, not loading, not pending - show home page
   if (!signalR.session && !isLoadingSession && !pendingService) {

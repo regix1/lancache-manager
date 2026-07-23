@@ -19,6 +19,7 @@ import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { getErrorMessage } from '@utils/error';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
+import { useReconnectRefetch } from '@/hooks/useReconnectRefetch';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -182,6 +183,24 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       signalR.off('LogProcessingComplete', handleProcessingComplete);
     };
   }, [signalR, notifyError, t]);
+
+  // Recover a stale snapshot after a reconnect: a processing-complete event can be missed while
+  // the socket is down, so resync log positions whenever the connection returns.
+  useReconnectRefetch(signalR.isConnected, () => {
+    if (mockMode) return;
+    void (async () => {
+      try {
+        const positions = await fetchLogPositions();
+        setLogPositions(positions);
+      } catch (err) {
+        notifyError(
+          t('management.datasources.errors.loadFailed', 'Failed to load datasource data'),
+          err,
+          { silent: true, logLabel: 'Failed to refresh log positions after reconnect' }
+        );
+      }
+    })();
+  });
 
   useEffect(() => {
     localStorage.setItem('management-datasources-expanded-v2', String(isExpanded));

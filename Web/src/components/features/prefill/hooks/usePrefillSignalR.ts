@@ -9,6 +9,7 @@ import { getErrorMessage } from '@utils/error';
 import { usePrefillAnimation } from './usePrefillAnimation';
 import { prefillServiceConfig } from './prefillServiceConfig';
 import { registerPrefillEventHandlers } from './usePrefillEventHandlers';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import {
   PREFILL_SESSION_TIMEOUT_MS,
   COMPLETION_NOTIFICATION_WINDOW_MS,
@@ -34,6 +35,7 @@ interface UsePrefillSignalRReturn {
   // Connection
   hubConnection: React.RefObject<HubConnection | null>;
   isConnecting: boolean;
+  isConnected: boolean;
 
   // Session
   session: PrefillSessionDto | null;
@@ -118,6 +120,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   // State
   const [session, setSession] = useState<PrefillSessionDto | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  // Reactive "the hub socket is up" flag, driven by the connection lifecycle below. Consumers
+  // depend on it to re-run one-shot reads (e.g. the size estimate) once the socket returns.
+  const [isConnected, setIsConnected] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -358,13 +363,21 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           cancelWatchdogRef
         });
 
+        // Keep the reactive isConnected flag in step with the socket. These handlers are
+        // additive to the ones registerPrefillEventHandlers registers, so both run.
+        connection.onreconnecting(() => setIsConnected(false));
+        connection.onreconnected(() => setIsConnected(true));
+        connection.onclose(() => setIsConnected(false));
+
         await connection.start();
         hubConnection.current = connection;
         setIsConnecting(false);
+        setIsConnected(true);
         return connection;
       } catch {
         setError(t('prefill.errors.failedConnect'));
         setIsConnecting(false);
+        setIsConnected(false);
         return null;
       }
     })();
@@ -406,7 +419,25 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         return;
       }
 
-      const existingSessions = await connection.invoke<PrefillSessionDto[]>('GetMySessions');
+      // Adoption of an already-running server session runs once on mount. A transient hub hiccup
+      // here (common on mobile, where the socket has just come up) used to be swallowed silently,
+      // permanently missing an existing active session until the page was reloaded. Retry the
+      // lookup a bounded number of times on a THROW (never on a legitimately empty result, so a
+      // user with no session still reaches the home page immediately) before giving up.
+      let existingSessions: PrefillSessionDto[] | undefined;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          existingSessions = await connection.invoke<PrefillSessionDto[]>('GetMySessions');
+          break;
+        } catch (err) {
+          // Retry through a transient outage regardless of state: a mobile hiccup flips the
+          // socket to 'Reconnecting' (invoking then throws), and withAutomaticReconnect usually
+          // restores it within this window - so back off and try again rather than bailing on the
+          // non-Connected state, which used to permanently miss an existing session.
+          if (attempt >= 4) throw err;
+          await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        }
+      }
       const activeSession = existingSessions?.find((s) => s.status === 'Active');
 
       if (activeSession) {
@@ -643,6 +674,18 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // If the socket genuinely reconnects and we still never adopted a server session (the initial
+  // GetMySessions lost the race on a flaky mobile connect and its bounded retries gave up),
+  // re-run adoption now that the hub is healthy. Fires once per reconnect, never on first connect.
+  // An already-adopted session is reconciled by the onreconnected handler, so this only acts when
+  // there is no current session and initialization is not already in flight.
+  useReconnectRefetch(isConnected, () => {
+    if (!sessionRef.current && !isInitializing) {
+      initializationAttempted.current = false;
+      void initializeSession();
+    }
+  });
+
   // Re-sync when the tab becomes visible again (handles backgrounded tab / mobile suspend where
   // the socket stays nominally alive so onreconnected never fires). Mirrors the visibilitychange
   // pattern in SpeedContext/SignalRContext: re-subscribe, then re-hydrate live progress
@@ -713,6 +756,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     // Connection
     hubConnection,
     isConnecting,
+    isConnected,
 
     // Session
     session,

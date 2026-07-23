@@ -3,6 +3,8 @@ import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import type { CacheSizeInfo } from '@/types';
 import { useSignalR } from './SignalRContext/useSignalR';
+import { useAuth } from '@contexts/useAuth';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { CacheSizeContext, type CacheSizeContextType } from './CacheSizeContext.types';
 
 interface CacheSizeProviderProps {
@@ -10,17 +12,29 @@ interface CacheSizeProviderProps {
 }
 
 export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }) => {
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
+  const { isAdmin } = useAuth();
   const [cacheSize, setCacheSize] = useState<CacheSizeInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // A completion event can land while the single-flight read is still open. Remember that a
+  // refetch was requested and run exactly one once the in-flight read settles, so the fresh
+  // persisted result is never dropped by the single-flight guard.
+  const pendingRefetchRef = useRef(false);
+  // Stable handle to the latest fetch so the settle path can trigger the queued refetch without
+  // widening the callback's dependency list.
+  const fetchRef = useRef<(force?: boolean) => Promise<void>>(() => Promise.resolve());
 
   const fetchCacheSize = useCallback(async (force?: boolean) => {
-    // Force refresh supersedes an in-flight read; non-force requests stay single-flight.
+    // Force refresh supersedes an in-flight read; non-force requests stay single-flight but
+    // queue one refetch so a completion event that arrives mid-flight still reloads the result.
     if (!force) {
-      if (abortControllerRef.current) return;
+      if (abortControllerRef.current) {
+        pendingRefetchRef.current = true;
+        return;
+      }
       if (document.hidden) return;
     }
 
@@ -37,11 +51,13 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
 
     try {
       const size = await ApiService.getCacheSize(undefined, force, controller.signal);
+      // Mark fetched even for a scanning/queued response. hasFetched gates only the CONSUMER's
+      // one-shot mount fetch; leaving it false while a scan runs makes that effect re-fire every
+      // time isLoading toggles back, spinning GET /cache/size for the scan's whole duration. The
+      // authoritative result is still delivered by CacheScanComplete (and the reconnect resync),
+      // which call fetchCacheSize directly and do not consult hasFetched. Keep the last size.
       setHasFetched(true);
       if ('scanning' in size || 'queued' in size) {
-        // A scan is running or the explicit refresh was started/queued. SignalR owns its
-        // running/waiting card, and CacheScanComplete reloads the persisted result afterward.
-        // Keep showing the last size instead of treating the accepted response as data/error.
         return;
       }
       if ('available' in size) {
@@ -86,9 +102,19 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
       if (abortControllerRef.current === controller) {
         setIsLoading(false);
         abortControllerRef.current = null;
+        if (pendingRefetchRef.current) {
+          // Drain the single queued refetch now that the guard is clear.
+          pendingRefetchRef.current = false;
+          void fetchRef.current();
+        }
       }
     }
   }, []);
+
+  // Keep a stable handle to the latest fetch for the settle-path drain above.
+  useEffect(() => {
+    fetchRef.current = fetchCacheSize;
+  }, [fetchCacheSize]);
 
   // Explicit and scheduled scans emit this only after the new result has been persisted.
   // Keep the global cache-size state current even when the management cache panel is unmounted.
@@ -100,6 +126,16 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
     on('CacheScanComplete', handleCacheScanComplete);
     return () => off('CacheScanComplete', handleCacheScanComplete);
   }, [on, off, fetchCacheSize]);
+
+  // A reconnect can swallow the CacheScanComplete of a scan that finished while the socket was
+  // down - resync the persisted size on a genuine reconnect. Admin-only: /cache/size 403s for
+  // guests, and this provider is global (mounted for every session), so a guest reconnect - or an
+  // admin->guest switch - must not fire it. First connect is already suppressed by the hook.
+  useReconnectRefetch(isConnected, () => {
+    if (isAdmin) {
+      void fetchCacheSize();
+    }
+  });
 
   // Clear cache size data (useful after cache clearing operations)
   const clearCacheSize = useCallback(() => {

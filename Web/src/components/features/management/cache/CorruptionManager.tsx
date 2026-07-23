@@ -28,6 +28,7 @@ import { useSelectionSet } from '@/hooks/useSelectionSet';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
@@ -80,7 +81,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const { t } = useTranslation();
   const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
   const { notifyError } = useErrorHandler();
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
   const datasources =
     config.dataSources && config.dataSources.length > 0
@@ -482,6 +483,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   useEffect(() => {
     if (!hasInitiallyLoaded) void loadCachedData();
   }, [hasInitiallyLoaded, loadCachedData]);
+
+  // A dropped socket can swallow the completion event of a scan or removal that
+  // finished while it was down; resync the cached snapshot and history on reconnect.
+  useReconnectRefetch(isConnected, () => {
+    void loadCachedData();
+    setHistoryRefreshKey((key) => key + 1);
+  });
 
   const handleThresholdChange = useCallback(
     (value: string) => {

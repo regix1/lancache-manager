@@ -39,6 +39,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
@@ -250,7 +251,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // whatever it loaded at mount - hence "14 newly evicted" in the logs with
   // no visible UI change. A successful cache clear now performs trusted eviction
   // reconciliation too, so refetch on clear / scan / detection completion.
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   useEffect(() => {
     const handleScanDone = () => {
       if (isAnyEvictedRemovalRunning) return;
@@ -267,6 +268,12 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       off('GameDetectionComplete', handleScanDone);
     };
   }, [on, off, fetchEvictedItems, isAnyEvictedRemovalRunning, scheduleEvictedItemsRefresh]);
+
+  // A dropped socket can swallow a scan/clear completion event that flipped
+  // IsEvicted while it was down; resync the evicted-items list on reconnect.
+  useReconnectRefetch(isConnected, () => {
+    if (!isAnyEvictedRemovalRunning) void fetchEvictedItems();
+  });
 
   // Track partial eviction target so we know which item to filter on eviction_removal completion
   const partialRemovalTargetRef = useRef<CacheRemovalTarget | null>(null);

@@ -23,6 +23,7 @@ import type {
 } from '@contexts/SignalRContext/types';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
+import { useReconnectRefetch } from '@/hooks/useReconnectRefetch';
 import { finalizeBulkRemovalNotification } from '@components/features/management/game-detection/cacheRemovalHelpers';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -153,7 +154,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const { t } = useTranslation();
   const { notifications, isAnyRemovalRunning, addNotification, updateNotification } =
     useNotifications();
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
   const { cacheReadOnly, logsReadOnly, cacheExist, logsExist, checkingPermissions } =
     useDirectoryPermissionsContext();
@@ -257,6 +258,10 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     return () => off('ServiceCountsChanged', handleServiceCountsChanged);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [on, off]);
+
+  // A ServiceCountsChanged broadcast during a socket drop is missed, leaving the per-service
+  // counts stale until remount. Refetch once the connection re-establishes.
+  useReconnectRefetch(isConnected, () => void loadData(true));
 
   // Listen for log removal completion via notifications to trigger reload
   // Use ref to prevent duplicate processing of the same completion notification

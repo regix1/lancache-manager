@@ -198,7 +198,11 @@ export function PrefillCommandButtons({
                   <span className="themed-badge status-badge-neutral badge-count">
                     {selectedAppIds.length}
                   </span>
-                  <span>{t('prefill.commands.gamesReady', { count: selectedAppIds.length })}</span>
+                  {/* The count already lives in the badge, so the label only carries the
+                      pluralized noun ("game ready" / "games ready") to avoid repeating it. */}
+                  <span>
+                    {t('prefill.commands.gamesReadyLabel', { count: selectedAppIds.length })}
+                  </span>
                   {cachedSelectedCount > 0 && (
                     <span className="text-themed-muted">
                       · {cachedSelectedCount} {t('prefill.gameSelection.cachedBadge')}
@@ -217,11 +221,11 @@ export function PrefillCommandButtons({
                 {!hasSelection ? (
                   <span className="text-themed-muted">—</span>
                 ) : estimatedSize.loading ? (
-                  <LoadingSpinner inline size="sm" />
+                  <LoadingSpinner inline size="sm" className="text-themed-accent" />
                 ) : estimatedSize.error ? (
                   <span className="text-xs text-warning-text">{estimatedSize.error}</span>
                 ) : (
-                  <span className="font-medium text-themed-primary">
+                  <span className="font-medium text-themed-accent">
                     {formatBytes(estimatedSize.bytes)}
                   </span>
                 )}

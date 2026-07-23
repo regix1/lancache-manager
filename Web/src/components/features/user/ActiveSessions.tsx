@@ -47,6 +47,7 @@ import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   EpicGuestPrefillConfigChangedEvent,
@@ -180,7 +181,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const { t } = useTranslation();
   const { refreshAuth } = useAuth();
   const { notifyError } = useErrorHandler();
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { prefs: defaultGuestPrefs } = useDefaultGuestPreferences();
 
   const {
@@ -918,6 +919,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       loadSessions(false);
     }
   }, [refreshKey, loadSessions]);
+
+  // Recover a stale snapshot after a reconnect: a session change event can be missed while
+  // the socket is down, so resync the sessions view whenever the connection returns.
+  useReconnectRefetch(isConnected, () => loadSessions(false));
 
   // ============================================================
   // Derived Data

@@ -49,6 +49,7 @@ import { getErrorMessage } from '@utils/error';
 import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { usePaginatedList } from '@hooks/usePaginatedList';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { cleanIpAddress } from '@components/features/user/types';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -810,7 +811,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   onSuccess
 }) => {
   const { t } = useTranslation();
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
 
   // Accordion states
   const [liveSessionsExpanded, setLiveSessionsExpanded] = useState(true);
@@ -1007,6 +1008,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   useEffect(() => {
     loadSessions();
   }, [loadSessions]);
+
+  // Recover a stale snapshot after a reconnect: a session change/completion event can be
+  // missed while the socket is down, so resync the sessions view whenever the connection returns.
+  useReconnectRefetch(isConnected, () => loadSessions());
 
   useEffect(() => {
     loadBans();

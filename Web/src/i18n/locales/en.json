@@ -4687,7 +4687,9 @@
       "prefillSelectedCount": "Prefill Selected ({{count}})",
       "selectGamesFirst": "Select games first",
       "gamesReady": "{{count}} game ready",
-      "gamesReady_other": "{{count}} games ready"
+      "gamesReady_other": "{{count}} games ready",
+      "gamesReadyLabel": "game ready",
+      "gamesReadyLabel_other": "games ready"
     },
     "loginNotice": {
       "title": "Login Required to Use Commands",

@@ -30,16 +30,34 @@ export function usePersistentPrefillContainerSignalR({
   enabled,
   onRefresh
 }: UsePersistentPrefillContainerSignalROptions): UsePersistentPrefillContainerSignalRResult {
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const signalR = useMemo(() => ({ on, off }), [on, off]);
   const { getRefreshInterval } = useRefreshRate();
   const lastRefreshRef = useRef(0);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onRefreshRef = useRef(onRefresh);
   const getRefreshIntervalRef = useRef(getRefreshInterval);
+  const wasDisconnectedRef = useRef(false);
 
   onRefreshRef.current = onRefresh;
   getRefreshIntervalRef.current = getRefreshInterval;
+
+  // A reconnect can swallow the session/auth events for a container that was created, started, or
+  // finished authenticating while the socket was down - reconcile from the server whenever the
+  // connection returns so the card cannot stay frozen on a pre-drop snapshot.
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    if (!isConnected) {
+      wasDisconnectedRef.current = true;
+      return;
+    }
+    if (wasDisconnectedRef.current) {
+      wasDisconnectedRef.current = false;
+      onRefreshRef.current();
+    }
+  }, [enabled, isConnected]);
 
   useEffect(() => {
     if (!enabled) {
@@ -69,7 +87,21 @@ export function usePersistentPrefillContainerSignalR({
 
     const handlers = new Map<string, EventHandler>();
     for (const eventName of PERSISTENT_PREFILL_CONTAINER_SIGNALR_EVENTS) {
-      const handler: EventHandler = () => scheduleRefresh();
+      const handler: EventHandler = (data?: unknown) => {
+        // Guest-prefill progress broadcasts DaemonSessionUpdated on every tick (~every refresh
+        // interval) with isPersistent === false. Those must not drive the persistent-container
+        // refresh - skip them. Persistent-container events (isPersistent === true) and events
+        // that carry no flag at all (auth / terminate keyed only by sessionId) still refresh.
+        if (
+          data &&
+          typeof data === 'object' &&
+          'isPersistent' in data &&
+          (data as { isPersistent?: boolean }).isPersistent === false
+        ) {
+          return;
+        }
+        scheduleRefresh();
+      };
       handlers.set(eventName, handler);
       on(eventName, handler);
     }
