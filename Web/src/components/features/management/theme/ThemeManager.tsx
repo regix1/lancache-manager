@@ -25,6 +25,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { API_BASE } from '@utils/constants';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import Badge from '@components/ui/Badge';
@@ -60,6 +61,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   const [themeManagementExpanded, setThemeManagementExpanded] = useState(true);
   const [customizeExpanded, setCustomizeExpanded] = useState(false);
   const [themeActionMenu, setThemeActionMenu] = useState<string | null>(null);
+  useAccordionGroupItem('theme-management', themeManagementExpanded, () =>
+    setThemeManagementExpanded((prev) => !prev)
+  );
+  useAccordionGroupItem('theme-customize', customizeExpanded, () =>
+    setCustomizeExpanded((prev) => !prev)
+  );
 
   const [editedTheme, setEditedTheme] = useState<EditableTheme>({
     name: '',

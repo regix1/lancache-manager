@@ -36,6 +36,7 @@ import { resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { formatCount } from '@utils/formatters';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Button } from '@components/ui/Button';
@@ -179,6 +180,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     const saved = localStorage.getItem('management-corruption-expanded');
     return saved !== null ? saved === 'true' : false;
   });
+  useAccordionGroupItem('storage-corruption', sectionExpanded, () =>
+    setSectionExpanded((expanded) => !expanded)
+  );
   useEffect(() => {
     localStorage.setItem('management-corruption-expanded', String(sectionExpanded));
   }, [sectionExpanded]);

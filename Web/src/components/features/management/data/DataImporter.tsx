@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Upload } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { DatabaseImportForm } from './DatabaseImportForm';
 import type { ImportResult } from '@/types/migration';
 
@@ -22,6 +23,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
+  useAccordionGroupItem('data-importer', isExpanded, () => setIsExpanded((prev) => !prev));
 
   const handleImportComplete = (result: ImportResult) => {
     onSuccess?.(

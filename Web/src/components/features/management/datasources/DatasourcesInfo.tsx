@@ -22,6 +22,7 @@ import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { formatBytes, formatCount } from '@utils/formatters';
 import type { DatasourceInfo, DatasourceLogPosition } from '../../../../types';
 
@@ -66,6 +67,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     const saved = localStorage.getItem('management-datasources-expanded-v2');
     return saved !== null ? saved === 'true' : false;
   });
+  useAccordionGroupItem('storage-datasources', isExpanded, () => setIsExpanded((prev) => !prev));
 
   const { addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();

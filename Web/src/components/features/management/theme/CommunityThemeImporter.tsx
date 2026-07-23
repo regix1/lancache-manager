@@ -5,6 +5,7 @@ import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -87,6 +88,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   const [showImported, setShowImported] = useState(false);
   const [updatingThemes, setUpdatingThemes] = useState<Set<string>>(new Set());
   const [sectionExpanded, setSectionExpanded] = useState(false);
+  useAccordionGroupItem('theme-community-importer', sectionExpanded, () =>
+    setSectionExpanded((prev) => !prev)
+  );
   const loadingInProgressRef = useRef(false);
   const importingThemeRef = useRef<string | null>(null);
   const rateLimitRemaining = useRef<number | null>(null);

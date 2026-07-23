@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shield } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -31,6 +32,7 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
   const { on, off, connectionState } = useSignalR();
 
   const [expanded, setExpanded] = useState(false);
+  useAccordionGroupItem('guest-access-security', expanded, () => setExpanded((prev) => !prev));
   const [state, setState] = useState<GuestDurationResponse | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 

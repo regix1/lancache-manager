@@ -25,6 +25,7 @@ import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermission
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { finalizeBulkRemovalNotification } from '@components/features/management/game-detection/cacheRemovalHelpers';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
 import { Checkbox } from '@components/ui/Checkbox';
@@ -213,6 +214,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     const saved = localStorage.getItem('management-log-removal-expanded');
     return saved !== null ? saved === 'true' : false;
   });
+  useAccordionGroupItem('storage-log-removal', sectionExpanded, () =>
+    setSectionExpanded((prev) => !prev)
+  );
 
   useEffect(() => {
     localStorage.setItem('management-log-removal-expanded', String(sectionExpanded));

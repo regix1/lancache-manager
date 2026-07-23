@@ -18,6 +18,7 @@ import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import Badge from '@components/ui/Badge';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
@@ -479,6 +480,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED);
     return saved !== null ? saved === 'true' : false;
   });
+  useAccordionGroupItem('storage-eviction', evictedDataExpanded, () =>
+    setEvictedDataExpanded((prev) => !prev)
+  );
 
   useEffect(() => {
     localStorage.setItem(
@@ -491,6 +495,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTION_SETTINGS_EXPANDED);
     return saved !== null ? saved === 'true' : true;
   });
+  useAccordionGroupItem('storage-eviction-settings', evictionSettingsExpanded, () =>
+    setEvictionSettingsExpanded((prev) => !prev)
+  );
 
   useEffect(() => {
     localStorage.setItem(
@@ -503,6 +510,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTED_ITEMS_EXPANDED);
     return saved !== null ? saved === 'true' : true;
   });
+  useAccordionGroupItem('storage-evicted-items', evictedItemsExpanded, () =>
+    setEvictedItemsExpanded((prev) => !prev)
+  );
 
   useEffect(() => {
     localStorage.setItem(

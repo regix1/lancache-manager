@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Network } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { Alert } from '@components/ui/Alert';
@@ -43,6 +44,12 @@ interface PrefillServicePanelProps {
   onToggle: () => void;
 }
 
+const slugifyServiceName = (name: string): string =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+
 const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
   serviceName,
   serviceIcon: ServiceIcon,
@@ -66,6 +73,7 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
   onToggle
 }) => {
   const { t } = useTranslation();
+  useAccordionGroupItem(`guest-prefill-${slugifyServiceName(serviceName)}`, isExpanded, onToggle);
 
   const handleDurationChange = (value: string) => {
     onDurationChange(Number(value));

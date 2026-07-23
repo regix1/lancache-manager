@@ -6,6 +6,7 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
@@ -116,6 +117,13 @@ const GrafanaEndpoints: React.FC = () => {
   const [isConfigExpanded, setIsConfigExpanded] = useState(false);
   const [areRatesExpanded, setAreRatesExpanded] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  useAccordionGroupItem('integrations-grafana', expanded, () => setExpanded((prev) => !prev));
+  useAccordionGroupItem('integrations-grafana-polling-rates', areRatesExpanded, () =>
+    setAreRatesExpanded((prev) => !prev)
+  );
+  useAccordionGroupItem('integrations-grafana-prometheus-config', isConfigExpanded, () =>
+    setIsConfigExpanded((prev) => !prev)
+  );
 
   const fetchMetricsSecurity = useCallback(
     async (signal?: AbortSignal) => {

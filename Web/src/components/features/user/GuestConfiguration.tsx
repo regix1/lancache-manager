@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Download, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import ApiService from '@services/api.service';
@@ -160,6 +161,9 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const [updatingXboxPrefillConfig, setUpdatingXboxPrefillConfig] = useState(false);
 
   const [prefillSectionExpanded, setPrefillSectionExpanded] = useState(false);
+  useAccordionGroupItem('guest-prefill-services', prefillSectionExpanded, () =>
+    setPrefillSectionExpanded((prev) => !prev)
+  );
   const [prefillServiceExpanded, setPrefillServiceExpanded] =
     useState<Record<PrefillServiceKey, boolean>>(INITIAL_PREFILL_EXPANDED);
 

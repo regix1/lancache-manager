@@ -939,6 +939,16 @@ function ServicePrefillPanel({
     signalR.createSession(clearLogs);
   }, [signalR, clearLogs]);
 
+  // Warm the size estimate as the selection changes so the split card can show it without
+  // waiting for the confirm modal. Debounced; the confirm flow still refetches on open.
+  useEffect(() => {
+    if (!isReadyForCommands || !isSessionActive || selectedAppIds.length === 0) return;
+    const handle = setTimeout(() => {
+      fetchEstimatedSize();
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [selectedAppIds, selectedOS, isReadyForCommands, isSessionActive, fetchEstimatedSize]);
+
   // No session, not loading, not pending - show home page
   if (!signalR.session && !isLoadingSession && !pendingService) {
     return (
@@ -1258,6 +1268,8 @@ function ServicePrefillPanel({
               maxThreadLimit={maxThreadLimit}
               supportedCommands={serviceConfig.prefillCommands}
               supportedOperatingSystems={serviceConfig.supportedOperatingSystems}
+              cachedAppIds={cachedAppIds}
+              estimatedSize={estimatedSize}
               onCommandClick={handleCommandClick}
               onSelectedOSChange={handleOSChange}
               onMaxConcurrencyChange={handleConcurrencyChange}

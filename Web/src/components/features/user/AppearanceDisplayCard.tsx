@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Palette, Lock, Unlock, Globe, MapPin, Monitor } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
@@ -63,7 +64,11 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
+  useAccordionGroupItem('guest-appearance-display', expanded, () => setExpanded((prev) => !prev));
   const [displayTogglesExpanded, setDisplayTogglesExpanded] = useState(false);
+  useAccordionGroupItem('guest-appearance-display-toggles', displayTogglesExpanded, () =>
+    setDisplayTogglesExpanded((prev) => !prev)
+  );
 
   const themeOptions = availableThemes.map((theme: { id: string; name: string }) => ({
     value: theme.id,

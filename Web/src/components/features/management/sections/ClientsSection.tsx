@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
@@ -53,7 +54,13 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   const { refreshDownloads } = useDownloads();
 
   const [nicknamesExpanded, setNicknamesExpanded] = useState(false);
+  useAccordionGroupItem('clients-nicknames', nicknamesExpanded, () =>
+    setNicknamesExpanded((prev) => !prev)
+  );
   const [exclusionsExpanded, setExclusionsExpanded] = useState(false);
+  useAccordionGroupItem('clients-exclusions', exclusionsExpanded, () =>
+    setExclusionsExpanded((prev) => !prev)
+  );
 
   // Fetch ALL client IPs without time filtering - management sections should not be affected by time filters
   const [allClientIps, setAllClientIps] = useState<string[]>([]);

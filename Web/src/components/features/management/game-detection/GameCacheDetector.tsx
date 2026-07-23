@@ -19,6 +19,7 @@ import { Modal } from '@components/ui/Modal';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
@@ -151,8 +152,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.GAME_CACHE_EXPANDED);
     return saved !== null ? saved === 'true' : false;
   });
+  useAccordionGroupItem('storage-game-detection', sectionExpanded, () =>
+    setSectionExpanded((prev) => !prev)
+  );
   const [servicesExpanded, setServicesExpanded] = useState(true);
+  useAccordionGroupItem('storage-game-detection-services', servicesExpanded, () =>
+    setServicesExpanded(!servicesExpanded)
+  );
   const [gamesExpanded, setGamesExpanded] = useState(true);
+  useAccordionGroupItem('storage-game-detection-games', gamesExpanded, () =>
+    setGamesExpanded(!gamesExpanded)
+  );
 
   // "Remove All" state - sequential full-removal of every cached game and
   // service. Mirrors the per-item Remove button flow so each entity gets its

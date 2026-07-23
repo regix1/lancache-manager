@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, XCircle } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { XboxIcon } from '@components/ui/XboxIcon';
@@ -42,6 +43,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   const [loggingOut, setLoggingOut] = useState(false);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  useAccordionGroupItem('integrations-xbox', expanded, () => setExpanded((prev) => !prev));
 
   const loadStatus = useCallback(async () => {
     // Demo/mock mode has no admin session, and auth-status is AdminOnly, so a fetch would 401/403

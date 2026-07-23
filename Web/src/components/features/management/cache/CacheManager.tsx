@@ -20,6 +20,7 @@ import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectory
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -118,6 +119,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     const saved = localStorage.getItem('management-disk-cache-expanded');
     return saved !== null ? saved === 'true' : false;
   });
+  useAccordionGroupItem('storage-cache', sectionExpanded, () =>
+    setSectionExpanded((prev) => !prev)
+  );
 
   useEffect(() => {
     localStorage.setItem('management-disk-cache-expanded', String(sectionExpanded));

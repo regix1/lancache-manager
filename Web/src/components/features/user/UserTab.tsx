@@ -6,6 +6,8 @@ import themeService from '@services/theme.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
+import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
+import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import ActiveSessions from './ActiveSessions';
 import GuestConfiguration from './GuestConfiguration';
 import { type Session, type SessionFilter, type ThemeOption, showToast } from './types';
@@ -245,48 +247,55 @@ const UserTab: React.FC = () => {
         showLabels="responsive"
       />
 
-      {/* Tab Content */}
-      {activeTab === 'sessions' && (
-        <div className="user-tab-content">
-          <ActiveSessions
-            guestDurationHours={guestDurationHours}
-            guestModeLocked={guestModeLocked}
-            updatingGuestLock={updatingGuestLock}
-            onToggleGuestLock={handleToggleGuestLock}
-            availableThemes={availableThemes}
-            defaultGuestTheme={defaultGuestTheme}
-            defaultGuestRefreshRate={defaultGuestRefreshRate}
-            sessions={sessions}
-            setSessions={setSessions}
-            loading={loading}
-            setLoading={setLoading}
-            onSessionsChange={handleSessionsChange}
-            refreshKey={sessionRefreshKey}
-            activeFilter={activeFilter}
-            onFilterChange={setActiveFilter}
-          />
+      {/* Tab Content - keyed by activeTab so AccordionGroupProvider's registry always
+          starts empty for the newly active tab. */}
+      <AccordionGroupProvider key={activeTab}>
+        <div className="flex justify-end">
+          <AccordionGroupToggle />
         </div>
-      )}
 
-      {activeTab === 'defaults' && (
-        <div className="user-tab-content">
-          <GuestConfiguration
-            guestDurationHours={guestDurationHours}
-            onDurationChange={handleUpdateDuration}
-            updatingDuration={updatingDuration}
-            defaultGuestTheme={defaultGuestTheme}
-            onGuestThemeChange={handleUpdateGuestTheme}
-            updatingGuestTheme={updatingGuestTheme}
-            defaultGuestRefreshRate={defaultGuestRefreshRate}
-            onGuestRefreshRateChange={handleUpdateGuestRefreshRate}
-            updatingGuestRefreshRate={updatingGuestRefreshRate}
-            guestRefreshRateLocked={guestRefreshRateLocked}
-            onGuestRefreshRateLockChange={handleUpdateGuestRefreshRateLock}
-            updatingGuestRefreshRateLock={updatingGuestRefreshRateLock}
-            availableThemes={availableThemes}
-          />
-        </div>
-      )}
+        {activeTab === 'sessions' && (
+          <div className="user-tab-content">
+            <ActiveSessions
+              guestDurationHours={guestDurationHours}
+              guestModeLocked={guestModeLocked}
+              updatingGuestLock={updatingGuestLock}
+              onToggleGuestLock={handleToggleGuestLock}
+              availableThemes={availableThemes}
+              defaultGuestTheme={defaultGuestTheme}
+              defaultGuestRefreshRate={defaultGuestRefreshRate}
+              sessions={sessions}
+              setSessions={setSessions}
+              loading={loading}
+              setLoading={setLoading}
+              onSessionsChange={handleSessionsChange}
+              refreshKey={sessionRefreshKey}
+              activeFilter={activeFilter}
+              onFilterChange={setActiveFilter}
+            />
+          </div>
+        )}
+
+        {activeTab === 'defaults' && (
+          <div className="user-tab-content">
+            <GuestConfiguration
+              guestDurationHours={guestDurationHours}
+              onDurationChange={handleUpdateDuration}
+              updatingDuration={updatingDuration}
+              defaultGuestTheme={defaultGuestTheme}
+              onGuestThemeChange={handleUpdateGuestTheme}
+              updatingGuestTheme={updatingGuestTheme}
+              defaultGuestRefreshRate={defaultGuestRefreshRate}
+              onGuestRefreshRateChange={handleUpdateGuestRefreshRate}
+              updatingGuestRefreshRate={updatingGuestRefreshRate}
+              guestRefreshRateLocked={guestRefreshRateLocked}
+              onGuestRefreshRateLockChange={handleUpdateGuestRefreshRateLock}
+              updatingGuestRefreshRateLock={updatingGuestRefreshRateLock}
+              availableThemes={availableThemes}
+            />
+          </div>
+        )}
+      </AccordionGroupProvider>
     </div>
   );
 };

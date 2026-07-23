@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Gamepad2, Search } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -36,6 +37,9 @@ const XboxGameMappings: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
+  useAccordionGroupItem('integrations-xbox-game-mappings', expanded, () =>
+    setExpanded((prev) => !prev)
+  );
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const loadData = useCallback(async () => {

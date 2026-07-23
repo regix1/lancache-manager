@@ -34,6 +34,7 @@ import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Checkbox } from '@components/ui/Checkbox';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import Badge from '@components/ui/Badge';
 import ApiService, {
@@ -820,9 +821,19 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
   // Accordion states
   const [liveSessionsExpanded, setLiveSessionsExpanded] = useState(true);
+  useAccordionGroupItem('prefill-live-sessions', liveSessionsExpanded, () =>
+    setLiveSessionsExpanded(!liveSessionsExpanded)
+  );
   const [persistentExpanded, setPersistentExpanded] = useState(true);
+  useAccordionGroupItem('prefill-persistent-sessions', persistentExpanded, () =>
+    setPersistentExpanded(!persistentExpanded)
+  );
   const [historyExpanded, setHistoryExpanded] = useState(true);
+  useAccordionGroupItem('prefill-session-history', historyExpanded, () =>
+    setHistoryExpanded(!historyExpanded)
+  );
   const [bansExpanded, setBansExpanded] = useState(true);
+  useAccordionGroupItem('prefill-banned-users', bansExpanded, () => setBansExpanded(!bansExpanded));
 
   // Persistent containers state (system-owned, read-only monitoring)
   const [persistentContainers, setPersistentContainers] = useState<PersistentPrefillContainerDto[]>(

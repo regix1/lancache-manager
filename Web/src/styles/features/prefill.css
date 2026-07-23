@@ -132,65 +132,58 @@
     position: relative;
   }
 
-  /* Section panel - each command group lives in one */
-  .cmd-section {
-    background: var(--theme-bg-secondary);
-    border: 1px solid var(--theme-border-secondary);
-    border-radius: var(--theme-border-radius-lg);
-    transition: border-color 0.2s ease;
-  }
-
-  .cmd-section:hover:not(.cmd-section--disabled) {
-    border-color: var(--theme-border);
-  }
-
-  .cmd-section--disabled {
+  /* Dim a whole command band when the surface is not usable (replaces the old
+     per-section disabled state; no nested section cards or accent stripes remain). */
+  .cmd-disabled {
     opacity: 0.45;
     pointer-events: none;
   }
 
-  /* Section header with left accent bar */
-  .cmd-section-header {
-    position: relative;
-    padding-left: 1rem;
+  /* Split card: Select (left) paired with Start (right) as two halves of ONE surface. */
+  .cmd-split {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
   }
 
-  .cmd-section-header::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 3px;
-    height: 60%;
-    border-radius: 2px;
-    background: var(--section-accent, var(--theme-primary));
-    opacity: 0.7;
-    transition:
-      opacity 0.2s ease,
-      height 0.2s ease;
+  .cmd-split-left,
+  .cmd-split-right {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
   }
 
-  .cmd-section:hover .cmd-section-header::before {
-    opacity: 1;
-    height: 75%;
+  /* Hairline between the two halves: horizontal when stacked, vertical when side by side. */
+  .cmd-split-left {
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--theme-border-primary);
   }
 
-  /* Accent colors for each section */
-  .cmd-section--select {
-    --section-accent: var(--theme-icon-blue);
+  @media (min-width: 1024px) {
+    .cmd-split {
+      grid-template-columns: minmax(0, 46fr) minmax(0, 54fr);
+      gap: 1.25rem;
+    }
+
+    .cmd-split-left {
+      padding-bottom: 0;
+      padding-right: 1.25rem;
+      border-bottom: none;
+      border-right: 1px solid var(--theme-border-primary);
+    }
   }
 
-  .cmd-section--settings {
-    --section-accent: var(--theme-icon-purple);
+  .cmd-split-summary {
+    line-height: 1.4;
   }
 
-  .cmd-section--prefill {
-    --section-accent: var(--theme-icon-green);
-  }
-
-  .cmd-section--utility {
-    --section-accent: var(--theme-icon-orange);
+  /* Estimated-size readout: label left, value right on one baseline. */
+  .cmd-split-estimate {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
   }
 
   /* Command button tile - the individual action buttons */

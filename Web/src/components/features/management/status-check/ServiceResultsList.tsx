@@ -3,6 +3,7 @@ import '../managementSectionContent.css';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Globe } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import Badge from '@components/ui/Badge';
 import { Tooltip } from '@components/ui/Tooltip';
 import { getServiceColorClass } from '@utils/serviceColors';
@@ -28,6 +29,124 @@ const DOMAIN_STATUS_WEIGHT: Record<string, number> = {
   unverified: 2,
   blocked: 3,
   resolved: 4
+};
+
+interface ServiceResultItemProps {
+  service: StatusCheckServiceResult;
+  isExpanded: boolean;
+  onToggle: (service: string) => void;
+  contentReport: StatusCheckContentReport | null | undefined;
+  registerRef: (service: string, element: HTMLDivElement | null) => void;
+}
+
+// Split out so useAccordionGroupItem (one hook call per registered AccordionSection) can be
+// called once per service - it can't be called inline inside the parent's .map(), since the
+// number of visible services can change across renders and hooks must run in a stable order.
+const ServiceResultItem: React.FC<ServiceResultItemProps> = ({
+  service,
+  isExpanded,
+  onToggle,
+  contentReport,
+  registerRef
+}) => {
+  const { t } = useTranslation();
+  const keys = 'management.sections.statusCheck';
+
+  useAccordionGroupItem(`status-check-${service.service}`, isExpanded, () =>
+    onToggle(service.service)
+  );
+
+  const contentPaths = getContentPathsForService(contentReport, service.service);
+  // Deliberately black-holed domains (v1.5) are benign - they leave both the badge's
+  // denominator and the wrong-count so a blocked telemetry endpoint never reads as failure.
+  const blockedCount = service.domains.filter((domain) => domain.status === 'blocked').length;
+  const activeTotal = service.totalCount - blockedCount;
+  const wrongCount = activeTotal - service.resolvedCount;
+  const badge =
+    service.status === 'resolved' ? (
+      <Badge variant="success" className="tabular-nums">
+        {t(`${keys}.badgeResolved`, {
+          resolved: service.resolvedCount,
+          total: activeTotal
+        })}
+      </Badge>
+    ) : service.status === 'partial' ? (
+      <Badge variant="warning" className="tabular-nums">
+        {t(`${keys}.badgePartial`, { wrong: wrongCount, total: activeTotal })}
+      </Badge>
+    ) : service.status === 'disabled' ? (
+      <Badge variant="neutral">{t(`${keys}.badgeDisabled`)}</Badge>
+    ) : service.status === 'unverified' ? (
+      <Badge variant="info">{t(`${keys}.badgeUnverified`)}</Badge>
+    ) : service.domains.some((domain) => domain.status === 'mismatched') ? (
+      // DNS answers but with the wrong IPs - a different failure than "not resolving".
+      <Badge variant="warning">{t(`${keys}.badgeMismatched`)}</Badge>
+    ) : (
+      <Badge variant="error">{t(`${keys}.badgeNone`)}</Badge>
+    );
+
+  const sortedDomains = [...service.domains].sort(
+    (a, b) =>
+      (DOMAIN_STATUS_WEIGHT[a.status] ?? 3) - (DOMAIN_STATUS_WEIGHT[b.status] ?? 3) ||
+      a.originalEntry.localeCompare(b.originalEntry)
+  );
+
+  // Expected cache IPs are the same across a service's domains - show them ONCE here
+  // (only where a "wrong IP" tag needs a reference) instead of on every failing row.
+  const expectedIps = [...new Set(service.domains.flatMap((domain) => domain.expectedIps))];
+  const hasMismatch = service.domains.some((domain) => domain.status === 'mismatched');
+  const { shown: expectedShown, moreCount: expectedMore } = splitExamples(expectedIps, 1);
+  const expectedLabel =
+    expectedShown[0] + (expectedMore > 0 ? ` ${t(`${keys}.ipMore`, { count: expectedMore })}` : '');
+
+  return (
+    <div ref={(element) => registerRef(service.service, element)}>
+      {/* No `count` here on purpose: the status badge below already shows
+          resolved/total (e.g. "3/3"), so a separate total-count badge next to
+          the title would just repeat the same number. */}
+      <AccordionSection
+        title={formatServiceLabel(service.service)}
+        icon={Globe}
+        iconColor={getServiceAccentColor(service.service)}
+        isExpanded={isExpanded}
+        onToggle={() => onToggle(service.service)}
+        badge={badge}
+      >
+        {service.description && (
+          <p className="text-xs mb-3">
+            <span className={`font-medium ${getServiceColorClass(service.service)}`}>
+              {formatServiceLabel(service.service)}
+            </span>
+            <span className="text-themed-muted">: {service.description}</span>
+          </p>
+        )}
+        {service.status === 'disabled' ? (
+          <p className="text-sm text-themed-muted">
+            {t(`${keys}.disabledNote`, { service: service.service.toUpperCase() })}
+          </p>
+        ) : (
+          <div>
+            {hasMismatch && expectedIps.length > 0 && (
+              <Tooltip
+                content={expectedIps.join(', ')}
+                className="status-check-service-expected tabular-nums"
+              >
+                {t(`${keys}.expectedForService`, { ips: expectedLabel })}
+              </Tooltip>
+            )}
+            <div className="mgmt-list divided-list">
+              {sortedDomains.map((domain) => (
+                <div key={domain.originalEntry} className="status-check-domain-item">
+                  <DomainLeafRow result={domain} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <ContentPathGroup paths={contentPaths} />
+      </AccordionSection>
+    </div>
+  );
 };
 
 const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
@@ -58,100 +177,16 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
 
   return (
     <div className="space-y-2">
-      {visibleServices.map((service) => {
-        const contentPaths = getContentPathsForService(contentReport, service.service);
-        // Deliberately black-holed domains (v1.5) are benign - they leave both the badge's
-        // denominator and the wrong-count so a blocked telemetry endpoint never reads as failure.
-        const blockedCount = service.domains.filter((domain) => domain.status === 'blocked').length;
-        const activeTotal = service.totalCount - blockedCount;
-        const wrongCount = activeTotal - service.resolvedCount;
-        const badge =
-          service.status === 'resolved' ? (
-            <Badge variant="success" className="tabular-nums">
-              {t(`${keys}.badgeResolved`, {
-                resolved: service.resolvedCount,
-                total: activeTotal
-              })}
-            </Badge>
-          ) : service.status === 'partial' ? (
-            <Badge variant="warning" className="tabular-nums">
-              {t(`${keys}.badgePartial`, { wrong: wrongCount, total: activeTotal })}
-            </Badge>
-          ) : service.status === 'disabled' ? (
-            <Badge variant="neutral">{t(`${keys}.badgeDisabled`)}</Badge>
-          ) : service.status === 'unverified' ? (
-            <Badge variant="info">{t(`${keys}.badgeUnverified`)}</Badge>
-          ) : service.domains.some((domain) => domain.status === 'mismatched') ? (
-            // DNS answers but with the wrong IPs - a different failure than "not resolving".
-            <Badge variant="warning">{t(`${keys}.badgeMismatched`)}</Badge>
-          ) : (
-            <Badge variant="error">{t(`${keys}.badgeNone`)}</Badge>
-          );
-
-        const sortedDomains = [...service.domains].sort(
-          (a, b) =>
-            (DOMAIN_STATUS_WEIGHT[a.status] ?? 3) - (DOMAIN_STATUS_WEIGHT[b.status] ?? 3) ||
-            a.originalEntry.localeCompare(b.originalEntry)
-        );
-
-        // Expected cache IPs are the same across a service's domains - show them ONCE here
-        // (only where a "wrong IP" tag needs a reference) instead of on every failing row.
-        const expectedIps = [...new Set(service.domains.flatMap((domain) => domain.expectedIps))];
-        const hasMismatch = service.domains.some((domain) => domain.status === 'mismatched');
-        const { shown: expectedShown, moreCount: expectedMore } = splitExamples(expectedIps, 1);
-        const expectedLabel =
-          expectedShown[0] +
-          (expectedMore > 0 ? ` ${t(`${keys}.ipMore`, { count: expectedMore })}` : '');
-
-        return (
-          <div key={service.service} ref={(element) => registerRef(service.service, element)}>
-            {/* No `count` here on purpose: the status badge below already shows
-                resolved/total (e.g. "3/3"), so a separate total-count badge next to
-                the title would just repeat the same number. */}
-            <AccordionSection
-              title={formatServiceLabel(service.service)}
-              icon={Globe}
-              iconColor={getServiceAccentColor(service.service)}
-              isExpanded={expandedServices.has(service.service)}
-              onToggle={() => onToggle(service.service)}
-              badge={badge}
-            >
-              {service.description && (
-                <p className="text-xs mb-3">
-                  <span className={`font-medium ${getServiceColorClass(service.service)}`}>
-                    {formatServiceLabel(service.service)}
-                  </span>
-                  <span className="text-themed-muted">: {service.description}</span>
-                </p>
-              )}
-              {service.status === 'disabled' ? (
-                <p className="text-sm text-themed-muted">
-                  {t(`${keys}.disabledNote`, { service: service.service.toUpperCase() })}
-                </p>
-              ) : (
-                <div>
-                  {hasMismatch && expectedIps.length > 0 && (
-                    <Tooltip
-                      content={expectedIps.join(', ')}
-                      className="status-check-service-expected tabular-nums"
-                    >
-                      {t(`${keys}.expectedForService`, { ips: expectedLabel })}
-                    </Tooltip>
-                  )}
-                  <div className="mgmt-list divided-list">
-                    {sortedDomains.map((domain) => (
-                      <div key={domain.originalEntry} className="status-check-domain-item">
-                        <DomainLeafRow result={domain} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <ContentPathGroup paths={contentPaths} />
-            </AccordionSection>
-          </div>
-        );
-      })}
+      {visibleServices.map((service) => (
+        <ServiceResultItem
+          key={service.service}
+          service={service}
+          isExpanded={expandedServices.has(service.service)}
+          onToggle={onToggle}
+          contentReport={contentReport}
+          registerRef={registerRef}
+        />
+      ))}
     </div>
   );
 };

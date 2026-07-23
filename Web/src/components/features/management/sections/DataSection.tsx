@@ -3,6 +3,7 @@ import './DataSection.css';
 import { useTranslation } from 'react-i18next';
 import { Database, AlertTriangle } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
@@ -40,6 +41,9 @@ const DataSection: React.FC<DataSectionProps> = ({
   const [showClearModal, setShowClearModal] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const [databaseManagementExpanded, setDatabaseManagementExpanded] = useState(false);
+  useAccordionGroupItem('data-database-management', databaseManagementExpanded, () =>
+    setDatabaseManagementExpanded((prev) => !prev)
+  );
   const clearInProgressRef = useRef(false);
 
   // Get table definitions from translations

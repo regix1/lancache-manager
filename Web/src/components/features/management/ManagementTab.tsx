@@ -8,6 +8,8 @@ import operationStateService from '@services/operationState.service';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import ErrorBoundary from '@components/common/ErrorBoundary';
+import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
+import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 
 // Import navigation and sections
 import ManagementNav, { type ManagementSection } from './ManagementNav';
@@ -270,9 +272,16 @@ const ManagementTab: React.FC = () => {
       />
 
       {/* Active Section Content - keyed by section so a crash in one tab falls back
-          locally (never blanks the whole app) and switching tabs recovers cleanly. */}
+          locally (never blanks the whole app) and switching tabs recovers cleanly. The
+          same key remounts AccordionGroupProvider on every section change, so its
+          expand/collapse registry always starts empty for the newly active section. */}
       <div className="management-content">
-        <ErrorBoundary key={renderedSection}>{renderActiveSection()}</ErrorBoundary>
+        <AccordionGroupProvider key={renderedSection}>
+          <div className="flex justify-end">
+            <AccordionGroupToggle />
+          </div>
+          <ErrorBoundary key={renderedSection}>{renderActiveSection()}</ErrorBoundary>
+        </AccordionGroupProvider>
       </div>
 
       {/* Guest Mode Info - shown in nav area when not authenticated */}

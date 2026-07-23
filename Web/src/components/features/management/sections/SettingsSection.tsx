@@ -2,6 +2,7 @@ import React, { useCallback, useState, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shield, Sparkles, Settings, Gauge } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
@@ -24,9 +25,21 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
   const { addNotification } = useNotifications();
 
   const [apiAuthExpanded, setApiAuthExpanded] = useState(false);
+  useAccordionGroupItem('settings-api-auth', apiAuthExpanded, () =>
+    setApiAuthExpanded((prev) => !prev)
+  );
   const [demoModeExpanded, setDemoModeExpanded] = useState(false);
+  useAccordionGroupItem('settings-demo-mode', demoModeExpanded, () =>
+    setDemoModeExpanded((prev) => !prev)
+  );
   const [displayPrefsExpanded, setDisplayPrefsExpanded] = useState(false);
+  useAccordionGroupItem('settings-display-preferences', displayPrefsExpanded, () =>
+    setDisplayPrefsExpanded((prev) => !prev)
+  );
   const [performanceExpanded, setPerformanceExpanded] = useState(false);
+  useAccordionGroupItem('settings-performance', performanceExpanded, () =>
+    setPerformanceExpanded((prev) => !prev)
+  );
 
   const handleError = useCallback(
     (message: string) => {

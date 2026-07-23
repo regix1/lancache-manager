@@ -10,6 +10,7 @@ import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { formatCount } from '@utils/formatters';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -172,6 +173,9 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
   const { notifyError } = useErrorHandler();
 
   const [expanded, setExpanded] = useState(false);
+  useAccordionGroupItem('storage-corruption-history', expanded, () =>
+    setExpanded((current) => !current)
+  );
   const [entries, setEntries] = useState<CorruptionScanHistoryEntry[] | null>(null);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState(false);

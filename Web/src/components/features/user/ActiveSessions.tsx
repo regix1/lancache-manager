@@ -33,6 +33,7 @@ import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -205,6 +206,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   // Section expand state (primary open by default; no localStorage)
   const [sessionsExpanded, setSessionsExpanded] = useState(true);
+  useAccordionGroupItem('sessions-active', sessionsExpanded, () =>
+    setSessionsExpanded((prev) => !prev)
+  );
 
   // Bulk actions state
   const [showBulkResetConfirm, setShowBulkResetConfirm] = useState(false);
@@ -247,6 +251,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   // History state
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  useAccordionGroupItem('sessions-history', historyExpanded, () =>
+    setHistoryExpanded((prev) => !prev)
+  );
   const [historySessions, setHistorySessions] = useState<Session[]>([]);
 
   // Thread config state

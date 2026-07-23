@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, XCircle } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { LoadingState } from '@components/ui/ManagerCard';
@@ -25,6 +26,7 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
   const [hasError, setHasError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  useAccordionGroupItem('integrations-battlenet', expanded, () => setExpanded((prev) => !prev));
 
   const loadStatus = useCallback(async () => {
     try {

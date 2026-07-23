@@ -371,8 +371,10 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   return (
     <Card>
       {resolverControl && <div className="status-check-resolver">{resolverControl}</div>}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3 min-w-0">
+      {/* Header row never stacks - keeping the action column in-row at every width is
+          what stops the button from landing under the description on narrow viewports. */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
           {glyph}
           <div className="min-w-0">
             <h3 className="status-check-scope-title">{t(`${keys}.scopeTitle`)}</h3>
@@ -396,12 +398,12 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
             )}
           </div>
         </div>
-        <div className="flex flex-col items-start sm:items-end gap-1 flex-shrink-0">
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
           <Button variant="filled" color="blue" size="md" loading={isRunning} onClick={onRun}>
             {t(`${keys}.runCheck`)}
           </Button>
           {lastResult && (
-            <span className="text-xs text-themed-muted">
+            <span className="text-xs text-themed-muted text-right max-w-[10rem] truncate">
               {t(`${keys}.lastChecked`, { time: formatDateTime(lastResult.completedAtUtc) })}
             </span>
           )}

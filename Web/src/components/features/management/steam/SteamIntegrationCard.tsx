@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, User } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { useSteamAuth } from '@contexts/useSteamAuth';
 import { type AuthMode } from '@services/auth.service';
@@ -24,6 +25,7 @@ const SteamIntegrationCard: React.FC<SteamIntegrationCardProps> = ({
   const { t } = useTranslation();
   const { steamAuthMode } = useSteamAuth();
   const [expanded, setExpanded] = useState(false);
+  useAccordionGroupItem('integrations-steam', expanded, () => setExpanded((prev) => !prev));
 
   const statusBadge =
     steamAuthMode === 'authenticated' ? (
