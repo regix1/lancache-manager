@@ -3385,6 +3385,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
             _logger.LogInformation("Prefill cancelled for session {SessionId}", sessionId);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogInformation(
+                "Cancel-prefill request was cancelled for session {SessionId}",
+                sessionId);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error sending cancel-prefill to daemon for session {SessionId}", sessionId);

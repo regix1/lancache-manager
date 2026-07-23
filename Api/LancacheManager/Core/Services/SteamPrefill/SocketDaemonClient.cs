@@ -25,16 +25,18 @@ public sealed class SocketDaemonClient : IDaemonClient
     private Task? _receiveTask;
     private CancellationTokenSource? _receiveCts;
     private bool _disposed;
-    private bool _isAuthenticated;
+    private volatile bool _isAuthenticated;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly SemaphoreSlim _connectLock = new(1, 1);
+    private readonly object _transportSync = new();
+    private readonly DaemonClientConnectionLifecycle _connectionLifecycle = new();
 
     // Tracks fire-and-forget ProcessEventAsync tasks so teardown can drain in-flight event callbacks
     // before disposal (see DaemonEventDrainTracker / DrainEventsAsync).
     private readonly DaemonEventDrainTracker _eventDrain;
 
     // Pending command responses keyed by request ID
-    private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResponse>> _pendingCommands = new();
+    private readonly ConcurrentDictionary<string, PendingDaemonCommand> _pendingCommands = new();
 
     // Queue for credential challenges received via socket
     private readonly ConcurrentQueue<CredentialChallenge> _challengeQueue = new();
@@ -75,12 +77,12 @@ public sealed class SocketDaemonClient : IDaemonClient
     /// <summary>
     /// Whether currently connected to the daemon.
     /// </summary>
-    public bool IsConnected => _socket?.Connected == true;
+    public bool IsConnected => _connectionLifecycle.IsConnected;
 
     /// <summary>
     /// Whether the client has been authenticated with the daemon.
     /// </summary>
-    public bool IsAuthenticated => _isAuthenticated;
+    public bool IsAuthenticated => IsConnected && _isAuthenticated;
 
     /// <summary>
     /// HKDF info string for credential encryption. Must match the daemon's implementation.
@@ -121,14 +123,14 @@ public sealed class SocketDaemonClient : IDaemonClient
     /// </summary>
     private async Task EnsureConnectedAsync(CancellationToken cancellationToken = default)
     {
-        if (_socket?.Connected == true)
+        if (IsConnected)
             return;
 
         await _connectLock.WaitAsync(cancellationToken);
         try
         {
             // Double-check after acquiring lock
-            if (_socket?.Connected == true)
+            if (IsConnected)
                 return;
 
             await ConnectCoreAsync(cancellationToken);
@@ -141,12 +143,10 @@ public sealed class SocketDaemonClient : IDaemonClient
 
     private async Task ConnectCoreAsync(CancellationToken cancellationToken)
     {
-        // Clean up previous connection if any
         await DisconnectCoreAsync();
 
         _logger?.LogInformation("Connecting to daemon socket at {SocketPath}", _socketPath);
 
-        // Wait for socket file to exist (daemon may still be starting)
         var timeout = DateTime.UtcNow.AddSeconds(30);
         while (!File.Exists(_socketPath) && DateTime.UtcNow < timeout)
         {
@@ -158,20 +158,33 @@ public sealed class SocketDaemonClient : IDaemonClient
             throw new FileNotFoundException($"Daemon socket not found at {_socketPath}");
         }
 
-        _socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        var generation = _connectionLifecycle.CreateGeneration();
+        var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        NetworkStream? stream = null;
+        CancellationTokenSource? receiveCts = null;
+        var published = false;
 
         try
         {
-            await _socket.ConnectAsync(new UnixDomainSocketEndPoint(_socketPath), cancellationToken);
-            _stream = new NetworkStream(_socket, ownsSocket: false);
+            await socket.ConnectAsync(new UnixDomainSocketEndPoint(_socketPath), cancellationToken);
+            stream = new NetworkStream(socket, ownsSocket: false);
+            receiveCts = new CancellationTokenSource();
 
-            // Start receiving messages
-            _receiveCts = new CancellationTokenSource();
-            _receiveTask = ReceiveLoopAsync(_receiveCts.Token);
+            lock (_transportSync)
+            {
+                _socket = socket;
+                _stream = stream;
+                _receiveCts = receiveCts;
+                _isAuthenticated = false;
+                _connectionLifecycle.MarkConnected(generation);
+                _receiveTask = Task.Run(
+                    () => ReceiveLoopAsync(stream, generation, receiveCts.Token),
+                    CancellationToken.None);
+                published = true;
+            }
 
             _logger?.LogInformation("Connected to daemon socket");
 
-            // Authenticate if shared secret is configured
             if (!string.IsNullOrEmpty(_sharedSecret))
             {
                 await AuthenticateAsync(cancellationToken);
@@ -181,19 +194,35 @@ public sealed class SocketDaemonClient : IDaemonClient
                 _isAuthenticated = true; // No auth required
             }
         }
+        catch (OperationCanceledException)
+        {
+            if (published)
+            {
+                await DisconnectCoreAsync();
+            }
+            else
+            {
+                receiveCts?.Dispose();
+                stream?.Dispose();
+                socket.Dispose();
+            }
+
+            throw;
+        }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Failed to connect to daemon socket at {SocketPath}", _socketPath);
+            if (published)
+            {
+                await DisconnectCoreAsync();
+            }
+            else
+            {
+                receiveCts?.Dispose();
+                stream?.Dispose();
+                socket.Dispose();
+            }
 
-            // Full cleanup so retry can start fresh
-            _receiveCts?.Cancel();
-            _receiveCts?.Dispose();
-            _receiveCts = null;
-            _stream?.Dispose();
-            _stream = null;
-            _socket?.Dispose();
-            _socket = null;
-            _isAuthenticated = false;
             throw;
         }
     }
@@ -222,59 +251,62 @@ public sealed class SocketDaemonClient : IDaemonClient
 
     private async Task DisconnectCoreAsync()
     {
-        _isAuthenticated = false;
-
-        if (_receiveCts != null)
+        var generation = _connectionLifecycle.MarkDisconnected();
+        Socket? socket;
+        NetworkStream? stream;
+        Task? receiveTask;
+        CancellationTokenSource? receiveCts;
+        lock (_transportSync)
         {
-            _receiveCts.Cancel();
-            try
-            {
-                if (_receiveTask != null)
-                    await _receiveTask;
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected
-            }
-            _receiveCts.Dispose();
+            _isAuthenticated = false;
+            socket = _socket;
+            stream = _stream;
+            receiveTask = _receiveTask;
+            receiveCts = _receiveCts;
+            _socket = null;
+            _stream = null;
+            _receiveTask = null;
             _receiveCts = null;
         }
 
-        _stream?.Dispose();
-        _stream = null;
+        receiveCts?.Cancel();
+        stream?.Dispose();
+        socket?.Dispose();
 
-        if (_socket != null)
+        if (receiveTask != null)
         {
             try
             {
-                _socket.Shutdown(SocketShutdown.Both);
+                await receiveTask;
             }
-            catch
+            catch (OperationCanceledException)
             {
-                // Ignore
             }
-            _socket.Dispose();
-            _socket = null;
         }
 
-        // Cancel all pending commands
-        foreach (var kvp in _pendingCommands)
+        receiveCts?.Dispose();
+        if (generation != 0)
         {
-            kvp.Value.TrySetCanceled();
+            DaemonPendingCommandRegistry.FailGeneration(
+                _pendingCommands,
+                generation,
+                new IOException("Daemon socket disconnected while waiting for response"));
         }
-        _pendingCommands.Clear();
     }
 
-    private async Task ReceiveLoopAsync(CancellationToken cancellationToken)
+    private async Task ReceiveLoopAsync(
+        NetworkStream stream,
+        long generation,
+        CancellationToken cancellationToken)
     {
         var lengthBuffer = new byte[4];
 
         try
         {
-            while (!cancellationToken.IsCancellationRequested && _stream != null)
+            while (!cancellationToken.IsCancellationRequested
+                   && _connectionLifecycle.CurrentGeneration == generation)
             {
-                // Read length prefix (4 bytes, little-endian)
-                var bytesRead = await ReadExactlyAsync(_stream, lengthBuffer, cancellationToken);
+                var bytesRead = await ReadExactlyAsync(stream, lengthBuffer, cancellationToken);
                 if (bytesRead == 0)
                 {
                     _logger?.LogWarning("Daemon socket disconnected (remote closed connection)");
@@ -288,9 +320,8 @@ public sealed class SocketDaemonClient : IDaemonClient
                     break;
                 }
 
-                // Read message
                 var messageBuffer = new byte[length];
-                bytesRead = await ReadExactlyAsync(_stream, messageBuffer, cancellationToken);
+                bytesRead = await ReadExactlyAsync(stream, messageBuffer, cancellationToken);
                 if (bytesRead == 0)
                 {
                     _logger?.LogWarning("Daemon socket disconnected while reading message body");
@@ -302,12 +333,19 @@ public sealed class SocketDaemonClient : IDaemonClient
                 // (device userCode + verification URL) and tokens. Log only the size.
                 _logger?.LogDebug("Received {Bytes}-byte message from daemon", json.Length);
 
-                ProcessMessage(json);
+                if (_connectionLifecycle.CurrentGeneration == generation)
+                {
+                    ProcessMessage(json);
+                }
             }
         }
         catch (OperationCanceledException)
         {
             // Expected on shutdown
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            // Transport disposal can surface as ObjectDisposedException instead of cancellation.
         }
         catch (Exception ex)
         {
@@ -315,21 +353,41 @@ public sealed class SocketDaemonClient : IDaemonClient
         }
         finally
         {
-            // Cancel all pending commands so they fail fast instead of waiting for timeout
-            var pendingCount = _pendingCommands.Count;
-            if (pendingCount > 0)
+            if (_connectionLifecycle.TryMarkDisconnected(generation))
             {
-                _logger?.LogWarning("Cancelling {Count} pending commands due to socket disconnection", pendingCount);
-                foreach (var kvp in _pendingCommands)
+                Socket? socket = null;
+                CancellationTokenSource? receiveCts = null;
+                lock (_transportSync)
                 {
-                    kvp.Value.TrySetException(new IOException("Daemon socket disconnected while waiting for response"));
+                    _isAuthenticated = false;
+                    if (ReferenceEquals(_stream, stream))
+                    {
+                        socket = _socket;
+                        receiveCts = _receiveCts;
+                        _socket = null;
+                        _stream = null;
+                        _receiveTask = null;
+                        _receiveCts = null;
+                    }
                 }
-                _pendingCommands.Clear();
-            }
 
-            // Track the disconnect callback through the same admission path so a detach/terminate drain
-            // waits for it too (or rejects it once draining), keeping disposal ordering for this path.
-            _eventDrain.TryTrack(() => DaemonEventDispatch.InvokeAllAsync(OnDisconnected, _logger));
+                stream.Dispose();
+                socket?.Dispose();
+                receiveCts?.Dispose();
+
+                var pendingCount = DaemonPendingCommandRegistry.FailGeneration(
+                    _pendingCommands,
+                    generation,
+                    new IOException("Daemon socket disconnected while waiting for response"));
+                if (pendingCount > 0)
+                {
+                    _logger?.LogWarning(
+                        "Failing {Count} pending commands due to socket disconnection",
+                        pendingCount);
+                }
+
+                _eventDrain.TryTrack(() => DaemonEventDispatch.InvokeAllAsync(OnDisconnected, _logger));
+            }
         }
     }
 
@@ -360,9 +418,9 @@ public sealed class SocketDaemonClient : IDaemonClient
             if (root.TryGetProperty("id", out var idElement))
             {
                 var response = JsonSerializer.Deserialize<CommandResponse>(json, _jsonOptions);
-                if (response != null && _pendingCommands.TryRemove(response.Id, out var tcs))
+                if (response != null && _pendingCommands.TryRemove(response.Id, out var pending))
                 {
-                    tcs.TrySetResult(response);
+                    pending.Completion.TrySetResult(response);
                 }
             }
         }
@@ -511,8 +569,14 @@ public sealed class SocketDaemonClient : IDaemonClient
             CreatedAt = DateTime.UtcNow
         };
 
-        var tcs = new TaskCompletionSource<CommandResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pendingCommands[command.Id] = tcs;
+        var generation = _connectionLifecycle.CurrentGeneration;
+        if (generation == 0)
+        {
+            throw new IOException("Not connected to daemon");
+        }
+
+        var pending = new PendingDaemonCommand(generation);
+        _pendingCommands[command.Id] = pending;
 
         try
         {
@@ -523,14 +587,22 @@ public sealed class SocketDaemonClient : IDaemonClient
             await _sendLock.WaitAsync(cancellationToken);
             try
             {
-                if (_stream == null)
-                    throw new InvalidOperationException("Not connected to daemon");
+                NetworkStream stream;
+                lock (_transportSync)
+                {
+                    if (_connectionLifecycle.CurrentGeneration != generation || _stream == null)
+                    {
+                        throw new IOException("Daemon connection changed before the command was sent");
+                    }
+
+                    stream = _stream;
+                }
 
                 // Send length prefix (4 bytes, little-endian)
-                await _stream.WriteAsync(BitConverter.GetBytes(bytes.Length), cancellationToken);
+                await stream.WriteAsync(BitConverter.GetBytes(bytes.Length), cancellationToken);
                 // Send message body
-                await _stream.WriteAsync(bytes, cancellationToken);
-                await _stream.FlushAsync(cancellationToken);
+                await stream.WriteAsync(bytes, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
 
                 _logger?.LogDebug("Sent command: {Type} ({Id})", type, command.Id);
             }
@@ -542,9 +614,10 @@ public sealed class SocketDaemonClient : IDaemonClient
             // Wait for response with timeout
             using var timeoutCts = new CancellationTokenSource(timeout ?? TimeSpan.FromMinutes(5));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-            using var reg = linkedCts.Token.Register(() => tcs.TrySetCanceled());
+            using var reg = linkedCts.Token.Register(
+                () => pending.Completion.TrySetCanceled(linkedCts.Token));
 
-            return await tcs.Task;
+            return await pending.Completion.Task;
         }
         finally
         {
@@ -946,7 +1019,15 @@ public sealed class SocketDaemonClient : IDaemonClient
     /// </summary>
     public async Task CancelPrefillAsync(CancellationToken cancellationToken = default)
     {
-        await SendCommandAsync("cancel-prefill", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
+        var response = await SendCommandAsync(
+            "cancel-prefill",
+            timeout: TimeSpan.FromSeconds(10),
+            cancellationToken: cancellationToken);
+        if (!response.Success)
+        {
+            throw new InvalidOperationException(
+                response.Error ?? response.Message ?? "Daemon rejected prefill cancellation.");
+        }
     }
 
     /// <summary>
@@ -1196,6 +1277,9 @@ public sealed class SocketDaemonClient : IDaemonClient
         if (_disposed) return;
 
         DisconnectCoreAsync().GetAwaiter().GetResult();
+        DaemonPendingCommandRegistry.FailAll(
+            _pendingCommands,
+            new ObjectDisposedException(nameof(SocketDaemonClient)));
         _sendLock.Dispose();
         _connectLock.Dispose();
         _disposed = true;

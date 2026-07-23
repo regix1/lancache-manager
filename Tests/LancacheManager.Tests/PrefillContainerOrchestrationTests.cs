@@ -693,6 +693,123 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         daemon.Dispose();
     }
 
+    [Fact]
+    public async Task CancelPrefillAsync_DaemonRejects_PreservesActiveSessionAndHistoryAsync()
+    {
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(
+            dbFactory,
+            NullLogger<PrefillSessionService>.Instance);
+        var client = new FakeReconnectDaemonClient
+        {
+            CancelPrefillHandler = _ => Task.FromException(
+                new InvalidOperationException("Daemon rejected cancellation"))
+        };
+        var daemon = new TestSteamDaemon(
+            MakeDeps(
+                dbFactory,
+                sessionService,
+                Config(PersistenceMode.FullPersistence, steamEnabled: true)),
+            new RecordingContainerGateway());
+        var session = InjectedPersistentSession(daemon, client);
+        session.IsPrefilling = true;
+        session.PrefillState = PrefillState.Downloading;
+        session.PrefillStartedAt = DateTime.UtcNow.AddSeconds(-5);
+        session.CurrentAppId = "730";
+        session.CurrentAppName = "Counter-Strike 2";
+
+        await sessionService.CreateSessionAsync(
+            session.Id,
+            session.UserId,
+            $"container-{session.Id}",
+            SteamPersistentContainerName,
+            session.ExpiresAt);
+        await sessionService.StartEntryAsync(session.Id, session.CurrentAppId, session.CurrentAppName);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => daemon.CancelPrefillAsync(session.Id));
+
+        Assert.Equal(1, client.CancelPrefillCount);
+        Assert.True(session.IsPrefilling);
+        Assert.Equal(PrefillState.Downloading, session.PrefillState);
+        Assert.Equal(0, session.TerminalCompletedFlag);
+        Assert.Null(session.LastPrefillCompletedAt);
+        Assert.Null(session.LastPrefillStatus);
+
+        var history = Assert.Single(await sessionService.GetHistoryAsync(session.Id));
+        Assert.Equal(PrefillHistoryEntryStatus.InProgress, history.Status);
+        Assert.Null(history.CompletedAtUtc);
+
+        daemon.Dispose();
+    }
+
+    [Fact]
+    public async Task CancelPrefillAsync_WaitsForDaemonAcknowledgementBeforeTerminalMutationAsync()
+    {
+        var cancelEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCancel = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var (_, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(
+            dbFactory,
+            NullLogger<PrefillSessionService>.Instance);
+        var client = new FakeReconnectDaemonClient
+        {
+            CancelPrefillHandler = async cancellationToken =>
+            {
+                cancelEntered.TrySetResult();
+                await releaseCancel.Task.WaitAsync(cancellationToken);
+            }
+        };
+        var daemon = new TestSteamDaemon(
+            MakeDeps(
+                dbFactory,
+                sessionService,
+                Config(PersistenceMode.FullPersistence, steamEnabled: true)),
+            new RecordingContainerGateway());
+        var session = InjectedPersistentSession(daemon, client);
+        session.IsPrefilling = true;
+        session.PrefillState = PrefillState.Downloading;
+        session.PrefillStartedAt = DateTime.UtcNow.AddSeconds(-5);
+        session.CurrentAppId = "730";
+        session.CurrentAppName = "Counter-Strike 2";
+
+        await sessionService.CreateSessionAsync(
+            session.Id,
+            session.UserId,
+            $"container-{session.Id}",
+            SteamPersistentContainerName,
+            session.ExpiresAt);
+        await sessionService.StartEntryAsync(session.Id, session.CurrentAppId, session.CurrentAppName);
+
+        var cancellation = daemon.CancelPrefillAsync(session.Id);
+        await cancelEntered.Task;
+
+        Assert.False(cancellation.IsCompleted);
+        Assert.True(session.IsPrefilling);
+        Assert.Equal(PrefillState.Downloading, session.PrefillState);
+        Assert.Equal(0, session.TerminalCompletedFlag);
+        var inProgressHistory = Assert.Single(await sessionService.GetHistoryAsync(session.Id));
+        Assert.Equal(PrefillHistoryEntryStatus.InProgress, inProgressHistory.Status);
+
+        releaseCancel.TrySetResult();
+        await cancellation;
+
+        Assert.Equal(1, client.CancelPrefillCount);
+        Assert.False(session.IsPrefilling);
+        Assert.Equal(PrefillState.Cancelled, session.PrefillState);
+        Assert.Equal(1, session.TerminalCompletedFlag);
+        Assert.Equal(PrefillProgressState.Cancelled.ToWireString(), session.LastPrefillStatus);
+        Assert.NotNull(session.LastPrefillCompletedAt);
+
+        var cancelledHistory = Assert.Single(await sessionService.GetHistoryAsync(session.Id));
+        Assert.Equal(PrefillHistoryEntryStatus.Cancelled, cancelledHistory.Status);
+        Assert.NotNull(cancelledHistory.CompletedAtUtc);
+
+        daemon.Dispose();
+    }
+
     public void Dispose()
     {
         foreach (var root in _tempRoots)

@@ -141,7 +141,8 @@ public interface IDaemonClient : IDisposable
     }
 
     /// <summary>
-    /// Cancel running prefill operation.
+    /// Requests cancellation of the running prefill operation. Completion means the daemon
+    /// acknowledged cancellation; a rejected or unacknowledged request throws.
     /// </summary>
     Task CancelPrefillAsync(CancellationToken cancellationToken = default);
 

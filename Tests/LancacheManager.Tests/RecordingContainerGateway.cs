@@ -296,6 +296,8 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     public bool Connected { get; private set; }
     public bool Disposed { get; private set; }
     public int LogoutCount { get; private set; }
+    public int CancelPrefillCount { get; private set; }
+    public Func<CancellationToken, Task>? CancelPrefillHandler { get; set; }
 
     public Task ConnectAsync(CancellationToken cancellationToken = default)
     {
@@ -333,8 +335,16 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
         => throw new NotSupportedException();
     public Task CancelLoginAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
-    public Task CancelPrefillAsync(CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
+    public async Task CancelPrefillAsync(CancellationToken cancellationToken = default)
+    {
+        CancelPrefillCount++;
+        if (CancelPrefillHandler is null)
+        {
+            throw new NotSupportedException();
+        }
+
+        await CancelPrefillHandler(cancellationToken);
+    }
     public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default)
