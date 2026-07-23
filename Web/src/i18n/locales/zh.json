@@ -4107,8 +4107,7 @@
         "orphaned": "孤儿",
         "cleaned": "已清理",
         "cancelled": "已取消",
-        "error": "错误",
-        "live": "实时"
+        "error": "错误"
       },
       "historyStatusBadges": {
         "completed": "已完成",
@@ -4160,7 +4159,6 @@
         "summary": "由计划任务页面管理的常驻守护容器。"
       },
       "tooltips": {
-        "sessionActive": "会话当前在内存中活跃",
         "steamAuthenticated": "Steam 已验证",
         "gamesPrefilled": "已预填充 {{count}} 个游戏",
         "gamesPrefilled_other": "已预填充 {{count}} 个游戏",

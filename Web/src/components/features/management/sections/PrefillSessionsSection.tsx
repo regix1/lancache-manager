@@ -207,25 +207,15 @@ const getStatusBadgeVariant = (status: string): 'success' | 'warning' | 'error' 
 const getStatusBadgeLabelKey = (status: string): string | null =>
   STATUS_BADGE_KEY[status.toLowerCase()] ?? null;
 
-// Status badge component — ONE Badge carries the session's lifecycle state; a small
-// tone dot (not a second pill) marks a session as currently live in memory, since that
-// distinction only ever needs to be visible in Session History (Live Sessions is always live).
-const StatusBadge: React.FC<{ status: string; isLive?: boolean }> = ({ status, isLive }) => {
+// Status badge component - ONE Badge carries the session's lifecycle state.
+const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const { t } = useTranslation();
   const labelKey = getStatusBadgeLabelKey(status);
   const label = labelKey ? t(`management.prefillSessions.statusBadges.${labelKey}`) : status;
 
   return (
     <div className="prefill-status-line">
-      {isLive && (
-        <Tooltip content={t('management.prefillSessions.tooltips.sessionActive')}>
-          <span className="status-dot active prefill-status-live-dot" aria-hidden="true" />
-        </Tooltip>
-      )}
       <Badge variant={getStatusBadgeVariant(status)}>{label}</Badge>
-      {isLive && (
-        <span className="sr-only">{t('management.prefillSessions.statusBadges.live')}</span>
-      )}
     </div>
   );
 };
@@ -401,7 +391,7 @@ const SessionCard: React.FC<{
                           : t('management.prefillSessions.labels.notLoggedInSession')}
                   </span>
                 )}
-                <StatusBadge status={status} isLive={isLive} />
+                <StatusBadge status={status} />
                 <Badge variant="neutral">{platformDisplayName}</Badge>
                 {isPersistentSession && (
                   <Badge variant="neutral">
@@ -1227,7 +1217,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       {/* ==================== SESSIONS ==================== */}
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             {t('management.sections.prefillSessions.groupSessions')}
           </h3>
@@ -1413,7 +1402,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       {/* ==================== HISTORY ==================== */}
       <div>
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             {t('management.sections.prefillSessions.groupHistory')}
           </h3>

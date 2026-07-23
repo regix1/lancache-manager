@@ -371,9 +371,9 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   return (
     <Card>
       {resolverControl && <div className="status-check-resolver">{resolverControl}</div>}
-      {/* Header row never stacks - keeping the action column in-row at every width is
-          what stops the button from landing under the description on narrow viewports. */}
-      <div className="flex items-start justify-between gap-3">
+      {/* Header stacks below sm so the verdict text column spans the full width and stops
+          wrapping a word per line; the action column drops to its own full-width row. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3 min-w-0 flex-1">
           {glyph}
           <div className="min-w-0">
@@ -398,7 +398,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
             )}
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+        <div className="flex flex-row items-center justify-between gap-3 w-full sm:w-auto sm:flex-col sm:items-end sm:justify-start sm:gap-1 flex-shrink-0">
           <Button variant="filled" color="blue" size="md" loading={isRunning} onClick={onRun}>
             {t(`${keys}.runCheck`)}
           </Button>

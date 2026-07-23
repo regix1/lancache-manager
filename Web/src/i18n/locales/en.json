@@ -4108,8 +4108,7 @@
         "orphaned": "Orphaned",
         "cleaned": "Cleaned",
         "cancelled": "Cancelled",
-        "error": "Error",
-        "live": "Live"
+        "error": "Error"
       },
       "historyStatusBadges": {
         "completed": "Completed",
@@ -4161,7 +4160,6 @@
         "summary": "Long-lived daemon containers managed from Schedules."
       },
       "tooltips": {
-        "sessionActive": "Session is currently active in memory",
         "steamAuthenticated": "Steam authenticated",
         "gamesPrefilled": "{{count}} game prefilled",
         "gamesPrefilled_other": "{{count}} games prefilled",

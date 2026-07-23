@@ -295,8 +295,7 @@
 }
 
 /* Session status line — ONE Badge (see badges.css .themed-badge / .status-badge-*) carries
-   lifecycle state; the live dot is not a second pill, just a tone signal for "currently live
-   in memory", which only ever needs to be visible in Session History. */
+   the session's lifecycle state; no second marker sits beside it. */
 .prefill-status-line {
   display: flex;
   align-items: center;
@@ -304,29 +303,7 @@
   flex-wrap: wrap;
 }
 
-/* Shared .status-dot.active uses pulse-dot-ring (box-shadow); this live indicator blinks
-   opacity instead — compound to keep that motion while reusing geometry/colour/ring. */
-.status-dot.active.prefill-status-live-dot {
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  /* Compound so this wins over the opacity override above when motion is reduced
-     (shared .status-dot.active already clears pulse-dot-ring, but not this local keyframe). */
-  .status-dot.active.prefill-status-live-dot {
-    animation: none;
-  }
-
   .prefill-bans-list {
     transition: none;
   }
@@ -644,12 +621,38 @@
   margin-top: 1rem;
 }
 
-/* Filter in Accordion Header */
+/* Filter cluster in the Session History accordion header. On wide screens the two
+   dropdowns sit inline in the header's action slot next to the collapse chevron. */
 .prefill-filter-inline {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+/* The dropdown trigger sizes to its content (~30px), leaving it shorter than the
+   40px collapse chevron beside it. Pin it to the chevron height so the whole
+   header control cluster shares one height. */
+.prefill-filter-inline .ed-trigger {
+  min-height: 2.5rem;
+}
+
+/* Below sm the accordion header cannot fit the title, count and both filters on one
+   line. The shared header (AccordionSection) then crushes the title column to zero
+   width and the count badge collides with the dropdowns. A percentage width here
+   would resolve against the shrink-to-fit filter cluster itself and never grow wide
+   enough to trip the header's wrap, so this forces it directly against the viewport:
+   wide enough that the cluster always wraps to its own line below the title/count
+   row, where the dropdowns then flex to fill it edge to edge. */
+@media (max-width: 639px) {
+  .prefill-filter-inline {
+    min-width: calc(100vw - 8rem);
+  }
+
+  .prefill-filter-inline > div {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 }
 
 /* Form Input */

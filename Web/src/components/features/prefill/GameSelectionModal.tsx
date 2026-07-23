@@ -409,12 +409,12 @@ export function GameSelectionModal({
                 <div
                   className={`flex flex-col ${
                     sortedGames.some((g) => !localSelected.has(g.appId))
-                      ? 'flex-shrink-0 max-h-[30%] sm:max-h-[40%]'
+                      ? 'flex-shrink-0 max-h-[45%] sm:max-h-[40%]'
                       : 'flex-1 min-h-0'
                   }`}
                 >
-                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[var(--theme-selected-bg)] text-[var(--theme-selected-text)] border-b border-[var(--theme-border-secondary)]">
-                    {t('prefill.gameSelection.selected')}
+                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 flex items-center gap-2 bg-[var(--theme-selected-bg)] text-[var(--theme-selected-text)] border-b border-[var(--theme-border-secondary)]">
+                    <span>{t('prefill.gameSelection.selected')}</span>
                     {localSelected.size > 0 && (
                       <span className="themed-badge status-badge-neutral badge-count">
                         {localSelected.size}
@@ -425,6 +425,8 @@ export function GameSelectionModal({
                     maxHeight="100%"
                     className="flex-1 min-h-0"
                     paddingMode="compact"
+                    radius="none"
+                    variant="float"
                   >
                     <div className="divided-list">
                       {sortedGames
@@ -467,8 +469,8 @@ export function GameSelectionModal({
               {/* Available games section */}
               {sortedGames.some((g) => !localSelected.has(g.appId)) && (
                 <div className="flex-1 min-h-0 flex flex-col">
-                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
-                    {t('prefill.gameSelection.availableGames')}
+                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 flex items-center gap-2 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
+                    <span>{t('prefill.gameSelection.availableGames')}</span>
                     <span className="themed-badge status-badge-neutral badge-count">
                       {sortedGames.filter((g) => !localSelected.has(g.appId)).length}
                     </span>
@@ -477,6 +479,8 @@ export function GameSelectionModal({
                     maxHeight="100%"
                     className="flex-1 min-h-0"
                     paddingMode="compact"
+                    radius="none"
+                    variant="float"
                   >
                     <div className="divided-list">
                       {sortedGames

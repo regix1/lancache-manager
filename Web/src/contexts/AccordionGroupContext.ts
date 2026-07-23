@@ -5,8 +5,8 @@ interface AccordionGroupContextValue {
   unregister: (id: string) => void;
   expandAll: () => void;
   collapseAll: () => void;
-  /** True only when hasItems is true AND every registered item is expanded. */
-  allExpanded: boolean;
+  /** True when hasItems is true AND at least one registered item is expanded, so one click can collapse a mixed group. */
+  anyExpanded: boolean;
   hasItems: boolean;
 }
 

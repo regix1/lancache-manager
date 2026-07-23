@@ -26,6 +26,15 @@
   flex-shrink: 0;
 }
 
+/* On mobile the header stacks and the glyph sits beside full-width text, so a
+   smaller box keeps it proportionate rather than reading oversized. */
+@media (max-width: 639px) {
+  .status-check-glyph {
+    width: 2rem;
+    height: 2rem;
+  }
+}
+
 .status-check-glyph--success {
   background-color: var(--theme-success-bg);
   color: var(--theme-success);

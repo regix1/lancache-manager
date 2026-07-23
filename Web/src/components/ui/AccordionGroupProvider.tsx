@@ -44,11 +44,11 @@ export function AccordionGroupProvider({ children }: AccordionGroupProviderProps
 
   const items = Array.from(registryRef.current.values());
   const hasItems = items.length > 0;
-  const allExpanded = hasItems && items.every((item) => item.isExpanded);
+  const anyExpanded = hasItems && items.some((item) => item.isExpanded);
 
   const value = useMemo(
-    () => ({ register, unregister, expandAll, collapseAll, allExpanded, hasItems }),
-    [register, unregister, expandAll, collapseAll, allExpanded, hasItems]
+    () => ({ register, unregister, expandAll, collapseAll, anyExpanded, hasItems }),
+    [register, unregister, expandAll, collapseAll, anyExpanded, hasItems]
   );
 
   return <AccordionGroupContext.Provider value={value}>{children}</AccordionGroupContext.Provider>;
