@@ -1036,8 +1036,13 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     <div className="management-section animate-fade-in schedules-section">
       <div className="schedules-section-header">
         <div>
-          <h2 className="schedules-section-title">{t('management.schedules.title')}</h2>
-          <p className="schedules-section-subtitle">{t('management.schedules.subtitle')}</p>
+          {/* Keyline bar beside the title so this header matches the other management
+              sections' group headers. Subtitle is indented to sit under the title. */}
+          <div className="flex items-center gap-2">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
+            <h2 className="schedules-section-title">{t('management.schedules.title')}</h2>
+          </div>
+          <p className="schedules-section-subtitle pl-3">{t('management.schedules.subtitle')}</p>
         </div>
         <div className="schedules-section-actions">
           <Button

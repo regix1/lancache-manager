@@ -7,7 +7,6 @@ import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
-import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import ActiveSessions from './ActiveSessions';
 import GuestConfiguration from './GuestConfiguration';
 import { type Session, type SessionFilter, type ThemeOption, showToast } from './types';
@@ -251,10 +250,6 @@ const UserTab: React.FC = () => {
       {/* Tab Content - keyed by activeTab so AccordionGroupProvider's registry always
           starts empty for the newly active tab. */}
       <AccordionGroupProvider key={activeTab}>
-        <div className="flex justify-end">
-          <AccordionGroupToggle />
-        </div>
-
         {activeTab === 'sessions' && (
           <div className="user-tab-content">
             <ActiveSessions

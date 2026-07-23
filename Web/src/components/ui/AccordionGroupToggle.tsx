@@ -11,7 +11,7 @@ export function AccordionGroupToggle() {
   return (
     <button
       type="button"
-      className="mb-3 min-h-8 px-3 py-1.5 text-sm font-medium whitespace-nowrap themed-border-radius-sm bg-themed-surface hover:bg-themed-surface-hover text-themed-primary smooth-transition button-press"
+      className="min-h-8 px-3 py-1.5 text-sm font-medium whitespace-nowrap themed-border-radius-sm bg-themed-surface hover:bg-themed-surface-hover text-themed-primary smooth-transition button-press"
       onClick={ctx.anyExpanded ? ctx.collapseAll : ctx.expandAll}
     >
       {ctx.anyExpanded

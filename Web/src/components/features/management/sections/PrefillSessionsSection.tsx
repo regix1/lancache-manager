@@ -34,6 +34,7 @@ import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Checkbox } from '@components/ui/Checkbox';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import Badge from '@components/ui/Badge';
@@ -1224,10 +1225,14 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     >
       {/* ==================== SESSIONS ==================== */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.prefillSessions.groupSessions')}
-          </h3>
+        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
+            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+              {t('management.sections.prefillSessions.groupSessions')}
+            </h3>
+          </div>
+          <AccordionGroupToggle />
         </div>
 
         <div className="prefill-stats-grid mb-4">
@@ -1410,6 +1415,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       {/* ==================== HISTORY ==================== */}
       <div>
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             {t('management.sections.prefillSessions.groupHistory')}
           </h3>

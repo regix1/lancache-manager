@@ -9,7 +9,6 @@ import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import ErrorBoundary from '@components/common/ErrorBoundary';
 import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
-import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 
 // Import navigation and sections
 import ManagementNav, { type ManagementSection } from './ManagementNav';
@@ -277,9 +276,6 @@ const ManagementTab: React.FC = () => {
           expand/collapse registry always starts empty for the newly active section. */}
       <div className="management-content">
         <AccordionGroupProvider key={renderedSection}>
-          <div className="flex justify-end">
-            <AccordionGroupToggle />
-          </div>
           <ErrorBoundary key={renderedSection}>{renderActiveSection()}</ErrorBoundary>
         </AccordionGroupProvider>
       </div>

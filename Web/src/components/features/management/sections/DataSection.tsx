@@ -9,6 +9,7 @@ import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
@@ -301,11 +302,14 @@ const DataSection: React.FC<DataSectionProps> = ({
     >
       {/* Subsection: Data Import */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.data.dataImport')}
-          </h3>
+        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
+            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+              {t('management.sections.data.dataImport')}
+            </h3>
+          </div>
+          <AccordionGroupToggle />
         </div>
 
         <div className="space-y-4">

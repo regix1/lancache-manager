@@ -18,6 +18,7 @@ import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import Badge from '@components/ui/Badge';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
@@ -775,10 +776,12 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       id="panel-storage"
       aria-labelledby="tab-storage"
     >
-      {/* Section Header */}
-      <div className="mb-4 sm:mb-6">
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          {hasPermissionIssues && (
+      {/* Recheck-permissions action. Only rendered when a directory is actually read-only -
+          otherwise this wrapper left an empty margin-box above the first group header, so
+          Storage sat lower than the other sections. */}
+      {hasPermissionIssues && (
+        <div className="mb-4 sm:mb-6">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             <Button
               variant="filled"
               color="gray"
@@ -791,17 +794,20 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                 ? t('management.sections.storage.recheckingPermissions')
                 : t('management.sections.storage.recheckPermissions')}
             </Button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ==================== LOG OPERATIONS ==================== */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.storage.logOperations')}
-          </h3>
+        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
+            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+              {t('management.sections.storage.logOperations')}
+            </h3>
+          </div>
+          <AccordionGroupToggle />
         </div>
 
         <div className="space-y-4">

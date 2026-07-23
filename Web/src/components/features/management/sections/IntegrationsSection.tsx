@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
+import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import HighlightGlow from '@components/ui/HighlightGlow';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type AuthMode } from '@services/auth.service';
@@ -43,11 +44,14 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
     >
       {/* Steam - merged PICS authentication + Web API */}
       <div className="mb-6 sm:mb-8">
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-steam)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.integrations.steamIntegration')}
-          </h3>
+        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-steam)]" />
+            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+              {t('management.sections.integrations.steamIntegration')}
+            </h3>
+          </div>
+          <AccordionGroupToggle />
         </div>
         <HighlightGlow enabled={highlightSteamApi} scrollIntoView>
           <SteamIntegrationCard

@@ -15,10 +15,12 @@
   .schedule-interval-picker--ghost .ed-trigger {
     background-color: transparent !important;
     border-color: transparent;
-    /* Content width so the dropdown arrow hugs its label: the full-width trigger parked
-     the arrow at the far column edge, where it read as one confusing icon run with the
-     row's play + expand buttons. */
-    width: auto;
+    /* Fixed width, not content-sized: content-sizing made "Daily" and "Every 30 minutes"
+     render as differently sized pills, which looked inconsistent row to row and made the
+     hover/focus highlight jump between sizes. Narrower than the column's own
+     minmax(10rem, 11.5rem) floor so the arrow still keeps clear of the row's play and
+     expand buttons on the far side of the gap. */
+    width: 9.5rem;
     max-width: 100%;
     /* Tighter inline padding, pulled left by its own width so the label TEXT (not the
      ghost hover pill) sits on the column edge, aligned under the head label. */

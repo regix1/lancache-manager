@@ -6,6 +6,7 @@ import { Button } from '@components/ui/Button';
 import { TogglePill } from '@components/ui/TogglePill';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import ApiService, {
   type StatusCheckDomainGroup,
   type StatusCheckDomainsSource,
@@ -412,15 +413,18 @@ const StatusCheckSection: React.FC = () => {
               <div>
                 <h3 className="integrations-group-label caps-label">{t(`${keys}.serverLane`)}</h3>
               </div>
-              {lastResult && (
-                <TogglePill
-                  size="sm"
-                  active={problemsOnly}
-                  onClick={() => setProblemsOnly((previous) => !previous)}
-                >
-                  {t(`${keys}.showOnlyProblems`)}
-                </TogglePill>
-              )}
+              <div className="flex items-center gap-2">
+                {lastResult && (
+                  <TogglePill
+                    size="sm"
+                    active={problemsOnly}
+                    onClick={() => setProblemsOnly((previous) => !previous)}
+                  >
+                    {t(`${keys}.showOnlyProblems`)}
+                  </TogglePill>
+                )}
+                <AccordionGroupToggle />
+              </div>
             </div>
             {lastResult ? (
               <ServiceResultsList
