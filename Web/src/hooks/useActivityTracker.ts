@@ -11,6 +11,14 @@ import { recordInteraction } from '@utils/userInteractionTracker';
  * presence dot (active / away / inactive) does not flicker when the user
  * clicks without triggering other API traffic.
  *
+ * Mount this ONCE, app-wide, via UserPresenceProvider - never from a page-level
+ * component. The heartbeat is the only signal that refreshes LastSeenAtUtc on its
+ * own schedule: ordinary API traffic only refreshes it when it happens to fire,
+ * and a SignalR-driven screen can go minutes without issuing a single request. A
+ * tracker mounted inside one route therefore stops reporting presence the moment
+ * the user navigates anywhere else, and their own session ages out to away/inactive
+ * while they are sitting right there working.
+ *
  * Based on patterns from the Page Visibility API docs and the activity-detector
  * npm package: throttle high-frequency events, debounce visibility transitions,
  * and treat visibilitychange as a *hint*, not an immediate state flip.
@@ -57,7 +65,17 @@ const sendHeartbeat = (): void => {
       ApiService.getFetchOptions({
         method: 'POST',
         cache: 'no-store',
-        keepalive: true
+        keepalive: true,
+        // Assert presence explicitly instead of inheriting getFetchOptions' recent-interaction
+        // heuristic. This request exists for no other purpose than to say "a human is here", and it
+        // is already gated on a STRICTER signal than that heuristic: every caller below fires it only
+        // when this tracker has decided the user is active from real DOM events within
+        // IDLE_TIMEOUT_MS, on a tab that is not hidden. Letting the generic header answer 'false'
+        // here made the heartbeat silently ask the server to ignore it - which is exactly what
+        // happened on the wake paths (returning to a backgrounded tab, regaining focus), where
+        // goActive() fires a heartbeat before any mouse or key event has been seen, so the session
+        // stayed stuck at its old last-seen until the user physically moved the mouse.
+        headers: { 'X-User-Active': 'true' }
       })
     ).catch(() => {
       /* swallow - heartbeat is best-effort */
@@ -69,7 +87,8 @@ const sendHeartbeat = (): void => {
 
 export const useActivityTracker = (
   onActivity?: () => void,
-  onIdle?: () => void
+  onIdle?: () => void,
+  enabled = true
 ): ActivityTrackerReturn => {
   const [isActive, setIsActive] = useState<boolean>(true);
   const [lastActivityTime, setLastActivityTime] = useState<number>(() => Date.now());
@@ -138,6 +157,12 @@ export const useActivityTracker = (
   );
 
   useEffect(() => {
+    // No session means the heartbeat endpoint would only 401, and there is no LastSeenAtUtc to keep
+    // fresh - so attach nothing at all rather than running timers against a signed-out app.
+    if (!enabled) {
+      return;
+    }
+
     const checkIdleStatus = (): void => {
       if (!isActiveRef.current) return;
       const timeSinceActivity = Date.now() - lastActivityRef.current;
@@ -199,7 +224,7 @@ export const useActivityTracker = (
         heartbeatIntervalRef.current = null;
       }
     };
-  }, [handleActivity, goActive, goIdle]);
+  }, [handleActivity, goActive, goIdle, enabled]);
 
   return {
     isActive,

@@ -58,8 +58,7 @@ import type {
 } from '@contexts/SignalRContext/types';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
-import { useActivityTracker } from '@hooks/useActivityTracker';
-import { useClientInfoReporter } from '@hooks/useClientInfoReporter';
+import { useUserPresence } from '@contexts/UserPresenceContext/useUserPresence';
 import { storage } from '@utils/storage';
 import {
   type Session,
@@ -88,6 +87,26 @@ const DEFAULT_PAGE_SIZE: SessionPageSize = 5;
 
 const isSessionPageSize = (value: number): value is SessionPageSize =>
   (PAGE_SIZE_OPTIONS as readonly number[]).includes(value);
+
+// ============================================================
+// Presence thresholds (not exported - Fast Refresh)
+// ============================================================
+
+// How old lastSeenAt may be before a session stops reading as "active". This MUST stay comfortably
+// larger than the rate at which the server actually refreshes lastSeenAt, or a session whose user is
+// working right now will still age past it between two consecutive writes.
+//
+// The server throttles the write to once per 60s (SessionService.UpdateLastSeenAsync) and the browser
+// heartbeat runs on a 30s timer (useActivityTracker), so a write lands on the first heartbeat at or
+// after the throttle expires - up to 60 + 30 seconds after the previous one, and the two timers drift
+// apart rather than staying phase-locked, since goActive() also fires heartbeats off-cadence. Add the
+// browser-vs-server clock skew that "now - lastSeenAt" is computed across and a 60s window is
+// guaranteed to lapse mid-cycle, which read as the presence dot flickering active/away every minute.
+// Ambient API traffic used to hide this by refreshing lastSeenAt constantly; presence is now
+// deliberately driven by the heartbeat alone, so the window has to cover the heartbeat's own period.
+const ACTIVE_MAX_AGE_SECONDS = 60 + 30 + 30;
+// Beyond this the session reads as fully inactive rather than merely away.
+const AWAY_MAX_AGE_SECONDS = 600;
 
 const loadPageSize = (): SessionPageSize => {
   const saved = storage.getItem(STORAGE_KEYS.PAGE_SIZE);
@@ -226,8 +245,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // Session actions state
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
-  const { isActive: isLocallyActive } = useActivityTracker();
-  useClientInfoReporter(authService.isAuthenticated, authService.sessionId);
+  // Read the app-wide presence tracker rather than mounting one here: a tracker owned by this page
+  // would stop heartbeating the moment the user navigated away (see UserPresenceProvider).
+  const { isActive: isLocallyActive } = useUserPresence();
   // Periodic tick so getSessionStatus() recomputes as lastSeenAt ages.
   // Without this, the status "sticks" between render-triggering events and
   // flips abruptly when some unrelated re-render happens.
@@ -807,8 +827,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     const lastSeen = new Date(lastSeenStr);
     const diffSeconds = (now.getTime() - lastSeen.getTime()) / 1000;
 
-    if (diffSeconds <= 60) return 'active';
-    if (diffSeconds <= 600) return 'away';
+    if (diffSeconds <= ACTIVE_MAX_AGE_SECONDS) return 'active';
+    if (diffSeconds <= AWAY_MAX_AGE_SECONDS) return 'away';
     return 'inactive';
   };
 
