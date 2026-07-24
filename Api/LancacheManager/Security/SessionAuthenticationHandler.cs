@@ -37,7 +37,17 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
         // untouched on an unattended screen doesn't keep resetting LastSeenAtUtc from its own ambient
         // background refetches as if a human were present. Mere tab visibility is not enough here -
         // see Web/src/utils/userInteractionTracker.ts for why.
-        var userActive = !string.Equals(
+        //
+        // SignalR hub requests (negotiate + the WebSocket upgrade itself) are excluded entirely,
+        // header or not: the browser does not apply custom headers to a WebSocket handshake (only to
+        // plain HTTP requests - see @microsoft/signalr's IHttpConnectionOptions.headers doc comment),
+        // so X-User-Active can never actually reach these regardless of what the client sends. More
+        // importantly, withAutomaticReconnect means a reconnect can fire from nothing but a network
+        // blip, an idle NAT/router timeout, or a laptop waking from sleep - none of which is evidence
+        // a human is present. Regular API traffic (dashboard polling, the heartbeat) is the real
+        // presence signal; a hub reconnect must never independently refresh LastSeenAtUtc.
+        var isHubRequest = Context.Request.Path.StartsWithSegments("/hubs");
+        var userActive = !isHubRequest && !string.Equals(
             Context.Request.Headers["X-User-Active"].ToString(), "false", StringComparison.OrdinalIgnoreCase);
         if (userActive)
         {
