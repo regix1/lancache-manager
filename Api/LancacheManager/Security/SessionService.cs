@@ -17,6 +17,12 @@ public class SessionService
     private readonly ISignalRNotificationService _signalR;
     private readonly IConfiguration _configuration;
 
+    // Optional (like ServiceScheduleRegistry's _tracker) so unit tests that construct the service
+    // directly keep compiling; at runtime DI always supplies the singleton. Each session create/revoke/
+    // delete mirrors the session's presence into the unified activity registry so the Active Sessions
+    // status dots read the one ActivityUpdated event.
+    private readonly IActivityRegistry? _activityRegistry;
+
     private const string CookieName = "LancacheManager.Session";
     // Admin sessions effectively never expire - a far-future ExpiresAtUtc keeps the
     // session valid for the life of the installation and lets the UI render "Never"
@@ -37,7 +43,8 @@ public class SessionService
         ILogger<SessionService> logger,
         StateService stateService,
         ISignalRNotificationService signalR,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IActivityRegistry? activityRegistry = null)
     {
         _dbContextFactory = dbContextFactory;
         _apiKeyService = apiKeyService;
@@ -45,6 +52,20 @@ public class SessionService
         _stateService = stateService;
         _signalR = signalR;
         _configuration = configuration;
+        _activityRegistry = activityRegistry;
+    }
+
+    // Marks a session present or absent in the unified activity registry. Best-effort: the registry
+    // swallows its own broadcast failures, so a presence update never disrupts the session operation.
+    private Task ReportSessionPresenceAsync(Guid sessionId, bool present)
+    {
+        if (_activityRegistry is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return _activityRegistry.ReportAsync(
+            ActivityDomains.UserSession, sessionId.ToString(), ActivityAspects.Present, present);
     }
 
     public async Task<(string RawToken, UserSession Session)?> CreateAdminSessionAsync(string apiKey, HttpContext httpContext)
@@ -74,6 +95,7 @@ public class SessionService
         await context.SaveChangesAsync();
 
         _logger.LogInformation("Created admin session {SessionId} for IP {IP}", session.Id, session.IpAddress);
+        await ReportSessionPresenceAsync(session.Id, true);
         return (rawToken, session);
     }
 
@@ -147,6 +169,7 @@ public class SessionService
             _logger.LogInformation(
                 "Created shared auth-disabled admin session {SessionId} (Security:EnableAuthentication=false)",
                 session.Id);
+            await ReportSessionPresenceAsync(session.Id, true);
             return (rawToken, session);
         }
         finally
@@ -206,6 +229,7 @@ public class SessionService
 
         _logger.LogInformation("Created guest session {SessionId} for IP {IP}, expires in {Hours}h",
             session.Id, session.IpAddress, durationHours);
+        await ReportSessionPresenceAsync(session.Id, true);
         return (rawToken, session);
     }
 
@@ -259,6 +283,7 @@ public class SessionService
         await context.SaveChangesAsync();
 
         _logger.LogInformation("Revoked session {SessionId}", sessionId);
+        await ReportSessionPresenceAsync(sessionId, false);
         return true;
     }
 
@@ -273,6 +298,7 @@ public class SessionService
         await context.SaveChangesAsync();
 
         _logger.LogInformation("Permanently deleted session {SessionId}", sessionId);
+        await ReportSessionPresenceAsync(sessionId, false);
         return true;
     }
 
@@ -280,6 +306,14 @@ public class SessionService
     {
         var now = DateTime.UtcNow;
         using var context = _dbContextFactory.CreateDbContext();
+
+        // Capture the ids being revoked up front so their presence can be cleared individually — the
+        // bulk ExecuteUpdateAsync returns only a row count, not the affected keys.
+        var revokedIds = await context.UserSessions
+            .Where(s => s.SessionType == SessionType.Guest && !s.IsRevoked)
+            .Select(s => s.Id)
+            .ToListAsync();
+
         var count = await context.UserSessions
             .Where(s => s.SessionType == SessionType.Guest && !s.IsRevoked)
             .ExecuteUpdateAsync(s => s
@@ -287,6 +321,10 @@ public class SessionService
                 .SetProperty(x => x.RevokedAtUtc, now));
 
         _logger.LogInformation("Revoked {Count} guest sessions", count);
+        foreach (var id in revokedIds)
+        {
+            await ReportSessionPresenceAsync(id, false);
+        }
         return count;
     }
 
@@ -302,6 +340,15 @@ public class SessionService
         if (count > 0)
         {
             _logger.LogWarning("Cleared all {Count} sessions from the database because a new API key was generated. All clients must log in again.", count);
+        }
+
+        // Every session is gone, so clear the entire user-session presence set in one snapshot.
+        if (_activityRegistry is not null)
+        {
+            await _activityRegistry.ReplaceAsync(
+                ActivityDomains.UserSession,
+                ActivityAspects.Present,
+                new Dictionary<string, int>(StringComparer.Ordinal));
         }
         return count;
     }

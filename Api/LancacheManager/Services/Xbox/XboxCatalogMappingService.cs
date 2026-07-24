@@ -56,6 +56,12 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
     private XboxPrefillDaemonService? _daemonService;
     private bool _disposed;
 
+    // Optional (like ServiceScheduleRegistry's _tracker) so unit tests constructing the service directly
+    // keep compiling; at runtime DI supplies the singleton. Mirrors the Xbox integration's authenticated
+    // state into the unified activity registry so the Xbox integration status dot reads the one
+    // ActivityUpdated event.
+    private readonly IActivityRegistry? _activityRegistry;
+
     /// <summary>Schedule key the registry uses to surface this on the unified Schedules page.</summary>
     public string ScheduleServiceKey => "xboxMapping";
 
@@ -77,7 +83,8 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
         XboxAuthStorageService authStorage,
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
-        IStateService stateService)
+        IStateService stateService,
+        IActivityRegistry? activityRegistry = null)
         : base(logger, TimeSpan.FromHours(12)) // Default: 12h refresh interval (mirrors EpicMappingService)
     {
         _scopeFactory = scopeFactory;
@@ -86,9 +93,20 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
         _authStorage = authStorage;
         _notifications = notifications;
         _operationTracker = operationTracker;
+        _activityRegistry = activityRegistry;
 
         // Apply user-saved interval + run-on-startup overrides before the loop starts (mirrors Epic).
         LoadStateOverrides(stateService, ScheduleServiceKey);
+    }
+
+    /// <summary>
+    /// Sets the authenticated flag and mirrors the Xbox integration's authenticated state into the unified
+    /// activity registry (best-effort) so the Xbox integration status dot reads the one ActivityUpdated event.
+    /// </summary>
+    private void SetIsAuthenticated(bool value)
+    {
+        _isAuthenticated = value;
+        _ = _activityRegistry?.ReportAsync(ActivityDomains.Integration, "xbox", ActivityAspects.Authenticated, value);
     }
 
     protected override Task InitializeAsync(CancellationToken cancellationToken)

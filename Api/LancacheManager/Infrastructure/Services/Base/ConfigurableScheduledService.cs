@@ -15,9 +15,23 @@ namespace LancacheManager.Infrastructure.Services.Base;
 public abstract class ConfigurableScheduledService : BackgroundService
 {
     /// <summary>
-    /// Fired when a configurable service completes work. Subscribers receive the service key.
+    /// Fired whenever a configurable service's execution state changes: once when a run starts (after
+    /// IsCurrentlyExecuting flips true, gated by <see cref="BroadcastRunStart"/>) and once when it ends
+    /// (after IsCurrentlyExecuting flips false). Subscribers receive the service name. Firing on both
+    /// edges is what lets the Schedules UI light the status dot live during a run and clear it the
+    /// moment the run finishes; the end broadcast must come AFTER IsCurrentlyExecuting is cleared so
+    /// GetAll() reports the run as finished.
     /// </summary>
-    public static event Action<string>? ServiceWorkCompleted;
+    public static event Action<string>? ServiceExecutionStateChanged;
+
+    /// <summary>
+    /// Raises <see cref="ServiceExecutionStateChanged"/> for this service. Exposed so a service that
+    /// opts out of the automatic per-tick start broadcast (<see cref="BroadcastRunStart"/> = false) can
+    /// light the Schedules status dot itself the moment a genuine run begins - a derived type cannot
+    /// invoke a base-declared event directly. Safe to call from inside ExecuteWorkAsync: the base loop
+    /// has already set IsCurrentlyExecuting = true, so the resulting GetAll() snapshot reports running.
+    /// </summary>
+    protected void RaiseExecutionStateChanged() => ServiceExecutionStateChanged?.Invoke(ServiceName);
 
     protected readonly ILogger _logger;
 
@@ -37,7 +51,16 @@ public abstract class ConfigurableScheduledService : BackgroundService
     // Schedule tracking properties
     public DateTime? LastRunUtc { get; private set; }
     public DateTime? NextRunUtc { get; private set; }
-    public bool IsCurrentlyExecuting { get; private set; }
+
+    // Written on the service loop thread, read cross-thread by the HTTP GET /schedules path
+    // (ServiceScheduleRegistry.GetAll). volatile publishes the write so a status read on another
+    // thread cannot latch a stale value and leave the Schedules dot wrong.
+    private volatile bool _isCurrentlyExecuting;
+    public bool IsCurrentlyExecuting
+    {
+        get => _isCurrentlyExecuting;
+        private set => _isCurrentlyExecuting = value;
+    }
 
     /// <summary>
     /// The name of this service for logging purposes.
@@ -65,6 +88,15 @@ public abstract class ConfigurableScheduledService : BackgroundService
     /// tight-looping on a persistent error.
     /// </summary>
     protected virtual TimeSpan ErrorRetryDelay => TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Whether the loop broadcasts a run-START state change (which lights the Schedules status dot).
+    /// Defaults to true. A poll-style service whose ExecuteWorkAsync fires on a short fixed cadence and
+    /// no-ops most ticks (ScheduledPrefillService's 1-minute due-check) overrides this to false so the
+    /// dot does not flash green every tick; it still emits the run-END broadcast, which keeps its
+    /// Last/Next-run readouts fresh and reports the idle state correctly.
+    /// </summary>
+    protected virtual bool BroadcastRunStart => true;
 
     /// <summary>
     /// Hardcoded default for whether the loop runs work on its very first iteration
@@ -287,15 +319,28 @@ public abstract class ConfigurableScheduledService : BackgroundService
             {
                 _intervalJustChanged = false;
                 skipFirstExecution = false;
+                var runFailed = false;
                 try
                 {
                     IsCurrentlyExecuting = true;
                     CurrentRunTrigger = manualPending
                         ? RunTrigger.Manual
                         : startupRunPending ? RunTrigger.Startup : RunTrigger.Scheduled;
+                    // Broadcast the start so the Schedules status dot lights up for the whole run.
+                    // Poll-style services (see BroadcastRunStart) opt out to avoid a per-tick flash and
+                    // raise the start themselves only when a real run begins.
+                    if (BroadcastRunStart)
+                    {
+                        ServiceExecutionStateChanged?.Invoke(ServiceName);
+                    }
                     await ExecuteWorkAsync(stoppingToken);
                     LastRunUtc = DateTime.UtcNow;
-                    ServiceWorkCompleted?.Invoke(ServiceName);
+                    // Advance NextRunUtc now so the run-END broadcast in the finally carries the fresh
+                    // next-run instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
+                    // authoritatively; this only keeps the END snapshot from shipping a stale countdown.
+                    // (Ignored by services like ScheduledPrefill whose card derives timing elsewhere.)
+                    var nextInterval = ConfiguredInterval;
+                    NextRunUtc = nextInterval > TimeSpan.Zero ? DateTime.UtcNow + nextInterval : null;
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -307,12 +352,25 @@ public abstract class ConfigurableScheduledService : BackgroundService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "{ServiceName} error in scheduled work", ServiceName);
-                    await SafeDelayAsync(ErrorRetryDelay, stoppingToken);
-                    continue;
+                    runFailed = true;
+                    // The next attempt is the retry below, not the elapsed schedule - point the
+                    // countdown in the run-END broadcast at the retry deadline.
+                    NextRunUtc = DateTime.UtcNow + ErrorRetryDelay;
                 }
                 finally
                 {
                     IsCurrentlyExecuting = false;
+                    // Broadcast the end AFTER clearing the flag so GetAll() reports the run finished and
+                    // the dot clears - including on the failed-run path.
+                    ServiceExecutionStateChanged?.Invoke(ServiceName);
+                }
+
+                // Back off AFTER the finally above has cleared the flag and broadcast the end, so a
+                // failed run does not sit falsely "running" (green dot) for the whole retry delay.
+                if (runFailed)
+                {
+                    await SafeDelayAsync(ErrorRetryDelay, stoppingToken);
+                    continue;
                 }
             }
 

@@ -283,6 +283,10 @@ public abstract partial class PrefillDaemonServiceBase
             ClearPendingLoginChallenge(session);
         }
 
+        // The auth transition changes this platform's persistent-container/integration aggregate (and, for
+        // an anonymous daemon, its connected state), so refresh the session's activity presence here.
+        await ReportSessionActivityAsync(session, present: true);
+
         var payload = new { sessionId = session.Id, authState = session.AuthState.ToString() };
         await BroadcastToSubscribersAsync(session, EventAuthStateChanged, payload);
 
@@ -374,6 +378,9 @@ public abstract partial class PrefillDaemonServiceBase
         // observe the prefill state change via SignalR instead of polling (matches
         // NotifyAuthStateChangeAsync's AuthStateChanged mirror).
         await NotifyHubAsync(EventPrefillStateChanged, startedPayload);
+
+        // The run just started (IsPrefilling is now true), so light this session's downloading activity dot.
+        await ReportSessionActivityAsync(session, present: true);
     }
 
     /// <summary>
@@ -443,6 +450,10 @@ public abstract partial class PrefillDaemonServiceBase
         {
             _logger.LogWarning(ex, "Failed to broadcast session update after terminal transition for session {SessionId}", session.Id);
         }
+
+        // The run is over (IsPrefilling flipped false above); the session stays present but its downloading
+        // dot clears.
+        await ReportSessionActivityAsync(session, present: true);
     }
 
     /// <summary>
@@ -872,5 +883,9 @@ public abstract partial class PrefillDaemonServiceBase
         // NotifySessionEndedAsync does NOT remove connectionId on error (session is ending anyway)
         await BroadcastToSubscribersAsync(session, EventSessionEnded,
             new { sessionId = session.Id, reason }, removeOnError: false);
+
+        // The session has ended; clear its presence/downloading dots and recompute this platform's
+        // aggregate (the persistent container may have gone with it).
+        await ReportSessionActivityAsync(session, present: false);
     }
 }

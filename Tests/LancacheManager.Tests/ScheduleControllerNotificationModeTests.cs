@@ -272,8 +272,7 @@ public class ScheduleControllerNotificationModeTests
 
     private static ScheduleController CreateController(IServiceScheduleRegistry registry)
     {
-        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
-        return new ScheduleController(registry, notifications);
+        return new ScheduleController(registry);
     }
 
     private static ServiceScheduleRegistry CreateRegistry(UnifiedOperationTracker tracker)
@@ -319,6 +318,7 @@ public class ScheduleControllerNotificationModeTests
         public Task<int> TriggerAllAsync() => Task.FromResult(0);
         public void ResetToDefaults() { }
         public void NotifySchedulesChanged() { }
+        public Task BroadcastSchedulesAsync() => Task.CompletedTask;
         public ScheduleRunStatus? GetRunStatus(string serviceKey) => RunStatus;
     }
 

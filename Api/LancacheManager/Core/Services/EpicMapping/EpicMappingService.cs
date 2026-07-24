@@ -26,6 +26,12 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
 
     // Auth state
     private bool _isAuthenticated;
+
+    // Optional (like ServiceScheduleRegistry's _tracker) so unit tests constructing the service directly
+    // keep compiling; at runtime DI supplies the singleton. Mirrors the Epic integration's authenticated
+    // state into the unified activity registry so the Epic integration status dot reads the one
+    // ActivityUpdated event.
+    private readonly IActivityRegistry? _activityRegistry;
     private string? _displayName;
     private DateTime? _lastCollectionUtc;
     private int _gamesDiscovered;
@@ -64,7 +70,8 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         IDbContextFactory<AppDbContext> dbContextFactory,
         IUnifiedOperationTracker operationTracker,
         IServiceScopeFactory scopeFactory,
-        IStateService stateService)
+        IStateService stateService,
+        IActivityRegistry? activityRegistry = null)
         : base(logger, TimeSpan.FromHours(12)) // Default: 12 hour refresh interval
     {
         _epicApiClient = epicApiClient;
@@ -74,9 +81,20 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         _operationTracker = operationTracker;
         _scopeFactory = scopeFactory;
         _stateService = stateService;
+        _activityRegistry = activityRegistry;
 
         // Apply user-saved interval and run-on-startup overrides before the loop starts.
         LoadStateOverrides(stateService, ScheduleServiceKey);
+    }
+
+    /// <summary>
+    /// Sets the authenticated flag and mirrors the Epic integration's authenticated state into the unified
+    /// activity registry (best-effort) so the Epic integration status dot reads the one ActivityUpdated event.
+    /// </summary>
+    private void SetIsAuthenticated(bool value)
+    {
+        _isAuthenticated = value;
+        _ = _activityRegistry?.ReportAsync(ActivityDomains.Integration, "epic", ActivityAspects.Authenticated, value);
     }
 
     protected override Task InitializeAsync(CancellationToken cancellationToken)

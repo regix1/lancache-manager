@@ -7,11 +7,17 @@ import { formatBytes, formatSpeed } from '@utils/formatters';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { Tooltip } from '@components/ui/Tooltip';
 import BadgesRow from './BadgesRow';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
+import { buildTrafficKey } from './liveDownloadPreviews';
 import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
 
 const ActiveDownloadsView: React.FC = () => {
   const { t } = useTranslation();
   const { speedSnapshot, gameSpeeds, clientSpeeds, isLoading, refreshSpeed } = useSpeed();
+  // The per-row live dot reads the unified activity registry, which is authoritative once ready. NOT
+  // an `||`: hasActiveDownloads is a GLOBAL "is anything downloading" flag, not per-row - falling back
+  // to it after ready would make every row's dot light up whenever anything else is downloading.
+  const activity = useActivityStatus();
 
   const [viewMode, setViewMode] = useState<'games' | 'clients'>('games');
 
@@ -19,6 +25,16 @@ const ActiveDownloadsView: React.FC = () => {
   const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || false;
   const games = gameSpeeds;
   const clients = clientSpeeds;
+
+  const gameDownloading = (game: GameSpeedInfo): boolean =>
+    activity.isActiveOrFallback(
+      'download',
+      buildTrafficKey(game),
+      'downloading',
+      hasActiveDownloads
+    );
+  const clientDownloading = (client: ClientSpeedInfo): boolean =>
+    activity.isActiveOrFallback('download', client.clientIp, 'downloading', hasActiveDownloads);
 
   if (isLoading) {
     return (
@@ -88,7 +104,7 @@ const ActiveDownloadsView: React.FC = () => {
               >
                 <div className="download-avatar">
                   <HardDrive className="fallback-icon" size={20} />
-                  <div className="active-indicator" />
+                  {gameDownloading(game) && <div className="active-indicator" />}
                 </div>
 
                 <div className="download-info">
@@ -144,7 +160,7 @@ const ActiveDownloadsView: React.FC = () => {
               <div key={client.clientIp} className={`download-item ${index === 0 ? 'top' : ''}`}>
                 <div className="download-avatar">
                   <Users className="fallback-icon" size={20} />
-                  <div className="active-indicator" />
+                  {clientDownloading(client) && <div className="active-indicator" />}
                 </div>
 
                 <div className="download-info">

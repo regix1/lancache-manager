@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatSpeed } from '@utils/formatters';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -18,6 +19,17 @@ interface LiveDownloadRowsProps {
  */
 const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews, variant }) => {
   const { t } = useTranslation();
+  // The pulse dot's live state flows through the unified activity registry (one signal for
+  // every status dot), which is authoritative once ready; the preview's own in-progress status is
+  // the fallback only before the first activity snapshot arrives.
+  const activity = useActivityStatus();
+  const isDownloading = (preview: LiveDownloadPreview): boolean =>
+    activity.isActiveOrFallback(
+      'download',
+      preview.key,
+      'downloading',
+      preview.status === 'in-progress'
+    );
 
   if (previews.length === 0) {
     return null;
@@ -29,10 +41,12 @@ const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews, variant }
         {previews.map((preview) => (
           <div className="rdl-row rdl-row-active" key={preview.key}>
             <div className="rdl-row-main">
-              <div className="rdl-active-indicator">
-                <div className="rdl-pulse-ring" />
-                <div className="rdl-pulse-dot" />
-              </div>
+              {isDownloading(preview) && (
+                <div className="rdl-active-indicator">
+                  <div className="rdl-pulse-ring" />
+                  <div className="rdl-pulse-dot" />
+                </div>
+              )}
               <div className="rdl-row-info">
                 <div className="rdl-row-name">
                   <span className="rdl-name-text">{preview.displayName}</span>
@@ -79,10 +93,12 @@ const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews, variant }
     <div className="dl-live-region">
       {previews.map((preview) => (
         <div className="dl-live-row themed-border-radius-sm" key={preview.key}>
-          <div className="rdl-active-indicator">
-            <div className="rdl-pulse-ring" />
-            <div className="rdl-pulse-dot" />
-          </div>
+          {isDownloading(preview) && (
+            <div className="rdl-active-indicator">
+              <div className="rdl-pulse-ring" />
+              <div className="rdl-pulse-dot" />
+            </div>
+          )}
           <div className="dl-live-info">
             <div className="dl-live-name">
               <BadgesRow service={preview.service} showDatasource={false} />

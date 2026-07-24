@@ -257,6 +257,16 @@ public partial class SteamKit2Service
         _connectedTcs?.TrySetResult();
     }
 
+    // Mirrors the Steam integration's authenticated state (logged on AND in authenticated mode, matching
+    // the IsLoggedOn value the status DTO reports) into the unified activity registry so the Steam
+    // integration status dot reads the one ActivityUpdated event. Fire-and-forget: the registry swallows
+    // its own broadcast failures, so this never disrupts the SteamKit2 callback thread.
+    private void ReportSteamIntegrationAuthenticated()
+    {
+        _ = _activityRegistry?.ReportAsync(
+            ActivityDomains.Integration, "steam", ActivityAspects.Authenticated, _isLoggedOn && IsSteamAuthenticated);
+    }
+
     private void OnDisconnected(SteamClient.DisconnectedCallback callback)
     {
         // Log as info if intentional, warning if unexpected
@@ -270,6 +280,7 @@ public partial class SteamKit2Service
             _logger.LogWarning("Disconnected from Steam");
         }
         _isLoggedOn = false;
+        ReportSteamIntegrationAuthenticated();
 
         // Fault any pending session waits so their owner reacts: LogonLockedAsync treats this as
         // a transient failure and rotates CM servers; a PICS batch re-establishes the session via
@@ -283,6 +294,7 @@ public partial class SteamKit2Service
         if (callback.Result == EResult.OK)
         {
             _isLoggedOn = true;
+            ReportSteamIntegrationAuthenticated();
             _loggedOnTcs?.TrySetResult();
             _logger.LogInformation("Successfully logged onto Steam!");
             _logger.LogInformation("Steam login succeeded. Active LoginID: {LoginID} (0x{LoginIDHex:X8}), IsAuthenticated: {IsAuth}", _steamLoginId, _steamLoginId, IsSteamAuthenticated);
@@ -352,6 +364,7 @@ public partial class SteamKit2Service
     {
         _logger.LogWarning("Logged off of Steam: {Result}", callback.Result);
         _isLoggedOn = false;
+        ReportSteamIntegrationAuthenticated();
 
         // Handle specific logoff reasons with user-friendly messages
         var (errorType, errorMessage, shouldCancelRebuild, isSessionReplaced) = callback.Result switch

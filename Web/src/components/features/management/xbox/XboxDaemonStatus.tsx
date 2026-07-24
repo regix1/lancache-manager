@@ -8,6 +8,7 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import type { XboxMappingProgressEvent } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
@@ -37,6 +38,10 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
 }) => {
   const { t } = useTranslation();
   const { on, off, connectionState } = useSignalR();
+  // Authentication now flows through the unified activity registry, which is authoritative once ready -
+  // trusting a stale cached authStatus over a fresh registry false is exactly the bug found in Epic's
+  // scheduled-refresh path (EpicDaemonStatus.tsx), so this stays consistent rather than an `||`.
+  const activity = useActivityStatus();
   const [authStatus, setAuthStatus] = useState<XboxMappingAuthStatus | null>(null);
   const [hasError, setHasError] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -146,7 +151,12 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
     }
   };
 
-  const isAuthenticated = authStatus?.isAuthenticated ?? false;
+  const isAuthenticated = activity.isActiveOrFallback(
+    'integration',
+    'xbox',
+    'authenticated',
+    authStatus?.isAuthenticated ?? false
+  );
 
   const loginExpiresInDays =
     authStatus?.expiresAtUtc != null

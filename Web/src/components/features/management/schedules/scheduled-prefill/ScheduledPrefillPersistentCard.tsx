@@ -14,6 +14,7 @@ import {
   isScheduledPrefillAnonymousService
 } from './scheduledPrefillPlatformUi';
 import { usePersistentLoginStoreState } from './persistentLoginStore';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import type { ScheduledPrefillPersistentCardProps } from './scheduledPrefillPersistentTypes';
 
 type StatusTone = 'idle' | 'warning' | 'active' | 'running';
@@ -106,8 +107,17 @@ export function ScheduledPrefillPersistentCard({
   // never started, so this picks between two copies rather than one generic message.
   const sessionUnavailableState = isAnonymous ? null : loginState.sessionUnavailableState;
   const isSessionUnavailable = sessionUnavailableState !== null;
-  const isRunning = container?.isRunning ?? false;
-  const isAuthenticated = container?.isAuthenticated ?? false;
+  // Persistent-container run/login state now flows through the unified activity registry, keyed by the
+  // lowercase platform token (battleNet -> battlenet). The fetched container stays the pre-seed fallback
+  // (activity.isActive(...) || existing), so the status dot updates the instant a snapshot arrives.
+  const activity = useActivityStatus();
+  const activityPlatformKey = serviceKey.toLowerCase();
+  const isRunning =
+    activity.isActive('persistentContainer', activityPlatformKey, 'running') ||
+    (container?.isRunning ?? false);
+  const isAuthenticated =
+    activity.isActive('persistentContainer', activityPlatformKey, 'authenticated') ||
+    (container?.isAuthenticated ?? false);
   const isPrefilling = container?.isPrefilling ?? false;
   // Anonymous services never need to authenticate, so they're "ready" the moment they're
   // running; authenticated services are only ready once login succeeds.

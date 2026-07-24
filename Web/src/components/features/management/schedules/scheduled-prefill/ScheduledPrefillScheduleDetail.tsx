@@ -32,6 +32,7 @@ import type {
 } from './types';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 
 interface ScheduledPrefillScheduleDetailProps {
   disabled?: boolean;
@@ -194,6 +195,9 @@ export function ScheduledPrefillScheduleDetail({
 }: ScheduledPrefillScheduleDetailProps) {
   const { t } = useTranslation();
   const { on, off } = useSignalR();
+  // Persistent-container run/login state now flows through the unified activity registry; the
+  // fetched container list stays the pre-seed fallback (activity.isActive(...) || existing).
+  const activity = useActivityStatus();
   const [config, setConfig] = useState<ScheduledPrefillConfigDto | null>(null);
   const [persistentContainers, setPersistentContainers] = useState<PersistentPrefillContainerDto[]>(
     []
@@ -487,17 +491,23 @@ export function ScheduledPrefillScheduleDetail({
         new Date(item.nextRunUtc).getTime() > now
           ? item.nextRunUtc
           : null;
+      // The activity registry keys the persistent container by the lowercase platform token
+      // (battleNet -> battlenet); the fetched container list is the pre-seed fallback.
+      const activityPlatformKey = serviceKey.toLowerCase();
       rows.push({
         key: serviceKey,
         label: t(`${baseKey}.services.${serviceKey}`),
         enabled,
-        containerRunning: container?.isRunning ?? false,
+        containerRunning:
+          activity.isActive('persistentContainer', activityPlatformKey, 'running') ||
+          (container?.isRunning ?? false),
         // Account services gate on the daemon's live login, so mirror that readiness here;
         // anonymous services (Battle.net/Riot) have no login dimension to show.
         loginState: isScheduledPrefillAccountService(serviceKey)
-          ? needsPersistentLogin(container)
-            ? 'loginRequired'
-            : 'loggedIn'
+          ? activity.isActive('persistentContainer', activityPlatformKey, 'authenticated') ||
+            !needsPersistentLogin(container)
+            ? 'loggedIn'
+            : 'loginRequired'
           : null,
         intervalHours,
         // A disabled platform keeps its chosen interval for the picker but has no active next run,
@@ -508,7 +518,7 @@ export function ScheduledPrefillScheduleDetail({
       });
     }
     return rows;
-  }, [schedule, config, persistentContainers, baseKey, formatTiming, now, t]);
+  }, [schedule, config, persistentContainers, baseKey, formatTiming, now, t, activity]);
 
   const handleModalSaved = async () => {
     await loadSummary();

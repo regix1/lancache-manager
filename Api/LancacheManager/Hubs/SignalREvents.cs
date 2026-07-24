@@ -101,6 +101,14 @@ public static class SignalREvents
     // Schedules
     public const string SchedulesUpdated = "SchedulesUpdated";
 
+    /// <summary>
+    /// Single unified activity/presence broadcast: carries the per-entity active/running state for
+    /// every domain (schedules, tracked operations, sessions, prefill, integrations, downloads) so all
+    /// "green status dots" read one event. Payload is a full snapshot { revision, activities: [...] };
+    /// absence of an entity means inactive. Serialized like <see cref="SchedulesUpdated"/>.
+    /// </summary>
+    public const string ActivityUpdated = "ActivityUpdated";
+
     // System / Config
     public const string DefaultGuestRefreshRateChanged = "DefaultGuestRefreshRateChanged";
     public const string AllowedTimeFormatsChanged = "AllowedTimeFormatsChanged";

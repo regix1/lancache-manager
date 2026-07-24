@@ -12,10 +12,14 @@ namespace LancacheManager.Infrastructure.Services.Base;
 public abstract class ScheduledBackgroundService : BackgroundService
 {
     /// <summary>
-    /// Fired whenever a scheduled service completes a unit of work (startup or interval run).
-    /// Subscribers receive the ServiceKey of the service that completed.
+    /// Fired whenever a scheduled service's execution state changes: once when a run starts (after
+    /// IsCurrentlyExecuting flips true) and once when it ends (after IsCurrentlyExecuting flips false),
+    /// for startup, interval and manual runs alike. Subscribers receive the ServiceKey. Firing on both
+    /// edges is what lets the Schedules UI light the status dot live while a run is in progress and
+    /// clear it the moment the run finishes - the end broadcast must come AFTER IsCurrentlyExecuting is
+    /// cleared so GetAll() reports the run as finished.
     /// </summary>
-    public static event Action<string>? ServiceWorkCompleted;
+    public static event Action<string>? ServiceExecutionStateChanged;
     protected readonly ILogger _logger;
     protected readonly IConfiguration _configuration;
 
@@ -35,7 +39,16 @@ public abstract class ScheduledBackgroundService : BackgroundService
     // Schedule tracking properties
     public DateTime? LastRunUtc { get; private set; }
     public DateTime? NextRunUtc { get; private set; }
-    public bool IsCurrentlyExecuting { get; private set; }
+
+    // Written on the service loop thread, read cross-thread by the HTTP GET /schedules path
+    // (ServiceScheduleRegistry.GetAll). volatile publishes the write so a status read on another
+    // thread cannot latch a stale value and leave the Schedules dot wrong.
+    private volatile bool _isCurrentlyExecuting;
+    public bool IsCurrentlyExecuting
+    {
+        get => _isCurrentlyExecuting;
+        private set => _isCurrentlyExecuting = value;
+    }
 
     // Schedule metadata - override in subclasses to register as user-configurable
     public virtual string ServiceKey => GetType().Name;
@@ -192,9 +205,10 @@ public abstract class ScheduledBackgroundService : BackgroundService
                 CurrentRunTrigger = Interlocked.Exchange(ref _pendingManualRun, 0) == 1
                     ? RunTrigger.Manual
                     : RunTrigger.Startup;
+                // Broadcast the start so the Schedules status dot lights up for the whole run.
+                ServiceExecutionStateChanged?.Invoke(ServiceKey);
                 await OnStartupAsync(stoppingToken);
                 LastRunUtc = DateTime.UtcNow;
-                ServiceWorkCompleted?.Invoke(ServiceKey);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -203,6 +217,16 @@ public abstract class ScheduledBackgroundService : BackgroundService
             finally
             {
                 IsCurrentlyExecuting = false;
+                // Whether startup succeeded or failed, the next thing is the main loop's skip-first
+                // one-interval sleep, so set the countdown to that before the END broadcast rather than
+                // shipping a null "Soon". The skip-first sleep re-sets this authoritatively.
+                var startupNextInterval = EffectiveInterval;
+                NextRunUtc = startupNextInterval > TimeSpan.Zero
+                    ? DateTime.UtcNow + startupNextInterval
+                    : null;
+                // Broadcast the end AFTER clearing the flag so GetAll() reports the run finished and the
+                // dot clears - including on the failure path above.
+                ServiceExecutionStateChanged?.Invoke(ServiceKey);
             }
         }
 
@@ -255,13 +279,20 @@ public abstract class ScheduledBackgroundService : BackgroundService
             {
                 skipFirstExecution = false;
                 _intervalJustChanged = false;
+                var runFailed = false;
                 try
                 {
                     IsCurrentlyExecuting = true;
                     CurrentRunTrigger = manualPending ? RunTrigger.Manual : RunTrigger.Scheduled;
+                    // Broadcast the start so the Schedules status dot lights up for the whole run.
+                    ServiceExecutionStateChanged?.Invoke(ServiceKey);
                     await ExecuteWorkAsync(stoppingToken);
                     LastRunUtc = DateTime.UtcNow;
-                    ServiceWorkCompleted?.Invoke(ServiceKey);
+                    // Advance NextRunUtc now so the run-END broadcast in the finally carries the fresh
+                    // next-run instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
+                    // authoritatively; this only keeps the END snapshot from shipping a stale countdown.
+                    var nextInterval = EffectiveInterval;
+                    NextRunUtc = nextInterval > TimeSpan.Zero ? DateTime.UtcNow + nextInterval : null;
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -273,12 +304,25 @@ public abstract class ScheduledBackgroundService : BackgroundService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "{ServiceName} error in execution loop", ServiceName);
-                    await SafeDelayAsync(ErrorRetryDelay, stoppingToken);
-                    continue;
+                    runFailed = true;
+                    // The next attempt is the retry below, not the elapsed schedule - point the
+                    // countdown in the run-END broadcast at the retry deadline.
+                    NextRunUtc = DateTime.UtcNow + ErrorRetryDelay;
                 }
                 finally
                 {
                     IsCurrentlyExecuting = false;
+                    // Broadcast the end AFTER clearing the flag so GetAll() reports the run finished and
+                    // the dot clears - including on the failed-run path.
+                    ServiceExecutionStateChanged?.Invoke(ServiceKey);
+                }
+
+                // Back off AFTER the finally above has cleared the flag and broadcast the end, so a
+                // failed run does not sit falsely "running" (green dot) for the whole retry delay.
+                if (runFailed)
+                {
+                    await SafeDelayAsync(ErrorRetryDelay, stoppingToken);
+                    continue;
                 }
             }
 

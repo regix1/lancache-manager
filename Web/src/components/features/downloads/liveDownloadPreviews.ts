@@ -129,8 +129,10 @@ const previewDepotId = (game: GameSpeedInfo): number | null =>
 
 // Identity tiers: app id (Steam always keys by app, never by name), then unresolved depot,
 // then resolved title for named services, then the service-only bucket. Every tier is
-// client-qualified so the same game on two clients yields two previews.
-const buildTrafficKey = (game: GameSpeedInfo): string => {
+// client-qualified so the same game on two clients yields two previews. This is also the key
+// the unified activity registry reports a live download under (the backend speed tracker
+// mirrors this function), so live-download status dots read activity by exactly this key.
+export const buildTrafficKey = (game: GameSpeedInfo): string => {
   const service = normalizeService(game.service);
   const client = (game.clientIp ?? '').trim();
   const appId = previewGameAppId(game);

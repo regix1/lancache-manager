@@ -25,8 +25,8 @@ public partial class EpicMappingService
     /// <summary>
     /// Called by the ConfigurableScheduledService base class on each interval tick.
     /// Checks preconditions and triggers a catalog refresh if appropriate.
-    /// Awaits the background refresh task so the base class sets LastRunUtc and fires
-    /// ServiceWorkCompleted only after the actual catalog refresh finishes.
+    /// Awaits the background refresh task so the base class sets LastRunUtc and fires the run-end
+    /// ServiceExecutionStateChanged broadcast only after the actual catalog refresh finishes.
     /// </summary>
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
@@ -48,9 +48,9 @@ public partial class EpicMappingService
 
         if (TryStartRefresh())
         {
-            // Await the background task so the base class sets LastRunUtc and fires
-            // ServiceWorkCompleted only after the actual catalog refresh finishes - not
-            // immediately after TryStartRefresh returns.
+            // Await the background task so the base class sets LastRunUtc and fires the run-end
+            // ServiceExecutionStateChanged broadcast only after the actual catalog refresh finishes -
+            // not immediately after TryStartRefresh returns.
             if (_currentRefreshTask is not null)
             {
                 await _currentRefreshTask;
@@ -290,7 +290,7 @@ public partial class EpicMappingService
             {
                 _logger.LogWarning(ex, "Token refresh failed during catalog update, clearing credentials");
                 _authStorage.ClearAuthData();
-                _isAuthenticated = false;
+                SetIsAuthenticated(false);
                 _displayName = null;
                 _gamesDiscovered = 0;
                 _currentTokens = null;

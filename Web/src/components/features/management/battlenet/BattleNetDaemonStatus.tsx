@@ -7,6 +7,7 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import ApiService from '@services/api.service';
 import type { EpicDaemonStatusDto } from '../../../../types';
 
@@ -22,6 +23,12 @@ interface BattleNetDaemonStatusProps {
 const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }) => {
   const { t } = useTranslation();
   const { on, off, connectionState } = useSignalR();
+  // Connectivity now flows through the unified activity registry, which is authoritative once ready
+  // (Docker availability is reconciled independently of session activity - see
+  // DaemonConnectivityReconciler). Before that first snapshot lands, fall back to the fetched status
+  // instead of guessing - NOT an `||`, since a stale-true fetched value could otherwise mask a fresh
+  // registry false.
+  const activity = useActivityStatus();
   const [status, setStatus] = useState<EpicDaemonStatusDto | null>(null);
   const [hasError, setHasError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -76,7 +83,12 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
     }
   }, [connectionState, loadStatus]);
 
-  const isReady = status?.dockerAvailable ?? false;
+  const isReady = activity.isActiveOrFallback(
+    'integration',
+    'battlenet',
+    'connected',
+    status?.dockerAvailable ?? false
+  );
   const activeSessions = status?.activeSessions ?? 0;
 
   const statusBadge = !loading ? (

@@ -39,7 +39,17 @@ public interface IServiceScheduleRegistry
     /// Broadcasts the current schedule list to all SignalR clients via <c>SchedulesUpdated</c>.
     /// Call this when a service's visibility changes (e.g. after GC Aggressiveness is flipped)
     /// so the Schedules UI can show/hide conditionally visible cards without a page reload.
-    /// Fire-and-forget - matches the existing <c>OnServiceWorkCompletedAsync</c> pattern.
+    /// Fire-and-forget - matches the existing <c>OnServiceExecutionStateChangedAsync</c> pattern.
     /// </summary>
     void NotifySchedulesChanged();
+
+    /// <summary>
+    /// Broadcasts the current schedule list to all SignalR clients via <c>SchedulesUpdated</c>, awaiting
+    /// the send. Serialized so it never interleaves with a concurrent run start/end broadcast: the
+    /// snapshot is taken at send time and only one send is in flight at once, so the last delivered
+    /// payload is always current. Every SchedulesUpdated emitter (controllers included) must route
+    /// through here rather than calling the notification service directly, or an out-of-order stale
+    /// snapshot could leave a finished service stuck showing "running".
+    /// </summary>
+    Task BroadcastSchedulesAsync();
 }

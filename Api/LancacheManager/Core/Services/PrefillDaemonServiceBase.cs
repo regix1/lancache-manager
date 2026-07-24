@@ -54,6 +54,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     private readonly ILancacheServerLocator _locator;
 
+    // Optional (like ServiceScheduleRegistry's _tracker) so unit tests that construct a derived daemon
+    // directly keep compiling; at runtime DI always supplies the singleton. Each session lifecycle
+    // transition mirrors the session's presence, this platform's persistent-container state, and (for the
+    // anonymous Battle.net/Riot daemons) integration connectivity into the unified activity registry so
+    // the Prefill Sessions, persistent-container and integration status dots read the one ActivityUpdated event.
+    private readonly IActivityRegistry? _activityRegistry;
+
     /// <summary>
     /// The lancache server IP most recently injected into a daemon container via the
     /// <c>LANCACHE_IP</c> env var, plus the <see cref="LancacheServerLocation.Source"/> it was located
@@ -389,7 +396,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         PrefillCacheService cacheService,
         IOptionsMonitor<PrefillNetworkOptions> networkOptions,
         ILancacheServerLocator locator,
-        IPrefillContainerGatewayFactory containerGatewayFactory)
+        IPrefillContainerGatewayFactory containerGatewayFactory,
+        IActivityRegistry? activityRegistry = null)
     {
         _logger = logger;
         _notifications = notifications;
@@ -402,6 +410,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _locator = locator;
         _containerGateway = containerGatewayFactory.Create();
         _isRunningInContainer = bool.TryParse(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), out var inContainer) && inContainer;
+        _activityRegistry = activityRegistry;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -2021,6 +2030,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         }
 
         _sessions[sessionId] = session;
+
+        // The session is now live in _sessions; mirror its presence into the activity registry. A shutdown
+        // race that rejects it below tears the session down as the process exits, so a lingering present
+        // entry is harmless (the registry dies with it).
+        await ReportSessionActivityAsync(session, present: true);
 
         // Post-registration re-check closes the check-then-act race behind the gate above: shutdown can
         // flip _stopping and take its one-time _sessions snapshot in the tiny window between that check and
@@ -3989,6 +4003,60 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     public DaemonSession? GetActivePersistentSession()
     {
         return _sessions.Values.FirstOrDefault(s => s.IsPersistent && s.Status == DaemonSessionStatus.Active);
+    }
+
+    /// <summary>
+    /// Mirrors a daemon session's presence into the unified activity registry so the Prefill Sessions and
+    /// persistent-container status dots read the one ActivityUpdated event. Reports the per-session
+    /// present/downloading state, then recomputes this platform's aggregate presence. Best-effort: the
+    /// registry swallows its own broadcast failures, so a presence update never disrupts daemon work.
+    /// </summary>
+    private async Task ReportSessionActivityAsync(DaemonSession session, bool present)
+    {
+        if (_activityRegistry is null)
+        {
+            return;
+        }
+
+        await _activityRegistry.ReportAsync(
+            ActivityDomains.PrefillSession, session.Id, ActivityAspects.Present, present);
+        await _activityRegistry.ReportAsync(
+            ActivityDomains.PrefillSession, session.Id, ActivityAspects.Downloading, present && session.IsPrefilling);
+
+        await ReportPlatformActivityAsync();
+    }
+
+    /// <summary>
+    /// Recomputes and reports this platform's aggregate presence: whether a persistent container is
+    /// running/authenticated, and (only for the anonymous Battle.net/Riot daemons, which have no separate
+    /// mapping service) whether the integration is connected. Login-based platforms leave their integration
+    /// badge to the owning mapping service, so this never reports an integration aspect for them.
+    /// Internal (not private): DaemonConnectivityReconciler also calls this on a timer for BattleNet/Riot,
+    /// since Docker availability can change with zero session activity to otherwise trigger a refresh.
+    /// </summary>
+    internal async Task ReportPlatformActivityAsync()
+    {
+        if (_activityRegistry is null)
+        {
+            return;
+        }
+
+        var platformKey = Platform.ToString().ToLowerInvariant();
+        var persistent = GetActivePersistentSession();
+
+        await _activityRegistry.ReportAsync(
+            ActivityDomains.PersistentContainer, platformKey, ActivityAspects.Running, persistent is not null);
+        await _activityRegistry.ReportAsync(
+            ActivityDomains.PersistentContainer, platformKey, ActivityAspects.Authenticated,
+            persistent?.AuthState == DaemonAuthState.Authenticated);
+
+        if (Platform is PrefillPlatform.BattleNet or PrefillPlatform.Riot)
+        {
+            // The anonymous Battle.net/Riot "Connected" badge reflects Docker availability (the daemon
+            // needs no login), matching what BattleNetDaemonStatus/RiotDaemonStatus render.
+            await _activityRegistry.ReportAsync(
+                ActivityDomains.Integration, platformKey, ActivityAspects.Connected, IsDockerAvailable);
+        }
     }
 
     /// <summary>

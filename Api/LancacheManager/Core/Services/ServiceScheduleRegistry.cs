@@ -45,24 +45,37 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     private readonly Dictionary<string, ScheduledBackgroundService> _scheduledServices = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ConfigurableScheduledService> _configurableServices = new(StringComparer.OrdinalIgnoreCase);
 
-    // ConfigurableScheduledService fires its static ServiceWorkCompleted event using the protected
-    // ServiceName (see ConfigurableScheduledService.cs's ExecuteAsync loop), NOT the ScheduleServiceKey
-    // that _configurableServices above is keyed by. Track each tracked configurable service's
-    // ServiceName here too so OnServiceWorkCompletedAsync's tracked-service guard recognizes the
-    // event when it arrives.
+    // ConfigurableScheduledService fires its static ServiceExecutionStateChanged event using the
+    // protected ServiceName (see ConfigurableScheduledService.cs's ExecuteAsync loop), NOT the
+    // ScheduleServiceKey that _configurableServices above is keyed by. Track each tracked configurable
+    // service's ServiceName here too so OnServiceExecutionStateChangedAsync's tracked-service guard
+    // recognizes the event when it arrives.
     private readonly HashSet<string> _configurableServiceNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker? _tracker;
 
+    // Optional (like _tracker) so unit tests that construct the registry directly keep compiling; at
+    // runtime DI always supplies it. Every schedule broadcast mirrors the running set into the unified
+    // activity registry so the Schedules status dots read the one ActivityUpdated event.
+    private readonly IActivityRegistry? _activityRegistry;
+
+    // Serializes every SchedulesUpdated broadcast (see BroadcastSchedulesAsync). Run start/end events
+    // fire from many independent service-loop threads; without serialization two full-list snapshots
+    // can be sent concurrently and delivered out of order, so an older snapshot arriving last would
+    // leave a finished service stuck "running" (green dot) indefinitely. One in-flight broadcast at a
+    // time, with the snapshot taken inside the lock, guarantees the last delivered payload is current.
+    private readonly SemaphoreSlim _broadcastLock = new(1, 1);
+
     // The tracker is optional so existing unit tests that construct the registry without one keep
     // compiling; at runtime the DI container always supplies the registered singleton. GetRunStatus
     // reports "not running" when it is absent.
-    public ServiceScheduleRegistry(IEnumerable<IHostedService> hostedServices, IStateService stateService, ISignalRNotificationService notifications, IUnifiedOperationTracker? tracker = null)
+    public ServiceScheduleRegistry(IEnumerable<IHostedService> hostedServices, IStateService stateService, ISignalRNotificationService notifications, IUnifiedOperationTracker? tracker = null, IActivityRegistry? activityRegistry = null)
     {
         _stateService = stateService;
         _notifications = notifications;
         _tracker = tracker;
+        _activityRegistry = activityRegistry;
         foreach (var service in hostedServices)
         {
             if (service is ScheduledBackgroundService scheduledService)
@@ -79,8 +92,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 var key = GetServiceKey(configurableService);
                 _configurableServices[key] = configurableService;
 
-                // Also index by the protected ServiceName used by the ServiceWorkCompleted event
-                // (see _configurableServiceNames above) so the completion guard can recognize it.
+                // Also index by the protected ServiceName used by the ServiceExecutionStateChanged event
+                // (see _configurableServiceNames above) so the state-change guard can recognize it.
                 var serviceName = (string?)GetPropertyValue(configurableService.GetType(), configurableService, "ServiceName", typeof(string));
                 if (!string.IsNullOrEmpty(serviceName))
                 {
@@ -89,11 +102,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             }
         }
 
-        ScheduledBackgroundService.ServiceWorkCompleted += OnServiceWorkCompletedAsync;
-        ConfigurableScheduledService.ServiceWorkCompleted += OnServiceWorkCompletedAsync;
+        ScheduledBackgroundService.ServiceExecutionStateChanged += OnServiceExecutionStateChangedAsync;
+        ConfigurableScheduledService.ServiceExecutionStateChanged += OnServiceExecutionStateChangedAsync;
     }
 
-    private async void OnServiceWorkCompletedAsync(string serviceKey)
+    private async void OnServiceExecutionStateChangedAsync(string serviceKey)
     {
         // Mirror the same allowlist gate applied when populating _scheduledServices/_configurableServices:
         // a service this registry doesn't track (excluded from _allowedServiceKeys, or an infrastructure
@@ -113,7 +126,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         try
         {
-            await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, GetAll());
+            await BroadcastSchedulesAsync();
         }
         catch
         {
@@ -123,8 +136,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
     public void NotifySchedulesChanged()
     {
-        // Re-use the same fire-and-forget SignalR broadcast path as work-completed ticks
-        // so conditional-visibility changes (e.g. GC Aggressiveness flip) propagate to the
+        // Re-use the same fire-and-forget SignalR broadcast path as work-state ticks so
+        // conditional-visibility changes (e.g. GC Aggressiveness flip) propagate to the
         // Schedules UI without a page reload. Any error is swallowed - matches existing pattern.
         _ = NotifySchedulesAsync();
     }
@@ -133,11 +146,40 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         try
         {
-            await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, GetAll());
+            await BroadcastSchedulesAsync();
         }
         catch
         {
             // Non-fatal - SignalR broadcast failure should not affect service execution
+        }
+    }
+
+    // The single serialized broadcast path. WaitAsync ensures only one SchedulesUpdated send is in
+    // flight at a time; GetAll() is snapshotted inside the lock so the payload is the freshest committed
+    // state at the moment it is sent, and sends are delivered in order. Public so the controllers route
+    // their config/reset broadcasts through the same lock (see IServiceScheduleRegistry).
+    public async Task BroadcastSchedulesAsync()
+    {
+        await _broadcastLock.WaitAsync();
+        try
+        {
+            var all = GetAll();
+            await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, all);
+
+            // Mirror the running set into the unified activity registry so the Schedules status dots read
+            // the one ActivityUpdated event. ReplaceAsync sets exactly the running services active and
+            // clears the rest, and only broadcasts on an actual change.
+            if (_activityRegistry is not null)
+            {
+                var running = all
+                    .Where(s => s.IsRunning)
+                    .ToDictionary(s => s.Key, _ => 1, StringComparer.Ordinal);
+                await _activityRegistry.ReplaceAsync(ActivityDomains.Schedule, ActivityAspects.Running, running);
+            }
+        }
+        finally
+        {
+            _broadcastLock.Release();
         }
     }
 
@@ -451,6 +493,16 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 }
             }
 
+            // The 1-minute outer poll briefly flips IsCurrentlyExecuting on EVERY tick, including no-op
+            // ticks with nothing due, so it is not a trustworthy "a prefill is actually running" signal
+            // (an unrelated broadcast landing in that ms window would otherwise flash the card green).
+            // Derive the running state from the tracked ScheduledPrefill operation instead - the same
+            // source GetRunStatus uses - so only a genuine run lights the dot. Fall back to the base flag
+            // when no tracker is wired (unit tests construct the registry without one).
+            var isRunning = _tracker is not null
+                ? _tracker.GetActiveOperations(OperationType.ScheduledPrefill).Any()
+                : service.IsCurrentlyExecuting;
+
             // Nothing enabled: report paused (interval 0, no next-run) — the same representation the frontend
             // already renders for any interval-0 service (dimmed card, "Disabled" label, disabled Run Now).
             // LastRunUtc is the per-service MAX (null if nothing ever ran), never the poll stamp.
@@ -464,7 +516,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     NotificationMode = service.EffectiveNotificationMode,
                     NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(key) ?? service.DefaultNotificationDisplayMode,
                     SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
-                    IsRunning = service.IsCurrentlyExecuting,
+                    IsRunning = isRunning,
                     LastRunUtc = latestLastRun,
                     NextRunUtc = null,
                 };
@@ -491,7 +543,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     NotificationMode = service.EffectiveNotificationMode,
                     NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(key) ?? service.DefaultNotificationDisplayMode,
                     SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
-                    IsRunning = service.IsCurrentlyExecuting,
+                    IsRunning = isRunning,
                     LastRunUtc = latestLastRun,
                     NextRunUtc = null,
                 };
@@ -507,10 +559,20 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 NotificationMode = service.EffectiveNotificationMode,
                 NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(key) ?? service.DefaultNotificationDisplayMode,
                 SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
-                IsRunning = service.IsCurrentlyExecuting,
+                IsRunning = isRunning,
                 LastRunUtc = latestLastRun,
                 NextRunUtc = soonestNextRun,
             };
+        }
+
+        // A manual REST trigger (the depot "rebuild now" endpoint -> SteamKit2Service.TryStartRebuild)
+        // starts work WITHOUT going through the base loop that flips IsCurrentlyExecuting, so also treat
+        // the service as running when it has an active tracked operation of its mapped type. This covers
+        // both the scheduled crawl and a manual rebuild with one source of truth.
+        var configurableIsRunning = service.IsCurrentlyExecuting;
+        if (!configurableIsRunning && _tracker is not null && _runStatusOperationTypes.TryGetValue(key, out var runningOpType))
+        {
+            configurableIsRunning = _tracker.GetActiveOperations(runningOpType).Any();
         }
 
         return new ServiceScheduleInfo
@@ -521,7 +583,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             NotificationMode = service.EffectiveNotificationMode,
             NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(key) ?? service.DefaultNotificationDisplayMode,
             SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
-            IsRunning = service.IsCurrentlyExecuting,
+            IsRunning = configurableIsRunning,
             LastRunUtc = service.LastRunUtc,
             NextRunUtc = service.NextRunUtc,
         };

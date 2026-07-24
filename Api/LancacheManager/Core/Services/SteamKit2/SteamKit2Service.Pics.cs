@@ -76,6 +76,11 @@ public partial class SteamKit2Service
                 _currentRebuildCts?.Dispose();
                 _currentRebuildCts = null;
                 _currentPicsOperationId = null;
+                // The operation is already terminal (removed from the tracker's active set) at this
+                // point, and this cleanup runs on BOTH the normal completion and the universal force-kill
+                // paths - so it is the one reliable place to clear the depot status dot for a manual
+                // rebuild. (The scheduled path also clears via its base loop; a duplicate is a no-op.)
+                RaiseExecutionStateChanged();
             },
             // Terminal DepotMappingComplete (success/cancel/error) fires EXACTLY ONCE from inside
             // CompleteOperation via this closure. Success metrics are captured by value into the
@@ -156,6 +161,8 @@ public partial class SteamKit2Service
 
                 // Clear rebuild flag BEFORE disconnecting to prevent reconnection attempts
                 Interlocked.Exchange(ref _rebuildActive, 0);
+                // Note: the depot status dot is cleared from the operation's onTerminalCleanup closure
+                // (which also covers the force-kill path), not here, so both paths clear it exactly once.
 
                 // Explicitly disconnect after crawl completion to prevent reconnection loops
                 if (_steamClient?.IsConnected == true)
@@ -171,6 +178,11 @@ public partial class SteamKit2Service
             }
         }
 
+        // A manual "rebuild now" bypasses the scheduled base loop that normally flips the running state.
+        // The tracked operation is already registered above, so raise the schedule/activity broadcast
+        // BEFORE starting the worker - this lights the depot status dot for manual rebuilds too, and
+        // avoids a race where an instantly-terminating worker could clear the state before this fires.
+        RaiseExecutionStateChanged();
         _currentBuildTask = Task.Run(RunAsync, CancellationToken.None);
         return true;
     }

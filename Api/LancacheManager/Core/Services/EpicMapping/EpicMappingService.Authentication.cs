@@ -144,7 +144,7 @@ public partial class EpicMappingService
             };
             _authStorage.SaveAuthData(authData);
 
-            _isAuthenticated = true;
+            SetIsAuthenticated(true);
             _displayName = tokens.DisplayName;
             _lastCollectionUtc = DateTime.UtcNow;
             _lastRefreshTime = DateTime.UtcNow;
@@ -216,7 +216,7 @@ public partial class EpicMappingService
         {
             _authStorage.ClearAuthData();
 
-            _isAuthenticated = false;
+            SetIsAuthenticated(false);
             _displayName = null;
             _lastCollectionUtc = null;
             _gamesDiscovered = 0;
@@ -266,7 +266,7 @@ public partial class EpicMappingService
                 };
                 _authStorage.SaveAuthData(updatedAuthData);
 
-                _isAuthenticated = true;
+                SetIsAuthenticated(true);
                 _displayName = tokens.DisplayName;
                 _gamesDiscovered = authData.GamesDiscovered;
                 // Prefer the persisted collection time (captures scheduled refreshes too);
@@ -282,7 +282,7 @@ public partial class EpicMappingService
                 _logger.LogWarning(ex, "Epic refresh token expired or invalid, clearing credentials");
                 _authStorage.ClearAuthData();
 
-                _isAuthenticated = false;
+                SetIsAuthenticated(false);
                 _displayName = null;
                 _gamesDiscovered = 0;
             }
@@ -290,7 +290,7 @@ public partial class EpicMappingService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to auto-reconnect Epic mapping session");
-            _isAuthenticated = false;
+            SetIsAuthenticated(false);
         }
         finally
         {

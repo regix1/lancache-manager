@@ -26,6 +26,12 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private readonly SteamWebApiService _steamWebApiService;
     private readonly SteamAuthStorageService _steamAuthRepository;
     private readonly IUnifiedOperationTracker _operationTracker;
+
+    // Optional (like ServiceScheduleRegistry's _tracker) so unit tests constructing the service directly
+    // keep compiling; at runtime DI supplies the singleton. Mirrors the Steam integration's authenticated
+    // state into the unified activity registry so the Steam integration status dot reads the one
+    // ActivityUpdated event.
+    private readonly IActivityRegistry? _activityRegistry;
     private readonly uint _steamLoginId;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
@@ -122,7 +128,8 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         ISignalRNotificationService notifications,
         SteamWebApiService steamWebApiService,
         SteamAuthStorageService steamAuthRepository,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        IActivityRegistry? activityRegistry = null)
         : base(logger, TimeSpan.FromHours(1)) // Default: 1 hour crawl interval
     {
         _scopeFactory = scopeFactory;
@@ -134,6 +141,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         _steamWebApiService = steamWebApiService;
         _steamAuthRepository = steamAuthRepository;
         _operationTracker = operationTracker;
+        _activityRegistry = activityRegistry;
 
         // Use range 16384-65535 to avoid collision with steam-prefill-daemon (0-16383)
         _steamLoginId = (uint)new Random().Next(16384, 65536);

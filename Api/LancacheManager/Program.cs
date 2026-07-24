@@ -594,6 +594,10 @@ builder.Services.AddSingletonHostedService<BattleNetDaemonService>();
 // Register RiotDaemonService for anonymous Riot daemon-based prefill management
 builder.Services.AddSingletonHostedService<RiotDaemonService>();
 
+// Periodically re-checks Battle.net/Riot Docker connectivity into the activity registry, independent of
+// daemon session activity (see DaemonConnectivityReconciler doc comment).
+builder.Services.AddHostedService<DaemonConnectivityReconciler>();
+
 // Register XboxPrefillDaemonService for login-required Xbox / Microsoft Store daemon-based prefill management
 builder.Services.AddSingletonHostedService<XboxPrefillDaemonService>();
 
@@ -681,6 +685,15 @@ builder.Services.AddSingletonHostedService<DashboardCacheWarmerService>();
 
 // Register service schedule registry - collects all ScheduledBackgroundService / ConfigurableScheduledService instances
 builder.Services.AddSingleton<IServiceScheduleRegistry, ServiceScheduleRegistry>();
+
+// Unified activity/presence registry - single source of truth for every "green status dot" across
+// schedules, tracked operations, sessions, prefill, integrations and downloads (broadcasts ActivityUpdated)
+builder.Services.AddSingleton<IActivityRegistry, ActivityRegistry>();
+
+// Periodically reconciles the UserSession/Present activity set against the database, so a session that
+// predates this process (e.g. survived a restart) still gets tracked instead of being permanently absent
+// from the registry (see UserSessionActivityReconciler doc comment).
+builder.Services.AddHostedService<UserSessionActivityReconciler>();
 
 // Register Status Check (DNS/cache reachability and empirical content-path diagnostics) services -
 // ILancacheEnvFileReader is also consumed by

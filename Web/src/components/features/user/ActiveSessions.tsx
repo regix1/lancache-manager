@@ -50,6 +50,7 @@ import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import type {
   EpicGuestPrefillConfigChangedEvent,
   XboxGuestPrefillConfigChangedEvent
@@ -183,6 +184,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const { refreshAuth } = useAuth();
   const { notifyError } = useErrorHandler();
   const { on, off, isConnected } = useSignalR();
+  // Session presence flows through the unified activity registry; the last-seen aging below still
+  // decides active vs away, so away/inactive is never collapsed into a boolean.
+  const activity = useActivityStatus();
   const { prefs: defaultGuestPrefs } = useDefaultGuestPreferences();
 
   const {
@@ -779,6 +783,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   const getSessionStatus = (session: Session): SessionStatus => {
     if (session.isRevoked || session.isExpired) return 'inactive';
+
+    // Presence gate from the unified activity registry (one ActivityUpdated event drives every dot).
+    // The backend reconciles this against the database on a timer, so once a snapshot has arrived it is
+    // authoritative for every valid session (not just ones created by this process). Before that first
+    // snapshot lands, default to present rather than guessing the registry means "gone". The last-seen
+    // aging below still decides active vs away.
+    const present = activity.isActiveOrFallback('userSession', session.id, 'present', true);
+    if (!present) return 'inactive';
 
     if (session.isCurrentSession && isLocallyActive) {
       return 'active';

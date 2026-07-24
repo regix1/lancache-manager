@@ -187,7 +187,7 @@ public partial class XboxCatalogMappingService
                     GamesDiscovered = harvest.CdnInfos.Count
                 });
 
-                _isAuthenticated = true;
+                SetIsAuthenticated(true);
                 _displayName = harvest.DisplayName;
                 _xuid = harvest.Xuid;
                 _gamesDiscovered = harvest.CdnInfos.Count;
@@ -248,7 +248,7 @@ public partial class XboxCatalogMappingService
         {
             _authStorage.ClearAuthData();
 
-            _isAuthenticated = false;
+            SetIsAuthenticated(false);
             _displayName = null;
             _lastCollectionUtc = null;
             _gamesDiscovered = 0;
@@ -314,7 +314,7 @@ public partial class XboxCatalogMappingService
                     d.LastAuthenticated = DateTime.UtcNow;
                 });
 
-                _isAuthenticated = true;
+                SetIsAuthenticated(true);
                 _displayName = authData.DisplayName;
                 _xuid = authData.Xuid;
                 _gamesDiscovered = authData.GamesDiscovered;
@@ -328,7 +328,7 @@ public partial class XboxCatalogMappingService
                 _logger.LogWarning(ex, "Xbox refresh token expired or invalid, clearing credentials");
                 _authStorage.ClearAuthData();
 
-                _isAuthenticated = false;
+                SetIsAuthenticated(false);
                 _displayName = null;
                 _gamesDiscovered = 0;
                 _xuid = null;
@@ -337,7 +337,7 @@ public partial class XboxCatalogMappingService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to auto-reconnect Xbox mapping session");
-            _isAuthenticated = false;
+            SetIsAuthenticated(false);
         }
         finally
         {
@@ -381,7 +381,7 @@ public partial class XboxCatalogMappingService
             await _authSessionLock.WaitAsync(ct);
             try
             {
-                _isAuthenticated = true;
+                SetIsAuthenticated(true);
                 if (!string.IsNullOrEmpty(harvest.DisplayName))
                 {
                     _displayName = harvest.DisplayName;

@@ -1,5 +1,4 @@
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Hubs;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,12 +11,10 @@ namespace LancacheManager.Controllers;
 public class ScheduleController : ControllerBase
 {
     private readonly IServiceScheduleRegistry _registry;
-    private readonly ISignalRNotificationService _notifications;
 
-    public ScheduleController(IServiceScheduleRegistry registry, ISignalRNotificationService notifications)
+    public ScheduleController(IServiceScheduleRegistry registry)
     {
         _registry = registry;
-        _notifications = notifications;
     }
 
     /// <summary>
@@ -56,7 +53,7 @@ public class ScheduleController : ControllerBase
         }
 
         _registry.SetInterval(serviceKey, request.IntervalHours);
-        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
+        await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
 
@@ -73,7 +70,7 @@ public class ScheduleController : ControllerBase
         }
 
         _registry.SetRunOnStartup(serviceKey, request.RunOnStartup);
-        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
+        await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
 
@@ -99,7 +96,7 @@ public class ScheduleController : ControllerBase
         }
 
         _registry.SetNotificationMode(serviceKey, mode);
-        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
+        await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
 
@@ -121,7 +118,7 @@ public class ScheduleController : ControllerBase
         }
 
         _registry.SetNotificationDisplayMode(serviceKey, mode);
-        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
+        await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
 
@@ -155,7 +152,10 @@ public class ScheduleController : ControllerBase
         }
 
         await _registry.TriggerRunAsync(serviceKey);
-        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
+        // Don't broadcast a schedule snapshot here. The run's status dot is driven by the service
+        // loop's own ServiceExecutionStateChanged broadcasts - a START fires the moment the woken loop
+        // begins the run. A snapshot at this point would capture IsRunning=false (the loop hasn't
+        // started yet) and could be delivered AFTER that START, leaving the dot grey for the whole run.
         return Accepted();
     }
 
@@ -166,7 +166,7 @@ public class ScheduleController : ControllerBase
     public async Task<ActionResult> ResetToDefaultsAsync()
     {
         _registry.ResetToDefaults();
-        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
+        await _registry.BroadcastSchedulesAsync();
         return Ok();
     }
 
@@ -177,7 +177,9 @@ public class ScheduleController : ControllerBase
     public async Task<ActionResult<TriggerAllResponse>> TriggerAllAsync()
     {
         var triggered = await _registry.TriggerAllAsync();
-        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
+        // As with the single-service run above, each woken service loop broadcasts its own run
+        // start/end. A snapshot here would capture every service as not-yet-running and could race
+        // those STARTs, so don't broadcast it.
         return Accepted(new TriggerAllResponse { TriggeredCount = triggered });
     }
 }

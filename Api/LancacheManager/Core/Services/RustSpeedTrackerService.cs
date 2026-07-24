@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using LancacheManager.Core.Constants;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
@@ -21,6 +22,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private readonly ProcessManager _processManager;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IStateService _stateService;
+    private readonly IActivityRegistry? _activityRegistry;
     private bool _loggedNoTrackableDatasources;
     private string? _rustExecutablePath;
     private Process? _rustProcess;
@@ -47,7 +49,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         ISignalRNotificationService notifications,
         ProcessManager processManager,
         DatasourceCapabilityService capabilityService,
-        IStateService stateService)
+        IStateService stateService,
+        IActivityRegistry? activityRegistry = null)
         : base(logger, configuration)
     {
         _pathResolver = pathResolver;
@@ -56,6 +59,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         _processManager = processManager;
         _capabilityService = capabilityService;
         _stateService = stateService;
+        _activityRegistry = activityRegistry;
     }
 
     /// <summary>
@@ -138,6 +142,143 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         CacheMissBytes = game.CacheMissBytes,
         IsEvicted = game.IsEvicted
     };
+
+    /// <summary>
+    /// Publishes the current visible active-download set into the unified activity registry so every
+    /// live-download indicator reads one presence signal (the same event the schedule/operation/presence
+    /// dots use). A broadcast failure is swallowed so presence can never disturb the authoritative speed
+    /// path. Reports both the per-game traffic key and each active client IP so game- and client-scoped
+    /// dots can both resolve.
+    /// </summary>
+    private async Task PublishDownloadActivityAsync(DownloadSpeedSnapshot visible)
+    {
+        if (_activityRegistry is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var active = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var game in visible.GameSpeeds)
+            {
+                active[BuildDownloadActivityKey(game)] = 1;
+            }
+            foreach (var client in visible.ClientSpeeds)
+            {
+                var ip = (client.ClientIp ?? string.Empty).Trim();
+                if (ip.Length > 0)
+                {
+                    active[ip] = 1;
+                }
+            }
+
+            await _activityRegistry.ReplaceAsync(ActivityDomains.Download, ActivityAspects.Downloading, active);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to publish download activity snapshot");
+        }
+    }
+
+    // Mirror of the frontend buildTrafficKey (Web/src/components/features/downloads/liveDownloadPreviews.ts):
+    // the live-download status dots read activity by this exact client-qualified identity, so this and the
+    // TypeScript version must stay in sync. Identity tiers: app id (Steam always keys by app, never by name),
+    // then unresolved depot, then a resolved title for named services, then the service-only bucket.
+    private static readonly Regex _steamAppPlaceholder = new(@"^Steam App \d+$", RegexOptions.Compiled);
+
+    private static readonly IReadOnlyDictionary<string, string> _serviceFallbackLabels =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["epic"] = "Epic Games",
+            ["epicgames"] = "Epic Games",
+            ["origin"] = "EA / Origin",
+            ["ea"] = "EA / Origin",
+            ["blizzard"] = "Blizzard / Battle.net",
+            ["battlenet"] = "Blizzard / Battle.net",
+            ["battle.net"] = "Blizzard / Battle.net",
+            ["riot"] = "Riot Games",
+            ["riotgames"] = "Riot Games",
+            ["xbox"] = "Xbox Live",
+            ["xboxlive"] = "Xbox Live",
+            ["wsus"] = "Windows Update",
+            ["windows"] = "Windows Update",
+            ["uplay"] = "Ubisoft",
+            ["ubisoft"] = "Ubisoft",
+            ["arenanet"] = "ArenaNet",
+            ["sony"] = "PlayStation",
+            ["playstation"] = "PlayStation",
+            ["nintendo"] = "Nintendo",
+            ["rockstar"] = "Rockstar Games",
+            ["wargaming"] = "Wargaming",
+            ["steam"] = "Steam",
+            ["localhost"] = "Localhost",
+            ["ip-address"] = "Direct IP",
+            ["unknown"] = "Unknown Service",
+        };
+
+    private static string BuildDownloadActivityKey(GameSpeedInfo game)
+    {
+        var service = NormalizeServiceName(game.Service);
+        var client = (game.ClientIp ?? string.Empty).Trim();
+        var appId = PreviewGameAppId(game);
+        var depotId = PreviewDepotId(game);
+
+        string identity;
+        if (appId is not null)
+        {
+            identity = $"app:{appId}";
+        }
+        else if (depotId is not null)
+        {
+            identity = $"depot:{depotId}";
+        }
+        else if (IsResolvedGameName(game.GameName, game.Service))
+        {
+            identity = $"name:{NormalizeTitle(game.GameName)}";
+        }
+        else
+        {
+            identity = "service";
+        }
+
+        return $"{service}|{client}|{identity}";
+    }
+
+    private static long? PreviewGameAppId(GameSpeedInfo game) => game.GameAppId is > 0 ? game.GameAppId : null;
+
+    private static long? PreviewDepotId(GameSpeedInfo game) =>
+        PreviewGameAppId(game) is null && game.DepotId > 0 ? game.DepotId : null;
+
+    private static bool IsResolvedGameName(string? gameName, string? service)
+    {
+        var name = (gameName ?? string.Empty).Trim();
+        if (name.Length == 0)
+        {
+            return false;
+        }
+
+        var normalized = name.ToLowerInvariant();
+        var raw = NormalizeServiceName(service);
+        if (normalized == raw)
+        {
+            return false;
+        }
+
+        if (_serviceFallbackLabels.TryGetValue(raw, out var fallback) &&
+            normalized == fallback.ToLowerInvariant())
+        {
+            return false;
+        }
+
+        return !_steamAppPlaceholder.IsMatch(name);
+    }
+
+    private static string NormalizeServiceName(string? service) =>
+        (service ?? string.Empty).Trim().ToLowerInvariant();
+
+    private static string NormalizeTitle(string? title) =>
+        (title ?? string.Empty).Trim().ToLowerInvariant();
 
     protected override bool IsEnabled()
     {
@@ -311,6 +452,12 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                         if (hasActivity || _previousHadActivity)
                         {
                             await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, visibleSnapshot);
+
+                            // Mirror the SAME visible active set into the unified activity registry so every
+                            // live-download status dot reads one presence signal. Reported AFTER (and never
+                            // gating) the authoritative speed send; on the trailing-zero the empty set clears
+                            // every download dot.
+                            await PublishDownloadActivityAsync(visibleSnapshot);
                         }
 
                         if (_previousHadActivity && !hasActivity)
@@ -343,12 +490,12 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                 if (_previousHadActivity)
                 {
                     _previousHadActivity = false;
-                    await _notifications.NotifyAllAsync(
-                        SignalREvents.DownloadSpeedUpdate,
-                        BuildClientVisibleSnapshot(
-                            emptySnapshot,
-                            _stateService.GetHiddenClientIps(),
-                            _stateService.GetEvictedDataMode()));
+                    var emptyVisible = BuildClientVisibleSnapshot(
+                        emptySnapshot,
+                        _stateService.GetHiddenClientIps(),
+                        _stateService.GetEvictedDataMode());
+                    await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, emptyVisible);
+                    await PublishDownloadActivityAsync(emptyVisible);
                 }
             }
         }

@@ -1,5 +1,4 @@
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -17,18 +16,15 @@ namespace LancacheManager.Controllers;
 public class ScheduledPrefillConfigController : ControllerBase
 {
     private readonly IStateService _stateService;
-    private readonly ISignalRNotificationService _notifications;
     private readonly IServiceScheduleRegistry _registry;
     private readonly IUnifiedOperationTracker _operationTracker;
 
     public ScheduledPrefillConfigController(
         IStateService stateService,
-        ISignalRNotificationService notifications,
         IServiceScheduleRegistry registry,
         IUnifiedOperationTracker operationTracker)
     {
         _stateService = stateService;
-        _notifications = notifications;
         _registry = registry;
         _operationTracker = operationTracker;
     }
@@ -90,7 +86,7 @@ public class ScheduledPrefillConfigController : ControllerBase
             return BadRequest(ex.Message);
         }
 
-        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
+        await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
 

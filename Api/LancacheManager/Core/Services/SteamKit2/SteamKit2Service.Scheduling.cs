@@ -124,9 +124,9 @@ public partial class SteamKit2Service
 
             if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: IsIncrementalMode(_crawlIncrementalMode), trigger: CurrentRunTrigger))
             {
-                // Await the background task so the base class sets LastRunUtc and fires
-                // ServiceWorkCompleted only after the actual PICS crawl finishes - not
-                // immediately after TryStartRebuild returns.
+                // Await the background task so the base class sets LastRunUtc and fires the run-end
+                // ServiceExecutionStateChanged broadcast only after the actual PICS crawl finishes -
+                // not immediately after TryStartRebuild returns.
                 if (_currentBuildTask is not null)
                 {
                     await _currentBuildTask;

@@ -11,6 +11,7 @@ import { LoadingState } from '@components/ui/ManagerCard';
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import EpicGameMappings from './EpicGameMappings';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
@@ -31,6 +32,11 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
 }) => {
   const { t } = useTranslation();
   const { on, off, connectionState } = useSignalR();
+  // Authentication now flows through the unified activity registry, which is authoritative once ready.
+  // NOT an `||`: a scheduled catalog refresh whose token renewal fails calls SetIsAuthenticated(false)
+  // without emitting EpicGameMappingsUpdated/EpicMappingProgress (see EpicMappingService.Scheduling.cs),
+  // so a stale cached authStatus.isAuthenticated=true would otherwise mask that correct registry false.
+  const activity = useActivityStatus();
   const [authStatus, setAuthStatus] = useState<EpicMappingAuthStatus | null>(null);
   const [hasError, setHasError] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -114,7 +120,12 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
     }
   };
 
-  const isAuthenticated = authStatus?.isAuthenticated ?? false;
+  const isAuthenticated = activity.isActiveOrFallback(
+    'integration',
+    'epic',
+    'authenticated',
+    authStatus?.isAuthenticated ?? false
+  );
 
   const statusBadge = !loading ? (
     isAuthenticated ? (

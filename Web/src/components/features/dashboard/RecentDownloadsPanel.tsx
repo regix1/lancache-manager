@@ -16,12 +16,13 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
 import LiveDownloadRows from '../downloads/LiveDownloadRows';
 import { useLiveDownloadPreviews } from '../downloads/useLiveDownloadPreviews';
-import { filterLivePreviews } from '../downloads/liveDownloadPreviews';
+import { buildTrafficKey, filterLivePreviews } from '../downloads/liveDownloadPreviews';
 import { storage } from '@utils/storage';
 import { APP_EVENTS, STORAGE_KEYS } from '@utils/constants';
 import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
@@ -48,7 +49,21 @@ interface RecentDownloadsPanelProps {
 }
 
 // Active download item component using real-time speed data
-const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; t: TFunction }> = ({ game, t }) => {
+const ActiveDownloadItem: React.FC<{
+  game: GameSpeedInfo;
+  t: TFunction;
+  fallbackActive: boolean;
+}> = ({ game, t, fallbackActive }) => {
+  // The pulse dot's live state flows through the unified activity registry, which is authoritative
+  // once ready; the snapshot's active flag is the fallback only before the first activity snapshot
+  // arrives.
+  const activity = useActivityStatus();
+  const downloading = activity.isActiveOrFallback(
+    'download',
+    buildTrafficKey(game),
+    'downloading',
+    fallbackActive
+  );
   const displayName =
     game.gameName && game.gameName !== game.service && !game.gameName.match(/^Steam App \d+$/)
       ? game.gameName
@@ -56,10 +71,12 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; t: TFunction }> = ({ g
   return (
     <div className="rdl-row rdl-row-active">
       <div className="rdl-row-main">
-        <div className="rdl-active-indicator">
-          <div className="rdl-pulse-ring" />
-          <div className="rdl-pulse-dot" />
-        </div>
+        {downloading && (
+          <div className="rdl-active-indicator">
+            <div className="rdl-pulse-ring" />
+            <div className="rdl-pulse-dot" />
+          </div>
+        )}
         <div className="rdl-row-info">
           <div className="rdl-row-name">
             <Tooltip content={displayName} position="top" className="flex min-w-0">
@@ -736,6 +753,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                     key={`${game.service}-${game.gameAppId || game.gameName || game.depotId}-${game.clientIp ?? 'unknown'}`}
                     game={game}
                     t={t}
+                    fallbackActive={hasActiveDownloads}
                   />
                 ))
               ) : (

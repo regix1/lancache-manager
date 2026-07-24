@@ -30,6 +30,8 @@ import {
 import { formatLastRun } from './scheduleFormatting';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
+import StatusDot from '@components/common/StatusDot';
 import { ScheduledPrefillScheduleDetail } from './scheduled-prefill/ScheduledPrefillScheduleDetail';
 
 interface SchedulesSectionProps {
@@ -201,6 +203,10 @@ const ScheduleRow = memo(function ScheduleRow({
   const { t } = useTranslation();
   const formattedNextRun = useFormattedDateTime(service.nextRunUtc);
   const [detailOpen, setDetailOpen] = useState(false);
+  // Running state now flows through the unified activity registry; service.isRunning is the fallback
+  // for the brief window before the first ActivityUpdated snapshot arrives.
+  const activity = useActivityStatus();
+  const isRunningDot = activity.isActive('schedule', service.key, 'running') || service.isRunning;
 
   const isDepotMapping = service.key === 'depotMapping';
   const isCacheReconciliation = service.key === 'cacheReconciliation';
@@ -327,10 +333,10 @@ const ScheduleRow = memo(function ScheduleRow({
           onClick={hasDetail ? toggleDetail : undefined}
         >
           <div className="schedule-cell-task">
-            <span
-              className={`schedule-status-dot${service.isRunning && service.intervalHours > 0 ? ' running' : ''}`}
-              aria-label={
-                service.isRunning
+            <StatusDot
+              state={isRunningDot ? 'active' : 'inactive'}
+              label={
+                isRunningDot
                   ? t('management.schedules.statusRunning')
                   : t('management.schedules.statusIdle')
               }
@@ -650,6 +656,9 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
 }: ScheduledPrefillCardProps) {
   const { t } = useTranslation();
   const isRunningThis = runningKey === service.key;
+  // Running state flows through the unified activity registry; service.isRunning is the pre-seed fallback.
+  const activity = useActivityStatus();
+  const isRunningDot = activity.isActive('schedule', service.key, 'running') || service.isRunning;
   // The HasAnyEnabledService gate reports "no services enabled" as interval 0. The dim
   // only wraps the header, not the detail, so its Configure button and warning text (the
   // way out of the disabled state) stay at full opacity - opacity on an ancestor cannot
@@ -668,10 +677,10 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
           <div className="schedule-card-header">
             <div className="schedule-card-title-group">
               <h3 className="schedule-card-name">
-                <span
-                  className={`schedule-status-dot${service.isRunning && service.intervalHours > 0 ? ' running' : ''}`}
-                  aria-label={
-                    service.isRunning
+                <StatusDot
+                  state={isRunningDot ? 'active' : 'inactive'}
+                  label={
+                    isRunningDot
                       ? t('management.schedules.statusRunning')
                       : t('management.schedules.statusIdle')
                   }
@@ -746,18 +755,58 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     schedulesRef.current = schedules;
   }, [schedules]);
 
+  // Bumped on every SignalR SchedulesUpdated. fetchSchedules captures this before its request and
+  // discards the response if a newer push landed while the GET was in flight, so a full-list GET
+  // snapshot (mount, reconnect, post Run All/Reset) can never roll back a fresher live update - e.g.
+  // a run START/END dot change delivered during the fetch.
+  const signalrGenerationRef = useRef(0);
+  // Only one GET is ever in flight. A second caller (e.g. the reconnect effect firing right after the
+  // mount effect) can't race it - it records a trailing refresh instead, which runs once when the
+  // current fetch settles. So two GETs never resolve stale-last, a failing fetch never discards a
+  // concurrent successful one, and a reconnect recovery is never dropped.
+  const isFetchingRef = useRef(false);
+  const pendingRefetchRef = useRef(false);
+
   const crawlIncrementalModeRef = useRef(picsProgress?.crawlIncrementalMode);
   useEffect(() => {
     crawlIncrementalModeRef.current = picsProgress?.crawlIncrementalMode;
   }, [picsProgress?.crawlIncrementalMode]);
 
   const fetchSchedules = useCallback(async () => {
+    if (isFetchingRef.current) {
+      // A refresh was requested while one is already in flight (e.g. a reconnect during the mount
+      // GET). Record it so exactly one more fetch runs when the current one settles.
+      pendingRefetchRef.current = true;
+      return;
+    }
+    isFetchingRef.current = true;
     try {
-      const data = (await ApiService.getSchedules()) as ServiceScheduleInfo[];
-      setSchedules(data);
-      setError(null);
-    } catch {
-      setError(t('management.schedules.fetchError'));
+      do {
+        pendingRefetchRef.current = false;
+        const generationAtRequest = signalrGenerationRef.current;
+        try {
+          const data = (await ApiService.getSchedules()) as ServiceScheduleInfo[];
+          // A SignalR SchedulesUpdated arrived while this GET was in flight - it is fresher than this
+          // snapshot, so drop the GET result rather than roll back the live state.
+          if (signalrGenerationRef.current === generationAtRequest) {
+            setSchedules(data);
+            setError(null);
+          }
+        } catch {
+          // Only surface the fatal error view on an initial-load failure (nothing on screen yet) AND
+          // only when no SignalR push landed during this GET - a push may have just populated the list
+          // (schedulesRef lags a render), and a transient refetch failure must not blank live data.
+          if (
+            schedulesRef.current.length === 0 &&
+            signalrGenerationRef.current === generationAtRequest
+          ) {
+            setError(t('management.schedules.fetchError'));
+          }
+        }
+        // If another refresh was requested mid-fetch, run one more pass rather than dropping it.
+      } while (pendingRefetchRef.current);
+    } finally {
+      isFetchingRef.current = false;
     }
   }, [t]);
 
@@ -770,6 +819,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   // Subscribe to real-time schedule updates via SignalR
   useEffect(() => {
     const handleSchedulesUpdated = (data: ServiceScheduleInfo[]) => {
+      signalrGenerationRef.current += 1;
       setSchedules(data);
       setError(null);
     };

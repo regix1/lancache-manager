@@ -245,6 +245,8 @@ export const SIGNALR_EVENTS = [
 
   // Schedules
   'SchedulesUpdated',
+  // Unified activity/presence — one event drives every "green status dot"
+  'ActivityUpdated',
   'ScheduledPrefillStarted',
   'ScheduledPrefillProgress',
   'ScheduledPrefillCompleted',
@@ -1051,6 +1053,38 @@ export interface ScheduledRunCompleteEvent {
   percentComplete: number;
   error?: string;
   showNotification?: boolean;
+}
+
+// ============================================================================
+// Unified Activity / Presence (one event drives every green status dot)
+// ============================================================================
+// Full-snapshot payload: `activities` lists every currently-active entity across all domains.
+// An entity absent from the list is inactive. `revision` is a server-monotonic counter — the
+// consumer keeps the highest seen and ignores older snapshots (reorder guard). Rich per-domain
+// channels (DownloadSpeedUpdate, SessionLastSeenUpdated, daemon lifecycle, etc.) are unchanged;
+// only the dots read this event.
+export type ActivityDomain =
+  | 'schedule'
+  | 'operation'
+  | 'userSession'
+  | 'prefillSession'
+  | 'persistentContainer'
+  | 'integration'
+  | 'download';
+
+export type ActivityAspect = 'running' | 'present' | 'authenticated' | 'connected' | 'downloading';
+
+export interface ActivityItem {
+  domain: ActivityDomain;
+  key: string;
+  aspect: ActivityAspect;
+  isActive: boolean;
+  activeCount: number;
+}
+
+export interface ActivitySnapshotEvent {
+  revision: number;
+  activities: ActivityItem[];
 }
 
 // Mirrors the backend payload emitted by XboxMappingService.MergeDaemonCatalogCoreAsync

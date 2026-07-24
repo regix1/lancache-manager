@@ -1,3 +1,4 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -11,6 +12,7 @@ public class DownloadHub : Hub
 {
     private readonly ConnectionTrackingService _connectionTrackingService;
     private readonly SessionService _sessionService;
+    private readonly IActivityRegistry _activityRegistry;
     private readonly ILogger<DownloadHub> _logger;
 
     // SignalR groups for role-based messaging
@@ -21,10 +23,12 @@ public class DownloadHub : Hub
     public DownloadHub(
         ConnectionTrackingService connectionTrackingService,
         SessionService sessionService,
+        IActivityRegistry activityRegistry,
         ILogger<DownloadHub> logger)
     {
         _connectionTrackingService = connectionTrackingService;
         _sessionService = sessionService;
+        _activityRegistry = activityRegistry;
         _logger = logger;
     }
 
@@ -84,6 +88,22 @@ public class DownloadHub : Hub
 
                 _logger.LogDebug("SignalR client connected: ConnectionId={ConnectionId}, SessionType={SessionType}",
                     Context.ConnectionId, session.SessionType);
+
+                // Seed the newly-connected client with the current activity/presence snapshot so its
+                // status dots are correct immediately - SignalR cannot replay broadcasts sent before the
+                // client connected.
+                try
+                {
+                    var activity = await _activityRegistry.GetSnapshotAsync();
+                    var visibleActivity = session.SessionType == SessionType.Admin
+                        ? activity
+                        : ActivityRegistry.ToGuestVisibleSnapshot(activity);
+                    await Clients.Caller.SendAsync(SignalREvents.ActivityUpdated, visibleActivity);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to seed activity snapshot: ConnectionId={ConnectionId}", Context.ConnectionId);
+                }
 
                 await base.OnConnectedAsync();
                 return;

@@ -58,6 +58,14 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// </summary>
     protected override string ServiceName => "Scheduled Prefill";
 
+    // The outer loop wakes once a minute and no-ops most ticks (nothing due). Emitting a run-START
+    // schedule broadcast on every tick would flash this card's status dot green each minute, so opt out
+    // of the automatic per-tick start. ExecuteWorkAsync instead calls RaiseExecutionStateChanged() only
+    // when a real run begins (>= 1 due service), so the dot still lights for genuine runs. The base loop
+    // keeps emitting the run-END broadcast every tick, which keeps the Last/Next-run readouts fresh and
+    // reports the idle state.
+    protected override bool BroadcastRunStart => false;
+
     /// <summary>
     /// Scheduled prefill should not fire automatically the instant the app starts.
     /// </summary>
@@ -159,6 +167,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             notificationMetadata);
         var operationIdString = operationId.ToString();
         var runToken = cts.Token;
+
+        // Light the Schedules status dot for this genuine run. The base loop suppresses the automatic
+        // per-tick start (BroadcastRunStart = false) so an idle poll never flashes the card; raise it
+        // here, AFTER RegisterOperation, so the serialized SchedulesUpdated snapshot sees the active
+        // tracked operation (which is how this card's IsRunning is now derived). The base loop still
+        // broadcasts the run-end once this method returns and the operation has completed.
+        RaiseExecutionStateChanged();
 
         bool success = true;
         string? error = null;

@@ -52,6 +52,7 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { cleanIpAddress } from '@components/features/user/types';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
@@ -290,11 +291,18 @@ const SessionCard: React.FC<{
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const historyPageSize = 5;
+  // Downloading state flows through the unified activity registry for live daemon sessions; the DTO's
+  // isPrefilling flag stays the pre-seed fallback (activity.isActive(...) || existing).
+  const activity = useActivityStatus();
 
   // Normalize session data between DaemonSessionDto and PrefillSessionDto
   const isDaemonSession = 'id' in session && !('sessionId' in session);
   const status = session.status;
-  const isPrefilling = isDaemonSession ? (session as DaemonSessionDto).isPrefilling : false;
+  const daemonSessionId = isDaemonSession ? (session as DaemonSessionDto).id : null;
+  const isPrefilling =
+    (daemonSessionId !== null &&
+      activity.isActive('prefillSession', daemonSessionId, 'downloading')) ||
+    (isDaemonSession ? (session as DaemonSessionDto).isPrefilling : false);
 
   const platform = isDaemonSession
     ? (session as DaemonSessionDto).platform || 'Steam'
@@ -729,24 +737,33 @@ const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerD
   const isAnonymous = isAnonymousServiceId(serviceId);
   const displayName = serviceDisplayName(serviceId);
 
-  const runTone: 'idle' | 'running' = container.isRunning ? 'running' : 'idle';
-  const runLabel = container.isRunning
-    ? t(`${baseKey}.status.running`)
-    : t(`${baseKey}.status.stopped`);
+  // Persistent-container run/login state now flows through the unified activity registry, keyed by the
+  // lowercase platform token (BattleNet -> battlenet). The fetched container stays the pre-seed fallback
+  // (activity.isActive(...) || existing).
+  const activity = useActivityStatus();
+  const activityPlatformKey = container.service.toLowerCase();
+  const isRunning =
+    activity.isActive('persistentContainer', activityPlatformKey, 'running') || container.isRunning;
+  const isAuthenticated =
+    activity.isActive('persistentContainer', activityPlatformKey, 'authenticated') ||
+    container.isAuthenticated;
 
-  const showLoginState = container.isRunning && !isAnonymous;
+  const runTone: 'idle' | 'running' = isRunning ? 'running' : 'idle';
+  const runLabel = isRunning ? t(`${baseKey}.status.running`) : t(`${baseKey}.status.stopped`);
+
+  const showLoginState = isRunning && !isAnonymous;
   const loginTone: 'active' | 'warning' = container.needsRelogin
     ? 'warning'
-    : container.isAuthenticated
+    : isAuthenticated
       ? 'active'
       : 'warning';
   const loginLabel = container.needsRelogin
     ? t(`${baseKey}.status.needsRelogin`)
-    : container.isAuthenticated
+    : isAuthenticated
       ? t(`${baseKey}.status.authenticated`)
       : t(`${baseKey}.status.notLoggedIn`);
 
-  const isPrefilling = container.isRunning && (container.isPrefilling ?? false);
+  const isPrefilling = isRunning && (container.isPrefilling ?? false);
 
   return (
     <Card className="prefill-persistent-card">

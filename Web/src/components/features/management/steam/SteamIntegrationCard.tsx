@@ -5,6 +5,7 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { useSteamAuth } from '@contexts/useSteamAuth';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { type AuthMode } from '@services/auth.service';
 import SteamLoginManager from './SteamLoginManager';
 import SteamWebApiStatus from './SteamWebApiStatus';
@@ -24,21 +25,26 @@ const SteamIntegrationCard: React.FC<SteamIntegrationCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const { steamAuthMode } = useSteamAuth();
+  // Connection state now flows through the unified activity registry; the configured auth mode stays the
+  // pre-seed fallback (activity.isActive(...) || existing).
+  const activity = useActivityStatus();
   const [expanded, setExpanded] = useState(false);
   useAccordionGroupItem('integrations-steam', expanded, () => setExpanded((prev) => !prev));
 
-  const statusBadge =
-    steamAuthMode === 'authenticated' ? (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-        <CheckCircle size={14} />
-        {t('management.steamAuth.connected')}
-      </span>
-    ) : (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-        <User size={14} />
-        {t('management.steamAuth.anonymous')}
-      </span>
-    );
+  const isConnected =
+    activity.isActive('integration', 'steam', 'authenticated') || steamAuthMode === 'authenticated';
+
+  const statusBadge = isConnected ? (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
+      <CheckCircle size={14} />
+      {t('management.steamAuth.connected')}
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
+      <User size={14} />
+      {t('management.steamAuth.anonymous')}
+    </span>
+  );
 
   return (
     <AccordionSection

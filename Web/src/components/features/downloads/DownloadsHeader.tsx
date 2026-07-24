@@ -4,7 +4,9 @@ import { Zap, Clock, HardDrive, Users, TrendingUp } from 'lucide-react';
 import { useDownloads } from '@contexts/DashboardDataContext/hooks';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
+import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useTimeFilter } from '@contexts/useTimeFilter';
+import { buildTrafficKey } from './liveDownloadPreviews';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { formatBytes, formatPercent, formatSpeedWithSeparatedUnit } from '@utils/formatters';
@@ -21,7 +23,8 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   const { t } = useTranslation();
   const { latestDownloads } = useDownloads();
   const signalR = useSignalR();
-  const { speedSnapshot, activeDownloadCount, totalActiveClients } = useSpeed();
+  const { speedSnapshot, gameSpeeds, activeDownloadCount, totalActiveClients } = useSpeed();
+  const activity = useActivityStatus();
   const { timeRange } = useTimeFilter();
 
   // Determine if we're viewing historical/filtered data (not live)
@@ -63,6 +66,12 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
 
   // Use speedSnapshot from SpeedContext (single source of truth for real-time data)
   const isActive = speedSnapshot?.hasActiveDownloads || false;
+  // The speed indicator's live pulse reads the unified activity registry (any visible download
+  // active), which is authoritative once ready; the snapshot's active flag is the fallback only
+  // before the first activity snapshot arrives.
+  const isDownloadingDot = activity.ready
+    ? gameSpeeds.some((game) => activity.isActive('download', buildTrafficKey(game), 'downloading'))
+    : isActive;
   const totalSpeed = isActive ? speedSnapshot?.totalBytesPerSecond || 0 : 0;
   const activeGamesCount = activeDownloadCount;
   const activeClientsCount = totalActiveClients;
@@ -79,7 +88,9 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
       <div className="header-content">
         {/* Left: Speed Display */}
         <div className="speed-section">
-          <div className={`speed-indicator ${!isHistoricalView && isActive ? 'active' : ''}`}>
+          <div
+            className={`speed-indicator ${!isHistoricalView && isDownloadingDot ? 'active' : ''}`}
+          >
             <div className="speed-ring" />
             {isHistoricalView ? (
               <Clock className="speed-icon" size={28} />
