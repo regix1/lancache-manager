@@ -23,6 +23,7 @@ import { SPECIAL_NOTIFICATION_CONTRACTS } from './specialNotificationContracts';
 
 import { NotificationsContext } from './NotificationsContext.types';
 import { APP_EVENTS } from '@utils/constants';
+import { hasRecentUserInteraction } from '@utils/userInteractionTracker';
 
 interface NotificationsProviderProps {
   children: ReactNode;
@@ -389,12 +390,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       );
   }, [scheduleAutoDismiss]);
 
-  // Authenticated fetch helper for recovery operations
+  // Authenticated fetch helper for recovery operations - fires from a SignalR-reconnect effect with
+  // no user action involved (a network blip or laptop wake can reconnect while the tab is genuinely
+  // idle), so it carries the same activity signal as ApiService.getFetchOptions() rather than keeping
+  // LastSeenAtUtc artificially fresh on every reconnect.
   const fetchWithAuth: FetchWithAuth = useCallback(async (url: string): Promise<Response> => {
     return fetch(url, {
       credentials: 'include',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-User-Active': hasRecentUserInteraction(120_000) ? 'true' : 'false'
       }
     });
   }, []);

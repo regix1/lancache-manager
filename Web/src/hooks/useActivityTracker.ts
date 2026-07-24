@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import ApiService from '@services/api.service';
+import { recordInteraction } from '@utils/userInteractionTracker';
 
 /**
  * User activity tracker for session presence.
@@ -50,12 +52,14 @@ const getApiBase = (): string => {
 
 const sendHeartbeat = (): void => {
   try {
-    void fetch(`${getApiBase()}${HEARTBEAT_URL}`, {
-      method: 'POST',
-      credentials: 'include',
-      cache: 'no-store',
-      keepalive: true
-    }).catch(() => {
+    void fetch(
+      `${getApiBase()}${HEARTBEAT_URL}`,
+      ApiService.getFetchOptions({
+        method: 'POST',
+        cache: 'no-store',
+        keepalive: true
+      })
+    ).catch(() => {
       /* swallow - heartbeat is best-effort */
     });
   } catch {
@@ -104,20 +108,34 @@ export const useActivityTracker = (
     }
   }, []);
 
-  const handleActivity = useCallback((): void => {
-    const now = Date.now();
-    lastActivityRef.current = now;
+  const handleActivity = useCallback(
+    (event: Event): void => {
+      const now = Date.now();
+      lastActivityRef.current = now;
+      // Mark this interaction immediately rather than relying on userInteractionTracker's own,
+      // independently-registered listener for the same event having already run - listener order for
+      // two separate addEventListener calls is registration order, and goActive()'s heartbeat below
+      // reads hasRecentUserInteraction() synchronously, so it must not depend on that race. Exclude
+      // 'focus': userInteractionTracker deliberately tracks only direct physical interaction
+      // (mouse/keyboard/touch/scroll/wheel), not window focus, since a window can regain focus (e.g.
+      // alt-tab) without anyone actually touching this page - counting it here would broaden that
+      // module's own narrower definition of "genuine interaction".
+      if (event.type !== 'focus') {
+        recordInteraction();
+      }
 
-    if (!isActiveRef.current) {
-      goActive();
-      return;
-    }
+      if (!isActiveRef.current) {
+        goActive();
+        return;
+      }
 
-    if (now - lastEventDispatchRef.current >= ACTIVITY_THROTTLE_MS) {
-      lastEventDispatchRef.current = now;
-      setLastActivityTime(now);
-    }
-  }, [goActive]);
+      if (now - lastEventDispatchRef.current >= ACTIVITY_THROTTLE_MS) {
+        lastEventDispatchRef.current = now;
+        setLastActivityTime(now);
+      }
+    },
+    [goActive]
+  );
 
   useEffect(() => {
     const checkIdleStatus = (): void => {

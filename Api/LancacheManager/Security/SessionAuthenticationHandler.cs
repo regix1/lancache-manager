@@ -32,12 +32,14 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
         // 3. Store session in HttpContext.Items for backward compatibility
         Context.Items["Session"] = session;
 
-        // 4. Fire-and-forget last seen update - skip only when the browser tab explicitly reports
-        // itself hidden/backgrounded (X-Page-Visible: false), so an abandoned-but-open tab's ambient
-        // background refetches don't keep resetting LastSeenAtUtc as if a human were present.
-        var pageVisible = !string.Equals(
-            Context.Request.Headers["X-Page-Visible"].ToString(), "false", StringComparison.OrdinalIgnoreCase);
-        if (pageVisible)
+        // 4. Fire-and-forget last seen update - skip only when the browser explicitly reports no
+        // genuine recent interaction (X-User-Active: false), so a tab sitting open and VISIBLE but
+        // untouched on an unattended screen doesn't keep resetting LastSeenAtUtc from its own ambient
+        // background refetches as if a human were present. Mere tab visibility is not enough here -
+        // see Web/src/utils/userInteractionTracker.ts for why.
+        var userActive = !string.Equals(
+            Context.Request.Headers["X-User-Active"].ToString(), "false", StringComparison.OrdinalIgnoreCase);
+        if (userActive)
         {
             _ = sessionService.UpdateLastSeenAsync(session);
         }

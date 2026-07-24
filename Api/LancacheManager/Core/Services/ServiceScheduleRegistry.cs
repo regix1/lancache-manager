@@ -60,12 +60,27 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // activity registry so the Schedules status dots read the one ActivityUpdated event.
     private readonly IActivityRegistry? _activityRegistry;
 
-    // Serializes every SchedulesUpdated broadcast (see BroadcastSchedulesAsync). Run start/end events
-    // fire from many independent service-loop threads; without serialization two full-list snapshots
-    // can be sent concurrently and delivered out of order, so an older snapshot arriving last would
-    // leave a finished service stuck "running" (green dot) indefinitely. One in-flight broadcast at a
-    // time, with the snapshot taken inside the lock, guarantees the last delivered payload is current.
+    // Serializes every SchedulesUpdated send (see BroadcastSchedulesAsync). Run start/end events fire
+    // from many independent service-loop threads; without serialization two full-list snapshots could
+    // be sent concurrently and delivered out of order, leaving a finished service stuck "running"
+    // (green dot) indefinitely. One in-flight send at a time, draining _pendingSnapshots in FIFO order,
+    // guarantees sends are both current and never out of order.
     private readonly SemaphoreSlim _broadcastLock = new(1, 1);
+
+    // Snapshots captured (see BroadcastSchedulesAsync) but not yet sent, in capture order. A snapshot
+    // is taken OUTSIDE _broadcastLock, right when a run-start/run-end event fires, rather than after
+    // acquiring the lock - reading it only after winning a contended lock could delay the read
+    // arbitrarily long past its own triggering event, silently reporting state as of whenever it
+    // happens to run instead of as of the transition it was meant to capture. Whichever caller wins
+    // _broadcastLock drains this queue to empty (see BroadcastSchedulesAsync) rather than sending only
+    // its own snapshot and dropping whatever else queued up behind it - a fast run-start then run-finish
+    // pair captured back to back while the lock was busy must both still be sent, in order, or the
+    // run's brief "active" moment would never reach a client at all (not just be delayed).
+    private readonly Queue<IReadOnlyList<ServiceScheduleInfo>> _pendingSnapshots = new();
+    // Guards _pendingSnapshots's enqueue/dequeue (a plain lock is enough - both sides are short,
+    // synchronous, in-memory operations; the actual async send is serialized separately by
+    // _broadcastLock above, which this lock is never held across).
+    private readonly object _snapshotLock = new();
 
     // The tracker is optional so existing unit tests that construct the registry without one keep
     // compiling; at runtime the DI container always supplies the registered singleton. GetRunStatus
@@ -154,27 +169,59 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
     }
 
-    // The single serialized broadcast path. WaitAsync ensures only one SchedulesUpdated send is in
-    // flight at a time; GetAll() is snapshotted inside the lock so the payload is the freshest committed
-    // state at the moment it is sent, and sends are delivered in order. Public so the controllers route
-    // their config/reset broadcasts through the same lock (see IServiceScheduleRegistry).
+    // The single serialized broadcast path. GetAll() is snapshotted and queued (see _pendingSnapshots)
+    // before the async _broadcastLock below is even requested, so the payload reflects state as of
+    // THIS call's own trigger, not whenever it eventually wins the lock. Whichever caller wins the lock
+    // drains the ENTIRE queue in order - not just its own snapshot - so a snapshot enqueued by another
+    // concurrent caller while this one waited is never skipped; every captured transition is sent.
+    // Public so the controllers route their config/reset broadcasts through the same lock (see
+    // IServiceScheduleRegistry).
     public async Task BroadcastSchedulesAsync()
     {
+        lock (_snapshotLock)
+        {
+            _pendingSnapshots.Enqueue(GetAll());
+        }
+
         await _broadcastLock.WaitAsync();
         try
         {
-            var all = GetAll();
-            await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, all);
-
-            // Mirror the running set into the unified activity registry so the Schedules status dots read
-            // the one ActivityUpdated event. ReplaceAsync sets exactly the running services active and
-            // clears the rest, and only broadcasts on an actual change.
-            if (_activityRegistry is not null)
+            while (true)
             {
-                var running = all
-                    .Where(s => s.IsRunning)
-                    .ToDictionary(s => s.Key, _ => 1, StringComparer.Ordinal);
-                await _activityRegistry.ReplaceAsync(ActivityDomains.Schedule, ActivityAspects.Running, running);
+                IReadOnlyList<ServiceScheduleInfo>? next;
+                lock (_snapshotLock)
+                {
+                    next = _pendingSnapshots.Count > 0 ? _pendingSnapshots.Dequeue() : null;
+                }
+                if (next is null)
+                {
+                    break;
+                }
+
+                // NotifyAllAsync/ReplaceAsync already swallow their own failures internally, so this is
+                // belt-and-suspenders: if a future change to either ever let an exception through, it
+                // must not abandon the drain loop and strand every snapshot still queued behind this one
+                // - the drain-then-send guarantee (see class doc) applies to the WHOLE queue, not just
+                // whichever item happened to be dequeued first.
+                try
+                {
+                    await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, next);
+
+                    // Mirror the running set into the unified activity registry so the Schedules status
+                    // dots read the one ActivityUpdated event. ReplaceAsync sets exactly the running
+                    // services active and clears the rest, and only broadcasts on an actual change.
+                    if (_activityRegistry is not null)
+                    {
+                        var running = next
+                            .Where(s => s.IsRunning)
+                            .ToDictionary(s => s.Key, _ => 1, StringComparer.Ordinal);
+                        await _activityRegistry.ReplaceAsync(ActivityDomains.Schedule, ActivityAspects.Running, running);
+                    }
+                }
+                catch
+                {
+                    // Non-fatal - move on to whatever else is queued rather than losing it too.
+                }
             }
         }
         finally

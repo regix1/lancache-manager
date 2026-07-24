@@ -1,5 +1,6 @@
 import type { ApiErrorData } from './apiError';
 import { getApiUrl } from './apiUrl';
+import { hasRecentUserInteraction } from '@utils/userInteractionTracker';
 
 export type AuthMode = 'authenticated' | 'guest' | 'unauthenticated';
 export type SessionType = 'admin' | 'guest';
@@ -56,9 +57,15 @@ class AuthService {
     }, AUTH_CHECK_TIMEOUT_MS);
 
     try {
+      // Reachable from a SignalR-reconnect effect with no user action involved (a network blip or
+      // laptop wake can reconnect while the tab is genuinely idle) - carry the same activity signal
+      // as ApiService.getFetchOptions() so this doesn't keep LastSeenAtUtc artificially fresh.
       const response = await fetch(`${API_URL}/api/auth/status`, {
         credentials: 'include',
-        signal: controller.signal
+        signal: controller.signal,
+        headers: {
+          'X-User-Active': hasRecentUserInteraction(120_000) ? 'true' : 'false'
+        }
       });
 
       if (!response.ok) {

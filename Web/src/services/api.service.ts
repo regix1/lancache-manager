@@ -1,5 +1,6 @@
 import { API_BASE } from '../utils/constants';
 import { isAbortError } from '../utils/error';
+import { hasRecentUserInteraction } from '../utils/userInteractionTracker';
 import { ApiError, assertOk, buildApiError } from './apiError';
 import type {
   OperationStatus,
@@ -290,7 +291,10 @@ class ApiService {
       credentials: 'include', // Important: include HttpOnly session cookies
       headers: {
         ...this.getHeaders(),
-        'X-Page-Visible': document.visibilityState === 'visible' ? 'true' : 'false',
+        // Genuine recent interaction (mouse/keyboard/touch/scroll), NOT mere tab visibility - a tab can
+        // sit open and visible on an unattended screen while its own SignalR-triggered background
+        // refetches keep firing, and Page Visibility alone can't tell those two cases apart.
+        'X-User-Active': hasRecentUserInteraction(120_000) ? 'true' : 'false',
         ...(options.headers || {})
       }
     };
@@ -2436,32 +2440,24 @@ class ApiService {
   // =====================================================
 
   static async getEpicDaemonStatus(): Promise<EpicDaemonStatusDto> {
-    const response = await fetch(`${API_BASE}/epic-daemon/status`, {
-      credentials: 'include'
-    });
+    const response = await fetch(`${API_BASE}/epic-daemon/status`, this.getFetchOptions());
     return ApiService.handleResponse<EpicDaemonStatusDto>(response);
   }
 
   // Battle.net daemon exposes the same service-agnostic status shape as Epic.
   static async getBattleNetDaemonStatus(): Promise<EpicDaemonStatusDto> {
-    const response = await fetch(`${API_BASE}/battlenet-daemon/status`, {
-      credentials: 'include'
-    });
+    const response = await fetch(`${API_BASE}/battlenet-daemon/status`, this.getFetchOptions());
     return ApiService.handleResponse<EpicDaemonStatusDto>(response);
   }
 
   static async getRiotDaemonStatus(): Promise<EpicDaemonStatusDto> {
-    const response = await fetch(`${API_BASE}/riot-daemon/status`, {
-      credentials: 'include'
-    });
+    const response = await fetch(`${API_BASE}/riot-daemon/status`, this.getFetchOptions());
     return ApiService.handleResponse<EpicDaemonStatusDto>(response);
   }
 
   // Xbox daemon exposes the same service-agnostic status shape as Epic.
   static async getXboxDaemonStatus(): Promise<EpicDaemonStatusDto> {
-    const response = await fetch(`${API_BASE}/xbox-daemon/status`, {
-      credentials: 'include'
-    });
+    const response = await fetch(`${API_BASE}/xbox-daemon/status`, this.getFetchOptions());
     return ApiService.handleResponse<EpicDaemonStatusDto>(response);
   }
 
@@ -2469,43 +2465,39 @@ class ApiService {
   // (Rust ingest + RustLogProcessor post-pass + the xboxMapping schedule), so this exposes just the
   // catalog, stats and search for the game-library list.
   static async getXboxGameMappings(): Promise<XboxGameMappingDto[]> {
-    const response = await fetch(`${API_BASE}/xbox/game-mappings`, {
-      credentials: 'include'
-    });
+    const response = await fetch(`${API_BASE}/xbox/game-mappings`, this.getFetchOptions());
     return ApiService.handleResponse<XboxGameMappingDto[]>(response);
   }
 
   static async getXboxMappingStats(): Promise<XboxMappingStats> {
-    const response = await fetch(`${API_BASE}/xbox/game-mappings/stats`, {
-      credentials: 'include'
-    });
+    const response = await fetch(`${API_BASE}/xbox/game-mappings/stats`, this.getFetchOptions());
     return ApiService.handleResponse<XboxMappingStats>(response);
   }
 
   static async searchXboxGames(query: string): Promise<XboxGameMappingDto[]> {
     const response = await fetch(
       `${API_BASE}/xbox/game-mappings/search?q=${encodeURIComponent(query)}`,
-      { credentials: 'include' }
+      this.getFetchOptions()
     );
     return ApiService.handleResponse<XboxGameMappingDto[]>(response);
   }
 
   // Xbox mapping auth — mirrors Epic's auth-status/login/logout shape (daemon-free MSA device-code).
   static async getXboxMappingAuthStatus(): Promise<XboxMappingAuthStatus> {
-    const response = await fetch(`${API_BASE}/xbox/game-mappings/auth-status`, {
-      credentials: 'include'
-    });
+    const response = await fetch(
+      `${API_BASE}/xbox/game-mappings/auth-status`,
+      this.getFetchOptions()
+    );
     return ApiService.handleResponse<XboxMappingAuthStatus>(response);
   }
 
   static async startXboxMappingLogin(
     signal?: AbortSignal
   ): Promise<{ userCode: string; verificationUri: string; expiresIn: number; interval: number }> {
-    const response = await fetch(`${API_BASE}/xbox/game-mappings/auth/login`, {
-      method: 'POST',
-      credentials: 'include',
-      signal
-    });
+    const response = await fetch(
+      `${API_BASE}/xbox/game-mappings/auth/login`,
+      this.getFetchOptions({ method: 'POST', signal })
+    );
     return ApiService.handleResponse<{
       userCode: string;
       verificationUri: string;
@@ -2515,82 +2507,78 @@ class ApiService {
   }
 
   static async logoutXboxMapping(): Promise<void> {
-    const response = await fetch(`${API_BASE}/xbox/game-mappings/auth`, {
-      method: 'DELETE',
-      credentials: 'include'
-    });
+    const response = await fetch(
+      `${API_BASE}/xbox/game-mappings/auth`,
+      this.getFetchOptions({ method: 'DELETE' })
+    );
     await ApiService.handleResponse(response);
   }
 
   // Cancels a pending device-code login poll (e.g. when the login modal is closed) WITHOUT clearing
   // credentials or signing out an already-authenticated account. Distinct from logoutXboxMapping.
   static async cancelXboxMappingLogin(): Promise<void> {
-    const response = await fetch(`${API_BASE}/xbox/game-mappings/auth/cancel`, {
-      method: 'POST',
-      credentials: 'include'
-    });
+    const response = await fetch(
+      `${API_BASE}/xbox/game-mappings/auth/cancel`,
+      this.getFetchOptions({ method: 'POST' })
+    );
     await ApiService.handleResponse(response);
   }
 
   static async getEpicGameMappings(): Promise<EpicGameMappingDto[]> {
-    const response = await fetch(`${API_BASE}/epic/game-mappings`, {
-      credentials: 'include'
-    });
+    const response = await fetch(`${API_BASE}/epic/game-mappings`, this.getFetchOptions());
     return ApiService.handleResponse<EpicGameMappingDto[]>(response);
   }
 
   static async getEpicMappingStats(): Promise<EpicMappingStats> {
-    const response = await fetch(`${API_BASE}/epic/game-mappings/stats`, {
-      credentials: 'include'
-    });
+    const response = await fetch(`${API_BASE}/epic/game-mappings/stats`, this.getFetchOptions());
     return ApiService.handleResponse<EpicMappingStats>(response);
   }
 
   static async searchEpicGames(query: string): Promise<EpicGameMappingDto[]> {
     const response = await fetch(
       `${API_BASE}/epic/game-mappings/search?q=${encodeURIComponent(query)}`,
-      { credentials: 'include' }
+      this.getFetchOptions()
     );
     return ApiService.handleResponse<EpicGameMappingDto[]>(response);
   }
 
   static async getEpicMappingAuthStatus(): Promise<EpicMappingAuthStatus> {
-    const response = await fetch(`${API_BASE}/epic/game-mappings/auth-status`, {
-      credentials: 'include'
-    });
+    const response = await fetch(
+      `${API_BASE}/epic/game-mappings/auth-status`,
+      this.getFetchOptions()
+    );
     return ApiService.handleResponse<EpicMappingAuthStatus>(response);
   }
 
   static async getEpicScheduleStatus(): Promise<EpicScheduleStatus> {
-    const response = await fetch(`${API_BASE}/epic/game-mappings/schedule`, {
-      credentials: 'include'
-    });
+    const response = await fetch(`${API_BASE}/epic/game-mappings/schedule`, this.getFetchOptions());
     return ApiService.handleResponse<EpicScheduleStatus>(response);
   }
 
   static async setEpicRefreshInterval(intervalHours: number): Promise<void> {
-    await fetch(`${API_BASE}/epic/game-mappings/schedule/interval`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(intervalHours)
-    });
+    await fetch(
+      `${API_BASE}/epic/game-mappings/schedule/interval`,
+      this.getFetchOptions({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(intervalHours)
+      })
+    );
   }
 
   static async startEpicMappingLogin(signal?: AbortSignal): Promise<{ authorizationUrl: string }> {
-    const response = await fetch(`${API_BASE}/epic/game-mappings/auth/login`, {
-      method: 'POST',
-      credentials: 'include',
-      signal
-    });
+    const response = await fetch(
+      `${API_BASE}/epic/game-mappings/auth/login`,
+      this.getFetchOptions({ method: 'POST', signal })
+    );
     return ApiService.handleResponse<{ authorizationUrl: string }>(response);
   }
 
   static async logoutEpicMapping(): Promise<void> {
-    const response = await fetch(`${API_BASE}/epic/game-mappings/auth`, {
-      method: 'DELETE',
-      credentials: 'include'
-    });
+    const response = await fetch(
+      `${API_BASE}/epic/game-mappings/auth`,
+      this.getFetchOptions({ method: 'DELETE' })
+    );
     await ApiService.handleResponse(response);
   }
 
@@ -2598,13 +2586,15 @@ class ApiService {
     authorizationCode: string,
     signal?: AbortSignal
   ): Promise<void> {
-    const response = await fetch(`${API_BASE}/epic/game-mappings/auth/complete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ authorizationCode }),
-      signal
-    });
+    const response = await fetch(
+      `${API_BASE}/epic/game-mappings/auth/complete`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ authorizationCode }),
+        signal
+      })
+    );
     await ApiService.handleResponse(response);
   }
 
@@ -2993,7 +2983,7 @@ class ApiService {
   // ── Version ───────────────────────────────────────────────────────────────
 
   static async getVersion(): Promise<string> {
-    const response = await fetch(`${API_BASE}/version`);
+    const response = await fetch(`${API_BASE}/version`, this.getFetchOptions());
     const data = await ApiService.handleResponse<{ version: string }>(response);
     // handleResponse returns undefined on an empty 2xx body; default to '' rather than deref.
     return data?.version ?? '';
