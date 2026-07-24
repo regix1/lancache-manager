@@ -290,6 +290,7 @@ class ApiService {
       credentials: 'include', // Important: include HttpOnly session cookies
       headers: {
         ...this.getHeaders(),
+        'X-Page-Visible': document.visibilityState === 'visible' ? 'true' : 'false',
         ...(options.headers || {})
       }
     };

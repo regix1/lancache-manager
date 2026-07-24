@@ -20,6 +20,7 @@ import ScheduleIntervalPicker from './ScheduleIntervalPicker';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useManagerLoading } from '@hooks/useManagerLoading';
+import { useMinDurationFlag } from '@hooks/useMinDurationFlag';
 import {
   isNotificationMode,
   isNotificationDisplayMode,
@@ -206,7 +207,9 @@ const ScheduleRow = memo(function ScheduleRow({
   // Running state now flows through the unified activity registry; service.isRunning is the fallback
   // for the brief window before the first ActivityUpdated snapshot arrives.
   const activity = useActivityStatus();
-  const isRunningDot = activity.isActive('schedule', service.key, 'running') || service.isRunning;
+  const rawIsRunningDot =
+    activity.isActive('schedule', service.key, 'running') || service.isRunning;
+  const isRunningDot = useMinDurationFlag(rawIsRunningDot, 1500);
 
   const isDepotMapping = service.key === 'depotMapping';
   const isCacheReconciliation = service.key === 'cacheReconciliation';
@@ -658,7 +661,9 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
   const isRunningThis = runningKey === service.key;
   // Running state flows through the unified activity registry; service.isRunning is the pre-seed fallback.
   const activity = useActivityStatus();
-  const isRunningDot = activity.isActive('schedule', service.key, 'running') || service.isRunning;
+  const rawIsRunningDot =
+    activity.isActive('schedule', service.key, 'running') || service.isRunning;
+  const isRunningDot = useMinDurationFlag(rawIsRunningDot, 1500);
   // The HasAnyEnabledService gate reports "no services enabled" as interval 0. The dim
   // only wraps the header, not the detail, so its Configure button and warning text (the
   // way out of the disabled state) stay at full opacity - opacity on an ancestor cannot
