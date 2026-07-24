@@ -126,6 +126,29 @@
   background: var(--theme-text-muted);
 }
 
+/* Static (non-pulsing) severity tones for a point-in-time reading - e.g. a container's current
+   running/idle/warning state, not live presence. Deliberately no animation: unlike .active/.away,
+   these represent a snapshot, not something to draw the eye to continuously. */
+.status-dot.idle {
+  background: var(--theme-text-muted);
+}
+
+.status-dot.running {
+  background: var(--theme-success);
+}
+
+.status-dot.warning {
+  background: var(--theme-warning);
+}
+
+.status-dot.error {
+  background: var(--theme-error);
+}
+
+.status-dot.info {
+  background: var(--theme-info);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .status-dot.active,
   .status-dot.away {

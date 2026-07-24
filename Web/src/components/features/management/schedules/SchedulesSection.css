@@ -732,25 +732,6 @@
   white-space: nowrap;
 }
 
-.scheduled-prefill-schedule-table__status-dot {
-  width: 0.45rem;
-  height: 0.45rem;
-  flex-shrink: 0;
-  border-radius: 50%;
-}
-
-.scheduled-prefill-schedule-table__status-dot--success {
-  background: var(--theme-success);
-}
-
-.scheduled-prefill-schedule-table__status-dot--error {
-  background: var(--theme-error);
-}
-
-.scheduled-prefill-schedule-table__status-dot--warning {
-  background: var(--theme-warning);
-}
-
 /* Time values are static data, not controls: no hover / focus / pointer affordance.
    Tabular figures come from shared .tabular-nums on the element. Wrap rather than
    overflow on narrow widths. */
@@ -1237,26 +1218,6 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.scheduled-prefill-persistent-card__status-dot {
-  flex-shrink: 0;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--theme-text-muted);
-}
-
-.scheduled-prefill-persistent-card__status-dot--running {
-  background: var(--theme-success);
-}
-
-.scheduled-prefill-persistent-card__status-dot--warning {
-  background: var(--theme-warning);
-}
-
-.scheduled-prefill-persistent-card__status-dot--active {
-  background: var(--theme-info);
 }
 
 .scheduled-prefill-persistent-card__status-text {

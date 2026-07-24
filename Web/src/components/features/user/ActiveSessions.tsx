@@ -39,6 +39,7 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import StatusDot from '@components/common/StatusDot';
 import { ActionMenuItem, ActionMenuDivider, ActionMenuDangerItem } from '@components/ui/ActionMenu';
 import { EmptyState } from '@components/ui/ManagerCard';
 import '../management/managementSectionContent.css';
@@ -1019,7 +1020,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             }
           }}
         >
-          <span className={`status-dot ${sessionStatus}`} aria-hidden="true" />
+          <StatusDot state={sessionStatus} label={t(`activeSessions.status.${sessionStatus}`)} />
           <div className="mgmt-row__body">
             <div className="session-row__titleline">
               <Tooltip content={parsedUA.title} position="top" className="block min-w-0">

@@ -6,6 +6,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import StatusDot from '@components/common/StatusDot';
 import { formatTimeRemaining } from '@components/features/prefill/types';
 import { formatBytes, formatDateTime } from '@utils/formatters';
 import { SCHEDULED_PREFILL_BUTTON_SIZE } from './constants';
@@ -17,7 +18,9 @@ import { usePersistentLoginStoreState } from './persistentLoginStore';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import type { ScheduledPrefillPersistentCardProps } from './scheduledPrefillPersistentTypes';
 
-type StatusTone = 'idle' | 'warning' | 'active' | 'running';
+// Matches StatusDot's `tone` prop exactly (@components/common/StatusDot) so statusDisplay.tone can be
+// passed straight through.
+type StatusTone = 'idle' | 'warning' | 'info' | 'running';
 
 interface StatusDisplay {
   tone: StatusTone;
@@ -174,7 +177,7 @@ export function ScheduledPrefillPersistentCard({
     }
     if (isAnonymous) {
       return isPrefilling
-        ? { tone: 'active', label: t(`${containersKey}.steps.downloading`), busy: false }
+        ? { tone: 'info', label: t(`${containersKey}.steps.downloading`), busy: false }
         : { tone: 'running', label: t('prefill.persistent.status.running'), busy: false };
     }
     if (isAuthInProgress) {
@@ -184,7 +187,7 @@ export function ScheduledPrefillPersistentCard({
       return { tone: 'warning', label: t('prefill.persistent.status.notLoggedIn'), busy: false };
     }
     if (isPrefilling) {
-      return { tone: 'active', label: t(`${containersKey}.steps.downloading`), busy: false };
+      return { tone: 'info', label: t(`${containersKey}.steps.downloading`), busy: false };
     }
     return { tone: 'running', label: t('prefill.persistent.status.loggedIn'), busy: false };
   })();
@@ -245,10 +248,7 @@ export function ScheduledPrefillPersistentCard({
             role="status"
             aria-live="polite"
           >
-            <span
-              className={`scheduled-prefill-persistent-card__status-dot scheduled-prefill-persistent-card__status-dot--${statusDisplay.tone}`}
-              aria-hidden="true"
-            />
+            <StatusDot tone={statusDisplay.tone} label={statusDisplay.label} />
             <span className="scheduled-prefill-persistent-card__status-text">
               {statusDisplay.busy && <LoadingSpinner inline size="xs" />}
               {statusDisplay.label}

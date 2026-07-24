@@ -55,6 +55,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { cleanIpAddress } from '@components/features/user/types';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import StatusDot from '@components/common/StatusDot';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { usePersistentPrefillContainerSignalR } from '@components/features/management/schedules/scheduled-prefill/usePersistentPrefillContainerSignalR';
 import type {
@@ -752,10 +753,12 @@ const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerD
   const runLabel = isRunning ? t(`${baseKey}.status.running`) : t(`${baseKey}.status.stopped`);
 
   const showLoginState = isRunning && !isAnonymous;
-  const loginTone: 'active' | 'warning' = container.needsRelogin
+  // 'info' matches StatusDot's tone prop (@components/common/StatusDot) - not 'active', which on
+  // StatusDot means the pulsing live-presence state, not a static "logged in" reading.
+  const loginTone: 'info' | 'warning' = container.needsRelogin
     ? 'warning'
     : isAuthenticated
-      ? 'active'
+      ? 'info'
       : 'warning';
   const loginLabel = container.needsRelogin
     ? t(`${baseKey}.status.needsRelogin`)
@@ -773,19 +776,13 @@ const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerD
         </div>
 
         <div className="prefill-persistent-card__status-row">
-          <span
-            className={`status-dot prefill-persistent-card__status-dot prefill-persistent-card__status-dot--${runTone}`}
-            aria-hidden="true"
-          />
+          <StatusDot tone={runTone} label={runLabel} />
           <span className="prefill-persistent-card__status-text">{runLabel}</span>
         </div>
 
         {showLoginState && (
           <div className="prefill-persistent-card__status-row">
-            <span
-              className={`status-dot prefill-persistent-card__status-dot prefill-persistent-card__status-dot--${loginTone}`}
-              aria-hidden="true"
-            />
+            <StatusDot tone={loginTone} label={loginLabel} />
             <span className="prefill-persistent-card__status-text">{loginLabel}</span>
           </div>
         )}

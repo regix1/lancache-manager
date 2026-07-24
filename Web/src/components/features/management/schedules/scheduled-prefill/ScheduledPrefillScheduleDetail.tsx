@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import StatusDot from '@components/common/StatusDot';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import ApiService from '@services/api.service';
 import type {
@@ -112,18 +113,26 @@ function ScheduledPrefillServiceScheduleRow({
         <span className="scheduled-prefill-schedule-table__service-name">{label}</span>
         <span className="scheduled-prefill-schedule-table__service-status">
           <span className="scheduled-prefill-schedule-table__status-item">
-            <span
-              className={`scheduled-prefill-schedule-table__status-dot scheduled-prefill-schedule-table__status-dot--${enabled ? 'success' : 'error'}`}
-              aria-hidden="true"
+            <StatusDot
+              tone={enabled ? 'running' : 'error'}
+              label={
+                enabled
+                  ? t(`${baseKey}.platforms.status.enabled`)
+                  : t(`${baseKey}.platforms.status.disabled`)
+              }
             />
             {enabled
               ? t(`${baseKey}.platforms.status.enabled`)
               : t(`${baseKey}.platforms.status.disabled`)}
           </span>
           <span className="scheduled-prefill-schedule-table__status-item">
-            <span
-              className={`scheduled-prefill-schedule-table__status-dot scheduled-prefill-schedule-table__status-dot--${containerRunning ? 'success' : 'error'}`}
-              aria-hidden="true"
+            <StatusDot
+              tone={containerRunning ? 'running' : 'error'}
+              label={
+                containerRunning
+                  ? t('prefill.persistent.states.running')
+                  : t('prefill.persistent.states.stopped')
+              }
             />
             {t(`${baseKey}.platforms.status.containerShort`)}:{' '}
             {containerRunning
@@ -132,9 +141,13 @@ function ScheduledPrefillServiceScheduleRow({
           </span>
           {loginState !== null && (
             <span className="scheduled-prefill-schedule-table__status-item">
-              <span
-                className={`scheduled-prefill-schedule-table__status-dot scheduled-prefill-schedule-table__status-dot--${loginState === 'loggedIn' ? 'success' : 'warning'}`}
-                aria-hidden="true"
+              <StatusDot
+                tone={loginState === 'loggedIn' ? 'running' : 'warning'}
+                label={
+                  loginState === 'loggedIn'
+                    ? t(`${baseKey}.platforms.status.loggedIn`)
+                    : t(`${baseKey}.platforms.status.loginRequired`)
+                }
               />
               {loginState === 'loggedIn'
                 ? t(`${baseKey}.platforms.status.loggedIn`)

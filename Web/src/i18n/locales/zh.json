@@ -1075,6 +1075,11 @@
     "paginationLabel": "个会话",
     "resultCount": "{{count}} 个会话",
     "resultCount_other": "{{count}} 个会话",
+    "status": {
+      "active": "活跃",
+      "away": "离开",
+      "inactive": "不活跃"
+    },
     "history": {
       "title": "会话历史",
       "summary": "已退出或过期的会话。"

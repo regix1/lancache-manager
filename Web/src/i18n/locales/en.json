@@ -1075,6 +1075,11 @@
     "paginationLabel": "sessions",
     "resultCount": "{{count}} session",
     "resultCount_other": "{{count}} sessions",
+    "status": {
+      "active": "Active",
+      "away": "Away",
+      "inactive": "Inactive"
+    },
     "history": {
       "title": "Session History",
       "summary": "Sessions that signed out or expired."

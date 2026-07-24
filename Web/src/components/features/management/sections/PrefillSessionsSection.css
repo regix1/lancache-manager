@@ -772,24 +772,6 @@
   gap: 0.5rem;
 }
 
-/* Geometry/ring from .status-dot; tone colours stay local — cannot map to
-   .active/.away/.inactive: --active is info (not success), and shared states pulse. */
-.status-dot.prefill-persistent-card__status-dot--idle {
-  background-color: var(--theme-text-muted);
-}
-
-.status-dot.prefill-persistent-card__status-dot--running {
-  background-color: var(--theme-success);
-}
-
-.status-dot.prefill-persistent-card__status-dot--warning {
-  background-color: var(--theme-warning);
-}
-
-.status-dot.prefill-persistent-card__status-dot--active {
-  background-color: var(--theme-info);
-}
-
 .prefill-persistent-card__status-text {
   font-size: var(--font-size-base);
   font-weight: 600;
