@@ -4,10 +4,10 @@
 
 Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，因此你可以同时预填充所有平台而互不干扰。进度会实时推送到 UI。
 
-<div align="center">
+<div align="center" markdown>
 <img alt="游戏预填充平台选择界面，显示 Steam、Epic Games、Battle.net、Riot Games 和 Xbox" src="../images/prefill-home.png" />
 
-*选择一个平台，开始一次预填充会话*
+<em>选择一个平台，开始一次预填充会话</em>
 </div>
 
 ### 要求
@@ -57,13 +57,13 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 
 配置一次，从此不必在每场活动前手动预填充。打开**管理 → 计划任务**，找到计划预填充卡片。五个平台各自拥有独立的间隔、预设和游戏选择。
 
-<div align="center">
+<div align="center" markdown>
 <img alt="计划预填充卡片，显示 Steam、Epic、Xbox、Battle.net 和 Riot 各自的状态、下次运行时间和运行间隔" src="../images/schedules-prefill-table.png" />
 
-*计划预填充——一眼看清各服务的状态、下次运行和上次运行时间*
+<em>计划预填充——一眼看清各服务的状态、下次运行和上次运行时间</em>
 </div>
 
-*持久容器*是指你启动一次就让它一直运行的预填充容器，登录状态也保存在其中。这里只有一条规则贯穿始终：**计划运行只会复用已经在运行的持久容器，它从不自行启动容器。**
+<em>持久容器*是指你启动一次就让它一直运行的预填充容器，登录状态也保存在其中。这里只有一条规则贯穿始终：**计划运行只会复用已经在运行的持久容器，它从不自行启动容器。*</em>
 
 所以在为某个服务安排计划之前，先启动它的持久容器，如果该平台需要账号就先登录。尚未就绪的服务会被*跳过*，标记为"需要登录"，其他服务照常运行。如果一次运行里只有跳过、没有真正执行的服务，会以警告结束，而不是失败。
 
@@ -79,10 +79,10 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 - **强制下载和并发数同样按服务单独设置。** 强制下载会重新拉取即使看起来已经完整的游戏（默认关闭）。最大并发数可以是自动，也可以固定为 1-256 个连接。
 - 每个服务都可以选择正常显示或静默发送运行通知。
 
-<div align="center">
+<div align="center" markdown>
 <img alt="配置计划预填充对话框，显示各平台的计划、预设和下载设置" src="../images/schedules-prefill-configure.png" />
 
-*配置计划预填充——各平台的计划、预设和目标平台控制*
+<em>配置计划预填充——各平台的计划、预设和目标平台控制</em>
 </div>
 
 默认值和限制：
@@ -178,53 +178,52 @@ environment:
 
 如果解析出的 IP 是公网地址（Steam 真实 CDN 的 IP 形如 `162.254.x.x`），说明流量绕过了你的缓存。设置 `Prefill__LancacheIp` 并重启会话。
 
-<details>
-<summary><strong>路由工作原理（高级）</strong>——请求究竟走哪条路径</summary>
+??? tip "路由工作原理（高级）——请求究竟走哪条路径"
 
-```mermaid
-flowchart TD
-    Start([预填充需要从<br/>lancache.steamcontent.com 获取一个游戏分块])
-    LIP{LANCACHE_IP 是否可用？<br/>通过 Prefill__LancacheIp 设置，<br/>或经自动检测 + 心跳验证}
+    ```mermaid
+    ---
+    config:
+      flowchart:
+        curve: basis
+        padding: 12
+    ---
+    flowchart TD
+      Start([需要从 CDN 主机名<br/>获取一个游戏分块])
+      HasIp{LANCACHE_IP 可用？<br/>Prefill__LancacheIp 或<br/>自动检测并已验证}
 
-    Start --> LIP
+      Start --> HasIp
 
-    LIP -->|是| Direct[直接与该 IP 通信，<br/>无需 DNS 查询。<br/>Host 头会告诉缓存<br/>应该提供哪个 CDN 的内容。]
-    Direct --> OK([每次都命中你的缓存])
+      HasIp -->|是| Direct[直接连接该 IP<br/>Host 头 = CDN 主机名]
+      Direct --> Hit([由你的缓存提供服务])
 
-    LIP -->|否| DNS[守护进程向 DNS 询问：<br/>lancache.steamcontent.com<br/>到底指向哪里？]
-    DNS --> Mode{容器使用的是<br/>哪种 NetworkMode？}
+      HasIp -->|否| AskDns[向 DNS 询问<br/>CDN 主机名指向哪里]
+      AskDns --> Mode{NetworkMode？}
 
-    Mode -->|host| HostDNS[容器使用主机自己的 DNS。<br/>Prefill__LancacheDnsIp 帮不上忙——<br/>host 模式下 Docker 会静默丢弃它。]
-    Mode -->|bridge| BridgeDNS{是否设置了<br/>Prefill__LancacheDnsIp？}
+      Mode -->|host| HostDns[使用主机自己的 DNS<br/>Prefill__LancacheDnsIp 被忽略]
+      Mode -->|bridge| Bridge{设置了 Prefill__LancacheDnsIp？}
 
-    BridgeDNS -->|是| ForcedDNS[容器查询<br/>该 DNS 服务器]
-    BridgeDNS -->|否| AutoDetect[守护进程回退到自身的<br/>自动检测链：<br/>CDN 域名、localhost，<br/>最后是默认网关]
+      Bridge -->|是| Forced[查询该 DNS 服务器]
+      Bridge -->|否| Probe[守护进程探测 CDN 名、<br/>localhost，然后是网关]
 
-    HostDNS --> Outcome{DNS 是否返回了<br/>你缓存服务器的 IP？}
-    ForcedDNS --> Outcome
-    AutoDetect --> Outcome
+      HostDns --> Resolved{DNS 返回了<br/>你的缓存 IP？}
+      Forced --> Resolved
+      Probe --> Resolved
 
-    Outcome -->|是| OK
-    Outcome -->|否| Public([拿到了真实 CDN 的公网 IP——<br/>流量绕开了你的缓存])
+      Resolved -->|是| Hit
+      Resolved -->|否| Miss([公网 CDN IP<br/>流量绕开你的缓存])
+    ```
 
-    style OK fill:#1f883d,color:#fff
-    style Public fill:#cf222e,color:#fff
-    style Direct fill:#0969da,color:#fff
-```
+    所有组合：
 
-所有组合，一张表说清楚：
+    | `NetworkMode` | `LancacheIp` | `LancacheDnsIp` | 结果 |
+    |:---:|:---:|:---:|---|
+    | `host` | 已设置 | （任意） | 可靠。已注入 `LANCACHE_IP`；DNS 无关紧要。 |
+    | `host` | 未设置 | （任意） | 通常没问题。自动检测 + 心跳会注入 `LANCACHE_IP`；否则使用主机 DNS。host 模式下 DnsIp 会被丢弃。 |
+    | `bridge` | 已设置 | 未设置 | 可靠。已注入 `LANCACHE_IP`；DNS 无关紧要。 |
+    | `bridge` | 已设置 | 已设置 | 可靠。`LANCACHE_IP` 用于 CDN，DnsIp 用于认证/清单。 |
+    | `bridge` | 未设置 | 已设置 | 如果 DnsIp 能把 CDN 解析到你的缓存则有效。 |
+    | `bridge` | 未设置 | 未设置 | 通常没问题。自动检测会注入 `LANCACHE_IP`；否则守护进程探测 localhost/网关。 |
 
-| `NetworkMode` | `LancacheIp` | `LancacheDnsIp` | 结果 |
-|:---:|:---:|:---:|---|
-| `host` | 已设置 | （任意） | 可靠。已注入 `LANCACHE_IP`；DNS 无关紧要。 |
-| `host` | 未设置 | （任意） | 通常没问题。管理器会自动检测缓存（经心跳验证，包括通过网桥网关）并注入 `LANCACHE_IP`；只有在没有候选通过验证时才依赖主机的 DNS。无论如何，DnsIp 都会被静默丢弃（Docker 的限制）。 |
-| `bridge` | 已设置 | 未设置 | 可靠。已注入 `LANCACHE_IP`；DNS 无关紧要。 |
-| `bridge` | 已设置 | 已设置 | 可靠。`LANCACHE_IP` 用于 CDN，DnsIp 用于认证/清单。 |
-| `bridge` | 未设置 | 已设置 | 如果 DnsIp 能把 CDN 解析到你的缓存则有效。容器 DNS 被强制指向 DnsIp。 |
-| `bridge` | 未设置 | 未设置 | 通常没问题。管理器会自动检测缓存并注入 `LANCACHE_IP`（经心跳验证）；否则守护进程会自行探测 localhost/网关。 |
-
-**为什么 `LancacheIp` 总是有效**：设置该环境变量后，守护进程会构造类似 `GET http://192.168.1.10/depot/123/chunk/abc` 的请求，并带上 `Host: lancache.steamcontent.com`。你的缓存（nginx、Caddy，或任何按 `Host:` 路由的 HTTP 服务器）会看到正确的主机名并从缓存提供服务。DNS 从始至终都不会被问及 CDN 域名。
-
-</details>
+    **为什么 `LancacheIp` 总是有效：** 设置后，守护进程会请求 `GET http://192.168.1.10/depot/...`，并带上 `Host: lancache.steamcontent.com`。你的缓存按 `Host:` 路由并从缓存提供服务。DNS 不会被问及 CDN 域名。
 
 -----

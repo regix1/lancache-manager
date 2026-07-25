@@ -125,7 +125,7 @@ If you run more than one cache instance or split services across drives, see [Mu
 
 Prefer one file that lists everything? The example below is a complete, working compose file. The active lines match Quick Start; every optional setting is present but commented, with its default and when it matters, so copying it is safe.
 
-<details>
+<details markdown>
 <summary><strong>Complete annotated Compose example</strong> - every supported variable</summary>
 
 ```yaml

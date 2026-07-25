@@ -1,0 +1,58 @@
+/* Environment-variable tables: keep names on one line and scroll instead of
+   wrapping mid-identifier. Material's default `code { word-break: break-word }`
+   is what was splitting Prefill__… / LanCache__… names. */
+.md-typeset .env-var-scroll {
+  overflow-x: auto;
+  margin: 1em 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.md-typeset .env-var-table td:first-child {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.md-typeset .env-var-table td:first-child code {
+  white-space: nowrap;
+  word-break: normal !important;
+  overflow-wrap: normal;
+}
+
+.md-typeset .env-var {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.md-typeset .env-var-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0.2rem;
+  color: var(--md-default-fg-color--lighter);
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.md-typeset .env-var-copy:hover,
+.md-typeset .env-var-copy:focus-visible {
+  color: var(--md-accent-fg-color);
+  background-color: var(--md-accent-fg-color--transparent);
+}
+
+.md-typeset .env-var-copy--done {
+  color: var(--md-primary-fg-color);
+}
+
+.md-typeset .env-var-copy svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: currentColor;
+}

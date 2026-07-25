@@ -50,7 +50,7 @@ docker compose up -d
 - 如果想从 UI 清除缓存、移除单个游戏或移除损坏文件，请去掉 `/cache` 挂载上的 `:ro`。
 - Docker 套接字只在预填充和 nginx 日志轮转时才需要。未挂载时，**预填充**标签页会被隐藏而不是显示为不可用；因此如果找不到该标签页，原因就在这里。
 
-<details>
+<details markdown>
 <summary><strong>想用 <code>docker run</code> 快速测试？</strong></summary>
 
 `docker run` 的数据卷挂载需要绝对主机路径（像 `./data` 这样的相对路径只在 Compose 中有效）：

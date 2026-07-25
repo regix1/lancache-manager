@@ -39,8 +39,8 @@
   zh: 配置参考
 
 - file: recipes
-  en: Recipes
-  zh: 常见场景
+  en: Unraid / Recipes
+  zh: Unraid / 常见场景
 
 - file: multiple-datasources
   en: Multiple Datasources

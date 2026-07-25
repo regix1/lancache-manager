@@ -50,7 +50,7 @@ Two notes on the mounts:
 - Drop `:ro` from the `/cache` mount if you want to clear cache, remove individual games, or remove corrupted files from the UI.
 - The Docker socket is only needed for prefill and nginx log rotation. Without it the **Prefill** tab is hidden rather than shown broken, so if the tab is missing, that mount is why.
 
-<details>
+<details markdown>
 <summary><strong>Prefer <code>docker run</code> for a quick test?</strong></summary>
 
 `docker run` needs absolute host paths for its volume mounts (relative paths like `./data` only work in Compose):

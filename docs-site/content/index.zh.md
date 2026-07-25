@@ -23,7 +23,7 @@
 | 了解每个页面的功能 | [功能一览](what-you-get.md) |
 | 在活动前预填充游戏 | [预填充](prefill.md) |
 | 对接非 Docker 缓存 | [裸机版 LANCache](bare-metal-lancache.md) |
-| 在 Unraid 上部署 | [常见场景](recipes.md) |
+| 在 Unraid 上部署 | [Unraid / 常见场景](recipes.md) |
 | 拆分或合并缓存服务器 | [多数据源](multiple-datasources.md) |
 | 调整设置与环境变量 | [配置参考](configuration-reference.md) |
 | 排查无法正常工作的问题 | [故障排除](troubleshooting.md) |

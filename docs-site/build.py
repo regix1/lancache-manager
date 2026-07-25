@@ -26,6 +26,7 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 SITE = REPO / "docs-site"
 CONTENT = SITE / "content"
+ASSETS = SITE / "assets"
 NAV = SITE / "nav.yml"
 BASE_CONFIG = SITE / "mkdocs.base.yml"
 IMAGES = REPO / "docs" / "images"
@@ -75,6 +76,9 @@ def build() -> int:
     for page in CONTENT.glob("*.md"):
         shutil.copy2(page, DOCS / page.name)
 
+    if ASSETS.is_dir():
+        shutil.copytree(ASSETS, DOCS, dirs_exist_ok=True)
+
     if IMAGES.is_dir():
         shutil.copytree(IMAGES, DOCS / "images", dirs_exist_ok=True)
 
@@ -93,10 +97,21 @@ def build() -> int:
                 e[DEFAULT_LANG]: e[code] for e in entries if code in e
             }
 
-    (OUT / "mkdocs.yml").write_text(
-        yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
+    # safe_dump cannot emit !!python/name tags, so expand the Mermaid fence
+    # Material needs after dumping. See docs-site/mkdocs.base.yml.
+    rendered = yaml.safe_dump(config, sort_keys=False, allow_unicode=True)
+    rendered = rendered.replace(
+        "- pymdownx.superfences\n",
+        (
+            "- pymdownx.superfences:\n"
+            "      custom_fences:\n"
+            "        - name: mermaid\n"
+            "          class: mermaid\n"
+            "          format: !!python/name:pymdownx.superfences.fence_code_format\n"
+        ),
+        1,
     )
+    (OUT / "mkdocs.yml").write_text(rendered, encoding="utf-8")
 
     print(f"staged {len(entries)} pages x {len(LANGUAGES)} languages -> {DOCS}")
     return 0

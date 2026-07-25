@@ -4,10 +4,10 @@ Prefill downloads games into your cache *before* people connect. When guests sho
 
 Steam, Epic, Battle.net, Riot, and Xbox each run in their own container, so you can prefill all of them at the same time without them interfering. Progress streams live to the UI.
 
-<div align="center">
+<div align="center" markdown>
 <img alt="Game Prefill platform picker showing Steam, Epic Games, Battle.net, Riot Games, and Xbox" src="../images/prefill-home.png" />
 
-*Pick a platform to start a prefill session*
+<em>Pick a platform to start a prefill session</em>
 </div>
 
 ### Requirements
@@ -58,10 +58,10 @@ The dialog tells you how many games were added, how many were already selected, 
 
 Set this up once and stop prefilling by hand before every event. Go to **Management → Schedules** and open the Scheduled Prefill card. Each of the five platforms gets its own interval, preset, and game selection.
 
-<div align="center">
+<div align="center" markdown>
 <img alt="Scheduled Prefill card showing per-platform status, next run, and run interval for Steam, Epic, Xbox, Battle.net, and Riot" src="../images/schedules-prefill-table.png" />
 
-*Scheduled Prefill - per-service status, next run, and last run at a glance*
+<em>Scheduled Prefill - per-service status, next run, and last run at a glance</em>
 </div>
 
 A *persistent container* is a prefill container you start once and leave running, with its sign-in kept inside it. One rule governs everything here: **a scheduled run reuses a persistent container that is already running. It never starts one.**
@@ -80,10 +80,10 @@ How it behaves:
 - **Force re-download and Connections are per service too.** Force re-download re-fetches games even when they look complete (off by default). Connections is **Auto**, or **Fixed** at 1-256.
 - Each service can post its run notifications normally or silently - your choice per service.
 
-<div align="center">
+<div align="center" markdown>
 <img alt="Configure Scheduled Prefill dialog showing per-platform schedule, preset, and download settings" src="../images/schedules-prefill-configure.png" />
 
-*Configure Scheduled Prefill - per-platform schedule, preset, and target-platform controls*
+<em>Configure Scheduled Prefill - per-platform schedule, preset, and target-platform controls</em>
 </div>
 
 Defaults and limits:
@@ -179,53 +179,52 @@ Each prefill session runs a connectivity test on startup and writes the result t
 
 If the resolved IP is a public address (Steam's real CDN IPs look like `162.254.x.x`), traffic is bypassing your cache. Set `Prefill__LancacheIp` and restart the session.
 
-<details>
-<summary><strong>How routing works (advanced)</strong> - exactly which path a request takes</summary>
+??? tip "How routing works (advanced) — which path a request takes"
 
-```mermaid
-flowchart TD
-    Start([Prefill needs a game chunk from<br/>lancache.steamcontent.com])
-    LIP{Is LANCACHE_IP available?<br/>Set via Prefill__LancacheIp,<br/>or auto-detected + heartbeat-verified}
+    ```mermaid
+    ---
+    config:
+      flowchart:
+        curve: basis
+        padding: 12
+    ---
+    flowchart TD
+      Start([Need a game chunk<br/>from a CDN hostname])
+      HasIp{LANCACHE_IP available?<br/>Prefill__LancacheIp or<br/>auto-detected + verified}
 
-    Start --> LIP
+      Start --> HasIp
 
-    LIP -->|YES| Direct[Talk to that IP directly,<br/>no DNS lookup needed.<br/>Host header tells the cache<br/>which CDN to serve.]
-    Direct --> OK([Hits your cache every time])
+      HasIp -->|yes| Direct[Talk to that IP directly<br/>Host header = CDN name]
+      Direct --> Hit([Served from your cache])
 
-    LIP -->|NO| DNS[Daemon asks DNS:<br/>where does lancache.steamcontent.com<br/>actually live?]
-    DNS --> Mode{Which NetworkMode<br/>is the container in?}
+      HasIp -->|no| AskDns[Ask DNS where the<br/>CDN hostname points]
+      AskDns --> Mode{NetworkMode?}
 
-    Mode -->|host| HostDNS[Container uses whatever DNS<br/>the host machine uses.<br/>Prefill__LancacheDnsIp can't help -<br/>Docker silently drops it in host mode.]
-    Mode -->|bridge| BridgeDNS{Did you set<br/>Prefill__LancacheDnsIp?}
+      Mode -->|host| HostDns[Use the host machine DNS<br/>Prefill__LancacheDnsIp is ignored]
+      Mode -->|bridge| Bridge{Prefill__LancacheDnsIp set?}
 
-    BridgeDNS -->|YES| ForcedDNS[Container queries<br/>that DNS server]
-    BridgeDNS -->|NO| AutoDetect[Daemon falls back to its<br/>own auto-detect chain:<br/>CDN name, localhost,<br/>then the default gateway]
+      Bridge -->|yes| Forced[Query that DNS server]
+      Bridge -->|no| Probe[Daemon probes CDN name,<br/>localhost, then gateway]
 
-    HostDNS --> Outcome{Did DNS return<br/>your cache server's IP?}
-    ForcedDNS --> Outcome
-    AutoDetect --> Outcome
+      HostDns --> Resolved{DNS returned<br/>your cache IP?}
+      Forced --> Resolved
+      Probe --> Resolved
 
-    Outcome -->|YES| OK
-    Outcome -->|NO| Public([Got the real CDN's public IP -<br/>traffic skips your cache])
+      Resolved -->|yes| Hit
+      Resolved -->|no| Miss([Public CDN IP<br/>traffic skips your cache])
+    ```
 
-    style OK fill:#1f883d,color:#fff
-    style Public fill:#cf222e,color:#fff
-    style Direct fill:#0969da,color:#fff
-```
+    Every combination:
 
-Every combination, in one table:
+    | `NetworkMode` | `LancacheIp` | `LancacheDnsIp` | Outcome |
+    |:---:|:---:|:---:|---|
+    | `host` | set | (any) | Reliable. `LANCACHE_IP` injected; DNS irrelevant. |
+    | `host` | unset | (any) | Usually fine. Auto-detect + heartbeat injects `LANCACHE_IP`; otherwise host DNS is used. DnsIp is dropped in host mode. |
+    | `bridge` | set | unset | Reliable. `LANCACHE_IP` injected; DNS irrelevant. |
+    | `bridge` | set | set | Reliable. `LANCACHE_IP` for CDN, DnsIp for auth/manifest. |
+    | `bridge` | unset | set | Works if DnsIp resolves CDN to your cache. |
+    | `bridge` | unset | unset | Usually fine. Auto-detect injects `LANCACHE_IP`; otherwise the daemon probes localhost/gateway. |
 
-| `NetworkMode` | `LancacheIp` | `LancacheDnsIp` | Outcome |
-|:---:|:---:|:---:|---|
-| `host` | set | (any) | Reliable. `LANCACHE_IP` injected; DNS irrelevant. |
-| `host` | unset | (any) | Usually fine. The manager auto-detects the cache (heartbeat-verified, including via the bridge gateway) and injects `LANCACHE_IP`; only when nothing verifies does it depend on the host's DNS. DnsIp is silently dropped either way (Docker limitation). |
-| `bridge` | set | unset | Reliable. `LANCACHE_IP` injected; DNS irrelevant. |
-| `bridge` | set | set | Reliable. `LANCACHE_IP` for CDN, DnsIp for auth/manifest. |
-| `bridge` | unset | set | Works if DnsIp resolves CDN to your cache. Container DNS forced to DnsIp. |
-| `bridge` | unset | unset | Usually fine. The manager auto-detects the cache and injects `LANCACHE_IP` (heartbeat-verified); otherwise the daemon probes localhost/gateway itself. |
-
-**Why `LancacheIp` always works**: with the env var set, the daemon builds requests like `GET http://192.168.1.10/depot/123/chunk/abc` with `Host: lancache.steamcontent.com`. Your cache (nginx, Caddy, or any HTTP server that routes by `Host:`) sees the right hostname and serves from cache. DNS is never consulted for the CDN domain.
-
-</details>
+    **Why `LancacheIp` always works:** with it set, the daemon requests `GET http://192.168.1.10/depot/...` with `Host: lancache.steamcontent.com`. Your cache routes on `Host:` and serves from cache. DNS is never asked for the CDN domain.
 
 -----

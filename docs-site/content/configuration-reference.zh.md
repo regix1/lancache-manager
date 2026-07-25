@@ -124,7 +124,7 @@
 
 想要一份列出全部内容的文件？下面这个例子是一份完整、可直接使用的 Compose 文件。生效的几行与快速开始一致；每一项可选设置都已列出但被注释掉，并注明了默认值和适用场景，因此可以放心复制使用。
 
-<details>
+<details markdown>
 <summary><strong>完整带注释的 Compose 示例</strong>——全部支持的变量</summary>
 
 ```yaml
