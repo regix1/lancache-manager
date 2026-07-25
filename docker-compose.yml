@@ -180,8 +180,18 @@ services:
       # Docker image for Xbox prefill containers
       # - Prefill__XboxDockerImage=ghcr.io/regix1/xbox-prefill-daemon:latest
 
+      # Docker image for Epic prefill containers
+      # - Prefill__EpicDockerImage=ghcr.io/regix1/epic-prefill-daemon:latest
+
+      # Docker image for Riot prefill containers
+      # - Prefill__RiotDockerImage=ghcr.io/regix1/riot-prefill-daemon:latest
+
       # Session timeout in minutes (inactive sessions get cleaned up)
       # - Prefill__SessionTimeoutMinutes=120
+
+      # Advanced: no-progress time before a non-persistent session counts as
+      # stalled. Scheduled Prefill uses its own 30-minute cutoff.
+      # - Prefill__StallTimeoutSeconds=180
 
       # Base path for daemon session data (commands/responses)
       # Must be inside /data for Docker sibling container access
@@ -247,6 +257,10 @@ services:
       # - LanCache__DataSources__1__CachePath=/steam-cache
       # - LanCache__DataSources__1__LogPath=/steam-logs
       # - LanCache__DataSources__1__Enabled=true
+      #
+      # Cache-key scheme per datasource: auto (default), monolithic, bare_metal.
+      # Only needed when custom log filenames defeat auto-detection.
+      # - LanCache__DataSources__1__SchemeOverride=bare_metal
       #
       # With additional volume mounts:
       # - /mnt/steam-drive/cache:/steam-cache:ro

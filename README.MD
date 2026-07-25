@@ -4,11 +4,11 @@
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue)](LICENSE)
 
-A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, see what's already cached, track bandwidth saved, and prefill Steam, Epic, Battle.net, Riot, and Xbox games before your next LAN party - by hand or on a schedule. The web UI is available in English and 简体中文.
+A web UI for [LANCache](https://lancache.net/). See what your cache is doing, and act on it, without touching a terminal. Available in English and 简体中文.
 
-The dashboard is the live view: bandwidth saved, top clients, and per-service analytics. Behind it sits a full cache browser - every cached game with cover art, sizes, and per-client history - plus Prometheus metrics out of the box.
+The dashboard is the live view: bandwidth saved, cache hit ratio, top clients, and per-service analytics. Behind it sits a full cache browser with every cached game, its cover art, size, and per-client history. Prometheus metrics are exposed out of the box.
 
-It also acts on the cache. Prefill games before guests arrive, by hand or on per-service schedules, and manage the whole server from the browser: process logs, clear cache, detect corruption, and run the built-in Status Check when something looks off.
+It also acts on the cache. Prefill Steam, Epic, Battle.net, Riot, and Xbox games before guests arrive, by hand or on a schedule, and run the server from the browser: process logs, clear cache, detect corruption, and check DNS and cache health when something looks off.
 
 > [!IMPORTANT]
 > **Always pull the `latest` tag.** GitHub's package page surfaces `:dev` because dev builds publish more often, but `:dev` is for testing only and can break at any time.
@@ -16,19 +16,6 @@ It also acts on the cache. Prefill games before guests arrive, by hand or on per
 > ```bash
 > docker pull ghcr.io/regix1/lancache-manager:latest
 > ```
-
-<a id="whats-new"></a>
-<!-- whats-new:start -->
-## What's new in 1.10.4
-
-- **[Scheduled Prefill](#scheduled-prefill)** - prefill Steam, Epic, Xbox, Battle.net, and Riot games automatically, each on its own schedule.
-- **[Xbox prefill](#prefill-steam--epic)** - Xbox joins as the fifth prefill platform, with its own game mapping.
-- **[Status Check](#status-check)** - a new diagnostics tab that verifies DNS and cache reachability end to end.
-- **[Refreshed interface](#screenshots)** - redesigned Dashboard, Downloads, Schedules, and Logs & Cache pages, with a new app-wide font.
-- **[AGPL-3.0](#support-and-license)** - the first release under the AGPL-3.0 license; 1.10.3 and earlier remain MIT.
-<!-- whats-new:end -->
-
------
 
 ## Table of Contents
 
@@ -52,7 +39,7 @@ It also acts on the cache. Prefill games before guests arrive, by hand or on per
 <a id="docker-compose"></a>
 ## Quick Start
 
-You need two things: a running LANCache with its logs and cache readable from this host, and Docker with the Compose plugin (`docker compose`). Point the container at your logs and cache, and you're online. The default image includes its own PostgreSQL, so this one file is the whole install:
+You need two things: a running LANCache whose logs and cache this host can read, and Docker with the Compose plugin (`docker compose`). The default image bundles its own PostgreSQL, so this one file is the whole install:
 
 ```yaml
 services:
@@ -91,12 +78,14 @@ Then:
    ```
 
 2. Open `http://localhost:8080` and enter the API key when prompted.
-3. Go to **Management → Logs & Cache** and click **Process All Logs** to import your existing cache history.
+3. A setup wizard opens on first run. It checks your mount permissions, offers to import your existing log history, and sets up Steam depot mapping so downloads show real game names and cover art. You can step back through it at any point.
+
+The wizard itself only runs once, but its steps stay available afterwards: re-import history with **Process All** in the `⋯` menu on the **Log Processing** card (**Management → Logs & Cache**), and refresh depot mapping from **Management → Data → Steam Game Mapping**.
 
 Two notes on the mounts:
 
-- Drop `:ro` from the `/cache` mount if you want to clear cache or remove individual games from the UI.
-- The Docker socket is optional - you only need it for nginx log rotation and Steam/Epic/Battle.net/Riot/Xbox prefill.
+- Drop `:ro` from the `/cache` mount if you want to clear cache, remove individual games, or remove corrupted files from the UI.
+- The Docker socket is only needed for prefill and nginx log rotation. Without it the **Prefill** tab is hidden rather than shown broken, so if the tab is missing, that mount is why.
 
 <details>
 <summary><strong>Prefer <code>docker run</code> for a quick test?</strong></summary>
@@ -132,10 +121,11 @@ docker compose pull
 docker compose up -d
 ```
 
-In embedded mode, everything that matters lives in the `/data` volume: the database, your API key, themes, prefill state, and settings. In external mode, keep `/data` and your PostgreSQL storage persistent. Recreating the manager container then preserves your history.
+Your history survives because none of it is in the container. In embedded mode it all lives in the `/data` volume: database, API key, themes, prefill state, and settings. In external mode, keep both `/data` and your PostgreSQL storage persistent.
 
 - **Tags:** `latest` always tracks the newest release. Pin a version tag (e.g. `1.10.4`) if you want to control exactly when upgrades happen, and change the tag to upgrade.
 - **Coming from an old SQLite build?** The migration to PostgreSQL runs automatically on first start - downloads, settings, and cached data carry over with no manual steps. Some managed Postgres services forbid `ALTER SYSTEM` tuning; the migration skips it and continues.
+- **What changed in a release?** See the [Releases page](https://github.com/regix1/lancache-manager/releases) for per-version notes.
 
 -----
 
@@ -160,7 +150,7 @@ A quick tour of the main pages. All screenshots use the default dark theme.
 *Downloads - every cached game with cover art, sizes, and per-client history*
 </div>
 
-Three view modes cover different moods: **Normal** (cards, shown above), **Compact** (a dense list), and **Retro** (a per-depot table straight out of a 90s BBS). A Hit/Miss filter and per-client filtering narrow things down.
+Three view modes: **Normal** (cards, shown above), **Compact** (a dense list), and **Retro** (a per-depot table straight out of a 90s BBS). Hit/Miss and per-client filters narrow the list.
 
 ### Clients
 
@@ -192,9 +182,8 @@ This is where guest access lives: watch active sessions and hand out time-limite
 
 Planning a LAN party? Put it on the calendar and see download activity in date context.
 
-### Status Check
-
 <a id="status-check"></a>
+### Status Check
 
 <div align="center">
 <img alt="Status Check tab showing DNS resolution results and cache-domain verification" src="docs/images/status-check.png" />
@@ -204,6 +193,30 @@ Planning a LAN party? Put it on the calendar and see download activity in date c
 
 The Status Check tab (Management → Status Check) answers "is my LANCache actually working?" without touching a terminal. It checks that game domains resolve to your cache, that the cache answers, and that recent downloads really went through it - per domain, in plain language.
 
+<details>
+<summary><strong>Why "From this device" says <em>inconclusive</em>, and how to fix it</strong></summary>
+
+Your browser runs that one probe, not the server, so it reports what your client sees. It requests `http://lancache.steamcontent.com/lancache-heartbeat`, and a real cache node answers `204` with an `X-LanCache-Processed-By` header naming itself.
+
+Browsers won't let a page read that header across origins unless the cache opts in, and out of the box it doesn't. So the card falls back to a request that proves *something* answered but not *what*, reports **inconclusive**, and logs a CORS error in your browser console. Nothing is broken. Every other Status Check result comes from the server and is unaffected.
+
+To get a definitive answer, let the cache expose the header. Add these to the heartbeat location in your cache's nginx config:
+
+```nginx
+location /lancache-heartbeat {
+    add_header X-LanCache-Processed-By $hostname always;
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Access-Control-Expose-Headers "X-LanCache-Processed-By" always;
+    return 204;
+}
+```
+
+`Access-Control-Expose-Headers` is the line people miss. Without it the request succeeds and the header is still unreadable, so the card stays inconclusive. `*` is safe here: the probe sends no cookies or credentials, and the response carries nothing but the node name.
+
+Two caveats. If you serve this manager over **https**, the browser blocks the plain-http probe outright and the card cannot work regardless of CORS. And if the probe returns something other than `204` (a `403`, say), that is a real finding rather than a CORS problem: the domain resolved to something that is not your cache.
+
+</details>
+
 ### Logs & Cache
 
 <div align="center">
@@ -211,6 +224,8 @@ The Status Check tab (Management → Status Check) answers "is my LANCache actua
 
 *Management → Logs & Cache - process logs, manage the disk cache, and detect corrupted or evicted files*
 </div>
+
+**Corruption scanning.** Two scans, for two different problems. A *repeated-miss* scan reads your logs for files that are on disk but keep missing, which usually means the cached copy is bad. A *structural* scan opens the cache files themselves and checks nginx headers, payload offsets, and recorded lengths, flagging only proven failures. Structural runs as **Full Scan** (every eligible file, rebuilds the baseline) or **Incremental Scan** (only new, changed, or previously unresolved files). Removing anything a scan finds needs the `/cache` mount without `:ro`.
 
 That covers the daily surface. Management has more tabs behind it - expand below to see all of them.
 
@@ -224,6 +239,8 @@ That covers the daily surface. Management has more tabs behind it - expand below
 
 *Settings - authentication, demo mode, and display preferences.*
 </div>
+
+**Demo Mode** fills the interface with simulated data, so you can try the UI out before you have any real cache history.
 
 #### Integrations
 
@@ -244,9 +261,9 @@ That covers the daily surface. Management has more tabs behind it - expand below
 #### Schedules
 
 <div align="center">
-<img alt="Schedules tab showing per-service schedule cards with intervals and Run Now buttons" src="docs/images/management-schedules-system.png" />
+<img alt="Schedules tab showing per-service schedule rows with intervals and Run Now controls" src="docs/images/management-schedules-system.png" />
 
-*Schedules - every background service on its own interval, each with a Run Now button. The Scheduled Prefill card lives at the bottom of this page and is shown in the Prefill section below.*
+*Schedules - every background service on its own interval, each with a Run Now control. The Scheduled Prefill card lives at the bottom of this page and is shown in the Prefill section below.*
 </div>
 
 #### Theme
@@ -264,6 +281,8 @@ That covers the daily surface. Management has more tabs behind it - expand below
 
 *Clients - give devices friendly names and exclude machines from the stats.*
 </div>
+
+One nickname can cover several IP addresses - handy when a machine dual-boots or moves between wired and wireless and would otherwise show up as separate clients.
 
 #### Prefill Sessions
 
@@ -295,15 +314,16 @@ Steam, Epic, Battle.net, Riot, and Xbox each run in their own container, so you 
 - Docker socket mounted (`/var/run/docker.sock`)
 - Logged in as admin in lancache-manager
 - Your cache server is reachable from the prefill container (see [Network setup](#prefill-network) below)
+- For Xbox specifically, a container-based lancache. Bare-metal has no Xbox Live log, so its downloads stay invisible to the manager - see [Bare-Metal LANCache](#bare-metal)
 
 ### Running a prefill
 
 The flow is the same on every platform:
 
-1. Open the **Prefill** tab and pick **Steam**, **Epic Games**, **Battle.net**, **Riot**, or **Xbox**
+1. Open the **Prefill** tab and pick **Steam**, **Epic Games**, **Battle.net**, **Riot Games**, or **Xbox**
 2. Sign in (Steam Guard for Steam, OAuth for Epic, a Microsoft device code for Xbox; Battle.net and Riot need no login)
 3. Pick games from your library
-4. Hit **Start**
+4. Hit **Start Session**
 
 That's it. Leave it running - when guests arrive, everything's cached.
 
@@ -336,7 +356,7 @@ The dialog tells you how many games were added, how many were already selected, 
 <a id="scheduled-prefill"></a>
 ### Scheduled Prefill
 
-New in 1.10.4: instead of prefilling by hand before every event, let the manager do it on a schedule. Each of the five platforms gets its own interval, preset, and game selection, configured from **Management → Schedules** on the Scheduled Prefill card.
+Set this up once and stop prefilling by hand before every event. Go to **Management → Schedules** and open the Scheduled Prefill card. Each of the five platforms gets its own interval, preset, and game selection.
 
 <div align="center">
 <img alt="Scheduled Prefill card showing per-platform status, next run, and run interval for Steam, Epic, Xbox, Battle.net, and Riot" src="docs/images/schedules-prefill-table.png" />
@@ -344,7 +364,7 @@ New in 1.10.4: instead of prefilling by hand before every event, let the manager
 *Scheduled Prefill - per-service status, next run, and last run at a glance*
 </div>
 
-One rule governs everything here: **scheduled runs reuse your running persistent prefill container - they never start one.** A persistent container is the long-lived prefill container for a service that you start once and leave running, sign-in included.
+A *persistent container* is a prefill container you start once and leave running, with its sign-in kept inside it. One rule governs everything here: **a scheduled run reuses a persistent container that is already running. It never starts one.**
 
 So before scheduling a service, start its persistent container and sign in if the platform needs an account. A service that isn't ready is *skipped* as "needs login" while the others still run. A run with only skips finishes as a warning, not a failure.
 
@@ -352,12 +372,12 @@ How it behaves:
 
 - **Per-service schedules.** Each service has its own "run every" interval. You can also pause a service or set it to run only on startup.
 - **Presets or hand-picked games.** Presets are **All**, **Recent**, and **Top**. Not every platform supports every preset: Epic has no Recent (its API exposes no last-played data), and Battle.net and Riot are All-only. Picking specific games overrides the preset.
-- **For a recurring schedule, the first run comes one interval after you save.** Saving the config never kicks off an immediate prefill. **Run Now** on the card is the only instant path.
-- **"Last run: Never" means no run has happened yet.** *Next run* comes from the schedule. *Last run* counts only genuinely completed runs, so a freshly enabled service reads "Never" until its first real run finishes.
+- **The first run comes one interval after you save.** Saving never starts a prefill immediately. **Run Now** on the card is the only instant path.
+- **"Last run: Never" is normal on a new schedule.** *Next run* is predicted from the interval, but *Last run* only counts runs that actually finished, so it stays "Never" until the first one completes.
 - **Stopping a persistent container signs it out.** Logins live inside the container's storage; stop it and that service needs a fresh sign-in before its next scheduled run. There's also a "Clear stored logins" control if you want that explicitly.
 - **Battle.net and Riot work out of the box.** They need no account, so they're enabled by default - but their persistent containers still have to be running.
-- **Target OS filter is Steam-only.** Steam can prefill Windows, Linux, or macOS depots (Windows by default); the other platforms don't support an OS filter.
-- **Force download and concurrency are per service too.** Force download re-fetches games even when they look complete (off by default). Max concurrency is Auto, or a fixed 1-256 connections.
+- **Target platforms is Steam-only.** Steam can prefill Windows, Linux, or macOS depots (Windows by default); the other services don't offer the filter.
+- **Force re-download and Connections are per service too.** Force re-download re-fetches games even when they look complete (off by default). Connections is **Auto**, or **Fixed** at 1-256.
 - Each service can post its run notifications normally or silently - your choice per service.
 
 <div align="center">
@@ -378,7 +398,7 @@ Defaults and limits:
 | Max concurrency | Auto (fixed: 1-256) |
 | Longest single service run | 12 hours |
 
-The rest of the Schedules page works the same way for every background service - log rotation, eviction scans, game detection, cache snapshots, and more. Each card has its own interval and a **Run Now** button. Also new in 1.10.4: an **Xbox Game Mapping** card, so the Xbox catalog can refresh on its own schedule.
+The rest of the Schedules page works the same way for every background service - log rotation, eviction scans, game detection, cache snapshots, and more. Each service is a row with its own interval and a **Run Now** control at the end of it, shown as a play icon on desktop and a labelled button on phones. There's an **Xbox Game Mapping** row too, so the Xbox catalog can refresh on its own schedule.
 
 <a id="prefill-network"></a>
 ### Network setup
@@ -409,10 +429,10 @@ Full descriptions and defaults for `Prefill__LancacheIp`, `Prefill__LancacheDnsI
 > | `LancacheIp` | The **cache server** (`lancachenet/monolithic`, or any HTTP cache) | HTTP / 80 | Holds the actual cached game files |
 > | `LancacheDnsIp` | The **DNS server** (`lancachenet/lancache-dns`, AdGuard Home, Pi-hole, etc.) | DNS / 53 | Translates `lancache.steamcontent.com` into the cache's IP |
 >
-> Think of a small town. The **cache** is the library (where the books live). The **DNS server** is the information booth (where you ask "which way to the library?"). Both can sit in the same building - same IP, different ports - but they do completely different jobs. When you set `LancacheIp`, the daemon skips the information booth entirely and walks straight to the library. That's why it's the universal override: DNS becomes irrelevant for cache traffic.
+> Think of a small town: the **cache** is the library where the books live, and the **DNS server** is the information booth you ask for directions. They can share a building (same IP, different ports) but they do different jobs. Setting `LancacheIp` walks straight to the library, which is why DNS stops mattering for cache traffic.
 
 > [!IMPORTANT]
-> Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) auth and manifest endpoints still use normal DNS. `LANCACHE_IP` only redirects CDN chunk traffic - the only domains lancache caches. Your login and metadata traffic is unaffected.
+> `LANCACHE_IP` only redirects CDN chunk traffic, which is all lancache caches anyway. Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) auth and manifest endpoints still use normal DNS, and are unaffected.
 
 #### Examples
 
@@ -604,12 +624,14 @@ volumes:
 
 **Set `POSTGRES_MODE=external` but left the connection vars unset?** The app boots in setup-only mode and shows a UI form. Credentials submitted there are saved to `/data/config/postgres-credentials.json`; you'll be asked to restart the container so the new connection takes effect.
 
+**Already running embedded and want to switch?** Your existing data does not move on its own - the automatic migration only covers the old SQLite database, not embedded Postgres. Dump and restore it by hand first: see [Migrate Embedded to External PostgreSQL](docs/external-postgres-migration.md).
+
 -----
 
 <a id="configuration"></a>
 ## Configuration Reference
 
-Everything in this section is a lookup table - skim the headers and dig in where you need to. The two sections with real decisions behind them have their own walkthroughs: [database mode](#image-variants) above and [prefill networking](#prefill-network) earlier.
+This section is a lookup table. Skim the headers and dig in where you need to. The two settings with a real decision behind them have their own walkthroughs: [database mode](#image-variants) and [prefill networking](#prefill-network).
 
 For a normal install, start from the checked-in [`docker-compose.yml`](docker-compose.yml). For every supported variable in one place, jump to the [complete annotated Compose example](#complete-compose) at the end of this section.
 
@@ -634,7 +656,7 @@ For a normal install, start from the checked-in [`docker-compose.yml`](docker-co
 | `LanCache__LogPath` | - | Path inside the container to the LANCache access log. |
 | `LanCache__CachePath` | - | Path inside the container to the LANCache cache directory. |
 
-**Which PUID/PGID?** Match the owner of your cache and log files - `ls -n /path/to/cache` shows it. The shipped Compose file uses `33:33` (www-data), which fits most stock lancache setups. Unraid uses `99:100`. Omit either variable when running the raw image and the entrypoint falls back to `1000` for that one - a fallback, not the documented default.
+**Which PUID/PGID?** Match the owner of your cache and log files - `ls -n /path/to/cache` shows it. The shipped Compose file uses `33:33` (www-data), which fits most stock lancache setups. Unraid uses `99:100`. If you run the raw image without `PUID` or `PGID`, the entrypoint falls back to `1000` for whichever one is missing. Treat that as a fallback, not a recommended value.
 
 <a id="postgresql"></a>
 ### PostgreSQL
@@ -672,14 +694,14 @@ The mode decision and full compose examples live in [Choosing an Image and Datab
 | **Admin** | Everything. Requires the API key. | Clear cache, process logs, change settings |
 | **Guest** | Read-only views. Requires admin auth or a guest session. | Browse downloads, stats, events, client data |
 
-To give someone read-only access without sharing your API key, open the **Users** page and use **Guest Mode** (session length and other defaults live under **Guest Defaults**). Guests can browse the dashboard but can't change anything. The UI and all admin actions require admin auth or a guest session. One exception: `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`.
+To give someone read-only access without sharing your API key, make sure guest logins are **Unlocked** on the **Users** page. Your guest then clicks **Guest Mode** on the sign-in screen. Session length and other defaults live under **Guest Defaults**. Every page and action needs either admin auth or a guest session, with one exception: `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`.
 
 <a id="prefill-config"></a>
-### Prefill
+### Prefill settings
 
 Prefill auto-detects the right values for almost everything in this table. Three things to know before reaching for it:
 
-- **For guaranteed-reliable prefill, set `Prefill__LancacheIp` to your cache server's IP.** Prefill then talks to the cache by IP and stops depending on DNS entirely. It matters most for Battle.net, whose CDN domains are often missing from lancache DNS and can make prefill hang, and for any non-standard DNS setup.
+- **Set `Prefill__LancacheIp` to your cache server's IP and prefill stops depending on DNS.** It matters most for Battle.net, whose CDN domains are often missing from lancache DNS and can make prefill hang.
 - Leave it unset and the manager auto-detects your cache. It probes likely candidates with a quick health check and only uses an address that answered like a real lancache.
 - Reach for the other variables only when auto-detection gets them wrong. The decision table lives in [Network setup](#prefill-network).
 
@@ -712,6 +734,7 @@ Prefill auto-detects the right values for almost everything in this table. Three
 |----------|---------|-------------|
 | `LanCache__EnvFilePath` | (auto) | Path to the lancache `.env` file (used to read `CACHE_DISK_SIZE`). Searches common locations if unset. |
 | `LanCache__AutoDiscoverDatasources` | `false` | Auto-detect datasources from matching subdirectories under `/cache` and `/logs`, up to three levels deep. |
+| `LanCache__DataSources__<n>__SchemeOverride` | `auto` | Cache-key scheme for one datasource: `auto`, `monolithic`, or `bare_metal`. Only needed when custom log filenames defeat auto-detection and the datasource is left read-only for disk actions. Also settable per datasource in the UI. |
 
 If you run more than one cache instance or split services across drives, see [Multiple Datasources](#multiple-datasources).
 
@@ -838,7 +861,7 @@ services:
 
 </details>
 
-**Coming from 1.10.3?** Two variables were added: `Prefill__XboxDockerImage` (Xbox is the fifth prefill platform) and the advanced `Prefill__StallTimeoutSeconds`. Nothing was renamed or removed, so existing Compose files keep working. One cleanup: `Security__MaxAdminDevices` is an old no-op setting that current code ignores - you can delete it.
+**Coming from 1.10.3?** Three variables were added, all optional: `Prefill__XboxDockerImage` (Xbox is the fifth prefill platform), the advanced `Prefill__StallTimeoutSeconds`, and the per-datasource `LanCache__DataSources__<n>__SchemeOverride` for bare-metal installs whose log filenames defeat auto-detection. Nothing was renamed or removed, so existing Compose files keep working. One cleanup: `Security__MaxAdminDevices` is an old no-op setting that current code ignores - you can delete it.
 
 -----
 
@@ -874,13 +897,19 @@ environment:
   - LanCache__AutoDiscoverDatasources=true
 ```
 
-Discovery walks the configured cache and log paths together, level by level, down to three levels of subfolders below the root - a fixed internal limit, not something you configure. A pair is recorded as a datasource whenever both sides have real content, and recording one doesn't stop its children from also being searched:
+Discovery walks your cache and log paths together, level by level, to a maximum of three levels below the root. That depth is fixed and not configurable. Any level where both a cache folder and a log folder have real content becomes a datasource, and finding one doesn't stop the search inside it:
 
 1. **Root** - if `/logs/access.log` exists and `/cache` contains LANCache hash directories (`00/`, `01/`, etc.), the root becomes "Default".
-2. **Nested folders** - any matched cache/log pair below the root becomes a datasource named after its cache folder (e.g., `/cache/steam` + `/logs/steam` → "Steam"), whether it's the only pair found or one of several, at any level from 1 to 3.
+2. **Nested folders** - any matched cache/log pair from level 1 to 3 becomes a datasource named after its cache folder (e.g. `/cache/steam` + `/logs/steam` → "Steam").
 3. **Level 4 and deeper is never scanned** - move the folder up, or configure it manually.
 
-Matching is exact, then case-insensitive, then normalized (dashes, underscores, and a trailing "s" are ignored). When a cache and log folder at the same level don't share a name but each has exactly one child, that single pair is still followed, so a differently-named wrapper folder doesn't block discovery - but two folders that are already valid, differently-named datasources are never cross-paired. Hidden and system folders, LANCache's two-character hash buckets, symlinks, and unreadable branches are skipped without stopping their siblings. A name that collides with one already found is skipped and logged instead of silently shadowing it; if nothing valid turns up anywhere, the app falls back to a single `default` datasource built from the paths you configured.
+The matching rules:
+
+- **Names are matched** exactly first, then case-insensitively, then normalized (dashes, underscores, and a trailing "s" are ignored).
+- **A differently-named wrapper folder doesn't block discovery.** If a cache folder and a log folder at the same level don't share a name but each holds exactly one child, that pair is followed anyway. Two folders that are already valid datasources in their own right are never paired with each other.
+- **Skipped without stopping the scan:** hidden and system folders, LANCache's two-character hash buckets, symlinks, and branches it can't read.
+- **A name that collides with one already found is skipped and logged**, rather than silently shadowing the first.
+- **If nothing valid turns up anywhere,** the app falls back to a single `default` datasource built from the paths you configured.
 
 Example layout with a grouping parent folder, still three datasources (Default, Steam, Epic):
 
@@ -902,7 +931,7 @@ Example layout with a grouping parent folder, still three datasources (Default, 
             └── access.log       ← Epic log
 ```
 
-A folder with hash directories but no matching logs folder at the same level (or vice versa) is skipped - not a valid pairing, so it never becomes a datasource, and nothing errors. For drives or layouts too asymmetric for auto-discovery to pair correctly, declare datasources explicitly - see Manual configuration below.
+A cache folder with no matching log folder at the same level (or the reverse) is skipped quietly. It never becomes a datasource, and nothing errors. For drives or layouts too asymmetric for auto-discovery to pair correctly, declare datasources explicitly - see Manual configuration below.
 
 #### Manual configuration
 
@@ -921,6 +950,8 @@ environment:
   - LanCache__DataSources__1__CachePath=/steam-cache
   - LanCache__DataSources__1__LogPath=/steam-logs
   - LanCache__DataSources__1__Enabled=true
+  # Only if auto-detection cannot tell which cache-key scheme this datasource uses:
+  # - LanCache__DataSources__1__SchemeOverride=bare_metal
 ```
 
 With matching volume mounts:
@@ -1125,13 +1156,19 @@ endscript
 
 ### What works
 
-Everything, log-based and disk-based:
+Everything log-based and disk-based, for the five services bare-metal caches:
 
 - **Monitoring:** live activity, the dashboard, download history, client and service stats, and game naming (Steam depots, Blizzard products, Riot hosts).
 - **Logs:** per-service log counts, log removal, and deleting log files.
 - **Disk:** game and service removal, repeated-miss corruption scanning, eviction tracking, and clearing the whole cache. Every deletion double-checks the file's own embedded cache key first.
 
 **A note on hit rates:** Blizzard and Windows Update downloads arrive in 1 MB slices, and nginx logs the cache status of only the first slice. Their hit/miss ratio is therefore an approximation (byte counts stay exact). Container installs slice the same way, so this is not bare-metal specific.
+
+### What doesn't: Xbox
+
+Bare-metal serves five services - Steam, Blizzard, Epic, Riot, and Windows Update - and upstream ships no Xbox Live vhost, so it never writes an `xboxlive-access.log`. Xbox traffic that does reach the cache lands in the catch-all `fallback-access.log`, and the manager never ingests that series because its records cannot be attributed to a service.
+
+So **Xbox prefill is not supported on a bare-metal cache**. A session will run to completion, but no Xbox download ever reaches the dashboard, history, or service stats, and no disk feature can act on what it wrote. Xbox prefill needs a container-based lancache. The other four platforms - Steam, Epic, Battle.net, and Riot - each have their own bare-metal log and prefill normally.
 
 ### Alternative: switch bare-metal to the standard log format
 
@@ -1148,7 +1185,7 @@ set $cacheidentifier steam;   # blizzard / epicgames / riot / wsus per site
 access_log /srv/lancache/logs/http/access.log cachelog;
 ```
 
-Reload with `sudo nginx -s reopen` (or `systemctl reload nginx`) and mount `/srv/lancache/logs/http` as above. One warning: the combined log makes the manager treat the install as a standard container, while the files on disk keep the bare-metal cache keys. Disk-level actions are no longer blocked but no longer match the disk layout, so leave them alone on a patched cache.
+Reload with `sudo nginx -s reopen` (or `systemctl reload nginx`) and mount `/srv/lancache/logs/http` as above. **One warning, and it matters.** The combined log makes the manager read the install as a standard container, but the files on disk still use bare-metal cache keys. Disk actions (game removal, cache clearing, corruption scans) stop being blocked, yet they no longer match what is actually on disk. Do not use them on a patched cache.
 
 -----
 
@@ -1161,24 +1198,24 @@ Before working through the entries below, open **Management → Status Check**. 
 
 1. Check the log path under **Management → Logs & Cache → Log Processing**.
 2. Confirm your volume mount lines up with `LanCache__LogPath`.
-3. Click **Process All Logs** on that same page.
+3. Choose **Process All** from the `⋯` menu on that same page.
 4. Look at the container logs: `docker logs lancache-manager`.
 
 ### The web UI says "No log file" (but the file exists)
 
-`LanCache__LogPath` must be the **full path to the access log file inside the container**, including the filename — e.g. `/logs/access.log`, not just `/logs`. Confirm:
+`LanCache__LogPath` must be the **full path to the access log file inside the container**, including the filename - e.g. `/logs/access.log`, not just `/logs`. Confirm:
 
 1. Your volume mounts the host log directory into the container (e.g. `- /host/path/lancache/logs:/logs`).
 2. `LanCache__LogPath` points at the file at that *container* path (`/logs/access.log`).
 3. The file is readable from inside the container: `docker exec -it lancache-manager cat /logs/access.log | head`.
 
-Network shares (NFS/SMB) are fine. A trailing `+` in `ls -la` output (e.g. `-rw-r--r--+`) is just an NFS ACL marker — it does **not** block reads. If `cat` prints the file, permissions are not the problem and the configured path is what to check.
+Network shares (NFS/SMB) are fine. A trailing `+` in `ls -la` output (e.g. `-rw-r--r--+`) is just an NFS ACL marker - it does **not** block reads. If `cat` prints the file, permissions are not the problem and the configured path is what to check.
 
 ### Cache size / disk usage isn't showing on the dashboard
 
 `LanCache__CachePath` must point at the directory that **directly contains the hashed cache folders** (named like `00`, `1a`, `ff`), not its parent.
 
-A standard lancache (monolithic) layout nests the content one level down. If you mount your cache data directory to `/cache`, the actual folders usually live at `/cache/cache` — so set `LanCache__CachePath=/cache/cache`. Point it one level too high and the dashboard shows the drive but reports no cache usage. Network-mounted (NFS/SMB) caches behave the same.
+A standard lancache (monolithic) layout nests the content one level down. If you mount your cache data directory to `/cache`, the actual folders usually live at `/cache/cache` - so set `LanCache__CachePath=/cache/cache`. Point it one level too high and the dashboard shows the drive but reports no cache usage. Network-mounted (NFS/SMB) caches behave the same.
 
 Verify what's actually at the path:
 
@@ -1191,14 +1228,14 @@ docker exec -it lancache-manager ls /cache
 
 **Steam:**
 
-1. Refresh the mappings: **Management → Schedules → Steam Game Mapping → Run Now**.
+1. Refresh the mappings: **Management → Schedules**, find the **Steam Game Mapping** row, and hit **Run Now** (the play icon at the end of the row).
 2. Add custom mappings for any private depots you care about.
-3. Re-import the history: in **Logs & Cache**, move the log read position back to the beginning and process again. Already-processed entries are skipped automatically, so reprocessing is safe.
+3. Re-import the history: in **Logs & Cache**, choose **Reposition** from the `⋯` menu on the **Log Processing** card to move the read position back to the start, then process again. Already-processed entries are skipped automatically, so reprocessing is safe.
 
 **Epic:**
 
 1. Sign in to Epic under **Management → Integrations**.
-2. Run **Management → Schedules → Epic Game Mapping → Run Now**. The mapping service queries the Epic API to identify what's in your cache.
+2. Go to **Management → Schedules**, find the **Epic Game Mapping** row, and hit **Run Now**. The mapping service queries the Epic API to identify what's in your cache.
 3. Game names and cover art come down automatically.
 
 ### Lost API key
@@ -1256,7 +1293,7 @@ On an empty cache, a prefill run is close to 100% MISS and the install that foll
 
 To hide the prefill traffic from view, filter out client `127.0.0.1` in the Downloads/Dashboard client filter. The daemon runs on the same host, so this hides its traffic without touching the underlying data.
 
-For a specific install's real hit rate, turn off **group by game** in the Downloads tab and check that client's own row, or grep `access.log` for its IP. The manager only counts literal `HIT`/`MISS` from nginx's `upstream_cache_status`, so it always agrees with a manual log count.
+For a specific install's real hit rate, switch Downloads to the **Retro** view, open the settings panel, leave **Group by game** unchecked under **Display**, and check that client's own row - or grep `access.log` for its IP. The manager only counts literal `HIT`/`MISS` from nginx's `upstream_cache_status`, so it always agrees with a manual log count.
 
 Some real misses are normal even on a clean install:
 
@@ -1266,7 +1303,7 @@ Some real misses are normal even on a clean install:
 
 ### Debug logging
 
-If you're chasing a path resolution, file system, or Docker socket issue, turn on verbose platform logging:
+Turn this on when path auto-detection fails, prefill containers won't spawn, volume mounts look wrong, or you're on an unusual platform:
 
 ```yaml
 environment:
@@ -1282,8 +1319,6 @@ You'll get extra detail on:
 - Linux/Windows platform differences
 
 To use it: add the variable, restart with `docker compose up -d`, reproduce the issue, then check `docker logs lancache-manager`. Remove the variable when you're done - it's noisy.
-
-This is most useful when path auto-detection fails, prefill containers won't spawn, volume mounts look wrong, or you're on an unusual platform.
 
 -----
 
