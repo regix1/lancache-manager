@@ -5,7 +5,7 @@ Prefill downloads games into your cache *before* people connect. When guests sho
 Steam, Epic, Battle.net, Riot, and Xbox each run in their own container, so you can prefill all of them at the same time without them interfering. Progress streams live to the UI.
 
 <div align="center">
-<img alt="Game Prefill platform picker showing Steam, Epic Games, Battle.net, Riot Games, and Xbox" src="images/prefill-home.png" />
+<img alt="Game Prefill platform picker showing Steam, Epic Games, Battle.net, Riot Games, and Xbox" src="../images/prefill-home.png" />
 
 *Pick a platform to start a prefill session*
 </div>
@@ -59,7 +59,7 @@ The dialog tells you how many games were added, how many were already selected, 
 Set this up once and stop prefilling by hand before every event. Go to **Management → Schedules** and open the Scheduled Prefill card. Each of the five platforms gets its own interval, preset, and game selection.
 
 <div align="center">
-<img alt="Scheduled Prefill card showing per-platform status, next run, and run interval for Steam, Epic, Xbox, Battle.net, and Riot" src="images/schedules-prefill-table.png" />
+<img alt="Scheduled Prefill card showing per-platform status, next run, and run interval for Steam, Epic, Xbox, Battle.net, and Riot" src="../images/schedules-prefill-table.png" />
 
 *Scheduled Prefill - per-service status, next run, and last run at a glance*
 </div>
@@ -81,7 +81,7 @@ How it behaves:
 - Each service can post its run notifications normally or silently - your choice per service.
 
 <div align="center">
-<img alt="Configure Scheduled Prefill dialog showing per-platform schedule, preset, and download settings" src="images/schedules-prefill-configure.png" />
+<img alt="Configure Scheduled Prefill dialog showing per-platform schedule, preset, and download settings" src="../images/schedules-prefill-configure.png" />
 
 *Configure Scheduled Prefill - per-platform schedule, preset, and target-platform controls*
 </div>

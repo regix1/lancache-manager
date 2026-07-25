@@ -95,7 +95,7 @@ docker inspect lancache-dns | grep IPAddress
 
 ### 预填充后命中率看起来比预期低
 
-通常没有问题——这个数字把预填充本身也算了进去。仪表板的命中率是按字节加权统计所有接触过缓存的客户端得出的，包括预填充容器本身（[Prometheus](recipes.md#grafana--prometheus) 的 `lancache_service_hit_ratio` 指标也是同样的混合方式）。
+通常没有问题——这个数字把预填充本身也算了进去。仪表板的命中率是按字节加权统计所有接触过缓存的客户端得出的，包括预填充容器本身（[Prometheus](prometheus-metrics.md) 的 `lancache_service_hit_ratio` 指标也是同样的混合方式）。
 
 在空缓存上，一次预填充运行接近 100% 未命中，随后的安装接近 100% 命中。两者合起来，单个游戏大致会拉平到 50% 左右。每次重复安装都会把这个数字推向 66%、75% 甚至更高，因为未命中的字节数是固定的基数，而每次安装都会给总数增加更多命中字节。
 

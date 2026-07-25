@@ -23,5 +23,7 @@ It also acts on the cache. Prefill Steam, Epic, Battle.net, Riot, and Xbox games
 | See what each page does | [What You Get](what-you-get.md) |
 | Prefill games before an event | [Prefill](prefill.md) |
 | Run against a non-Docker cache | [Bare-Metal LANCache](bare-metal-lancache.md) |
+| Set up on Unraid | [Recipes](recipes.md) |
+| Split or combine cache servers | [Multiple Datasources](multiple-datasources.md) |
 | Tune settings and environment variables | [Configuration Reference](configuration-reference.md) |
 | Fix something that is not working | [Troubleshooting](troubleshooting.md) |

@@ -98,7 +98,7 @@
 | `LanCache__EnvFilePath` | （自动） | lancache `.env` 文件的路径（用于读取 `CACHE_DISK_SIZE`）。未设置时会在常见位置搜索。 |
 | `LanCache__AutoDiscoverDatasources` | `false` | 从 `/cache` 和 `/logs` 下匹配的子目录自动检测数据源，最多向下三层。 |
 
-如果你运行多个缓存实例，或者把不同服务分散在多个驱动器上，请参见[多数据源](recipes.md#multiple-datasources)。
+如果你运行多个缓存实例，或者把不同服务分散在多个驱动器上，请参见[多数据源](multiple-datasources.md)。
 
 ### Nginx 日志轮转 { #nginx-log-rotation }
 

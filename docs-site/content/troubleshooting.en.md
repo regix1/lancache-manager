@@ -95,7 +95,7 @@ That's [Scheduled Prefill](prefill.md#scheduled-prefill) working as designed: a 
 
 ### Hit rate looks lower than expected after a prefill
 
-Usually nothing is wrong - the number includes the prefill itself. The dashboard hit rate is byte-weighted across every client that touched the cache, including the prefill container (the [Prometheus](recipes.md#grafana--prometheus) `lancache_service_hit_ratio` metrics blend the same way).
+Usually nothing is wrong - the number includes the prefill itself. The dashboard hit rate is byte-weighted across every client that touched the cache, including the prefill container (the [Prometheus](prometheus-metrics.md) `lancache_service_hit_ratio` metrics blend the same way).
 
 On an empty cache, a prefill run is close to 100% MISS and the install that follows is close to 100% HIT. Together, one game blends to roughly 50%. Each reinstall pushes the number toward 66%, 75%, and higher, because the MISS bytes are a fixed floor while every install adds more HIT bytes.
 

@@ -65,7 +65,10 @@ docker compose up -d
 | [裸机版 LANCache](https://regix1.github.io/lancache-manager/zh/bare-metal-lancache/) | 对接非 Docker 缓存 |
 | [镜像与数据库模式](https://regix1.github.io/lancache-manager/zh/choosing-an-image-and-database-mode/) | 内置与外置 PostgreSQL |
 | [配置参考](https://regix1.github.io/lancache-manager/zh/configuration-reference/) | 所有环境变量与卷 |
-| [常见场景](https://regix1.github.io/lancache-manager/zh/recipes/) | Unraid、多数据源、反向代理、Prometheus |
+| [常见场景](https://regix1.github.io/lancache-manager/zh/recipes/) | Unraid 模板配置 |
+| [多数据源](https://regix1.github.io/lancache-manager/zh/multiple-datasources/) | 拆分缓存或合并多台 LANCache |
+| [反向代理](https://regix1.github.io/lancache-manager/zh/reverse-proxy/) | 在管理器前使用 Nginx |
+| [Prometheus 指标](https://regix1.github.io/lancache-manager/zh/prometheus-metrics/) | 抓取 `/metrics` 与示例查询 |
 | [故障排除](https://regix1.github.io/lancache-manager/zh/troubleshooting/) | 日志不处理、游戏未识别、权限问题 |
 | [自定义主题](https://regix1.github.io/lancache-manager/zh/custom-themes/) | 创建与分享主题 |
 | [从源码构建](https://regix1.github.io/lancache-manager/zh/building-from-source/) | 本地开发 |

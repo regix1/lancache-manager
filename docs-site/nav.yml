@@ -42,6 +42,18 @@
   en: Recipes
   zh: 常见场景
 
+- file: multiple-datasources
+  en: Multiple Datasources
+  zh: 多数据源
+
+- file: reverse-proxy
+  en: Reverse Proxy
+  zh: 反向代理
+
+- file: prometheus-metrics
+  en: Prometheus Metrics
+  zh: Prometheus 指标
+
 - file: troubleshooting
   en: Troubleshooting
   zh: 故障排除

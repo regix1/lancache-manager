@@ -5,7 +5,7 @@ A quick tour of the main pages. All screenshots use the default dark theme.
 ### Dashboard
 
 <div align="center">
-<img alt="Dashboard overview with bandwidth saved, cache hit ratio, service breakdown, and top clients" src="images/dashboard-overview.png" />
+<img alt="Dashboard overview with bandwidth saved, cache hit ratio, service breakdown, and top clients" src="../images/dashboard-overview.png" />
 
 *Dashboard - bandwidth saved, hit ratio, service analytics, and top clients in one view*
 </div>
@@ -13,7 +13,7 @@ A quick tour of the main pages. All screenshots use the default dark theme.
 ### Downloads
 
 <div align="center">
-<img alt="Downloads Normal view showing per-game download cards with cache-hit progress" src="images/downloads-normal.png" />
+<img alt="Downloads Normal view showing per-game download cards with cache-hit progress" src="../images/downloads-normal.png" />
 
 *Downloads - every cached game with cover art, sizes, and per-client history*
 </div>
@@ -23,7 +23,7 @@ Three view modes: **Normal** (cards, shown above), **Compact** (a dense list), a
 ### Clients
 
 <div align="center">
-<img alt="Clients page listing devices with per-device download totals, cache hits and misses, and hit rate" src="images/clients.png" />
+<img alt="Clients page listing devices with per-device download totals, cache hits and misses, and hit rate" src="../images/clients.png" />
 
 *Clients - which devices use the cache, and how well it serves each one*
 </div>
@@ -33,7 +33,7 @@ Open it when you want to know which machines pull the most and whether their ins
 ### Users
 
 <div align="center">
-<img alt="Users page showing the active session list" src="images/users-sessions.png" />
+<img alt="Users page showing the active session list" src="../images/users-sessions.png" />
 
 *Users - active sessions and guest access*
 </div>
@@ -43,7 +43,7 @@ This is where guest access lives: watch active sessions and hand out time-limite
 ### Events
 
 <div align="center">
-<img alt="Events calendar with a LAN party event scheduled" src="images/events.png" />
+<img alt="Events calendar with a LAN party event scheduled" src="../images/events.png" />
 
 *Events - download activity and LAN events on a calendar*
 </div>
@@ -53,7 +53,7 @@ Planning a LAN party? Put it on the calendar and see download activity in date c
 ### Status Check { #status-check }
 
 <div align="center">
-<img alt="Status Check tab showing DNS resolution results and cache-domain verification" src="images/status-check.png" />
+<img alt="Status Check tab showing DNS resolution results and cache-domain verification" src="../images/status-check.png" />
 
 *Status Check - verify DNS, cache reachability, and recent download routing*
 </div>
@@ -87,7 +87,7 @@ Two caveats. If you serve this manager over **https**, the browser blocks the pl
 ### Logs & Cache
 
 <div align="center">
-<img alt="Logs and Cache management showing log processing and cache operation controls" src="images/management-logs-cache.png" />
+<img alt="Logs and Cache management showing log processing and cache operation controls" src="../images/management-logs-cache.png" />
 
 *Management → Logs & Cache - process logs, manage the disk cache, and detect corrupted or evicted files*
 </div>
@@ -102,7 +102,7 @@ That covers the daily surface. Management has more tabs behind it - expand below
 #### Settings
 
 <div align="center">
-<img alt="Management Settings tab with API authentication, demo mode, and display preferences" src="images/management-settings.png" />
+<img alt="Management Settings tab with API authentication, demo mode, and display preferences" src="../images/management-settings.png" />
 
 *Settings - authentication, demo mode, and display preferences.*
 </div>
@@ -112,7 +112,7 @@ That covers the daily surface. Management has more tabs behind it - expand below
 #### Integrations
 
 <div align="center">
-<img alt="Integrations tab showing sign-in cards for all five game platforms and the Prometheus endpoint panel" src="images/management-integrations.png" />
+<img alt="Integrations tab showing sign-in cards for all five game platforms and the Prometheus endpoint panel" src="../images/management-integrations.png" />
 
 *Integrations - sign in to the game platforms and configure the Prometheus endpoint. One page shows the login state of all five prefill services.*
 </div>
@@ -120,7 +120,7 @@ That covers the daily surface. Management has more tabs behind it - expand below
 #### Data
 
 <div align="center">
-<img alt="Data tab with the Steam game mapping card and the database import form" src="images/management-data.png" />
+<img alt="Data tab with the Steam game mapping card and the database import form" src="../images/management-data.png" />
 
 *Data - Steam game mapping and database import.*
 </div>
@@ -128,7 +128,7 @@ That covers the daily surface. Management has more tabs behind it - expand below
 #### Schedules
 
 <div align="center">
-<img alt="Schedules tab showing per-service schedule rows with intervals and Run Now controls" src="images/management-schedules-system.png" />
+<img alt="Schedules tab showing per-service schedule rows with intervals and Run Now controls" src="../images/management-schedules-system.png" />
 
 *Schedules - every background service on its own interval, each with a Run Now control. The Scheduled Prefill card lives at the bottom of this page and is shown in the Prefill section below.*
 </div>
@@ -136,7 +136,7 @@ That covers the daily surface. Management has more tabs behind it - expand below
 #### Theme
 
 <div align="center">
-<img alt="Theme gallery with installed themes, community themes, and a custom theme upload area" src="images/management-theme.png" />
+<img alt="Theme gallery with installed themes, community themes, and a custom theme upload area" src="../images/management-theme.png" />
 
 *Theme - switch between installed themes, import community themes, or upload your own.*
 </div>
@@ -144,7 +144,7 @@ That covers the daily surface. Management has more tabs behind it - expand below
 #### Clients (aliases and exclusions)
 
 <div align="center">
-<img alt="Management Clients tab for assigning nicknames and excluding devices from stats" src="images/management-client-aliases.png" />
+<img alt="Management Clients tab for assigning nicknames and excluding devices from stats" src="../images/management-client-aliases.png" />
 
 *Clients - give devices friendly names and exclude machines from the stats.*
 </div>
@@ -154,7 +154,7 @@ One nickname can cover several IP addresses - handy when a machine dual-boots or
 #### Prefill Sessions
 
 <div align="center">
-<img alt="Prefill Sessions tab showing live, persistent, and past prefill container sessions" src="images/management-prefill-sessions.png" />
+<img alt="Prefill Sessions tab showing live, persistent, and past prefill container sessions" src="../images/management-prefill-sessions.png" />
 
 *Prefill Sessions - watch live and persistent prefill containers and review past runs.*
 </div>

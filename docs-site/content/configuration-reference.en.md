@@ -99,7 +99,7 @@ Prefill auto-detects the right values for almost everything in this table. Three
 | `LanCache__AutoDiscoverDatasources` | `false` | Auto-detect datasources from matching subdirectories under `/cache` and `/logs`, up to three levels deep. |
 | `LanCache__DataSources__<n>__SchemeOverride` | `auto` | Cache-key scheme for one datasource: `auto`, `monolithic`, or `bare_metal`. Only needed when custom log filenames defeat auto-detection and the datasource is left read-only for disk actions. Also settable per datasource in the UI. |
 
-If you run more than one cache instance or split services across drives, see [Multiple Datasources](recipes.md#multiple-datasources).
+If you run more than one cache instance or split services across drives, see [Multiple Datasources](multiple-datasources.md).
 
 ### Nginx Log Rotation { #nginx-log-rotation }
 
