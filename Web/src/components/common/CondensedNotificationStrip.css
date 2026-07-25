@@ -168,19 +168,20 @@
   animation: condensedStripPulse 2.2s ease-in-out infinite;
 }
 
-/* The glow is a dedicated row of per-segment shadow casters, one per segment so the light lands
-   under the segment that emits it. Blur only, NO spread: spread inflates the caster into a
-   hard-edged slab thicker than the line, which reads as a second fat bar rather than light
-   coming off the first.
+/* The glow is a dedicated row of per-segment panels, one per segment so the light lands under the
+   segment that emits it.
 
-   The glow occupies a fixed-height band pinned directly BELOW the line (top: 100%) and shows
-   only the light cast into that band, clipped by overflow: hidden. It deliberately does NOT
-   clip a box-shadow with clip-path: Chromium computes the clip-path reference box to include the
-   shadow's own boundaries, so when the fade-in opacity transition forces a recomposite the clip
-   can stop containing the shadow and it blooms in every direction, upward over the line as well
-   as down. That made the thin line intermittently render as a fat slab. overflow: hidden clips a
-   child's box-shadow reliably, so the upward bloom can never escape the band and the line's
-   painted height is fixed no matter when the browser recomposites. */
+   The light is painted as a background gradient, NOT a blurred box-shadow. A shadow's ink is laid
+   outside the caster's own box, so containing it depends on the browser clipping it correctly, and
+   that clipping is unreliable in Chromium: the reference box is computed to include the shadow's
+   own boundaries, so an opacity recomposite (this band fades in and out) can leave the shadow
+   unclipped and it blooms in every direction, upward over the line as well as down. The symptom is
+   a thin line intermittently rendering as a fat coloured slab. A gradient background cannot do
+   that at all, because a background is painted inside the element's own box by definition. There
+   is no clip to fail, so there is no recomposite that can change the painted height.
+
+   The band keeps overflow: hidden and adds contain: paint as a second guarantee that nothing a
+   descendant paints can ever land outside these bounds. */
 .condensed-strip-glow {
   position: absolute;
   top: 100%;
@@ -191,16 +192,17 @@
   gap: 1px;
   pointer-events: none;
   overflow: hidden;
+  contain: paint;
   opacity: 0;
   transition: opacity 0.35s ease-out;
 }
 
-/* A hairline caster pinned to the band's top edge (flush under the line): its blur reaches down
-   into the band and up over the line, and the band's overflow keeps only the downward half. */
+/* Light falling away from the line: full tone flush against the band's top edge, fading out well
+   before the band's bottom so the falloff reads as glow rather than as a second bar. */
 .condensed-strip-glow-seg {
   flex: 1 1 0%;
-  height: 1px;
-  box-shadow: 0 0 0.625rem 0 var(--seg-glow-color);
+  height: 100%;
+  background: linear-gradient(to bottom, var(--seg-glow-color), transparent 60%);
 }
 
 /* Hovering lights the glow. The running pulse and sweep keep playing while hovered: pausing

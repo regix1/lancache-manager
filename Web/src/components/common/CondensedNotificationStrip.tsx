@@ -6,9 +6,16 @@ import './CondensedNotificationStrip.css';
 
 /**
  * Solid status colours map to their theme glow tone, which carries one shared alpha across
- * every status so no segment outshines its neighbour. Anything unmapped falls back to the
- * line colour itself: still the right hue, only brighter than a mapped segment.
+ * every status so no segment outshines its neighbour.
+ *
+ * Anything unmapped casts no light rather than falling back to the line colour. The glow is
+ * painted as a gradient from this value, so a fully opaque colour would start the band at full
+ * strength and read as a second solid bar under the line instead of as light coming off it.
+ * Every status colour the strip can receive is mapped below, so this fallback is a guard
+ * against a future unmapped colour, not a case that renders today.
  */
+const UNMAPPED_GLOW_COLOR = 'transparent';
+
 const GLOW_COLOR_BY_STATUS_COLOR: Record<string, string> = {
   'var(--theme-success)': 'var(--theme-success-glow)',
   'var(--theme-error)': 'var(--theme-error-glow)',
@@ -404,7 +411,8 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
               className={`condensed-strip-glow-seg${leaving ? ' is-exiting' : ''}`}
               style={
                 {
-                  '--seg-glow-color': GLOW_COLOR_BY_STATUS_COLOR[segment.color] ?? segment.color
+                  '--seg-glow-color':
+                    GLOW_COLOR_BY_STATUS_COLOR[segment.color] ?? UNMAPPED_GLOW_COLOR
                 } as React.CSSProperties
               }
             />

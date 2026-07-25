@@ -79,11 +79,6 @@
     width: var(--progress-width);
   }
 
-  /* Compact "Cancelling..." row shown in place of the frozen progress bars (O6). */
-  .prefill-cancelling-row {
-    padding: 0.25rem 0;
-  }
-
   /* Loading State - Service-specific icon variants */
   .prefill-loading-icon--steam {
     background-color: var(--theme-steam-subtle);

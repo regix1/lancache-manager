@@ -143,14 +143,10 @@ export function PrefillProgressCard({
           </div>
         </div>
 
-        {/* Compact "Cancelling..." row: hide the now-frozen progress bars while the cancel
-            request is in flight so a stale, non-advancing bar isn't shown for seconds. */}
-        {isCancelling ? (
-          <div className="flex items-center justify-center gap-2 text-sm text-themed-muted prefill-cancelling-row">
-            <LoadingSpinner inline size="sm" />
-            <span>{t('prefill.progress.cancelling', 'Cancelling...')}</span>
-          </div>
-        ) : (
+        {/* Hide the now-frozen progress bars while the cancel request is in flight so a stale,
+            non-advancing bar isn't shown for seconds. The cancel button carries the pending
+            state, so no separate status row is needed here. */}
+        {!isCancelling && (
           <>
             {/* Overall progress (multi-game jobs only) */}
             {showOverall && !isReconnecting && (
