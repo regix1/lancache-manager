@@ -77,4 +77,5 @@ extra_css:
 
 extra_javascript:
   - javascripts/env-copy.js
+  - javascripts/site-enhance.js
 
