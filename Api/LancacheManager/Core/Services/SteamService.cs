@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
 

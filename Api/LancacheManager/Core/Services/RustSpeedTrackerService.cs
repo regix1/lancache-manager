@@ -187,8 +187,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     // then unresolved depot, then a resolved title for named services, then the service-only bucket.
     private static readonly Regex _steamAppPlaceholder = new(@"^Steam App \d+$", RegexOptions.Compiled);
 
-    private static readonly IReadOnlyDictionary<string, string> _serviceFallbackLabels =
-        new Dictionary<string, string>(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> _serviceFallbackLabels =
+        new(StringComparer.Ordinal)
         {
             ["epic"] = "Epic Games",
             ["epicgames"] = "Epic Games",
