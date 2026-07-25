@@ -1,0 +1,63 @@
+# Page order and titles for the documentation site.
+#
+# Each entry maps to docs-site/content/<file>.en.md and <file>.zh.md.
+# docs-site/build.py validates that both language files exist for every entry
+# and fails if one is missing, so a half-translated page cannot ship silently.
+#
+# To add a page: create both language files in content/, then add it here.
+
+- file: index
+  en: Overview
+  zh: 概览
+
+- file: quick-start
+  en: Quick Start
+  zh: 快速开始
+
+- file: upgrading
+  en: Upgrading
+  zh: 升级
+
+- file: what-you-get
+  en: What You Get
+  zh: 功能一览
+
+- file: prefill
+  en: Prefill
+  zh: 预填充
+
+- file: bare-metal-lancache
+  en: Bare-Metal LANCache
+  zh: 裸机版 LANCache
+
+- file: choosing-an-image-and-database-mode
+  en: Choosing an Image and Database Mode
+  zh: 选择镜像与数据库模式
+
+- file: configuration-reference
+  en: Configuration Reference
+  zh: 配置参考
+
+- file: recipes
+  en: Recipes
+  zh: 常见场景
+
+- file: troubleshooting
+  en: Troubleshooting
+  zh: 故障排除
+
+- file: custom-themes
+  en: Custom Themes
+  zh: 自定义主题
+
+- file: building-from-source
+  en: Building from Source
+  zh: 从源码构建
+
+- file: contributing-translations
+  en: Contributing Translations
+  zh: 贡献翻译
+
+- file: support-and-license
+  en: Support and License
+  zh: 支持与许可

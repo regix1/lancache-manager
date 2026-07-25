@@ -157,3 +157,6 @@ EPIC_IMAGE_FIX_PLAN.md
 CODE_CONSOLIDATION_PLAN.md
 DEAD_CODE_AUDIT.md
 .cursor/
+
+# Generated documentation site (built from the READMEs by docs-site/build.py)
+docs-site/generated/

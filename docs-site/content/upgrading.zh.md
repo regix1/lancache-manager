@@ -1,0 +1,16 @@
+# 升级 { #upgrading }
+
+升级就是拉取镜像加重建容器：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+你的历史数据能保留下来，是因为它们都不在容器里。内嵌模式下，它们全部保存在 `/data` 数据卷中：数据库、API 密钥、主题、预填充状态和设置。外部模式下，请让 `/data` 和你的 PostgreSQL 存储都保持持久化。
+
+- **标签：** `latest` 始终跟踪最新发布版本。如果你想精确控制升级时机，可以固定一个版本标签（例如 `1.10.4`），需要升级时再修改标签。
+- **从旧版 SQLite 构建升级？** 迁移到 PostgreSQL 会在首次启动时自动运行——下载记录、设置和缓存数据无需任何手动操作即可迁移。部分托管 Postgres 服务禁止 `ALTER SYSTEM` 调优；迁移会跳过该步骤并继续执行。
+- **某个版本改动了什么？** 各版本的更新说明见 [Releases 页面](https://github.com/regix1/lancache-manager/releases)。
+
+-----

@@ -1,0 +1,71 @@
+# Theme and plugin configuration for the documentation site.
+#
+# The nav is appended to this file by docs-site/build.py, which writes the
+# complete config to docs-site/generated/mkdocs.yml. Edit this file for theme
+# changes; never edit the generated one.
+
+site_name: LANCache Manager
+site_description: Monitoring, prefill, and cache management for LANCache
+site_url: https://regix1.github.io/lancache-manager/
+repo_url: https://github.com/regix1/lancache-manager
+repo_name: regix1/lancache-manager
+edit_uri: ""
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+  features:
+    # navigation.instant is deliberately omitted: it breaks the i18n language
+    # switcher's contextual links.
+    - navigation.tracking
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: zh
+          name: 简体中文
+          build: true
