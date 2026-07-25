@@ -31,9 +31,12 @@
     if (!parent) {
       return;
     }
+    /* Material already wraps tables in .md-typeset__scrollwrap >
+       .md-typeset__table — rely on that (plus CSS width:max-content). */
     if (
       parent.classList.contains("md-typeset__table") ||
-      parent.classList.contains("env-var-scroll")
+      parent.classList.contains("env-var-scroll") ||
+      parent.classList.contains("md-typeset__scrollwrap")
     ) {
       return;
     }
