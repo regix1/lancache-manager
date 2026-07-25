@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@components/ui/Tooltip';
-import { formatServiceLabel } from './helpers';
+import { formatServiceLabel } from '@utils/serviceDisplayName';
 import type { RibbonSegment } from './types';
 
 interface ResolutionRibbonProps {

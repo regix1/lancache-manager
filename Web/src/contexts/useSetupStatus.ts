@@ -1,10 +1,4 @@
-import { useContext } from 'react';
 import { SetupStatusContext } from './SetupStatusContext.types';
+import { createContextHook } from './createContextHook';
 
-export const useSetupStatus = () => {
-  const context = useContext(SetupStatusContext);
-  if (!context) {
-    throw new Error('useSetupStatus must be used within SetupStatusProvider');
-  }
-  return context;
-};
+export const useSetupStatus = createContextHook(SetupStatusContext, 'useSetupStatus');

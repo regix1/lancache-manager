@@ -197,13 +197,6 @@
   padding: 0.75rem 0;
 }
 
-.session-filter-cluster {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .session-toolbar__right {
   display: flex;
   align-items: center;
@@ -230,7 +223,7 @@
  * ============================================== */
 
 /* Phones: actions drop to a full-width second line and always show. */
-@media (max-width: 639px) {
+@media (max-width: 639.98px) {
   .session-row__actions {
     opacity: 1;
     order: 2;

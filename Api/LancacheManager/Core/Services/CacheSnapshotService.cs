@@ -172,25 +172,6 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Get the estimated cache size at a specific point in time.
-    /// Returns the closest snapshot to the requested time.
-    /// </summary>
-    public async Task<CacheSnapshot?> GetSnapshotAtTimeAsync(DateTime timestampUtc)
-    {
-        using var scopedDb = _scopeFactory.CreateScopedDbContext();
-
-        // Find the closest snapshot to the requested time
-        // First try to find the snapshot just before the requested time
-        var snapshot = await scopedDb.DbContext.CacheSnapshots
-            .AsNoTracking()
-            .Where(s => s.TimestampUtc <= timestampUtc)
-            .OrderByDescending(s => s.TimestampUtc)
-            .FirstOrDefaultAsync();
-
-        return snapshot;
-    }
-
-    /// <summary>
     /// Get the average cache size during a time range.
     /// </summary>
     public async Task<CacheSnapshotSummary?> GetSnapshotSummaryAsync(DateTime startUtc, DateTime endUtc, CancellationToken cancellationToken = default)

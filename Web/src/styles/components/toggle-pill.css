@@ -43,7 +43,7 @@
   line-height: 1.25;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 639.98px) {
   .toggle-pill--sm {
     font-size: var(--font-size-2xs);
     padding: 0.15rem 0.4rem;

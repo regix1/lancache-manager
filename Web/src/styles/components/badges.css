@@ -1,35 +1,7 @@
 @layer components {
   /* ==============================================
-   * BADGES - Hit Rate, Status, Cache, Alert
+   * BADGES - Cache, Status, Session, Count, Live
    * ============================================== */
-
-  /* Hit Rate Badges */
-  .hit-rate-high {
-    background-color: var(--theme-hit-rate-high-bg);
-    color: var(--theme-hit-rate-high-text);
-  }
-
-  .hit-rate-medium {
-    background-color: var(--theme-hit-rate-medium-bg);
-    color: var(--theme-hit-rate-medium-text);
-  }
-
-  .hit-rate-low {
-    background-color: var(--theme-hit-rate-low-bg);
-    color: var(--theme-hit-rate-low-text);
-  }
-
-  .hit-rate-warning {
-    background-color: var(--theme-hit-rate-warning-bg);
-    color: var(--theme-hit-rate-warning-text);
-  }
-
-  /* Status Indicators */
-  .status-error {
-    background-color: var(--theme-error-bg);
-    color: var(--theme-error-text);
-    border-color: var(--theme-error);
-  }
 
   /* Cache Performance Indicators */
   .cache-hit {
@@ -51,27 +23,6 @@
     line-height: 1.2;
     border-radius: 3px;
     white-space: nowrap;
-  }
-
-  /* Responsive Hit Rate Badge Helper */
-  .hit-rate-badge {
-    @apply themed-badge;
-  }
-
-  .hit-rate-badge.high {
-    @apply hit-rate-high;
-  }
-
-  .hit-rate-badge.medium {
-    @apply hit-rate-medium;
-  }
-
-  .hit-rate-badge.low {
-    @apply hit-rate-low;
-  }
-
-  .hit-rate-badge.warning {
-    @apply hit-rate-warning;
   }
 
   /* Session badges */

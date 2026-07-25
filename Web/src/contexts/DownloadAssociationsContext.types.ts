@@ -7,7 +7,7 @@ export interface DownloadAssociations {
 
 export type AssociationsCache = Record<number, DownloadAssociations>;
 
-export interface DownloadAssociationsContextType {
+interface DownloadAssociationsContextType {
   associations: AssociationsCache;
   loading: boolean;
   fetchAssociations: (downloadIds: number[]) => Promise<void>;

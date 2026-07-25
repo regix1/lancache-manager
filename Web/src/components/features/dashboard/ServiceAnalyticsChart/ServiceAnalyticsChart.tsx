@@ -5,6 +5,7 @@ import { isActiveGame, buildGamesOnDiskDisplayStats, getChartGames } from '@util
 import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
+import Badge from '@components/ui/Badge';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Tooltip } from '@components/ui/Tooltip';
 import { EmptyState } from '@components/ui/ManagerCard';
@@ -280,15 +281,16 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                     <div className="well-surface analytics-list-container">
                       <div className="analytics-list-header">
                         <span>{activeTabConfig.tooltip ?? activeTabConfig.label}</span>
-                        <span
-                          className="themed-badge status-badge-neutral badge-count"
-                          aria-label={t('dashboard.serviceAnalytics.itemCount', {
+                        <Badge
+                          variant="neutral"
+                          className="badge-count"
+                          ariaLabel={t('dashboard.serviceAnalytics.itemCount', {
                             count: legendItems.length,
                             defaultValue: '{{count}} items'
                           })}
                         >
                           {legendItems.length}
-                        </span>
+                        </Badge>
                       </div>
                       <ChartLegend items={legendItems} />
                     </div>

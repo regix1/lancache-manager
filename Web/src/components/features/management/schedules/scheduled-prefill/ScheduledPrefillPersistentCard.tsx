@@ -333,7 +333,7 @@ export function ScheduledPrefillPersistentCard({
           )}
 
           <footer ref={actionsRef} className="scheduled-prefill-persistent-card__actions">
-            <div className="scheduled-prefill-persistent-card__action-group">
+            <div className="scheduled-prefill-persistent-card__action-group cluster">
               {isRunning ? (
                 <Button
                   type="button"
@@ -361,7 +361,7 @@ export function ScheduledPrefillPersistentCard({
               )}
             </div>
 
-            <div className="scheduled-prefill-persistent-card__action-group">
+            <div className="scheduled-prefill-persistent-card__action-group cluster">
               {isRunning && !isReady && (
                 <Button
                   type="button"
@@ -428,7 +428,7 @@ export function ScheduledPrefillPersistentCard({
             </div>
 
             {isRunning && isReady && (
-              <div className="scheduled-prefill-persistent-card__action-group scheduled-prefill-persistent-card__action-group--primary">
+              <div className="scheduled-prefill-persistent-card__action-group scheduled-prefill-persistent-card__action-group--primary cluster">
                 {isPrefilling ? (
                   <Button
                     type="button"

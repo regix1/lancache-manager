@@ -1,10 +1,4 @@
-import { useContext } from 'react';
+import { createContextHook } from '../createContextHook';
 import { SignalRContext } from './SignalRContext.types';
 
-export const useSignalR = () => {
-  const context = useContext(SignalRContext);
-  if (!context) {
-    throw new Error('useSignalR must be used within SignalRProvider');
-  }
-  return context;
-};
+export const useSignalR = createContextHook(SignalRContext, 'useSignalR');

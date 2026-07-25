@@ -329,7 +329,7 @@ public class SystemController : ControllerBase
     {
         if (request == null)
         {
-            return BadRequest(new ErrorResponse { Error = "Invalid setup update request body" });
+            return BadRequest(ApiResponse.Error("Invalid setup update request body"));
         }
 
         var hasCompleted = request.Completed.HasValue;
@@ -342,7 +342,7 @@ public class SystemController : ControllerBase
         // to guard here to match the pre-existing "invalid step" error shape.
         if (hasCurrentSetupStep && request.CurrentSetupStep == SetupStep.Unknown)
         {
-            return BadRequest(new ErrorResponse { Error = "Invalid currentSetupStep value" });
+            return BadRequest(ApiResponse.Error("Invalid currentSetupStep value"));
         }
 
         var hasUpdate = false;
@@ -387,10 +387,8 @@ public class SystemController : ControllerBase
 
         if (!_stateService.IsPersistenceAvailable)
         {
-            return StatusCode(503, new ErrorResponse
-            {
-                Error = "Setup state could not be persisted. Please check server logs and try again."
-            });
+            return StatusCode(503, ApiResponse.Error(
+                "Setup state could not be persisted. Please check server logs and try again."));
         }
 
         if (hasCompleted)
@@ -423,10 +421,8 @@ public class SystemController : ControllerBase
 
         if (!_stateService.IsPersistenceAvailable)
         {
-            return StatusCode(503, new ErrorResponse
-            {
-                Error = "Setup state could not be persisted. Please check server logs and try again."
-            });
+            return StatusCode(503, ApiResponse.Error(
+                "Setup state could not be persisted. Please check server logs and try again."));
         }
 
         return Ok(new SetupUpdateResponse
@@ -477,7 +473,7 @@ public class SystemController : ControllerBase
     {
         if (request.IntervalHours <= 0)
         {
-            return BadRequest(new ErrorResponse { Error = "Interval must be greater than 0" });
+            return BadRequest(ApiResponse.Error("Interval must be greater than 0"));
         }
 
         _steamKit2Service.CrawlIntervalHours = request.IntervalHours;
@@ -504,7 +500,7 @@ public class SystemController : ControllerBase
         // incremental/full toggle.
         if (request.Mode != DepotScanMode.Incremental && request.Mode != DepotScanMode.Full)
         {
-            return BadRequest(new ErrorResponse { Error = "Invalid scan mode. Must be 'full' or 'incremental'" });
+            return BadRequest(ApiResponse.Error("Invalid scan mode. Must be 'full' or 'incremental'"));
         }
 
         _steamKit2Service.CrawlIncrementalMode = request.Mode == DepotScanMode.Incremental;
@@ -540,13 +536,13 @@ public class SystemController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.RefreshRate))
         {
-            return BadRequest(new ErrorResponse { Error = "Refresh rate is required" });
+            return BadRequest(ApiResponse.Error("Refresh rate is required"));
         }
 
         var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
         if (!validRates.Contains(request.RefreshRate.ToUpperInvariant()))
         {
-            return BadRequest(new ErrorResponse { Error = "Invalid refresh rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
+            return BadRequest(ApiResponse.Error("Invalid refresh rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW"));
         }
 
         _stateService.SetRefreshRate(request.RefreshRate);
@@ -585,14 +581,14 @@ public class SystemController : ControllerBase
     {
         if (request == null || string.IsNullOrWhiteSpace(request.RefreshRate))
         {
-            return BadRequest(new ErrorResponse { Error = "Refresh rate is required" });
+            return BadRequest(ApiResponse.Error("Refresh rate is required"));
         }
 
         var normalizedRate = request.RefreshRate.Trim().ToUpperInvariant();
         var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
         if (!validRates.Contains(normalizedRate))
         {
-            return BadRequest(new ErrorResponse { Error = "Invalid refresh rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
+            return BadRequest(ApiResponse.Error("Invalid refresh rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW"));
         }
 
         _stateService.SetDefaultGuestRefreshRate(normalizedRate);
@@ -621,7 +617,7 @@ public class SystemController : ControllerBase
     {
         if (request == null)
         {
-            return BadRequest(new ErrorResponse { Error = "Request body is required" });
+            return BadRequest(ApiResponse.Error("Request body is required"));
         }
 
         _stateService.SetGuestRefreshRateLocked(request.Locked);
@@ -666,7 +662,7 @@ public class SystemController : ControllerBase
 
         if (request.Formats == null || request.Formats.Count == 0)
         {
-            return BadRequest(new ErrorResponse { Error = "At least one time format must be allowed" });
+            return BadRequest(ApiResponse.Error("At least one time format must be allowed"));
         }
 
         // Validate all formats
@@ -674,7 +670,7 @@ public class SystemController : ControllerBase
         {
             if (!validFormats.Contains(format))
             {
-                return BadRequest(new ErrorResponse { Error = $"Invalid time format: {format}. Valid formats are: {string.Join(", ", validFormats)}" });
+                return BadRequest(ApiResponse.Error($"Invalid time format: {format}. Valid formats are: {string.Join(", ", validFormats)}"));
             }
         }
 
@@ -704,7 +700,7 @@ public class SystemController : ControllerBase
         var validKeys = new[] { "useLocalTimezone", "use24HourFormat", "sharpCorners", "disableTooltips", "showDatasourceLabels", "showYearInDates" };
         if (!validKeys.Contains(key))
         {
-            return BadRequest(new ErrorResponse { Error = $"Invalid preference key: {key}" });
+            return BadRequest(ApiResponse.Error($"Invalid preference key: {key}"));
         }
 
         _stateService.UpdateState(state =>

@@ -4,7 +4,6 @@ import {
   HardDrive,
   Database,
   Server,
-  AlertTriangle,
   RefreshCw,
   Search,
   Zap,
@@ -15,7 +14,6 @@ import {
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import { Modal } from '@components/ui/Modal';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -1155,47 +1153,32 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       />
 
       {/* Remove All Cached Games/Services Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={showRemoveAllConfirm}
         onClose={() => setShowRemoveAllConfirm(false)}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>
-              {t(
-                'management.sections.data.gameCacheRemoveAllConfirmTitle',
-                'Remove all cached games & services?'
-              )}
-            </span>
-          </div>
-        }
+        onConfirm={handleRemoveAllCached}
+        title={t(
+          'management.sections.data.gameCacheRemoveAllConfirmTitle',
+          'Remove all cached games & services?'
+        )}
+        confirmLabel={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.sections.data.gameCacheRemoveAllConfirmMessage', {
-              count: filteredGames.length + filteredServices.length,
+        <p className="text-themed-secondary">
+          {t('management.sections.data.gameCacheRemoveAllConfirmMessage', {
+            count: filteredGames.length + filteredServices.length,
+            defaultValue:
+              'This will permanently delete cache files, log entries, and database records for all {{count}} currently-cached games and services. Items are removed one at a time. The operation cannot be undone.'
+          })}
+        </p>
+        <Alert color="yellow">
+          <p className="text-sm">
+            {t('management.sections.data.gameCacheRemoveAllConfirmWarning', {
               defaultValue:
-                'This will permanently delete cache files, log entries, and database records for all {{count}} currently-cached games and services. Items are removed one at a time. The operation cannot be undone.'
+                'This is irreversible. Any client that re-downloads these games will have to pull the full payload from upstream, not the cache.'
             })}
           </p>
-          <Alert color="yellow">
-            <p className="text-sm">
-              {t('management.sections.data.gameCacheRemoveAllConfirmWarning', {
-                defaultValue:
-                  'This is irreversible. Any client that re-downloads these games will have to pull the full payload from upstream, not the cache.'
-              })}
-            </p>
-          </Alert>
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button variant="default" onClick={() => setShowRemoveAllConfirm(false)}>
-              {t('management.sections.data.evictionRemoveConfirmCancel')}
-            </Button>
-            <Button variant="filled" color="red" onClick={handleRemoveAllCached}>
-              {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        </Alert>
+      </ConfirmationModal>
 
       {/* Remove Selected (combined services + games) Confirmation Modal */}
       <ConfirmationModal

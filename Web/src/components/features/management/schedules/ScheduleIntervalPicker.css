@@ -108,7 +108,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 639px) {
+@media (max-width: 639.98px) {
   .schedule-interval-popover {
     width: 100%;
     min-width: 0;

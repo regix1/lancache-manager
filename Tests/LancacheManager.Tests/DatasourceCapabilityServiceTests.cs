@@ -1,6 +1,5 @@
 using LancacheManager.Configuration;
 using LancacheManager.Core.Services;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
@@ -147,9 +146,7 @@ public class DatasourceCapabilityServiceTests
             LogPath = logPath,
             ConfiguredLogPath = logPath
         };
-        var service = new DatasourceCapabilityService(
-            datasourceService: null!,
-            NullLogger<DatasourceCapabilityService>.Instance);
+        var service = new DatasourceCapabilityService(datasourceService: null!);
 
         return (logPath, datasource, service);
     }

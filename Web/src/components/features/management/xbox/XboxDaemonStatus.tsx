@@ -1,12 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, XCircle } from 'lucide-react';
-import { AccordionSection } from '@components/ui/AccordionSection';
-import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
-import { Button } from '@components/ui/Button';
-import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { XboxIcon } from '@components/ui/XboxIcon';
-import { LoadingState } from '@components/ui/ManagerCard';
+import DaemonStatusCard from '../daemon-status/DaemonStatusCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import type { XboxMappingProgressEvent } from '@contexts/SignalRContext/types';
@@ -47,8 +42,6 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(false);
-  useAccordionGroupItem('integrations-xbox', expanded, () => setExpanded((prev) => !prev));
 
   const loadStatus = useCallback(async () => {
     // Demo/mock mode has no admin session, and auth-status is AdminOnly, so a fetch would 401/403
@@ -166,31 +159,20 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
         )
       : null;
 
-  const statusBadge = !loading ? (
-    isAuthenticated ? (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-        <CheckCircle size={14} />
-        {t('management.sections.integrations.xboxDaemonStatus.connected', 'Connected')}
-      </span>
-    ) : (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-        <XCircle size={14} />
-        {t('management.sections.integrations.xboxDaemonStatus.notConnected', 'Not Connected')}
-      </span>
-    )
-  ) : undefined;
-
-  const helpAccessory = (
-    <HelpPopover position="left" width={320}>
-      <HelpSection
-        title={t(
-          'management.sections.integrations.xboxDaemonStatus.help.authentication.title',
-          'Xbox Authentication'
-        )}
-        variant="subtle"
-      >
-        <HelpDefinition
-          items={[
+  return (
+    <>
+      <DaemonStatusCard
+        accordionId="integrations-xbox"
+        title={t('management.sections.integrations.xboxDaemonStatus.title', 'Xbox')}
+        description={t('management.sections.integrations.xboxDaemonStatus.summary')}
+        icon={XboxIcon}
+        iconColor="var(--theme-xbox)"
+        help={{
+          title: t(
+            'management.sections.integrations.xboxDaemonStatus.help.authentication.title',
+            'Xbox Authentication'
+          ),
+          definitions: [
             {
               term: t(
                 'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.term',
@@ -211,122 +193,78 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
                 'Once connected, your Xbox and Microsoft Store library is scanned to identify cached downloads and match them to game titles.'
               )
             }
-          ]}
-        />
-      </HelpSection>
-      <HelpNote type="info">
-        {t(
-          'management.sections.integrations.xboxDaemonStatus.help.note',
-          'Sign in to enable Xbox game discovery. Docker is not required. Authentication runs directly in the manager.'
+          ],
+          note: t(
+            'management.sections.integrations.xboxDaemonStatus.help.note',
+            'Sign in to enable Xbox game discovery. Docker is not required. Authentication runs directly in the manager.'
+          )
+        }}
+        loading={loading}
+        loadingMessage={t(
+          'management.sections.integrations.xboxDaemonStatus.loadingStatus',
+          'Loading Xbox status...'
         )}
-      </HelpNote>
-    </HelpPopover>
-  );
-
-  return (
-    <>
-      <AccordionSection
-        title={t('management.sections.integrations.xboxDaemonStatus.title', 'Xbox')}
-        description={t('management.sections.integrations.xboxDaemonStatus.summary')}
-        titleAccessory={helpAccessory}
-        icon={XboxIcon}
-        iconColor="var(--theme-xbox)"
-        isExpanded={expanded}
-        onToggle={() => setExpanded((prev) => !prev)}
-        badge={statusBadge}
+        hasError={hasError}
+        errorMessage={t(
+          'management.sections.integrations.xboxDaemonStatus.loadError',
+          'Failed to load Xbox status. Displaying default values.'
+        )}
+        connected={isAuthenticated}
+        connectedLabel={t(
+          'management.sections.integrations.xboxDaemonStatus.connected',
+          'Connected'
+        )}
+        notConnectedLabel={t(
+          'management.sections.integrations.xboxDaemonStatus.notConnected',
+          'Not Connected'
+        )}
+        headline={
+          isAuthenticated
+            ? t('management.sections.integrations.xboxDaemonStatus.connectedAs', {
+                name: authStatus?.displayName ?? 'Xbox User',
+                defaultValue: 'Connected as {{name}}'
+              })
+            : t('management.sections.integrations.xboxDaemonStatus.notConnected', 'Not Connected')
+        }
+        detail={
+          isAuthenticated
+            ? t(
+                'management.sections.integrations.xboxDaemonStatus.connectedDesc',
+                'Library synced. Game detection is active.'
+              )
+            : t(
+                'management.sections.integrations.xboxDaemonStatus.notConnectedDesc',
+                'Sign in with your Microsoft account to enable Xbox game discovery.'
+              )
+        }
+        extraDetail={
+          isAuthenticated &&
+          loginExpiresInDays !== null && (
+            <p className="text-xs text-themed-muted mt-1">
+              {t('management.sections.integrations.xboxDaemonStatus.loginExpiresInDays', {
+                count: loginExpiresInDays,
+                defaultValue:
+                  'Login valid for about {{count}} more days (auto-renews while running)'
+              })}
+            </p>
+          )
+        }
+        auth={{
+          enabled: authMode === 'authenticated' && !mockMode,
+          loginLabel: t(
+            'management.sections.integrations.xboxDaemonStatus.loginButton',
+            'Login with Xbox'
+          ),
+          logoutLabel: t('management.sections.integrations.xboxDaemonStatus.logout', 'Logout'),
+          onLogin: handleLoginClick,
+          onLogout: handleLogout,
+          loggingOut,
+          loginPending: loginState.loading,
+          loginDisabled: showAuthModal || loginState.loading
+        }}
       >
-        {loading ? (
-          <LoadingState
-            message={t(
-              'management.sections.integrations.xboxDaemonStatus.loadingStatus',
-              'Loading Xbox status...'
-            )}
-            rows={1}
-          />
-        ) : (
-          <>
-            {hasError && (
-              <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
-                {t(
-                  'management.sections.integrations.xboxDaemonStatus.loadError',
-                  'Failed to load Xbox status. Displaying default values.'
-                )}
-              </div>
-            )}
-
-            <div className="p-3 rounded-lg bg-themed-tertiary">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="text-themed-primary text-sm font-medium mb-1">
-                    {isAuthenticated
-                      ? t('management.sections.integrations.xboxDaemonStatus.connectedAs', {
-                          name: authStatus?.displayName ?? 'Xbox User',
-                          defaultValue: 'Connected as {{name}}'
-                        })
-                      : t(
-                          'management.sections.integrations.xboxDaemonStatus.notConnected',
-                          'Not Connected'
-                        )}
-                  </p>
-                  <p className="text-xs text-themed-muted">
-                    {isAuthenticated
-                      ? t(
-                          'management.sections.integrations.xboxDaemonStatus.connectedDesc',
-                          'Library synced. Game detection is active.'
-                        )
-                      : t(
-                          'management.sections.integrations.xboxDaemonStatus.notConnectedDesc',
-                          'Sign in with your Microsoft account to enable Xbox game discovery.'
-                        )}
-                  </p>
-                  {isAuthenticated && loginExpiresInDays !== null && (
-                    <p className="text-xs text-themed-muted mt-1">
-                      {t('management.sections.integrations.xboxDaemonStatus.loginExpiresInDays', {
-                        count: loginExpiresInDays,
-                        defaultValue:
-                          'Login valid for about {{count}} more days (auto-renews while running)'
-                      })}
-                    </p>
-                  )}
-                </div>
-                {authMode === 'authenticated' && !mockMode && (
-                  <div className="flex-shrink-0">
-                    {isAuthenticated ? (
-                      <Button
-                        onClick={handleLogout}
-                        loading={loggingOut}
-                        variant="filled"
-                        color="red"
-                        size="sm"
-                      >
-                        {t('management.sections.integrations.xboxDaemonStatus.logout', 'Logout')}
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={handleLoginClick}
-                        loading={loginState.loading}
-                        disabled={showAuthModal || loginState.loading}
-                        variant="filled"
-                        color="blue"
-                        size="sm"
-                      >
-                        {t(
-                          'management.sections.integrations.xboxDaemonStatus.loginButton',
-                          'Login with Xbox'
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className="mt-4">
-          <XboxGameMappings />
-        </div>
-      </AccordionSection>
+        <XboxGameMappings />
+      </DaemonStatusCard>
 
       <XboxMappingLoginModal
         opened={showAuthModal}

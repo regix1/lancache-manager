@@ -1,5 +1,4 @@
 using LancacheManager.Hubs;
-using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services.EpicMapping;
@@ -135,27 +134,5 @@ public partial class EpicMappingService
         }
 
         return resolvedCount;
-    }
-
-    /// <summary>
-    /// Try to resolve an Epic CDN URL to a game name using stored patterns.
-    /// </summary>
-    public async Task<EpicGameMapping?> ResolveGameFromUrlAsync(string url, CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(url)) return null;
-
-        using var db = _dbContextFactory.CreateDbContext();
-
-        var patterns = await db.EpicCdnPatterns
-            .AsNoTracking()
-            .OrderByDescending(p => p.ChunkBaseUrl.Length)
-            .ToListAsync(ct);
-        var matchingPattern = patterns.FirstOrDefault(p => url.Contains(p.ChunkBaseUrl.TrimEnd('/')));
-
-        if (matchingPattern == null) return null;
-
-        return await db.EpicGameMappings
-            .AsNoTracking()
-            .FirstOrDefaultAsync(m => m.AppId == matchingPattern.AppId, ct);
     }
 }

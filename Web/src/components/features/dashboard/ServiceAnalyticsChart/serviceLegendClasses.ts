@@ -1,49 +1,7 @@
 import type { TFunction } from 'i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
+import { getServiceLegendClass } from '@utils/serviceColors';
 import type { ChartData, TabId } from './types';
-
-/**
- * Mapping of normalized service identifiers to legend color CSS class names.
- * Used internally by `getLegendColorClass` to color the swatch / left bar / dot
- * of each row in ChartLegend. Local-only (not exported - knip clean).
- */
-const SERVICE_LEGEND_CLASSES: Record<string, string> = {
-  steam: 'legend-color-steam',
-  epic: 'legend-color-epic',
-  epicgames: 'legend-color-epic',
-  origin: 'legend-color-origin',
-  ea: 'legend-color-origin',
-  blizzard: 'legend-color-blizzard',
-  battlenet: 'legend-color-blizzard',
-  'battle.net': 'legend-color-blizzard',
-  wsus: 'legend-color-wsus',
-  windows: 'legend-color-wsus',
-  riot: 'legend-color-riot',
-  riotgames: 'legend-color-riot',
-  xbox: 'legend-color-xbox',
-  xboxlive: 'legend-color-xbox',
-  ubisoft: 'legend-color-ubisoft',
-  uplay: 'legend-color-ubisoft',
-  arenanet: 'legend-color-arenanet',
-  bsg: 'legend-color-bsg',
-  cityofheroes: 'legend-color-cityofheroes',
-  cod: 'legend-color-cod',
-  daybreak: 'legend-color-daybreak',
-  frontier: 'legend-color-frontier',
-  neverwinter: 'legend-color-neverwinter',
-  nexusmods: 'legend-color-nexusmods',
-  nintendo: 'legend-color-nintendo',
-  pathofexile: 'legend-color-pathofexile',
-  renegadex: 'legend-color-renegadex',
-  sony: 'legend-color-sony',
-  square: 'legend-color-square',
-  teso: 'legend-color-teso',
-  test: 'legend-color-test',
-  warframe: 'legend-color-warframe',
-  wargaming: 'legend-color-wargaming',
-  gog: 'legend-color-gog',
-  rockstar: 'legend-color-rockstar'
-};
 
 /**
  * Resolve which CSS color class to apply to a legend row, based on the active tab
@@ -62,7 +20,7 @@ export function getLegendColorClass(label: string, index: number, activeTab: Tab
   }
 
   const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9.]/g, '');
-  return SERVICE_LEGEND_CLASSES[normalizedLabel] ?? 'legend-color-default';
+  return getServiceLegendClass(normalizedLabel);
 }
 
 /**

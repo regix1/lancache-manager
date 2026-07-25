@@ -539,9 +539,6 @@ internal class EpicTokenResponse
     [JsonPropertyName("refresh_expires")]
     public int RefreshExpiresIn { get; set; }
 
-    [JsonPropertyName("refresh_expires_at")]
-    public string? RefreshExpiresAtStr { get; set; }
-
     [JsonPropertyName("account_id")]
     public string? AccountId { get; set; }
 
@@ -553,9 +550,6 @@ internal class EpicTokenResponse
 
     [JsonPropertyName("app")]
     public string? App { get; set; }
-
-    [JsonPropertyName("in_app_id")]
-    public string? InAppId { get; set; }
 }
 
 /// <summary>
@@ -566,9 +560,6 @@ internal class EpicAsset
     [JsonPropertyName("appName")]
     public string AppName { get; set; } = string.Empty;
 
-    [JsonPropertyName("labelName")]
-    public string? LabelName { get; set; }
-
     [JsonPropertyName("buildVersion")]
     public string? BuildVersion { get; set; }
 
@@ -577,9 +568,6 @@ internal class EpicAsset
 
     [JsonPropertyName("namespace")]
     public string Namespace { get; set; } = string.Empty;
-
-    [JsonPropertyName("assetId")]
-    public string? AssetId { get; set; }
 }
 
 /// <summary>
@@ -718,9 +706,6 @@ internal class EpicFreeGamesPromotions
 {
     [JsonPropertyName("promotionalOffers")]
     public List<EpicPromotionalOfferGroup>? PromotionalOffers { get; set; }
-
-    [JsonPropertyName("upcomingPromotionalOffers")]
-    public List<EpicPromotionalOfferGroup>? UpcomingPromotionalOffers { get; set; }
 }
 
 /// <summary>

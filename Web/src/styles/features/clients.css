@@ -91,7 +91,7 @@
   color: var(--theme-warning-text);
 }
 
-@media (max-width: 767px) {
+@media (max-width: 767.98px) {
   .clients-cell:not(.clients-cell--client) {
     justify-content: space-between;
     font-size: var(--font-size-sm);

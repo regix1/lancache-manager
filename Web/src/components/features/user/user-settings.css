@@ -79,7 +79,7 @@
 /* Narrow screens: let a settings row wrap its trailing controls onto their own
    line instead of overflowing. Scoped to markup inside guest-defaults lists so it
    never touches other .mgmt-row consumers elsewhere in the app. */
-@media (max-width: 480px) {
+@media (max-width: 479.98px) {
   .user-settings-list .mgmt-row,
   .user-settings-service-body .user-settings-field-row {
     flex-wrap: wrap;

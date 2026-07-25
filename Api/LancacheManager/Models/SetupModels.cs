@@ -27,8 +27,3 @@ public class SetupCredentialsResponse
     public bool Success { get; set; }
     public string Message { get; set; } = string.Empty;
 }
-
-public class SetupErrorResponse
-{
-    public string Error { get; set; } = string.Empty;
-}

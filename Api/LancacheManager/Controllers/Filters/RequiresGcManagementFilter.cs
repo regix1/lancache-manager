@@ -18,7 +18,7 @@ public class RequiresGcManagementFilter : IAsyncActionFilter
         var isEnabled = _configuration.GetValue<bool>("Optimizations:EnableGarbageCollectionManagement", false);
         if (!isEnabled)
         {
-            context.Result = new NotFoundObjectResult(new ErrorResponse { Error = "Garbage collection management is disabled" });
+            context.Result = new NotFoundObjectResult(ApiResponse.Error("Garbage collection management is disabled"));
             return;
         }
         await next();

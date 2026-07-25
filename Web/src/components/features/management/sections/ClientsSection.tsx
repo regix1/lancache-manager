@@ -7,6 +7,7 @@ import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Button } from '@components/ui/Button';
+import Badge from '@components/ui/Badge';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Alert } from '@components/ui/Alert';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
@@ -572,9 +573,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                       {t('management.sections.clients.withoutNicknames')}
                     </h4>
                     {!loadingClients && ungroupedClients.length > 0 && (
-                      <span className="themed-badge status-badge-neutral badge-count">
+                      <Badge variant="neutral" className="badge-count">
                         {ungroupedClients.length}
-                      </span>
+                      </Badge>
                     )}
                   </div>
 

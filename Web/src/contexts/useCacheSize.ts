@@ -1,10 +1,4 @@
-import { useContext } from 'react';
 import { CacheSizeContext } from './CacheSizeContext.types';
+import { createContextHook } from './createContextHook';
 
-export const useCacheSize = () => {
-  const context = useContext(CacheSizeContext);
-  if (!context) {
-    throw new Error('useCacheSize must be used within CacheSizeProvider');
-  }
-  return context;
-};
+export const useCacheSize = createContextHook(CacheSizeContext, 'useCacheSize');

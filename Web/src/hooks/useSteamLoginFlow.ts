@@ -238,19 +238,17 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
 
       const response = await fetch(
         loginUrl,
-        ApiService.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        ApiService.getJsonFetchOptions(
+          {
             username,
             password,
             twoFactorCode: needsTwoFactor || useManualCode ? twoFactorCode : undefined,
             emailCode: needsEmailCode ? emailCode : undefined,
             allowMobileConfirmation: !useManualCode,
             ...getExtraRequestBody?.()
-          }),
-          signal: controller.signal
-        })
+          },
+          { method: 'POST', signal: controller.signal }
+        )
       );
 
       let result: SteamLoginApiResult;

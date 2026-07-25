@@ -11,6 +11,7 @@ import { ActionMenuItem } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import themeService from '@services/theme.service';
 import ApiService from '@services/api.service';
+import { assertOk } from '@services/apiError';
 import { APP_EVENTS, API_BASE } from '@utils/constants';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 
@@ -289,10 +290,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         })
       );
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || t('management.themes.errors.failedToImport'));
-      }
+      await assertOk(response);
 
       // Mark theme as imported
       setImportedThemes((prev) => new Set([...prev, theme.fileName]));
@@ -389,10 +387,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         })
       );
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || t('management.themes.errors.failedToUpdate'));
-      }
+      await assertOk(response);
 
       if (onThemeImported) {
         onThemeImported();

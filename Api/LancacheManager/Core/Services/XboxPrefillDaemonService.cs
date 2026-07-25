@@ -110,32 +110,6 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
     }
 
     /// <summary>
-    /// Checks all authenticated Xbox sessions against the username ban list.
-    /// If a banned user is found, their session is terminated immediately.
-    /// This is the STRONG (re-auth-proof) username ban; the base also enforces a UserId-GUID ban at
-    /// session-create. If the daemon does not surface a stable DisplayName, session.Username is empty
-    /// and Xbox falls back to the UserId-only ban (works, but evadable by re-auth).
-    /// Mirrors EpicPrefillDaemonService.KickBannedSessionsAsync (same contract, no Epic business logic).
-    /// </summary>
-    private async Task KickBannedSessionsAsync()
-    {
-        foreach (var session in _sessions.Values)
-        {
-            if (session.AuthState != DaemonAuthState.Authenticated) continue;
-            if (string.IsNullOrEmpty(session.Username)) continue;
-
-            if (await _sessionService.IsUsernameBannedAsync(session.Username))
-            {
-                _logger.LogWarning(
-                    "Blocked banned Xbox user {Username} after authentication. Terminating session {SessionId}",
-                    session.Username, session.Id);
-
-                await TerminateSessionAsync(session.Id, "Banned by admin", true);
-            }
-        }
-    }
-
-    /// <summary>
     /// Collects the Xbox catalog from every authenticated session via the daemon's <c>get-cdn-info</c>
     /// command and persists it (product-&gt;title mappings + per-file CDN URL fragments) via
     /// <see cref="XboxMappingService.MergeDaemonCatalogAsync"/>, so the resolver can map opaque

@@ -40,6 +40,7 @@ export type NotificationType =
   | 'performance_optimization'
   | 'dashboard_cache_warmer'
   | 'bulk_removal'
+  | 'steam_session_error'
   | 'generic';
 
 /**
@@ -259,20 +260,25 @@ export type RemoveNotification = (notificationId: string) => void;
 // ============================================================================
 
 /**
+ * The SignalR payload a lifecycle config reads. Entries that name their concrete
+ * event interface get every field checked; the handler plumbing, which forwards
+ * configs without knowing the type, uses the `any` default.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LifecycleEvent = any;
+
+/**
  * Configuration for a started event handler within a registry entry.
  */
-export interface RegistryStartedConfig {
+export interface RegistryStartedConfig<TEvent = LifecycleEvent> {
   /** Optional gate that suppresses and removes the notification for this event */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  shouldDisplay?: (event: any) => boolean;
+  shouldDisplay?: (event: TEvent) => boolean;
   /** Default message shown when the operation starts */
   defaultMessage: string;
   /** Optional function to get a custom message from the event */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getMessage?: (event: any) => string;
+  getMessage?: (event: TEvent) => string;
   /** Optional function to get notification details from the event */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getDetails?: (event: any) => UnifiedNotification['details'];
+  getDetails?: (event: TEvent) => UnifiedNotification['details'];
   /** If true, always replace existing notification (for restartable operations) */
   replaceExisting?: boolean;
   /** Extra notification ids to remove when this operation starts (migration/cleanup) */
@@ -282,62 +288,49 @@ export interface RegistryStartedConfig {
 /**
  * Configuration for a progress event handler within a registry entry.
  */
-export interface RegistryProgressConfig {
+export interface RegistryProgressConfig<TEvent = LifecycleEvent> {
   /** Optional gate that suppresses and removes the notification for this event */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  shouldDisplay?: (event: any) => boolean;
+  shouldDisplay?: (event: TEvent) => boolean;
   /** Function to get the progress message from the event */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getMessage: (event: any) => string;
+  getMessage: (event: TEvent) => string;
   /** Function to get progress percentage (0-100) from the event */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getProgress: (event: any) => number;
+  getProgress: (event: TEvent) => number;
   /** Optional secondary progress metrics shown below the stable primary message. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getDetailMessage?: (event: any) => string | undefined;
+  getDetailMessage?: (event: TEvent) => string | undefined;
   /** Optional determinate/indeterminate override for phase-aware operations. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getProgressMode?: (event: any) => NotificationProgressMode | undefined;
+  getProgressMode?: (event: TEvent) => NotificationProgressMode | undefined;
   /** Optional textual equivalent of the progress state. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getProgressAriaValueText?: (event: any) => string | undefined;
+  getProgressAriaValueText?: (event: TEvent) => string | undefined;
   /** Function to get the status from the event */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getStatus: (event: any) => string | undefined;
+  getStatus: (event: TEvent) => string | undefined;
   /** Message to show on completion */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getCompletedMessage?: (event: any) => string;
+  getCompletedMessage?: (event: TEvent) => string;
   /** Message to show on error */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getErrorMessage?: (event: any) => string | undefined;
+  getErrorMessage?: (event: TEvent) => string | undefined;
   /** If true, support fast completion */
   supportFastCompletion?: boolean;
   /** Optional function to get notification details from the event */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getDetails?: (event: any) => UnifiedNotification['details'];
+  getDetails?: (event: TEvent) => UnifiedNotification['details'];
 }
 
 /**
  * Configuration for a completion event handler within a registry entry.
  */
-export interface RegistryCompleteConfig {
+export interface RegistryCompleteConfig<TEvent = LifecycleEvent> {
   /** Optional gate that suppresses and removes the notification for this event */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  shouldDisplay?: (event: any) => boolean;
+  shouldDisplay?: (event: TEvent) => boolean;
   /** Optional function to get the success message */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getSuccessMessage?: (event: any, existing?: UnifiedNotification) => string;
+  getSuccessMessage?: (event: TEvent, existing?: UnifiedNotification) => string;
   /** Optional function to get success details */
   getSuccessDetails?: (
-    event: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+    event: TEvent,
     existing?: UnifiedNotification
   ) => UnifiedNotification['details'];
   /** Optional function to get the cancelled message */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getCancelledMessage?: (event: any, existing?: UnifiedNotification) => string;
+  getCancelledMessage?: (event: TEvent, existing?: UnifiedNotification) => string;
   /** Optional function to get cancelled details */
   getCancelledDetails?: (
-    event: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+    event: TEvent,
     existing?: UnifiedNotification
   ) => UnifiedNotification['details'];
   /**
@@ -345,11 +338,9 @@ export interface RegistryCompleteConfig {
    * which case the card KEEPS its existing detail line - the completion handler falls back with
    * `?? n.detailMessage` - so a formatter with nothing to say cannot blank a useful line.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getDetailMessage?: (event: any) => string | undefined;
+  getDetailMessage?: (event: TEvent) => string | undefined;
   /** Optional function to get the failure message */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getFailureMessage?: (event: any) => string;
+  getFailureMessage?: (event: TEvent) => string;
   /** If true, show a brief animation delay before marking complete */
   useAnimationDelay?: boolean;
   /** Optional function to get ID for fast completion (if different from getId) */

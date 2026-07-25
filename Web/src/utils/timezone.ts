@@ -12,6 +12,19 @@ export function getServerTimezone(): string {
 }
 
 /**
+ * Parse a backend timestamp as UTC.
+ *
+ * The API returns some timestamps without a timezone suffix, which `new Date()`
+ * interprets in the browser's local zone. That shifts the value by the local
+ * offset and can make a past time read as being in the future. Append the `Z`
+ * only when the string carries neither `Z` nor an explicit `+HH:MM`/`-HH:MM`.
+ */
+export function parseUtcDate(value: string): Date {
+  const normalized = value.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`;
+  return new Date(normalized);
+}
+
+/**
  * Get the browser's local timezone
  */
 function getLocalTimezone(): string {

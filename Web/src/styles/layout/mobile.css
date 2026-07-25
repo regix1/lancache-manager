@@ -1,27 +1,8 @@
 @layer components {
-  /* ===== UNIVERSAL NOTIFICATION BAR - Mobile Sticky Fix ===== */
-  /* 
-   * On mobile, navigation is sticky at top:0. 
-   * The notification bar must be positioned below it (top: 3rem = 48px = h-12).
-   * On desktop, navigation is relative, so notification bar can be at top:0.
-   */
-  .notification-bar-sticky {
-    position: sticky;
-    z-index: 40; /* Below nav's z-50 */
-    top: 3rem; /* Below mobile nav (h-12 = 3rem = 48px) */
-  }
-
-  @media (min-width: 768px) {
-    .notification-bar-sticky {
-      top: 0; /* On desktop, nav is relative, so we can be at top */
-      z-index: 50;
-    }
-  }
-
   /* ===== PAGINATION - Sticky Top ===== */
   /*
-   * Pagination bar sticks below mobile nav (same logic as notification bar).
-   * Uses lower z-index so notification bar overlays it when both are visible.
+   * Pagination bar sticks below the mobile nav (h-12 = 3rem = 48px).
+   * Uses a low z-index so the notification bar overlays it when both are visible.
    */
   .pagination-sticky {
     position: sticky;
@@ -39,17 +20,6 @@
     }
   }
 
-  /* Scroll anchor offset - accounts for sticky nav height */
-  .pagination-scroll-anchor {
-    scroll-margin-top: 3.5rem; /* 56px - mobile nav (48px) + 8px buffer */
-  }
-
-  @media (min-width: 768px) {
-    .pagination-scroll-anchor {
-      scroll-margin-top: 0.5rem; /* Desktop: small buffer from viewport top */
-    }
-  }
-
   /* ===== PAGE CONTENT FADE TRANSITION ===== */
   /* Page content fade transition */
   .page-content-transition {
@@ -63,7 +33,7 @@
   /* ===== MOBILE RESPONSIVE UTILITIES ===== */
 
   /* Extra small screens (below 480px) */
-  @media (max-width: 479px) {
+  @media (max-width: 479.98px) {
     .xs\:block {
       display: block;
     }
@@ -77,7 +47,7 @@
   }
 
   /* Mobile table improvements */
-  @media (max-width: 640px) {
+  @media (max-width: 639.98px) {
     .mobile-table th,
     .mobile-table td {
       @apply px-2 py-2 text-sm;

@@ -748,7 +748,12 @@ export interface XboxMappingStats {
   lastUpdatedUtc: string | null;
 }
 
-export interface EpicDaemonStatusDto {
+/**
+ * Daemon connectivity status. Every service's `/status` route is the same inherited handler on the
+ * shared daemon controller base, so Epic, Battle.net, Riot and Xbox return this one shape by
+ * construction rather than by coincidence.
+ */
+export interface DaemonStatusDto {
   dockerAvailable: boolean;
   activeSessions: number;
   /**

@@ -4,7 +4,7 @@ using LancacheManager.Core.Interfaces;
 
 namespace LancacheManager.Infrastructure.Services;
 
-public class SettingsService : ISettingsService
+public class SettingsService
 {
     private readonly ILogger<SettingsService> _logger;
     private readonly IPathResolver _pathResolver;
@@ -65,6 +65,11 @@ public class SettingsService : ISettingsService
         return newSettings;
     }
 
+    /// <summary>
+    /// Reads the persisted GC settings. A missing, empty or unreadable file yields the defaults
+    /// rather than throwing, because this runs from the constructor and unreadable settings must
+    /// not prevent startup. Every case that discards a file is logged as a warning.
+    /// </summary>
     private GcSettings LoadSettings()
     {
         try
@@ -105,6 +110,10 @@ public class SettingsService : ISettingsService
                         settings.Enabled, settings.MemoryThresholdMB);
                     return settings;
                 }
+
+                // A file holding a literal JSON null parses without throwing, so it would
+                // otherwise fall through to the defaults with no trace of the discarded file.
+                _logger.LogWarning("GC settings file {Path} contained no settings, using defaults", _settingsFilePath);
             }
         }
         catch (Exception ex)
@@ -120,7 +129,20 @@ public class SettingsService : ISettingsService
         try
         {
             var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(_settingsFilePath, json);
+
+            // Write to a temp file in the same directory, force it to disk, then atomically
+            // replace the live file. Writing in place would leave truncated JSON behind if the
+            // process died mid-write, and truncated JSON loads as defaults, silently discarding
+            // the configuration the user saved.
+            var tempFile = _settingsFilePath + ".tmp";
+            await File.WriteAllTextAsync(tempFile, json);
+
+            using (var fs = File.OpenWrite(tempFile))
+            {
+                fs.Flush(true);
+            }
+
+            File.Move(tempFile, _settingsFilePath, true);
         }
         catch (Exception ex)
         {

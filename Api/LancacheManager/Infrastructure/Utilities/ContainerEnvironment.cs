@@ -9,9 +9,6 @@ public static class ContainerEnvironment
     private static readonly string _puid = Environment.GetEnvironmentVariable("PUID") ?? "1000";
     private static readonly string _pgid = Environment.GetEnvironmentVariable("PGID") ?? "1000";
 
-    public static string Puid => _puid;
-    public static string Pgid => _pgid;
-
     /// <summary>
     /// Returns a formatted UID:GID string for use in error messages.
     /// </summary>

@@ -1,7 +1,7 @@
 import { createContext } from 'react';
 import type { GameServiceId, GameServiceConfig } from '@/types/gameService';
 
-export interface GameServiceContextType {
+interface GameServiceContextType {
   selectedService: GameServiceId;
   setSelectedService: (id: GameServiceId) => void;
   availableServices: GameServiceConfig[];

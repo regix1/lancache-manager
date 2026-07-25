@@ -113,9 +113,9 @@ public class OperationsController : ControllerBase
     }
 
     /// <summary>
-    /// Force-kills a running operation when cancel alone does not unblock the UI.
-    /// Mirrors cache-clear POST /api/cache/operations/{id}/kill and log-processing force-kill:
-    /// kill process tree → wait → SignalR completion → tracker cleanup.
+    /// Force-kills a running operation when cancel alone does not unblock the UI. This is the only
+    /// force-kill surface for every operation type: kill process tree → wait → SignalR completion →
+    /// tracker cleanup (which runs the owning service's OnTerminalCleanup).
     /// </summary>
     [HttpPost("{id}/force-kill")]
     public async Task<IActionResult> ForceKillAsync(Guid id)

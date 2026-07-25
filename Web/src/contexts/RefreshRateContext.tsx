@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { APP_EVENTS, REFRESH_RATES, type RefreshRate } from '@utils/constants';
+import ApiService from '@services/api.service';
+import { assertOk } from '@services/apiError';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
@@ -208,22 +210,14 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
       try {
         const endpoint =
           authMode === 'guest' ? '/api/user-preferences/refreshRate' : '/api/system/refresh-rate';
-        const body =
-          authMode === 'guest' ? JSON.stringify(rate) : JSON.stringify({ refreshRate: rate });
+        const body = authMode === 'guest' ? rate : { refreshRate: rate };
 
-        const response = await fetch(endpoint, {
-          method: 'PATCH',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body
-        });
+        const response = await fetch(
+          endpoint,
+          ApiService.getJsonFetchOptions(body, { method: 'PATCH' })
+        );
 
-        if (!response.ok) {
-          console.error('Failed to save refresh rate to API');
-          notifyRefreshRateSaveFailed();
-        }
+        await assertOk(response);
       } catch (error) {
         // User-initiated action (changing the refresh rate setting). The optimistic state
         // update above already applied, so without this the failure would be invisible and the

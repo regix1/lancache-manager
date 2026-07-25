@@ -442,7 +442,7 @@ public class StatsController : ControllerBase
             var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
             if (capabilityDenial != null)
             {
-                return BadRequest(new ErrorResponse { Error = capabilityDenial });
+                return BadRequest(ApiResponse.Error(capabilityDenial));
             }
         }
 
@@ -518,7 +518,7 @@ public class StatsController : ControllerBase
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
         if (capabilityDenial != null)
         {
-            return BadRequest(new ErrorResponse { Error = capabilityDenial });
+            return BadRequest(ApiResponse.Error(capabilityDenial));
         }
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.

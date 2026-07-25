@@ -7,7 +7,6 @@ import {
   Ban,
   MoreVertical,
   Shield,
-  AlertTriangle,
   Clock,
   User,
   ChevronDown,
@@ -26,7 +25,7 @@ import {
   ActionMenuDangerItem,
   ActionMenuDivider
 } from '@components/ui/ActionMenu';
-import { Modal } from '@components/ui/Modal';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Pagination } from '@components/ui/Pagination';
@@ -48,7 +47,7 @@ import type { PrefillSessionStatus } from '@/types/operations';
 import { GAME_SERVICES, type GameServiceId } from '@/types/gameService';
 import { getErrorMessage } from '@utils/error';
 import { formatBytes } from '@utils/formatters';
-import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { FormattedTimestamp } from '@components/common/FormattedDateTime';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -72,12 +71,6 @@ interface PrefillSessionsSectionProps {
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
 }
-
-// Helper component for formatted timestamps
-const FormattedTimestamp: React.FC<{ timestamp: string | undefined }> = ({ timestamp }) => {
-  const formattedTime = useFormattedDateTime(timestamp);
-  return <>{formattedTime}</>;
-};
 
 // Prefill history status badge
 const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> = ({
@@ -218,7 +211,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const label = labelKey ? t(`management.prefillSessions.statusBadges.${labelKey}`) : status;
 
   return (
-    <div className="prefill-status-line">
+    <div className="prefill-status-line cluster">
       <Badge variant={getStatusBadgeVariant(status)}>{label}</Badge>
     </div>
   );
@@ -404,7 +397,7 @@ const SessionCard: React.FC<{
                 )}
               </div>
               {/* Status / platform / Persistent pills: always on their own row */}
-              <div className="prefill-session-badges">
+              <div className="prefill-session-badges cluster">
                 <StatusBadge status={status} />
                 <Badge variant="neutral">{platformDisplayName}</Badge>
                 {isPersistentSession && (
@@ -674,7 +667,7 @@ const BannedUserCard: React.FC<{
         <Ban className="w-4 h-4" />
       </div>
       <div className="prefill-ban-content">
-        <div className="prefill-ban-header">
+        <div className="prefill-ban-header cluster">
           <span className="prefill-ban-username">
             {ban.username || t('management.prefillSessions.bannedUsers.unknown')}
           </span>
@@ -1649,152 +1642,90 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       </div>
 
       {/* Terminate All Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={terminateAllConfirm}
-        onClose={() => !terminatingAll && setTerminateAllConfirm(false)}
-        title={
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('management.prefillSessions.modals.terminateAll.title')}</span>
-          </div>
-        }
+        onClose={() => setTerminateAllConfirm(false)}
+        onConfirm={handleTerminateAll}
+        title={t('management.prefillSessions.modals.terminateAll.title')}
+        confirmLabel={t('management.prefillSessions.modals.terminateAll.confirm')}
+        loading={terminatingAll}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.prefillSessions.modals.terminateAll.message', {
-              count: guestActiveSessions.length
-            })}
-          </p>
-          <Alert color="yellow">
-            <p className="text-sm">{t('management.prefillSessions.modals.terminateAll.warning')}</p>
-          </Alert>
-          <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setTerminateAllConfirm(false)}
-              disabled={terminatingAll}
-              className="w-full sm:w-auto"
-            >
-              {t('management.prefillSessions.modals.terminateAll.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={handleTerminateAll}
-              loading={terminatingAll}
-              className="w-full sm:w-auto"
-            >
-              {t('management.prefillSessions.modals.terminateAll.confirm')}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        <p className="text-themed-secondary">
+          {t('management.prefillSessions.modals.terminateAll.message', {
+            count: guestActiveSessions.length
+          })}
+        </p>
+        <Alert color="yellow">
+          <p className="text-sm">{t('management.prefillSessions.modals.terminateAll.warning')}</p>
+        </Alert>
+      </ConfirmationModal>
 
       {/* Ban Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={banConfirm !== null}
-        onClose={() => !banningSession && setBanConfirm(null)}
-        title={
-          <div className="flex items-center gap-3">
-            <Ban className="w-6 h-6 text-themed-error" />
-            <span>{t('management.prefillSessions.modals.ban.title')}</span>
-          </div>
-        }
+        onClose={() => setBanConfirm(null)}
+        onConfirm={handleBanBySession}
+        title={t('management.prefillSessions.modals.ban.title')}
+        icon={<Ban className="w-6 h-6 text-themed-error" />}
+        confirmLabel={t('management.prefillSessions.modals.ban.confirm')}
+        loading={banningSession !== null}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.prefillSessions.modals.ban.message')}
-          </p>
-          <div>
-            <label className="block text-sm font-medium text-themed-secondary mb-1">
-              {t('management.prefillSessions.modals.ban.reasonLabel')}
-            </label>
-            <input
-              type="text"
-              value={banConfirm?.reason || ''}
-              onChange={(e) =>
-                banConfirm && setBanConfirm({ ...banConfirm, reason: e.target.value })
-              }
-              placeholder={t('management.prefillSessions.modals.ban.reasonPlaceholder')}
-              className="focus-ring prefill-input"
-            />
-          </div>
-          <Alert color="red">
-            <p className="text-sm">{t('management.prefillSessions.modals.ban.warning')}</p>
-          </Alert>
-          <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setBanConfirm(null)}
-              disabled={banningSession !== null}
-              className="w-full sm:w-auto"
-            >
-              {t('management.prefillSessions.modals.ban.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={handleBanBySession}
-              loading={banningSession !== null}
-              className="w-full sm:w-auto"
-            >
-              {t('management.prefillSessions.modals.ban.confirm')}
-            </Button>
-          </div>
+        <p className="text-themed-secondary">
+          {t('management.prefillSessions.modals.ban.message')}
+        </p>
+        <div>
+          <label className="block text-sm font-medium text-themed-secondary mb-1">
+            {t('management.prefillSessions.modals.ban.reasonLabel')}
+          </label>
+          <input
+            type="text"
+            value={banConfirm?.reason || ''}
+            onChange={(e) => banConfirm && setBanConfirm({ ...banConfirm, reason: e.target.value })}
+            placeholder={t('management.prefillSessions.modals.ban.reasonPlaceholder')}
+            className="focus-ring prefill-input"
+          />
         </div>
-      </Modal>
+        <Alert color="red">
+          <p className="text-sm">{t('management.prefillSessions.modals.ban.warning')}</p>
+        </Alert>
+      </ConfirmationModal>
 
-      {/* Lift Ban Confirmation Modal */}
-      <Modal
+      {/* Lift Ban Confirmation Modal - a shield rather than a warning, since restoring access is
+          the one non-destructive confirmation on this card. */}
+      <ConfirmationModal
         opened={liftBanConfirm !== null}
-        onClose={() => !liftingBan && setLiftBanConfirm(null)}
-        title={
-          <div className="flex items-center gap-3">
-            <Shield className="w-6 h-6 text-themed-primary" />
-            <span>{t('management.prefillSessions.modals.liftBan.title')}</span>
-          </div>
-        }
+        onClose={() => setLiftBanConfirm(null)}
+        onConfirm={() => {
+          if (liftBanConfirm) {
+            void handleLiftBan(liftBanConfirm.id);
+          }
+        }}
+        title={t('management.prefillSessions.modals.liftBan.title')}
+        icon={<Shield className="w-6 h-6 text-themed-primary" />}
+        confirmLabel={t('management.prefillSessions.modals.liftBan.confirm')}
+        confirmColor="blue"
+        loading={liftingBan !== null}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.prefillSessions.modals.liftBan.message')}
-          </p>
-          {liftBanConfirm && (
-            <div className="p-3 rounded-lg bg-themed-tertiary">
-              <div className="text-sm">
-                <span className="font-mono text-themed-primary">
-                  {liftBanConfirm.username || t('management.prefillSessions.bannedUsers.unknown')}
-                </span>
-                {liftBanConfirm.banReason && (
-                  <div className="mt-2 text-themed-muted">
-                    {t('management.prefillSessions.bannedUsers.reason', {
-                      reason: liftBanConfirm.banReason
-                    })}
-                  </div>
-                )}
-              </div>
+        <p className="text-themed-secondary">
+          {t('management.prefillSessions.modals.liftBan.message')}
+        </p>
+        {liftBanConfirm && (
+          <div className="p-3 rounded-lg bg-themed-tertiary">
+            <div className="text-sm">
+              <span className="font-mono text-themed-primary">
+                {liftBanConfirm.username || t('management.prefillSessions.bannedUsers.unknown')}
+              </span>
+              {liftBanConfirm.banReason && (
+                <div className="mt-2 text-themed-muted">
+                  {t('management.prefillSessions.bannedUsers.reason', {
+                    reason: liftBanConfirm.banReason
+                  })}
+                </div>
+              )}
             </div>
-          )}
-          <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setLiftBanConfirm(null)}
-              disabled={liftingBan !== null}
-              className="w-full sm:w-auto"
-            >
-              {t('management.prefillSessions.modals.liftBan.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              onClick={() => liftBanConfirm && handleLiftBan(liftBanConfirm.id)}
-              loading={liftingBan !== null}
-              className="w-full sm:w-auto"
-            >
-              {t('management.prefillSessions.modals.liftBan.confirm')}
-            </Button>
           </div>
-        </div>
-      </Modal>
+        )}
+      </ConfirmationModal>
     </div>
   );
 };

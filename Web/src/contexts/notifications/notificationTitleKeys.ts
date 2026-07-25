@@ -26,5 +26,7 @@ export const NOTIFICATION_TITLE_KEYS: Record<NotificationType, string | null> = 
   performance_optimization: 'common.notifications.titles.performanceOptimization',
   dashboard_cache_warmer: 'common.notifications.titles.dashboardCacheWarmer',
   bulk_removal: 'common.notifications.titles.bulkRemoval',
+  // A one-shot error toast rather than an operation, so it carries no operation eyebrow.
+  steam_session_error: null,
   generic: null
 };

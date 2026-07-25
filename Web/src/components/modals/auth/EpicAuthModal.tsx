@@ -4,6 +4,7 @@ import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { StepDot } from './StepDot';
 import { type EpicAuthState, type EpicAuthActions } from '@hooks/useEpicMappingAuth';
 import { useTranslation } from 'react-i18next';
 
@@ -254,11 +255,3 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
     </Modal>
   );
 };
-
-const StepDot: React.FC<{ active?: boolean; completed?: boolean }> = ({ active, completed }) => (
-  <div
-    className={`w-2.5 h-2.5 rounded-full transition duration-200 ${
-      active ? 'bg-primary' : completed ? 'bg-success' : 'bg-themed-hover'
-    }`}
-  />
-);

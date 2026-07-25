@@ -51,18 +51,18 @@ public class ThemeController : ControllerBase
     {
         if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
         {
-            return (null, BadRequest(new ErrorResponse { Error = "Theme ID is required" }));
+            return (null, BadRequest(ApiResponse.Error("Theme ID is required")));
         }
 
         var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "").ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(themeId))
         {
-            return (null, BadRequest(new ErrorResponse { Error = "Theme ID is required" }));
+            return (null, BadRequest(ApiResponse.Error("Theme ID is required")));
         }
 
         if (!ThemeExists(themeId))
         {
-            return (null, NotFound(new ErrorResponse { Error = "Theme not found" }));
+            return (null, NotFound(ApiResponse.Error("Theme not found")));
         }
 
         return (themeId, null);
@@ -186,7 +186,7 @@ public class ThemeController : ControllerBase
         if (!System.IO.File.Exists(jsonPath))
         {
             _logger.LogWarning($"Theme not found: {id}");
-            return NotFound(new ErrorResponse { Error = "Theme not found" });
+            return NotFound(ApiResponse.Error("Theme not found"));
         }
 
         var content = await System.IO.File.ReadAllTextAsync(jsonPath);
@@ -202,7 +202,7 @@ public class ThemeController : ControllerBase
     {
         if (file == null || file.Length == 0)
         {
-            return BadRequest(new ErrorResponse { Error = "No file provided" });
+            return BadRequest(ApiResponse.Error("No file provided"));
         }
 
         var isToml = file.FileName.EndsWith(".toml", StringComparison.OrdinalIgnoreCase);
@@ -210,12 +210,12 @@ public class ThemeController : ControllerBase
 
         if (!isToml && !isJson)
         {
-            return BadRequest(new ErrorResponse { Error = "Only TOML and JSON theme files are allowed" });
+            return BadRequest(ApiResponse.Error("Only TOML and JSON theme files are allowed"));
         }
 
         if (file.Length > 1024 * 1024) // 1MB max
         {
-            return BadRequest(new ErrorResponse { Error = "Theme file too large (max 1MB)" });
+            return BadRequest(ApiResponse.Error("Theme file too large (max 1MB)"));
         }
 
         try
@@ -259,12 +259,12 @@ public class ThemeController : ControllerBase
                 // Validate required fields
                 if (!root.TryGetProperty("name", out _))
                 {
-                    return BadRequest(new ErrorResponse { Error = "Theme must have a 'name' property" });
+                    return BadRequest(ApiResponse.Error("Theme must have a 'name' property"));
                 }
 
                 if (!root.TryGetProperty("colors", out var colors) || colors.ValueKind != JsonValueKind.Object)
                 {
-                    return BadRequest(new ErrorResponse { Error = "Theme must have a 'colors' object" });
+                    return BadRequest(ApiResponse.Error("Theme must have a 'colors' object"));
                 }
 
                 // Generate safe filename
@@ -297,7 +297,7 @@ public class ThemeController : ControllerBase
         catch (JsonException ex)
         {
             _logger.LogWarning(ex, "Invalid JSON in theme upload");
-            return BadRequest(new ErrorResponse { Error = "Invalid JSON format" });
+            return BadRequest(ApiResponse.Error("Invalid JSON format"));
         }
     }
 
@@ -321,11 +321,9 @@ public class ThemeController : ControllerBase
         if (_systemThemes.Contains(id))
         {
             _logger.LogWarning($"Attempted to delete system theme: {id}");
-            return BadRequest(new ErrorResponse
-            {
-                Error = "Cannot delete system theme",
-                Details = $"'{id}' is a protected system theme and cannot be deleted"
-            });
+            return BadRequest(ApiResponse.Error(
+                "Cannot delete system theme",
+                $"'{id}' is a protected system theme and cannot be deleted"));
         }
 
 

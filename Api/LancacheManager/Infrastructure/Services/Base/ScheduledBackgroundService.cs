@@ -9,7 +9,7 @@ namespace LancacheManager.Infrastructure.Services.Base;
 /// error handling, and interval-based execution.
 /// Supports runtime-configurable intervals via SetInterval() and TriggerImmediateRun().
 /// </summary>
-public abstract class ScheduledBackgroundService : BackgroundService
+public abstract class ScheduledBackgroundService : ScheduledServiceBase
 {
     /// <summary>
     /// Fired whenever a scheduled service's execution state changes: once when a run starts (after
@@ -20,7 +20,6 @@ public abstract class ScheduledBackgroundService : BackgroundService
     /// cleared so GetAll() reports the run as finished.
     /// </summary>
     public static event Action<string>? ServiceExecutionStateChanged;
-    protected readonly ILogger _logger;
     protected readonly IConfiguration _configuration;
 
     // Runtime interval override state
@@ -28,27 +27,6 @@ public abstract class ScheduledBackgroundService : BackgroundService
     private CancellationTokenSource? _intervalChangedCts;
     private readonly object _intervalLock = new();
     private volatile bool _intervalJustChanged;
-
-    // Trigger provenance for the run currently executing. Set at the loop's startup pass and its
-    // interval tick, and marked by TriggerImmediateRun via _pendingManualRun, so a subclass can gate
-    // notifications on whether a run was manual. Generalizes ScheduledPrefillService's former
-    // per-subclass manual-run bypass to every scheduled service.
-    private int _pendingManualRun;
-    protected RunTrigger CurrentRunTrigger { get; private set; } = RunTrigger.Scheduled;
-
-    // Schedule tracking properties
-    public DateTime? LastRunUtc { get; private set; }
-    public DateTime? NextRunUtc { get; private set; }
-
-    // Written on the service loop thread, read cross-thread by the HTTP GET /schedules path
-    // (ServiceScheduleRegistry.GetAll). volatile publishes the write so a status read on another
-    // thread cannot latch a stale value and leave the Schedules dot wrong.
-    private volatile bool _isCurrentlyExecuting;
-    public bool IsCurrentlyExecuting
-    {
-        get => _isCurrentlyExecuting;
-        private set => _isCurrentlyExecuting = value;
-    }
 
     // Schedule metadata - override in subclasses to register as user-configurable
     public virtual string ServiceKey => GetType().Name;
@@ -68,17 +46,6 @@ public abstract class ScheduledBackgroundService : BackgroundService
     }
 
     /// <summary>
-    /// The name of this service for logging purposes.
-    /// </summary>
-    protected abstract string ServiceName { get; }
-
-    /// <summary>
-    /// Delay before starting the service (allows app to initialize).
-    /// Default: 5 seconds.
-    /// </summary>
-    protected virtual TimeSpan StartupDelay => TimeSpan.FromSeconds(5);
-
-    /// <summary>
     /// Default time between work executions. Return TimeSpan.Zero to run continuously.
     /// Use EffectiveInterval in the loop - this is the hardcoded default only.
     /// </summary>
@@ -95,14 +62,9 @@ public abstract class ScheduledBackgroundService : BackgroundService
     /// </summary>
     protected virtual bool EnabledByDefault => true;
 
-    /// <summary>
-    /// Delay before retrying after an error.
-    /// </summary>
-    protected virtual TimeSpan ErrorRetryDelay => TimeSpan.FromMinutes(1);
-
     protected ScheduledBackgroundService(ILogger logger, IConfiguration configuration)
+        : base(logger)
     {
-        _logger = logger;
         _configuration = configuration;
     }
 
@@ -117,14 +79,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
             _intervalOverride = newInterval;
             _intervalJustChanged = true;
 
-            try
-            {
-                _intervalChangedCts?.Cancel();
-            }
-            catch (ObjectDisposedException)
-            {
-                // Already disposed - will be recreated on next loop iteration
-            }
+            CancelIntervalDelay();
         }
 
         _logger.LogDebug("{ServiceName} interval changed to {Interval}", ServiceName, newInterval);
@@ -140,25 +95,19 @@ public abstract class ScheduledBackgroundService : BackgroundService
             _intervalOverride = null;
             _intervalJustChanged = true;
 
-            try
-            {
-                _intervalChangedCts?.Cancel();
-            }
-            catch (ObjectDisposedException) { }
+            CancelIntervalDelay();
         }
 
         _logger.LogDebug("{ServiceName} interval reset to default ({Interval})", ServiceName, Interval);
     }
 
     /// <summary>
-    /// Wake the service immediately - cancels the current sleep so work runs on the next loop.
+    /// Cancels the sleep this loop is currently in. Taken under the interval lock so an interval
+    /// change and the wake it triggers are seen together; the lock is reentrant, so callers that
+    /// already hold it stay atomic.
     /// </summary>
-    public void TriggerImmediateRun()
+    protected override void CancelIntervalDelay()
     {
-        // Mark the next work run as manually triggered. Set before waking the loop so the woken
-        // iteration observes it when it computes CurrentRunTrigger.
-        Interlocked.Exchange(ref _pendingManualRun, 1);
-
         lock (_intervalLock)
         {
             try
@@ -170,8 +119,6 @@ public abstract class ScheduledBackgroundService : BackgroundService
                 // Already disposed - will be recreated on next loop iteration
             }
         }
-
-        _logger.LogDebug("{ServiceName} immediate run triggered", ServiceName);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -202,7 +149,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
                 // Manual takes priority over Startup (same ternary as ConfigurableScheduledService):
                 // a Run Now landing around startup must be consumed here, or the stale flag would
                 // misattribute a later scheduled tick as Manual.
-                CurrentRunTrigger = Interlocked.Exchange(ref _pendingManualRun, 0) == 1
+                CurrentRunTrigger = ConsumePendingManualRun()
                     ? RunTrigger.Manual
                     : RunTrigger.Startup;
                 // Broadcast the start so the Schedules status dot lights up for the whole run.
@@ -255,7 +202,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
             // _pendingManualRun in the other branch silently drops a same-tick Run Now (no work
             // happens) AND leaves the flag stale to misattribute a LATER genuinely scheduled tick as
             // Manual. Mirrors ConfigurableScheduledService's ordering.
-            var manualPending = Interlocked.Exchange(ref _pendingManualRun, 0) == 1;
+            var manualPending = ConsumePendingManualRun();
 
             if (skipFirstExecution && !manualPending)
             {
@@ -333,7 +280,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
             // (mislabelled Manual) and a paused service (interval <= 0) sleeps forever, dropping the
             // accepted run entirely. The flag is consumed exactly once at the loop top, which re-reads
             // it and tags the follow-up run Manual; peek without consuming here.
-            if (Interlocked.CompareExchange(ref _pendingManualRun, 0, 0) == 1)
+            if (HasPendingManualRun())
             {
                 continue;
             }
@@ -397,99 +344,23 @@ public abstract class ScheduledBackgroundService : BackgroundService
         => Task.CompletedTask;
 
     /// <summary>
-    /// Hardcoded default for whether OnStartupAsync runs before the main loop.
-    /// Subclasses override this to express their *intended* default. The user can override
-    /// this at runtime via SetRunOnStartup() - typically loaded from IStateService in
-    /// each service's constructor and updated via the Schedules UI.
+    /// Services on this base do not run at startup unless they say otherwise: the loop's first
+    /// pass is OnStartupAsync, which most of these services use for cleanup or monitoring work
+    /// that has no reason to fire the moment the app comes up. Subclasses override this to
+    /// express their intended default.
     /// </summary>
-    public virtual bool DefaultRunOnStartup => false;
+    public override bool DefaultRunOnStartup => false;
 
     /// <summary>
-    /// User-controlled override for RunOnStartup (null = use DefaultRunOnStartup).
-    /// </summary>
-    private bool? _runOnStartupOverride;
-
-    /// <summary>
-    /// Effective value of RunOnStartup: user override if set, else DefaultRunOnStartup.
-    /// </summary>
-    public bool RunOnStartup => _runOnStartupOverride ?? DefaultRunOnStartup;
-
-    /// <summary>
-    /// Set the user-controlled RunOnStartup override. Pass null to clear and revert
-    /// to DefaultRunOnStartup. Note: this only affects future startups - once a service
-    /// has already started its loop, toggling this won't retroactively run or skip
-    /// the startup pass.
-    /// </summary>
-    public void SetRunOnStartup(bool? value)
-    {
-        _runOnStartupOverride = value;
-        _logger.LogDebug("{ServiceName} RunOnStartup override set to {Value}", ServiceName, value);
-    }
-
-    /// <summary>
-    /// Hardcoded default notification mode for this service. Subclasses that emit lifecycle
-    /// notifications override this to express their intended default; the user can override it at
-    /// runtime via SetNotificationMode - typically loaded from IStateService in each service's
-    /// constructor and updated via the Schedules UI.
-    /// </summary>
-    protected virtual NotificationMode DefaultNotificationMode => NotificationMode.All;
-
-    /// <summary>
-    /// How this service's notifications render in the universal bar when the user has not
-    /// picked a style: maintenance chores default to the condensed line so routine runs stay
-    /// out of the way; a service whose runs deserve the full card overrides this.
-    /// </summary>
-    public virtual NotificationDisplayMode DefaultNotificationDisplayMode => NotificationDisplayMode.Condensed;
-
-    /// <summary>
-    /// User-controlled override for the notification mode (null = use DefaultNotificationMode).
-    /// </summary>
-    private NotificationMode? _notificationModeOverride;
-
-    /// <summary>
-    /// Effective notification mode: user override if set, else DefaultNotificationMode.
-    /// </summary>
-    public NotificationMode EffectiveNotificationMode => _notificationModeOverride ?? DefaultNotificationMode;
-
-    /// <summary>
-    /// Set the user-controlled notification-mode override. Pass null to clear and revert to
-    /// DefaultNotificationMode.
-    /// </summary>
-    public void SetNotificationMode(NotificationMode? mode) => _notificationModeOverride = mode;
-
-    /// <summary>
-    /// Whether this service emits lifecycle notifications the user can gate from the Schedules UI.
-    /// Only services that actually notify override this to true; every other schedule card hides
-    /// the Notifications control.
-    /// </summary>
-    protected virtual bool SupportsNotifications => false;
-
-    /// <summary>
-    /// Convenience helper for subclass constructors: applies any user-saved interval and
-    /// run-on-startup overrides for this ServiceKey from the state store. Call this from
-    /// the constructor after the base constructor has run, to avoid duplicating the same
-    /// load-from-state pattern in every scheduled service.
+    /// Convenience helper for subclass constructors: applies any user-saved overrides for this
+    /// ServiceKey from the state store. Call this from the constructor after the base constructor
+    /// has run, to avoid duplicating the same load-from-state pattern in every scheduled service.
     /// </summary>
     protected void LoadStateOverrides(IStateService stateService)
-    {
-        var savedInterval = stateService.GetServiceInterval(ServiceKey);
-        if (savedInterval.HasValue)
-        {
-            SetInterval(TimeSpan.FromHours(savedInterval.Value));
-        }
+        => LoadStateOverrides(stateService, ServiceKey);
 
-        var savedRunOnStartup = stateService.GetServiceRunOnStartup(ServiceKey);
-        if (savedRunOnStartup.HasValue)
-        {
-            SetRunOnStartup(savedRunOnStartup.Value);
-        }
-
-        var savedNotificationMode = stateService.GetServiceNotificationMode(ServiceKey);
-        if (savedNotificationMode.HasValue)
-        {
-            SetNotificationMode(savedNotificationMode.Value);
-        }
-    }
+    /// <inheritdoc />
+    protected override void ApplyLoadedInterval(TimeSpan interval) => SetInterval(interval);
 
     /// <summary>
     /// The main work to execute on each interval.
@@ -505,21 +376,6 @@ public abstract class ScheduledBackgroundService : BackgroundService
             return true;
 
         return _configuration.GetValue<bool>(EnabledConfigKey, EnabledByDefault);
-    }
-
-    /// <summary>
-    /// Safely delay, catching cancellation exceptions.
-    /// </summary>
-    protected async Task SafeDelayAsync(TimeSpan delay, CancellationToken stoppingToken)
-    {
-        try
-        {
-            await Task.Delay(delay, stoppingToken);
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected during shutdown
-        }
     }
 
     public override void Dispose()

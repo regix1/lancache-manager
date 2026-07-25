@@ -26,19 +26,6 @@
   }
 }
 
-/* Scale bounce for swap animation */
-@keyframes swapBounce {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(0.95);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
 /* Edit mode container - enables animations on cards */
 .edit-mode-active .edit-mode-card {
   animation: cardWiggle 0.5s ease-in-out infinite;
@@ -66,51 +53,6 @@
   z-index: 10;
   transform-origin: center center;
   border-radius: var(--theme-border-radius-lg);
-}
-
-/* Card being swapped */
-.edit-mode-card.card-swapping {
-  animation: swapBounce 0.3s ease-out;
-}
-
-/* Edit mode button styles */
-.edit-mode-toggle {
-  transition:
-    background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-    color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-    box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.edit-mode-toggle:active {
-  transform: scale(0.95);
-}
-
-.edit-mode-toggle.active {
-  background-color: var(--theme-primary);
-  color: var(--theme-button-text);
-  box-shadow: 0 4px 12px var(--theme-primary-strong);
-}
-
-/* Done button - prominent when in edit mode */
-.edit-mode-done {
-  background: var(--theme-primary);
-  color: var(--theme-button-text);
-  font-weight: 600;
-  box-shadow: 0 4px 12px var(--theme-primary-strong);
-  transition:
-    background-color 0.2s ease,
-    box-shadow 0.2s ease,
-    transform 0.2s ease;
-}
-
-.edit-mode-done:hover {
-  background: var(--theme-button-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px var(--theme-primary-strong);
-}
-
-.edit-mode-done:active {
-  transform: scale(0.98) translateY(0);
 }
 
 /* Card drag handle in edit mode */

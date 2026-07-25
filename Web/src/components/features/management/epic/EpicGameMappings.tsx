@@ -1,16 +1,17 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Gamepad2, Search } from 'lucide-react';
-import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
-import { AccordionSection } from '@components/ui/AccordionSection';
-import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
-import { Alert } from '@components/ui/Alert';
+import type { DataTableColumn } from '@components/ui/DataTable';
 import { Tooltip } from '@components/ui/Tooltip';
-import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
-import { getErrorMessage } from '@utils/error';
+import GameMappingsCatalog from '../game-mappings/GameMappingsCatalog';
 import type { EpicGameMappingDto, EpicMappingStats } from '../../../../types';
+
+// Called on ApiService so the statics keep their `this` (they read it for the fetch options), and
+// declared at module scope so the catalog's load effect sees a stable identity.
+const loadEpicMappings = (): Promise<EpicGameMappingDto[]> => ApiService.getEpicGameMappings();
+const loadEpicStats = (): Promise<EpicMappingStats> => ApiService.getEpicMappingStats();
+const searchEpicMappings = (query: string): Promise<EpicGameMappingDto[]> =>
+  ApiService.searchEpicGames(query);
 
 /** Returns a badge CSS class based on the discovery source */
 const getSourceBadgeClass = (source: string): string => {
@@ -44,16 +45,6 @@ const getSourceDescriptionKey = (source: string): string => {
   return validKeys.includes(key) ? key : 'unknown';
 };
 
-/** Wrapper component so useFormattedDateTime hook can be called per-row */
-const FormattedDateCell: React.FC<{ dateStr: string }> = ({ dateStr }) => {
-  const formatted = useFormattedDateTime(dateStr);
-  return (
-    <span className="block truncate text-xs text-themed-secondary whitespace-nowrap">
-      {formatted}
-    </span>
-  );
-};
-
 /** Source badge with tooltip explaining discovery method */
 const SourceBadgeCell: React.FC<{ source: string }> = ({ source }) => {
   const { t } = useTranslation();
@@ -69,229 +60,68 @@ const SourceBadgeCell: React.FC<{ source: string }> = ({ source }) => {
   );
 };
 
+const CATALOG_LABELS = {
+  title: 'management.sections.integrations.epicGameMappings.title',
+  description: 'management.sections.integrations.epicGameMappings.description',
+  gamesInLibrary: 'management.sections.integrations.epicGameMappings.gamesInLibrary',
+  discovered: 'management.sections.integrations.epicGameMappings.discovered',
+  lastSeen: 'management.sections.integrations.epicGameMappings.lastSeen',
+  search: 'management.sections.integrations.epicGameMappings.search',
+  noGames: 'management.sections.integrations.epicGameMappings.noGames',
+  noResults: 'management.sections.integrations.epicGameMappings.noResults'
+};
+
+const NAME_COLUMN = {
+  key: 'name',
+  headerKey: 'management.sections.integrations.epicGameMappings.name',
+  defaultWidth: 260,
+  minWidth: 140,
+  value: (mapping: EpicGameMappingDto) => mapping.name
+};
+
+const APP_ID_COLUMN = {
+  key: 'appId',
+  headerKey: 'management.sections.integrations.epicGameMappings.appId',
+  defaultWidth: 190,
+  minWidth: 100,
+  value: (mapping: EpicGameMappingDto) => mapping.appId
+};
+
+/**
+ * Epic library catalog. Epic records how each title was discovered (login, library sync, free
+ * games, ...), so it adds a discovery-source column the other services have no equivalent for.
+ */
 const EpicGameMappings: React.FC = () => {
   const { t } = useTranslation();
-  const { on, off, connectionState } = useSignalR();
 
-  const [mappings, setMappings] = useState<EpicGameMappingDto[]>([]);
-  const [stats, setStats] = useState<EpicMappingStats | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  useAccordionGroupItem('integrations-epic-game-mappings', expanded, () =>
-    setExpanded((prev) => !prev)
-  );
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  const loadData = useCallback(async () => {
-    try {
-      setError(null);
-      const [mappingsData, statsData] = await Promise.all([
-        ApiService.getEpicGameMappings(),
-        ApiService.getEpicMappingStats()
-      ]);
-      setMappings(mappingsData);
-      setStats(statsData);
-    } catch (err) {
-      setError(getErrorMessage(err) || 'Failed to load Epic game mappings');
-    }
-  }, []);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  // Listen for SignalR updates
-  useEffect(() => {
-    const handleUpdate = () => {
-      loadData();
-    };
-
-    on('EpicGameMappingsUpdated', handleUpdate);
-    return () => {
-      off('EpicGameMappingsUpdated', handleUpdate);
-    };
-  }, [on, off, loadData]);
-
-  // Refresh data when SignalR reconnects (catches events missed during disconnect)
-  useEffect(() => {
-    if (connectionState === 'connected') {
-      loadData();
-    }
-  }, [connectionState, loadData]);
-
-  const handleSearch = (value: string) => {
-    setSearchQuery(value);
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    if (value.length >= 2) {
-      searchTimeoutRef.current = setTimeout(async () => {
-        try {
-          const results = await ApiService.searchEpicGames(value);
-          setMappings(results);
-        } catch {
-          // Silently fail search, keep current results
-        }
-      }, 300);
-    } else if (value.length < 2) {
-      loadData();
-    }
-  };
-
-  // Define columns for DataTable (resizable with pixel defaults)
-  const columns: DataTableColumn<EpicGameMappingDto>[] = useMemo(
-    () => [
-      {
-        key: 'image',
-        header: '',
-        defaultWidth: 52,
-        minWidth: 48,
-        align: 'center' as const,
-        render: (mapping: EpicGameMappingDto) =>
-          mapping.imageUrl ? (
-            <img
-              src={mapping.imageUrl}
-              alt={mapping.name}
-              className="w-10 h-10 object-cover rounded align-middle"
-              onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
-                e.currentTarget.classList.add('hidden');
-              }}
-            />
-          ) : (
-            <div className="w-10 h-10 rounded flex items-center justify-center bg-[var(--theme-bg-tertiary)]">
-              <Gamepad2 className="w-4 h-4 text-themed-muted" />
-            </div>
-          )
-      },
-      {
-        key: 'name',
-        header: t('management.sections.integrations.epicGameMappings.name'),
-        defaultWidth: 260,
-        minWidth: 140,
-        flexible: true,
-        render: (mapping: EpicGameMappingDto) => (
-          <Tooltip content={mapping.name} position="top" className="block min-w-0">
-            <span className="block truncate text-xs font-medium text-themed-primary">
-              {mapping.name}
-            </span>
-          </Tooltip>
-        )
-      },
-      {
-        key: 'appId',
-        header: t('management.sections.integrations.epicGameMappings.appId'),
-        defaultWidth: 190,
-        minWidth: 100,
-        render: (mapping: EpicGameMappingDto) => (
-          <Tooltip content={mapping.appId} position="top" className="block min-w-0">
-            <span className="block truncate font-mono text-xs text-themed-secondary">
-              {mapping.appId}
-            </span>
-          </Tooltip>
-        )
-      },
-      {
-        key: 'source',
-        header: t('management.sections.integrations.epicGameMappings.source'),
-        defaultWidth: 150,
-        minWidth: 110,
-        align: 'center' as const,
-        render: (mapping: EpicGameMappingDto) => <SourceBadgeCell source={mapping.source} />
-      },
-      {
-        key: 'discovered',
-        header: t('management.sections.integrations.epicGameMappings.discovered'),
-        defaultWidth: 140,
-        minWidth: 110,
-        render: (mapping: EpicGameMappingDto) => (
-          <FormattedDateCell dateStr={mapping.discoveredAtUtc} />
-        )
-      },
-      {
-        key: 'lastSeen',
-        header: t('management.sections.integrations.epicGameMappings.lastSeen'),
-        defaultWidth: 140,
-        minWidth: 110,
-        render: (mapping: EpicGameMappingDto) => (
-          <FormattedDateCell dateStr={mapping.lastSeenAtUtc} />
-        )
-      }
-    ],
+  const sourceColumn: DataTableColumn<EpicGameMappingDto> = useMemo(
+    () => ({
+      key: 'source',
+      header: t('management.sections.integrations.epicGameMappings.source'),
+      defaultWidth: 150,
+      minWidth: 110,
+      align: 'center' as const,
+      render: (mapping: EpicGameMappingDto) => <SourceBadgeCell source={mapping.source} />
+    }),
     [t]
   );
 
   return (
-    <AccordionSection
-      title={t('management.sections.integrations.epicGameMappings.title')}
-      icon={Gamepad2}
-      iconColor="var(--theme-epic)"
-      count={stats?.totalGames}
-      isExpanded={expanded}
-      onToggle={() => setExpanded((prev) => !prev)}
-      surface="well"
-    >
-      <div className="space-y-3">
-        {/* Description */}
-        <p className="text-xs text-themed-muted">
-          {stats && stats.totalGames > 0
-            ? t('management.sections.integrations.epicGameMappings.gamesInLibrary', {
-                count: stats.totalGames
-              })
-            : t('management.sections.integrations.epicGameMappings.description')}
-        </p>
-
-        {/* Error / Info Message */}
-        {error && <Alert color="red">{error}</Alert>}
-
-        {/* Empty State */}
-        {mappings.length === 0 && !searchQuery && (
-          <p className="text-xs text-themed-secondary text-center py-6">
-            {t('management.sections.integrations.epicGameMappings.noGames')}
-          </p>
-        )}
-
-        {/* Search and Table */}
-        {(mappings.length > 0 || searchQuery) && (
-          <>
-            {/* Search */}
-            <div className="relative">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-themed-muted pointer-events-none"
-              />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearch(e.target.value)}
-                placeholder={t('management.sections.integrations.epicGameMappings.search')}
-                className="w-full py-2 pl-8 pr-3 border border-[var(--theme-border)] rounded-lg bg-themed-secondary text-themed-primary text-xs outline-none focus:border-[var(--theme-primary)]"
-              />
-            </div>
-
-            {/* DataTable */}
-            {mappings.length === 0 ? (
-              <p className="text-xs text-themed-secondary text-center py-4">
-                {t('management.sections.integrations.epicGameMappings.noResults')}
-              </p>
-            ) : (
-              <DataTable<EpicGameMappingDto>
-                columns={columns}
-                data={mappings}
-                keyExtractor={(mapping: EpicGameMappingDto) => mapping.appId}
-                maxHeight="400px"
-                accentColor={() => 'var(--theme-epic)'}
-                resizable
-                striped
-                storageKey="epic-game-mappings-column-widths-v2"
-                compact
-              />
-            )}
-          </>
-        )}
-      </div>
-    </AccordionSection>
+    <GameMappingsCatalog<EpicGameMappingDto>
+      accordionId="integrations-epic-game-mappings"
+      accentColor="var(--theme-epic)"
+      columnWidthStorageKey="epic-game-mappings-column-widths-v2"
+      updateEvent="EpicGameMappingsUpdated"
+      labels={CATALOG_LABELS}
+      nameColumn={NAME_COLUMN}
+      identifierColumn={APP_ID_COLUMN}
+      sourceColumn={sourceColumn}
+      dateColumnWidth={140}
+      loadMappings={loadEpicMappings}
+      loadStats={loadEpicStats}
+      searchMappings={searchEpicMappings}
+      loadErrorMessage="Failed to load Epic game mappings"
+    />
   );
 };
 

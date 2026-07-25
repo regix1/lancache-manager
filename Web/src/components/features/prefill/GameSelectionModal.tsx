@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { Tooltip } from '../../ui/Tooltip';
+import Badge from '../../ui/Badge';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { Search, Check, Gamepad2, Import, Database, EyeOff, Eye } from 'lucide-react';
@@ -417,9 +418,9 @@ export function GameSelectionModal({
                   <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 flex items-center gap-2 bg-[var(--theme-selected-bg)] text-[var(--theme-selected-text)] border-b border-[var(--theme-border-secondary)]">
                     <span>{t('prefill.gameSelection.selected')}</span>
                     {localSelected.size > 0 && (
-                      <span className="themed-badge status-badge-neutral badge-count">
+                      <Badge variant="neutral" className="badge-count">
                         {localSelected.size}
-                      </span>
+                      </Badge>
                     )}
                   </div>
                   <CustomScrollbar
@@ -478,9 +479,9 @@ export function GameSelectionModal({
                 <div className="flex-1 min-h-0 flex flex-col">
                   <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 flex items-center gap-2 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
                     <span>{t('prefill.gameSelection.availableGames')}</span>
-                    <span className="themed-badge status-badge-neutral badge-count">
+                    <Badge variant="neutral" className="badge-count">
                       {sortedGames.filter((g) => !localSelected.has(g.appId)).length}
-                    </span>
+                    </Badge>
                   </div>
                   <CustomScrollbar
                     maxHeight="100%"

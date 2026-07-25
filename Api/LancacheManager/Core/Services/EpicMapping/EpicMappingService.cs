@@ -279,7 +279,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     {
         try
         {
-            var scope = _scopeFactory.CreateScope();
+            using var scope = _scopeFactory.CreateScope();
             _epicDaemonService = scope.ServiceProvider.GetService<EpicPrefillDaemonService>();
             if (_epicDaemonService != null)
             {

@@ -117,13 +117,17 @@ public class RustLogProcessorService
 
             if (info.Cancelled)
             {
+                // The message is fixed rather than read from the snapshot: _terminalMetrics survives
+                // across runs and across the datasources of one batch, so a cancel arriving after an
+                // earlier datasource finished would otherwise report that datasource's success text.
+                // The counts stay snapshotted — a cancelled run that already committed rows reports them.
                 return _notifications.NotifyAllAsync(
                     SignalREvents.LogProcessingComplete,
                     new LogProcessingComplete(
                         OperationId: operationId,
                         Success: false,
                         Status: OperationStatus.Cancelled,
-                        Message: metrics.Message ?? "Log processing was cancelled",
+                        Message: "Log processing was cancelled",
                         Cancelled: true,
                         EntriesProcessed: metrics.EntriesProcessed,
                         LinesProcessed: metrics.LinesProcessed,
@@ -278,47 +282,6 @@ public class RustLogProcessorService
 
         await Task.WhenAny(registered.Task, backgroundTask);
         return registered.Task.IsCompletedSuccessfully ? registered.Task.Result : (Guid?)null;
-    }
-
-    /// <summary>
-    /// Force kills the log processing operation
-    /// </summary>
-    public async Task<bool> ForceKillProcessingAsync()
-    {
-        if (!IsProcessing)
-        {
-            _logger.LogWarning("No log processing operation to kill");
-            return false;
-        }
-
-        _logger.LogWarning("Force killing log processing operation");
-
-        try
-        {
-            // Snapshot a cancelled message for the onTerminalEmit closure. ForceKillOperation drives
-            // CompleteOperation, which fires the single terminal LogProcessingComplete event.
-            _terminalMetrics = _terminalMetrics with { Message = "Log processing was cancelled" };
-
-            if (_currentOperationId.HasValue)
-            {
-                _operationTracker.ForceKillOperation(_currentOperationId.Value);
-            }
-            else
-            {
-                _cancellationTokenSource?.Cancel();
-            }
-
-            await Task.Delay(500);
-
-            IsProcessing = false;
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during force kill of log processing");
-            return false;
-        }
     }
 
     /// <summary>

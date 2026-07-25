@@ -1,10 +1,4 @@
-import { useContext } from 'react';
 import { GuestConfigContext } from './GuestConfigContext.types';
+import { createContextHook } from './createContextHook';
 
-export const useGuestConfig = () => {
-  const context = useContext(GuestConfigContext);
-  if (!context) {
-    throw new Error('useGuestConfig must be used within GuestConfigProvider');
-  }
-  return context;
-};
+export const useGuestConfig = createContextHook(GuestConfigContext, 'useGuestConfig');

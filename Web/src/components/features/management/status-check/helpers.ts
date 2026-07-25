@@ -1,5 +1,4 @@
 import { getServiceBadgeStyles, getServiceColorClass } from '@utils/serviceColors';
-import { getServiceDisplayName } from '@utils/serviceDisplayName';
 
 const UNKNOWN_SERVICE_COLOR_CLASS = getServiceColorClass('');
 
@@ -14,12 +13,6 @@ export function getServiceAccentColor(service: string): string {
     return 'var(--theme-accent)';
   }
   return getServiceBadgeStyles(service).color;
-}
-
-/** Display label for a cache-domains service name: alias-folded and capitalized. */
-export function formatServiceLabel(service: string): string {
-  const display = getServiceDisplayName(service);
-  return display.charAt(0).toUpperCase() + display.slice(1);
 }
 
 /**

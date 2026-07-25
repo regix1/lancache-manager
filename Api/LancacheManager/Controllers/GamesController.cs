@@ -36,7 +36,7 @@ public class GamesController : ControllerBase
     private BadRequestObjectResult? DenyIfKeyDependentUnavailable()
     {
         var denial = _capabilityService.CheckAllCanMapLogicalObjects();
-        return denial == null ? null : BadRequest(new ErrorResponse { Error = denial });
+        return denial == null ? null : BadRequest(ApiResponse.Error(denial));
     }
 
     public GamesController(
@@ -81,7 +81,7 @@ public class GamesController : ControllerBase
             "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
             $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
-        return BadRequest(new ErrorResponse { Error = errorMessage });
+        return BadRequest(ApiResponse.Error(errorMessage));
     }
 
     private static Dictionary<string, object?> RemovalContext(
@@ -696,7 +696,7 @@ public class GamesController : ControllerBase
 
         if (status == null)
         {
-            return NotFound(new NotFoundResponse { Error = "Detection operation not found", OperationId = id });
+            return NotFound(ApiResponse.NotFound("Detection operation", id));
         }
 
         return Ok(status);

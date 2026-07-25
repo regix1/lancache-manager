@@ -5218,10 +5218,6 @@
           "title": "游戏图表",
           "description": "游戏分布图 - 仪表板上磁盘游戏环形图的 20 种可自定义颜色"
         },
-        "accessControl": {
-          "title": "访问控制",
-          "description": "公开和安全徽章 - API 访问控制的安全状态指示器"
-        },
         "sessions": {
           "title": "会话",
           "description": "已验证用户和访客 - 用户选项卡中会话徽章和图标颜色"
@@ -5252,11 +5248,6 @@
           "label": "主要品牌色",
           "description": "整个应用中使用的主要品牌色",
           "affects": ["主要按钮", "链接", "活跃状态", "焦点环"]
-        },
-        "secondaryColor": {
-          "label": "次要品牌色",
-          "description": "补充品牌强调色",
-          "affects": ["次要按钮", "高亮", "强调"]
         },
         "accentColor": {
           "label": "强调色",
@@ -5478,11 +5469,6 @@
           "description": "抬高面板和抽屉中的边框",
           "affects": ["面板边框", "抽屉分隔线", "弹窗区域边框"]
         },
-        "borderHover": {
-          "label": "边框悬停",
-          "description": "悬停交互时的边框颜色",
-          "affects": ["卡片悬停边框", "输入框悬停边框", "交互式边框"]
-        },
         "success": {
           "label": "成功主要",
           "description": "成功状态主色（警告边框）",
@@ -5597,41 +5583,6 @@
           "label": "图表主要",
           "description": "主要图表颜色",
           "affects": ["第一数据系列", "主图表颜色"]
-        },
-        "chartColor2": {
-          "label": "图表次要",
-          "description": "次要图表颜色",
-          "affects": ["第二数据系列"]
-        },
-        "chartColor3": {
-          "label": "图表第三色",
-          "description": "第三图表颜色",
-          "affects": ["第三数据系列"]
-        },
-        "chartColor4": {
-          "label": "图表第四色",
-          "description": "第四图表颜色",
-          "affects": ["第四数据系列"]
-        },
-        "chartColor5": {
-          "label": "图表颜色5",
-          "description": "第五图表颜色",
-          "affects": ["第五数据系列"]
-        },
-        "chartColor6": {
-          "label": "图表颜色6",
-          "description": "第六图表颜色",
-          "affects": ["第六数据系列"]
-        },
-        "chartColor7": {
-          "label": "图表颜色7",
-          "description": "第七图表颜色",
-          "affects": ["第七数据系列"]
-        },
-        "chartColor8": {
-          "label": "图表颜色8",
-          "description": "第八图表颜色",
-          "affects": ["第八数据系列"]
         },
         "chartCacheHitColor": {
           "label": "缓存命中颜色",
@@ -5763,36 +5714,6 @@
           "description": "其余游戏合并在一起",
           "affects": ["磁盘游戏图表"]
         },
-        "publicAccessBg": {
-          "label": "公共访问背景",
-          "description": "公共/开放访问指示器",
-          "affects": ["公开徽章", "开放访问指示"]
-        },
-        "publicAccessText": {
-          "label": "公共访问文本",
-          "description": "公共访问文本颜色",
-          "affects": ["公开标签", "公开文本"]
-        },
-        "publicAccessBorder": {
-          "label": "公共访问边框",
-          "description": "公共访问边框",
-          "affects": ["公开徽章边框"]
-        },
-        "securedAccessBg": {
-          "label": "安全访问背景",
-          "description": "安全/锁定访问指示器",
-          "affects": ["安全徽章", "锁定指示"]
-        },
-        "securedAccessText": {
-          "label": "安全访问文本",
-          "description": "安全访问文本颜色",
-          "affects": ["安全标签", "锁定文本"]
-        },
-        "securedAccessBorder": {
-          "label": "安全访问边框",
-          "description": "安全访问边框",
-          "affects": ["安全徽章边框"]
-        },
         "userSessionColor": {
           "label": "已验证用户颜色",
           "description": "已验证用户的图标和文本颜色",
@@ -5812,16 +5733,6 @@
           "label": "访客用户背景",
           "description": "访客用户徽章背景色",
           "affects": ["访客徽章背景", "访客图标背景"]
-        },
-        "activeSessionColor": {
-          "label": "活跃会话颜色",
-          "description": "活跃会话的图标和文本颜色",
-          "affects": ["活跃会话徽章文本", "活跃会话图标"]
-        },
-        "activeSessionBg": {
-          "label": "活跃会话背景",
-          "description": "活跃会话徽章背景色",
-          "affects": ["活跃会话徽章背景"]
         },
         "eventColor1": {
           "label": "事件颜色1",
@@ -5932,6 +5843,16 @@
           "label": "育碧",
           "description": "育碧平台颜色",
           "affects": ["育碧徽章", "育碧图表"]
+        },
+        "gogColor": {
+          "label": "GOG",
+          "description": "GOG 平台颜色",
+          "affects": ["GOG 徽章", "GOG 图表"]
+        },
+        "rockstarColor": {
+          "label": "Rockstar Games",
+          "description": "Rockstar Games 平台颜色",
+          "affects": ["Rockstar 徽章", "Rockstar 图表"]
         },
         "arenanetColor": {
           "label": "ArenaNet",

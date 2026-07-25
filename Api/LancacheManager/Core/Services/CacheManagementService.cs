@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services.StatusCheck;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
@@ -498,9 +499,11 @@ public partial class CacheManagementService
             var containers = await _dockerClient.Containers.ListContainersAsync(
                 new ContainersListParameters { All = false });
 
-            // Priority 1: Find by lancachenet/monolithic image (most reliable)
+            // Priority 1: Find by cache image (most reliable). Shares the image rules with the
+            // Docker-scanning services so a fork image without the "lancachenet/" owner prefix
+            // classifies the same way here as it does there.
             var lancacheContainer = containers.FirstOrDefault(c =>
-                c.Image?.Contains("lancachenet/monolithic", StringComparison.OrdinalIgnoreCase) ?? false);
+                DockerContainerMatching.IsLancacheCacheImage(c.Image ?? string.Empty));
 
             // Priority 2: Find by "monolithic" in container name
             lancacheContainer ??= containers.FirstOrDefault(c =>

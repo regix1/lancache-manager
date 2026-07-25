@@ -190,15 +190,4 @@ public static class LogSourceLayout
         return hasBareMetal ? LayoutBareMetal : LayoutMonolithic;
     }
 
-    /// <summary>
-    /// All current (non-rotated) source files for a directory, one per stem present.
-    /// </summary>
-    public static List<string> CurrentSourceFiles(string directory)
-    {
-        return EnumerateStems(directory)
-            .OrderBy(s => s, StringComparer.Ordinal)
-            .Select(stem => Path.Combine(directory, stem))
-            .Where(File.Exists)
-            .ToList();
-    }
 }

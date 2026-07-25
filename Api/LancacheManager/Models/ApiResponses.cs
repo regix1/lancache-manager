@@ -48,7 +48,7 @@ public class ConflictResponse
 
 /// <summary>
 /// Generic error response for BadRequest/validation errors.
-/// Aligned with the <c>GlobalExceptionMiddleware</c> wire shape { error, details?, statusCode?, traceId? }
+/// Aligned with the <c>GlobalExceptionMiddleware</c> wire shape { error, details?, statusCode? }
 /// (camelCase, nulls omitted). <see cref="Error"/> is the canonical, primary message key.
 /// </summary>
 public class ErrorResponse
@@ -56,7 +56,6 @@ public class ErrorResponse
     public string Error { get; set; } = string.Empty;
     public string? Details { get; set; }
     public int? StatusCode { get; set; }
-    public string? TraceId { get; set; }
 
     /// <summary>
     /// Legacy secondary message field. <see cref="Error"/> is the canonical error key; this is retained
@@ -118,26 +117,10 @@ public static class ApiResponse
         Error = error
     };
 
-    /// <summary>Creates a forbidden (403) error response. Optional convenience for guard-clause bodies.</summary>
-    public static ErrorResponse Forbidden(string error) => new()
-    {
-        Error = error
-    };
-
     // ==================== Success Responses ====================
-
-    /// <summary>Creates a simple success message response.</summary>
-    public static MessageResponse Success(string message) => new()
-    {
-        Success = true,
-        Message = message
-    };
 
     /// <summary>Creates a message-only response object.</summary>
     public static object Message(string message) => new { message };
-
-    /// <summary>Creates a success response with custom data.</summary>
-    public static object Ok(string message) => new { message };
 
     // ==================== Validation Responses ====================
 
@@ -152,11 +135,4 @@ public static class ApiResponse
     {
         Error = message
     };
-
-    /// <summary>Creates an error response for duplicate entries.</summary>
-    public static ErrorResponse Duplicate(string entityType, string fieldName) => new()
-    {
-        Error = $"A {entityType.ToLower()} with this {fieldName.ToLower()} already exists"
-    };
-
 }

@@ -298,7 +298,7 @@
 }
 
 /* --- Responsive: mobile stack --- */
-@media (max-width: 768px) {
+@media (max-width: 767.98px) {
   .prefill-home {
     padding: 1rem 0;
     gap: 1.5rem;

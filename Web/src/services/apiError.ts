@@ -3,8 +3,8 @@ import { APP_EVENTS } from '@utils/constants';
  * The frontend error taxonomy and single typed API error.
  *
  * This module is intentionally dependency-free (it imports nothing from the app) so that both the
- * heavy `api.service.ts` and the small sibling services (`auth`, `operationState`, `preferences`,
- * `theme`) can pull it in without a circular dependency and without dragging the whole API surface
+ * heavy `api.service.ts` and the small sibling services (`auth`, `preferences`, `theme`) can pull
+ * it in without a circular dependency and without dragging the whole API surface
  * into their bundle. See the error-handling standard (§4.1).
  */
 

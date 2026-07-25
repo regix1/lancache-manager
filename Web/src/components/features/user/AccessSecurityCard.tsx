@@ -13,7 +13,6 @@ import { useAuth } from '@contexts/useAuth';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { GuestDurationResponse } from './AccessSecurityCard.types';
-import './AccessSecurityCard.css';
 
 interface AccessSecurityCardProps {
   // Legacy props kept for backward compatibility with GuestConfiguration's call site.

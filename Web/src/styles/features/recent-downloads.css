@@ -63,17 +63,7 @@
   background: var(--theme-success);
   box-shadow: 0 0 6px var(--theme-success);
   flex-shrink: 0;
-  animation: rdl-live-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes rdl-live-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
+  animation: opacityPulse 1.6s ease-in-out infinite;
 }
 
 /* ----- Filters ----- */
@@ -383,7 +373,7 @@
   font-size: var(--font-size-sm);
 }
 
-@media (max-width: 767px) {
+@media (max-width: 767.98px) {
   .rdl-loading {
     padding: 2rem 0.75rem;
   }

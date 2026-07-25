@@ -37,28 +37,6 @@ public static class TimeUtils
     }
 
     /// <summary>
-    /// Parses a time period string and returns a cutoff DateTime.
-    /// Returns DateTime.MinValue for "all" instead of null - useful for repository queries.
-    /// </summary>
-    /// <param name="period">The time period string (e.g., "24h", "7d")</param>
-    /// <param name="now">The reference time</param>
-    /// <param name="defaultValue">Default value if period is not recognized (defaults to 24h ago)</param>
-    /// <returns>The cutoff DateTime</returns>
-    public static DateTime GetCutoffTime(string period, DateTime now, DateTime? defaultValue = null)
-    {
-        var parsed = ParseTimePeriod(period, now);
-        
-        // Handle "all" case - return DateTime.MinValue to include all records
-        if (period?.ToLower() == "all")
-        {
-            return DateTime.MinValue;
-        }
-        
-        // Return parsed value, or default to 24 hours ago
-        return parsed ?? defaultValue ?? now.AddHours(-24);
-    }
-
-    /// <summary>
     /// Parses an interval string and returns the number of minutes.
     /// Supports formats like "5min", "15min", "hourly", "1h", "daily", etc.
     /// </summary>

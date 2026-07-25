@@ -9,18 +9,14 @@ import { ActionMenuItem } from '@components/ui/ActionMenu';
 import ApiService from '@services/api.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import type {
-  EpicGuestPrefillConfigChangedEvent,
-  BattleNetGuestPrefillConfigChangedEvent,
-  RiotGuestPrefillConfigChangedEvent,
-  XboxGuestPrefillConfigChangedEvent
-} from '@contexts/SignalRContext/types';
 import { useAuth } from '@contexts/useAuth';
-import { SteamIcon } from '@components/ui/SteamIcon';
-import { EpicIcon } from '@components/ui/EpicIcon';
-import { BlizzardIcon } from '@components/ui/BlizzardIcon';
-import { RiotIcon } from '@components/ui/RiotIcon';
-import { XboxIcon } from '@components/ui/XboxIcon';
+import {
+  PREFILL_SERVICES,
+  prefillServiceRecord,
+  type GuestPrefillConfigChangedPayload,
+  type PrefillServiceConfig
+} from '@components/features/prefill/hooks/prefillServiceConfig';
+import type { GameServiceId } from '@/types/gameService';
 import { type ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
 import AccessSecurityCard from './AccessSecurityCard';
 import PrefillServicePanel from './PrefillServicePanel';
@@ -28,19 +24,14 @@ import AppearanceDisplayCard from './AppearanceDisplayCard';
 import '@components/features/management/managementSectionContent.css';
 import './user-settings.css';
 
-type PrefillServiceKey = 'steam' | 'epic' | 'battlenet' | 'riot' | 'xbox';
-
-const PREFILL_SERVICE_KEYS: PrefillServiceKey[] = ['steam', 'epic', 'battlenet', 'riot', 'xbox'];
-
-const INITIAL_PREFILL_EXPANDED: Record<PrefillServiceKey, boolean> = {
-  steam: false,
-  epic: false,
-  battlenet: false,
-  riot: false,
-  xbox: false
-};
-
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
+
+/** Guest default prefill permissions for one service. */
+interface GuestPrefillConfig {
+  enabledByDefault: boolean;
+  durationHours: number;
+  maxThreadCount: number | null;
+}
 
 interface DefaultGuestPreferences {
   useLocalTimezone: boolean;
@@ -116,91 +107,53 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const [updatingDefaultPref, setUpdatingDefaultPref] = useState<string | null>(null);
   const [updatingAllowedFormats, setUpdatingAllowedFormats] = useState(false);
 
-  // Steam Prefill permission state
-  const [prefillConfig, setPrefillConfig] = useState({
-    enabledByDefault: false,
-    durationHours: 2,
-    maxThreadCount: null as number | null
-  });
-  const [loadingPrefillConfig, setLoadingPrefillConfig] = useState(false);
-  const [updatingPrefillConfig, setUpdatingPrefillConfig] = useState(false);
-
-  // Epic Prefill permission state
-  const [epicPrefillConfig, setEpicPrefillConfig] = useState({
-    enabledByDefault: false,
-    durationHours: 2,
-    maxThreadCount: null as number | null
-  });
-  const [loadingEpicPrefillConfig, setLoadingEpicPrefillConfig] = useState(false);
-  const [updatingEpicPrefillConfig, setUpdatingEpicPrefillConfig] = useState(false);
-
-  // Battle.net Prefill permission state (anonymous - no thread limit)
-  const [battlenetPrefillConfig, setBattlenetPrefillConfig] = useState({
-    enabledByDefault: false,
-    durationHours: 2,
-    maxThreadCount: null as number | null
-  });
-  const [loadingBattlenetPrefillConfig, setLoadingBattlenetPrefillConfig] = useState(false);
-  const [updatingBattlenetPrefillConfig, setUpdatingBattlenetPrefillConfig] = useState(false);
-
-  // Riot Prefill permission state (anonymous - no thread limit)
-  const [riotPrefillConfig, setRiotPrefillConfig] = useState({
-    enabledByDefault: false,
-    durationHours: 2,
-    maxThreadCount: null as number | null
-  });
-  const [loadingRiotPrefillConfig, setLoadingRiotPrefillConfig] = useState(false);
-  const [updatingRiotPrefillConfig, setUpdatingRiotPrefillConfig] = useState(false);
-
-  // Xbox Prefill permission state (login-required - mirrors Epic, has a thread limit)
-  const [xboxPrefillConfig, setXboxPrefillConfig] = useState({
-    enabledByDefault: false,
-    durationHours: 2,
-    maxThreadCount: null as number | null
-  });
-  const [loadingXboxPrefillConfig, setLoadingXboxPrefillConfig] = useState(false);
-  const [updatingXboxPrefillConfig, setUpdatingXboxPrefillConfig] = useState(false);
+  // Guest prefill permissions, one entry per service in PREFILL_SERVICES. The load and
+  // update calls below are keyed off the same table, so a new service needs no state here.
+  const [prefillConfigs, setPrefillConfigs] = useState<Record<GameServiceId, GuestPrefillConfig>>(
+    () =>
+      prefillServiceRecord<GuestPrefillConfig>(() => ({
+        enabledByDefault: false,
+        durationHours: 2,
+        maxThreadCount: null
+      }))
+  );
+  const [loadingPrefillConfigs, setLoadingPrefillConfigs] = useState<
+    Record<GameServiceId, boolean>
+  >(() => prefillServiceRecord<boolean>(() => false));
+  const [updatingPrefillConfigs, setUpdatingPrefillConfigs] = useState<
+    Record<GameServiceId, boolean>
+  >(() => prefillServiceRecord<boolean>(() => false));
 
   const [prefillSectionExpanded, setPrefillSectionExpanded] = useState(false);
   useAccordionGroupItem('guest-prefill-services', prefillSectionExpanded, () =>
     setPrefillSectionExpanded((prev) => !prev)
   );
-  const [prefillServiceExpanded, setPrefillServiceExpanded] =
-    useState<Record<PrefillServiceKey, boolean>>(INITIAL_PREFILL_EXPANDED);
+  const [prefillServiceExpanded, setPrefillServiceExpanded] = useState<
+    Record<GameServiceId, boolean>
+  >(() => prefillServiceRecord<boolean>(() => false));
 
-  const enabledPrefillCount = useMemo(() => {
-    return [
-      prefillConfig.enabledByDefault,
-      epicPrefillConfig.enabledByDefault,
-      battlenetPrefillConfig.enabledByDefault,
-      riotPrefillConfig.enabledByDefault,
-      xboxPrefillConfig.enabledByDefault
-    ].filter(Boolean).length;
-  }, [
-    prefillConfig.enabledByDefault,
-    epicPrefillConfig.enabledByDefault,
-    battlenetPrefillConfig.enabledByDefault,
-    riotPrefillConfig.enabledByDefault,
-    xboxPrefillConfig.enabledByDefault
-  ]);
-
-  const allPrefillServicesExpanded = PREFILL_SERVICE_KEYS.every(
-    (key) => prefillServiceExpanded[key]
+  const enabledPrefillCount = useMemo(
+    () =>
+      PREFILL_SERVICES.filter(
+        (service: PrefillServiceConfig) => prefillConfigs[service.id].enabledByDefault
+      ).length,
+    [prefillConfigs]
   );
 
-  const togglePrefillService = (key: PrefillServiceKey) => {
-    setPrefillServiceExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+  const allPrefillServicesExpanded = PREFILL_SERVICES.every(
+    (service: PrefillServiceConfig) => prefillServiceExpanded[service.id]
+  );
+
+  const togglePrefillService = (serviceId: GameServiceId) => {
+    setPrefillServiceExpanded((prev: Record<GameServiceId, boolean>) => ({
+      ...prev,
+      [serviceId]: !prev[serviceId]
+    }));
   };
 
   const handlePrefillExpandCollapseAll = () => {
     const next = !allPrefillServicesExpanded;
-    setPrefillServiceExpanded({
-      steam: next,
-      epic: next,
-      battlenet: next,
-      riot: next,
-      xbox: next
-    });
+    setPrefillServiceExpanded(prefillServiceRecord<boolean>(() => next));
   };
 
   // Helper to update default time format based on a format value
@@ -211,19 +164,11 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     const [localResponse, formatResponse] = await Promise.all([
       fetch(
         '/api/system/default-guest-preferences/useLocalTimezone',
-        ApiService.getFetchOptions({
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: newUseLocal })
-        })
+        ApiService.getJsonFetchOptions({ value: newUseLocal }, { method: 'PATCH' })
       ),
       fetch(
         '/api/system/default-guest-preferences/use24HourFormat',
-        ApiService.getFetchOptions({
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: newUse24Hour })
-        })
+        ApiService.getJsonFetchOptions({ value: newUse24Hour }, { method: 'PATCH' })
       )
     ]);
 
@@ -317,13 +262,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       setUpdatingDefaultPref(key);
       const response = await fetch(
         `/api/system/default-guest-preferences/${key}`,
-        ApiService.getFetchOptions({
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ value })
-        })
+        ApiService.getJsonFetchOptions({ value }, { method: 'PATCH' })
       );
 
       if (response.ok) {
@@ -367,55 +306,24 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     }));
   }, []);
 
+  // Each service announces its thread limit under its own field name, and the two
+  // anonymous services send none at all, so the value is read through the service's
+  // capability rather than off a fixed field.
   const handlePrefillConfigChanged = useCallback(
-    (data: {
-      enabledByDefault: boolean;
-      durationHours: number;
-      maxThreadCount?: number | null;
-    }) => {
-      setPrefillConfig({
-        enabledByDefault: data.enabledByDefault,
-        durationHours: data.durationHours,
-        maxThreadCount: data.maxThreadCount ?? null
-      });
+    (service: PrefillServiceConfig, data: GuestPrefillConfigChangedPayload) => {
+      setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
+        ...prev,
+        [service.id]: {
+          enabledByDefault: data.enabledByDefault,
+          durationHours: data.durationHours,
+          maxThreadCount: service.supportsMaxThreads
+            ? (data[service.configEventThreadField] ?? null)
+            : null
+        }
+      }));
     },
     []
   );
-
-  const handleEpicPrefillConfigChanged = useCallback((data: EpicGuestPrefillConfigChangedEvent) => {
-    setEpicPrefillConfig({
-      enabledByDefault: data.enabledByDefault,
-      durationHours: data.durationHours,
-      maxThreadCount: data.epicMaxThreadCount ?? null
-    });
-  }, []);
-
-  const handleBattlenetPrefillConfigChanged = useCallback(
-    (data: BattleNetGuestPrefillConfigChangedEvent) => {
-      setBattlenetPrefillConfig({
-        enabledByDefault: data.enabledByDefault,
-        durationHours: data.durationHours,
-        maxThreadCount: null
-      });
-    },
-    []
-  );
-
-  const handleRiotPrefillConfigChanged = useCallback((data: RiotGuestPrefillConfigChangedEvent) => {
-    setRiotPrefillConfig({
-      enabledByDefault: data.enabledByDefault,
-      durationHours: data.durationHours,
-      maxThreadCount: null
-    });
-  }, []);
-
-  const handleXboxPrefillConfigChanged = useCallback((data: XboxGuestPrefillConfigChangedEvent) => {
-    setXboxPrefillConfig({
-      enabledByDefault: data.enabledByDefault,
-      durationHours: data.durationHours,
-      maxThreadCount: data.xboxMaxThreadCount ?? null
-    });
-  }, []);
 
   const handleAllowedFormatsChange = async (formats: string[]) => {
     if (authMode !== 'authenticated') return;
@@ -423,13 +331,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       setUpdatingAllowedFormats(true);
       const response = await fetch(
         '/api/system/default-guest-preferences/allowed-time-formats',
-        ApiService.getFetchOptions({
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ formats })
-        })
+        ApiService.getJsonFetchOptions({ formats }, { method: 'PATCH' })
       );
 
       if (response.ok) {
@@ -460,459 +362,136 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     }
   };
 
-  // Prefill config functions
-  const loadPrefillConfig = async () => {
+  // Guest prefill config load/update, driven by PREFILL_SERVICES. Only services that
+  // support a thread cap send or read maxThreadCount; the anonymous ones never carry the
+  // field on the wire, so it is omitted from their request body and pinned to null locally.
+  const loadPrefillConfig = async (service: PrefillServiceConfig) => {
     try {
-      setLoadingPrefillConfig(true);
-      const configResponse = await fetch(
-        '/api/auth/guest/prefill/config',
-        ApiService.getFetchOptions()
-      );
+      setLoadingPrefillConfigs((prev: Record<GameServiceId, boolean>) => ({
+        ...prev,
+        [service.id]: true
+      }));
+      const configResponse = await fetch(service.guestConfigPath, ApiService.getFetchOptions());
       if (configResponse.ok) {
         const data = (await configResponse.json()) as GuestPrefillConfigResponse;
-        setPrefillConfig({
-          enabledByDefault: data.enabledByDefault,
-          durationHours: data.durationHours,
-          maxThreadCount: data.maxThreadCount ?? null
-        });
+        setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
+          ...prev,
+          [service.id]: {
+            enabledByDefault: data.enabledByDefault,
+            durationHours: data.durationHours,
+            maxThreadCount: service.supportsMaxThreads ? (data.maxThreadCount ?? null) : null
+          }
+        }));
       }
     } catch (err) {
       notifyError(t('user.guest.prefill.errors.loadConfig'), err, {
-        logLabel: 'Failed to load Steam prefill config'
+        logLabel: `Failed to load ${service.shortName} prefill config`
       });
     } finally {
-      setLoadingPrefillConfig(false);
+      setLoadingPrefillConfigs((prev: Record<GameServiceId, boolean>) => ({
+        ...prev,
+        [service.id]: false
+      }));
     }
   };
 
   const updatePrefillConfig = async (
+    service: PrefillServiceConfig,
     enabledByDefault: boolean,
     durationHours: number,
     maxThreadCount?: number | null
   ) => {
     if (authMode !== 'authenticated') return;
     try {
-      setUpdatingPrefillConfig(true);
+      setUpdatingPrefillConfigs((prev: Record<GameServiceId, boolean>) => ({
+        ...prev,
+        [service.id]: true
+      }));
       const body: Record<string, unknown> = { enabledByDefault, durationHours };
-      if (maxThreadCount !== undefined) {
-        body.maxThreadCount = maxThreadCount;
-      } else {
-        body.maxThreadCount = prefillConfig.maxThreadCount;
+      if (service.supportsMaxThreads) {
+        body.maxThreadCount =
+          maxThreadCount !== undefined ? maxThreadCount : prefillConfigs[service.id].maxThreadCount;
       }
       const response = await fetch(
-        '/api/auth/guest/prefill/config',
-        ApiService.getFetchOptions({
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(body)
-        })
+        service.guestConfigPath,
+        ApiService.getJsonFetchOptions(body, { method: 'POST' })
       );
 
       if (response.ok) {
-        const data = await response.json();
-        setPrefillConfig({
-          enabledByDefault: data.enabledByDefault,
-          durationHours: data.durationHours,
-          maxThreadCount: data.maxThreadCount ?? null
-        });
+        const data = (await response.json()) as GuestPrefillConfigResponse;
+        setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
+          ...prev,
+          [service.id]: {
+            enabledByDefault: data.enabledByDefault,
+            durationHours: data.durationHours,
+            maxThreadCount: service.supportsMaxThreads ? (data.maxThreadCount ?? null) : null
+          }
+        }));
         showToast('success', t('user.guest.prefill.updated'));
       } else {
         const errorData = await response.json();
         notifyError(
           t('user.guest.prefill.errors.update'),
           errorData?.error ? new Error(errorData.error) : undefined,
-          { logLabel: 'Failed to update Steam prefill config' }
+          { logLabel: `Failed to update ${service.shortName} prefill config` }
         );
       }
     } catch (err: unknown) {
       notifyError(t('user.guest.prefill.errors.update'), err, {
-        logLabel: 'Failed to update Steam prefill config'
+        logLabel: `Failed to update ${service.shortName} prefill config`
       });
     } finally {
-      setUpdatingPrefillConfig(false);
-    }
-  };
-
-  // Epic Prefill config functions
-  const loadEpicPrefillConfig = async () => {
-    try {
-      setLoadingEpicPrefillConfig(true);
-      const configResponse = await fetch(
-        '/api/auth/guest/epic-prefill/config',
-        ApiService.getFetchOptions()
-      );
-      if (configResponse.ok) {
-        const data = (await configResponse.json()) as GuestPrefillConfigResponse;
-        setEpicPrefillConfig({
-          enabledByDefault: data.enabledByDefault,
-          durationHours: data.durationHours,
-          maxThreadCount: data.maxThreadCount ?? null
-        });
-      }
-    } catch (err) {
-      notifyError(t('user.guest.prefill.errors.loadConfig'), err, {
-        logLabel: 'Failed to load Epic prefill config'
-      });
-    } finally {
-      setLoadingEpicPrefillConfig(false);
-    }
-  };
-
-  const updateEpicPrefillConfig = async (
-    enabledByDefault: boolean,
-    durationHours: number,
-    maxThreadCount?: number | null
-  ) => {
-    if (authMode !== 'authenticated') return;
-    try {
-      setUpdatingEpicPrefillConfig(true);
-      const body: Record<string, unknown> = { enabledByDefault, durationHours };
-      if (maxThreadCount !== undefined) {
-        body.maxThreadCount = maxThreadCount;
-      } else {
-        body.maxThreadCount = epicPrefillConfig.maxThreadCount;
-      }
-      const response = await fetch(
-        '/api/auth/guest/epic-prefill/config',
-        ApiService.getFetchOptions({
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(body)
-        })
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setEpicPrefillConfig({
-          enabledByDefault: data.enabledByDefault,
-          durationHours: data.durationHours,
-          maxThreadCount: data.maxThreadCount ?? null
-        });
-        showToast('success', t('user.guest.prefill.updated'));
-      } else {
-        const errorData = await response.json();
-        notifyError(
-          t('user.guest.prefill.errors.update'),
-          errorData?.error ? new Error(errorData.error) : undefined,
-          { logLabel: 'Failed to update Epic prefill config' }
-        );
-      }
-    } catch (err: unknown) {
-      notifyError(t('user.guest.prefill.errors.update'), err, {
-        logLabel: 'Failed to update Epic prefill config'
-      });
-    } finally {
-      setUpdatingEpicPrefillConfig(false);
-    }
-  };
-
-  // Battle.net Prefill config functions (anonymous - enabled + duration only)
-  const loadBattlenetPrefillConfig = async () => {
-    try {
-      setLoadingBattlenetPrefillConfig(true);
-      const configResponse = await fetch(
-        '/api/auth/guest/battlenet-prefill/config',
-        ApiService.getFetchOptions()
-      );
-      if (configResponse.ok) {
-        const data = (await configResponse.json()) as GuestPrefillConfigResponse;
-        setBattlenetPrefillConfig({
-          enabledByDefault: data.enabledByDefault,
-          durationHours: data.durationHours,
-          maxThreadCount: null
-        });
-      }
-    } catch (err) {
-      notifyError(t('user.guest.prefill.errors.loadConfig'), err, {
-        logLabel: 'Failed to load Battle.net prefill config'
-      });
-    } finally {
-      setLoadingBattlenetPrefillConfig(false);
-    }
-  };
-
-  const updateBattlenetPrefillConfig = async (enabledByDefault: boolean, durationHours: number) => {
-    if (authMode !== 'authenticated') return;
-    try {
-      setUpdatingBattlenetPrefillConfig(true);
-      const response = await fetch(
-        '/api/auth/guest/battlenet-prefill/config',
-        ApiService.getFetchOptions({
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ enabledByDefault, durationHours })
-        })
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setBattlenetPrefillConfig({
-          enabledByDefault: data.enabledByDefault,
-          durationHours: data.durationHours,
-          maxThreadCount: null
-        });
-        showToast('success', t('user.guest.prefill.updated'));
-      } else {
-        const errorData = await response.json();
-        notifyError(
-          t('user.guest.prefill.errors.update'),
-          errorData?.error ? new Error(errorData.error) : undefined,
-          { logLabel: 'Failed to update Battle.net prefill config' }
-        );
-      }
-    } catch (err: unknown) {
-      notifyError(t('user.guest.prefill.errors.update'), err, {
-        logLabel: 'Failed to update Battle.net prefill config'
-      });
-    } finally {
-      setUpdatingBattlenetPrefillConfig(false);
-    }
-  };
-
-  // Riot Prefill config functions (anonymous - enabled + duration only)
-  const loadRiotPrefillConfig = async () => {
-    try {
-      setLoadingRiotPrefillConfig(true);
-      const configResponse = await fetch(
-        '/api/auth/guest/riot-prefill/config',
-        ApiService.getFetchOptions()
-      );
-      if (configResponse.ok) {
-        const data = (await configResponse.json()) as GuestPrefillConfigResponse;
-        setRiotPrefillConfig({
-          enabledByDefault: data.enabledByDefault,
-          durationHours: data.durationHours,
-          maxThreadCount: null
-        });
-      }
-    } catch (err) {
-      notifyError(t('user.guest.prefill.errors.loadConfig'), err, {
-        logLabel: 'Failed to load Riot prefill config'
-      });
-    } finally {
-      setLoadingRiotPrefillConfig(false);
-    }
-  };
-
-  const updateRiotPrefillConfig = async (enabledByDefault: boolean, durationHours: number) => {
-    if (authMode !== 'authenticated') return;
-    try {
-      setUpdatingRiotPrefillConfig(true);
-      const response = await fetch(
-        '/api/auth/guest/riot-prefill/config',
-        ApiService.getFetchOptions({
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ enabledByDefault, durationHours })
-        })
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setRiotPrefillConfig({
-          enabledByDefault: data.enabledByDefault,
-          durationHours: data.durationHours,
-          maxThreadCount: null
-        });
-        showToast('success', t('user.guest.prefill.updated'));
-      } else {
-        const errorData = await response.json();
-        notifyError(
-          t('user.guest.prefill.errors.update'),
-          errorData?.error ? new Error(errorData.error) : undefined,
-          { logLabel: 'Failed to update Riot prefill config' }
-        );
-      }
-    } catch (err: unknown) {
-      notifyError(t('user.guest.prefill.errors.update'), err, {
-        logLabel: 'Failed to update Riot prefill config'
-      });
-    } finally {
-      setUpdatingRiotPrefillConfig(false);
-    }
-  };
-
-  // Xbox Prefill config functions (login-required - mirrors Epic, enabled + duration + threads)
-  const loadXboxPrefillConfig = async () => {
-    try {
-      setLoadingXboxPrefillConfig(true);
-      const configResponse = await fetch(
-        '/api/auth/guest/xbox-prefill/config',
-        ApiService.getFetchOptions()
-      );
-      if (configResponse.ok) {
-        const data = (await configResponse.json()) as GuestPrefillConfigResponse;
-        setXboxPrefillConfig({
-          enabledByDefault: data.enabledByDefault,
-          durationHours: data.durationHours,
-          maxThreadCount: data.maxThreadCount ?? null
-        });
-      }
-    } catch (err) {
-      notifyError(t('user.guest.prefill.errors.loadConfig'), err, {
-        logLabel: 'Failed to load Xbox prefill config'
-      });
-    } finally {
-      setLoadingXboxPrefillConfig(false);
-    }
-  };
-
-  const updateXboxPrefillConfig = async (
-    enabledByDefault: boolean,
-    durationHours: number,
-    maxThreadCount?: number | null
-  ) => {
-    if (authMode !== 'authenticated') return;
-    try {
-      setUpdatingXboxPrefillConfig(true);
-      const body: Record<string, unknown> = { enabledByDefault, durationHours };
-      if (maxThreadCount !== undefined) {
-        body.maxThreadCount = maxThreadCount;
-      } else {
-        body.maxThreadCount = xboxPrefillConfig.maxThreadCount;
-      }
-      const response = await fetch(
-        '/api/auth/guest/xbox-prefill/config',
-        ApiService.getFetchOptions({
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(body)
-        })
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setXboxPrefillConfig({
-          enabledByDefault: data.enabledByDefault,
-          durationHours: data.durationHours,
-          maxThreadCount: data.maxThreadCount ?? null
-        });
-        showToast('success', t('user.guest.prefill.updated'));
-      } else {
-        const errorData = await response.json();
-        notifyError(
-          t('user.guest.prefill.errors.update'),
-          errorData?.error ? new Error(errorData.error) : undefined,
-          { logLabel: 'Failed to update Xbox prefill config' }
-        );
-      }
-    } catch (err: unknown) {
-      notifyError(t('user.guest.prefill.errors.update'), err, {
-        logLabel: 'Failed to update Xbox prefill config'
-      });
-    } finally {
-      setUpdatingXboxPrefillConfig(false);
+      setUpdatingPrefillConfigs((prev: Record<GameServiceId, boolean>) => ({
+        ...prev,
+        [service.id]: false
+      }));
     }
   };
 
   // Handler callbacks for PrefillServicePanel
-  const handleSteamToggleEnabled = () => {
-    updatePrefillConfig(!prefillConfig.enabledByDefault, prefillConfig.durationHours);
+  const handleToggleEnabled = (service: PrefillServiceConfig) => {
+    const config = prefillConfigs[service.id];
+    updatePrefillConfig(service, !config.enabledByDefault, config.durationHours);
   };
 
-  const handleSteamDurationChange = (hours: number) => {
-    updatePrefillConfig(prefillConfig.enabledByDefault, hours);
+  const handleDurationChange = (service: PrefillServiceConfig, hours: number) => {
+    updatePrefillConfig(service, prefillConfigs[service.id].enabledByDefault, hours);
   };
 
-  const handleSteamMaxThreadsChange = (threads: number | null) => {
-    updatePrefillConfig(prefillConfig.enabledByDefault, prefillConfig.durationHours, threads);
-  };
-
-  const handleEpicToggleEnabled = () => {
-    updateEpicPrefillConfig(!epicPrefillConfig.enabledByDefault, epicPrefillConfig.durationHours);
-  };
-
-  const handleEpicDurationChange = (hours: number) => {
-    updateEpicPrefillConfig(epicPrefillConfig.enabledByDefault, hours);
-  };
-
-  const handleEpicMaxThreadsChange = (threads: number | null) => {
-    updateEpicPrefillConfig(
-      epicPrefillConfig.enabledByDefault,
-      epicPrefillConfig.durationHours,
-      threads
-    );
-  };
-
-  const handleBattlenetToggleEnabled = () => {
-    updateBattlenetPrefillConfig(
-      !battlenetPrefillConfig.enabledByDefault,
-      battlenetPrefillConfig.durationHours
-    );
-  };
-
-  const handleBattlenetDurationChange = (hours: number) => {
-    updateBattlenetPrefillConfig(battlenetPrefillConfig.enabledByDefault, hours);
-  };
-
-  // Battle.net is anonymous; it has no per-download thread limit, so the
-  // PrefillServicePanel max-threads control is hidden and this handler is a no-op.
-  const handleBattlenetMaxThreadsNoop = useCallback((threads: number | null): void => {
-    void threads;
-  }, []);
-
-  const handleRiotToggleEnabled = () => {
-    updateRiotPrefillConfig(!riotPrefillConfig.enabledByDefault, riotPrefillConfig.durationHours);
-  };
-
-  const handleRiotDurationChange = (hours: number) => {
-    updateRiotPrefillConfig(riotPrefillConfig.enabledByDefault, hours);
-  };
-
-  const handleRiotMaxThreadsNoop = useCallback((threads: number | null): void => {
-    void threads;
-  }, []);
-
-  const handleXboxToggleEnabled = () => {
-    updateXboxPrefillConfig(!xboxPrefillConfig.enabledByDefault, xboxPrefillConfig.durationHours);
-  };
-
-  const handleXboxDurationChange = (hours: number) => {
-    updateXboxPrefillConfig(xboxPrefillConfig.enabledByDefault, hours);
-  };
-
-  const handleXboxMaxThreadsChange = (threads: number | null) => {
-    updateXboxPrefillConfig(
-      xboxPrefillConfig.enabledByDefault,
-      xboxPrefillConfig.durationHours,
-      threads
-    );
+  // Services without a thread cap hide the control entirely, so this can only fire for
+  // services that support one; the guard keeps a stray call from posting the field.
+  const handleMaxThreadsChange = (service: PrefillServiceConfig, threads: number | null) => {
+    if (!service.supportsMaxThreads) return;
+    const config = prefillConfigs[service.id];
+    updatePrefillConfig(service, config.enabledByDefault, config.durationHours, threads);
   };
 
   useEffect(() => {
     loadDefaultGuestPreferences();
-    loadPrefillConfig();
-    loadEpicPrefillConfig();
-    loadBattlenetPrefillConfig();
-    loadRiotPrefillConfig();
-    loadXboxPrefillConfig();
 
     on('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
     on('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
-    on('GuestPrefillConfigChanged', handlePrefillConfigChanged);
-    on('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
-    on('BattleNetGuestPrefillConfigChanged', handleBattlenetPrefillConfigChanged);
-    on('RiotGuestPrefillConfigChanged', handleRiotPrefillConfigChanged);
-    on('XboxGuestPrefillConfigChanged', handleXboxPrefillConfigChanged);
+
+    // Bind one subscription per service. The handlers are built here rather than in the
+    // table so each one closes over its own service and can be passed to off() unchanged.
+    const serviceSubscriptions = PREFILL_SERVICES.map((service: PrefillServiceConfig) => ({
+      eventName: service.guestConfigChangedEvent,
+      handler: (data: GuestPrefillConfigChangedPayload) => handlePrefillConfigChanged(service, data)
+    }));
+
+    for (const service of PREFILL_SERVICES) {
+      loadPrefillConfig(service);
+    }
+    for (const subscription of serviceSubscriptions) {
+      on(subscription.eventName, subscription.handler);
+    }
 
     return () => {
       off('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
       off('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
-      off('GuestPrefillConfigChanged', handlePrefillConfigChanged);
-      off('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
-      off('BattleNetGuestPrefillConfigChanged', handleBattlenetPrefillConfigChanged);
-      off('RiotGuestPrefillConfigChanged', handleRiotPrefillConfigChanged);
-      off('XboxGuestPrefillConfigChanged', handleXboxPrefillConfigChanged);
+      for (const subscription of serviceSubscriptions) {
+        off(subscription.eventName, subscription.handler);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -920,11 +499,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     off,
     handleDefaultGuestPreferencesChanged,
     handleAllowedTimeFormatsChanged,
-    handlePrefillConfigChanged,
-    handleEpicPrefillConfigChanged,
-    handleBattlenetPrefillConfigChanged,
-    handleRiotPrefillConfigChanged,
-    handleXboxPrefillConfigChanged
+    handlePrefillConfigChanged
   ]);
 
   return (
@@ -985,109 +560,37 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
               {t('user.guest.prefill.existingGuestsNote')}
             </p>
             <div className="user-settings-service-sections">
-              <PrefillServicePanel
-                serviceName="Steam"
-                serviceIcon={SteamIcon}
-                iconColor="var(--theme-steam)"
-                config={prefillConfig}
-                onToggleEnabled={handleSteamToggleEnabled}
-                onDurationChange={handleSteamDurationChange}
-                onMaxThreadsChange={handleSteamMaxThreadsChange}
-                loading={loadingPrefillConfig}
-                updating={updatingPrefillConfig}
-                warningText={t('user.guest.prefill.warning')}
-                durationLabel={t('user.guest.prefill.duration.label')}
-                durationHelpText={t('user.guest.prefill.duration.description')}
-                maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
-                enableLabel={t('user.guest.prefill.enableByDefault.label')}
-                enableDescription={t('user.guest.prefill.enableByDefault.description')}
-                prefillDurationOptions={prefillDurationOptions}
-                maxThreadOptions={maxThreadOptions}
-                isExpanded={prefillServiceExpanded.steam}
-                onToggle={() => togglePrefillService('steam')}
-              />
-              <PrefillServicePanel
-                serviceName="Epic Games"
-                serviceIcon={EpicIcon}
-                iconColor="var(--theme-epic)"
-                config={epicPrefillConfig}
-                onToggleEnabled={handleEpicToggleEnabled}
-                onDurationChange={handleEpicDurationChange}
-                onMaxThreadsChange={handleEpicMaxThreadsChange}
-                loading={loadingEpicPrefillConfig}
-                updating={updatingEpicPrefillConfig}
-                warningText={t('user.guest.prefill.warning')}
-                durationLabel={t('user.guest.prefill.duration.label')}
-                durationHelpText={t('user.guest.prefill.duration.description')}
-                maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
-                enableLabel={t('user.guest.prefill.enableByDefault.label')}
-                enableDescription={t('user.guest.prefill.enableByDefault.description')}
-                prefillDurationOptions={prefillDurationOptions}
-                maxThreadOptions={maxThreadOptions}
-                isExpanded={prefillServiceExpanded.epic}
-                onToggle={() => togglePrefillService('epic')}
-              />
-              <PrefillServicePanel
-                serviceName="Battle.net"
-                serviceIcon={BlizzardIcon}
-                iconColor="var(--theme-blizzard)"
-                config={battlenetPrefillConfig}
-                onToggleEnabled={handleBattlenetToggleEnabled}
-                onDurationChange={handleBattlenetDurationChange}
-                onMaxThreadsChange={handleBattlenetMaxThreadsNoop}
-                loading={loadingBattlenetPrefillConfig}
-                updating={updatingBattlenetPrefillConfig}
-                warningText={t('user.guest.prefill.warning')}
-                durationLabel={t('user.guest.prefill.duration.label')}
-                durationHelpText={t('user.guest.prefill.duration.description')}
-                enableLabel={t('user.guest.prefill.enableByDefault.label')}
-                enableDescription={t('user.guest.prefill.enableByDefault.description')}
-                prefillDurationOptions={prefillDurationOptions}
-                showMaxThreads={false}
-                isExpanded={prefillServiceExpanded.battlenet}
-                onToggle={() => togglePrefillService('battlenet')}
-              />
-              <PrefillServicePanel
-                serviceName="Riot Games"
-                serviceIcon={RiotIcon}
-                iconColor="var(--theme-riot)"
-                config={riotPrefillConfig}
-                onToggleEnabled={handleRiotToggleEnabled}
-                onDurationChange={handleRiotDurationChange}
-                onMaxThreadsChange={handleRiotMaxThreadsNoop}
-                loading={loadingRiotPrefillConfig}
-                updating={updatingRiotPrefillConfig}
-                warningText={t('user.guest.prefill.warning')}
-                durationLabel={t('user.guest.prefill.duration.label')}
-                durationHelpText={t('user.guest.prefill.duration.description')}
-                enableLabel={t('user.guest.prefill.enableByDefault.label')}
-                enableDescription={t('user.guest.prefill.enableByDefault.description')}
-                prefillDurationOptions={prefillDurationOptions}
-                showMaxThreads={false}
-                isExpanded={prefillServiceExpanded.riot}
-                onToggle={() => togglePrefillService('riot')}
-              />
-              <PrefillServicePanel
-                serviceName="Xbox"
-                serviceIcon={XboxIcon}
-                iconColor="var(--theme-xbox)"
-                config={xboxPrefillConfig}
-                onToggleEnabled={handleXboxToggleEnabled}
-                onDurationChange={handleXboxDurationChange}
-                onMaxThreadsChange={handleXboxMaxThreadsChange}
-                loading={loadingXboxPrefillConfig}
-                updating={updatingXboxPrefillConfig}
-                warningText={t('user.guest.prefill.warning')}
-                durationLabel={t('user.guest.prefill.duration.label')}
-                durationHelpText={t('user.guest.prefill.duration.description')}
-                maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
-                enableLabel={t('user.guest.prefill.enableByDefault.label')}
-                enableDescription={t('user.guest.prefill.enableByDefault.description')}
-                prefillDurationOptions={prefillDurationOptions}
-                maxThreadOptions={maxThreadOptions}
-                isExpanded={prefillServiceExpanded.xbox}
-                onToggle={() => togglePrefillService('xbox')}
-              />
+              {PREFILL_SERVICES.map((service: PrefillServiceConfig) => (
+                <PrefillServicePanel
+                  key={service.id}
+                  serviceName={service.displayName}
+                  serviceIcon={service.icon}
+                  iconColor={service.colorVar}
+                  config={prefillConfigs[service.id]}
+                  onToggleEnabled={() => handleToggleEnabled(service)}
+                  onDurationChange={(hours: number) => handleDurationChange(service, hours)}
+                  onMaxThreadsChange={(threads: number | null) =>
+                    handleMaxThreadsChange(service, threads)
+                  }
+                  loading={loadingPrefillConfigs[service.id]}
+                  updating={updatingPrefillConfigs[service.id]}
+                  warningText={t('user.guest.prefill.warning')}
+                  durationLabel={t('user.guest.prefill.duration.label')}
+                  durationHelpText={t('user.guest.prefill.duration.description')}
+                  maxThreadsLabel={
+                    service.supportsMaxThreads
+                      ? t('user.guest.prefill.maxThreads.label')
+                      : undefined
+                  }
+                  enableLabel={t('user.guest.prefill.enableByDefault.label')}
+                  enableDescription={t('user.guest.prefill.enableByDefault.description')}
+                  prefillDurationOptions={prefillDurationOptions}
+                  maxThreadOptions={service.supportsMaxThreads ? maxThreadOptions : undefined}
+                  showMaxThreads={service.supportsMaxThreads}
+                  isExpanded={prefillServiceExpanded[service.id]}
+                  onToggle={() => togglePrefillService(service.id)}
+                />
+              ))}
             </div>
           </div>
         </AccordionSection>

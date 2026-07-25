@@ -23,3 +23,13 @@ export function getServiceDisplayName(serviceName: string): string {
 export function getServiceFilterKey(serviceName: string): string {
   return getServiceDisplayName(serviceName).toLowerCase();
 }
+
+/**
+ * Display label for a raw service name: alias-folded and capitalized. Use this
+ * where the label goes somewhere the `capitalize` CSS class cannot reach, such
+ * as a dropdown option string or an interpolated i18n value.
+ */
+export function formatServiceLabel(serviceName: string): string {
+  const display = getServiceDisplayName(serviceName);
+  return display.charAt(0).toUpperCase() + display.slice(1);
+}

@@ -5219,10 +5219,6 @@
           "title": "Game Charts",
           "description": "Game distribution chart - 20 customizable colors for the Games on Disk doughnut chart on the dashboard"
         },
-        "accessControl": {
-          "title": "Access Control",
-          "description": "Public and secured badges - Security status indicators for API access control"
-        },
         "sessions": {
           "title": "Sessions",
           "description": "Authenticated users and guests - Colors for session badges and icons in the Users tab"
@@ -5253,11 +5249,6 @@
           "label": "Primary Brand Color",
           "description": "Main brand color used throughout",
           "affects": ["Primary buttons", "Links", "Active states", "Focus rings"]
-        },
-        "secondaryColor": {
-          "label": "Secondary Brand Color",
-          "description": "Complementary brand accent",
-          "affects": ["Secondary buttons", "Highlights", "Accents"]
         },
         "accentColor": {
           "label": "Accent Color",
@@ -5483,11 +5474,6 @@
           "description": "Borders within elevated panels and drawers",
           "affects": ["Panel borders", "Drawer dividers", "Modal section borders"]
         },
-        "borderHover": {
-          "label": "Border Hover",
-          "description": "Border color on hover interactions",
-          "affects": ["Card hover borders", "Input hover borders", "Interactive borders"]
-        },
         "success": {
           "label": "Success Primary",
           "description": "Success state primary color (border for alerts)",
@@ -5633,41 +5619,6 @@
           "description": "Primary chart color",
           "affects": ["First data series", "Main chart color"]
         },
-        "chartColor2": {
-          "label": "Chart Secondary",
-          "description": "Secondary chart color",
-          "affects": ["Second data series"]
-        },
-        "chartColor3": {
-          "label": "Chart Tertiary",
-          "description": "Third chart color",
-          "affects": ["Third data series"]
-        },
-        "chartColor4": {
-          "label": "Chart Quaternary",
-          "description": "Fourth chart color",
-          "affects": ["Fourth data series"]
-        },
-        "chartColor5": {
-          "label": "Chart Color 5",
-          "description": "Fifth chart color",
-          "affects": ["Fifth data series"]
-        },
-        "chartColor6": {
-          "label": "Chart Color 6",
-          "description": "Sixth chart color",
-          "affects": ["Sixth data series"]
-        },
-        "chartColor7": {
-          "label": "Chart Color 7",
-          "description": "Seventh chart color",
-          "affects": ["Seventh data series"]
-        },
-        "chartColor8": {
-          "label": "Chart Color 8",
-          "description": "Eighth chart color",
-          "affects": ["Eighth data series"]
-        },
         "chartCacheHitColor": {
           "label": "Cache Hit Color",
           "description": "Cache hit visualization",
@@ -5798,36 +5749,6 @@
           "description": "Remaining games grouped together",
           "affects": ["Games on Disk chart"]
         },
-        "publicAccessBg": {
-          "label": "Public Access Background",
-          "description": "Public/open access indicator",
-          "affects": ["Public badges", "Open access indicators"]
-        },
-        "publicAccessText": {
-          "label": "Public Access Text",
-          "description": "Public access text color",
-          "affects": ["Public labels", "Open text"]
-        },
-        "publicAccessBorder": {
-          "label": "Public Access Border",
-          "description": "Public access border",
-          "affects": ["Public badge borders"]
-        },
-        "securedAccessBg": {
-          "label": "Secured Access Background",
-          "description": "Secured/locked access indicator",
-          "affects": ["Security badges", "Locked indicators"]
-        },
-        "securedAccessText": {
-          "label": "Secured Access Text",
-          "description": "Secured access text color",
-          "affects": ["Security labels", "Locked text"]
-        },
-        "securedAccessBorder": {
-          "label": "Secured Access Border",
-          "description": "Secured access border",
-          "affects": ["Security badge borders"]
-        },
         "userSessionColor": {
           "label": "Authenticated User Color",
           "description": "Icon and text color for authenticated users",
@@ -5847,16 +5768,6 @@
           "label": "Guest User Background",
           "description": "Background color for guest user badges",
           "affects": ["GUEST badge background", "Guest icon background"]
-        },
-        "activeSessionColor": {
-          "label": "Active Session Color",
-          "description": "Icon and text color for active sessions",
-          "affects": ["Active session badge text", "Active session icon"]
-        },
-        "activeSessionBg": {
-          "label": "Active Session Background",
-          "description": "Background color for active session badges",
-          "affects": ["Active session badge background"]
         },
         "eventColor1": {
           "label": "Event Color 1",
@@ -5967,6 +5878,16 @@
           "label": "Ubisoft",
           "description": "Ubisoft platform color",
           "affects": ["Ubisoft badges", "Ubisoft charts"]
+        },
+        "gogColor": {
+          "label": "GOG",
+          "description": "GOG platform color",
+          "affects": ["GOG badges", "GOG charts"]
+        },
+        "rockstarColor": {
+          "label": "Rockstar Games",
+          "description": "Rockstar Games platform color",
+          "affects": ["Rockstar badges", "Rockstar charts"]
         },
         "arenanetColor": {
           "label": "ArenaNet",

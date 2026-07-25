@@ -35,21 +35,9 @@ public abstract class SteamAuthFileStorageServiceBase
 
     protected abstract string AuthDirectoryName { get; }
 
-    protected virtual bool IncludeSteamApiKey => AuthDirectoryName == "steam_auth";
-
-    protected virtual bool LogFilePermissionTrace => AuthDirectoryName == "steam_auth";
-
-    protected virtual string AuthDataLabel => AuthDirectoryName switch
-    {
-        "steam_auth" => "Steam",
-        "scheduled_prefill_steam_auth" => "scheduled prefill Steam",
-        _ => AuthDirectoryName.Replace('_', ' ')
-    };
+    protected abstract string AuthDataLabel { get; }
 
     protected string PathLabel => AuthDirectoryName;
-
-    protected virtual string FilePermissionLogLabel =>
-        IncludeSteamApiKey ? PathLabel : $"{AuthDataLabel} auth";
 
     protected object SyncRoot => _lock;
 
@@ -112,28 +100,13 @@ public abstract class SteamAuthFileStorageServiceBase
                     var refreshTokenDecryptFailed = decryptedRefreshToken == null
                         && !string.IsNullOrEmpty(persisted.RefreshToken);
 
-                    string? decryptedApiKey = null;
-                    var apiKeyDecryptFailed = false;
-
-                    if (IncludeSteamApiKey)
-                    {
-                        decryptedApiKey = _encryption.Decrypt(persisted.SteamApiKey);
-                        apiKeyDecryptFailed = decryptedApiKey == null && !string.IsNullOrEmpty(persisted.SteamApiKey);
-                    }
+                    var decryptedApiKey = _encryption.Decrypt(persisted.SteamApiKey);
+                    var apiKeyDecryptFailed = decryptedApiKey == null && !string.IsNullOrEmpty(persisted.SteamApiKey);
 
                     if (refreshTokenDecryptFailed)
                     {
-                        if (IncludeSteamApiKey)
-                        {
-                            _logger.LogWarning(
-                                "Failed to decrypt Steam refresh token - you may need to re-authenticate with Steam.");
-                        }
-                        else
-                        {
-                            _logger.LogWarning(
-                                "Failed to decrypt {AuthDataLabel} refresh token - clearing invalid credentials file.",
-                                AuthDataLabel);
-                        }
+                        _logger.LogWarning(
+                            "Failed to decrypt Steam refresh token - you may need to re-authenticate with Steam.");
                     }
 
                     if (apiKeyDecryptFailed)
@@ -142,16 +115,11 @@ public abstract class SteamAuthFileStorageServiceBase
                             "Failed to decrypt Steam Web API key - you may need to reconfigure your API key.");
                     }
 
-                    var shouldClearFile = IncludeSteamApiKey
-                        ? refreshTokenDecryptFailed && apiKeyDecryptFailed
-                        : refreshTokenDecryptFailed;
-
-                    if (shouldClearFile)
+                    // Only discard the file when every stored secret is unreadable: if one still
+                    // decrypts, the user keeps that half of their configuration.
+                    if (refreshTokenDecryptFailed && apiKeyDecryptFailed)
                     {
-                        if (IncludeSteamApiKey)
-                        {
-                            _logger.LogWarning("Failed to decrypt all Steam auth data - clearing invalid credentials file.");
-                        }
+                        _logger.LogWarning("Failed to decrypt all Steam auth data - clearing invalid credentials file.");
 
                         try
                         {
@@ -205,13 +173,9 @@ public abstract class SteamAuthFileStorageServiceBase
                     Mode = data.Mode,
                     Username = data.Username,
                     RefreshToken = _encryption.Encrypt(data.RefreshToken),
-                    LastAuthenticated = data.LastAuthenticated
+                    LastAuthenticated = data.LastAuthenticated,
+                    SteamApiKey = _encryption.Encrypt(data.SteamApiKey)
                 };
-
-                if (IncludeSteamApiKey)
-                {
-                    persisted.SteamApiKey = _encryption.Encrypt(data.SteamApiKey);
-                }
 
                 var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
 
@@ -231,14 +195,11 @@ public abstract class SteamAuthFileStorageServiceBase
                     {
                         File.SetUnixFileMode(_steamAuthFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
 
-                        if (LogFilePermissionTrace)
-                        {
-                            _logger.LogTrace("Steam auth file permissions set to 600 (owner read/write only)");
-                        }
+                        _logger.LogTrace("Steam auth file permissions set to 600 (owner read/write only)");
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to set Unix file permissions on {FilePermissionLogLabel} file", FilePermissionLogLabel);
+                        _logger.LogWarning(ex, "Failed to set Unix file permissions on {PathLabel} file", PathLabel);
                     }
                 }
 

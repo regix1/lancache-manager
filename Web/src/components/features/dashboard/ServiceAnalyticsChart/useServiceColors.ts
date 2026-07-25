@@ -1,43 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { APP_EVENTS } from '@utils/constants';
+import { SERVICE_COLOR_VARS, getServiceColorVar } from '@utils/serviceColors';
 
-const SERVICE_COLOR_MAP: Record<string, string> = {
-  steam: '--theme-steam',
-  epic: '--theme-epic',
-  epicgames: '--theme-epic',
-  origin: '--theme-origin',
-  ea: '--theme-origin',
-  blizzard: '--theme-blizzard',
-  'battle.net': '--theme-blizzard',
-  battlenet: '--theme-blizzard',
-  wsus: '--theme-wsus',
-  windows: '--theme-wsus',
-  riot: '--theme-riot',
-  riotgames: '--theme-riot',
-  xbox: '--theme-xbox',
-  xboxlive: '--theme-xbox',
-  ubisoft: '--theme-ubisoft',
-  uplay: '--theme-ubisoft',
-  arenanet: '--theme-arenanet',
-  bsg: '--theme-bsg',
-  cityofheroes: '--theme-cityofheroes',
-  cod: '--theme-cod',
-  daybreak: '--theme-daybreak',
-  frontier: '--theme-frontier',
-  neverwinter: '--theme-neverwinter',
-  nexusmods: '--theme-nexusmods',
-  nintendo: '--theme-nintendo',
-  pathofexile: '--theme-pathofexile',
-  renegadex: '--theme-renegadex',
-  sony: '--theme-sony',
-  square: '--theme-square',
-  teso: '--theme-teso',
-  test: '--theme-test',
-  warframe: '--theme-warframe',
-  wargaming: '--theme-wargaming',
-  gog: '--theme-text-secondary',
-  rockstar: '--theme-warning'
-};
+const UNKNOWN_SERVICE_VAR = '--theme-text-secondary';
 
 interface ServiceColors {
   getColor: (serviceName: string) => string;
@@ -49,12 +14,12 @@ interface ServiceColors {
 
 export function useServiceColors(): ServiceColors {
   const [colors, setColors] = useState<{
-    serviceColors: Map<string, string>;
+    colorByVar: Map<string, string>;
     cacheHit: string;
     cacheMiss: string;
     border: string;
   }>({
-    serviceColors: new Map(),
+    colorByVar: new Map(),
     cacheHit: '',
     cacheMiss: '',
     border: ''
@@ -64,12 +29,12 @@ export function useServiceColors(): ServiceColors {
   useEffect(() => {
     const resolveColors = () => {
       const computed = getComputedStyle(document.documentElement);
-      const newServiceColors = new Map<string, string>();
+      const newColorByVar = new Map<string, string>();
 
-      // Resolve service colors from CSS custom properties
-      Object.entries(SERVICE_COLOR_MAP).forEach(([service, cssVar]) => {
-        const color = computed.getPropertyValue(cssVar).trim();
-        newServiceColors.set(service, color);
+      // Resolve every brand color once per theme change, plus the muted text color a
+      // service without a brand color of its own falls back to.
+      [...SERVICE_COLOR_VARS, UNKNOWN_SERVICE_VAR].forEach((cssVar) => {
+        newColorByVar.set(cssVar, computed.getPropertyValue(cssVar).trim());
       });
 
       // Resolve chart-specific colors from CSS custom properties
@@ -78,7 +43,7 @@ export function useServiceColors(): ServiceColors {
       const border = computed.getPropertyValue('--theme-chart-border').trim();
 
       setColors({
-        serviceColors: newServiceColors,
+        colorByVar: newColorByVar,
         cacheHit,
         cacheMiss,
         border
@@ -99,13 +64,13 @@ export function useServiceColors(): ServiceColors {
 
   const getColor = useCallback(
     (serviceName: string): string => {
-      const normalizedName = serviceName.toLowerCase();
+      const cssVar = getServiceColorVar(serviceName);
       return (
-        colors.serviceColors.get(normalizedName) ||
-        getComputedStyle(document.documentElement).getPropertyValue('--theme-text-secondary').trim()
+        colors.colorByVar.get(cssVar) ||
+        getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim()
       );
     },
-    [colors.serviceColors]
+    [colors.colorByVar]
   );
 
   const getCacheHitColor = useCallback(() => colors.cacheHit, [colors.cacheHit]);

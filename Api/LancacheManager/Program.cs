@@ -269,14 +269,14 @@ builder.Services.AddSingletonHostedService<ProcessManager>();
 // Register Rust process helper for common Rust process operations
 builder.Services.AddSingleton<RustProcessHelper>();
 
-// Register repositories with their interfaces
-builder.Services.AddSingleton<ISteamAuthStorageService, SteamAuthStorageService>();
+// Register repositories, with an interface only where consumers depend on the abstraction
+builder.Services.AddSingleton<SteamAuthStorageService>();
 builder.Services.AddSingleton<IStateService, StateService>();
-builder.Services.AddScoped<IDatabaseService, DatabaseService>();
+builder.Services.AddScoped<DatabaseService>();
 builder.Services.AddScoped<IStatsDataService, StatsDataService>();
 builder.Services.AddScoped<IEventsService, EventsService>();
 builder.Services.AddScoped<IClientGroupsService, ClientGroupsService>();
-builder.Services.AddSingleton<ISettingsService, SettingsService>();
+builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<PathMigrationService>();
 
 // Register in-memory cache with size limit to prevent unbounded growth
@@ -292,12 +292,8 @@ builder.Services.AddSingleton<IImageCacheService, ImageCacheService>();
 builder.Services.AddSingleton<ISignalRNotificationService, SignalRNotificationService>();
 
 // Register concrete classes (for code that directly references them)
-builder.Services.AddSingleton(sp => (SteamAuthStorageService)sp.GetRequiredService<ISteamAuthStorageService>());
 builder.Services.AddSingleton(sp => (StateService)sp.GetRequiredService<IStateService>());
-builder.Services.AddScoped(sp => (DatabaseService)sp.GetRequiredService<IDatabaseService>());
 builder.Services.AddScoped(sp => (StatsDataService)sp.GetRequiredService<IStatsDataService>());
-builder.Services.AddScoped(sp => (EventsService)sp.GetRequiredService<IEventsService>());
-builder.Services.AddSingleton(sp => (SettingsService)sp.GetRequiredService<ISettingsService>());
 
 // Database configuration - build connection string dynamically from env vars or config file
 var baseConnStr = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -756,8 +752,8 @@ builder.Logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", 
 builder.Logging.AddFilter("LancacheManager.Infrastructure.Platform.WindowsPathResolver", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Security.ApiKeyService", LogLevel.Information);
 builder.Logging.AddFilter("LancacheManager.Infrastructure.Services.RustLogProcessorService", LogLevel.Information);
-builder.Logging.AddFilter("LancacheManager.Services.CacheManagementService", LogLevel.Warning);
-builder.Logging.AddFilter("LancacheManager.Services.PicsDataService", LogLevel.Information);
+builder.Logging.AddFilter("LancacheManager.Core.Services.CacheManagementService", LogLevel.Warning);
+builder.Logging.AddFilter("LancacheManager.Core.Services.PicsDataService", LogLevel.Information);
 
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 

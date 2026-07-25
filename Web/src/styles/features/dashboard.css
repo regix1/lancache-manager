@@ -16,24 +16,10 @@
   opacity: 1;
 }
 
-/* Sparkline grow animation */
-@keyframes sparklineGrow {
-  from {
-    clip-path: inset(0 100% 0 0);
-  }
-  to {
-    clip-path: inset(0 0 0 0);
-  }
-}
-
-.animate-sparkline {
-  animation: sparklineGrow 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-}
-
 /* Progress bar for widgets */
 .widget-progress {
   @apply h-2 rounded-full overflow-hidden;
-  background: var(--theme-bg-tertiary, rgba(55, 65, 81, 0.5));
+  background: var(--theme-bg-tertiary);
 }
 
 .widget-progress-fill {
@@ -131,7 +117,7 @@
 }
 
 /* 2-up strip on phones: divider only between the columns */
-@media (max-width: 639px) {
+@media (max-width: 639.98px) {
   .dash-readout {
     grid-auto-flow: row;
     grid-auto-columns: unset;
@@ -230,20 +216,6 @@
 
 /* ===== WIDGET LOADING STATES ===== */
 
-.widget-loading-spinner {
-  width: 1.5rem;
-  height: 1.5rem;
-  color: var(--theme-primary);
-  animation: spin 1s linear infinite;
-}
-
-@media (max-width: 767px) {
-  .widget-loading-spinner {
-    width: 1.25rem;
-    height: 1.25rem;
-  }
-}
-
 /* ===== STAT CARD ICON BACKGROUNDS ===== */
 /* Base fallback for unknown colors (must come before attribute selectors) */
 .stat-card-icon {
@@ -292,9 +264,6 @@
 }
 
 /* ===== STAT CARD VALUE ===== */
-.stat-card-value {
-  font-variant-numeric: tabular-nums;
-}
 
 /* ===== DASHBOARD EDIT MODE BANNER ===== */
 .edit-mode-instruction-banner {
@@ -344,7 +313,17 @@
 }
 
 .edit-mode-handle-icon {
-  color: var(--theme-text-secondary);
+  color: var(--theme-drag-handle);
+}
+
+/* Desktop card-reorder handle. Shares the drag-handle color with the mobile
+   edit-mode handle above so both respond to the same theme setting. */
+.drag-handle-icon {
+  color: var(--theme-drag-handle);
+}
+
+.cursor-grab:hover .drag-handle-icon {
+  color: var(--theme-drag-handle-hover);
 }
 
 .edit-mode-handle-icon.handle-icon-active {
@@ -454,7 +433,7 @@
   padding: 0.75rem;
   min-height: 72px;
   border-radius: 0.375rem;
-  background: var(--theme-skeleton-base, rgba(255, 255, 255, 0.06));
+  background: var(--theme-skeleton-base);
 }
 
 .peak-usage-skeleton-card-label {

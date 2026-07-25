@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
-import { Modal } from '@components/ui/Modal';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 
@@ -346,37 +346,20 @@ const SteamWebApiStatus: React.FC = () => {
       />
 
       {/* Remove Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={showRemoveModal}
-        onClose={() => {
-          if (!removing) {
-            setShowRemoveModal(false);
-          }
-        }}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('management.steamWebApi.removeModal.title')}</span>
-          </div>
-        }
+        onClose={() => setShowRemoveModal(false)}
+        onConfirm={confirmRemoveApiKey}
+        title={t('management.steamWebApi.removeModal.title')}
+        confirmLabel={t('management.steamWebApi.removeModal.confirm')}
+        loading={removing}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">{t('management.steamWebApi.removeModal.message')}</p>
+        <p className="text-themed-secondary">{t('management.steamWebApi.removeModal.message')}</p>
 
-          <Alert color="yellow">
-            <p className="text-sm">{t('management.steamWebApi.removeModal.warning')}</p>
-          </Alert>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button variant="default" onClick={() => setShowRemoveModal(false)} disabled={removing}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="filled" color="red" onClick={confirmRemoveApiKey} loading={removing}>
-              {t('management.steamWebApi.removeModal.confirm')}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        <Alert color="yellow">
+          <p className="text-sm">{t('management.steamWebApi.removeModal.warning')}</p>
+        </Alert>
+      </ConfirmationModal>
     </>
   );
 };

@@ -21,12 +21,7 @@
  *   - steam_session_error: custom one-shot error toast (not a lifecycle, no recovery)
  */
 
-import type {
-  NotificationRegistryEntry,
-  NotificationType,
-  SimpleRecoveryConfig,
-  StageContext
-} from './types';
+import type { NotificationRegistryEntry, SimpleRecoveryConfig, StageContext } from './types';
 import type { OperationStatus } from '@/types/operations';
 import type { CorruptionDetectionMethod } from '@/types';
 import type {
@@ -78,6 +73,14 @@ import {
   formatDataImportCompleteMessage,
   formatDataImportFailureMessage
 } from './detailMessageFormatters';
+import {
+  buildScheduledRunEntry,
+  buildStandardOperationEntry,
+  cappedProgress,
+  errorOrStageKeyMessage,
+  operationIdDetails,
+  stageKeyMessage
+} from './registryBuilders';
 import { translateRecoveryStage, translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { classifyRemovalKind, removalStageKey } from './removalKind';
@@ -112,31 +115,18 @@ import type {
   DataImportProgressEvent,
   DataImportCompleteEvent,
   EvictionScanStartedEvent,
+  EvictionScanProgressEvent,
+  EvictionScanCompleteEvent,
   CacheSizeScanStartedEvent,
   CacheSizeScanProgressEvent,
   CacheSizeScanCompleteEvent,
-  EvictionScanProgressEvent,
-  EvictionScanCompleteEvent,
   EvictionRemovalStartedEvent,
   EvictionRemovalProgressEvent,
   EvictionRemovalCompleteEvent,
   ScheduledPrefillStartedEvent,
   ScheduledPrefillProgressEvent,
-  ScheduledPrefillCompletedEvent,
-  ScheduledRunStartedEvent,
-  ScheduledRunProgressEvent,
-  ScheduledRunCompleteEvent
+  ScheduledPrefillCompletedEvent
 } from '../SignalRContext/types';
-
-/**
- * Standard three-status-pattern helper for getStatus: maps 'completed' -> 'completed',
- * 'failed'|'cancelled' -> 'failed', everything else -> undefined.
- */
-function standardGetStatus(event: { status?: string }): string | undefined {
-  if (event.status === 'completed') return 'completed';
-  if (event.status === 'failed' || event.status === 'cancelled') return 'failed';
-  return undefined;
-}
 
 /**
  * Prefixes a translated corruption-removal progress message with the display
@@ -506,134 +496,17 @@ const CANCEL_TOOLTIP = {
   bulkRemoval: 'common.notifications.cancelBulkRemoval'
 } as const;
 
-// ============================================================================
-// Scheduled service run entries (7 pipeline-less maintenance services)
-// ============================================================================
-// Each of these services runs on a schedule (or via Run Now) and emits a
-// per-service lifecycle event triple carrying a run-stable `showNotification`
-// flag. Lifecycle events are ALWAYS emitted; the frontend honours the flag
-// through shouldDisplay gates, so a silent run streams events but renders no
-// card. Card identity is per service (per-type singleton id) because several of
-// these can run concurrently.
-
-/** GET /api/system/schedules/{serviceKey}/run-status - ScheduleRunStatus */
-interface ScheduledRunStatusResponse {
-  isRunning: boolean;
-  operationId?: string | null;
-  percentComplete: number;
-  stageKey?: string;
-  context?: StageContext;
-  showNotification: boolean;
-}
-
-interface ScheduledRunEntryOptions {
-  type: NotificationType;
-  id: string;
-  storageKey: string;
-  /** URL segment + backend serviceKey used for the run-status recovery endpoint. */
-  serviceKey: string;
-  /** SignalR event-name prefix, e.g. 'LogRotation' -> LogRotationStarted/Progress/Complete. */
-  eventPrefix: string;
-  /** i18n base, e.g. 'signalr.scheduledRun.logRotation'. */
-  i18nBase: string;
-  /** Countable services interpolate {{processed}}/{{total}} into their `.running` string. */
-  countable: boolean;
-  /** Plain fallback shown before the first stage-keyed message arrives. */
-  defaultMessage: string;
-  /** Plain terminal fallback for a run whose card outlived its terminal event. */
-  staleMessage: string;
-}
-
-function buildScheduledRunEntry(options: ScheduledRunEntryOptions): NotificationRegistryEntry {
-  const {
-    type,
-    id,
-    storageKey,
-    serviceKey,
-    eventPrefix,
-    i18nBase,
-    countable,
-    defaultMessage,
-    staleMessage
-  } = options;
-  return {
-    type,
-    id,
-    storageKey,
-    wiring: 'standard',
-    cancelKind: 'none',
-    recovery: {
-      kind: 'simple',
-      translationValidation: {
-        kind: 'stageKey',
-        cases: [
-          { stageKey: `${i18nBase}.starting`, context: {} },
-          {
-            stageKey: `${i18nBase}.running`,
-            context: countable ? { processed: 10, total: 100 } : {}
-          },
-          { stageKey: `${i18nBase}.complete`, context: {} }
-        ]
-      },
-      apiEndpoint: `/api/system/schedules/${serviceKey}/run-status`,
-      isProcessing: (data: ScheduledRunStatusResponse) => data.isRunning,
-      // A silent run must not resurrect a card when the page reloads mid-run. Only skip an ACTIVE
-      // silent run: an idle service reports showNotification=true so a persisted running card is
-      // stale-completed on reconnect, never deleted, after a missed terminal (mirrors scheduledPrefill).
-      shouldSkip: (data: ScheduledRunStatusResponse) =>
-        data.isRunning && data.showNotification === false,
-      createNotification: (data: ScheduledRunStatusResponse) => ({
-        message: translateRecoveryStage(data.stageKey, data.context, `${i18nBase}.starting`),
-        progress: data.percentComplete,
-        details: { operationId: data.operationId ?? undefined }
-      }),
-      staleMessage
-    } satisfies SimpleRecoveryConfig<ScheduledRunStatusResponse>,
-    events: {
-      started: `${eventPrefix}Started`,
-      progress: `${eventPrefix}Progress`,
-      complete: `${eventPrefix}Complete`
-    },
-    started: {
-      shouldDisplay: (event: ScheduledRunStartedEvent) => event.showNotification !== false,
-      defaultMessage,
-      getMessage: (event: ScheduledRunStartedEvent) =>
-        i18n.t(event.stageKey ?? `${i18nBase}.starting`, event.context ?? {}),
-      getDetails: (event: ScheduledRunStartedEvent) => ({ operationId: event.operationId })
-    },
-    progress: {
-      shouldDisplay: (event: ScheduledRunProgressEvent) => event.showNotification !== false,
-      getMessage: (event: ScheduledRunProgressEvent) =>
-        i18n.t(event.stageKey ?? `${i18nBase}.running`, event.context ?? {}),
-      getProgress: (event: ScheduledRunProgressEvent) =>
-        Math.min(ACTIVE_PROGRESS_PERCENT_CAP, event.percentComplete),
-      getStatus: (event: ScheduledRunProgressEvent) => standardGetStatus(event),
-      getCompletedMessage: (event: ScheduledRunProgressEvent) =>
-        i18n.t(event.stageKey ?? `${i18nBase}.complete`, event.context ?? {}),
-      getErrorMessage: (event: ScheduledRunProgressEvent) =>
-        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
-      getDetails: (event: ScheduledRunProgressEvent) => ({ operationId: event.operationId })
-    },
-    complete: {
-      shouldDisplay: (event: ScheduledRunCompleteEvent) => event.showNotification !== false,
-      getSuccessMessage: (event: ScheduledRunCompleteEvent) =>
-        i18n.t(event.stageKey ?? `${i18nBase}.complete`, event.context ?? {}),
-      getFailureMessage: (event: ScheduledRunCompleteEvent) =>
-        event.error ??
-        (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-        i18n.t(GENERIC_FAILURE_I18N_KEY)
-    }
-  };
-}
-
 export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   // ========== Log Processing ==========
-  {
+  buildStandardOperationEntry<
+    LogProcessingStartedEvent,
+    ProcessingProgressEvent,
+    LogProcessingCompleteEvent
+  >({
     type: 'log_processing',
     id: NOTIFICATION_IDS.LOG_PROCESSING,
     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'LogProcessing',
     cancelTooltipKey: CANCEL_TOOLTIP.logProcessing,
     recovery: {
       kind: 'simple',
@@ -654,33 +527,24 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       staleMessage: 'Log processing completed'
     } satisfies SimpleRecoveryConfig<LogProcessingStatusResponse>,
-    events: {
-      started: 'LogProcessingStarted',
-      progress: 'LogProcessingProgress',
-      complete: 'LogProcessingComplete'
-    },
     started: {
       defaultMessage: 'Starting log processing...',
-      getMessage: (event: LogProcessingStartedEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.logProcessing.starting', event.context ?? {}),
-      getDetails: (event: LogProcessingStartedEvent) => ({ operationId: event.operationId })
+      getMessage: stageKeyMessage('signalr.logProcessing.starting')
     },
     progress: {
       getMessage: (event: ProcessingProgressEvent) => formatLogProcessingMessage(event),
-      getProgress: (event: ProcessingProgressEvent) =>
-        Math.min(ACTIVE_PROGRESS_PERCENT_CAP, event.percentComplete),
+      getProgress: cappedProgress,
+      // Not the shared three-status pattern: this pipeline reports a capitalized status.
       getStatus: (event: ProcessingProgressEvent) =>
         event.status?.toLowerCase() === 'completed' ? 'completed' : undefined,
       getCompletedMessage: (event: ProcessingProgressEvent) =>
-        formatLogProcessingCompletionMessage(event.entriesSaved),
-      getDetails: (event: ProcessingProgressEvent) => ({ operationId: event.operationId })
+        formatLogProcessingCompletionMessage(event.entriesSaved)
     },
     complete: {
       // Translated, not a hardcoded English literal: this now actually reaches the card (the
       // completion handler never applied getSuccessMessage to an existing card before), so a
       // literal here would switch a localized card to English at the moment it finishes.
-      getSuccessMessage: (event: LogProcessingCompleteEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.logProcessing.complete', event.context ?? {}),
+      getSuccessMessage: stageKeyMessage('signalr.logProcessing.complete'),
       getDetailMessage: (event: LogProcessingCompleteEvent) =>
         formatLogProcessingDetailMessage(
           event.entriesProcessed,
@@ -688,15 +552,18 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           event.elapsed
         )
     }
-  },
+  }),
 
   // ========== Log Removal ==========
-  {
+  buildStandardOperationEntry<
+    LogRemovalStartedEvent,
+    LogRemovalProgressEvent,
+    LogRemovalCompleteEvent
+  >({
     type: 'log_removal',
     id: NOTIFICATION_IDS.LOG_REMOVAL,
     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'LogRemoval',
     cancelTooltipKey: CANCEL_TOOLTIP.logRemoval,
     recovery: {
       kind: 'simple',
@@ -750,31 +617,23 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       staleMessage: 'Log entry removal completed'
     } satisfies SimpleRecoveryConfig<LogRemovalStatusResponse>,
-    events: {
-      started: 'LogRemovalStarted',
-      progress: 'LogRemovalProgress',
-      complete: 'LogRemovalComplete'
-    },
     started: {
       defaultMessage: 'Starting log removal...',
-      getMessage: (event: LogRemovalStartedEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.logRemoval.starting.default', event.context ?? {}),
-      getDetails: (event: LogRemovalStartedEvent) => ({ operationId: event.operationId })
+      getMessage: stageKeyMessage('signalr.logRemoval.starting.default')
     },
     progress: {
       getMessage: (event: LogRemovalProgressEvent) => formatLogRemovalProgressMessage(event),
       getProgress: (event: LogRemovalProgressEvent) => event.percentComplete,
+      // Not the shared three-status pattern: this pipeline has no cancelled terminal,
+      // so a cancelled status must not be rendered as a failure.
       getStatus: (event: LogRemovalProgressEvent) =>
         event.status === 'completed'
           ? 'completed'
           : event.status === 'failed'
             ? 'failed'
             : undefined,
-      getCompletedMessage: (event: LogRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? GENERIC_COMPLETION_I18N_KEY, event.context ?? {}),
-      getErrorMessage: (event: LogRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
-      getDetails: (event: LogRemovalProgressEvent) => ({ operationId: event.operationId })
+      getCompletedMessage: stageKeyMessage(GENERIC_COMPLETION_I18N_KEY),
+      getErrorMessage: stageKeyMessage(GENERIC_FAILURE_I18N_KEY)
     },
     complete: {
       getSuccessMessage: (event: LogRemovalCompleteEvent) => formatLogRemovalCompleteMessage(event),
@@ -784,24 +643,22 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       useAnimationDelay: true
     }
-  },
+  }),
 
   // ========== Game Removal ==========
-  {
+  buildStandardOperationEntry<
+    GameRemovalStartedEvent,
+    GameRemovalProgressEvent,
+    GameRemovalCompleteEvent
+  >({
     type: 'game_removal',
     id: NOTIFICATION_IDS.GAME_REMOVAL,
     storageKey: NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'GameRemoval',
     cancelTooltipKey: CANCEL_TOOLTIP.gameRemoval,
     // Recovered by the shared /api/cache/removals/active batch fetch (one GET
     // covering game/service/corruption/eviction removal) — NOT a simple config.
     recovery: { kind: 'cacheRemovalsBatch' },
-    events: {
-      started: 'GameRemovalStarted',
-      progress: 'GameRemovalProgress',
-      complete: 'GameRemovalComplete'
-    },
     started: {
       defaultMessage: 'Starting game removal...',
       // Post-Phase-2 contract: GameRemovalStartedEvent carries a required i18n stageKey
@@ -838,8 +695,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           event.stageKey ?? removalStageKey(classifyRemovalKind(event), 'complete'),
           event.context ?? {}
         ),
-      getErrorMessage: (event: GameRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.gameRemove.error.fatal', event.context ?? {}),
+      getErrorMessage: stageKeyMessage('signalr.gameRemove.error.fatal'),
       getDetails: (event: GameRemovalProgressEvent) => ({
         operationId: event.operationId,
         gameName: event.gameName,
@@ -862,27 +718,23 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         logEntriesRemoved: event.logEntriesRemoved
       })
     }
-  },
+  }),
 
   // ========== Service Removal ==========
-  {
+  buildStandardOperationEntry<
+    ServiceRemovalStartedEvent,
+    ServiceRemovalProgressEvent,
+    ServiceRemovalCompleteEvent
+  >({
     type: 'service_removal',
     id: NOTIFICATION_IDS.SERVICE_REMOVAL,
     storageKey: NOTIFICATION_STORAGE_KEYS.SERVICE_REMOVAL,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'ServiceRemoval',
     cancelTooltipKey: CANCEL_TOOLTIP.serviceRemoval,
     recovery: { kind: 'cacheRemovalsBatch' },
-    events: {
-      started: 'ServiceRemovalStarted',
-      progress: 'ServiceRemovalProgress',
-      complete: 'ServiceRemovalComplete'
-    },
     started: {
       defaultMessage: 'Starting service removal...',
-      getMessage: (event: ServiceRemovalStartedEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.serviceRemove.starting.default', event.context ?? {}),
-      getDetails: (event: ServiceRemovalStartedEvent) => ({ operationId: event.operationId })
+      getMessage: stageKeyMessage('signalr.serviceRemove.starting.default')
     },
     progress: {
       getMessage: (event: ServiceRemovalProgressEvent) =>
@@ -899,8 +751,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         i18n.t(event.stageKey, {
           name: event.serviceName,
           ...event.context
-        }),
-      getDetails: (event: ServiceRemovalProgressEvent) => ({ operationId: event.operationId })
+        })
     },
     complete: {
       getSuccessDetails: (event: ServiceRemovalCompleteEvent, existing) => ({
@@ -916,22 +767,20 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         logEntriesRemoved: event.logEntriesRemoved
       })
     }
-  },
+  }),
 
   // ========== Corruption Removal ==========
-  {
+  buildStandardOperationEntry<
+    CorruptionRemovalStartedEvent,
+    CorruptionRemovalProgressEvent,
+    CorruptionRemovalCompleteEvent
+  >({
     type: 'corruption_removal',
     id: NOTIFICATION_IDS.CORRUPTION_REMOVAL,
     storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'CorruptionRemoval',
     cancelTooltipKey: CANCEL_TOOLTIP.corruptionRemoval,
     recovery: { kind: 'cacheRemovalsBatch' },
-    events: {
-      started: 'CorruptionRemovalStarted',
-      progress: 'CorruptionRemovalProgress',
-      complete: 'CorruptionRemovalComplete'
-    },
     started: {
       defaultMessage: 'Starting corruption removal...',
       getMessage: (event: CorruptionRemovalStartedEvent) =>
@@ -950,11 +799,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           event.context
         ),
       getProgress: (event: CorruptionRemovalProgressEvent) => event.percentComplete,
-      getStatus: (event: CorruptionRemovalProgressEvent) => standardGetStatus(event),
-      getCompletedMessage: (event: CorruptionRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.corruptionRemove.success', event.context ?? {}),
-      getErrorMessage: (event: CorruptionRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.corruptionRemove.failed.generic', event.context ?? {}),
+      getCompletedMessage: stageKeyMessage('signalr.corruptionRemove.success'),
+      getErrorMessage: stageKeyMessage('signalr.corruptionRemove.failed.generic'),
       getDetails: (event: CorruptionRemovalProgressEvent) => ({
         operationId: event.operationId,
         service: event.service,
@@ -974,16 +820,20 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       removeNotification(NOTIFICATION_IDS.CORRUPTION_DETECTION);
       localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION);
     }
-  },
+  }),
 
   // ========== Game Detection ==========
-  {
+  buildStandardOperationEntry<
+    GameDetectionStartedEvent,
+    GameDetectionProgressEvent,
+    GameDetectionCompleteEvent
+  >({
     type: 'game_detection',
     id: NOTIFICATION_IDS.GAME_DETECTION,
     storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'GameDetection',
     cancelTooltipKey: CANCEL_TOOLTIP.gameDetection,
+    silentRunGate: true,
     recovery: {
       kind: 'simple',
       translationValidation: { kind: 'dedicated' },
@@ -1014,13 +864,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       },
       staleMessage: 'Game detection completed'
     } satisfies SimpleRecoveryConfig<GameDetectionStatusResponse>,
-    events: {
-      started: 'GameDetectionStarted',
-      progress: 'GameDetectionProgress',
-      complete: 'GameDetectionComplete'
-    },
     started: {
-      shouldDisplay: (event: GameDetectionStartedEvent) => event.showNotification !== false,
       defaultMessage: 'Detecting games and services...',
       getMessage: (event: GameDetectionStartedEvent) => formatGameDetectionStartedMessage(event),
       getDetails: (event: GameDetectionStartedEvent) => ({
@@ -1029,10 +873,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       })
     },
     progress: {
-      shouldDisplay: (event: GameDetectionProgressEvent) => event.showNotification !== false,
       getMessage: (event: GameDetectionProgressEvent) => formatGameDetectionProgressMessage(event),
       getProgress: (event: GameDetectionProgressEvent) => event.percentComplete,
-      getStatus: (event: GameDetectionProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: GameDetectionProgressEvent) =>
         i18n.t(
           event.stageKey ?? 'signalr.gameDetect.complete.default',
@@ -1040,12 +882,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
             totalGamesDetected: event.gamesDetected
           })
         ),
-      getErrorMessage: (event: GameDetectionProgressEvent) =>
-        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
-      getDetails: (event: GameDetectionProgressEvent) => ({ operationId: event.operationId })
+      getErrorMessage: stageKeyMessage(GENERIC_FAILURE_I18N_KEY)
     },
     complete: {
-      shouldDisplay: (event: GameDetectionCompleteEvent) => event.showNotification !== false,
       getSuccessMessage: (event: GameDetectionCompleteEvent) =>
         formatGameDetectionCompleteMessage(event),
       getSuccessDetails: (event: GameDetectionCompleteEvent, existing) => ({
@@ -1056,15 +895,18 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getFailureMessage: (event: GameDetectionCompleteEvent) =>
         formatGameDetectionFailureMessage(event)
     }
-  },
+  }),
 
   // ========== Corruption Detection ==========
-  {
+  buildStandardOperationEntry<
+    CorruptionDetectionStartedEvent,
+    CorruptionDetectionProgressEvent,
+    CorruptionDetectionCompleteEvent
+  >({
     type: 'corruption_detection',
     id: NOTIFICATION_IDS.CORRUPTION_DETECTION,
     storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'CorruptionDetection',
     cancelTooltipKey: CANCEL_TOOLTIP.corruptionDetection,
     recovery: {
       kind: 'simple',
@@ -1099,11 +941,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       },
       staleMessage: 'Corruption detection completed'
     } satisfies SimpleRecoveryConfig<CorruptionDetectionStatusResponse>,
-    events: {
-      started: 'CorruptionDetectionStarted',
-      progress: 'CorruptionDetectionProgress',
-      complete: 'CorruptionDetectionComplete'
-    },
     started: {
       defaultMessage: 'Scanning for corrupted cache chunks...',
       getMessage: (event: CorruptionDetectionStartedEvent) =>
@@ -1120,11 +957,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         formatCorruptionProgress(event).progressMode,
       getProgressAriaValueText: (event: CorruptionDetectionProgressEvent) =>
         formatCorruptionProgress(event).progressAriaValueText,
-      getStatus: (event: CorruptionDetectionProgressEvent) => standardGetStatus(event),
-      getCompletedMessage: (event: CorruptionDetectionProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.corruptionDetect.complete', event.context ?? {}),
-      getErrorMessage: (event: CorruptionDetectionProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.corruptionDetect.failed', event.context ?? {}),
+      getCompletedMessage: stageKeyMessage('signalr.corruptionDetect.complete'),
+      getErrorMessage: stageKeyMessage('signalr.corruptionDetect.failed'),
       getDetails: (event: CorruptionDetectionProgressEvent) => corruptionNotificationDetails(event)
     },
     complete: {
@@ -1139,15 +973,18 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getFailureMessage: (event: CorruptionDetectionCompleteEvent) =>
         formatCorruptionDetectionFailureMessage(event)
     }
-  },
+  }),
 
   // ========== Cache Clearing ==========
-  {
+  buildStandardOperationEntry<
+    CacheClearingStartedEvent,
+    CacheClearProgressEvent,
+    CacheClearCompleteEvent
+  >({
     type: 'cache_clearing',
     id: NOTIFICATION_IDS.CACHE_CLEARING,
     storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_CLEARING,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'CacheClearing',
     cancelTooltipKey: CANCEL_TOOLTIP.cacheClearing,
     recovery: {
       kind: 'simple',
@@ -1186,21 +1023,13 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       },
       staleMessage: 'Cache clearing completed'
     } satisfies SimpleRecoveryConfig<CacheOperationsResponse>,
-    events: {
-      started: 'CacheClearingStarted',
-      progress: 'CacheClearingProgress',
-      complete: 'CacheClearingComplete'
-    },
     started: {
       defaultMessage: 'Starting cache clearing...',
-      getMessage: (event: CacheClearingStartedEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.cacheClear.initializing', event.context ?? {}),
-      getDetails: (event: CacheClearingStartedEvent) => ({ operationId: event.operationId })
+      getMessage: stageKeyMessage('signalr.cacheClear.initializing')
     },
     progress: {
       getMessage: (event: CacheClearProgressEvent) => formatCacheClearProgressMessage(event),
       getProgress: (event: CacheClearProgressEvent) => event.percentComplete,
-      getStatus: (event: CacheClearProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CacheClearProgressEvent) =>
         event.stageKey
           ? i18n.t(event.stageKey, event.context ?? {})
@@ -1226,15 +1055,18 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       getFailureMessage: (event: CacheClearCompleteEvent) => formatCacheClearFailureMessage(event)
     }
-  },
+  }),
 
   // ========== Data Import ==========
-  {
+  buildStandardOperationEntry<
+    DataImportStartedEvent,
+    DataImportProgressEvent,
+    DataImportCompleteEvent
+  >({
     type: 'data_import',
     id: NOTIFICATION_IDS.DATA_IMPORT,
     storageKey: NOTIFICATION_STORAGE_KEYS.DATA_IMPORT,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'DataImport',
     cancelTooltipKey: CANCEL_TOOLTIP.dataImport,
     recovery: {
       kind: 'simple',
@@ -1260,27 +1092,15 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       staleMessage: 'Data import completed'
     } satisfies SimpleRecoveryConfig<DataImportStatusResponse>,
-    events: {
-      started: 'DataImportStarted',
-      progress: 'DataImportProgress',
-      complete: 'DataImportComplete'
-    },
     started: {
       defaultMessage: 'Starting data import...',
-      getMessage: (event: DataImportStartedEvent) => formatDataImportStartedMessage(event),
-      getDetails: (event: DataImportStartedEvent) => ({
-        operationId: event.operationId
-      })
+      getMessage: (event: DataImportStartedEvent) => formatDataImportStartedMessage(event)
     },
     progress: {
       getMessage: (event: DataImportProgressEvent) => formatDataImportProgressMessage(event),
       getProgress: (event: DataImportProgressEvent) => event.percentComplete,
-      getStatus: (event: DataImportProgressEvent) => standardGetStatus(event),
-      getCompletedMessage: (event: DataImportProgressEvent) =>
-        i18n.t(event.stageKey ?? GENERIC_COMPLETION_I18N_KEY, event.context ?? {}),
-      getErrorMessage: (event: DataImportProgressEvent) =>
-        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
-      getDetails: (event: DataImportProgressEvent) => ({ operationId: event.operationId })
+      getCompletedMessage: stageKeyMessage(GENERIC_COMPLETION_I18N_KEY),
+      getErrorMessage: stageKeyMessage(GENERIC_FAILURE_I18N_KEY)
     },
     complete: {
       getSuccessMessage: (event: DataImportCompleteEvent) => formatDataImportCompleteMessage(event),
@@ -1298,16 +1118,20 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       getFailureMessage: (event: DataImportCompleteEvent) => formatDataImportFailureMessage(event)
     }
-  },
+  }),
 
   // ========== Eviction Scan ==========
-  {
+  buildStandardOperationEntry<
+    EvictionScanStartedEvent,
+    EvictionScanProgressEvent,
+    EvictionScanCompleteEvent
+  >({
     type: 'eviction_scan',
     id: NOTIFICATION_IDS.EVICTION_SCAN,
     storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'EvictionScan',
     cancelTooltipKey: CANCEL_TOOLTIP.evictionScan,
+    silentRunGate: true,
     recovery: {
       kind: 'simple',
       translationValidation: {
@@ -1344,52 +1168,36 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       staleMessage: 'Eviction scan completed'
     } satisfies SimpleRecoveryConfig<EvictionScanStatusResponse>,
-    events: {
-      started: 'EvictionScanStarted',
-      progress: 'EvictionScanProgress',
-      complete: 'EvictionScanComplete'
-    },
     started: {
-      shouldDisplay: (event: EvictionScanStartedEvent) => event.showNotification !== false,
       defaultMessage: 'Starting eviction scan...',
-      getMessage: (event: EvictionScanStartedEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.evictionScan.scanning', event.context ?? {}),
-      getDetails: (event: EvictionScanStartedEvent) => ({ operationId: event.operationId })
+      getMessage: stageKeyMessage('signalr.evictionScan.scanning')
     },
     progress: {
-      shouldDisplay: (event: EvictionScanProgressEvent) => event.showNotification !== false,
-      getMessage: (event: EvictionScanProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.evictionScan.progress', event.context ?? {}),
-      getProgress: (event: EvictionScanProgressEvent) =>
-        Math.min(ACTIVE_PROGRESS_PERCENT_CAP, event.percentComplete),
-      getStatus: (event: EvictionScanProgressEvent) => standardGetStatus(event),
-      getCompletedMessage: (event: EvictionScanProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.evictionScan.complete', event.context ?? {}),
-      getErrorMessage: (event: EvictionScanProgressEvent) =>
-        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
-      getDetails: (event: EvictionScanProgressEvent) => ({ operationId: event.operationId })
+      getMessage: stageKeyMessage('signalr.evictionScan.progress'),
+      getProgress: cappedProgress,
+      getCompletedMessage: stageKeyMessage('signalr.evictionScan.complete'),
+      getErrorMessage: stageKeyMessage(GENERIC_FAILURE_I18N_KEY)
     },
     complete: {
-      shouldDisplay: (event: EvictionScanCompleteEvent) => event.showNotification !== false,
-      getSuccessMessage: (event: EvictionScanCompleteEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.evictionScan.complete', event.context ?? {}),
-      getFailureMessage: (event: EvictionScanCompleteEvent) =>
-        event.error ??
-        (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-        i18n.t(GENERIC_FAILURE_I18N_KEY)
+      getSuccessMessage: stageKeyMessage('signalr.evictionScan.complete'),
+      getFailureMessage: errorOrStageKeyMessage(GENERIC_FAILURE_I18N_KEY)
     }
-  },
+  }),
 
   // ========== Cache File Scan (cache_size binary) ==========
   // Deliberately VISIBLE (never silent): the running card is what tells users why
   // other heavy cache operations are blocked while the minutes-long scan runs.
-  {
+  buildStandardOperationEntry<
+    CacheSizeScanStartedEvent,
+    CacheSizeScanProgressEvent,
+    CacheSizeScanCompleteEvent
+  >({
     type: 'cache_size_scan',
     id: NOTIFICATION_IDS.CACHE_SIZE_SCAN,
     storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_SIZE_SCAN,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'CacheSizeScan',
     cancelTooltipKey: CANCEL_TOOLTIP.cacheSizeScan,
+    silentRunGate: true,
     recovery: {
       kind: 'simple',
       translationValidation: {
@@ -1428,50 +1236,37 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       staleMessage: 'Cache file scan completed'
     } satisfies SimpleRecoveryConfig<CacheSizeScanStatusResponse>,
-    events: {
-      started: 'CacheSizeScanStarted',
-      progress: 'CacheSizeScanProgress',
-      complete: 'CacheSizeScanComplete'
-    },
     started: {
-      shouldDisplay: (event: CacheSizeScanStartedEvent) => event.showNotification !== false,
       defaultMessage: 'Starting cache file scan...',
-      getMessage: (event: CacheSizeScanStartedEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.starting', event.context ?? {}),
-      getDetails: (event: CacheSizeScanStartedEvent) => ({ operationId: event.operationId })
+      getMessage: stageKeyMessage('signalr.cacheSizeScan.starting')
     },
     progress: {
-      shouldDisplay: (event: CacheSizeScanProgressEvent) => event.showNotification !== false,
-      getMessage: (event: CacheSizeScanProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.scanning', event.context ?? {}),
-      getProgress: (event: CacheSizeScanProgressEvent) =>
-        Math.min(ACTIVE_PROGRESS_PERCENT_CAP, event.percentComplete),
-      getStatus: (event: CacheSizeScanProgressEvent) => standardGetStatus(event),
-      getCompletedMessage: (event: CacheSizeScanProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.complete', event.context ?? {}),
-      getErrorMessage: (event: CacheSizeScanProgressEvent) =>
-        i18n.t(event.stageKey ?? GENERIC_FAILURE_I18N_KEY, event.context ?? {}),
-      getDetails: (event: CacheSizeScanProgressEvent) => ({ operationId: event.operationId })
+      getMessage: stageKeyMessage('signalr.cacheSizeScan.scanning'),
+      getProgress: cappedProgress,
+      getCompletedMessage: stageKeyMessage('signalr.cacheSizeScan.complete'),
+      getErrorMessage: stageKeyMessage(GENERIC_FAILURE_I18N_KEY)
     },
     complete: {
-      shouldDisplay: (event: CacheSizeScanCompleteEvent) => event.showNotification !== false,
-      getSuccessMessage: (event: CacheSizeScanCompleteEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.complete', event.context ?? {}),
-      getFailureMessage: (event: CacheSizeScanCompleteEvent) =>
-        event.error ??
-        (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-        i18n.t(GENERIC_FAILURE_I18N_KEY)
+      getSuccessMessage: stageKeyMessage('signalr.cacheSizeScan.complete'),
+      getFailureMessage: errorOrStageKeyMessage(GENERIC_FAILURE_I18N_KEY)
     }
-  },
+  }),
 
   // ========== Scheduled Prefill ==========
-  {
+  buildStandardOperationEntry<
+    ScheduledPrefillStartedEvent,
+    ScheduledPrefillProgressEvent,
+    ScheduledPrefillCompletedEvent
+  >({
     type: 'scheduled_prefill',
     id: NOTIFICATION_IDS.SCHEDULED_PREFILL,
     storageKey: NOTIFICATION_STORAGE_KEYS.SCHEDULED_PREFILL,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'ScheduledPrefill',
+    // This pipeline's terminal event is `...Completed`, not the `...Complete` the
+    // other operations emit.
+    completeEvent: 'ScheduledPrefillCompleted',
     cancelTooltipKey: CANCEL_TOOLTIP.scheduledPrefill,
+    silentRunGate: true,
     // The run's card persists via storageKey, so a terminal event missed while the page was
     // closed or reconnecting mid-run used to leave a ghost "Prefill in progress" card forever.
     // This endpoint stale-completes it (or re-seeds a card for a genuinely active run).
@@ -1489,21 +1284,13 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       staleMessage: 'Scheduled prefill completed'
     } satisfies SimpleRecoveryConfig<ScheduledPrefillRunStatusResponse>,
-    events: {
-      started: 'ScheduledPrefillStarted',
-      progress: 'ScheduledPrefillProgress',
-      complete: 'ScheduledPrefillCompleted'
-    },
     started: {
-      shouldDisplay: (event: ScheduledPrefillStartedEvent) => event.showNotification !== false,
       defaultMessage: 'Scheduled prefill started',
       getMessage: () => i18n.t('management.schedules.services.scheduledPrefill.events.started'),
-      getDetails: (event: ScheduledPrefillStartedEvent) => ({ operationId: event.operationId }),
       replaceExisting: true,
       additionalIdsToRemove: [SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID]
     },
     progress: {
-      shouldDisplay: (event: ScheduledPrefillProgressEvent) => event.showNotification !== false,
       getMessage: (event: ScheduledPrefillProgressEvent) => {
         const serviceKey =
           SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[event.serviceId] ?? event.serviceId;
@@ -1551,11 +1338,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       // a live download, which is what tells the user it is actually working.
       getDetailMessage: (event: ScheduledPrefillProgressEvent) =>
         formatScheduledPrefillDetailMessage(event),
-      getStatus: () => undefined,
-      getDetails: (event: ScheduledPrefillProgressEvent) => ({ operationId: event.operationId })
+      // The run's terminal arrives as its own event, so progress never completes the card.
+      getStatus: () => undefined
     },
     complete: {
-      shouldDisplay: (event: ScheduledPrefillCompletedEvent) => event.showNotification !== false,
       getSuccessMessage: () =>
         i18n.t('management.schedules.services.scheduledPrefill.events.completed'),
       // A stopped run is its own terminal, not a failure: the user caused it, so it must not read
@@ -1568,26 +1354,24 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     onComplete: (removeNotification) => {
       removeNotification(SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID);
     }
-  },
+  }),
 
   // ========== Eviction Removal ==========
-  {
+  buildStandardOperationEntry<
+    EvictionRemovalStartedEvent,
+    EvictionRemovalProgressEvent,
+    EvictionRemovalCompleteEvent
+  >({
     type: 'eviction_removal',
     id: NOTIFICATION_IDS.EVICTION_REMOVAL,
     storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL,
-    wiring: 'standard',
-    cancelKind: 'serverOp',
+    eventPrefix: 'EvictionRemoval',
     cancelTooltipKey: CANCEL_TOOLTIP.evictionRemoval,
+    silentRunGate: true,
     // Scope-aware recovery lives inside the /api/cache/removals/active batch fn
     // (recoverEvictionRemovals). Marked as part of that batch.
     recovery: { kind: 'cacheRemovalsBatch' },
-    events: {
-      started: 'EvictionRemovalStarted',
-      progress: 'EvictionRemovalProgress',
-      complete: 'EvictionRemovalComplete'
-    },
     started: {
-      shouldDisplay: (event: EvictionRemovalStartedEvent) => event.showNotification !== false,
       defaultMessage: 'Removing evicted game data...',
       getMessage: (event: EvictionRemovalStartedEvent) =>
         event.gameName
@@ -1633,15 +1417,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }
     },
     progress: {
-      shouldDisplay: (event: EvictionRemovalProgressEvent) => event.showNotification !== false,
-      getMessage: (event: EvictionRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.evictionRemove.removingDownloads', event.context ?? {}),
+      getMessage: stageKeyMessage('signalr.evictionRemove.removingDownloads'),
       getProgress: (event: EvictionRemovalProgressEvent) => event.percentComplete || 0,
-      getStatus: (event: EvictionRemovalProgressEvent) => standardGetStatus(event),
-      getCompletedMessage: (event: EvictionRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.evictionRemove.complete', event.context ?? {}),
-      getErrorMessage: (event: EvictionRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.evictionRemove.failed', event.context ?? {}),
+      getCompletedMessage: stageKeyMessage('signalr.evictionRemove.complete'),
+      getErrorMessage: stageKeyMessage('signalr.evictionRemove.failed'),
       // EvictionRemovalProgressEvent does NOT carry scope identity fields
       // (gameAppId, epicAppId, service, gameName are absent from the backend event).
       // Only operationId is available here. Scope identity is set by the started
@@ -1653,23 +1432,19 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       // eviction_removal this means a bare tick would produce a slot without scope
       // identity. In practice the backend always emits EvictionRemovalStarted before
       // any progress tick, so there is always a prior started slot — but this is a
-      // runtime guarantee, not a registry-level opt-out.
-      getDetails: (event: EvictionRemovalProgressEvent) => ({ operationId: event.operationId })
+      // runtime guarantee, not a registry-level opt-out. Spelled out rather than left
+      // to the builder default so the reasoning above stays attached to the field.
+      getDetails: operationIdDetails
     },
     complete: {
-      shouldDisplay: (event: EvictionRemovalCompleteEvent) => event.showNotification !== false,
-      getSuccessMessage: (event: EvictionRemovalCompleteEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.evictionRemove.complete', event.context ?? {}),
-      getFailureMessage: (event: EvictionRemovalCompleteEvent) =>
-        event.error ??
-        (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-        i18n.t('signalr.evictionRemove.failed')
+      getSuccessMessage: stageKeyMessage('signalr.evictionRemove.complete'),
+      getFailureMessage: errorOrStageKeyMessage('signalr.evictionRemove.failed')
     },
     onComplete: (removeNotification) => {
       removeNotification(NOTIFICATION_IDS.EVICTION_SCAN);
       localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN);
     }
-  },
+  }),
 
   // ========== Scheduled service runs (standard, built by factory) ==========
   buildScheduledRunEntry({
@@ -1895,7 +1670,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
 
   // ========== Steam Session Error (special; toast, no recovery, no cancel) ==========
   {
-    type: 'steam_session_error' as NotificationType,
+    type: 'steam_session_error',
     id: NOTIFICATION_IDS.STEAM_SESSION_ERROR,
     storageKey: '',
     wiring: 'special',

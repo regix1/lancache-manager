@@ -131,7 +131,7 @@ public interface IDaemonClient : IDisposable
     /// pre-login command gate (its <c>PreLoginCommands</c> allowlist is missing "logout"), not a
     /// genuine failure. The default implementation adapts <see cref="LogoutAsync"/> for
     /// implementations (and test fakes) that don't override it, reporting <c>RequiresLogin: false</c>;
-    /// only <c>SocketDaemonClient</c> and <c>TcpDaemonClient</c> currently override this with the real
+    /// only <c>DaemonClientBase</c> (both real transports) currently overrides this with the real
     /// signal carried on the daemon's <c>CommandResponse.RequiresLogin</c>.
     /// </summary>
     async Task<LogoutOutcome> LogoutWithReasonAsync(CancellationToken cancellationToken = default)
@@ -215,7 +215,7 @@ public interface IDaemonClient : IDisposable
     /// status/progress event writes a DB row or broadcasts after this returns. Pairs with (does not
     /// replace) the reference-equality guard in the event handlers. Never throws and never blocks longer
     /// than <paramref name="timeout"/>. The default is a no-op for implementations with no fire-and-forget
-    /// event dispatch (test fakes); <c>SocketDaemonClient</c>/<c>TcpDaemonClient</c> override it.
+    /// event dispatch (test fakes); <c>DaemonClientBase</c> overrides it for both real transports.
     /// </summary>
     Task DrainEventsAsync(TimeSpan timeout, CancellationToken cancellationToken = default) => Task.CompletedTask;
 }

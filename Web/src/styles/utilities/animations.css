@@ -166,6 +166,21 @@
   }
 }
 
+/* Shared opacity pulse for "live"/"in progress" indicators - live-download dots,
+   skeleton placeholders, scanning ribbon segments. Defined once here because
+   keyframe names are global; each consumer sets its own duration and easing, and
+   each keeps its own prefers-reduced-motion opt-out next to the element it
+   belongs to. */
+@keyframes opacityPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
 /* Two pulses for navigate-style jumps to a single target. */
 .glow-pulse {
   animation: highlightGlowPulse 1000ms cubic-bezier(0.4, 0, 0.6, 1) 2;

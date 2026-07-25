@@ -1,10 +1,4 @@
-import { useContext } from 'react';
 import { ClientGroupContext } from './ClientGroupContext.types';
+import { createContextHook } from './createContextHook';
 
-export const useClientGroups = () => {
-  const context = useContext(ClientGroupContext);
-  if (!context) {
-    throw new Error('useClientGroups must be used within a ClientGroupProvider');
-  }
-  return context;
-};
+export const useClientGroups = createContextHook(ClientGroupContext, 'useClientGroups');

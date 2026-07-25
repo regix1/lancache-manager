@@ -125,16 +125,16 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
     setSubmitError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/setup/credentials`, {
-        ...ApiService.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+      const response = await fetch(
+        `${API_BASE}/setup/credentials`,
+        ApiService.getJsonFetchOptions(
+          {
             username: form.username.trim(),
             password: form.password
-          })
-        })
-      });
+          },
+          { method: 'POST' }
+        )
+      );
 
       const data: CredentialsResponse = await response.json();
 

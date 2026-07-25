@@ -1,10 +1,4 @@
-import { useContext } from 'react';
 import { DockerSocketContext } from './DockerSocketContext.types';
+import { createContextHook } from './createContextHook';
 
-export const useDockerSocket = () => {
-  const context = useContext(DockerSocketContext);
-  if (!context) {
-    throw new Error('useDockerSocket must be used within DockerSocketProvider');
-  }
-  return context;
-};
+export const useDockerSocket = createContextHook(DockerSocketContext, 'useDockerSocket');

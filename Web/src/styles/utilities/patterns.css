@@ -15,6 +15,15 @@
   border-top: 1px solid var(--theme-border-secondary);
 }
 
+/* Horizontal run of small items on one baseline that wraps to a new line when it
+   runs out of width - badge strips, status lines, toolbar button groups. */
+.cluster {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 /* Keyboard focus outline for custom interactive elements. */
 .focus-ring:focus-visible {
   outline: 2px solid var(--theme-border-focus);

@@ -55,7 +55,11 @@ import { useLiveDownloadPreviews } from './useLiveDownloadPreviews';
 import { filterLivePreviews } from './liveDownloadPreviews';
 
 import type { Download, DownloadGroup } from '../../../types';
-import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
+import {
+  formatServiceLabel,
+  getServiceDisplayName,
+  getServiceFilterKey
+} from '@utils/serviceDisplayName';
 
 // Storage keys for persistence
 const STORAGE_KEYS = {
@@ -112,10 +116,6 @@ type EvictedDataMode = 'show' | 'hide' | 'showClean';
 
 const isEvictedDataMode = (value: unknown): value is EvictedDataMode =>
   value === 'show' || value === 'hide' || value === 'showClean';
-
-// Stable empty array for RetroView's `items` prop (ignored in server mode).
-// An inline [] literal would break RetroView's memo() on every render.
-const EMPTY_RETRO_ITEMS: (Download | DownloadGroup)[] = [];
 
 // Default items per page for each view mode
 const DEFAULT_ITEMS_PER_PAGE = {
@@ -762,11 +762,6 @@ const DownloadsTab: React.FC = () => {
   }, [availableServices, latestDownloads]);
 
   const serviceOptions = useMemo(() => {
-    const serviceLabel = (service: string) => {
-      const displayService = getServiceDisplayName(service);
-      return displayService.charAt(0).toUpperCase() + displayService.slice(1);
-    };
-
     // Group raw service names by their folded display name (e.g. "xbox" and
     // "xboxlive" both fold to "Xbox") so the dropdown shows one entry per
     // displayed name instead of one per raw alias.
@@ -787,13 +782,13 @@ const DownloadsTab: React.FC = () => {
 
     const baseOptions = [
       { value: 'all', label: t('downloads.tab.filters.allServices') },
-      ...visibleEntries.map(([key, g]) => ({ value: key, label: serviceLabel(g.service) }))
+      ...visibleEntries.map(([key, g]) => ({ value: key, label: formatServiceLabel(g.service) }))
     ];
 
     if (hiddenEntries.length > 0) {
       baseOptions.push(
         { value: 'divider', label: t('downloads.tab.filters.smallFilesOnly') },
-        ...hiddenEntries.map(([key, g]) => ({ value: key, label: serviceLabel(g.service) }))
+        ...hiddenEntries.map(([key, g]) => ({ value: key, label: formatServiceLabel(g.service) }))
       );
     }
 
@@ -2224,7 +2219,6 @@ const DownloadsTab: React.FC = () => {
                 >
                   <RetroView
                     ref={retroViewRef}
-                    items={EMPTY_RETRO_ITEMS}
                     sortOrder={settings.sortOrder}
                     itemsPerPage={
                       typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 100

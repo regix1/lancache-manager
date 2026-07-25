@@ -1267,7 +1267,7 @@ export function ScheduledPrefillConfigModal({
                         <p className="scheduled-prefill-config-modal__overview-description">
                           {t(`${baseKey}.modalDescription`)}
                         </p>
-                        <div className="scheduled-prefill-config-modal__overview-status">
+                        <div className="scheduled-prefill-config-modal__overview-status cluster">
                           <Badge variant="info">
                             {t(`${baseKey}.summary`, {
                               enabled: enabledCount,

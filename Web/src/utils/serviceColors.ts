@@ -1,210 +1,218 @@
 /**
- * Utility for consistent service colors across the application
- * These use theme CSS variables defined in theme.service.ts
+ * Single source of truth for per-service brand colors.
+ *
+ * One row per canonical service carries every representation the app needs, so a new
+ * service is one entry here rather than an edit in four files that then drift apart.
+ * Consumers: badges and list rows (`getServiceColorClass`, `getServiceBadgeStyles`),
+ * the analytics chart legend (`getServiceLegendClass`) and the chart datasets
+ * (`getServiceColorVar` / `SERVICE_COLOR_VARS`).
+ *
+ * Class names are written as literal strings, never assembled from the service id:
+ * `.service-*` lives inside `@layer components`, so a name Tailwind's content scanner
+ * cannot see as a literal is purged out of the built stylesheet.
  */
 
-export function getServiceColorClass(service: string): string {
-  const serviceLower = service.toLowerCase();
+interface ServiceBrand {
+  /** CSS custom property emitted by the theme service for this service. */
+  colorVar: string;
+  /** Text-color class from styles/utilities/colors.css. */
+  colorClass: string;
+  /** Legend swatch class from styles/features/service-analytics.css. */
+  legendClass: string;
+}
 
-  // Map service names to their CSS color classes
-  switch (serviceLower) {
-    case 'steam':
-      return 'service-steam';
-    case 'epic':
-    case 'epicgames':
-      return 'service-epic';
-    case 'origin':
-    case 'ea':
-      return 'service-origin';
-    case 'blizzard':
-    case 'battle.net':
-    case 'battlenet':
-      return 'service-blizzard';
-    case 'wsus':
-    case 'windows':
-      return 'service-wsus';
-    case 'riot':
-    case 'riotgames':
-      return 'service-riot';
-    case 'xbox':
-    case 'xboxlive':
-      return 'service-xbox';
-    case 'arenanet':
-      return 'service-arenanet';
-    case 'bsg':
-      return 'service-bsg';
-    case 'cityofheroes':
-      return 'service-cityofheroes';
-    case 'cod':
-      return 'service-cod';
-    case 'daybreak':
-      return 'service-daybreak';
-    case 'frontier':
-      return 'service-frontier';
-    case 'neverwinter':
-      return 'service-neverwinter';
-    case 'nexusmods':
-      return 'service-nexusmods';
-    case 'nintendo':
-      return 'service-nintendo';
-    case 'pathofexile':
-      return 'service-pathofexile';
-    case 'renegadex':
-      return 'service-renegadex';
-    case 'sony':
-      return 'service-sony';
-    case 'square':
-      return 'service-square';
-    case 'teso':
-      return 'service-teso';
-    case 'test':
-      return 'service-test';
-    case 'warframe':
-      return 'service-warframe';
-    case 'wargaming':
-      return 'service-wargaming';
-    default:
-      return 'text-[var(--theme-text-secondary)]';
+const SERVICE_BRANDS: Record<string, ServiceBrand> = {
+  steam: {
+    colorVar: '--theme-steam',
+    colorClass: 'service-steam',
+    legendClass: 'legend-color-steam'
+  },
+  epic: {
+    colorVar: '--theme-epic',
+    colorClass: 'service-epic',
+    legendClass: 'legend-color-epic'
+  },
+  origin: {
+    colorVar: '--theme-origin',
+    colorClass: 'service-origin',
+    legendClass: 'legend-color-origin'
+  },
+  blizzard: {
+    colorVar: '--theme-blizzard',
+    colorClass: 'service-blizzard',
+    legendClass: 'legend-color-blizzard'
+  },
+  wsus: {
+    colorVar: '--theme-wsus',
+    colorClass: 'service-wsus',
+    legendClass: 'legend-color-wsus'
+  },
+  riot: {
+    colorVar: '--theme-riot',
+    colorClass: 'service-riot',
+    legendClass: 'legend-color-riot'
+  },
+  xbox: {
+    colorVar: '--theme-xbox',
+    colorClass: 'service-xbox',
+    legendClass: 'legend-color-xbox'
+  },
+  ubisoft: {
+    colorVar: '--theme-ubisoft',
+    colorClass: 'service-ubisoft',
+    legendClass: 'legend-color-ubisoft'
+  },
+  gog: {
+    colorVar: '--theme-gog',
+    colorClass: 'service-gog',
+    legendClass: 'legend-color-gog'
+  },
+  rockstar: {
+    colorVar: '--theme-rockstar',
+    colorClass: 'service-rockstar',
+    legendClass: 'legend-color-rockstar'
+  },
+  arenanet: {
+    colorVar: '--theme-arenanet',
+    colorClass: 'service-arenanet',
+    legendClass: 'legend-color-arenanet'
+  },
+  bsg: {
+    colorVar: '--theme-bsg',
+    colorClass: 'service-bsg',
+    legendClass: 'legend-color-bsg'
+  },
+  cityofheroes: {
+    colorVar: '--theme-cityofheroes',
+    colorClass: 'service-cityofheroes',
+    legendClass: 'legend-color-cityofheroes'
+  },
+  cod: {
+    colorVar: '--theme-cod',
+    colorClass: 'service-cod',
+    legendClass: 'legend-color-cod'
+  },
+  daybreak: {
+    colorVar: '--theme-daybreak',
+    colorClass: 'service-daybreak',
+    legendClass: 'legend-color-daybreak'
+  },
+  frontier: {
+    colorVar: '--theme-frontier',
+    colorClass: 'service-frontier',
+    legendClass: 'legend-color-frontier'
+  },
+  neverwinter: {
+    colorVar: '--theme-neverwinter',
+    colorClass: 'service-neverwinter',
+    legendClass: 'legend-color-neverwinter'
+  },
+  nexusmods: {
+    colorVar: '--theme-nexusmods',
+    colorClass: 'service-nexusmods',
+    legendClass: 'legend-color-nexusmods'
+  },
+  nintendo: {
+    colorVar: '--theme-nintendo',
+    colorClass: 'service-nintendo',
+    legendClass: 'legend-color-nintendo'
+  },
+  pathofexile: {
+    colorVar: '--theme-pathofexile',
+    colorClass: 'service-pathofexile',
+    legendClass: 'legend-color-pathofexile'
+  },
+  renegadex: {
+    colorVar: '--theme-renegadex',
+    colorClass: 'service-renegadex',
+    legendClass: 'legend-color-renegadex'
+  },
+  sony: {
+    colorVar: '--theme-sony',
+    colorClass: 'service-sony',
+    legendClass: 'legend-color-sony'
+  },
+  square: {
+    colorVar: '--theme-square',
+    colorClass: 'service-square',
+    legendClass: 'legend-color-square'
+  },
+  teso: {
+    colorVar: '--theme-teso',
+    colorClass: 'service-teso',
+    legendClass: 'legend-color-teso'
+  },
+  test: {
+    colorVar: '--theme-test',
+    colorClass: 'service-test',
+    legendClass: 'legend-color-test'
+  },
+  warframe: {
+    colorVar: '--theme-warframe',
+    colorClass: 'service-warframe',
+    legendClass: 'legend-color-warframe'
+  },
+  wargaming: {
+    colorVar: '--theme-wargaming',
+    colorClass: 'service-wargaming',
+    legendClass: 'legend-color-wargaming'
   }
+};
+
+/** Alternate names the same service arrives under, folded onto its canonical id. */
+const SERVICE_ID_BY_ALIAS: Record<string, string> = {
+  epicgames: 'epic',
+  ea: 'origin',
+  battlenet: 'blizzard',
+  'battle.net': 'blizzard',
+  windows: 'wsus',
+  riotgames: 'riot',
+  xboxlive: 'xbox',
+  uplay: 'ubisoft'
+};
+
+/** Text color for a service with no brand color of its own. */
+const UNKNOWN_COLOR_VAR = '--theme-text-secondary';
+const UNKNOWN_COLOR_CLASS = 'text-[var(--theme-text-secondary)]';
+const UNKNOWN_LEGEND_CLASS = 'legend-color-default';
+
+function findBrand(service: string): ServiceBrand | null {
+  const normalized = service.toLowerCase();
+  const id = SERVICE_ID_BY_ALIAS[normalized] ?? normalized;
+  return SERVICE_BRANDS[id] ?? null;
 }
 
 /**
- * Get inline styles for service badges
+ * Every distinct brand color property, for callers that resolve the whole set up front
+ * (the chart reads computed values once per theme change rather than per data point).
  */
+export const SERVICE_COLOR_VARS: readonly string[] = Object.values(SERVICE_BRANDS).map(
+  (brand) => brand.colorVar
+);
+
+/**
+ * The CSS custom property carrying a service's brand color, or the muted-text property
+ * for a service with none. Cache-domains lists far more services than the app has brand
+ * colors for, so an unknown name is expected, not an error.
+ */
+export function getServiceColorVar(service: string): string {
+  return findBrand(service)?.colorVar ?? UNKNOWN_COLOR_VAR;
+}
+
+/** Text color class for a service name, used on badges, table cells and list rows. */
+export function getServiceColorClass(service: string): string {
+  return findBrand(service)?.colorClass ?? UNKNOWN_COLOR_CLASS;
+}
+
+/** Swatch class for one row of the analytics chart legend. */
+export function getServiceLegendClass(service: string): string {
+  return findBrand(service)?.legendClass ?? UNKNOWN_LEGEND_CLASS;
+}
+
+/** Inline styles for service badges. */
 export function getServiceBadgeStyles(service: string): { backgroundColor: string; color: string } {
-  const serviceLower = service.toLowerCase();
-  switch (serviceLower) {
-    case 'steam':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-steam)'
-      };
-    case 'epic':
-    case 'epicgames':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-epic)'
-      };
-    case 'origin':
-    case 'ea':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-origin)'
-      };
-    case 'blizzard':
-    case 'battle.net':
-    case 'battlenet':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-blizzard)'
-      };
-    case 'wsus':
-    case 'windows':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-wsus)'
-      };
-    case 'riot':
-    case 'riotgames':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-riot)'
-      };
-    case 'xbox':
-    case 'xboxlive':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-xbox)'
-      };
-    case 'arenanet':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-arenanet)'
-      };
-    case 'bsg':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-bsg)'
-      };
-    case 'cityofheroes':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-cityofheroes)'
-      };
-    case 'cod':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-cod)'
-      };
-    case 'daybreak':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-daybreak)'
-      };
-    case 'frontier':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-frontier)'
-      };
-    case 'neverwinter':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-neverwinter)'
-      };
-    case 'nexusmods':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-nexusmods)'
-      };
-    case 'nintendo':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-nintendo)'
-      };
-    case 'pathofexile':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-pathofexile)'
-      };
-    case 'renegadex':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-renegadex)'
-      };
-    case 'sony':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-sony)'
-      };
-    case 'square':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-square)'
-      };
-    case 'teso':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-teso)'
-      };
-    case 'test':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-test)'
-      };
-    case 'warframe':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-warframe)'
-      };
-    case 'wargaming':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-wargaming)'
-      };
-    default:
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-text-secondary)'
-      };
-  }
+  return {
+    backgroundColor: 'var(--theme-bg-tertiary)',
+    color: `var(${getServiceColorVar(service)})`
+  };
 }

@@ -11,7 +11,8 @@ import type { StatusCheckContentReport, StatusCheckServiceResult } from '@servic
 import DomainLeafRow from './DomainLeafRow';
 import ContentPathGroup from './ContentPathGroup';
 import { getContentPathsForService, isVisibleWithProblemsOnly } from './contentPathHelpers';
-import { formatServiceLabel, getServiceAccentColor, splitExamples } from './helpers';
+import { getServiceAccentColor, splitExamples } from './helpers';
+import { formatServiceLabel } from '@utils/serviceDisplayName';
 
 interface ServiceResultsListProps {
   /** Already sorted problems-first by the parent. */

@@ -1,10 +1,4 @@
-import { useContext } from 'react';
 import { MockModeContext } from './MockModeContext.types';
+import { createContextHook } from './createContextHook';
 
-export const useMockMode = () => {
-  const context = useContext(MockModeContext);
-  if (!context) {
-    throw new Error('useMockMode must be used within MockModeProvider');
-  }
-  return context;
-};
+export const useMockMode = createContextHook(MockModeContext, 'useMockMode');

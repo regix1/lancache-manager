@@ -14,6 +14,14 @@ interface ConfirmationModalProps {
   confirmColor?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange' | 'default';
   loading?: boolean;
   confirmDisabled?: boolean;
+  /**
+   * Replaces the default warning triangle in the title row. Pass a `w-6 h-6` icon when the dialog
+   * needs a stronger or gentler signal than "caution" — e.g. a red trash for a permanent delete, or
+   * a shield for lifting a ban. The default suits any ordinary destructive confirmation.
+   */
+  icon?: React.ReactNode;
+  /** Widen the dialog when the body carries a list or a scroll region rather than a sentence. */
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
 }
 
 export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
@@ -25,7 +33,9 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   confirmLabel,
   confirmColor = 'red',
   loading = false,
-  confirmDisabled = false
+  confirmDisabled = false,
+  icon,
+  size = 'md'
 }) => {
   const { t } = useTranslation();
 
@@ -39,17 +49,25 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       }}
       title={
         <div className="flex items-center space-x-3">
-          <AlertTriangle className="w-6 h-6 text-themed-warning" />
+          {icon ?? <AlertTriangle className="w-6 h-6 text-themed-warning" />}
           <span>{title}</span>
         </div>
       }
-      size="md"
+      size={size}
     >
       <div className="space-y-4">
         {children}
 
-        <div className="flex justify-end space-x-3 pt-2">
-          <Button variant="default" onClick={onClose} disabled={loading}>
+        {/* Buttons stack full-width below the `sm` breakpoint so neither one is squeezed to a few
+            characters wide on a phone. Confirm sits on top there (reversed column) to stay closest
+            to the thumb, while the desktop row keeps cancel-then-confirm reading order. */}
+        <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
+          <Button
+            variant="default"
+            onClick={onClose}
+            disabled={loading}
+            className="w-full sm:w-auto"
+          >
             {t('common.cancel')}
           </Button>
           <Button
@@ -60,6 +78,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             stableWidth
             disabled={confirmDisabled}
             aria-busy={loading}
+            className="w-full sm:w-auto"
           >
             {confirmLabel || t('common.confirm')}
           </Button>

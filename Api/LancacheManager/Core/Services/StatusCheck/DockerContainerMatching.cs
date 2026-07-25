@@ -24,11 +24,19 @@ internal static class DockerContainerMatching
             n.Contains("lancachedns", StringComparison.OrdinalIgnoreCase) ||
             (n.Contains("dns", StringComparison.OrdinalIgnoreCase) && n.Contains("lancache", StringComparison.OrdinalIgnoreCase)));
 
-    internal static bool IsLancacheCacheContainer(string image, IEnumerable<string> names) =>
+    /// <summary>
+    /// Image-only half of the cache-container test. Split out so callers that apply their own
+    /// name filtering (for example excluding the DNS and sniproxy containers) can still share the
+    /// image rules instead of restating them.
+    /// </summary>
+    internal static bool IsLancacheCacheImage(string image) =>
         _lancacheImagePrefixes.Any(p => image.Contains(p, StringComparison.OrdinalIgnoreCase)) ||
         // Forks of lancachenet/monolithic keep "monolithic" in the image name but not the
         // "lancachenet/" owner prefix - match the segment so a fork image still classifies.
-        image.Contains("monolithic", StringComparison.OrdinalIgnoreCase) ||
+        image.Contains("monolithic", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsLancacheCacheContainer(string image, IEnumerable<string> names) =>
+        IsLancacheCacheImage(image) ||
         names.Any(n =>
             n.Contains("monolithic", StringComparison.OrdinalIgnoreCase) ||
             n.Contains("lancache", StringComparison.OrdinalIgnoreCase));

@@ -77,11 +77,10 @@ public class AppDbContext : DbContext
             .HasIndex(d => d.XboxProductId)
             .HasDatabaseName("IX_Downloads_XboxProductId");
 
-        // Composite indexes for dashboard query performance
-        modelBuilder.Entity<Download>()
-            .HasIndex(d => new { d.IsEvicted, d.StartTimeUtc })
-            .HasDatabaseName("IX_Downloads_IsEvicted_StartTimeUtc");
-
+        // Composite index for dashboard query performance. PostgreSQL serves any leading-column
+        // subset from a multi-column btree, so this single index also answers plain
+        // (IsEvicted, StartTimeUtc) filters. A separate two-column index on the same leading
+        // columns would only add write cost on the highest-churn table.
         modelBuilder.Entity<Download>()
             .HasIndex(d => new { d.IsEvicted, d.StartTimeUtc, d.ClientIp })
             .HasDatabaseName("IX_Downloads_IsEvicted_StartTimeUtc_ClientIp");
@@ -96,20 +95,16 @@ public class AppDbContext : DbContext
             .HasIndex(s => s.LastActivityUtc)
             .HasDatabaseName("IX_ServiceStats_LastActivityUtc");
 
-        // SteamDepotMapping indexes
-        modelBuilder.Entity<SteamDepotMapping>()
-            .HasIndex(m => m.DepotId)
-            .HasDatabaseName("IX_SteamDepotMappings_DepotId");
-
+        // SteamDepotMapping indexes. DepotId-only lookups (the depot -> app JOINs in cache
+        // detection and removal) are served by the leading column of the unique
+        // IX_SteamDepotMappings_DepotId_AppId index declared further below.
         modelBuilder.Entity<SteamDepotMapping>()
             .HasIndex(m => m.AppId)
             .HasDatabaseName("IX_SteamDepotMappings_AppId");
 
-        // LogEntryRecord indexes for performance
-        modelBuilder.Entity<LogEntryRecord>()
-            .HasIndex(l => new { l.ClientIp, l.Service })
-            .HasDatabaseName("IX_LogEntries_Client_Service");
-
+        // LogEntryRecord indexes for performance. (ClientIp, Service) lookups are served by the
+        // leading columns of IX_LogEntries_DuplicateCheck declared below, so a separate index on
+        // that prefix would only add write cost on the highest-volume ingest table.
         modelBuilder.Entity<LogEntryRecord>()
             .HasIndex(l => l.Timestamp)
             .HasDatabaseName("IX_LogEntries_Timestamp");

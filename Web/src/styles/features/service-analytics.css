@@ -681,11 +681,11 @@
 }
 
 .legend-color-gog {
-  --legend-color: var(--theme-text-secondary);
+  --legend-color: var(--theme-gog);
 }
 
 .legend-color-rockstar {
-  --legend-color: var(--theme-warning);
+  --legend-color: var(--theme-rockstar);
 }
 
 .legend-color-cache-hit {
@@ -842,7 +842,7 @@
 }
 
 /* ===== Mobile + Tablet (≤1023px) - phone overrides only, desktop unchanged ===== */
-@media (max-width: 1023px) {
+@media (max-width: 1023.98px) {
   .service-chart-panel {
     max-height: none;
     overflow: visible;
@@ -919,7 +919,7 @@
   }
 }
 
-@media (max-width: 639px) {
+@media (max-width: 639.98px) {
   .service-chart-panel {
     padding: 1rem;
   }

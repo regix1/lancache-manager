@@ -214,9 +214,6 @@ export const SIGNALR_EVENTS = [
   'EpicMappingProgress',
   'EpicGameMappingsUpdated',
 
-  // Blizzard / Battle.net Game Mappings
-  'BlizzardGameMappingsUpdated',
-
   // Xbox Game Mappings
   'XboxMappingProgress',
   'XboxGameMappingsUpdated',

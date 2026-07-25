@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import ApiService from '@services/api.service';
+import { assertOk } from '@services/apiError';
 import { useAuth } from '@contexts/useAuth';
 import { getErrorMessage } from '@utils/error';
 
@@ -46,9 +47,7 @@ export const useSteamWebApiStatusState = () => {
         return;
       }
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch Steam Web API status');
-      }
+      await assertOk(response);
 
       const data = await response.json();
       setStatus(data);

@@ -15,7 +15,6 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import type { MetricsSecurityResponse } from './GrafanaEndpoints.types';
-import './GrafanaEndpoints.css';
 
 const GrafanaEndpoints: React.FC = () => {
   const { t } = useTranslation();
@@ -371,7 +370,7 @@ const GrafanaEndpoints: React.FC = () => {
               </span>
               <p className="metrics-source-label">{getSourceLabel(metricsSecurity)}</p>
             </div>
-            <div className="metrics-toggle-row">
+            <div className="metrics-toggle-row cluster">
               <ToggleSwitch
                 options={[
                   {

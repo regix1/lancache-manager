@@ -1,4 +1,5 @@
 import { API_BASE } from '../utils/constants';
+import ApiService from './api.service';
 import type { UserSessionRevokedEvent } from '../contexts/SignalRContext/types';
 import { APP_EVENTS } from '@utils/constants';
 import type { UserPreferences as SessionUserPreferences } from '@/types/userPreferences';
@@ -95,14 +96,10 @@ class PreferencesService {
 
     const updatePromise = (async () => {
       try {
-        const response = await fetch(`${API_BASE}/user-preferences/${key}`, {
-          method: 'PATCH',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(value)
-        });
+        const response = await fetch(
+          `${API_BASE}/user-preferences/${key}`,
+          ApiService.getJsonFetchOptions(value, { method: 'PATCH' })
+        );
 
         if (response.ok) {
           return true;
@@ -131,7 +128,6 @@ class PreferencesService {
    * NOTE: UserPreferencesUpdated is handled by SessionPreferencesContext.
    * This method only handles session management events:
    * - UserPreferencesReset
-   * - UserSessionsCleared
    * - UserSessionRevoked
    *
    * Guest default preference events are handled by SessionPreferencesContext.
@@ -139,7 +135,6 @@ class PreferencesService {
   setupSignalRListener(signalR: SignalRConnection): void {
     let isProcessingReset = false;
     const recentRevocations = new Set<string>();
-    let recentlyDispatchedSessionsCleared = false;
 
     // Handle preference reset
     const handlePreferencesReset = () => {
@@ -154,18 +149,6 @@ class PreferencesService {
           isProcessingReset = false;
         }, 2000);
       }
-    };
-
-    // Handle session cleared - dispatch event for App.tsx to handle
-    const handleSessionsCleared = () => {
-      if (recentlyDispatchedSessionsCleared) return;
-      recentlyDispatchedSessionsCleared = true;
-
-      window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
-
-      setTimeout(() => {
-        recentlyDispatchedSessionsCleared = false;
-      }, 5000);
     };
 
     // Handle session revoked - server will handle session validation via cookies
@@ -191,7 +174,6 @@ class PreferencesService {
     };
 
     signalR.on('UserPreferencesReset', handlePreferencesReset);
-    signalR.on('UserSessionsCleared', handleSessionsCleared);
     signalR.on('UserSessionRevoked', handleSessionRevoked);
   }
 }

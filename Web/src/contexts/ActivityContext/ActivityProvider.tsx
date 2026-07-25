@@ -55,9 +55,9 @@ export const ActivityProvider: React.FC<ActivityProviderProps> = ({ children }) 
   // Mirrors the RAW reported state, as opposed to `activities` (which also carries held entries) - so
   // each new event is diffed against what the PREVIOUS event actually reported, not against whatever
   // has been rendered. React can batch two setActivities() calls from two events processed back to
-  // back into a single render, silently dropping an intermediate true value a downstream min-duration
-  // hook would otherwise catch - but it never skips or batches the event handler invocations
-  // themselves, so diffing here, on every raw event, catches a start->finish transition regardless.
+  // back into a single render, silently dropping an intermediate true value - but it never skips or
+  // batches the event handler invocations themselves, so diffing here, on every raw event, catches a
+  // start->finish transition regardless.
   const reportedRef = useRef<ActivityMap>(new Map());
   // Entries currently being held past their reported inactive moment, keyed by `${bucket} ${key}`.
   // Consulted (not just diffed-into) on EVERY event, not only the one where the drop was first

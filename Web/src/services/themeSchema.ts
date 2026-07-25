@@ -80,6 +80,8 @@ const themeColorDefaults: Record<string, string> = {
   riotColor: '#d13639',
   xboxColor: '#107C10',
   ubisoftColor: '#ec4899',
+  gogColor: '#A05FB4',
+  rockstarColor: '#FCAF17',
   arenanetColor: '#5C7A4A',
   bsgColor: '#6E7B3A',
   cityofheroesColor: '#5EC4E8',

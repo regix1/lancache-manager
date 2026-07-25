@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using LancacheManager.Extensions;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -12,7 +11,6 @@ public class SteamService : IDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<SteamService> _logger;
-    private readonly IServiceScopeFactory _scopeFactory;
     private readonly SemaphoreSlim _apiSemaphore = new(5);
 
     // Caches for performance
@@ -31,42 +29,14 @@ public class SteamService : IDisposable
 
     public SteamService(
         HttpClient httpClient,
-        ILogger<SteamService> logger,
-        IServiceScopeFactory scopeFactory)
+        ILogger<SteamService> logger)
     {
         _httpClient = httpClient;
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
         _logger = logger;
-        _scopeFactory = scopeFactory;
     }
 
     #region Public API Methods
-
-    /// <summary>
-    /// Get all app IDs associated with a depot.
-    /// Queries database directly for authoritative data.
-    /// </summary>
-    public IReadOnlyCollection<long> GetAppIdsForDepot(long depotId)
-    {
-        try
-        {
-            using var scopedDb = _scopeFactory.CreateScopedDbContext();
-
-            // Only return owner apps - no fallback/guessing
-            var appIds = scopedDb.DbContext.SteamDepotMappings
-                .AsNoTracking()
-                .Where(m => m.DepotId == depotId && m.IsOwner)  // Owner apps only
-                .Select(m => (long)m.AppId)
-                .ToList();
-
-            return appIds;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to query database for depot {DepotId}", depotId);
-            return Array.Empty<long>();
-        }
-    }
 
     /// <summary>
     /// Get game information using real Steam API data

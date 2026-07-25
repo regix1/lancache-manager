@@ -116,11 +116,8 @@ public class SignalRNotificationService : ISignalRNotificationService
         await NotifyClientAsync(_steamHubContext.Clients, connectionId, eventName, data, "Steam prefill");
     }
 
-    public async Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
-    {
-        // This method throws on failure - caller is responsible for handling exceptions
-        await _steamHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
-    }
+    public Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
+        => SendRawAsync(_steamHubContext.Clients, connectionId, eventName, data);
 
     // ===== Epic Prefill Hub Methods =====
 
@@ -129,11 +126,8 @@ public class SignalRNotificationService : ISignalRNotificationService
         await NotifyClientAsync(_epicHubContext.Clients, connectionId, eventName, data, "Epic prefill");
     }
 
-    public async Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
-    {
-        // This method throws on failure - caller is responsible for handling exceptions
-        await _epicHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
-    }
+    public Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
+        => SendRawAsync(_epicHubContext.Clients, connectionId, eventName, data);
 
     /// <summary>
     /// Shared per-client notification helper. Sends to a specific connection on the provided hub clients,
@@ -157,37 +151,50 @@ public class SignalRNotificationService : ISignalRNotificationService
         }
     }
 
-    public async Task NotifySteamHubAsync(string eventName, object? data = null)
+    /// <summary>
+    /// Shared per-client send that deliberately does NOT catch. The caller needs the failure to
+    /// detect a dead connection and drop it from its subscription list, so the exception must reach
+    /// it. This is the counterpart to <see cref="NotifyClientAsync"/>, which swallows and logs -
+    /// routing a raw send through that helper would silently turn a throwing path into a quiet one.
+    /// </summary>
+    private static async Task SendRawAsync(
+        IHubClients hubClients,
+        string connectionId,
+        string eventName,
+        object? data)
+    {
+        await hubClients.Client(connectionId).SendAsync(eventName, data);
+    }
+
+    /// <summary>
+    /// Shared broadcast helper. Fans one event out to every client on the primary download hub and on
+    /// a single daemon hub, with consistent debug logging and error handling. Does not rethrow on failure.
+    /// </summary>
+    private async Task NotifyDaemonHubAsync(
+        IHubClients daemonClients,
+        string eventName,
+        object? data,
+        string hubLabel)
     {
         try
         {
             await Task.WhenAll(
                 _downloadHubContext.Clients.All.SendAsync(eventName, data),
-                _steamHubContext.Clients.All.SendAsync(eventName, data)
+                daemonClients.All.SendAsync(eventName, data)
             );
-            _logger.LogDebug("SignalR notification sent (downloads + steam): {EventName}", eventName);
+            _logger.LogDebug("SignalR notification sent (downloads + {HubLabel}): {EventName}", hubLabel, eventName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send SignalR notification (downloads + steam): {EventName}", eventName);
+            _logger.LogError(ex, "Failed to send SignalR notification (downloads + {HubLabel}): {EventName}", hubLabel, eventName);
         }
     }
 
-    public async Task NotifyEpicHubAsync(string eventName, object? data = null)
-    {
-        try
-        {
-            await Task.WhenAll(
-                _downloadHubContext.Clients.All.SendAsync(eventName, data),
-                _epicHubContext.Clients.All.SendAsync(eventName, data)
-            );
-            _logger.LogDebug("SignalR notification sent (downloads + epic): {EventName}", eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification (downloads + epic): {EventName}", eventName);
-        }
-    }
+    public Task NotifySteamHubAsync(string eventName, object? data = null)
+        => NotifyDaemonHubAsync(_steamHubContext.Clients, eventName, data, "steam");
+
+    public Task NotifyEpicHubAsync(string eventName, object? data = null)
+        => NotifyDaemonHubAsync(_epicHubContext.Clients, eventName, data, "epic");
 
     // ===== Battle.net Prefill Hub Methods =====
 
@@ -196,27 +203,11 @@ public class SignalRNotificationService : ISignalRNotificationService
         await NotifyClientAsync(_battleNetHubContext.Clients, connectionId, eventName, data, "Battle.net prefill");
     }
 
-    public async Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
-    {
-        // This method throws on failure - caller is responsible for handling exceptions
-        await _battleNetHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
-    }
+    public Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
+        => SendRawAsync(_battleNetHubContext.Clients, connectionId, eventName, data);
 
-    public async Task NotifyBattleNetHubAsync(string eventName, object? data = null)
-    {
-        try
-        {
-            await Task.WhenAll(
-                _downloadHubContext.Clients.All.SendAsync(eventName, data),
-                _battleNetHubContext.Clients.All.SendAsync(eventName, data)
-            );
-            _logger.LogDebug("SignalR notification sent (downloads + battlenet): {EventName}", eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification (downloads + battlenet): {EventName}", eventName);
-        }
-    }
+    public Task NotifyBattleNetHubAsync(string eventName, object? data = null)
+        => NotifyDaemonHubAsync(_battleNetHubContext.Clients, eventName, data, "battlenet");
 
     // ===== Riot Prefill Hub Methods =====
 
@@ -225,27 +216,11 @@ public class SignalRNotificationService : ISignalRNotificationService
         await NotifyClientAsync(_riotHubContext.Clients, connectionId, eventName, data, "Riot prefill");
     }
 
-    public async Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
-    {
-        // This method throws on failure - caller is responsible for handling exceptions
-        await _riotHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
-    }
+    public Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
+        => SendRawAsync(_riotHubContext.Clients, connectionId, eventName, data);
 
-    public async Task NotifyRiotHubAsync(string eventName, object? data = null)
-    {
-        try
-        {
-            await Task.WhenAll(
-                _downloadHubContext.Clients.All.SendAsync(eventName, data),
-                _riotHubContext.Clients.All.SendAsync(eventName, data)
-            );
-            _logger.LogDebug("SignalR notification sent (downloads + riot): {EventName}", eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification (downloads + riot): {EventName}", eventName);
-        }
-    }
+    public Task NotifyRiotHubAsync(string eventName, object? data = null)
+        => NotifyDaemonHubAsync(_riotHubContext.Clients, eventName, data, "riot");
 
     // ===== Xbox Prefill Hub Methods =====
 
@@ -254,55 +229,19 @@ public class SignalRNotificationService : ISignalRNotificationService
         await NotifyClientAsync(_xboxHubContext.Clients, connectionId, eventName, data, "Xbox prefill");
     }
 
-    public async Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
-    {
-        // This method throws on failure - caller is responsible for handling exceptions
-        await _xboxHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
-    }
+    public Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
+        => SendRawAsync(_xboxHubContext.Clients, connectionId, eventName, data);
 
-    public async Task NotifyXboxHubAsync(string eventName, object? data = null)
-    {
-        try
-        {
-            await Task.WhenAll(
-                _downloadHubContext.Clients.All.SendAsync(eventName, data),
-                _xboxHubContext.Clients.All.SendAsync(eventName, data)
-            );
-            _logger.LogDebug("SignalR notification sent (downloads + xbox): {EventName}", eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification (downloads + xbox): {EventName}", eventName);
-        }
-    }
+    public Task NotifyXboxHubAsync(string eventName, object? data = null)
+        => NotifyDaemonHubAsync(_xboxHubContext.Clients, eventName, data, "xbox");
 
     // ===== DownloadHub Group Methods =====
 
-    public async Task NotifyAdminAsync(string eventName, object? data = null)
-    {
-        try
-        {
-            await _downloadHubContext.Clients.Group(DownloadHub.AdminGroup).SendAsync(eventName, data);
-            _logger.LogDebug("SignalR notification sent to admin group: {EventName}", eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification to admin group: {EventName}", eventName);
-        }
-    }
+    public Task NotifyAdminAsync(string eventName, object? data = null)
+        => NotifyGroupAsync(DownloadHub.AdminGroup, eventName, data);
 
-    public async Task NotifyGuestAsync(string eventName, object? data = null)
-    {
-        try
-        {
-            await _downloadHubContext.Clients.Group(DownloadHub.GuestGroup).SendAsync(eventName, data);
-            _logger.LogDebug("SignalR notification sent to guest group: {EventName}", eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification to guest group: {EventName}", eventName);
-        }
-    }
+    public Task NotifyGuestAsync(string eventName, object? data = null)
+        => NotifyGroupAsync(DownloadHub.GuestGroup, eventName, data);
 
     public async Task NotifyGroupAsync(string groupName, string eventName, object? data = null)
     {

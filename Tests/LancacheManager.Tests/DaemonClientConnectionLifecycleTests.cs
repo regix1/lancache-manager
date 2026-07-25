@@ -123,8 +123,9 @@ public sealed class DaemonClientConnectionLifecycleTests
     private static bool IsConnected(IDaemonClient client)
         => client switch
         {
-            SocketDaemonClient socketClient => socketClient.IsConnected,
-            TcpDaemonClient tcpClient => tcpClient.IsConnected,
+            // Both real transports report connectivity through their shared base; anything else here
+            // is a fake with no transport to be connected to.
+            DaemonClientBase transportClient => transportClient.IsConnected,
             _ => false
         };
 

@@ -136,11 +136,19 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
       refreshGroupsRef.current?.();
     };
 
+    // A database reset deletes every group, so the empty result is already known and needs no
+    // refetch. Skipping the request also avoids querying the database while the reset is still
+    // deleting the remaining tables. No admin gate: emptying the list is correct for any viewer.
+    const handleGroupsCleared = () => {
+      setClientGroups([]);
+    };
+
     on('ClientGroupCreated', handleGroupCreated);
     on('ClientGroupUpdated', handleGroupUpdated);
     on('ClientGroupDeleted', handleGroupDeleted);
     on('ClientGroupMemberAdded', handleMemberAdded);
     on('ClientGroupMemberRemoved', handleMemberRemoved);
+    on('ClientGroupsCleared', handleGroupsCleared);
 
     return () => {
       off('ClientGroupCreated', handleGroupCreated);
@@ -148,6 +156,7 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
       off('ClientGroupDeleted', handleGroupDeleted);
       off('ClientGroupMemberAdded', handleMemberAdded);
       off('ClientGroupMemberRemoved', handleMemberRemoved);
+      off('ClientGroupsCleared', handleGroupsCleared);
     };
   }, [on, off]);
 

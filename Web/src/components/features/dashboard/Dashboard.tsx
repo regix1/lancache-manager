@@ -978,7 +978,7 @@ const Dashboard: React.FC = () => {
                   className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity hidden md:block z-[5]"
                 >
                   <div className="p-1 themed-border-radius-sm cursor-grab hover:bg-themed-hover">
-                    <GripVertical className="w-4 h-4 text-themed-muted" />
+                    <GripVertical className="drag-handle-icon w-4 h-4" />
                   </div>
                 </Tooltip>
               }

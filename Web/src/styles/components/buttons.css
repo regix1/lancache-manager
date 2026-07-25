@@ -123,35 +123,6 @@
     background-color: var(--theme-bg-surface-hover) !important;
   }
 
-  .hover-btn-trigger {
-    transition:
-      background-color 0.15s ease,
-      color 0.15s ease;
-  }
-
-  .hover-btn-trigger:hover {
-    background-color: var(--theme-bg-surface-hover) !important;
-    color: var(--theme-text-primary) !important;
-  }
-
-  /* Light hover for buttons on colored backgrounds */
-  .hover-btn-light {
-    transition: background-color 0.15s ease;
-  }
-
-  .hover-btn-light:hover {
-    background-color: rgba(255, 255, 255, 0.2) !important;
-  }
-
-  /* Tab button utilities */
-  .tab-active {
-    background-color: var(--theme-bg-secondary);
-  }
-
-  .tab-inactive {
-    background-color: transparent;
-  }
-
   /* Keyboard focus ring for buttons, selects and links — global cascade handles suppression on click */
   button:focus-visible,
   select:focus-visible,

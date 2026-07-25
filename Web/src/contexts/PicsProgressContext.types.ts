@@ -4,7 +4,7 @@ import { createContext } from 'react';
  * PICS Progress Interface
  * Matches the structure returned by /api/depots/rebuild/progress
  */
-interface PicsProgress {
+export interface PicsProgress {
   // Core status
   isProcessing: boolean;
   status: string;

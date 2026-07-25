@@ -4,6 +4,7 @@ import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { StepDot } from './StepDot';
 import { useTranslation } from 'react-i18next';
 
 // The Xbox modal only consumes the device-code slice of an auth flow. Both the prefill-daemon
@@ -246,11 +247,3 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
     </Modal>
   );
 };
-
-const StepDot: React.FC<{ active?: boolean; completed?: boolean }> = ({ active, completed }) => (
-  <div
-    className={`w-2.5 h-2.5 rounded-full transition duration-200 ${
-      active ? 'bg-primary' : completed ? 'bg-success' : 'bg-themed-hover'
-    }`}
-  />
-);

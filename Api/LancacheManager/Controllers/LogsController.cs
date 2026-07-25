@@ -251,7 +251,7 @@ public class LogsController : ControllerBase
         var datasource = _datasourceService.GetDatasource(datasourceName);
         if (datasource == null)
         {
-            return NotFound(new NotFoundResponse { Error = $"Datasource '{datasourceName}' not found" });
+            return NotFound(ApiResponse.NotFound($"Datasource '{datasourceName}'"));
         }
 
         return await ResetPositionCoreAsync(
@@ -328,7 +328,7 @@ public class LogsController : ControllerBase
         var datasource = _datasourceService.GetDatasource(datasourceName);
         if (datasource == null)
         {
-            return NotFound(new NotFoundResponse { Error = $"Datasource '{datasourceName}' not found" });
+            return NotFound(ApiResponse.NotFound($"Datasource '{datasourceName}'"));
         }
 
         await _logProcessingStartLock.WaitAsync(cancellationToken);
@@ -400,20 +400,6 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/logs/process/kill - Force kill log processing operation
-    /// </summary>
-    [HttpPost("process/kill")]
-    public async Task<IActionResult> ForceKillAsync()
-    {
-        var killed = await _rustLogProcessorService.ForceKillProcessingAsync();
-        if (!killed)
-        {
-            return NotFound(new NotFoundResponse { Error = "No log processing operation to kill" });
-        }
-        return Ok(new { message = "Log processing was force killed" });
-    }
-
-    /// <summary>
     /// Shared position-reset logic for both the all-datasources and single-datasource PATCH endpoints.
     /// When <paramref name="datasourceName"/> is null, operates across all datasources.
     /// If <paramref name="requestedPosition"/> is 0, resets to beginning; otherwise resets to end of file.
@@ -430,10 +416,8 @@ public class LogsController : ControllerBase
         // wait out) processing first instead of returning a success that does not stick.
         if (_rustLogProcessorService.IsProcessing)
         {
-            return Conflict(new ErrorResponse
-            {
-                Error = "Log processing is currently running. Stop it or let it finish, then reset the position."
-            });
+            return Conflict(ApiResponse.Error(
+                "Log processing is currently running. Stop it or let it finish, then reset the position."));
         }
 
         // Position == 0 -> reset to beginning. This remains state-only and deliberately does not
@@ -518,7 +502,7 @@ public class LogsController : ControllerBase
                 $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
             _logger.LogWarning("[{Operation}] Permission check failed: {Error}", operationDescription, errorMessage);
-            return BadRequest(new ErrorResponse { Error = errorMessage });
+            return BadRequest(ApiResponse.Error(errorMessage));
         }
 
         var readOnlyCount = datasources.Count - writableDatasources.Count;
@@ -608,7 +592,7 @@ public class LogsController : ControllerBase
         var datasource = _datasourceService.GetDatasource(datasourceName);
         if (datasource == null)
         {
-            return NotFound(new NotFoundResponse { Error = $"Datasource '{datasourceName}' not found" });
+            return NotFound(ApiResponse.NotFound($"Datasource '{datasourceName}'"));
         }
 
         if (!datasource.LogsWritable)
@@ -675,7 +659,7 @@ public class LogsController : ControllerBase
         var datasource = _datasourceService.GetDatasource(datasourceName);
         if (datasource == null)
         {
-            return NotFound(new NotFoundResponse { Error = $"Datasource '{datasourceName}' not found" });
+            return NotFound(ApiResponse.NotFound($"Datasource '{datasourceName}'"));
         }
 
         if (!datasource.LogsWritable)

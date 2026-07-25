@@ -313,12 +313,6 @@ public class ClearCacheResult
     [JsonPropertyName("success")]
     public bool Success { get; set; }
 
-    [JsonPropertyName("fileCount")]
-    public int FileCount { get; set; }
-
-    [JsonPropertyName("bytesCleared")]
-    public long BytesCleared { get; set; }
-
     [JsonPropertyName("message")]
     public string? Message { get; set; }
 }
@@ -380,21 +374,6 @@ public class AppCacheStatus
 
     [JsonPropertyName("downloadSize")]
     public long DownloadSize { get; set; }
-
-    [JsonPropertyName("outdatedDepots")]
-    public List<OutdatedDepot> OutdatedDepots { get; set; } = new();
-}
-
-public class OutdatedDepot
-{
-    [JsonPropertyName("depotId")]
-    public long DepotId { get; set; }
-
-    [JsonPropertyName("cachedManifest")]
-    public ulong CachedManifest { get; set; }
-
-    [JsonPropertyName("currentManifest")]
-    public ulong CurrentManifest { get; set; }
 }
 
 /// <summary>

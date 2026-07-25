@@ -323,24 +323,7 @@ public sealed class UnknownGameResolutionService
             .ToListAsync(cancellationToken);
     }
 
-    private static List<string> DeserializeStringList(string? json)
-    {
-        if (string.IsNullOrEmpty(json))
-        {
-            return new List<string>();
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
-        }
-        catch
-        {
-            return new List<string>();
-        }
-    }
-
-    private static void MergeUnknownGameIntoTarget(CachedGameDetection target, CachedGameDetection source)
+    private void MergeUnknownGameIntoTarget(CachedGameDetection target, CachedGameDetection source)
     {
         target.CacheFilesFound += source.CacheFilesFound;
         target.TotalSizeBytes += source.TotalSizeBytes;
@@ -353,8 +336,8 @@ public sealed class UnknownGameResolutionService
         targetDepots.AddRange(sourceDepots);
         target.DepotIdsJson = JsonSerializer.Serialize(targetDepots.Distinct().ToList());
 
-        var targetPaths = DeserializeStringList(target.CacheFilePathsJson);
-        var sourcePaths = DeserializeStringList(source.CacheFilePathsJson);
+        var targetPaths = GameCacheDetectionDataService.DeserializeStringList(target.CacheFilePathsJson, _logger);
+        var sourcePaths = GameCacheDetectionDataService.DeserializeStringList(source.CacheFilePathsJson, _logger);
         targetPaths.AddRange(sourcePaths);
         target.CacheFilePathsJson = JsonSerializer.Serialize(targetPaths.Distinct().ToList());
     }

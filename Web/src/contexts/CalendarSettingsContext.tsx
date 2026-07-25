@@ -1,26 +1,6 @@
 import React, { useState, useEffect, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
-import {
-  CalendarSettingsContext,
-  type EventOpacity,
-  type EventDisplayStyle,
-  type WeekStartDay
-} from './CalendarSettingsContext.types';
-
-interface CalendarSettings {
-  // Event appearance
-  eventOpacity: EventOpacity;
-  eventDisplayStyle: EventDisplayStyle;
-
-  // Calendar view options
-  weekStartDay: WeekStartDay;
-  showWeekNumbers: boolean;
-  showAdjacentMonths: boolean;
-  hideEndedEvents: boolean;
-
-  // Density/size
-  compactMode: boolean;
-}
+import { CalendarSettingsContext, type CalendarSettings } from './CalendarSettingsContext.types';
 
 const DEFAULT_SETTINGS: CalendarSettings = {
   eventOpacity: 'transparent',

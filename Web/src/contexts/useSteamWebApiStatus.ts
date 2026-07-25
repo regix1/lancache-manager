@@ -1,10 +1,7 @@
-import { useContext } from 'react';
 import { SteamWebApiStatusContext } from './SteamWebApiStatusContext.types';
+import { createContextHook } from './createContextHook';
 
-export const useSteamWebApiStatus = () => {
-  const context = useContext(SteamWebApiStatusContext);
-  if (!context) {
-    throw new Error('useSteamWebApiStatus must be used within SteamWebApiStatusProvider');
-  }
-  return context;
-};
+export const useSteamWebApiStatus = createContextHook(
+  SteamWebApiStatusContext,
+  'useSteamWebApiStatus'
+);

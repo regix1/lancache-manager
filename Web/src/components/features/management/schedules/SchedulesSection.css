@@ -34,7 +34,7 @@
    "Run All" - an even 50/50 split wrapped that label to two lines while its sibling stayed on
    one, so the pair rendered at visibly different heights. Full-width stacked buttons keep both
    single-line and the same height regardless of label length. */
-@media (max-width: 639px) {
+@media (max-width: 639.98px) {
   .schedules-section-header {
     flex-direction: column;
     align-items: stretch;
@@ -342,7 +342,7 @@
 /* Below the desktop table width each row folds into a tile: identity across the top,
    the readouts pairing up beneath it with their own caps labels (the head strip stays
    for screen readers only), then the interval and actions each take a full line. */
-@media (max-width: 767px) {
+@media (max-width: 767.98px) {
   .schedule-table-head {
     position: absolute;
     width: 1px;
@@ -435,7 +435,7 @@
 }
 
 /* Tablet band: compact gap - see the knob comment above. */
-@media (min-width: 768px) and (max-width: 1023px) {
+@media (min-width: 768px) and (max-width: 1023.98px) {
   .schedule-table-cols {
     --schedule-col-gap: 0.75rem;
   }
@@ -525,32 +525,6 @@
   color: var(--theme-text-secondary);
 }
 
-/* Status indicator */
-.schedule-status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background-color: var(--theme-border-secondary);
-}
-
-.schedule-status-dot.running {
-  background-color: var(--theme-success);
-  box-shadow: 0 0 0 2px var(--theme-success-bg);
-  animation: pulse-dot 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse-dot {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
 /* Caps readout label - the scheduled-prefill table's mobile cell labels reuse this.
    Base type from shared .caps-label; this label reads at weight 500 not 600.
    Compounded so the weight wins regardless of bundle order (see patterns.css). */
@@ -617,7 +591,7 @@
   margin-left: auto;
 }
 
-@media (max-width: 639px) {
+@media (max-width: 639.98px) {
   .scheduled-prefill-card-summary__actions {
     width: 100%;
   }
@@ -801,7 +775,7 @@
   }
 }
 
-@media (max-width: 767px) {
+@media (max-width: 767.98px) {
   .scheduled-prefill-schedule-table {
     display: flex;
     flex-direction: column;
@@ -936,13 +910,6 @@
   font-size: var(--font-size-md);
   line-height: 1.5;
   color: var(--theme-text-muted);
-}
-
-.scheduled-prefill-config-modal__overview-status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
 }
 
 /* Composes the shared .help-list; only the top margin diverges (this list sits
@@ -1080,14 +1047,6 @@
   color: var(--theme-button-text);
 }
 
-.scheduled-prefill-config-modal__inline-loading {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: var(--font-size-sm);
-  color: var(--theme-text-muted);
-}
-
 /* Shape-matching skeleton: nav rail + stacked detail blocks (not a centred spinner) */
 .scheduled-prefill-config-modal__skeleton {
   display: flex;
@@ -1155,12 +1114,6 @@
   gap: 1rem;
   padding-top: 1.25rem;
   border-top: 1px solid var(--theme-border-secondary);
-}
-
-.scheduled-prefill-config-modal__containers {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
 }
 
 /* Inner card chrome comes from ui/ Card; this only owns the internal rhythm. */
@@ -1330,19 +1283,13 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  /* Matches .action-group's own gap below so buttons read as one evenly-spaced row regardless of
-     which group wraps them - a lone button in its own group (e.g. Stop container) used to get a
-     visibly wider 0.75rem gap to its neighbor than buttons sharing a group get to each other. */
+  /* Matches the shared .cluster gap the action groups inside use so buttons read as one
+     evenly-spaced row regardless of which group wraps them - a lone button in its own group
+     (e.g. Stop container) used to get a visibly wider 0.75rem gap to its neighbor than buttons
+     sharing a group get to each other. */
   gap: 0.5rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--theme-border-secondary);
-}
-
-.scheduled-prefill-persistent-card__action-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
 }
 
 .scheduled-prefill-persistent-card__action-group--primary {
@@ -1350,10 +1297,6 @@
 }
 
 @media (min-width: 768px) {
-  .scheduled-prefill-config-modal__settings-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .scheduled-prefill-persistent-card__meta {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1573,7 +1516,7 @@
   }
 }
 
-@media (max-width: 767px) {
+@media (max-width: 767.98px) {
   .scheduled-prefill-platforms {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1599,8 +1542,7 @@
   }
 }
 
-@media (max-width: 639px) {
-  .scheduled-prefill-config-modal__section-header,
+@media (max-width: 639.98px) {
   .scheduled-prefill-persistent-card__header {
     align-items: flex-start;
     flex-direction: column;
@@ -1714,21 +1656,12 @@
     align-items: stretch;
   }
 
-  .scheduled-prefill-config-modal__settings-actions > button,
   .scheduled-prefill-config-modal__actions > button {
     width: 100%;
   }
 
   .scheduled-prefill-config-modal__actions {
     flex-direction: column-reverse;
-  }
-
-  .scheduled-prefill-config-modal__settings-actions {
-    justify-content: stretch;
-  }
-
-  .scheduled-prefill-config-modal__settings-actions > * {
-    width: 100%;
   }
 
   .scheduled-prefill-config-modal__actions > * {

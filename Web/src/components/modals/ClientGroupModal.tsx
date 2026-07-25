@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import Badge from '@components/ui/Badge';
 import { Pagination } from '@components/ui/Pagination';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { useClientGroups } from '@contexts/useClientGroups';
@@ -230,9 +231,9 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           <div>
             <label className="form-field-label">
               {t('modals.clientGroup.labels.currentIps')}{' '}
-              <span className="themed-badge status-badge-neutral badge-count">
+              <Badge variant="neutral" className="badge-count">
                 {group.memberIps.length}
-              </span>
+              </Badge>
             </label>
             <div className="flex flex-wrap gap-2">
               {group.memberIps.map((ip) => (
@@ -254,9 +255,9 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
               <>
                 {t('modals.clientGroup.labels.ipsToAdd')}{' '}
                 {chosenIps.length > 0 && (
-                  <span className="themed-badge status-badge-neutral badge-count">
+                  <Badge variant="neutral" className="badge-count">
                     {chosenIps.length}
-                  </span>
+                  </Badge>
                 )}
               </>
             ) : (

@@ -255,7 +255,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
     void themeRevision;
     const textColor = getThemeColor('--theme-chart-text');
     const mutedColor = getThemeColor('--theme-text-muted');
-    const zeroLineColor = getThemeColor('--theme-border-primary');
+    const zeroLineColor = getThemeColor('--theme-chart-grid');
     const maxMagnitude = services.reduce(
       (max, service) => Math.max(max, service.totalCacheHitBytes, service.totalCacheMissBytes),
       0

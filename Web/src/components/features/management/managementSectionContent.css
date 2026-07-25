@@ -85,15 +85,6 @@
   flex-basis: 100%;
 }
 
-/* Quiet scan-metadata readout ("Results from previous scan · Jul 9, 07:10"). */
-.mgmt-scanmeta {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--theme-text-muted);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-
 @media (hover: hover) {
   .mgmt-search-clear:hover {
     color: var(--theme-text-primary);
@@ -154,7 +145,11 @@
   text-transform: capitalize;
 }
 
-.mgmt-row__meta {
+/* The quiet secondary line under a row title, and the same treatment used
+   standalone for a scan-metadata readout ("Results from previous scan ·
+   Jul 9, 07:10"). One rule because the two are the same type style. */
+.mgmt-row__meta,
+.mgmt-scanmeta {
   margin: 0;
   font-size: var(--font-size-xs);
   color: var(--theme-text-muted);
@@ -403,7 +398,7 @@
   }
 }
 
-@media (max-width: 639px) {
+@media (max-width: 639.98px) {
   .mgmt-evidence__head {
     flex-direction: column;
   }
@@ -426,54 +421,79 @@
   }
 }
 
+/* ===== Data section - database table picker ===== */
+
+.db-table-item {
+  border: 1px solid var(--theme-border-well);
+  background-clip: padding-box;
+}
+
+.db-table-item-selected {
+  border-color: var(--theme-primary);
+}
+
+/* ===== Storage section - cache eviction mode picker ===== */
+
+.eviction-mode-option {
+  border: 1px solid var(--theme-border-well);
+  border-left: 2px solid transparent;
+  background-color: var(--theme-bg-tertiary);
+  background-clip: padding-box;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.eviction-mode-option:hover {
+  background-color: var(--theme-bg-secondary-on-tertiary);
+  border-color: var(--theme-border-primary);
+  /* Reserve the accent left edge for the selected row only. */
+  border-left-color: transparent;
+}
+
+/* Selected reads with an accent left edge, matching the Schedules table rows.
+   No bright fill - the accent edge + radio communicate selection. */
+.eviction-mode-option-selected,
+.eviction-mode-option-selected:hover {
+  background-color: var(--theme-bg-tertiary);
+  border-color: var(--theme-border-well);
+  border-left-color: var(--theme-accent);
+}
+
+.eviction-radio {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--theme-border-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition-property: background-color, border-color, box-shadow, opacity;
+  transition-duration: 0.15s;
+  transition-timing-function: ease;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.eviction-radio:checked {
+  border-color: var(--theme-primary);
+  background-color: var(--theme-primary);
+  box-shadow: inset 0 0 0 3px var(--theme-card-bg);
+}
+
+/* ===== Grafana section - endpoint access toolbar ===== */
+
+/* Secondary "Source: ..." line under the access-mode label */
+.metrics-source-label {
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-muted);
+  margin-top: 0.125rem;
+}
+
+.metrics-reset-button {
+  margin-left: auto;
+}
+
 /* Two-column labelled facts (single column below 640px). Short pairs render
    inline (label: value); wide cells stack their label above a block value so
    multi-line cache paths keep their own lines. */
-.mgmt-kv {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.1875rem 1rem;
-  margin: 0;
-}
-
-@media (min-width: 640px) {
-  .mgmt-kv {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.mgmt-kv__cell {
-  min-width: 0;
-  font-size: var(--font-size-sm);
-  overflow-wrap: anywhere;
-}
-
-.mgmt-kv__cell--wide {
-  grid-column: 1 / -1;
-}
-
-.mgmt-kv__cell dt {
-  display: inline;
-  color: var(--theme-text-muted);
-}
-
-.mgmt-kv__cell dd {
-  display: inline;
-  margin: 0 0 0 0.25rem;
-  color: var(--theme-text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.mgmt-kv__cell--wide dt {
-  display: block;
-  margin-bottom: 0.0625rem;
-}
-
-.mgmt-kv__cell--wide dd {
-  display: block;
-  margin: 0;
-}
-
-.mgmt-kv__cell code {
-  font-size: var(--font-size-sm);
-}

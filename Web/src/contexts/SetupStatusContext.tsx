@@ -1,6 +1,7 @@
 import React, { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
+import { assertOk } from '@services/apiError';
 import { APP_EVENTS, API_BASE } from '@utils/constants';
 import type { ShowToastEvent } from '@contexts/SignalRContext/types';
 import { SetupStatusContext, type SetupStatus } from './SetupStatusContext.types';
@@ -127,11 +128,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
   const patchSetupState = async (body: Record<string, unknown>): Promise<Response> => {
     return fetch(
       `${API_BASE}/system/setup`,
-      ApiService.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      })
+      ApiService.getJsonFetchOptions(body, { method: 'PATCH' })
     );
   };
 
@@ -164,9 +161,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
           });
         }
 
-        if (!response.ok) {
-          throw new Error(`PATCH /system/setup failed with status ${response.status}`);
-        }
+        await assertOk(response);
 
         // Optimistically update local state only after server confirms success.
         setSyncError(null);

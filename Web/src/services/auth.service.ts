@@ -1,5 +1,5 @@
-import type { ApiErrorData } from './apiError';
-import { getApiUrl } from './apiUrl';
+import { assertOk, type ApiErrorData } from './apiError';
+import { getApiUrl } from '@utils/constants';
 import { hasRecentUserInteraction } from '@utils/userInteractionTracker';
 
 export type AuthMode = 'authenticated' | 'guest' | 'unauthenticated';
@@ -68,9 +68,7 @@ class AuthService {
         }
       });
 
-      if (!response.ok) {
-        throw new Error(`Auth check failed: ${response.status}`);
-      }
+      await assertOk(response);
 
       const data: AuthStatusResponse = await response.json();
 

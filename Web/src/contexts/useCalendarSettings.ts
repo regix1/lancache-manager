@@ -1,10 +1,7 @@
-import { useContext } from 'react';
 import { CalendarSettingsContext } from './CalendarSettingsContext.types';
+import { createContextHook } from './createContextHook';
 
-export const useCalendarSettings = () => {
-  const context = useContext(CalendarSettingsContext);
-  if (!context) {
-    throw new Error('useCalendarSettings must be used within a CalendarSettingsProvider');
-  }
-  return context;
-};
+export const useCalendarSettings = createContextHook(
+  CalendarSettingsContext,
+  'useCalendarSettings'
+);

@@ -427,36 +427,6 @@ public class PicsDataService
     }
 
     /// <summary>
-    /// Get app IDs for a depot from JSON data.
-    /// Returns an empty list both when the depot has no known app IDs AND when the lookup fails
-    /// (logged as a warning) - the two cases are indistinguishable to callers by design.
-    /// </summary>
-    public async Task<List<long>> GetAppIdsForDepotFromJsonAsync(long depotId)
-    {
-        try
-        {
-            var picsData = await LoadFromJsonAsync();
-            if (picsData?.DepotMappings == null)
-            {
-                return new List<long>();
-            }
-
-            var depotKey = depotId.ToString();
-            if (picsData.DepotMappings.TryGetValue(depotKey, out var mapping))
-            {
-                return mapping.AppIds?.Select(id => (long)id).ToList() ?? new List<long>();
-            }
-
-            return new List<long>();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, $"Error getting app IDs for depot {depotId} from JSON");
-            return new List<long>();
-        }
-    }
-
-    /// <summary>
     /// Clear all depot mappings from the database
     /// </summary>
     public async Task ClearDepotMappingsAsync(CancellationToken cancellationToken = default, bool preserveOrphanResolved = false)
@@ -682,46 +652,6 @@ public class PicsDataService
     /// Get file path for PICS JSON file
     /// </summary>
     public string GetPicsJsonFilePath() => _picsJsonFile;
-
-    /// <summary>
-    /// Update the LastChangeNumber in the JSON file metadata (used after GitHub downloads)
-    /// </summary>
-    public async Task UpdateLastChangeNumberAsync(uint newChangeNumber)
-    {
-        try
-        {
-            // Load existing data
-            var existingData = await LoadFromJsonAsync();
-            if (existingData == null || existingData.Metadata == null)
-            {
-                _logger.LogWarning("Cannot update change number - no existing PICS data found");
-                return;
-            }
-
-            // Update metadata
-            existingData.Metadata.LastChangeNumber = newChangeNumber;
-            existingData.Metadata.LastUpdated = DateTime.UtcNow;
-
-            // Save back to file
-            var jsonOptions = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            };
-
-            WritePicsJsonFile(existingData, jsonOptions);
-
-            // Clear cache
-            ClearCache();
-
-            _logger.LogInformation("Updated PICS JSON metadata: LastChangeNumber = {ChangeNumber}", newChangeNumber);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating change number in PICS JSON file");
-            throw;
-        }
-    }
 
     /// <summary>
     /// Serializes straight to the file under the shared file lock. The depot map's JSON is

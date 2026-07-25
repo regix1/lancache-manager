@@ -1,12 +1,11 @@
 import React, { useState, useRef } from 'react';
-import './DataSection.css';
 import { useTranslation } from 'react-i18next';
-import { Database, AlertTriangle } from 'lucide-react';
+import { Database } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import { Modal } from '@components/ui/Modal';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
@@ -413,102 +412,83 @@ const DataSection: React.FC<DataSectionProps> = ({
       </div>
 
       {/* Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={showClearModal}
-        onClose={() => {
-          if (!loading) {
-            setShowClearModal(false);
-          }
-        }}
+        onClose={() => setShowClearModal(false)}
+        onConfirm={confirmClear}
+        title={t('management.sections.data.confirmClearTitle')}
+        confirmLabel={t('management.sections.data.clearTables', { count: selectedTables.length })}
+        loading={loading}
         size="lg"
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('management.sections.data.confirmClearTitle')}</span>
-          </div>
-        }
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.sections.data.confirmClearMessage')}
-          </p>
+        <p className="text-themed-secondary">{t('management.sections.data.confirmClearMessage')}</p>
 
-          <div className="space-y-2 max-h-[40vh] overflow-y-auto custom-scrollbar pr-2">
-            {getSelectedTableInfo().map((table) => (
-              <div
-                key={table.name}
-                className="p-3 rounded-lg bg-themed-tertiary border border-[var(--theme-border-well)] [background-clip:padding-box]"
-              >
-                <div className="font-medium text-themed-primary">{table.label}</div>
-                <div className="text-sm text-themed-secondary mt-1">{table.description}</div>
-                <div className="text-xs mt-2 flex items-center gap-1.5">
-                  <span className="text-themed-muted">{t('management.sections.data.affects')}</span>
-                  <span className="text-themed-warning font-medium">{table.affectedPages}</span>
-                </div>
+        <div className="space-y-2 max-h-[40vh] overflow-y-auto custom-scrollbar pr-2">
+          {getSelectedTableInfo().map((table) => (
+            <div
+              key={table.name}
+              className="p-3 rounded-lg bg-themed-tertiary border border-[var(--theme-border-well)] [background-clip:padding-box]"
+            >
+              <div className="font-medium text-themed-primary">{table.label}</div>
+              <div className="text-sm text-themed-secondary mt-1">{table.description}</div>
+              <div className="text-xs mt-2 flex items-center gap-1.5">
+                <span className="text-themed-muted">{t('management.sections.data.affects')}</span>
+                <span className="text-themed-warning font-medium">{table.affectedPages}</span>
               </div>
-            ))}
-          </div>
-
-          <Alert color="yellow">
-            <div>
-              <p className="text-sm font-medium mb-2">
-                {t('management.sections.data.confirmClearImportant')}
-              </p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>{t('management.sections.data.confirmClearWarnings.noUndo')}</li>
-                <li>{t('management.sections.data.confirmClearWarnings.exportFirst')}</li>
-                <li>{t('management.sections.data.confirmClearWarnings.reportsAffected')}</li>
-                {selectedTables.includes('SteamDepotMappings') && (
-                  <li>{t('management.sections.data.confirmClearWarnings.depotMappings')}</li>
-                )}
-                {selectedTables.includes('Events') && (
-                  <li>{t('management.sections.data.confirmClearWarnings.events')}</li>
-                )}
-                {selectedTables.includes('UserSessions') && (
-                  <li className="font-semibold">
-                    {t('management.sections.data.confirmClearWarnings.userSessionsLogout')}
-                  </li>
-                )}
-                {selectedTables.includes('UserSessions') && (
-                  <li className="font-semibold">
-                    {t('management.sections.data.confirmClearWarnings.userSessionsCleared')}
-                  </li>
-                )}
-                {selectedTables.includes('ClientGroups') && (
-                  <li>{t('management.sections.data.confirmClearWarnings.clientGroups')}</li>
-                )}
-                {selectedTables.includes('PrefillSessions') && (
-                  <li>{t('management.sections.data.confirmClearWarnings.prefillSessions')}</li>
-                )}
-                {selectedTables.includes('BannedSteamUsers') && (
-                  <li>{t('management.sections.data.confirmClearWarnings.bannedSteamUsers')}</li>
-                )}
-                {selectedTables.includes('EpicGameMappings') && (
-                  <li>{t('management.sections.data.confirmClearWarnings.epicGameMappings')}</li>
-                )}
-                {selectedTables.includes('EpicCdnPatterns') && (
-                  <li>{t('management.sections.data.confirmClearWarnings.epicCdnPatterns')}</li>
-                )}
-                {selectedTables.includes('XboxGameMappings') && (
-                  <li>{t('management.sections.data.confirmClearWarnings.xboxGameMappings')}</li>
-                )}
-                {selectedTables.includes('XboxCdnPatterns') && (
-                  <li>{t('management.sections.data.confirmClearWarnings.xboxCdnPatterns')}</li>
-                )}
-              </ul>
             </div>
-          </Alert>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button variant="default" onClick={() => setShowClearModal(false)} disabled={loading}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="filled" color="red" onClick={confirmClear} loading={loading}>
-              {t('management.sections.data.clearTables', { count: selectedTables.length })}
-            </Button>
-          </div>
+          ))}
         </div>
-      </Modal>
+
+        <Alert color="yellow">
+          <div>
+            <p className="text-sm font-medium mb-2">
+              {t('management.sections.data.confirmClearImportant')}
+            </p>
+            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+              <li>{t('management.sections.data.confirmClearWarnings.noUndo')}</li>
+              <li>{t('management.sections.data.confirmClearWarnings.exportFirst')}</li>
+              <li>{t('management.sections.data.confirmClearWarnings.reportsAffected')}</li>
+              {selectedTables.includes('SteamDepotMappings') && (
+                <li>{t('management.sections.data.confirmClearWarnings.depotMappings')}</li>
+              )}
+              {selectedTables.includes('Events') && (
+                <li>{t('management.sections.data.confirmClearWarnings.events')}</li>
+              )}
+              {selectedTables.includes('UserSessions') && (
+                <li className="font-semibold">
+                  {t('management.sections.data.confirmClearWarnings.userSessionsLogout')}
+                </li>
+              )}
+              {selectedTables.includes('UserSessions') && (
+                <li className="font-semibold">
+                  {t('management.sections.data.confirmClearWarnings.userSessionsCleared')}
+                </li>
+              )}
+              {selectedTables.includes('ClientGroups') && (
+                <li>{t('management.sections.data.confirmClearWarnings.clientGroups')}</li>
+              )}
+              {selectedTables.includes('PrefillSessions') && (
+                <li>{t('management.sections.data.confirmClearWarnings.prefillSessions')}</li>
+              )}
+              {selectedTables.includes('BannedSteamUsers') && (
+                <li>{t('management.sections.data.confirmClearWarnings.bannedSteamUsers')}</li>
+              )}
+              {selectedTables.includes('EpicGameMappings') && (
+                <li>{t('management.sections.data.confirmClearWarnings.epicGameMappings')}</li>
+              )}
+              {selectedTables.includes('EpicCdnPatterns') && (
+                <li>{t('management.sections.data.confirmClearWarnings.epicCdnPatterns')}</li>
+              )}
+              {selectedTables.includes('XboxGameMappings') && (
+                <li>{t('management.sections.data.confirmClearWarnings.xboxGameMappings')}</li>
+              )}
+              {selectedTables.includes('XboxCdnPatterns') && (
+                <li>{t('management.sections.data.confirmClearWarnings.xboxCdnPatterns')}</li>
+              )}
+            </ul>
+          </div>
+        </Alert>
+      </ConfirmationModal>
     </div>
   );
 };

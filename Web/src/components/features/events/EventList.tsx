@@ -16,6 +16,7 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes } from '@utils/formatters';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
@@ -245,9 +246,9 @@ const EventCard = React.memo(
                 <span className="text-xs font-medium text-[var(--theme-text-secondary)]">
                   {t('events.list.gamesDuringEvent')}
                 </span>
-                <span className="themed-badge status-badge-neutral badge-count">
+                <Badge variant="neutral" className="badge-count">
                   {t('events.list.gameCount', { count: groupedDownloads.length })}
-                </span>
+                </Badge>
               </div>
               {groupedDownloads.slice(0, 10).map((game, idx) => (
                 <div

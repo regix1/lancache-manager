@@ -139,8 +139,7 @@ public class GameDetectionVisibilityRaceTests
             Directory.CreateDirectory(datasource.LogPath);
             File.WriteAllText(Path.Combine(datasource.LogPath, "access.log"), string.Empty);
 
-            var capabilityService = new DatasourceCapabilityService(
-                datasourceService, NullLogger<DatasourceCapabilityService>.Instance);
+            var capabilityService = new DatasourceCapabilityService(datasourceService);
 
             Notifications = (RecordingNotificationsProxy)DispatchProxy
                 .Create<ISignalRNotificationService, RecordingNotificationsProxy>();

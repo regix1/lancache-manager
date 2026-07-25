@@ -1,10 +1,4 @@
-import { useContext } from 'react';
 import { EventContext } from './EventContext.types';
+import { createContextHook } from './createContextHook';
 
-export const useEvents = () => {
-  const context = useContext(EventContext);
-  if (!context) {
-    throw new Error('useEvents must be used within an EventProvider');
-  }
-  return context;
-};
+export const useEvents = createContextHook(EventContext, 'useEvents');

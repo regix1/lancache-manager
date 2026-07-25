@@ -1,15 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, XCircle } from 'lucide-react';
-import { AccordionSection } from '@components/ui/AccordionSection';
-import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
-import { Button } from '@components/ui/Button';
-import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EpicIcon } from '@components/ui/EpicIcon';
-import { LoadingState } from '@components/ui/ManagerCard';
-
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import EpicGameMappings from './EpicGameMappings';
+import DaemonStatusCard from '../daemon-status/DaemonStatusCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
@@ -42,8 +36,6 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(false);
-  useAccordionGroupItem('integrations-epic', expanded, () => setExpanded((prev) => !prev));
 
   const loadStatus = useCallback(async () => {
     try {
@@ -127,28 +119,17 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
     authStatus?.isAuthenticated ?? false
   );
 
-  const statusBadge = !loading ? (
-    isAuthenticated ? (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-        <CheckCircle size={14} />
-        {t('management.sections.integrations.epicDaemonStatus.connected')}
-      </span>
-    ) : (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-        <XCircle size={14} />
-        {t('management.sections.integrations.epicDaemonStatus.notConnected')}
-      </span>
-    )
-  ) : undefined;
-
-  const helpAccessory = (
-    <HelpPopover position="left" width={320}>
-      <HelpSection
-        title={t('management.sections.integrations.epicDaemonStatus.help.authentication.title')}
-        variant="subtle"
-      >
-        <HelpDefinition
-          items={[
+  return (
+    <>
+      <DaemonStatusCard
+        accordionId="integrations-epic"
+        title={t('management.sections.integrations.epicDaemonStatus.title')}
+        description={t('management.sections.integrations.epicDaemonStatus.summary')}
+        icon={EpicIcon}
+        iconColor="var(--theme-epic)"
+        help={{
+          title: t('management.sections.integrations.epicDaemonStatus.help.authentication.title'),
+          definitions: [
             {
               term: t(
                 'management.sections.integrations.epicDaemonStatus.help.authentication.loginRequired.term'
@@ -165,90 +146,45 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
                 'management.sections.integrations.epicDaemonStatus.help.authentication.gameDiscovery.description'
               )
             }
-          ]}
-        />
-      </HelpSection>
-      <HelpNote type="info">
-        {t('management.sections.integrations.epicDaemonStatus.help.note')}
-      </HelpNote>
-    </HelpPopover>
-  );
-
-  return (
-    <>
-      <AccordionSection
-        title={t('management.sections.integrations.epicDaemonStatus.title')}
-        description={t('management.sections.integrations.epicDaemonStatus.summary')}
-        titleAccessory={helpAccessory}
-        icon={EpicIcon}
-        iconColor="var(--theme-epic)"
-        isExpanded={expanded}
-        onToggle={() => setExpanded((prev) => !prev)}
-        badge={statusBadge}
-      >
-        {loading ? (
-          <LoadingState
-            message={t(
-              'management.sections.integrations.epicDaemonStatus.loadingStatus',
-              'Loading Epic status...'
-            )}
-            rows={1}
-          />
-        ) : (
-          <>
-            {hasError && (
-              <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
-                {t(
-                  'management.sections.integrations.epicDaemonStatus.loadError',
-                  'Failed to load Epic status. Displaying default values.'
-                )}
-              </div>
-            )}
-
-            <div className="p-3 rounded-lg bg-themed-tertiary">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="text-themed-primary text-sm font-medium mb-1">
-                    {isAuthenticated
-                      ? t('management.sections.integrations.epicDaemonStatus.connectedAs', {
-                          name: authStatus?.displayName || 'Epic User'
-                        })
-                      : t('management.sections.integrations.epicDaemonStatus.notConnected')}
-                  </p>
-                  <p className="text-xs text-themed-muted">
-                    {isAuthenticated
-                      ? t('management.sections.integrations.epicDaemonStatus.connectedDesc')
-                      : t('management.sections.integrations.epicDaemonStatus.notConnectedDesc')}
-                  </p>
-                </div>
-                {authMode === 'authenticated' && !mockMode && (
-                  <div className="flex-shrink-0">
-                    {isAuthenticated ? (
-                      <Button
-                        onClick={handleLogout}
-                        loading={loggingOut}
-                        variant="filled"
-                        color="red"
-                        size="sm"
-                      >
-                        {t('management.sections.integrations.epicDaemonStatus.logout')}
-                      </Button>
-                    ) : (
-                      <Button onClick={handleLoginClick} variant="filled" color="blue" size="sm">
-                        {t('management.sections.integrations.epicDaemonStatus.loginButton')}
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
+          ],
+          note: t('management.sections.integrations.epicDaemonStatus.help.note')
+        }}
+        loading={loading}
+        loadingMessage={t(
+          'management.sections.integrations.epicDaemonStatus.loadingStatus',
+          'Loading Epic status...'
         )}
-
-        <div className="mt-4">
-          <EpicGameMappings />
-        </div>
-      </AccordionSection>
+        hasError={hasError}
+        errorMessage={t(
+          'management.sections.integrations.epicDaemonStatus.loadError',
+          'Failed to load Epic status. Displaying default values.'
+        )}
+        connected={isAuthenticated}
+        connectedLabel={t('management.sections.integrations.epicDaemonStatus.connected')}
+        notConnectedLabel={t('management.sections.integrations.epicDaemonStatus.notConnected')}
+        headline={
+          isAuthenticated
+            ? t('management.sections.integrations.epicDaemonStatus.connectedAs', {
+                name: authStatus?.displayName || 'Epic User'
+              })
+            : t('management.sections.integrations.epicDaemonStatus.notConnected')
+        }
+        detail={
+          isAuthenticated
+            ? t('management.sections.integrations.epicDaemonStatus.connectedDesc')
+            : t('management.sections.integrations.epicDaemonStatus.notConnectedDesc')
+        }
+        auth={{
+          enabled: authMode === 'authenticated' && !mockMode,
+          loginLabel: t('management.sections.integrations.epicDaemonStatus.loginButton'),
+          logoutLabel: t('management.sections.integrations.epicDaemonStatus.logout'),
+          onLogin: handleLoginClick,
+          onLogout: handleLogout,
+          loggingOut
+        }}
+      >
+        <EpicGameMappings />
+      </DaemonStatusCard>
 
       <EpicAuthModal
         opened={showAuthModal}

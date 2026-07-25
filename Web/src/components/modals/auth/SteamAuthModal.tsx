@@ -3,6 +3,7 @@ import { Key, Lock, Shield, Mail, Smartphone } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { StepDot } from './StepDot';
 import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTranslation } from 'react-i18next';
@@ -426,12 +427,3 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     </Modal>
   );
 };
-
-// Step indicator dot component
-const StepDot: React.FC<{ active?: boolean; completed?: boolean }> = ({ active, completed }) => (
-  <div
-    className={`w-2.5 h-2.5 rounded-full transition duration-200 ${
-      active ? 'bg-primary' : completed ? 'bg-success' : 'bg-themed-hover'
-    }`}
-  />
-);

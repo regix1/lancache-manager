@@ -1,11 +1,4 @@
-import { useContext } from 'react';
+import { createContextHook } from '../createContextHook';
 import { SpeedContext } from './SpeedContext.types';
-import type { SpeedContextType } from './types';
 
-export const useSpeed = (): SpeedContextType => {
-  const context = useContext(SpeedContext);
-  if (!context) {
-    throw new Error('useSpeed must be used within SpeedProvider');
-  }
-  return context;
-};
+export const useSpeed = createContextHook(SpeedContext, 'useSpeed');

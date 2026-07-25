@@ -13,7 +13,7 @@ namespace LancacheManager.Tests;
 /// wrongly skip anonymous scheduled runs. Per the daemon scout, BattleNet's and Riot's
 /// <c>status</c> handler is hardcoded to report <c>IsLoggedIn=true</c> (there is no login concept
 /// for an anonymous service). <see cref="SocketDaemonClient"/> is the SAME client class every
-/// daemon type uses - there is no per-service branch in <see cref="SocketDaemonClient.GetStatusAsync"/>,
+/// daemon type uses - there is no per-service branch in <see cref="DaemonClientBase.GetStatusAsync"/>,
 /// it just maps the generic <c>isLoggedIn</c> field to <c>Status = "logged-in"/"not-logged-in"</c>.
 /// This test drives a real Unix-domain-socket fake daemon that answers exactly like an anonymous
 /// daemon's <c>status</c> handler would, over the production length-prefixed JSON protocol, and

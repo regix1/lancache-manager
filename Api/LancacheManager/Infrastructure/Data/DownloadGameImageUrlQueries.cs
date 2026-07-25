@@ -39,20 +39,6 @@ namespace LancacheManager.Infrastructure.Data;
 /// </summary>
 public static class DownloadGameImageUrlQueries
 {
-    public static async Task<string?> GetLatestUrlForSteamAppAsync(
-        AppDbContext db,
-        long gameAppId,
-        CancellationToken cancellationToken = default)
-    {
-        var download = await db.Downloads
-            .AsNoTracking()
-            .Where(d => d.GameAppId == gameAppId && !string.IsNullOrEmpty(d.GameImageUrl))
-            .OrderByDescending(d => d.StartTimeUtc)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        return download?.GameImageUrl;
-    }
-
     public static async Task<Dictionary<long, string>> GetLatestUrlsForSteamAppsAsync(
         AppDbContext db,
         IReadOnlyCollection<long> steamAppIds,

@@ -2,6 +2,17 @@ export const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : '/api';
 
+/**
+ * Origin the API is served from, without the `/api` prefix. Empty string means
+ * same-origin. Callers that need the prefix should use API_BASE instead.
+ */
+export function getApiUrl(): string {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  return '';
+}
+
 export const SIGNALR_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/hubs`
   : '/hubs';

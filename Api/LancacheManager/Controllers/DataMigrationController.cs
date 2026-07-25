@@ -48,7 +48,7 @@ public class DataMigrationController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {
-            return BadRequest(new ErrorResponse { Error = "Connection string is required" });
+            return BadRequest(ApiResponse.Error("Connection string is required"));
         }
 
         var start = await StartImportAsync("LancacheManager Import", cancellationToken);
@@ -76,7 +76,7 @@ public class DataMigrationController : ControllerBase
         {
             _operationTracker.CompleteOperation(operationId, false, "Invalid source connection string");
             _logger.LogWarning(ex, "Invalid source connection string for LancacheManager import");
-            return BadRequest(new ErrorResponse { Error = "Invalid source PostgreSQL connection string" });
+            return BadRequest(ApiResponse.Error("Invalid source PostgreSQL connection string"));
         }
 
         var targetConnectionString = _configuration.GetConnectionString("DefaultConnection");
@@ -116,7 +116,7 @@ public class DataMigrationController : ControllerBase
                 string.Equals(sourceConnBuilder.Database, targetConnBuilder.Database, StringComparison.OrdinalIgnoreCase))
             {
                 _operationTracker.CompleteOperation(operationId, false, "Source and target databases are identical");
-                return BadRequest(new ErrorResponse { Error = "Cannot import from the same database that is currently in use" });
+                return BadRequest(ApiResponse.Error("Cannot import from the same database that is currently in use"));
             }
 
             // Open source database (read-only)
@@ -382,7 +382,7 @@ public class DataMigrationController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            return BadRequest(new ErrorResponse { Error = "Connection string is required" });
+            return BadRequest(ApiResponse.Error("Connection string is required"));
         }
 
         try

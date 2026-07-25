@@ -67,16 +67,4 @@ public class ConnectionTrackingService
         }
     }
 
-    /// <summary>
-    /// Get the SignalR connection ID for a session, if connected.
-    /// </summary>
-    public string? GetConnectionId(Guid sessionId)
-    {
-        if (sessionId == Guid.Empty)
-            return null;
-
-        _sessionToConnection.TryGetValue(sessionId, out var connectionId);
-        return connectionId;
-    }
-
 }

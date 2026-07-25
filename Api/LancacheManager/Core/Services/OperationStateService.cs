@@ -275,9 +275,6 @@ public class OperationStateService : ScheduledBackgroundService
             }
 
             _logger.LogInformation("Loaded {Count} operation states from StateService", _states.Count);
-
-            // Check for interrupted log processing operations and mark them for resume
-            ResumeInterruptedOperations();
         }
         catch (Exception ex)
         {
@@ -384,118 +381,6 @@ public class OperationStateService : ScheduledBackgroundService
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Checks for interrupted log processing operations and marks them for resume
-    /// </summary>
-    private void ResumeInterruptedOperations()
-    {
-        _logger.LogInformation("Checking for interrupted log processing operations...");
-
-        try
-        {
-            // Look for activeLogProcessing operation
-            if (_states.TryGetValue("activeLogProcessing", out var activeLogOperation) &&
-                activeLogOperation.Type == OperationType.LogProcessing.ToWireString() &&
-                activeLogOperation.Data != null)
-            {
-                _logger.LogInformation("Found activeLogProcessing operation");
-                var dataDict = activeLogOperation.GetDataAsDictionary();
-
-                // Check if the operation was processing when interrupted
-                if (dataDict.TryGetValue("isProcessing", out var isProcessingObj))
-                {
-                    bool isProcessing = false;
-
-                    // Handle both boolean and JsonElement types
-                    if (isProcessingObj is bool boolValue)
-                    {
-                        isProcessing = boolValue;
-                    }
-                    else if (isProcessingObj is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.True)
-                    {
-                        isProcessing = true;
-                    }
-
-                    _logger.LogInformation("isProcessing value: {Value}, type: {Type}, evaluated as: {IsProcessing}",
-                        isProcessingObj, isProcessingObj?.GetType(), isProcessing);
-
-                    if (isProcessing)
-                    {
-                        // Check if the operation is actually complete (stuck at 99.9% or higher)
-                        double percentComplete = 0;
-                        if (dataDict.TryGetValue("percentComplete", out var percentObj))
-                        {
-                            if (percentObj is double dbl)
-                                percentComplete = dbl;
-                            else if (percentObj is JsonElement elem && elem.ValueKind == JsonValueKind.Number)
-                                percentComplete = elem.GetDouble();
-                            else if (double.TryParse(percentObj?.ToString(), out var parsed))
-                                percentComplete = parsed;
-                        }
-
-                        _logger.LogInformation("Found interrupted log processing operation with {PercentComplete}% complete", percentComplete);
-
-                        // If we're at 99.9% or higher, mark as complete instead of resuming
-                        if (percentComplete >= 99.9)
-                        {
-                            _logger.LogInformation("Operation was near completion ({PercentComplete}%), marking as complete instead of resuming", percentComplete);
-
-                            // Mark as complete
-                            dataDict["isProcessing"] = false;
-                            dataDict["status"] = OperationStatus.Completed.ToWireString();
-                            dataDict["percentComplete"] = 100.0;
-                            dataDict["completedAt"] = DateTime.UtcNow;
-                            activeLogOperation.Data = JsonSerializer.SerializeToElement(dataDict);
-                            activeLogOperation.Status = OperationStatus.Completed.ToWireString();
-                            activeLogOperation.UpdatedAt = DateTime.UtcNow;
-
-                            // Update the state in memory and persist it
-                            _states["activeLogProcessing"] = activeLogOperation;
-                            PersistState(activeLogOperation);
-
-                            _logger.LogInformation("Marked stuck operation as complete");
-                        }
-                        else
-                        {
-                            _logger.LogInformation("Found interrupted log processing operation at {PercentComplete}%, marking for resume", percentComplete);
-
-                            // Set resume flag to true
-                            dataDict["resume"] = true;
-                            dataDict["status"] = "resuming";
-                            activeLogOperation.Data = JsonSerializer.SerializeToElement(dataDict);
-                            activeLogOperation.UpdatedAt = DateTime.UtcNow;
-
-                            // Update the state in memory and persist it
-                            _states["activeLogProcessing"] = activeLogOperation;
-                            PersistState(activeLogOperation);
-
-                            _logger.LogInformation("Updated operation state to resume mode");
-
-                            // Note: The old C# log processing has been replaced with Rust processor
-                            // Users should call /api/management/process-all-logs to resume processing
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogInformation("Found log processing operation but isProcessing is false");
-                    }
-                }
-                else
-                {
-                    _logger.LogInformation("isProcessing key not found in operation data");
-                }
-            }
-            else
-            {
-                _logger.LogInformation("No activeLogProcessing operation found");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to check for interrupted log processing operations");
-        }
-    }
-
 }
 
 public class OperationState
@@ -528,24 +413,6 @@ public class OperationState
         }
 
         return new Dictionary<string, object>();
-    }
-
-    /// <summary>
-    /// Helper method to get strongly-typed data
-    /// </summary>
-    public T? GetDataAs<T>() where T : class
-    {
-        if (Data == null || Data.Value.ValueKind == JsonValueKind.Null || Data.Value.ValueKind == JsonValueKind.Undefined)
-            return null;
-
-        try
-        {
-            return JsonSerializer.Deserialize<T>(Data.Value.GetRawText());
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static object ConvertJsonElementToObject(JsonElement element)

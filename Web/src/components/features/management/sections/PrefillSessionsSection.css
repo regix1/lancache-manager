@@ -148,13 +148,6 @@
 /* Status / platform / Persistent pills on a dedicated row below the title so a long
    username never shares a flex line with the pills. Fixed width/height keeps them
    aligned across session rows (same fixed-slot recipe as schedules settings pills). */
-.prefill-session-badges {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .prefill-session-badges .themed-badge {
   width: 6.5rem;
   height: 1.125rem;
@@ -239,15 +232,6 @@
   flex-shrink: 0;
 }
 
-.prefill-session-container {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  font-size: var(--font-size-sm);
-  color: var(--theme-text-muted);
-  max-width: 100%;
-}
-
 .prefill-session-meta {
   display: flex;
   flex-wrap: wrap;
@@ -279,7 +263,7 @@
   flex-shrink: 0;
 }
 
-@media (max-width: 639px) {
+@media (max-width: 639.98px) {
   .prefill-session-actions {
     gap: 0.5rem;
   }
@@ -309,14 +293,9 @@
   gap: 0.5rem;
 }
 
-/* Session status line — ONE Badge (see badges.css .themed-badge / .status-badge-*) carries
-   the session's lifecycle state; no second marker sits beside it. */
-.prefill-status-line {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
+/* Session status line: layout comes from the shared .cluster utility, so no local rule.
+   ONE Badge (see badges.css .themed-badge / .status-badge-*) carries the session's
+   lifecycle state; no second marker sits beside it. */
 
 @media (prefers-reduced-motion: reduce) {
   .prefill-bans-list {
@@ -528,13 +507,6 @@
 .prefill-ban-content {
   flex: 1;
   min-width: 0;
-}
-
-.prefill-ban-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
 }
 
 .prefill-ban-username {

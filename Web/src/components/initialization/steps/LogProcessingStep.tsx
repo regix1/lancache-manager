@@ -41,6 +41,13 @@ interface ProcessingProgress {
   mbTotal?: number;
 }
 
+// A run that the user stopped on purpose is neither a failure nor a success, so the shared banner
+// carries a tone instead of the message being pushed through the error channel.
+interface StepNotice {
+  tone: 'error' | 'info';
+  message: string;
+}
+
 export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   onComplete,
   onSkip,
@@ -52,7 +59,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState<ProcessingProgress | null>(null);
   const [complete, setComplete] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<StepNotice | null>(null);
   const [formatWarning, setFormatWarning] = useState(false);
 
   // Multi-datasource state
@@ -154,9 +161,11 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       setLastEventAt(Date.now());
 
       if (data.cancelled) {
-        setError(
-          data.message || t('initialization.logProcessing.cancelled', 'Processing cancelled')
-        );
+        setNotice({
+          tone: 'info',
+          message:
+            data.message || t('initialization.logProcessing.cancelled', 'Processing cancelled')
+        });
         setProgress({
           isProcessing: false,
           progress: 0,
@@ -169,7 +178,10 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
 
       // Check if processing failed
       if (data.success === false) {
-        setError(data.message || t('initialization.logProcessing.failedToProcess'));
+        setNotice({
+          tone: 'error',
+          message: data.message || t('initialization.logProcessing.failedToProcess')
+        });
         setProgress({
           isProcessing: false,
           progress: 0,
@@ -207,9 +219,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         if (status.isProcessing) {
           completionHandledRef.current = false;
           sessionStartedRef.current = true;
-          const statusOperationId = (status as { operationId?: string }).operationId;
-          if (statusOperationId) {
-            setActiveOperationId(statusOperationId);
+          if (status.operationId) {
+            setActiveOperationId(status.operationId);
           }
           setLastEventAt(Date.now());
           setProcessing(true);
@@ -270,9 +281,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           }
         } else {
           setLastEventAt(Date.now());
-          const statusOperationId = (status as { operationId?: string }).operationId;
-          if (statusOperationId) {
-            setActiveOperationId(statusOperationId);
+          if (status.operationId) {
+            setActiveOperationId(status.operationId);
           }
         }
       } catch (err) {
@@ -332,7 +342,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     if (processing) return;
 
     setProcessing(true);
-    setError(null);
+    setNotice(null);
     setComplete(false);
     setActionLoading('all');
     completionHandledRef.current = false;
@@ -349,7 +359,10 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         setActiveOperationId(status.operationId);
       }
     } catch (err: unknown) {
-      setError(getErrorMessage(err) || t('initialization.logProcessing.failedToProcess'));
+      setNotice({
+        tone: 'error',
+        message: getErrorMessage(err) || t('initialization.logProcessing.failedToProcess')
+      });
       setProcessing(false);
     } finally {
       setActionLoading(null);
@@ -361,7 +374,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     if (processing) return;
 
     setProcessing(true);
-    setError(null);
+    setNotice(null);
     setComplete(false);
     setActionLoading(datasourceName);
     completionHandledRef.current = false;
@@ -378,7 +391,10 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         setActiveOperationId(status.operationId);
       }
     } catch (err: unknown) {
-      setError(getErrorMessage(err) || t('initialization.logProcessing.failedToProcessDatasource'));
+      setNotice({
+        tone: 'error',
+        message: getErrorMessage(err) || t('initialization.logProcessing.failedToProcessDatasource')
+      });
       setProcessing(false);
     } finally {
       setActionLoading(null);
@@ -388,14 +404,39 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   const handleCancelProcessing = async () => {
     try {
       setIsCancelling(true);
-      await ApiService.forceKillLogProcessing();
+
+      // The run may have been started moments ago, before any status poll or SignalR event
+      // supplied its id, so fall back to a fresh status read rather than leaving the button inert.
+      let operationId = activeOperationIdRef.current;
+      if (!operationId) {
+        const status = await ApiService.getProcessingStatus();
+        operationId = status.operationId ?? null;
+        if (operationId) {
+          setActiveOperationId(operationId);
+        }
+      }
+
+      if (!operationId) {
+        setNotice({
+          tone: 'error',
+          message: t('initialization.logProcessing.cancelFailed', 'Failed to cancel processing')
+        });
+        return;
+      }
+
+      await ApiService.forceKillOperation(operationId);
       setProcessing(false);
-      setError(t('initialization.logProcessing.cancelled', 'Processing cancelled'));
+      setNotice({
+        tone: 'info',
+        message: t('initialization.logProcessing.cancelled', 'Processing cancelled')
+      });
     } catch (err: unknown) {
-      setError(
-        getErrorMessage(err) ||
+      setNotice({
+        tone: 'error',
+        message:
+          getErrorMessage(err) ||
           t('initialization.logProcessing.cancelFailed', 'Failed to cancel processing')
-      );
+      });
     } finally {
       setIsCancelling(false);
     }
@@ -677,10 +718,20 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         </p>
       )}
 
-      {/* Error */}
-      {error && (
-        <div className="p-3 rounded-lg bg-themed-error">
-          <p className="text-sm text-themed-error">{error}</p>
+      {/* Outcome banner - carries failures and deliberate cancellations */}
+      {notice && (
+        <div
+          className={`p-3 rounded-lg ${
+            notice.tone === 'error' ? 'bg-themed-error' : 'bg-themed-info'
+          }`}
+        >
+          <p
+            className={`text-sm ${
+              notice.tone === 'error' ? 'text-themed-error' : 'text-themed-info'
+            }`}
+          >
+            {notice.message}
+          </p>
         </div>
       )}
 

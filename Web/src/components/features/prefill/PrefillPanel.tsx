@@ -12,11 +12,13 @@ import { ActivityLog } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { NetworkStatusSection } from './NetworkStatusSection';
 import ApiService from '@services/api.service';
+import { assertOk } from '@services/apiError';
 import { usePrefillContext } from '@contexts/usePrefillContext';
 import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { API_BASE, STORAGE_KEYS } from '@utils/constants';
 import { getErrorMessage } from '@utils/error';
+import { parseUtcDate } from '@utils/timezone';
 
 import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
 
@@ -205,12 +207,10 @@ function ServicePrefillPanel({
       if (os !== undefined) body.operatingSystems = os;
       if (concurrency !== undefined) body.maxConcurrency = concurrency;
 
-      await fetch(`${API_BASE}/system/prefill-defaults`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      await fetch(
+        `${API_BASE}/system/prefill-defaults`,
+        ApiService.getJsonFetchOptions(body, { method: 'PATCH' })
+      );
     } catch {
       // Failed to save defaults
     }
@@ -348,15 +348,9 @@ function ServicePrefillPanel({
     hasExpiredRef.current = false;
 
     const interval = setInterval(() => {
-      // Ensure UTC interpretation for timestamps without timezone suffix
-      const expiresAtStr = signalR.session!.expiresAt;
-      const expiresAtUtc =
-        expiresAtStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAtStr)
-          ? expiresAtStr
-          : expiresAtStr + 'Z';
       const remaining = Math.max(
         0,
-        Math.floor((new Date(expiresAtUtc).getTime() - Date.now()) / 1000)
+        Math.floor((parseUtcDate(signalR.session!.expiresAt).getTime() - Date.now()) / 1000)
       );
       signalR.setTimeRemaining(remaining);
 
@@ -435,32 +429,18 @@ function ServicePrefillPanel({
         }
       }
 
-      const response = await fetch(`${API_BASE}/${serviceBasePath}/sessions/${sessionId}/prefill`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
+      const response = await fetch(
+        `${API_BASE}/${serviceBasePath}/sessions/${sessionId}/prefill`,
+        ApiService.getJsonFetchOptions(requestBody, { method: 'POST' })
+      );
 
-      if (!response.ok) {
-        const error = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          message?: string;
-        };
-        // The 409 "already running" body shape is `{ error: ... }`; other error paths use
-        // `{ message: ... }`. Read both so the specific reason surfaces regardless of shape.
-        throw new Error(
-          error.error ??
-            error.message ??
-            t('prefill.errors.httpStatus', { status: response.status })
-        );
-      }
+      // The 409 "already running" body shape is `{ error: ... }`; other error paths use
+      // `{ message: ... }`. assertOk reads both, so the specific reason surfaces either way.
+      await assertOk(response);
 
       return response.json();
     },
-    [selectedOS, maxConcurrency, signalR.isCancelling, serviceBasePath, t]
+    [selectedOS, maxConcurrency, signalR.isCancelling, serviceBasePath]
   );
 
   const loadGames = useCallback(
@@ -746,18 +726,9 @@ function ServicePrefillPanel({
       try {
         const response = await fetch(
           `${API_BASE}/${serviceBasePath}/sessions/${signalR.session.id}/selected-apps`,
-          {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ appIds: normalizedAppIds })
-          }
+          ApiService.getJsonFetchOptions({ appIds: normalizedAppIds }, { method: 'POST' })
         );
-        if (!response.ok) {
-          throw new Error(`Failed to save selection: HTTP ${response.status}`);
-        }
+        await assertOk(response);
         setSelectedAppIds(normalizedAppIds);
         setShowGameSelection(false);
         addLog('success', t('prefill.log.selectedGames', { count: normalizedAppIds.length }));

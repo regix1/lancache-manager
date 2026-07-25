@@ -4,7 +4,7 @@ import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useSelectionSet } from '@/hooks/useSelectionSet';
 import { useCancellableQueue } from '@/hooks/useCancellableQueue';
 import { useTranslation } from 'react-i18next';
-import { FileText, AlertTriangle, RefreshCw, Trash2 } from 'lucide-react';
+import { FileText, RefreshCw, Trash2 } from 'lucide-react';
 import '../managementSectionContent.css';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
@@ -31,7 +31,7 @@ import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
-import { Modal } from '@components/ui/Modal';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
@@ -912,184 +912,113 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       </AccordionSection>
 
       {/* Log Removal Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={pendingServiceRemoval !== null}
-        onClose={() => {
-          if (!anyServiceRemovalPending) {
-            setPendingServiceRemoval(null);
+        onClose={() => setPendingServiceRemoval(null)}
+        onConfirm={() => {
+          if (pendingServiceRemoval) {
+            void executeRemoveServiceLogs(
+              pendingServiceRemoval.datasource,
+              pendingServiceRemoval.service
+            );
           }
         }}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('management.logRemoval.modal.removeServiceLogs')}</span>
-          </div>
-        }
+        title={t('management.logRemoval.modal.removeServiceLogs')}
+        confirmLabel={t('management.logRemoval.buttons.removeLogs')}
+        loading={anyServiceRemovalPending}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.logRemoval.modal.removeQuestion', {
-              service: pendingServiceRemoval
-                ? getServiceDisplayName(pendingServiceRemoval.service)
-                : undefined,
-              datasource: pendingServiceRemoval?.datasource
-            })}
-          </p>
+        <p className="text-themed-secondary">
+          {t('management.logRemoval.modal.removeQuestion', {
+            service: pendingServiceRemoval
+              ? getServiceDisplayName(pendingServiceRemoval.service)
+              : undefined,
+            datasource: pendingServiceRemoval?.datasource
+          })}
+        </p>
 
-          <Alert color="yellow">
-            <div>
-              <p className="text-sm font-medium mb-2">
-                {t('management.logRemoval.modal.important')}:
-              </p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>{t('management.logRemoval.modal.cannotUndo')}</li>
-                <li>{t('management.logRemoval.modal.mayTakeMinutes')}</li>
-                <li>
-                  {t('management.logRemoval.modal.cachedFilesRemain', {
-                    service: pendingServiceRemoval
-                      ? getServiceDisplayName(pendingServiceRemoval.service)
-                      : undefined
-                  })}
-                </li>
-              </ul>
-            </div>
-          </Alert>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setPendingServiceRemoval(null)}
-              disabled={anyServiceRemovalPending}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={() =>
-                pendingServiceRemoval &&
-                executeRemoveServiceLogs(
-                  pendingServiceRemoval.datasource,
-                  pendingServiceRemoval.service
-                )
-              }
-              loading={anyServiceRemovalPending}
-            >
-              {t('management.logRemoval.buttons.removeLogs')}
-            </Button>
+        <Alert color="yellow">
+          <div>
+            <p className="text-sm font-medium mb-2">
+              {t('management.logRemoval.modal.important')}:
+            </p>
+            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+              <li>{t('management.logRemoval.modal.cannotUndo')}</li>
+              <li>{t('management.logRemoval.modal.mayTakeMinutes')}</li>
+              <li>
+                {t('management.logRemoval.modal.cachedFilesRemain', {
+                  service: pendingServiceRemoval
+                    ? getServiceDisplayName(pendingServiceRemoval.service)
+                    : undefined
+                })}
+              </li>
+            </ul>
           </div>
-        </div>
-      </Modal>
+        </Alert>
+      </ConfirmationModal>
 
-      {/* Delete Log File Confirmation Modal */}
-      <Modal
+      {/* Delete Log File Confirmation Modal - a red trash marks this as the harsher of the two
+          removals: it drops the whole log file, not one service's entries. */}
+      <ConfirmationModal
         opened={pendingLogFileDeletion !== null}
-        onClose={() => {
-          if (!deletingLogFile) {
-            setPendingLogFileDeletion(null);
+        onClose={() => setPendingLogFileDeletion(null)}
+        onConfirm={() => {
+          if (pendingLogFileDeletion) {
+            void executeDeleteLogFile(pendingLogFileDeletion);
           }
         }}
-        title={
-          <div className="flex items-center space-x-3">
-            <Trash2 className="w-6 h-6 text-themed-error" />
-            <span>{t('management.logRemoval.modal.deleteEntireLogFile')}</span>
-          </div>
-        }
+        title={t('management.logRemoval.modal.deleteEntireLogFile')}
+        icon={<Trash2 className="w-6 h-6 text-themed-error" />}
+        confirmLabel={t('management.logRemoval.buttons.deleteLogFile')}
+        loading={!!deletingLogFile}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.logRemoval.modal.deleteQuestion', {
-              datasource: pendingLogFileDeletion
-            })}
-          </p>
+        <p className="text-themed-secondary">
+          {t('management.logRemoval.modal.deleteQuestion', {
+            datasource: pendingLogFileDeletion
+          })}
+        </p>
 
-          <Alert color="red">
-            <div>
-              <p className="text-sm font-medium mb-2">
-                {t('management.logRemoval.modal.warningDestructive')}:
-              </p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>{t('management.logRemoval.modal.permanentlyDelete')}</li>
-                <li>{t('management.logRemoval.modal.historyLost')}</li>
-                <li>{t('management.logRemoval.modal.cannotUndo')}</li>
-                <li>{t('management.logRemoval.modal.cachedGamesRemain')}</li>
-              </ul>
-            </div>
-          </Alert>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setPendingLogFileDeletion(null)}
-              disabled={!!deletingLogFile}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={() => pendingLogFileDeletion && executeDeleteLogFile(pendingLogFileDeletion)}
-              loading={!!deletingLogFile}
-            >
-              {t('management.logRemoval.buttons.deleteLogFile')}
-            </Button>
+        <Alert color="red">
+          <div>
+            <p className="text-sm font-medium mb-2">
+              {t('management.logRemoval.modal.warningDestructive')}:
+            </p>
+            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+              <li>{t('management.logRemoval.modal.permanentlyDelete')}</li>
+              <li>{t('management.logRemoval.modal.historyLost')}</li>
+              <li>{t('management.logRemoval.modal.cannotUndo')}</li>
+              <li>{t('management.logRemoval.modal.cachedGamesRemain')}</li>
+            </ul>
           </div>
-        </div>
-      </Modal>
+        </Alert>
+      </ConfirmationModal>
 
       {/* Batch Remove Selected Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={showBatchConfirm}
-        onClose={() => {
-          if (!isBatchRunning) {
-            setShowBatchConfirm(false);
-          }
+        onClose={() => setShowBatchConfirm(false)}
+        onConfirm={() => {
+          void runBatchRemoval();
         }}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('management.batchSelect.confirmTitle')}</span>
-          </div>
-        }
+        title={t('management.batchSelect.confirmTitle')}
+        confirmLabel={t('management.batchSelect.removeSelected', { count: selection.count })}
+        loading={isBatchRunning}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.batchSelect.confirmBody', { count: selection.count })}
-          </p>
+        <p className="text-themed-secondary">
+          {t('management.batchSelect.confirmBody', { count: selection.count })}
+        </p>
 
-          <Alert color="yellow">
-            <div>
-              <p className="text-sm font-medium mb-2">
-                {t('management.logRemoval.modal.important')}:
-              </p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>{t('management.logRemoval.modal.cannotUndo')}</li>
-                <li>{t('management.logRemoval.modal.mayTakeMinutes')}</li>
-              </ul>
-            </div>
-          </Alert>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setShowBatchConfirm(false)}
-              disabled={isBatchRunning}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={() => {
-                void runBatchRemoval();
-              }}
-              loading={isBatchRunning}
-            >
-              {t('management.batchSelect.removeSelected', { count: selection.count })}
-            </Button>
+        <Alert color="yellow">
+          <div>
+            <p className="text-sm font-medium mb-2">
+              {t('management.logRemoval.modal.important')}:
+            </p>
+            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+              <li>{t('management.logRemoval.modal.cannotUndo')}</li>
+              <li>{t('management.logRemoval.modal.mayTakeMinutes')}</li>
+            </ul>
           </div>
-        </div>
-      </Modal>
+        </Alert>
+      </ConfirmationModal>
     </>
   );
 };

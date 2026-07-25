@@ -1,3 +1,0 @@
-/* AccessSecurityCard composes AccordionSection + the shared .mgmt-list/.mgmt-row
-   family (managementSectionContent.css) plus the settings-page primitives in
-   ../user-settings.css. No component-local overrides are needed. */

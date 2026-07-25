@@ -23,6 +23,7 @@ function normalizeNameKeyedService(service: string | null | undefined): NameKeye
       return 'riot';
     case 'xbox':
     case 'xboxlive':
+    case 'microsoft':
       return 'xbox';
     default:
       return null;

@@ -6,61 +6,6 @@ namespace LancacheManager.Core.Services.SteamKit2;
 public partial class SteamKit2Service
 {
     /// <summary>
-    /// Acquires a Steam refresh token without saving credentials or logging into the shared SteamKit2 session.
-    /// Used for scheduled prefill credential storage that must remain isolated from depot mapping auth.
-    /// </summary>
-    public async Task<AuthenticationResult> AcquireRefreshTokenAsync(
-        string username,
-        string password,
-        string? twoFactorCode = null,
-        string? emailCode = null,
-        bool allowMobileConfirmation = false)
-    {
-        try
-        {
-            var pollResult = await PollCredentialsWithRetryAsync(
-                username,
-                password,
-                twoFactorCode,
-                emailCode,
-                allowMobileConfirmation,
-                "Steam refresh token acquisition",
-                CancellationToken.None);
-
-            if (!pollResult.Success)
-            {
-                return pollResult.Result;
-            }
-
-            return new AuthenticationResult
-            {
-                Success = true,
-                Message = "Authentication successful",
-                AccountName = pollResult.AccountName,
-                RefreshToken = pollResult.RefreshToken
-            };
-        }
-        catch (Exception ex) when (ex is AsyncJobFailedException or SteamConnectionLostException)
-        {
-            _logger.LogError(ex, "Scheduled prefill Steam refresh token acquisition failed (Steam servers busy)");
-            return new AuthenticationResult
-            {
-                Success = false,
-                Message = "Steam's servers are busy right now. This is temporary, please wait a moment and try again."
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Scheduled prefill Steam refresh token acquisition failed");
-            return new AuthenticationResult
-            {
-                Success = false,
-                Message = ex.Message
-            };
-        }
-    }
-
-    /// <summary>
     /// Authenticate with Steam using username and password. The cancellation token should be the
     /// login request's abort signal (HttpContext.RequestAborted): the frontend cancels a login by
     /// aborting the request, and honoring it here stops the credentials poll immediately instead

@@ -4,6 +4,7 @@ import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { Card } from '@components/ui/Card';
+import Badge from '@components/ui/Badge';
 import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { EmptyState } from '@components/ui/ManagerCard';
@@ -55,12 +56,13 @@ const ClientListItem: React.FC<ClientListItemProps> = ({ client }) => {
           </span>
         </Tooltip>
         {showGroupCount && (
-          <span
-            className="themed-badge status-badge-neutral badge-count"
-            aria-label={t('clients.groupCount', { count: client.groupMemberIps!.length })}
+          <Badge
+            variant="neutral"
+            className="badge-count"
+            ariaLabel={t('clients.groupCount', { count: client.groupMemberIps!.length })}
           >
             {client.groupMemberIps!.length}
-          </span>
+          </Badge>
         )}
       </div>
       <div

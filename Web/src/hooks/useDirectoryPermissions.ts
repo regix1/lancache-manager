@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import ApiService from '@services/api.service';
+import { assertOk } from '@services/apiError';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { DirectoryPermissions } from '@contexts/DirectoryPermissionsContext.types';
 
@@ -37,9 +38,7 @@ export const useDirectoryPermissions = (): DirectoryPermissions => {
         '/api/system/permissions',
         ApiService.getFetchOptions({ cache: 'no-store', signal: controller.signal })
       );
-      if (!response.ok) {
-        throw new Error(`Permissions request failed (${response.status})`);
-      }
+      await assertOk(response);
       const data = await response.json();
       setLogsReadOnly(data.logs.readOnly);
       setCacheReadOnly(data.cache.readOnly);

@@ -6,6 +6,7 @@ import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import BadgesRow from '../downloads/BadgesRow';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
+import Badge from '@components/ui/Badge';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -252,9 +253,9 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
               <span className="rdl-name-text">{display.name}</span>
             </Tooltip>
             {isGroup && display.count > 1 && (
-              <span className="themed-badge status-badge-neutral badge-count">
+              <Badge variant="neutral" className="badge-count">
                 {display.count}×
-              </span>
+              </Badge>
             )}
           </div>
           {detailed && (

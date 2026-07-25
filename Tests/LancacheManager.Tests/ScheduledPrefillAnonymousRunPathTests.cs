@@ -21,7 +21,7 @@ namespace LancacheManager.Tests;
 /// (<c>status?.Status == "logged-in"</c>) would wrongly skip anonymous daemons. Investigation found
 /// BattleNetPrefill/RiotPrefill's <c>HandleStatus</c> always answers <c>{ isLoggedIn: true }</c>
 /// (both daemons' <c>Api/SocketCommandInterface.cs:127-141</c>), which
-/// <c>SocketDaemonClient.GetStatusAsync</c> (<c>SocketDaemonClient.cs:552</c>) turns into
+/// <c>DaemonClientBase.GetStatusAsync</c> (shared by both transports) turns into
 /// <c>Status = "logged-in"</c> - so the gate already passes today; no production fix was needed.
 /// This test exercises the full chain (gate pass -> SetSelectedAppsAsync -> PrefillAsync with the
 /// preset forced off by SelectedAppIds) end-to-end with a fake <see cref="IDaemonClient"/> standing

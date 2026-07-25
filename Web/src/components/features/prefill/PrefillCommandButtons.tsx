@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
+import Badge from '../../ui/Badge';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
@@ -195,9 +196,9 @@ export function PrefillCommandButtons({
             <div className="cmd-split-summary text-xs">
               {hasSelection ? (
                 <span className="flex flex-wrap items-center gap-2 text-themed-secondary">
-                  <span className="themed-badge status-badge-neutral badge-count">
+                  <Badge variant="neutral" className="badge-count">
                     {selectedAppIds.length}
-                  </span>
+                  </Badge>
                   {/* The count already lives in the badge, so the label only carries the
                       pluralized noun ("game ready" / "games ready") to avoid repeating it. */}
                   <span>

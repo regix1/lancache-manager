@@ -4,7 +4,7 @@ export type WeekStartDay = 'sunday' | 'monday';
 export type EventOpacity = 'transparent' | 'solid';
 export type EventDisplayStyle = 'spanning' | 'daily';
 
-interface CalendarSettings {
+export interface CalendarSettings {
   // Event appearance
   eventOpacity: EventOpacity;
   eventDisplayStyle: EventDisplayStyle;

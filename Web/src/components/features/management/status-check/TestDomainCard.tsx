@@ -17,7 +17,7 @@ import {
   getProtocolStatusTranslationKey,
   getProtocolStatusVariant
 } from './contentPathHelpers';
-import { formatServiceLabel } from './helpers';
+import { formatServiceLabel } from '@utils/serviceDisplayName';
 
 interface TestDomainCardProps {
   groups: StatusCheckDomainGroup[] | null;

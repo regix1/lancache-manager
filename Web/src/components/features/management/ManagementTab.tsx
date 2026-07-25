@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef, useDeferredValue } from 'react';
+import React, { useState, useEffect, useCallback, useDeferredValue } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
 import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
-import operationStateService from '@services/operationState.service';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import ErrorBoundary from '@components/common/ErrorBoundary';
@@ -52,9 +51,6 @@ const ManagementTab: React.FC = () => {
     setGameCacheRefreshKey((prev) => prev + 1);
   }, [refreshStats]);
 
-  // Use ref to ensure migration only happens once
-  const hasMigratedRef = useRef(false);
-
   // Notification management
   const addError = useCallback(
     (message: string) => {
@@ -98,22 +94,6 @@ const ManagementTab: React.FC = () => {
 
     checkOptimizations();
   }, []);
-
-  // Initialize with migration
-  useEffect(() => {
-    const initialize = async () => {
-      if (!hasMigratedRef.current) {
-        const migrated = await operationStateService.migrateFromLocalStorage();
-        if (migrated > 0) {
-          setSuccess(t('management.sections.migratedOperations', { count: migrated }));
-        }
-        hasMigratedRef.current = true;
-      }
-    };
-
-    initialize();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setSuccess]);
 
   // Handle section change
   const handleSectionChange = useCallback((section: ManagementSection) => {

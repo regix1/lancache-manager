@@ -22,10 +22,6 @@
     border-radius: var(--theme-border-radius-xl, 1rem) !important;
   }
 
-  .rounded-3xl {
-    border-radius: var(--theme-border-radius-xl, 1rem) !important;
-  }
-
   .rounded-sm {
     border-radius: var(--theme-border-radius, 0.5rem) !important;
   }
@@ -40,11 +36,6 @@
   .rounded-t-lg {
     border-top-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
     border-top-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
-  }
-
-  .rounded-t-xl {
-    border-top-left-radius: var(--theme-border-radius-xl, 1rem) !important;
-    border-top-right-radius: var(--theme-border-radius-xl, 1rem) !important;
   }
 
   .rounded-b,
@@ -74,11 +65,6 @@
     border-bottom-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
   }
 
-  .rounded-l-xl {
-    border-top-left-radius: var(--theme-border-radius-xl, 1rem) !important;
-    border-bottom-left-radius: var(--theme-border-radius-xl, 1rem) !important;
-  }
-
   .rounded-r,
   .rounded-r-md {
     border-top-right-radius: var(--theme-border-radius, 0.5rem) !important;
@@ -88,11 +74,6 @@
   .rounded-r-lg {
     border-top-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
     border-bottom-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
-  }
-
-  .rounded-r-xl {
-    border-top-right-radius: var(--theme-border-radius-xl, 1rem) !important;
-    border-bottom-right-radius: var(--theme-border-radius-xl, 1rem) !important;
   }
 
   /* Line clamp utility */
@@ -200,31 +181,40 @@
   opacity: 0;
 }
 
-/* Reduced motion support */
+/* Reduced motion support
+ *
+ * These declarations are marked !important on purpose. Two things stack against
+ * them otherwise:
+ *   1. This block sits outside the `@layer components` block above, so it is
+ *      emitted at this file's @import position, ahead of every layered rule
+ *      (layered rules are hoisted to the `@tailwind components` position at the
+ *      bottom of index.css). `.glass-card` in components/cards.css is layered and
+ *      would win on order alone.
+ *   2. features/dashboard.css and features/edit-mode.css are imported after this
+ *      file and define the same selectors at equal specificity, so they too would
+ *      win on order.
+ * Honouring the operating system's reduced-motion setting is an accessibility
+ * guarantee, so it should not be defeatable by a later stylesheet or by a
+ * transition/animation utility applied inline on the element. Raising specificity
+ * by compounding the selectors would fix today's conflicts but silently regress
+ * the moment another rule matches at the same weight, which is exactly how these
+ * overrides stopped applying.
+ */
 @media (prefers-reduced-motion: reduce) {
-  .animate-sparkline,
-  .animate-count {
-    animation: none;
-    opacity: 1;
-    transform: none;
-    clip-path: none;
-  }
-
   .glass-card,
   .glass-card:hover,
-  .hour-bar,
   .widget-progress-fill {
-    transition: none;
+    transition: none !important;
   }
 
   /* Disable edit mode animations for reduced motion */
   .edit-mode-active .edit-mode-card,
   .edit-mode-card.card-selected {
-    animation: none;
+    animation: none !important;
   }
 
   .edit-mode-card.card-selected {
-    box-shadow: 0 0 0 3px var(--theme-primary);
-    border-radius: var(--theme-border-radius-lg);
+    box-shadow: 0 0 0 3px var(--theme-primary) !important;
+    border-radius: var(--theme-border-radius-lg) !important;
   }
 }

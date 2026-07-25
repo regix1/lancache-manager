@@ -359,40 +359,6 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Updates the authentication status for a session.
-    /// </summary>
-    public async Task SetAuthenticatedAsync(string sessionId, bool isAuthenticated)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        var session = await context.PrefillSessions
-            .FirstOrDefaultAsync(s => s.SessionId == sessionId);
-
-        if (session != null)
-        {
-            session.IsAuthenticated = isAuthenticated;
-            await context.SaveChangesAsync();
-        }
-    }
-
-    /// <summary>
-    /// Updates the prefilling status for a session.
-    /// </summary>
-    public async Task SetPrefillingAsync(string sessionId, bool isPrefilling)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        var session = await context.PrefillSessions
-            .FirstOrDefaultAsync(s => s.SessionId == sessionId);
-
-        if (session != null)
-        {
-            session.IsPrefilling = isPrefilling;
-            await context.SaveChangesAsync();
-        }
-    }
-
-    /// <summary>
     /// Updates the persisted validity window (<see cref="PrefillSession.ExpiresAtUtc"/>) for a session.
     /// Called when the admin changes the persistent login validity so the re-anchored expiry survives a
     /// manager restart: the re-adopt path prefers a future <c>dbRecord.ExpiresAtUtc</c>, so without this
@@ -553,20 +519,6 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Gets orphaned sessions with their container IDs for cleanup.
-    /// </summary>
-    public async Task<List<string>> GetOrphanedContainerIdsAsync()
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        return await context.PrefillSessions
-            .AsNoTracking()
-            .Where(s => s.Status == PrefillSessionStatus.Orphaned && s.ContainerId != null)
-            .Select(s => s.ContainerId!)
-            .ToListAsync();
-    }
-
-    /// <summary>
     /// Marks an orphaned session as cleaned up.
     /// </summary>
     public async Task MarkOrphanCleanedAsync(string containerId)
@@ -701,20 +653,6 @@ public class PrefillSessionService
             .Where(e => e.SessionId == sessionId)
             .OrderByDescending(e => e.StartedAtUtc)
             .ToListAsync();
-    }
-
-    /// <summary>
-    /// Gets the current in-progress prefill entry for a session.
-    /// </summary>
-    public async Task<PrefillHistoryEntry?> GetCurrentEntryAsync(string sessionId)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        return await context.PrefillHistoryEntries
-            .AsNoTracking()
-            .Where(e => e.SessionId == sessionId && e.Status == PrefillHistoryEntryStatus.InProgress)
-            .OrderByDescending(e => e.StartedAtUtc)
-            .FirstOrDefaultAsync();
     }
 
     /// <summary>

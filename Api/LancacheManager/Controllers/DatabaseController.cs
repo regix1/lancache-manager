@@ -91,7 +91,7 @@ public class DatabaseController : ControllerBase
     {
         if (request.Tables == null || request.Tables.Count == 0)
         {
-            return BadRequest(new ErrorResponse { Error = "No tables specified for reset" });
+            return BadRequest(ApiResponse.Error("No tables specified for reset"));
         }
 
         var operationId = _dbService.StartResetAsync(request.Tables);

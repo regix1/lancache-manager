@@ -61,14 +61,10 @@ public class DatasourceCapabilities
 public class DatasourceCapabilityService
 {
     private readonly DatasourceService _datasourceService;
-    private readonly ILogger<DatasourceCapabilityService> _logger;
 
-    public DatasourceCapabilityService(
-        DatasourceService datasourceService,
-        ILogger<DatasourceCapabilityService> logger)
+    public DatasourceCapabilityService(DatasourceService datasourceService)
     {
         _datasourceService = datasourceService;
-        _logger = logger;
     }
 
     /// <summary>
@@ -180,38 +176,6 @@ public class DatasourceCapabilityService
             .Where(ds => ds.Enabled)
             .Select(GetCapabilities)
             .ToList();
-    }
-
-    /// <summary>
-    /// True when EVERY enabled datasource grants the capability. Cross-datasource
-    /// destructive operations must use this and fail closed — partial deletion across a
-    /// mixed fleet is never acceptable.
-    /// </summary>
-    public bool AllDatasourcesCan(Func<DatasourceCapabilities, bool> predicate)
-    {
-        var all = GetAllCapabilities();
-        return all.Count > 0 && all.All(predicate);
-    }
-
-    /// <summary>
-    /// Guard for object-scoped (key-dependent) mutations against one datasource. Returns
-    /// null when permitted; otherwise a human-readable denial the caller surfaces.
-    /// </summary>
-    public string? CheckCanMapLogicalObjects(string datasourceName)
-    {
-        var capabilities = GetCapabilities(datasourceName);
-        if (capabilities == null)
-        {
-            return $"Datasource '{datasourceName}' not found";
-        }
-        if (!capabilities.CanMapLogicalObjects)
-        {
-            _logger.LogInformation(
-                "Denied key-dependent operation for datasource '{Name}' (cache key scheme: {Scheme})",
-                datasourceName, capabilities.CacheKeyScheme);
-            return capabilities.DenialReason;
-        }
-        return null;
     }
 
     /// <summary>

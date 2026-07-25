@@ -216,10 +216,23 @@ export const HelpSection: React.FC<{
   </div>
 );
 
+type HelpNoteType = 'info' | 'warning' | 'success' | 'tip';
+
+// Full literal class names so Tailwind's content scanner keeps these @layer components
+// rules in the production build. Building them dynamically (e.g. `help-note-${type}`)
+// hides the class strings from the scanner, which then purges the per-type background
+// and border rules and every note renders as a plain untinted box.
+const HELP_NOTE_CLASS: Record<HelpNoteType, string> = {
+  info: 'help-note help-note-info',
+  warning: 'help-note help-note-warning',
+  success: 'help-note help-note-success',
+  tip: 'help-note help-note-tip'
+};
+
 /** Note/callout box in HelpPopover */
 export const HelpNote: React.FC<{
   children: React.ReactNode;
-  type?: 'info' | 'warning' | 'success' | 'tip';
+  type?: HelpNoteType;
 }> = ({ children, type = 'info' }) => {
   const iconMap = {
     info: Info,
@@ -238,7 +251,7 @@ export const HelpNote: React.FC<{
   const Icon = iconMap[type];
 
   return (
-    <div className={`help-note help-note-${type}`}>
+    <div className={HELP_NOTE_CLASS[type]}>
       <Icon className={`w-3.5 h-3.5 flex-shrink-0 mt-0.5 ${iconColorMap[type]}`} />
       <div className="text-themed-primary">{children}</div>
     </div>

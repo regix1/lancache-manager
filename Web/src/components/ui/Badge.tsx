@@ -13,6 +13,8 @@ interface BadgeProps {
   variant: BadgeVariant;
   children: ReactNode;
   className?: string;
+  /** Accessible name for badges whose text alone is not self-describing (a bare count). */
+  ariaLabel?: string;
 }
 
 // Literal class names (never `status-badge-${variant}`) so Tailwind's content
@@ -29,9 +31,12 @@ const VARIANT_CLASS: Record<BadgeVariant, string> = {
   'waiting-outline': 'status-badge-waiting-outline'
 };
 
-export default function Badge({ variant, children, className }: BadgeProps) {
+export default function Badge({ variant, children, className, ariaLabel }: BadgeProps) {
   return (
-    <span className={`themed-badge ${VARIANT_CLASS[variant]}${className ? ` ${className}` : ''}`}>
+    <span
+      className={`themed-badge ${VARIANT_CLASS[variant]}${className ? ` ${className}` : ''}`}
+      aria-label={ariaLabel}
+    >
       {children}
     </span>
   );

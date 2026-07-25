@@ -1,8 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import './StorageSection.css';
 import { useTranslation } from 'react-i18next';
 import {
-  AlertTriangle,
   Archive,
   Sliders,
   Database,
@@ -14,7 +12,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -1125,85 +1122,49 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       </div>
 
       {/* Eviction Remove Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={showRemoveConfirm}
-        onClose={evictionSaving ? () => undefined : () => setShowRemoveConfirm(false)}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('management.sections.data.evictionRemoveConfirmTitle')}</span>
-          </div>
-        }
+        onClose={() => setShowRemoveConfirm(false)}
+        onConfirm={handleConfirmRemove}
+        title={t('management.sections.data.evictionRemoveConfirmTitle')}
+        confirmLabel={t('management.sections.data.evictionRemoveConfirmButton')}
+        loading={evictionSaving}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.sections.data.evictionRemoveConfirmMessage')}
-          </p>
-          <Alert color="yellow">
-            <p className="text-sm">{t('management.sections.data.evictionRemoveConfirmWarning')}</p>
-          </Alert>
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setShowRemoveConfirm(false)}
-              disabled={evictionSaving}
-            >
-              {t('management.sections.data.evictionRemoveConfirmCancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={handleConfirmRemove}
-              loading={evictionSaving}
-            >
-              {t('management.sections.data.evictionRemoveConfirmButton')}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        <p className="text-themed-secondary">
+          {t('management.sections.data.evictionRemoveConfirmMessage')}
+        </p>
+        <Alert color="yellow">
+          <p className="text-sm">{t('management.sections.data.evictionRemoveConfirmWarning')}</p>
+        </Alert>
+      </ConfirmationModal>
 
       {/* Remove All Evicted Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={showRemoveAllConfirm}
         onClose={() => setShowRemoveAllConfirm(false)}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>
-              {t(
-                'management.sections.data.evictionRemoveAllConfirmTitle',
-                'Remove all evicted items?'
-              )}
-            </span>
-          </div>
-        }
+        onConfirm={handleRemoveAllEvicted}
+        title={t(
+          'management.sections.data.evictionRemoveAllConfirmTitle',
+          'Remove all evicted items?'
+        )}
+        confirmLabel={t('management.sections.data.evictionRemoveAll', 'Remove All')}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.sections.data.evictionRemoveAllConfirmMessage', {
-              count: evictedGames.length + evictedServices.length,
+        <p className="text-themed-secondary">
+          {t('management.sections.data.evictionRemoveAllConfirmMessage', {
+            count: evictedGames.length + evictedServices.length,
+            defaultValue:
+              'This will remove all {{count}} evicted items one at a time. Each item runs through its own removal flow (log rewrite + database cleanup) and the operation cannot be undone.'
+          })}
+        </p>
+        <Alert color="yellow">
+          <p className="text-sm">
+            {t('management.sections.data.evictionRemoveAllConfirmWarning', {
               defaultValue:
-                'This will remove all {{count}} evicted items one at a time. Each item runs through its own removal flow (log rewrite + database cleanup) and the operation cannot be undone.'
+                'Only the evicted depots are removed - partially-cached games keep their on-disk files.'
             })}
           </p>
-          <Alert color="yellow">
-            <p className="text-sm">
-              {t('management.sections.data.evictionRemoveAllConfirmWarning', {
-                defaultValue:
-                  'Only the evicted depots are removed - partially-cached games keep their on-disk files.'
-              })}
-            </p>
-          </Alert>
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button variant="default" onClick={() => setShowRemoveAllConfirm(false)}>
-              {t('management.sections.data.evictionRemoveConfirmCancel')}
-            </Button>
-            <Button variant="filled" color="red" onClick={handleRemoveAllEvicted}>
-              {t('management.sections.data.evictionRemoveAll', 'Remove All')}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        </Alert>
+      </ConfirmationModal>
 
       {/* Remove Selected Evicted Confirmation Modal */}
       <ConfirmationModal

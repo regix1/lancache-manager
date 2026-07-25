@@ -12,7 +12,7 @@ using System.Data;
 
 namespace LancacheManager.Infrastructure.Services;
 
-public class DatabaseService : IDatabaseService
+public class DatabaseService
 {
     private readonly AppDbContext _context;
     private readonly ISignalRNotificationService _notifications;
@@ -93,16 +93,11 @@ public class DatabaseService : IDatabaseService
     public bool IsResetOperationRunning => _activeResetOperations.Any();
 
     /// <summary>
-    /// Gets the count of log entries (async wrapper)
+    /// Gets the count of log entries
     /// </summary>
     public Task<int> GetLogEntriesCountAsync()
     {
-        return GetLogCount();
-    }
-
-    public async Task<int> GetLogCount()
-    {
-        return await _context.LogEntries.CountAsync();
+        return _context.LogEntries.CountAsync();
     }
 
     /// <summary>

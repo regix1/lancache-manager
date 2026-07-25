@@ -1,23 +1,29 @@
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
 
 /// <summary>
-/// Shared file-backed Epic auth storage with encrypted refresh tokens under the security directory.
+/// Shared file-backed auth storage: owns the credentials file under the security directory,
+/// the atomic write, the in-memory cache and the lock guarding both. The integration-specific
+/// subclass supplies the encrypted-field mapping in each direction, so the secrets themselves
+/// are encrypted and decrypted where their shape is known.
 /// </summary>
-public abstract class EpicAuthFileStorageServiceBase
+/// <typeparam name="TAuthData">Decrypted in-memory shape handed to callers.</typeparam>
+/// <typeparam name="TPersistedAuthData">On-disk JSON shape carrying the ciphertext.</typeparam>
+public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
+    where TAuthData : class, new()
+    where TPersistedAuthData : class, new()
 {
     private readonly ILogger _logger;
     private readonly IPathResolver _pathResolver;
     private readonly SecureStateEncryptionService _encryption;
-    private readonly string _epicAuthDirectory;
-    private readonly string _epicAuthFilePath;
+    private readonly string _authDirectory;
+    private readonly string _authFilePath;
     private readonly object _lock = new object();
-    private EpicAuthData? _cachedData;
+    private TAuthData? _cachedData;
 
-    protected EpicAuthFileStorageServiceBase(
+    protected AuthFileStorageServiceBase(
         ILogger logger,
         IPathResolver pathResolver,
         SecureStateEncryptionService encryption)
@@ -27,36 +33,58 @@ public abstract class EpicAuthFileStorageServiceBase
         _encryption = encryption;
 
         var securityDir = _pathResolver.GetSecurityDirectory();
-        _epicAuthDirectory = Path.Combine(securityDir, AuthDirectoryName);
-        _epicAuthFilePath = Path.Combine(_epicAuthDirectory, "credentials.json");
+        _authDirectory = Path.Combine(securityDir, AuthDirectoryName);
+        _authFilePath = Path.Combine(_authDirectory, "credentials.json");
 
         EnsureDirectoryExists();
     }
 
+    /// <summary>
+    /// Directory name under the security directory, e.g. <c>epic_auth</c>.
+    /// </summary>
     protected abstract string AuthDirectoryName { get; }
 
-    protected string AuthDataLabel => AuthDirectoryName switch
-    {
-        "epic_auth" => "Epic",
-        "scheduled_prefill_epic_auth" => "scheduled prefill Epic",
-        _ => AuthDirectoryName.Replace('_', ' ')
-    };
+    /// <summary>
+    /// Human-readable integration name used in log messages, e.g. <c>Epic</c>.
+    /// </summary>
+    protected abstract string AuthDataLabel { get; }
+
+    protected ILogger Logger => _logger;
+
+    protected SecureStateEncryptionService Encryption => _encryption;
+
+    /// <summary>
+    /// Decrypts the on-disk shape into the in-memory shape. Returns null when a stored secret
+    /// fails to decrypt, which tells the caller to discard the credentials file. Implementations
+    /// log the reason before returning null so the message names the field that failed.
+    /// </summary>
+    protected abstract TAuthData? DecryptPersisted(TPersistedAuthData persisted);
+
+    /// <summary>
+    /// Encrypts the in-memory shape into the on-disk shape about to be serialized.
+    /// </summary>
+    protected abstract TPersistedAuthData EncryptForStorage(TAuthData data);
+
+    /// <summary>
+    /// True when the loaded data carries a usable credential.
+    /// </summary>
+    protected abstract bool HasCredentials(TAuthData data);
 
     private void EnsureDirectoryExists()
     {
         try
         {
-            if (!Directory.Exists(_epicAuthDirectory))
+            if (!Directory.Exists(_authDirectory))
             {
-                Directory.CreateDirectory(_epicAuthDirectory);
-                _logger.LogInformation("Created {DirectoryName} directory: {Directory}", AuthDirectoryName, _epicAuthDirectory);
+                Directory.CreateDirectory(_authDirectory);
+                _logger.LogInformation("Created {DirectoryName} directory: {Directory}", AuthDirectoryName, _authDirectory);
 
                 if (OperatingSystem.IsLinux())
                 {
                     try
                     {
                         File.SetUnixFileMode(
-                            _epicAuthDirectory,
+                            _authDirectory,
                             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                     }
                     catch (Exception ex)
@@ -73,7 +101,7 @@ public abstract class EpicAuthFileStorageServiceBase
         }
     }
 
-    public EpicAuthData GetAuthData()
+    public TAuthData GetAuthData()
     {
         lock (_lock)
         {
@@ -84,24 +112,18 @@ public abstract class EpicAuthFileStorageServiceBase
 
             try
             {
-                if (File.Exists(_epicAuthFilePath))
+                if (File.Exists(_authFilePath))
                 {
-                    var json = File.ReadAllText(_epicAuthFilePath);
-                    var persisted = JsonSerializer.Deserialize<PersistedEpicAuthData>(json) ?? new PersistedEpicAuthData();
+                    var json = File.ReadAllText(_authFilePath);
+                    var persisted = JsonSerializer.Deserialize<TPersistedAuthData>(json) ?? new TPersistedAuthData();
 
-                    var decryptedRefreshToken = _encryption.Decrypt(persisted.RefreshToken);
-                    var refreshTokenDecryptFailed = decryptedRefreshToken == null
-                        && !string.IsNullOrEmpty(persisted.RefreshToken);
+                    var decrypted = DecryptPersisted(persisted);
 
-                    if (refreshTokenDecryptFailed)
+                    if (decrypted == null)
                     {
-                        _logger.LogWarning(
-                            "Failed to decrypt {AuthDataLabel} refresh token - clearing invalid credentials file.",
-                            AuthDataLabel);
-
                         try
                         {
-                            File.Delete(_epicAuthFilePath);
+                            File.Delete(_authFilePath);
                             _logger.LogInformation("Deleted invalid {AuthDataLabel} auth file", AuthDataLabel);
                         }
                         catch (Exception deleteEx)
@@ -109,22 +131,15 @@ public abstract class EpicAuthFileStorageServiceBase
                             _logger.LogWarning(deleteEx, "Failed to delete invalid {AuthDataLabel} auth file", AuthDataLabel);
                         }
 
-                        _cachedData = new EpicAuthData();
+                        _cachedData = new TAuthData();
                         return _cachedData;
                     }
 
-                    _cachedData = new EpicAuthData
-                    {
-                        RefreshToken = decryptedRefreshToken,
-                        DisplayName = persisted.DisplayName,
-                        AccountId = persisted.AccountId,
-                        LastAuthenticated = persisted.LastAuthenticated,
-                        GamesDiscovered = persisted.GamesDiscovered
-                    };
+                    _cachedData = decrypted;
                 }
                 else
                 {
-                    _cachedData = new EpicAuthData();
+                    _cachedData = new TAuthData();
                 }
 
                 return _cachedData;
@@ -132,13 +147,13 @@ public abstract class EpicAuthFileStorageServiceBase
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to load {AuthDataLabel} auth data, using default", AuthDataLabel);
-                _cachedData = new EpicAuthData();
+                _cachedData = new TAuthData();
                 return _cachedData;
             }
         }
     }
 
-    public void SaveAuthData(EpicAuthData data)
+    public void SaveAuthData(TAuthData data)
     {
         lock (_lock)
         {
@@ -146,18 +161,11 @@ public abstract class EpicAuthFileStorageServiceBase
             {
                 EnsureDirectoryExists();
 
-                var persisted = new PersistedEpicAuthData
-                {
-                    RefreshToken = _encryption.Encrypt(data.RefreshToken),
-                    DisplayName = data.DisplayName,
-                    AccountId = data.AccountId,
-                    LastAuthenticated = data.LastAuthenticated,
-                    GamesDiscovered = data.GamesDiscovered
-                };
+                var persisted = EncryptForStorage(data);
 
                 var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
 
-                var tempFile = _epicAuthFilePath + ".tmp";
+                var tempFile = _authFilePath + ".tmp";
                 File.WriteAllText(tempFile, json);
 
                 using (var fs = File.OpenWrite(tempFile))
@@ -165,13 +173,13 @@ public abstract class EpicAuthFileStorageServiceBase
                     fs.Flush(true);
                 }
 
-                File.Move(tempFile, _epicAuthFilePath, true);
+                File.Move(tempFile, _authFilePath, true);
 
                 if (OperatingSystem.IsLinux())
                 {
                     try
                     {
-                        File.SetUnixFileMode(_epicAuthFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                        File.SetUnixFileMode(_authFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
                     }
                     catch (Exception ex)
                     {
@@ -189,7 +197,7 @@ public abstract class EpicAuthFileStorageServiceBase
         }
     }
 
-    public void UpdateAuthData(Action<EpicAuthData> updater)
+    public void UpdateAuthData(Action<TAuthData> updater)
     {
         lock (_lock)
         {
@@ -205,19 +213,19 @@ public abstract class EpicAuthFileStorageServiceBase
         {
             try
             {
-                if (File.Exists(_epicAuthFilePath))
+                if (File.Exists(_authFilePath))
                 {
-                    File.Delete(_epicAuthFilePath);
-                    _logger.LogInformation("Deleted {AuthDataLabel} credentials file: {Path}", AuthDataLabel, _epicAuthFilePath);
+                    File.Delete(_authFilePath);
+                    _logger.LogInformation("Deleted {AuthDataLabel} credentials file: {Path}", AuthDataLabel, _authFilePath);
                 }
 
-                _cachedData = new EpicAuthData();
+                _cachedData = new TAuthData();
                 _logger.LogInformation("Cleared {AuthDataLabel} authentication data", AuthDataLabel);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to clear {AuthDataLabel} auth data", AuthDataLabel);
-                _cachedData = new EpicAuthData();
+                _cachedData = new TAuthData();
                 throw;
             }
         }
@@ -227,11 +235,11 @@ public abstract class EpicAuthFileStorageServiceBase
     {
         try
         {
-            if (!File.Exists(_epicAuthFilePath))
+            if (!File.Exists(_authFilePath))
                 return false;
 
             var data = GetAuthData();
-            return !string.IsNullOrEmpty(data.RefreshToken);
+            return HasCredentials(data);
         }
         catch
         {
@@ -239,7 +247,7 @@ public abstract class EpicAuthFileStorageServiceBase
         }
     }
 
-    public string GetCredentialsFilePath() => _epicAuthFilePath;
+    public string GetCredentialsFilePath() => _authFilePath;
 
-    public string GetAuthDirectory() => _epicAuthDirectory;
+    public string GetAuthDirectory() => _authDirectory;
 }

@@ -63,54 +63,6 @@ public partial class SteamKit2Service
     }
 
     /// <summary>
-    /// Attempt to resolve specific unknown depot IDs by querying PICS for their parent apps.
-    /// Called from GameCacheDetectionService when unknown games remain after checking existing mappings.
-    /// Saves any discovered mappings directly to SteamDepotMappings so they are available
-    /// on the next call to ResolveUnknownGamesInCacheAsync.
-    /// Returns gracefully (empty list) if Steam is not connected.
-    /// </summary>
-    public async Task<List<uint>> TryResolveSpecificDepotsAsync(IReadOnlyList<uint> depotIds, CancellationToken ct)
-    {
-        if (depotIds.Count == 0)
-            return new List<uint>();
-
-        try
-        {
-            if (_steamApps == null || !_isLoggedOn)
-            {
-                _logger.LogDebug("[GameDetection] Skipping specific depot resolution for {Count} depot(s) - not connected to Steam", depotIds.Count);
-                return new List<uint>();
-            }
-
-            _logger.LogInformation("[GameDetection] Attempting PICS resolution for {Count} specific unknown depot(s): {DepotIds}",
-                depotIds.Count, string.Join(", ", depotIds.Take(10)));
-
-            var candidates = GenerateCandidateAppIds(depotIds);
-            if (candidates.Count == 0)
-                return new List<uint>();
-
-            _logger.LogInformation("[GameDetection] Querying PICS for {Count} candidate app(s) to resolve unknown depots", candidates.Count);
-
-            var (resolvedDepotIds, newMappings) = await QueryPicsDepotsAsync(depotIds, candidates, ct);
-
-            // Persist new mappings directly to SteamDepotMappings so they are available immediately
-            if (newMappings.Count > 0)
-                await SaveDepotMappingsAsync(newMappings, ct);
-
-            _logger.LogInformation("[GameDetection] Specific depot resolution complete: {Resolved}/{Total} depot(s) resolved",
-                resolvedDepotIds.Count, depotIds.Count);
-
-            return resolvedDepotIds;
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[GameDetection] Specific depot resolution failed (non-fatal)");
-            return new List<uint>();
-        }
-    }
-
-    /// <summary>
     /// Resolve orphan depots by querying PICS for candidate parent app IDs.
     /// Orphan depots are those present in the Downloads table with a DepotId but no GameAppId,
     /// and not already mapped via _depotOwners or the database. This handles delisted/removed
@@ -276,41 +228,6 @@ public partial class SteamKit2Service
         }
 
         return (resolvedDepotIds, newMappings);
-    }
-
-    /// <summary>
-    /// Persists newly discovered depot mappings to SteamDepotMappings table,
-    /// avoiding duplicates with existing records.
-    /// </summary>
-    private async Task SaveDepotMappingsAsync(List<SteamDepotMapping> newMappings, CancellationToken ct)
-    {
-        try
-        {
-            using var scopedDb = _scopeFactory.CreateScopedDbContext();
-
-            var depotIdSet = newMappings.Select(m => m.DepotId).Distinct().ToList();
-            var existingDepotIds = await scopedDb.DbContext.SteamDepotMappings
-                .Where(m => depotIdSet.Contains(m.DepotId) && m.IsOwner)
-                .Select(m => m.DepotId)
-                .ToHashSetAsync(ct);
-
-            var toInsert = newMappings
-                .Where(m => !existingDepotIds.Contains(m.DepotId))
-                .ToList();
-
-            if (toInsert.Count > 0)
-            {
-                await scopedDb.DbContext.SteamDepotMappings.AddRangeAsync(toInsert, ct);
-                await scopedDb.DbContext.SaveChangesAsync(ct);
-                scopedDb.DbContext.ChangeTracker.Clear();
-                _logger.LogInformation("Saved {Count} new orphan depot mapping(s) to database", toInsert.Count);
-            }
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to persist resolved depot mappings to database");
-        }
     }
 
     /// <summary>

@@ -21,10 +21,4 @@ public static class MappingExtensions
         UpdatedAtUtc = group.UpdatedAtUtc,
         MemberIps = group.Members.Select(m => m.ClientIp).OrderBy(ip => ip).ToList()
     };
-
-    /// <summary>
-    /// Maps a collection of ClientGroups to DTOs
-    /// </summary>
-    public static List<ClientGroupDto> ToDtos(this IEnumerable<ClientGroup> groups) =>
-        groups.Select(g => g.ToDto()).ToList();
 }

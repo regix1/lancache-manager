@@ -133,42 +133,10 @@
 
 /* Combined integration card - strip inner card styling so sub-components merge into one card.
    Use :not(.ed-trigger) to avoid stripping dropdown trigger button styling. */
-.integrations-platform-card > .integrations-split .themed-card:not(.ed-trigger) {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  padding: 0;
-}
-
-.integrations-platform-card > .integrations-split .themed-card:not(.ed-trigger):hover {
-  transform: none;
-}
 
 /* Vertical divider between left/right sections on large screens */
-@media (min-width: 1024px) {
-  .integrations-split {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
-    gap: 1.5rem;
-  }
-
-  .integrations-split-divider {
-    background: var(--theme-border);
-  }
-}
 
 /* Stack on small screens, hide divider */
-@media (max-width: 1023px) {
-  .integrations-split {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-
-  .integrations-split-divider {
-    display: none;
-  }
-}
 
 /* ===== EPIC GAME MAPPINGS - Source discovery badges ===== */
 
@@ -266,7 +234,7 @@
 }
 
 /* Mobile layout: reduce horizontal padding and section gaps on small phones */
-@media (max-width: 640px) {
+@media (max-width: 639.98px) {
   .management-section .themed-card {
     padding: 0.75rem;
   }

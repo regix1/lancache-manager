@@ -128,7 +128,7 @@ public class SteamAuthController : ControllerBase
         }
         else
         {
-            return BadRequest(new ErrorResponse { Error = $"Unknown Steam auth mode: {authMode?.ToWireString() ?? "(none)"}" });
+            return BadRequest(ApiResponse.Error($"Unknown Steam auth mode: {authMode?.ToWireString() ?? "(none)"}"));
         }
     }
 
@@ -142,7 +142,7 @@ public class SteamAuthController : ControllerBase
     {
         if (request?.Mode is null)
         {
-            return BadRequest(new ErrorResponse { Error = "Mode is required" });
+            return BadRequest(ApiResponse.Error("Mode is required"));
         }
 
         var mode = request.Mode.Value;

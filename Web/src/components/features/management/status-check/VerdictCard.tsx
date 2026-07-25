@@ -14,7 +14,8 @@ import type {
 } from '@services/api.service';
 import ResolutionRibbon from './ResolutionRibbon';
 import ContentPathSummary from './ContentPathSummary';
-import { formatServiceLabel, splitExamples } from './helpers';
+import { splitExamples } from './helpers';
+import { formatServiceLabel } from '@utils/serviceDisplayName';
 import type { RibbonSegment, StatusCheckProgressEvent } from './types';
 
 interface VerdictCardProps {
@@ -445,7 +446,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
             const labels = bucket.services.map((service) => formatServiceLabel(service.service));
             const { shown, moreCount } = splitExamples(labels, CHIP_LIMIT);
             return (
-              <div key={bucket.id} className="status-check-breakdown-row">
+              <div key={bucket.id} className="status-check-breakdown-row cluster">
                 <span
                   className={`status-check-breakdown-dot status-check-breakdown-dot--${bucket.dot}`}
                 />

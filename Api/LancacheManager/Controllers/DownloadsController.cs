@@ -348,6 +348,7 @@ public class DownloadsController : ControllerBase
                     StartTimeUtc = g.Min(d => d.StartTimeUtc),
                     EndTimeUtc = g.Max(d => d.EndTimeUtc),
                     RequestCount = g.Count(),
+                    EvictedCount = g.Sum(d => d.IsEvicted ? 1 : 0),
                     // Per-row speed is TotalBytes / (EndTime - StartTime); weight it by bytes the
                     // same way the previous in-memory grouping did.
                     WeightedSpeedSum = g.Sum(d =>
@@ -368,9 +369,16 @@ public class DownloadsController : ControllerBase
             // equivalent to the previous per-row resolution but over far fewer items).
             await ResolveGroupNamesAsync(groupedRows);
 
+            // ShowClean keeps evicted rows in the list but suppresses the badge and dimming, the
+            // same way the row-level download list does. Hide/Remove already dropped those rows
+            // in BuildRetroBaseQuery, so their counts come back zero without extra filtering.
+            var maskEviction = _stateRepository.GetEvictedDataMode() == EvictedDataMode.ShowClean.ToWireString();
+
             var grouped = groupedRows.Select(r =>
             {
                 var totalBytes = r.CacheHitBytes + r.CacheMissBytes;
+                var fullyEvicted = !maskEviction && r.EvictedCount == r.RequestCount;
+                var anyEvicted = !maskEviction && r.EvictedCount > 0;
                 return new RetroDownloadDto
                 {
                     Id = r.DepotId.HasValue
@@ -399,9 +407,24 @@ public class DownloadsController : ControllerBase
                     ClientIps = new List<string> { r.ClientIp },
                     DepotIds = r.DepotId.HasValue && r.DepotId.Value != 0
                         ? new List<uint> { (uint)r.DepotId.Value }
-                        : new List<uint>()
+                        : new List<uint>(),
+                    IsEvicted = fullyEvicted,
+                    IsPartiallyEvicted = anyEvicted && !fullyEvicted
                 };
             }).ToList();
+
+            // Keep each row's byte-weighted speed accumulator alongside the DTO. A merged row has
+            // to divide the summed weights after merging; averaging the already-divided per-row
+            // averages (or picking one member's) reports a speed no download actually reached.
+            var speedWeightsByRowId = new Dictionary<string, RetroSpeedWeights>(StringComparer.Ordinal);
+            for (var i = 0; i < grouped.Count; i++)
+            {
+                speedWeightsByRowId[grouped[i].Id] = new RetroSpeedWeights
+                {
+                    WeightedSpeedSum = groupedRows[i].WeightedSpeedSum,
+                    SpeedBytesSum = groupedRows[i].SpeedBytesSum
+                };
+            }
 
             // Filter: search by game name / service / depot / client (all group-level fields)
             if (!string.IsNullOrEmpty(query.Search))
@@ -511,6 +534,8 @@ public class DownloadsController : ControllerBase
                     var depotIdsSet = new HashSet<uint>();
                     var allDownloadIds = new List<long>();
                     var mergedPairs = new List<(long DepotId, string ClientIp)>();
+                    var mergedWeightedSpeedSum = 0d;
+                    var mergedSpeedBytesSum = 0d;
                     foreach (var row in bucket)
                     {
                         foreach (var ip in row.ClientIps) clientIpsSet.Add(ip);
@@ -520,7 +545,17 @@ public class DownloadsController : ControllerBase
                         {
                             mergedPairs.AddRange(rowPairs);
                         }
+                        if (speedWeightsByRowId.TryGetValue(row.Id, out var rowWeights))
+                        {
+                            mergedWeightedSpeedSum += rowWeights.WeightedSpeedSum;
+                            mergedSpeedBytesSum += rowWeights.SpeedBytesSum;
+                        }
                     }
+
+                    // A merged row is fully evicted only when every member row is; it is partially
+                    // evicted when any member carries eviction but the whole bucket does not.
+                    var mergedFullyEvicted = bucket.All(r => r.IsEvicted);
+                    var mergedAnyEvicted = bucket.Any(r => r.IsEvicted || r.IsPartiallyEvicted);
                     if (mergedPairs.Count > 0)
                     {
                         pairsByRowId[key] = mergedPairs;
@@ -547,11 +582,15 @@ public class DownloadsController : ControllerBase
                         CacheMissBytes = mergedMissBytes,
                         CacheHitPercent = Math.Round(mergedCacheHitPercent, 1),
                         TotalBytes = mergedTotalBytes,
-                        AverageBytesPerSecond = first.AverageBytesPerSecond,
+                        AverageBytesPerSecond = mergedSpeedBytesSum > 0
+                            ? mergedWeightedSpeedSum / mergedSpeedBytesSum
+                            : 0,
                         RequestCount = bucket.Sum(r => r.RequestCount),
                         DownloadIds = allDownloadIds,
                         ClientIps = clientIpsSet.ToList(),
-                        DepotIds = depotIdsSet.ToList()
+                        DepotIds = depotIdsSet.ToList(),
+                        IsEvicted = mergedFullyEvicted,
+                        IsPartiallyEvicted = mergedAnyEvicted && !mergedFullyEvicted
                     };
                 }).ToList();
             }
@@ -626,6 +665,18 @@ public class DownloadsController : ControllerBase
         public DateTime StartTimeUtc { get; set; }
         public DateTime EndTimeUtc { get; set; }
         public int RequestCount { get; set; }
+        public int EvictedCount { get; set; }
+        public double WeightedSpeedSum { get; set; }
+        public double SpeedBytesSum { get; set; }
+    }
+
+    /// <summary>
+    /// Byte-weighted speed accumulator for one retro group, kept out of the wire DTO. Merged rows
+    /// sum these across their member rows and divide once, so the merged speed stays byte-weighted
+    /// over every underlying download.
+    /// </summary>
+    private sealed class RetroSpeedWeights
+    {
         public double WeightedSpeedSum { get; set; }
         public double SpeedBytesSum { get; set; }
     }

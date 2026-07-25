@@ -28,7 +28,7 @@
 
 /* On mobile the header stacks and the glyph sits beside full-width text, so a
    smaller box keeps it proportionate rather than reading oversized. */
-@media (max-width: 639px) {
+@media (max-width: 639.98px) {
   .status-check-glyph {
     width: 2rem;
     height: 2rem;
@@ -95,13 +95,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-
-.status-check-breakdown-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
 .status-check-breakdown-dot {
@@ -182,7 +175,7 @@
 
 /* Meta-slot label text comes from the shared .caps-label .caps-label--sm primitive. */
 
-@media (max-width: 640px) {
+@media (max-width: 639.98px) {
   .status-check-meta {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -333,22 +326,12 @@
 
 .status-check-ribbon-segment--scanning {
   background-color: var(--theme-accent-subtle);
-  animation: status-check-scanning-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes status-check-scanning-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
+  animation: opacityPulse 1.2s ease-in-out infinite;
 }
 
 /* Mobile: wrap into tappable blocks so every segment keeps a >=44px hit target
    even with dozens of services. */
-@media (max-width: 640px) {
+@media (max-width: 639.98px) {
   .status-check-ribbon {
     flex-wrap: wrap;
     gap: 4px;
@@ -683,7 +666,7 @@
   font-size: 0.75rem;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 639.98px) {
   .status-check-content-row-head,
   .status-check-content-group-head {
     flex-direction: column;

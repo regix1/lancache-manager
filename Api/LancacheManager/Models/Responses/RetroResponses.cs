@@ -75,6 +75,12 @@ public class RetroDownloadDto
 
     /// <summary>All distinct depot IDs in this group (single-element, zero excluded, for non-merged rows)</summary>
     public List<uint> DepotIds { get; set; } = new();
+
+    /// <summary>True when every download in the group has been evicted from the cache</summary>
+    public bool IsEvicted { get; set; }
+
+    /// <summary>True when some, but not all, downloads in the group have been evicted from the cache</summary>
+    public bool IsPartiallyEvicted { get; set; }
 }
 
 /// <summary>

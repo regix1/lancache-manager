@@ -16,6 +16,7 @@ import preferencesService from '@services/preferences.service';
 import authService from '@services/auth.service';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import ApiService from '@services/api.service';
+import { assertOk } from '@services/apiError';
 import { getErrorMessage } from '@utils/error';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { Alert } from '@components/ui/Alert';
@@ -252,7 +253,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         })
       );
 
-      if (!response.ok) throw new Error('Failed to update theme');
+      await assertOk(response);
 
       await loadThemes();
       setEditModalOpen(false);
@@ -333,7 +334,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         })
       );
 
-      if (!response.ok) throw new Error('Failed to create theme');
+      await assertOk(response);
 
       await loadThemes();
       setCreateModalOpen(false);
@@ -497,10 +498,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         })
       );
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || t('management.themes.errors.uploadFailed'));
-      }
+      await assertOk(response);
 
       addNotification({
         type: 'generic',

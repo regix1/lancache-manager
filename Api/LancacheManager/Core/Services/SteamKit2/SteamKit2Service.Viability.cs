@@ -294,34 +294,4 @@ public partial class SteamKit2Service
             return null;
         }
     }
-
-    /// <summary>
-    /// Get the current Steam change number (used to update metadata after GitHub downloads)
-    /// </summary>
-    public async Task<uint> GetCurrentChangeNumberAsync(CancellationToken ct = default)
-    {
-        try
-        {
-            // Ensure we're connected
-            bool wasConnected = _isLoggedOn && _steamClient?.IsConnected == true;
-            if (!wasConnected)
-            {
-                await EnsureSessionAsync(ct);
-            }
-
-            try
-            {
-                return await GetPicsChangeNumberAsync(ct);
-            }
-            finally
-            {
-                // Connection will be reused if a crawl starts immediately
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to get current change number from Steam");
-            throw;
-        }
-    }
 }

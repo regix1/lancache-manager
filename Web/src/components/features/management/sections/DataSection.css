@@ -1,8 +1,0 @@
-.db-table-item {
-  border: 1px solid var(--theme-border-well);
-  background-clip: padding-box;
-}
-
-.db-table-item-selected {
-  border-color: var(--theme-primary);
-}

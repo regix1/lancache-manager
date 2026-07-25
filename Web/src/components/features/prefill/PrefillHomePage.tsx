@@ -1,15 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../ui/Button';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
-import { SteamIcon } from '@components/ui/SteamIcon';
-import { EpicIcon } from '@components/ui/EpicIcon';
-import { BlizzardIcon } from '@components/ui/BlizzardIcon';
-import { RiotIcon } from '@components/ui/RiotIcon';
-import { XboxIcon } from '@components/ui/XboxIcon';
 import { Shield, AlertCircle, ChevronDown } from 'lucide-react';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import type { GameServiceId } from '@/types/gameService';
+import { PREFILL_SERVICES, type PrefillServiceConfig } from './hooks/prefillServiceConfig';
 import './PrefillHomePage.css';
 
 interface ServiceFeatureListProps {
@@ -73,19 +69,30 @@ export function PrefillHomePage({
 }: PrefillHomePageProps) {
   const { t } = useTranslation();
 
-  const showSteam = isAdmin || steamPrefillEnabled;
-  const showEpic = isAdmin || epicPrefillEnabled;
-  const showBattlenet = isAdmin || battlenetPrefillEnabled;
-  const showRiot = isAdmin || riotPrefillEnabled;
-  const showXbox = isAdmin || xboxPrefillEnabled;
+  // The caller still passes one flag per service; fold them into a lookup so the cards
+  // below stay driven by PREFILL_SERVICES rather than by a fixed list of props.
+  const enabledByService = useMemo<Record<GameServiceId, boolean>>(
+    () => ({
+      steam: steamPrefillEnabled,
+      epic: epicPrefillEnabled,
+      battlenet: battlenetPrefillEnabled,
+      riot: riotPrefillEnabled,
+      xbox: xboxPrefillEnabled
+    }),
+    [
+      steamPrefillEnabled,
+      epicPrefillEnabled,
+      battlenetPrefillEnabled,
+      riotPrefillEnabled,
+      xboxPrefillEnabled
+    ]
+  );
 
-  // Number of services a guest has access to (admins always see all cards).
-  const enabledServiceCount =
-    Number(steamPrefillEnabled) +
-    Number(epicPrefillEnabled) +
-    Number(battlenetPrefillEnabled) +
-    Number(riotPrefillEnabled) +
-    Number(xboxPrefillEnabled);
+  // Services a guest has access to (admins always see all cards).
+  const enabledServices = useMemo<readonly PrefillServiceConfig[]>(
+    () => PREFILL_SERVICES.filter((service: PrefillServiceConfig) => enabledByService[service.id]),
+    [enabledByService]
+  );
 
   // If the user is a guest with access to exactly one service, skip the home page
   // and go directly to that service's panel.
@@ -94,34 +101,14 @@ export function PrefillHomePage({
   useEffect(() => {
     if (isAdmin) return;
     if (error) return;
-    if (enabledServiceCount !== 1) return;
-    if (steamPrefillEnabled) {
-      onServiceStart('steam');
-    } else if (epicPrefillEnabled) {
-      onServiceStart('epic');
-    } else if (battlenetPrefillEnabled) {
-      onServiceStart('battlenet');
-    } else if (riotPrefillEnabled) {
-      onServiceStart('riot');
-    } else if (xboxPrefillEnabled) {
-      onServiceStart('xbox');
-    }
-  }, [
-    isAdmin,
-    steamPrefillEnabled,
-    epicPrefillEnabled,
-    battlenetPrefillEnabled,
-    riotPrefillEnabled,
-    xboxPrefillEnabled,
-    enabledServiceCount,
-    onServiceStart,
-    error
-  ]);
+    if (enabledServices.length !== 1) return;
+    onServiceStart(enabledServices[0].id);
+  }, [isAdmin, enabledServices, onServiceStart, error]);
 
   // If a guest only has one service, the effect above fires immediately, so
   // we render nothing to avoid a flash of the home page.
   // Show the home page if there's an error so the user can see it.
-  if (!isAdmin && enabledServiceCount === 1 && !error) {
+  if (!isAdmin && enabledServices.length === 1 && !error) {
     return null;
   }
 
@@ -138,253 +125,47 @@ export function PrefillHomePage({
       </div>
 
       <div className="prefill-home-grid">
-        {/* Steam Card */}
-        {showSteam && (
-          <div className="prefill-service-card prefill-service-card--steam">
-            <div className="prefill-service-card-top">
-              <div className="icon-box icon-box--lg prefill-service-icon">
-                <SteamIcon size={28} className="text-white" />
-              </div>
-              <div className="prefill-service-meta">
-                <h2 className="prefill-service-name">Steam</h2>
-                <div className="caps-label prefill-service-status">
-                  <span>{t('prefill.home.ready', 'Ready')}</span>
+        {PREFILL_SERVICES.filter(
+          (service: PrefillServiceConfig) => isAdmin || enabledByService[service.id]
+        ).map((service: PrefillServiceConfig) => {
+          const ServiceIcon = service.icon;
+          return (
+            <div key={service.id} className={`prefill-service-card ${service.homeCardClass}`}>
+              <div className="prefill-service-card-top">
+                <div className="icon-box icon-box--lg prefill-service-icon">
+                  <ServiceIcon size={28} className="text-white" />
+                </div>
+                <div className="prefill-service-meta">
+                  <h2 className="prefill-service-name">{service.displayName}</h2>
+                  <div className="caps-label prefill-service-status">
+                    <span>{t('prefill.home.ready', 'Ready')}</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <p className="prefill-service-description">
-              {t(
-                'prefill.home.steamDescription',
-                'Prefill your Steam library including recent games, top titles, or hand-picked selections from your account.'
-              )}
-            </p>
+              <p className="prefill-service-description">{t(service.homeDescriptionKey)}</p>
 
-            <ServiceFeatureList
-              items={[
-                t('prefill.home.steamFeature1', 'Prefill entire library or select specific games'),
-                t('prefill.home.steamFeature2', 'Recent and top games presets'),
-                t('prefill.home.steamFeature3', 'Force re-download and cache management')
-              ]}
-            />
+              <ServiceFeatureList items={service.homeFeatureKeys.map((key: string) => t(key))} />
 
-            {error && errorService === 'steam' && (
-              <div className="prefill-service-error">
-                <AlertCircle size={16} />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <div className="prefill-service-action">
-              <span className="prefill-service-note">
-                <Shield size={14} />
-                {t('prefill.home.requiresSteamLogin', 'Username, password & Steam Guard')}
-              </span>
-              <Button variant="filled" size="md" onClick={() => onServiceStart('steam')}>
-                {t('prefill.home.startSession', 'Start Session')}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Epic Games Card */}
-        {showEpic && (
-          <div className="prefill-service-card prefill-service-card--epic">
-            <div className="prefill-service-card-top">
-              <div className="icon-box icon-box--lg prefill-service-icon">
-                <EpicIcon size={28} className="text-white" />
-              </div>
-              <div className="prefill-service-meta">
-                <h2 className="prefill-service-name">Epic Games</h2>
-                <div className="caps-label prefill-service-status">
-                  <span>{t('prefill.home.ready', 'Ready')}</span>
+              {error && errorService === service.id && (
+                <div className="prefill-service-error">
+                  <AlertCircle size={16} />
+                  <span>{error}</span>
                 </div>
-              </div>
-            </div>
-
-            <p className="prefill-service-description">
-              {t(
-                'prefill.home.epicDescription',
-                'Prefill your Epic Games library including recent games, top titles, or hand-picked selections from your account.'
               )}
-            </p>
 
-            <ServiceFeatureList
-              items={[
-                t('prefill.home.epicFeature1', 'Prefill entire library or select specific games'),
-                t('prefill.home.epicFeature2', 'Recent and top games presets'),
-                t('prefill.home.epicFeature3', 'Force re-download and cache management')
-              ]}
-            />
-
-            {error && errorService === 'epic' && (
-              <div className="prefill-service-error">
-                <AlertCircle size={16} />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <div className="prefill-service-action">
-              <span className="prefill-service-note">
-                <Shield size={14} />
-                {t('prefill.home.requiresEpicLogin', 'Browser-based authorization code login')}
-              </span>
-              <Button variant="filled" size="md" onClick={() => onServiceStart('epic')}>
-                {t('prefill.home.startSession', 'Start Session')}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Battle.net Card */}
-        {showBattlenet && (
-          <div className="prefill-service-card prefill-service-card--battlenet">
-            <div className="prefill-service-card-top">
-              <div className="icon-box icon-box--lg prefill-service-icon">
-                <BlizzardIcon size={28} className="text-white" />
-              </div>
-              <div className="prefill-service-meta">
-                <h2 className="prefill-service-name">Battle.net</h2>
-                <div className="caps-label prefill-service-status">
-                  <span>{t('prefill.home.ready', 'Ready')}</span>
-                </div>
+              <div className="prefill-service-action">
+                <span className="prefill-service-note">
+                  <Shield size={14} />
+                  {t(service.homeLoginNoteKey)}
+                </span>
+                <Button variant="filled" size="md" onClick={() => onServiceStart(service.id)}>
+                  {t('prefill.home.startSession', 'Start Session')}
+                </Button>
               </div>
             </div>
-
-            <p className="prefill-service-description">
-              {t(
-                'prefill.home.battlenetDescription',
-                'Prefill public Blizzard CDN content for Battle.net titles such as World of Warcraft, Diablo, and Overwatch.'
-              )}
-            </p>
-
-            <ServiceFeatureList
-              items={[
-                t(
-                  'prefill.home.battlenetFeature1',
-                  'Prefill all products or select specific titles'
-                ),
-                t('prefill.home.battlenetFeature2', 'No account or login required'),
-                t('prefill.home.battlenetFeature3', 'Force re-download and cache management')
-              ]}
-            />
-
-            {error && errorService === 'battlenet' && (
-              <div className="prefill-service-error">
-                <AlertCircle size={16} />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <div className="prefill-service-action">
-              <span className="prefill-service-note">
-                <Shield size={14} />
-                {t('prefill.home.battlenetNoLogin', 'No account login required')}
-              </span>
-              <Button variant="filled" size="md" onClick={() => onServiceStart('battlenet')}>
-                {t('prefill.home.startSession', 'Start Session')}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Riot Games Card */}
-        {showRiot && (
-          <div className="prefill-service-card prefill-service-card--riot">
-            <div className="prefill-service-card-top">
-              <div className="icon-box icon-box--lg prefill-service-icon">
-                <RiotIcon size={28} className="text-white" />
-              </div>
-              <div className="prefill-service-meta">
-                <h2 className="prefill-service-name">Riot Games</h2>
-                <div className="caps-label prefill-service-status">
-                  <span>{t('prefill.home.ready', 'Ready')}</span>
-                </div>
-              </div>
-            </div>
-
-            <p className="prefill-service-description">
-              {t(
-                'prefill.home.riotDescription',
-                'Prefill public Riot CDN content for titles such as League of Legends and VALORANT.'
-              )}
-            </p>
-
-            <ServiceFeatureList
-              items={[
-                t('prefill.home.riotFeature1', 'Prefill all products or select specific titles'),
-                t('prefill.home.riotFeature2', 'League of Legends and VALORANT content'),
-                t('prefill.home.riotFeature3', 'Force re-download and cache management')
-              ]}
-            />
-
-            {error && errorService === 'riot' && (
-              <div className="prefill-service-error">
-                <AlertCircle size={16} />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <div className="prefill-service-action">
-              <span className="prefill-service-note">
-                <Shield size={14} />
-                {t('prefill.home.riotNoLogin', 'No account login required')}
-              </span>
-              <Button variant="filled" size="md" onClick={() => onServiceStart('riot')}>
-                {t('prefill.home.startSession', 'Start Session')}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Xbox Card */}
-        {showXbox && (
-          <div className="prefill-service-card prefill-service-card--xbox">
-            <div className="prefill-service-card-top">
-              <div className="icon-box icon-box--lg prefill-service-icon">
-                <XboxIcon size={28} className="text-white" />
-              </div>
-              <div className="prefill-service-meta">
-                <h2 className="prefill-service-name">Xbox</h2>
-                <div className="caps-label prefill-service-status">
-                  <span>{t('prefill.home.ready', 'Ready')}</span>
-                </div>
-              </div>
-            </div>
-
-            <p className="prefill-service-description">
-              {t(
-                'prefill.home.xboxDescription',
-                'Prefill your Xbox and Microsoft Store library, pre-downloading game content for the titles in your account.'
-              )}
-            </p>
-
-            <ServiceFeatureList
-              items={[
-                t('prefill.home.xboxFeature1', 'Prefill entire library or select specific games'),
-                t('prefill.home.xboxFeature2', 'Microsoft Store and Game Pass titles'),
-                t('prefill.home.xboxFeature3', 'Force re-download and cache management')
-              ]}
-            />
-
-            {error && errorService === 'xbox' && (
-              <div className="prefill-service-error">
-                <AlertCircle size={16} />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <div className="prefill-service-action">
-              <span className="prefill-service-note">
-                <Shield size={14} />
-                {t('prefill.home.requiresXboxLogin', 'Browser-based device code login')}
-              </span>
-              <Button variant="filled" size="md" onClick={() => onServiceStart('xbox')}>
-                {t('prefill.home.startSession', 'Start Session')}
-              </Button>
-            </div>
-          </div>
-        )}
+          );
+        })}
       </div>
     </div>
   );

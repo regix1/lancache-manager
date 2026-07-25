@@ -1,10 +1,4 @@
-import { useContext } from 'react';
 import { PrefillContext } from './PrefillContext.types';
+import { createContextHook } from './createContextHook';
 
-export const usePrefillContext = () => {
-  const context = useContext(PrefillContext);
-  if (!context) {
-    throw new Error('usePrefillContext must be used within PrefillProvider');
-  }
-  return context;
-};
+export const usePrefillContext = createContextHook(PrefillContext, 'usePrefillContext');

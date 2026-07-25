@@ -12,12 +12,6 @@
     background-color: transparent;
   }
 
-  /* Embedded mode - strip outer border/bg when inside a Card */
-  .data-table-embedded {
-    border: none;
-    background-color: transparent;
-  }
-
   /* Allow horizontal scroll inside CustomScrollbar for resizable tables */
   .data-table-resizable .overflow-x-hidden {
     overflow-x: auto;
@@ -193,12 +187,6 @@
 
   .data-table-cell-right {
     text-align: right;
-  }
-
-  .data-table-cell-truncate {
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    overflow: hidden;
   }
 
   /* Striped rows */

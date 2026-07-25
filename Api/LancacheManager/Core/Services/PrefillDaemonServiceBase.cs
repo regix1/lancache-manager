@@ -2276,7 +2276,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             // the slowest). A shorter caller-side timeout here fires before that unwind can ever
             // finish, so every stop-during-login logged a spurious "failed; proceeding anyway" even
             // though the daemon was about to answer. This is linked (CancellationTokenSource.
-            // CreateLinkedTokenSource in SocketDaemonClient.SendCoreAsync) with LogoutWithReasonAsync's
+            // CreateLinkedTokenSource in DaemonClientBase.SendCoreAsync) with LogoutWithReasonAsync's
             // own 10s->15s command timeout - keep both in sync, comfortably above the 8s budget.
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var outcome = await session.Client.LogoutWithReasonAsync(cts.Token);
@@ -3684,26 +3684,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
-    /// Shuts down the daemon for a session
-    /// </summary>
-    public async Task ShutdownDaemonAsync(string sessionId, CancellationToken cancellationToken = default)
-    {
-        if (!_sessions.TryGetValue(sessionId, out var session))
-        {
-            return;
-        }
-
-        try
-        {
-            await session.Client.ShutdownAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error shutting down daemon for session {SessionId}", sessionId);
-        }
-    }
-
-    /// <summary>
     /// Creates/starts a PERSISTENT admin daemon session. Reuses <see cref="CreateSessionAsync"/> with
     /// <c>isPersistent=true</c>, which (a) stamps <see cref="DaemonSession.IsPersistent"/>, (b) sets the
     /// expiry to the admin-configured validity window, and (c) mounts a stable named auth volume so the
@@ -3800,6 +3780,37 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         finally
         {
             _persistentStartLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Checks every authenticated session against the username ban list and terminates the banned ones.
+    /// This is the STRONG (re-auth-proof) username ban, for platforms whose auth flow does not reveal a
+    /// username until AFTER authentication: OAuth (Epic) and device-code (Xbox) both learn the display
+    /// name from the daemon, so the ban cannot be applied at credential time. A session whose daemon
+    /// reports no stable display name is skipped and stays covered by the UserId ban enforced at
+    /// session-create (which works, but is evadable by re-authenticating).
+    ///
+    /// OPT-IN: the base deliberately never calls this. Steam rejects a banned user earlier, at credential
+    /// time, so invoking it from the base would bolt a second, later enforcement point onto a flow that
+    /// has already refused the login. Services that need post-auth enforcement call it themselves, from
+    /// <see cref="OnAuthenticatedAsync"/>.
+    /// </summary>
+    protected async Task KickBannedSessionsAsync()
+    {
+        foreach (var session in _sessions.Values)
+        {
+            if (session.AuthState != DaemonAuthState.Authenticated) continue;
+            if (string.IsNullOrEmpty(session.Username)) continue;
+
+            if (await _sessionService.IsUsernameBannedAsync(session.Username))
+            {
+                _logger.LogWarning(
+                    "Blocked banned {ServiceName} user {Username} after authentication. Terminating session {SessionId}",
+                    ServiceName, session.Username, session.Id);
+
+                await TerminateSessionAsync(session.Id, "Banned by admin", true);
+            }
         }
     }
 

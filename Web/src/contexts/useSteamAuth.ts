@@ -1,10 +1,4 @@
-import { useContext } from 'react';
 import { SteamAuthContext } from './SteamAuthContext.types';
+import { createContextHook } from './createContextHook';
 
-export const useSteamAuth = () => {
-  const context = useContext(SteamAuthContext);
-  if (!context) {
-    throw new Error('useSteamAuth must be used within SteamAuthProvider');
-  }
-  return context;
-};
+export const useSteamAuth = createContextHook(SteamAuthContext, 'useSteamAuth');

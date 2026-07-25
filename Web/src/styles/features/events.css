@@ -232,7 +232,7 @@
 }
 
 /* Mobile responsive: reduce spacing on smaller screens */
-@media (max-width: 768px) {
+@media (max-width: 767.98px) {
   .event-frame-wrapper {
     --event-frame-offset: 0px;
     --event-frame-offset-negative: 0px;

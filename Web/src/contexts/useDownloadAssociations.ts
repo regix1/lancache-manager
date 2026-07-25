@@ -1,13 +1,7 @@
-import { useContext } from 'react';
-import {
-  DownloadAssociationsContext,
-  type DownloadAssociationsContextType
-} from './DownloadAssociationsContext.types';
+import { DownloadAssociationsContext } from './DownloadAssociationsContext.types';
+import { createContextHook } from './createContextHook';
 
-export const useDownloadAssociations = (): DownloadAssociationsContextType => {
-  const context = useContext(DownloadAssociationsContext);
-  if (context === undefined) {
-    throw new Error('useDownloadAssociations must be used within a DownloadAssociationsProvider');
-  }
-  return context;
-};
+export const useDownloadAssociations = createContextHook(
+  DownloadAssociationsContext,
+  'useDownloadAssociations'
+);

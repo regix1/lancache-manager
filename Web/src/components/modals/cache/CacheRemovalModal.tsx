@@ -1,7 +1,5 @@
 import React from 'react';
-import { AlertTriangle, Trash2 } from 'lucide-react';
-import { Modal } from '@components/ui/Modal';
-import { Button } from '@components/ui/Button';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Alert } from '@components/ui/Alert';
 import { formatBytes, formatCount } from '@utils/formatters';
 import { useTranslation } from 'react-i18next';
@@ -52,81 +50,64 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
       : t('modals.cacheRemoval.confirmService', { name }));
 
   return (
-    <Modal
+    <ConfirmationModal
       opened={target !== null}
       onClose={onClose}
-      title={
-        <div className="flex items-center space-x-3">
-          <AlertTriangle className="w-6 h-6 text-themed-warning" />
-          <span>{modalTitle}</span>
-        </div>
+      onConfirm={onConfirm}
+      title={modalTitle}
+      confirmLabel={
+        titleOverride !== undefined && evictedCount !== undefined
+          ? t('modals.cacheRemoval.removeEvictedButton')
+          : t('modals.cacheRemoval.removeButton')
       }
     >
-      <div className="space-y-4">
-        <p className="text-themed-secondary">{modalDescription}</p>
+      <p className="text-themed-secondary">{modalDescription}</p>
 
-        <Alert color="yellow">
-          <div>
-            <p className="text-xs font-medium mb-2">{t('modals.cacheRemoval.thisWill')}</p>
-            <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-              {titleOverride !== undefined && evictedCount !== undefined ? (
-                <>
-                  <li>
-                    {t('modals.cacheRemoval.actions.removeEvictedLogEntries', {
-                      count: evictedCount
-                    })}
-                  </li>
-                  <li>
-                    {t('modals.cacheRemoval.actions.freeSpace', {
-                      size: formatBytes(evictedBytes ?? 0)
-                    })}
-                  </li>
-                </>
-              ) : (
-                <>
-                  <li>
-                    {t('modals.cacheRemoval.actions.deleteFiles', {
-                      count: filesCount,
-                      formattedCount: formatCount(filesCount)
-                    })}
-                  </li>
-                  <li>
-                    {t('modals.cacheRemoval.actions.freeSpace', { size: formatBytes(totalSize) })}
-                  </li>
-                  {isGame && depotCount > 0 && (
-                    <li>{t('modals.cacheRemoval.actions.removeDepots', { count: depotCount })}</li>
-                  )}
-                  {!isGame && (
-                    <>
-                      <li>{t('modals.cacheRemoval.actions.removeLogEntries')}</li>
-                      <li>{t('modals.cacheRemoval.actions.removeDownloadRecords')}</li>
-                    </>
-                  )}
-                </>
-              )}
-              <li>{t('modals.cacheRemoval.actions.showProgress')}</li>
-              <li>{t('modals.cacheRemoval.actions.cannotUndo')}</li>
-            </ul>
-          </div>
-        </Alert>
-
-        <div className="flex justify-end gap-3 pt-2">
-          <Button variant="default" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            variant="filled"
-            color="red"
-            leftSection={<Trash2 className="w-4 h-4" />}
-            onClick={onConfirm}
-          >
-            {titleOverride !== undefined && evictedCount !== undefined
-              ? t('modals.cacheRemoval.removeEvictedButton')
-              : t('modals.cacheRemoval.removeButton')}
-          </Button>
+      <Alert color="yellow">
+        <div>
+          <p className="text-xs font-medium mb-2">{t('modals.cacheRemoval.thisWill')}</p>
+          <ul className="list-disc list-inside text-xs space-y-1 ml-2">
+            {titleOverride !== undefined && evictedCount !== undefined ? (
+              <>
+                <li>
+                  {t('modals.cacheRemoval.actions.removeEvictedLogEntries', {
+                    count: evictedCount
+                  })}
+                </li>
+                <li>
+                  {t('modals.cacheRemoval.actions.freeSpace', {
+                    size: formatBytes(evictedBytes ?? 0)
+                  })}
+                </li>
+              </>
+            ) : (
+              <>
+                <li>
+                  {t('modals.cacheRemoval.actions.deleteFiles', {
+                    count: filesCount,
+                    formattedCount: formatCount(filesCount)
+                  })}
+                </li>
+                <li>
+                  {t('modals.cacheRemoval.actions.freeSpace', { size: formatBytes(totalSize) })}
+                </li>
+                {isGame && depotCount > 0 && (
+                  <li>{t('modals.cacheRemoval.actions.removeDepots', { count: depotCount })}</li>
+                )}
+                {!isGame && (
+                  <>
+                    <li>{t('modals.cacheRemoval.actions.removeLogEntries')}</li>
+                    <li>{t('modals.cacheRemoval.actions.removeDownloadRecords')}</li>
+                  </>
+                )}
+              </>
+            )}
+            <li>{t('modals.cacheRemoval.actions.showProgress')}</li>
+            <li>{t('modals.cacheRemoval.actions.cannotUndo')}</li>
+          </ul>
         </div>
-      </div>
-    </Modal>
+      </Alert>
+    </ConfirmationModal>
   );
 };
 

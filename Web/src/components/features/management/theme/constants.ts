@@ -6,7 +6,6 @@ import {
   Square,
   AlertCircle,
   Activity,
-  Lock,
   Gamepad2,
   Brush,
   Sparkles,
@@ -55,11 +54,6 @@ export const colorGroups: ColorGroup[] = [
           'management',
           'charts'
         ]
-      },
-      {
-        key: 'secondaryColor',
-        supportsAlpha: true,
-        pages: []
       },
       {
         key: 'accentColor',
@@ -468,20 +462,6 @@ export const colorGroups: ColorGroup[] = [
           'prefill',
           'management'
         ]
-      },
-      {
-        key: 'borderHover',
-        supportsAlpha: true,
-        pages: [
-          'dashboard',
-          'downloads',
-          'clients',
-          'services',
-          'users',
-          'events',
-          'prefill',
-          'management'
-        ]
       }
     ]
   },
@@ -595,13 +575,6 @@ export const colorGroups: ColorGroup[] = [
         pages: ['dashboard', 'downloads', 'clients', 'services', 'prefill']
       },
       { key: 'chartColor1', supportsAlpha: true, pages: ['charts'] },
-      { key: 'chartColor2', supportsAlpha: true, pages: ['charts'] },
-      { key: 'chartColor3', supportsAlpha: true, pages: ['charts'] },
-      { key: 'chartColor4', supportsAlpha: true, pages: ['charts'] },
-      { key: 'chartColor5', supportsAlpha: true, pages: ['charts'] },
-      { key: 'chartColor6', supportsAlpha: true, pages: ['charts'] },
-      { key: 'chartColor7', supportsAlpha: true, pages: ['charts'] },
-      { key: 'chartColor8', supportsAlpha: true, pages: ['charts'] },
       {
         key: 'chartCacheHitColor',
         supportsAlpha: true,
@@ -647,20 +620,6 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 10. ACCESS CONTROL - Security indicators
-  {
-    name: 'accessControl',
-    icon: Lock,
-    colors: [
-      { key: 'publicAccessBg', supportsAlpha: true },
-      { key: 'publicAccessText', supportsAlpha: true },
-      { key: 'publicAccessBorder', supportsAlpha: true },
-      { key: 'securedAccessBg', supportsAlpha: true },
-      { key: 'securedAccessText', supportsAlpha: true },
-      { key: 'securedAccessBorder', supportsAlpha: true }
-    ]
-  },
-
   // 10. USER SESSIONS - Session management colors
   {
     name: 'sessions',
@@ -669,9 +628,7 @@ export const colorGroups: ColorGroup[] = [
       { key: 'userSessionColor', supportsAlpha: true, pages: ['users'] },
       { key: 'userSessionBg', supportsAlpha: true, pages: ['users'] },
       { key: 'guestSessionColor', supportsAlpha: true, pages: ['users'] },
-      { key: 'guestSessionBg', supportsAlpha: true, pages: ['users'] },
-      { key: 'activeSessionColor', supportsAlpha: true, pages: ['users'] },
-      { key: 'activeSessionBg', supportsAlpha: true, pages: ['users'] }
+      { key: 'guestSessionBg', supportsAlpha: true, pages: ['users'] }
     ]
   },
 
@@ -739,6 +696,16 @@ export const colorGroups: ColorGroup[] = [
       },
       {
         key: 'ubisoftColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'gogColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'rockstarColor',
         supportsAlpha: true,
         pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
       },

@@ -35,10 +35,8 @@ import {
   efficiencyTier,
   formatTimeRange,
   formatTimeRangeLines,
-  groupByDepot,
   mapDtoToDepotGroupedData,
-  type DepotGroupedData,
-  type RetroSortOrder
+  type DepotGroupedData
 } from './retroGrouping';
 import {
   RETRO_WIDTHS_STORAGE_KEY,
@@ -52,15 +50,9 @@ import {
   type RetroColumnVisibility,
   type RetroMeasureRow
 } from './retroColumnSizing';
-import type {
-  Download as DownloadType,
-  DownloadGroup,
-  EventSummary,
-  GameDetectionSummary
-} from '../../../types';
+import type { EventSummary, GameDetectionSummary } from '../../../types';
 
 interface RetroViewProps {
-  items: (DownloadType | DownloadGroup)[];
   sortOrder: string;
   itemsPerPage: number;
   currentPage: number;
@@ -80,8 +72,9 @@ interface RetroViewProps {
     { service_name: string; cache_files_found: number; total_size_bytes: number }
   > | null;
   /**
-   * When true, RetroView fetches its own server-paginated data from
-   * `/api/downloads/retro` instead of consuming the `items` prop.
+   * When true, RetroView fetches its server-paginated data from
+   * `/api/downloads/retro`. The view stays mounted while another view mode is
+   * showing, so this is false whenever it is hidden and no fetch should run.
    */
   serverMode?: boolean;
   /** Server-side filter: service name or 'all'. Only used when serverMode is true. */
@@ -221,7 +214,6 @@ const RetroView = memo(
   forwardRef<RetroViewHandle, RetroViewProps>(
     (
       {
-        items,
         sortOrder,
         itemsPerPage,
         currentPage,
@@ -283,39 +275,21 @@ const RetroView = memo(
         eventId: filterEventId
       });
 
-      // Client-side grouping path: only runs in non-server mode.
-      const clientGroupedItems = useMemo(() => {
-        if (serverMode) return [] as DepotGroupedData[];
-        return groupByDepot(items, sortOrder as RetroSortOrder, groupByGame);
-      }, [serverMode, items, sortOrder, groupByGame]);
-
-      // Server-mode page rows: one DepotGroupedData per server DTO.
-      // The server already merges by game when groupByGame is true, so we
-      // return the mapped rows directly - no client-side mergeByGame needed.
-      const serverGroupedItems = useMemo(() => {
+      // Page rows: one DepotGroupedData per server DTO. The server groups,
+      // merges by game, sorts and paginates, so the rows ARE the page - no
+      // client-side regrouping or slicing.
+      const groupedItems = useMemo(() => {
         if (!serverMode) return [] as DepotGroupedData[];
         return serverRetro.items.map(mapDtoToDepotGroupedData);
       }, [serverMode, serverRetro.items]);
 
-      // Calculate total pages - server response wins when available.
-      const totalPages = useMemo(() => {
-        if (serverMode) {
-          return Math.max(1, serverRetro.totalPages);
-        }
-        return Math.max(1, Math.ceil(clientGroupedItems.length / itemsPerPage));
-      }, [serverMode, serverRetro.totalPages, clientGroupedItems.length, itemsPerPage]);
-
-      // Page slice. In server mode the rows ARE the page; no slicing.
-      const groupedItems = useMemo(() => {
-        if (serverMode) {
-          return serverGroupedItems;
-        }
-        const start = (currentPage - 1) * itemsPerPage;
-        return clientGroupedItems.slice(start, start + itemsPerPage);
-      }, [serverMode, serverGroupedItems, clientGroupedItems, currentPage, itemsPerPage]);
+      const totalPages = useMemo(
+        () => Math.max(1, serverRetro.totalPages),
+        [serverRetro.totalPages]
+      );
 
       // Total items for pagination footer label.
-      const totalItems = serverMode ? serverRetro.totalItems : clientGroupedItems.length;
+      const totalItems = serverRetro.totalItems;
 
       // Only show datasource column when there are multiple datasources
       const showDatasourceColumn = hasMultipleDatasources && showDatasourceLabels;

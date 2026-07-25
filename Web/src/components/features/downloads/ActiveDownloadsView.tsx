@@ -6,6 +6,7 @@ import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { formatBytes, formatSpeed } from '@utils/formatters';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import BadgesRow from './BadgesRow';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { buildTrafficKey } from './liveDownloadPreviews';
@@ -71,7 +72,9 @@ const ActiveDownloadsView: React.FC = () => {
             <HardDrive />
             {t('downloads.active.tabs.games')}
             {games.length > 0 && (
-              <span className="themed-badge status-badge-neutral badge-count">{games.length}</span>
+              <Badge variant="neutral" className="badge-count">
+                {games.length}
+              </Badge>
             )}
           </button>
           <button
@@ -81,9 +84,9 @@ const ActiveDownloadsView: React.FC = () => {
             <Users />
             {t('downloads.active.tabs.clients')}
             {clients.length > 0 && (
-              <span className="themed-badge status-badge-neutral badge-count">
+              <Badge variant="neutral" className="badge-count">
                 {clients.length}
-              </span>
+              </Badge>
             )}
           </button>
         </div>

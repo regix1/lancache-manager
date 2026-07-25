@@ -535,9 +535,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("XboxProductId")
                         .HasDatabaseName("IX_Downloads_XboxProductId");
 
-                    b.HasIndex("IsEvicted", "StartTimeUtc")
-                        .HasDatabaseName("IX_Downloads_IsEvicted_StartTimeUtc");
-
                     b.HasIndex("ClientIp", "Service", "IsActive")
                         .HasDatabaseName("IX_Downloads_Client_Service_Active");
 
@@ -832,9 +829,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("Timestamp")
                         .HasDatabaseName("IX_LogEntries_Timestamp");
 
-                    b.HasIndex("ClientIp", "Service")
-                        .HasDatabaseName("IX_LogEntries_Client_Service");
-
                     b.HasIndex("ClientIp", "Service", "Timestamp", "Url", "BytesServed")
                         .HasDatabaseName("IX_LogEntries_DuplicateCheck");
 
@@ -1093,9 +1087,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     b.HasIndex("AppId")
                         .HasDatabaseName("IX_SteamDepotMappings_AppId");
-
-                    b.HasIndex("DepotId")
-                        .HasDatabaseName("IX_SteamDepotMappings_DepotId");
 
                     b.HasIndex("DepotId", "AppId")
                         .IsUnique()

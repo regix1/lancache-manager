@@ -52,7 +52,7 @@ public class GcController : ControllerBase
     {
         if (request.MemoryThresholdMB < 512 || request.MemoryThresholdMB > 32768)
         {
-            return BadRequest(new ErrorResponse { Error = "Memory threshold must be between 512MB and 32GB" });
+            return BadRequest(ApiResponse.Error("Memory threshold must be between 512MB and 32GB"));
         }
 
         // Resolve the Enabled flag. Prefer the new field; fall back to the legacy
@@ -67,7 +67,7 @@ public class GcController : ControllerBase
 #pragma warning disable CS0618 // Type or member is obsolete - legacy DTO compat path
             if (!Enum.TryParse<GcAggressiveness>(request.Aggressiveness, true, out var aggressiveness))
             {
-                return BadRequest(new ErrorResponse { Error = "Invalid aggressiveness level" });
+                return BadRequest(ApiResponse.Error("Invalid aggressiveness level"));
             }
             enabled = aggressiveness != GcAggressiveness.Disabled;
 #pragma warning restore CS0618

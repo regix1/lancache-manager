@@ -46,8 +46,8 @@ public class BattleNetMappingService
     /// <summary>
     /// Re-maps existing Blizzard downloads with no GameName by resolving the TACT segment
     /// from LastUrl. Sets GameName (game display name or the shared label), leaves
-    /// GameAppId NULL, persists, and emits <see cref="SignalREvents.BlizzardGameMappingsUpdated"/>.
-    /// Returns the number of downloads that were resolved.
+    /// GameAppId NULL, persists, and emits <see cref="SignalREvents.DownloadsRefresh"/> so the
+    /// renamed rows are re-pulled. Returns the number of downloads that were resolved.
     /// </summary>
     public async Task<int> ResolveDownloadsAsync(CancellationToken ct = default)
     {
@@ -115,12 +115,6 @@ public class BattleNetMappingService
             _logger.LogInformation(
                 "Resolved {Count}/{Total} Blizzard downloads to game names",
                 resolvedCount, unresolvedDownloads.Count);
-
-            await _notifications.NotifyAllAsync(SignalREvents.BlizzardGameMappingsUpdated, new
-            {
-                source = "blizzard-download-resolution",
-                resolvedCount
-            });
 
             // DownloadsRefresh so the dashboard re-pulls the renamed rows.
             await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new

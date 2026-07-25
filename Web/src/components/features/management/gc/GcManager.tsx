@@ -142,14 +142,13 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
     try {
       const response = await fetch(
         `${API_BASE}/gc/settings`,
-        ApiService.getFetchOptions({
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        ApiService.getJsonFetchOptions(
+          {
             enabled: settings.enabled,
             memoryThresholdMB: settings.memoryThresholdMB
-          })
-        })
+          },
+          { method: 'PUT' }
+        )
       );
 
       if (response.ok) {

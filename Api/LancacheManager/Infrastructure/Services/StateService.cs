@@ -36,6 +36,14 @@ public class StateService : IStateService
     private bool _stateSavesDisabledLogged = false;
     private bool _migrationAttempted = false;
 
+    // Retention windows for the two persisted operation lists. Both prune on the same
+    // condition - the record reached a terminal state and has aged past its window - but the
+    // windows and the timestamp they measure differ on purpose. Cache clear rows carry an
+    // explicit EndTime and only need to outlive a restart, while operation history rows have
+    // no end timestamp (UpdatedAt stands in) and back the longer-lived history view.
+    private static readonly TimeSpan _cacheClearOperationRetention = TimeSpan.FromHours(24);
+    private static readonly TimeSpan _operationStateRetention = TimeSpan.FromHours(48);
+
     public bool IsPersistenceAvailable => _consecutiveFailures <= 5;
 
     public StateService(
@@ -703,7 +711,10 @@ public class StateService : IStateService
     }
 
     /// <summary>
-    /// Cleans up old completed cache clear operations (older than 24 hours)
+    /// Drops cache clear operations that finished (completed, failed or cancelled) longer ago
+    /// than <see cref="_cacheClearOperationRetention"/>. Rows that have not reached a terminal
+    /// state are kept regardless of age: they are either still running or waiting to be
+    /// reconciled on the next startup, and they have no end time to measure against.
     /// </summary>
     private void PruneCacheClearOperations()
     {
@@ -712,9 +723,9 @@ public class StateService : IStateService
             return;
         }
 
-        var cutoff = DateTime.UtcNow.AddHours(-24);
+        var cutoff = DateTime.UtcNow - _cacheClearOperationRetention;
         var oldOps = _cachedCacheClearOperations
-            .Where(o => (o.Status == OperationStatus.Completed || o.Status == OperationStatus.Failed) && o.EndTime.HasValue && o.EndTime.Value < cutoff)
+            .Where(o => o.Status.IsTerminal() && o.EndTime.HasValue && o.EndTime.Value < cutoff)
             .ToList();
 
         if (oldOps.Count > 0)
@@ -790,7 +801,12 @@ public class StateService : IStateService
     }
 
     /// <summary>
-    /// Cleans up old completed operation states (older than 48 hours)
+    /// Drops operation history rows that reached a terminal state (completed, failed or
+    /// cancelled) longer ago than <see cref="_operationStateRetention"/>. This record has no end
+    /// timestamp, so UpdatedAt stands in for when the operation finished. Non-terminal rows are
+    /// kept regardless of age so an operation interrupted by a restart can still be resumed.
+    /// This is a backstop only: <c>OperationStateService</c> expires its in-memory states after
+    /// 24 hours and rewrites this list from what remains, so most rows never reach the window.
     /// </summary>
     private void PruneOperationStates()
     {
@@ -799,9 +815,9 @@ public class StateService : IStateService
             return;
         }
 
-        var cutoff = DateTime.UtcNow.AddHours(-48);
+        var cutoff = DateTime.UtcNow - _operationStateRetention;
         var oldStates = _cachedOperationStates
-            .Where(s => s.Status == OperationStatus.Completed && s.UpdatedAt < cutoff)
+            .Where(s => s.Status.IsTerminal() && s.UpdatedAt < cutoff)
             .ToList();
 
         if (oldStates.Count > 0)
@@ -811,7 +827,7 @@ public class StateService : IStateService
                 _cachedOperationStates.Remove(state);
             }
             SaveOperationStates();
-            _logger.LogInformation("Cleaned up {Count} old completed operation states", oldStates.Count);
+            _logger.LogInformation("Cleaned up {Count} old finished operation states", oldStates.Count);
         }
     }
 

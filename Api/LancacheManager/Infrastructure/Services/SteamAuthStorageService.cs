@@ -7,7 +7,7 @@ namespace LancacheManager.Infrastructure.Services;
 /// Service for managing Steam authentication credentials in a separate encrypted file
 /// Uses Microsoft ASP.NET Core Data Protection API with API key as part of encryption
 /// </summary>
-public class SteamAuthStorageService : SteamAuthFileStorageServiceBase, ISteamAuthStorageService
+public class SteamAuthStorageService : SteamAuthFileStorageServiceBase
 {
     public SteamAuthStorageService(
         ILogger<SteamAuthStorageService> logger,
@@ -18,6 +18,8 @@ public class SteamAuthStorageService : SteamAuthFileStorageServiceBase, ISteamAu
     }
 
     protected override string AuthDirectoryName => "steam_auth";
+
+    protected override string AuthDataLabel => "Steam";
 
     /// <summary>
     /// Migrates Steam auth data from old state.json to new separate file

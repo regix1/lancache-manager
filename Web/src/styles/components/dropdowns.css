@@ -110,7 +110,7 @@
      this padding/line-height combination drives the trigger's height again instead of
      being pinned to the (taller) desktop value - !important matches this selector's own
      convention above for reliably beating a Tailwind utility class. */
-  @media (max-width: 640px) {
+  @media (max-width: 639.98px) {
     .ed-trigger {
       flex-shrink: 1;
       min-width: 0;
@@ -744,7 +744,7 @@
   }
 
   /* Mobile Responsive */
-  @media (max-width: 640px) {
+  @media (max-width: 639.98px) {
     .github-dropdown-header {
       padding: 0.625rem 0.75rem;
     }

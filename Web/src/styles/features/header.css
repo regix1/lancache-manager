@@ -51,12 +51,6 @@
   }
 }
 
-.header-guest-pill {
-  background-color: var(--theme-warning-bg);
-  color: var(--theme-warning-text);
-  border: 1px solid var(--theme-warning);
-}
-
 .connection-dot {
   border: 2px solid var(--theme-nav-bg);
 }

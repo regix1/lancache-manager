@@ -1,0 +1,1420 @@
+using System.Collections.Concurrent;
+using System.Net.Sockets;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using LancacheManager.Models;
+
+namespace LancacheManager.Core.Services.SteamPrefill;
+
+/// <summary>
+/// Shared client for communicating with a prefill daemon over a stream transport.
+/// Uses length-prefixed JSON protocol for reliable bidirectional communication.
+/// Protocol: 4-byte little-endian length prefix + JSON message body
+/// </summary>
+/// <remarks>
+/// Owns framing, the pending-command registry, the receive loop and every daemon command. A transport
+/// supplies only the socket it speaks over and the policy for waiting until the daemon is reachable
+/// (<see cref="SocketDaemonClient"/> waits for the socket file to appear; <see cref="TcpDaemonClient"/>
+/// retries the connect). Keeping the protocol in one place is what makes the two transports provably
+/// interchangeable behind <see cref="IDaemonClient"/>.
+/// </remarks>
+public abstract class DaemonClientBase : IDaemonClient
+{
+    // Non-generic ILogger so the owning daemon service's real logger flows through unchanged: the caller
+    // holds an ILogger<TSomeDaemonService>, and a generic-typed field here would force a category cast
+    // that silently yields null (dropping every drain timeout/fault warning this client emits).
+    protected readonly ILogger? _logger;
+    private readonly string? _sharedSecret;
+    private Socket? _socket;
+    private NetworkStream? _stream;
+    private Task? _receiveTask;
+    private CancellationTokenSource? _receiveCts;
+    private bool _disposed;
+    private volatile bool _isAuthenticated;
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly SemaphoreSlim _connectLock = new(1, 1);
+    private readonly object _transportSync = new();
+    private readonly DaemonClientConnectionLifecycle _connectionLifecycle = new();
+
+    // Tracks fire-and-forget ProcessEventAsync tasks so teardown can drain in-flight event callbacks
+    // before disposal (see DaemonEventDrainTracker / DrainEventsAsync).
+    private readonly DaemonEventDrainTracker _eventDrain;
+
+    // Pending command responses keyed by request ID
+    private readonly ConcurrentDictionary<string, PendingDaemonCommand> _pendingCommands = new();
+
+    // Queue for credential challenges received via socket
+    private readonly ConcurrentQueue<CredentialChallenge> _challengeQueue = new();
+    private TaskCompletionSource<CredentialChallenge>? _challengeWaiter;
+
+    // True while the CURRENT _challengeWaiter belongs to an in-flight StartLoginAsync login command.
+    // The slot is shared between the login command and the challenge poll; without ownership a poll
+    // could take over the slot and receive the login's challenge while the login orphans to its
+    // timeout. Guarded by _challengeLock; set and cleared only by StartLoginAsync.
+    private bool _challengeWaiterOwnedByLogin;
+    private readonly object _challengeLock = new();
+
+    /// <summary>
+    /// Event raised when a credential challenge is received.
+    /// </summary>
+    public event Func<CredentialChallenge, Task>? OnCredentialChallenge;
+
+    /// <summary>
+    /// Event raised when daemon status changes.
+    /// </summary>
+    public event Func<DaemonStatus, Task>? OnStatusUpdate;
+
+    /// <summary>
+    /// Event raised when a progress update is received.
+    /// </summary>
+    public event Func<SocketPrefillProgress, Task>? OnProgressUpdate;
+
+    /// <summary>
+    /// Event raised when an error occurs.
+    /// </summary>
+    public event Func<string, Task>? OnError;
+
+    /// <summary>
+    /// Event raised when connection is lost.
+    /// </summary>
+    public event Func<Task>? OnDisconnected;
+
+    /// <summary>
+    /// Whether currently connected to the daemon.
+    /// </summary>
+    public bool IsConnected => _connectionLifecycle.IsConnected;
+
+    /// <summary>
+    /// Whether the client has been authenticated with the daemon.
+    /// </summary>
+    public bool IsAuthenticated => IsConnected && _isAuthenticated;
+
+    /// <summary>
+    /// HKDF info string for credential encryption. Must match the daemon's implementation.
+    /// </summary>
+    public string HkdfInfo { get; set; } = "SteamPrefill-Credential-Encryption";
+
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
+    protected DaemonClientBase(string? sharedSecret, ILogger? logger)
+    {
+        _logger = logger;
+        _eventDrain = new DaemonEventDrainTracker(_logger);
+
+        // Read shared secret for socket authentication
+        _sharedSecret = sharedSecret;
+        if (!string.IsNullOrEmpty(_sharedSecret))
+        {
+            _logger?.LogInformation("Socket authentication enabled for daemon client");
+        }
+    }
+
+    /// <summary>
+    /// Wording this transport contributes to connection diagnostics.
+    /// </summary>
+    protected abstract DaemonTransportLabels TransportLabels { get; }
+
+    /// <summary>
+    /// Creates the unconnected socket for this transport's address family.
+    /// </summary>
+    protected abstract Socket CreateSocket();
+
+    /// <summary>
+    /// Connects <paramref name="socket"/> to this transport's endpoint.
+    /// </summary>
+    protected abstract Task ConnectSocketAsync(Socket socket, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Waits until the daemon endpoint is reachable and establishes a live connection through
+    /// <see cref="EstablishConnectionAsync"/>. Called under the connect lock with the previous
+    /// connection already torn down by the implementation's opening <see cref="DisconnectCoreAsync"/>.
+    /// </summary>
+    protected abstract Task ConnectCoreAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Called on a failed connection attempt before the half-built transport is torn down, so a
+    /// transport can log its own endpoint detail. Not called when the attempt is cancelled.
+    /// </summary>
+    protected virtual void OnConnectAttemptFailed(Exception exception)
+    {
+    }
+
+    /// <summary>
+    /// Connects to the daemon.
+    /// </summary>
+    public async Task ConnectAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureConnectedAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Ensure connected to the daemon.
+    /// </summary>
+    private async Task EnsureConnectedAsync(CancellationToken cancellationToken = default)
+    {
+        if (IsConnected)
+            return;
+
+        await _connectLock.WaitAsync(cancellationToken);
+        try
+        {
+            // Double-check after acquiring lock
+            if (IsConnected)
+                return;
+
+            await ConnectCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            _connectLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Performs one connection attempt: connects the transport socket, publishes it with a fresh
+    /// connection generation, starts the receive loop and authenticates. Any failure tears the
+    /// half-built attempt back down before the exception propagates, so a caller may retry.
+    /// </summary>
+    protected async Task EstablishConnectionAsync(CancellationToken cancellationToken)
+    {
+        var generation = _connectionLifecycle.CreateGeneration();
+        var socket = CreateSocket();
+        NetworkStream? stream = null;
+        CancellationTokenSource? receiveCts = null;
+        var published = false;
+
+        try
+        {
+            await ConnectSocketAsync(socket, cancellationToken);
+            stream = new NetworkStream(socket, ownsSocket: false);
+            receiveCts = new CancellationTokenSource();
+
+            lock (_transportSync)
+            {
+                _socket = socket;
+                _stream = stream;
+                _receiveCts = receiveCts;
+                _isAuthenticated = false;
+                _connectionLifecycle.MarkConnected(generation);
+                _receiveTask = Task.Run(
+                    () => ReceiveLoopAsync(stream, generation, receiveCts.Token),
+                    CancellationToken.None);
+                published = true;
+            }
+
+            _logger?.LogInformation("Connected to daemon {Endpoint}", TransportLabels.Endpoint);
+
+            if (!string.IsNullOrEmpty(_sharedSecret))
+            {
+                await AuthenticateAsync(cancellationToken);
+            }
+            else
+            {
+                _isAuthenticated = true; // No auth required
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            await AbandonAttemptAsync(published, receiveCts, stream, socket);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            OnConnectAttemptFailed(ex);
+            await AbandonAttemptAsync(published, receiveCts, stream, socket);
+            throw;
+        }
+    }
+
+    private async Task AbandonAttemptAsync(
+        bool published,
+        CancellationTokenSource? receiveCts,
+        NetworkStream? stream,
+        Socket socket)
+    {
+        if (published)
+        {
+            await DisconnectCoreAsync();
+        }
+        else
+        {
+            receiveCts?.Dispose();
+            stream?.Dispose();
+            socket.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Authenticates with the daemon using the shared secret.
+    /// </summary>
+    private async Task AuthenticateAsync(CancellationToken cancellationToken)
+    {
+        _logger?.LogDebug("Authenticating with daemon...");
+
+        var response = await SendCoreAsync("auth", new Dictionary<string, string>
+        {
+            ["secret"] = _sharedSecret!
+        }, TimeSpan.FromSeconds(10), cancellationToken);
+
+        if (!response.Success)
+        {
+            _isAuthenticated = false;
+            throw new UnauthorizedAccessException($"Socket authentication failed: {response.Error}");
+        }
+
+        _isAuthenticated = true;
+        _logger?.LogInformation("Socket authentication successful");
+    }
+
+    protected async Task DisconnectCoreAsync()
+    {
+        var generation = _connectionLifecycle.MarkDisconnected();
+        Socket? socket;
+        NetworkStream? stream;
+        Task? receiveTask;
+        CancellationTokenSource? receiveCts;
+        lock (_transportSync)
+        {
+            _isAuthenticated = false;
+            socket = _socket;
+            stream = _stream;
+            receiveTask = _receiveTask;
+            receiveCts = _receiveCts;
+            _socket = null;
+            _stream = null;
+            _receiveTask = null;
+            _receiveCts = null;
+        }
+
+        receiveCts?.Cancel();
+        stream?.Dispose();
+        socket?.Dispose();
+
+        if (receiveTask != null)
+        {
+            try
+            {
+                await receiveTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        receiveCts?.Dispose();
+        if (generation != 0)
+        {
+            DaemonPendingCommandRegistry.FailGeneration(
+                _pendingCommands,
+                generation,
+                new IOException(DisconnectedWhileWaitingMessage));
+        }
+    }
+
+    private string DisconnectedWhileWaitingMessage
+        => $"Daemon {TransportLabels.Connection} disconnected while waiting for response";
+
+    private async Task ReceiveLoopAsync(
+        NetworkStream stream,
+        long generation,
+        CancellationToken cancellationToken)
+    {
+        var lengthBuffer = new byte[4];
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested
+                   && _connectionLifecycle.CurrentGeneration == generation)
+            {
+                var bytesRead = await ReadExactlyAsync(stream, lengthBuffer, cancellationToken);
+                if (bytesRead == 0)
+                {
+                    _logger?.LogWarning(
+                        "Daemon {Connection} disconnected (remote closed connection)",
+                        TransportLabels.Connection);
+                    break;
+                }
+
+                var length = BitConverter.ToInt32(lengthBuffer, 0);
+                if (length <= 0 || length > 10 * 1024 * 1024) // Max 10MB
+                {
+                    _logger?.LogWarning("Invalid message length from daemon: {Length}", length);
+                    break;
+                }
+
+                var messageBuffer = new byte[length];
+                bytesRead = await ReadExactlyAsync(stream, messageBuffer, cancellationToken);
+                if (bytesRead == 0)
+                {
+                    _logger?.LogWarning(
+                        "Daemon {Connection} disconnected while reading message body",
+                        TransportLabels.Connection);
+                    break;
+                }
+
+                var json = Encoding.UTF8.GetString(messageBuffer);
+                // Do NOT log the raw JSON body: daemon messages can carry credential challenges
+                // (device userCode + verification URL) and tokens. Log only the size.
+                _logger?.LogDebug("Received {Bytes}-byte message from daemon", json.Length);
+
+                if (_connectionLifecycle.CurrentGeneration == generation)
+                {
+                    ProcessMessage(json);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on shutdown
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            // Transport disposal can surface as ObjectDisposedException instead of cancellation.
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error receiving from daemon {Connection}", TransportLabels.Connection);
+        }
+        finally
+        {
+            if (_connectionLifecycle.TryMarkDisconnected(generation))
+            {
+                Socket? socket = null;
+                CancellationTokenSource? receiveCts = null;
+                lock (_transportSync)
+                {
+                    _isAuthenticated = false;
+                    if (ReferenceEquals(_stream, stream))
+                    {
+                        socket = _socket;
+                        receiveCts = _receiveCts;
+                        _socket = null;
+                        _stream = null;
+                        _receiveTask = null;
+                        _receiveCts = null;
+                    }
+                }
+
+                stream.Dispose();
+                socket?.Dispose();
+                receiveCts?.Dispose();
+
+                var pendingCount = DaemonPendingCommandRegistry.FailGeneration(
+                    _pendingCommands,
+                    generation,
+                    new IOException(DisconnectedWhileWaitingMessage));
+                if (pendingCount > 0)
+                {
+                    _logger?.LogWarning(
+                        "Failing {Count} pending commands due to {Connection} disconnection",
+                        pendingCount,
+                        TransportLabels.Connection);
+                }
+
+                _eventDrain.TryTrack(() => DaemonEventDispatch.InvokeAllAsync(OnDisconnected, _logger));
+            }
+        }
+    }
+
+    internal void ProcessMessage(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            // Check if it's an event (has "type" at root level for socket events)
+            if (root.TryGetProperty("type", out var typeElement))
+            {
+                var messageType = JsonSerializer.Deserialize<DaemonMessageType>(typeElement.GetRawText(), _jsonOptions);
+
+                // Socket events from daemon: credential-challenge, progress, auth-state, status-update
+                if (messageType != DaemonMessageType.Unknown)
+                {
+                    // Atomic admission: TryTrack starts + tracks the callback under the drain lock, or
+                    // rejects it (callback never runs) once teardown has begun draining - so no event can
+                    // slip past DrainAsync's snapshot and run after this client is disposed.
+                    _eventDrain.TryTrack(() => ProcessEventAsync(messageType, root));
+                    return;
+                }
+            }
+
+            // Check if it's a command response (has "id" property)
+            if (root.TryGetProperty("id", out _))
+            {
+                var response = JsonSerializer.Deserialize<CommandResponse>(json, _jsonOptions);
+                if (response != null && _pendingCommands.TryRemove(response.Id, out var pending))
+                {
+                    pending.Completion.TrySetResult(response);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to process message from daemon");
+        }
+    }
+
+    private async Task ProcessEventAsync(DaemonMessageType messageType, JsonElement root)
+    {
+        try
+        {
+            switch (messageType)
+            {
+                case DaemonMessageType.CredentialChallenge:
+                    if (root.TryGetProperty("data", out var challengeData))
+                    {
+                        var challenge = JsonSerializer.Deserialize<CredentialChallenge>(challengeData.GetRawText(), _jsonOptions);
+                        if (challenge != null)
+                        {
+                            _logger?.LogInformation("Received credential challenge: {Type}", challenge.CredentialType);
+                            await DispatchChallengeAsync(challenge);
+                        }
+                    }
+                    break;
+
+                case DaemonMessageType.Progress:
+                    if (root.TryGetProperty("data", out var progressData))
+                    {
+                        var progress = JsonSerializer.Deserialize<SocketPrefillProgress>(progressData.GetRawText(), _jsonOptions);
+                        if (progress != null)
+                        {
+                            await DaemonEventDispatch.InvokeAllAsync(OnProgressUpdate, progress, _logger);
+                        }
+                    }
+                    break;
+
+                case DaemonMessageType.AuthState:
+                    if (root.TryGetProperty("data", out var authData))
+                    {
+                        var state = authData.TryGetProperty("state", out var stateElem) ? stateElem.GetString() : null;
+                        var message = authData.TryGetProperty("message", out var msgElem) ? msgElem.GetString() : null;
+                        var displayName = authData.TryGetProperty("displayName", out var dnElem) ? dnElem.GetString() : null;
+                        _logger?.LogInformation("Auth state changed: {State} - {Message}", state, message);
+                        // Convert auth state to DaemonStatus for the status event
+                        await DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, new DaemonStatus
+                        {
+                            Status = state ?? "unknown",
+                            Message = message,
+                            DisplayName = displayName,
+                            Timestamp = DateTime.UtcNow
+                        }, _logger);
+                    }
+                    break;
+
+                case DaemonMessageType.StatusUpdate:
+                    var status = JsonSerializer.Deserialize<DaemonStatus>(root.GetRawText(), _jsonOptions);
+                    if (status != null)
+                    {
+                        await DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, status, _logger);
+                    }
+                    break;
+
+                default:
+                    _logger?.LogDebug("Received unhandled daemon message type: {MessageType}", messageType);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to process event of type {MessageType}", messageType);
+            await DaemonEventDispatch.InvokeAllAsync(OnError, ex.Message, _logger);
+        }
+    }
+
+    /// <summary>
+    /// Drains in-flight fire-and-forget event callbacks (bounded) and rejects new ones, so a teardown can
+    /// guarantee no event writes/broadcasts after it returns. See <see cref="DaemonEventDrainTracker"/>.
+    /// </summary>
+    public Task DrainEventsAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+        => _eventDrain.DrainAsync(timeout, cancellationToken);
+
+    private async Task DispatchChallengeAsync(CredentialChallenge challenge)
+    {
+        lock (_challengeLock)
+        {
+            // If there's a waiter, give it the challenge directly
+            if (_challengeWaiter != null)
+            {
+                _challengeWaiter.TrySetResult(challenge);
+                _challengeWaiter = null;
+            }
+            else
+            {
+                // Queue it for later retrieval
+                _challengeQueue.Enqueue(challenge);
+            }
+        }
+
+        // Always fire the event
+        await DaemonEventDispatch.InvokeAllAsync(OnCredentialChallenge, challenge, _logger);
+    }
+
+    private static async Task<int> ReadExactlyAsync(Stream stream, byte[] buffer, CancellationToken cancellationToken)
+    {
+        var totalRead = 0;
+        while (totalRead < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(totalRead, buffer.Length - totalRead), cancellationToken);
+            if (read == 0)
+                return 0; // Connection closed
+            totalRead += read;
+        }
+        return totalRead;
+    }
+
+    /// <summary>
+    /// Send a command and wait for response.
+    /// </summary>
+    public async Task<CommandResponse> SendCommandAsync(
+        string type,
+        Dictionary<string, string>? parameters = null,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureConnectedAsync(cancellationToken);
+        return await SendCoreAsync(type, parameters, timeout, cancellationToken);
+    }
+
+    /// <summary>
+    /// Internal method to send command without connection check.
+    /// Used during authentication when we're already connected but not yet authenticated.
+    /// </summary>
+    private async Task<CommandResponse> SendCoreAsync(
+        string type,
+        Dictionary<string, string>? parameters,
+        TimeSpan? timeout,
+        CancellationToken cancellationToken)
+    {
+        var command = new CommandRequest
+        {
+            Id = Guid.NewGuid().ToString(),
+            Type = type,
+            Parameters = parameters,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        var generation = _connectionLifecycle.CurrentGeneration;
+        if (generation == 0)
+        {
+            throw new IOException("Not connected to daemon");
+        }
+
+        var pending = new PendingDaemonCommand(generation);
+        _pendingCommands[command.Id] = pending;
+
+        try
+        {
+            // Serialize and send with length prefix
+            var json = JsonSerializer.Serialize(command, _jsonOptions);
+            var bytes = Encoding.UTF8.GetBytes(json);
+
+            await _sendLock.WaitAsync(cancellationToken);
+            try
+            {
+                NetworkStream stream;
+                lock (_transportSync)
+                {
+                    if (_connectionLifecycle.CurrentGeneration != generation || _stream == null)
+                    {
+                        throw new IOException("Daemon connection changed before the command was sent");
+                    }
+
+                    stream = _stream;
+                }
+
+                // Send length prefix (4 bytes, little-endian)
+                await stream.WriteAsync(BitConverter.GetBytes(bytes.Length), cancellationToken);
+                // Send message body
+                await stream.WriteAsync(bytes, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+
+                _logger?.LogDebug("Sent command: {Type} ({Id})", type, command.Id);
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+
+            // Wait for response with timeout
+            using var timeoutCts = new CancellationTokenSource(timeout ?? TimeSpan.FromMinutes(5));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            using var reg = linkedCts.Token.Register(
+                () => pending.Completion.TrySetCanceled(linkedCts.Token));
+
+            return await pending.Completion.Task;
+        }
+        finally
+        {
+            _pendingCommands.TryRemove(command.Id, out _);
+        }
+    }
+
+    /// <summary>
+    /// Get the current daemon status.
+    /// </summary>
+    public async Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await SendCommandAsync("status", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
+            if (response.Success && response.Data is JsonElement element)
+            {
+                return new DaemonStatus
+                {
+                    Status = element.TryGetProperty("isLoggedIn", out var loggedIn) && loggedIn.GetBoolean() ? "logged-in" : "not-logged-in",
+                    Message = element.TryGetProperty("isInitialized", out var init) && init.GetBoolean() ? "Initialized" : "Not initialized",
+                    AuthExpiryUtc = DaemonStatus.ParseAuthExpiry(element),
+                    AccountDisplayName = DaemonStatus.ParseAccountDisplayName(element),
+                    Timestamp = DateTime.UtcNow
+                };
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to get daemon status");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Start login process.
+    /// </summary>
+    public async Task<CredentialChallenge?> StartLoginAsync(
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Clear any pending challenges
+        ClearPendingChallenges();
+
+        // Set up waiter before sending command
+        var challengeTcs = new TaskCompletionSource<CredentialChallenge>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_challengeLock)
+        {
+            _challengeWaiter = challengeTcs;
+            _challengeWaiterOwnedByLogin = true;
+        }
+
+        try
+        {
+            // Send login command (don't await the response - it comes after auth is complete)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await SendCommandAsync("login", timeout: TimeSpan.FromMinutes(10), cancellationToken: cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogDebug(ex, "Login command completed or failed");
+                }
+            }, cancellationToken);
+
+            // Wait for credential challenge with timeout
+            using var timeoutCts = new CancellationTokenSource(timeout ?? TimeSpan.FromSeconds(30));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            using var reg = linkedCts.Token.Register(() => challengeTcs.TrySetCanceled());
+
+            return await challengeTcs.Task;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        finally
+        {
+            lock (_challengeLock)
+            {
+                // Release ownership; clear the slot only if it still holds this login's waiter (the
+                // challenge dispatch or ClearPendingChallenges may already have consumed it).
+                if (ReferenceEquals(_challengeWaiter, challengeTcs))
+                {
+                    _challengeWaiter = null;
+                }
+                _challengeWaiterOwnedByLogin = false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Provide encrypted credential in response to a challenge.
+    /// </summary>
+    public async Task ProvideCredentialAsync(
+        CredentialChallenge challenge,
+        string credential,
+        CancellationToken cancellationToken = default)
+    {
+        var encrypted = SecureCredentialExchange.Encrypt(
+            challenge.ChallengeId,
+            challenge.ServerPublicKey,
+            credential,
+            HkdfInfo);
+
+        var response = await SendCommandAsync("provide-credential", new Dictionary<string, string>
+        {
+            ["challengeId"] = encrypted.ChallengeId,
+            ["clientPublicKey"] = encrypted.ClientPublicKey,
+            ["encryptedCredential"] = encrypted.EncryptedCredential,
+            ["nonce"] = encrypted.Nonce,
+            ["tag"] = encrypted.Tag
+        }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+
+        // RC4: a fixed daemon replies Success=false when it had
+        // no matching pending challenge for this credential (the RC3 cross-session misroute). Surface
+        // that as a real error instead of returning as if the credential were accepted - the persistent
+        // login REST layer maps it to a typed conflict the frontend can act on. An un-updated daemon
+        // still masks the drop as Success=true; this check simply never trips against such an image.
+        if (!response.Success)
+        {
+            throw new DaemonCredentialRejectedException(
+                response.Error
+                ?? response.Message
+                ?? "The daemon rejected the credential: no matching login challenge was pending.");
+        }
+    }
+
+    /// <summary>
+    /// Request a non-interactive auto-login (ECDH) challenge from the daemon.
+    /// Mirrors <see cref="StartLoginAsync"/> but sends the <c>get-auto-login-challenge</c> command.
+    /// </summary>
+    public async Task<CredentialChallenge?> GetAutoLoginChallengeAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        ClearPendingChallenges();
+
+        var challengeTcs = new TaskCompletionSource<CredentialChallenge>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_challengeLock)
+        {
+            _challengeWaiter = challengeTcs;
+        }
+
+        try
+        {
+            var response = await SendCommandAsync(
+                "get-auto-login-challenge",
+                new Dictionary<string, string> { ["sessionId"] = sessionId },
+                timeout: TimeSpan.FromSeconds(30),
+                cancellationToken: cancellationToken);
+
+            var fromResponse = CredentialChallenge.TryParseFromResponse(response, _jsonOptions);
+            if (fromResponse != null)
+            {
+                return fromResponse;
+            }
+
+            // Fallback: some daemon builds may still push the challenge as an async event.
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            using var reg = linkedCts.Token.Register(() => challengeTcs.TrySetCanceled());
+
+            return await challengeTcs.Task;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        finally
+        {
+            lock (_challengeLock)
+            {
+                _challengeWaiter = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Perform a non-interactive auto-login by encrypting a <c>{username, refreshToken}</c>
+    /// payload with the daemon's public key and sending the <c>provide-auto-login</c> command.
+    /// Reuses the same <see cref="SecureCredentialExchange.Encrypt"/> helper as <see cref="ProvideCredentialAsync"/>.
+    /// </summary>
+    public Task<bool> ProvideAutoLoginAsync(
+        string sessionId,
+        string username,
+        string refreshToken,
+        CancellationToken cancellationToken = default)
+        => ProvideAutoLoginPayloadAsync(
+            sessionId,
+            new AutoLoginPayload
+            {
+                Username = username,
+                RefreshToken = refreshToken
+            },
+            cancellationToken);
+
+    /// <summary>
+    /// Perform a non-interactive Epic auto-login by encrypting a <c>{refreshToken}</c> payload
+    /// with the daemon's public key and sending the <c>provide-auto-login</c> command.
+    /// Reuses the same <see cref="SecureCredentialExchange.Encrypt"/> helper as <see cref="ProvideAutoLoginAsync"/>.
+    /// </summary>
+    public Task<bool> ProvideEpicAutoLoginAsync(
+        string sessionId,
+        string refreshToken,
+        CancellationToken cancellationToken = default)
+        => ProvideAutoLoginPayloadAsync(
+            sessionId,
+            new EpicAutoLoginPayload
+            {
+                RefreshToken = refreshToken
+            },
+            cancellationToken);
+
+    /// <summary>
+    /// Perform a non-interactive Xbox auto-login by encrypting a <c>{refreshToken, deviceKeyPkcs8}</c>
+    /// payload with the daemon's public key and sending the <c>provide-auto-login</c> command.
+    /// Reuses the same <see cref="SecureCredentialExchange.Encrypt"/> helper as <see cref="ProvideAutoLoginAsync"/>.
+    /// </summary>
+    public Task<bool> ProvideXboxAutoLoginAsync(
+        string sessionId,
+        string refreshToken,
+        string deviceKeyPkcs8,
+        CancellationToken cancellationToken = default)
+        => ProvideAutoLoginPayloadAsync(
+            sessionId,
+            new XboxAutoLoginPayload
+            {
+                RefreshToken = refreshToken,
+                DeviceKeyPkcs8 = deviceKeyPkcs8
+            },
+            cancellationToken);
+
+    /// <summary>
+    /// Obtains an auto-login challenge for <paramref name="sessionId"/> and sends
+    /// <paramref name="payload"/> back encrypted under the daemon's public key. The payload shape is
+    /// the only per-platform part of the exchange.
+    /// </summary>
+    private async Task<bool> ProvideAutoLoginPayloadAsync<TPayload>(
+        string sessionId,
+        TPayload payload,
+        CancellationToken cancellationToken)
+        where TPayload : class
+    {
+        var challenge = await GetAutoLoginChallengeAsync(sessionId, cancellationToken);
+        if (challenge == null)
+        {
+            _logger?.LogWarning("Failed to obtain auto-login challenge for session {SessionId}", sessionId);
+            return false;
+        }
+
+        var serializedPayload = JsonSerializer.Serialize(payload, _jsonOptions);
+
+        var encrypted = SecureCredentialExchange.Encrypt(
+            challenge.ChallengeId,
+            challenge.ServerPublicKey,
+            serializedPayload,
+            HkdfInfo);
+
+        var response = await SendCommandAsync("provide-auto-login", new Dictionary<string, string>
+        {
+            ["sessionId"] = sessionId,
+            ["challengeId"] = encrypted.ChallengeId,
+            ["clientPublicKey"] = encrypted.ClientPublicKey,
+            ["encryptedCredential"] = encrypted.EncryptedCredential,
+            ["nonce"] = encrypted.Nonce,
+            ["tag"] = encrypted.Tag
+        }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+
+        return response.Success;
+    }
+
+    /// <summary>
+    /// Wait for next credential challenge.
+    /// </summary>
+    public async Task<CredentialChallenge?> WaitForChallengeAsync(
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Check queue first
+        if (_challengeQueue.TryDequeue(out var existingChallenge))
+        {
+            return existingChallenge;
+        }
+
+        var challengeTcs = new TaskCompletionSource<CredentialChallenge>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_challengeLock)
+        {
+            // Double-check queue after acquiring lock
+            if (_challengeQueue.TryDequeue(out existingChallenge))
+            {
+                return existingChallenge;
+            }
+
+            // An in-flight login command owns the shared waiter slot. Its challenge belongs to the
+            // login caller; taking over the slot here would hand that challenge to this poll and
+            // orphan the login until its timeout. Report "no challenge available" instead - once the
+            // challenge arrives it is published via the event channel/manager cache, which the next
+            // poll reads.
+            if (_challengeWaiterOwnedByLogin)
+            {
+                return null;
+            }
+
+            _challengeWaiter = challengeTcs;
+        }
+
+        try
+        {
+            using var timeoutCts = new CancellationTokenSource(timeout ?? TimeSpan.FromMinutes(5));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            using var reg = linkedCts.Token.Register(() => challengeTcs.TrySetCanceled());
+
+            return await challengeTcs.Task;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        finally
+        {
+            lock (_challengeLock)
+            {
+                // Clear only this poll's own waiter: a login command may have installed ITS waiter
+                // after this poll's (superseding it) - clobbering the slot to null here would strand
+                // that login's challenge in the queue until the login timed out.
+                if (ReferenceEquals(_challengeWaiter, challengeTcs))
+                {
+                    _challengeWaiter = null;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Cancel pending login.
+    /// </summary>
+    // Existing callers (the interactive modal's cancel) keep the historical best-effort contract:
+    // errors are swallowed via the outcome variant below and the result is discarded.
+    public Task CancelLoginAsync(CancellationToken cancellationToken = default)
+        => CancelLoginWithOutcomeAsync(cancellationToken);
+
+    public async Task<bool> CancelLoginWithOutcomeAsync(CancellationToken cancellationToken = default)
+    {
+        ClearPendingChallenges();
+        try
+        {
+            var response = await SendCommandAsync("cancel-login", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
+            return response.Success;
+        }
+        catch (Exception ex)
+        {
+            // Unacknowledged: the daemon may still have a login in flight. Callers that need
+            // certainty read the false return; best-effort callers ignore it (the historical
+            // swallow behavior).
+            _logger?.LogWarning(ex, "cancel-login command was not acknowledged by the daemon");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Cancel running prefill operation.
+    /// </summary>
+    public async Task CancelPrefillAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync(
+            "cancel-prefill",
+            timeout: TimeSpan.FromSeconds(10),
+            cancellationToken: cancellationToken);
+        if (!response.Success)
+        {
+            throw new InvalidOperationException(
+                response.Error ?? response.Message ?? "Daemon rejected prefill cancellation.");
+        }
+    }
+
+    /// <summary>
+    /// Log out and forget the daemon's stored account in place. See <see cref="IDaemonClient.LogoutAsync"/>
+    /// for the caveat: an un-updated steam/epic image also reports success here, but without actually
+    /// deleting the stored account file - this method has no way to distinguish that from a true
+    /// success, so callers can only rely on the response for genuine failures (socket errors, timeouts).
+    /// </summary>
+    public async Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+    {
+        var outcome = await LogoutWithReasonAsync(cancellationToken);
+        return outcome.Success;
+    }
+
+    /// <inheritdoc cref="IDaemonClient.LogoutWithReasonAsync"/>
+    public async Task<LogoutOutcome> LogoutWithReasonAsync(CancellationToken cancellationToken = default)
+    {
+        // 15s: linked (CreateLinkedTokenSource in SendCoreAsync) with the caller's own CTS
+        // (TryBestEffortLogoutAsync uses 15s too) - the effective wait is whichever fires first, so
+        // both must comfortably exceed the daemon's up-to-8s LogoutLoginTaskTimeout unwind budget
+        // when logout races an in-flight login.
+        var response = await SendCommandAsync("logout", timeout: TimeSpan.FromSeconds(15), cancellationToken: cancellationToken);
+        return new LogoutOutcome(response.Success, response.RequiresLogin == true);
+    }
+
+    /// <summary>
+    /// Get owned games.
+    /// </summary>
+    public async Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("get-owned-games", cancellationToken: cancellationToken);
+
+        if (!response.Success)
+            throw new InvalidOperationException(response.Error ?? "Failed to get owned games");
+
+        if (response.Data is JsonElement element)
+        {
+            return JsonSerializer.Deserialize<List<OwnedGame>>(element.GetRawText(), _jsonOptions) ?? new List<OwnedGame>();
+        }
+
+        return new List<OwnedGame>();
+    }
+
+    /// <summary>
+    /// Get CDN info for owned games.
+    /// </summary>
+    public async Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("get-cdn-info",
+            timeout: TimeSpan.FromMinutes(10),
+            cancellationToken: cancellationToken);
+
+        if (!response.Success)
+            throw new InvalidOperationException(response.Error ?? "Failed to get CDN info");
+
+        if (response.Data is JsonElement element)
+        {
+            var result = JsonSerializer.Deserialize<CdnInfoResult>(element.GetRawText(), _jsonOptions);
+            return result?.Apps ?? new List<CdnInfo>();
+        }
+
+        return new List<CdnInfo>();
+    }
+
+    /// <summary>
+    /// Set selected apps for prefill.
+    /// </summary>
+    public async Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("set-selected-apps", new Dictionary<string, string>
+        {
+            ["appIds"] = DaemonSerializer.SerializeAppIds(appIds)
+        }, cancellationToken: cancellationToken);
+
+        if (!response.Success)
+            throw new InvalidOperationException(response.Error ?? "Failed to set selected apps");
+    }
+
+    /// <summary>
+    /// Start prefill operation.
+    /// </summary>
+    public async Task<PrefillResult> PrefillAsync(
+        bool all = false,
+        bool recent = false,
+        bool recentlyPurchased = false,
+        int? top = null,
+        bool force = false,
+        List<string>? operatingSystems = null,
+        int? maxConcurrency = null,
+        List<CachedDepotInput>? cachedDepots = null,
+        CancellationToken cancellationToken = default)
+    {
+        var parameters = new Dictionary<string, string>();
+        if (all) parameters["all"] = "true";
+        if (recent) parameters["recent"] = "true";
+        if (recentlyPurchased) parameters["recently_purchased"] = "true";
+        if (top.HasValue) parameters["top"] = top.Value.ToString();
+        if (force) parameters["force"] = "true";
+        if (maxConcurrency.HasValue && maxConcurrency.Value > 0)
+            parameters["maxConcurrency"] = maxConcurrency.Value.ToString();
+        // Always include all OS platforms by default
+        parameters["os"] = FormatOperatingSystems(operatingSystems);
+
+        // Pass cached depot manifests so daemon can skip up-to-date games
+        if (cachedDepots != null && cachedDepots.Count > 0)
+        {
+            parameters["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions);
+            _logger?.LogInformation("Sending {Count} cached depot manifests to daemon", cachedDepots.Count);
+        }
+
+        var response = await SendCommandAsync("prefill", parameters,
+            timeout: TimeSpan.FromHours(24),
+            cancellationToken: cancellationToken);
+
+        if (!response.Success)
+            throw new InvalidOperationException(response.Error ?? "Prefill failed");
+
+        if (response.Data is JsonElement element)
+        {
+            return JsonSerializer.Deserialize<PrefillResult>(element.GetRawText(), _jsonOptions)
+                   ?? new PrefillResult { Success = false, ErrorMessage = "Failed to parse result" };
+        }
+
+        return new PrefillResult { Success = true };
+    }
+
+    private static string FormatOperatingSystems(List<string>? operatingSystems)
+        => operatingSystems != null && operatingSystems.Count > 0
+            ? string.Join(",", operatingSystems)
+            : "windows,linux,macos";
+
+    /// <summary>
+    /// Clear the temporary cache.
+    /// </summary>
+    public async Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("clear-cache", cancellationToken: cancellationToken);
+
+        if (response.Data is JsonElement element)
+        {
+            return JsonSerializer.Deserialize<ClearCacheResult>(element.GetRawText(), _jsonOptions)
+                   ?? new ClearCacheResult { Success = false, Message = "Failed to parse result" };
+        }
+
+        return new ClearCacheResult { Success = response.Success, Message = response.Message };
+    }
+
+    /// <summary>
+    /// Get cache info.
+    /// </summary>
+    public async Task<ClearCacheResult> GetCacheInfoAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("get-cache-info", cancellationToken: cancellationToken);
+
+        if (response.Data is JsonElement element)
+        {
+            return JsonSerializer.Deserialize<ClearCacheResult>(element.GetRawText(), _jsonOptions)
+                   ?? new ClearCacheResult { Success = false, Message = "Failed to parse result" };
+        }
+
+        return new ClearCacheResult { Success = response.Success, Message = response.Message };
+    }
+
+    /// <summary>
+    /// Get selected apps status with download sizes.
+    /// </summary>
+    public async Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(
+        List<string>? operatingSystems = null,
+        CancellationToken cancellationToken = default)
+    {
+        var parameters = new Dictionary<string, string>
+        {
+            ["os"] = FormatOperatingSystems(operatingSystems)
+        };
+
+        var response = await SendCommandAsync("get-selected-apps-status", parameters,
+            timeout: TimeSpan.FromMinutes(5),
+            cancellationToken: cancellationToken);
+
+        if (!response.Success)
+            throw new InvalidOperationException(response.Error ?? "Failed to get selected apps status");
+
+        if (response.Data is JsonElement element)
+        {
+            return JsonSerializer.Deserialize<SelectedAppsStatus>(element.GetRawText(), _jsonOptions)
+                   ?? new SelectedAppsStatus { Message = "Failed to parse result" };
+        }
+
+        return new SelectedAppsStatus { Message = response.Message };
+    }
+
+    /// <summary>
+    /// Check cache status by comparing cached depots against Steam manifests.
+    /// </summary>
+    public async Task<CacheStatusResult> CheckCacheStatusAsync(
+        List<CachedDepotInput> cachedDepots,
+        CancellationToken cancellationToken = default)
+    {
+        if (cachedDepots == null || cachedDepots.Count == 0)
+        {
+            return new CacheStatusResult { Message = "No cached depots provided" };
+        }
+
+        var parameters = new Dictionary<string, string>
+        {
+            ["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions)
+        };
+
+        var response = await SendCommandAsync("check-cache-status", parameters,
+            timeout: TimeSpan.FromMinutes(10),
+            cancellationToken: cancellationToken);
+
+        if (!response.Success)
+            throw new InvalidOperationException(response.Error ?? "Failed to check cache status");
+
+        if (response.Data is JsonElement element)
+        {
+            return JsonSerializer.Deserialize<CacheStatusResult>(element.GetRawText(), _jsonOptions)
+                   ?? new CacheStatusResult { Message = "Failed to parse result" };
+        }
+
+        return new CacheStatusResult { Message = response.Message };
+    }
+
+    /// <summary>
+    /// Shutdown daemon.
+    /// </summary>
+    public async Task ShutdownAsync(CancellationToken cancellationToken = default)
+    {
+        await SendCommandAsync("shutdown", timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// Clear pending challenges.
+    /// </summary>
+    public void ClearPendingChallenges()
+    {
+        lock (_challengeLock)
+        {
+            while (_challengeQueue.TryDequeue(out _)) { }
+            _challengeWaiter?.TrySetCanceled();
+            _challengeWaiter = null;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+
+        DisconnectCoreAsync().GetAwaiter().GetResult();
+        DaemonPendingCommandRegistry.FailAll(
+            _pendingCommands,
+            new ObjectDisposedException(GetType().Name));
+        _sendLock.Dispose();
+        _connectLock.Dispose();
+        _disposed = true;
+    }
+}
+
+/// <summary>
+/// Per-transport wording used in a daemon client's connection diagnostics: <c>Connection</c> names the
+/// live link ("socket", "TCP connection") and <c>Endpoint</c> names what it was dialled against
+/// ("socket", "TCP endpoint").
+/// </summary>
+/// <param name="Connection">Name of the live link, used in disconnect messages.</param>
+/// <param name="Endpoint">Name of the dialled endpoint, used in connect messages.</param>
+public sealed record DaemonTransportLabels(string Connection, string Endpoint);
+
+/// <summary>
+/// Progress update from prefill operation via socket.
+/// Matches daemon's PrefillProgressUpdate class property names.
+/// </summary>
+public class SocketPrefillProgress
+{
+    [JsonPropertyName("state")]
+    public string? State { get; set; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+
+    [JsonPropertyName("currentAppId")]
+    [JsonConverter(typeof(FlexibleStringConverter))]
+    public string? CurrentAppId { get; set; }
+
+    [JsonPropertyName("currentAppName")]
+    public string? CurrentAppName { get; set; }
+
+    [JsonPropertyName("totalBytes")]
+    public long TotalBytes { get; set; }
+
+    [JsonPropertyName("bytesDownloaded")]
+    public long BytesDownloaded { get; set; }
+
+    [JsonPropertyName("percentComplete")]
+    public double PercentComplete { get; set; }
+
+    [JsonPropertyName("bytesPerSecond")]
+    public double BytesPerSecond { get; set; }
+
+    [JsonPropertyName("elapsed")]
+    public TimeSpan Elapsed { get; set; }
+
+    [JsonPropertyName("elapsedSeconds")]
+    public double ElapsedSeconds { get; set; }
+
+    [JsonPropertyName("result")]
+    public string? Result { get; set; }
+
+    [JsonPropertyName("errorMessage")]
+    public string? ErrorMessage { get; set; }
+
+    [JsonPropertyName("totalApps")]
+    public int TotalApps { get; set; }
+
+    [JsonPropertyName("updatedApps")]
+    public int UpdatedApps { get; set; }
+
+    [JsonPropertyName("alreadyUpToDate")]
+    public int AlreadyUpToDate { get; set; }
+
+    [JsonPropertyName("failedApps")]
+    public int FailedApps { get; set; }
+
+    [JsonPropertyName("totalBytesTransferred")]
+    public long TotalBytesTransferred { get; set; }
+
+    [JsonPropertyName("totalTime")]
+    public TimeSpan TotalTime { get; set; }
+
+    [JsonPropertyName("totalTimeSeconds")]
+    public double TotalTimeSeconds { get; set; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTime UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Depot manifest info for cache tracking - sent with app_completed events.
+    /// </summary>
+    [JsonPropertyName("depots")]
+    public List<SocketDepotManifestInfo>? Depots { get; set; }
+}
+
+/// <summary>
+/// Depot manifest info from socket progress updates.
+/// </summary>
+public class SocketDepotManifestInfo
+{
+    [JsonPropertyName("depotId")]
+    public long DepotId { get; set; }
+
+    [JsonPropertyName("manifestId")]
+    public ulong ManifestId { get; set; }
+
+    [JsonPropertyName("totalBytes")]
+    public long TotalBytes { get; set; }
+}
+
+/// <summary>
+/// Cleartext payload encrypted and sent to the daemon for non-interactive auto-login.
+/// Matches the daemon's expected <c>{username, refreshToken}</c> shape.
+/// </summary>
+public class AutoLoginPayload
+{
+    [JsonPropertyName("username")]
+    public string Username { get; set; } = string.Empty;
+
+    [JsonPropertyName("refreshToken")]
+    public string RefreshToken { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Cleartext payload encrypted and sent to the Epic daemon for non-interactive auto-login.
+/// Matches the daemon's expected <c>{refreshToken}</c> shape.
+/// </summary>
+public class EpicAutoLoginPayload
+{
+    [JsonPropertyName("refreshToken")]
+    public string RefreshToken { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Cleartext payload encrypted and sent to the Xbox daemon for non-interactive auto-login.
+/// Matches the daemon's expected <c>{refreshToken, deviceKeyPkcs8}</c> shape.
+/// </summary>
+public class XboxAutoLoginPayload
+{
+    [JsonPropertyName("refreshToken")]
+    public string RefreshToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("deviceKeyPkcs8")]
+    public string DeviceKeyPkcs8 { get; set; } = string.Empty;
+}

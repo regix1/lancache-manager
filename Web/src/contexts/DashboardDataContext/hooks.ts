@@ -1,4 +1,4 @@
-import { useContext } from 'react';
+import { createContextHook } from '../createContextHook';
 import { DashboardDataContext, type CachedDetectionResponse } from './types';
 import type {
   CacheInfo,
@@ -13,11 +13,11 @@ import type {
   CacheGrowthResponse
 } from '../../types';
 
+// Every selector below reads the same provider, so they share one guard instead of restating it.
+const useDashboardDataContext = createContextHook(DashboardDataContext, 'useDashboardData');
+
 export const useStats = () => {
-  const context = useContext(DashboardDataContext);
-  if (!context) {
-    throw new Error('useDashboardData must be used within DashboardDataProvider');
-  }
+  const context = useDashboardDataContext();
   return {
     cacheInfo: context.cacheInfo,
     clientStats: context.clientStats,
@@ -39,10 +39,7 @@ export const useStats = () => {
 };
 
 export const useDownloads = () => {
-  const context = useContext(DashboardDataContext);
-  if (!context) {
-    throw new Error('useDashboardData must be used within DashboardDataProvider');
-  }
+  const context = useDashboardDataContext();
   return {
     latestDownloads: context.latestDownloads,
     loading: context.loading,
@@ -63,10 +60,7 @@ export const useGameDetection = (): {
   gameDetectionData: CachedDetectionResponse | null;
   isLoading: boolean;
 } => {
-  const context = useContext(DashboardDataContext);
-  if (!context) {
-    throw new Error('useGameDetection must be used within DashboardDataProvider');
-  }
+  const context = useDashboardDataContext();
   return {
     detectionLookup: context.gameDetectionLookup,
     detectionByName: context.gameDetectionByName,
@@ -81,10 +75,7 @@ export const useSparklines = (): {
   loading: boolean;
   isRefreshing: boolean;
 } => {
-  const context = useContext(DashboardDataContext);
-  if (!context) {
-    throw new Error('useSparklines must be used within DashboardDataProvider');
-  }
+  const context = useDashboardDataContext();
   return {
     sparklines: context.sparklines,
     loading: context.loading,
@@ -99,10 +90,7 @@ export const useHourlyActivity = (): {
   error: string | null;
   refetch: () => Promise<void>;
 } => {
-  const context = useContext(DashboardDataContext);
-  if (!context) {
-    throw new Error('useHourlyActivity must be used within DashboardDataProvider');
-  }
+  const context = useDashboardDataContext();
   return {
     hourlyActivity: context.hourlyActivity,
     loading: context.loading,
@@ -117,10 +105,7 @@ export const useCacheSnapshot = (): {
   loading: boolean;
   isRefreshing: boolean;
 } => {
-  const context = useContext(DashboardDataContext);
-  if (!context) {
-    throw new Error('useCacheSnapshot must be used within DashboardDataProvider');
-  }
+  const context = useDashboardDataContext();
   return {
     cacheSnapshot: context.cacheSnapshot,
     loading: context.loading,
@@ -135,10 +120,7 @@ export const useCacheGrowth = (): {
   error: string | null;
   refetch: () => Promise<void>;
 } => {
-  const context = useContext(DashboardDataContext);
-  if (!context) {
-    throw new Error('useCacheGrowth must be used within DashboardDataProvider');
-  }
+  const context = useDashboardDataContext();
   return {
     cacheGrowth: context.cacheGrowth,
     loading: context.loading,

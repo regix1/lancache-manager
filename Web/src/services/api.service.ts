@@ -46,7 +46,7 @@ import type {
   ClientExclusionRule,
   EpicGameMappingDto,
   EpicMappingStats,
-  EpicDaemonStatusDto,
+  DaemonStatusDto,
   EpicMappingAuthStatus,
   EpicScheduleStatus,
   XboxGameMappingDto,
@@ -209,6 +209,10 @@ export interface RetroDownloadDto {
   clientIps: string[];
   /** All distinct depot IDs that contributed to this row (single-element for non-merged, multi for merged) */
   depotIds: number[];
+  /** True when every download in the group has been evicted from the cache */
+  isEvicted: boolean;
+  /** True when some, but not all, downloads in the group have been evicted from the cache */
+  isPartiallyEvicted: boolean;
 }
 
 export interface RetroDownloadResponse {
@@ -238,6 +242,13 @@ export interface RetroDownloadQueryParams {
   endTime?: number;
   eventId?: number;
 }
+
+/**
+ * Request options accepted alongside a JSON body. `body` is excluded because getJsonFetchOptions
+ * serialises it from its first argument - passing a second, raw one would silently win or lose
+ * depending on spread order.
+ */
+type JsonFetchOptions = Omit<RequestInit, 'body'>;
 
 class ApiService {
   static async handleResponse<T>(response: Response): Promise<T> {
@@ -298,6 +309,26 @@ class ApiService {
         ...(options.headers || {})
       }
     };
+  }
+
+  /**
+   * JSON-body counterpart to getFetchOptions: identical credentials, headers and activity signal,
+   * plus the `application/json` content type and the serialised body. The body is the first
+   * argument because every caller has one; `options` carries the rest of the request (method,
+   * signal, cache).
+   *
+   * Static and free of React state, so non-component callers (services, contexts, the presence
+   * header path) can use it exactly where they use getFetchOptions.
+   */
+  static getJsonFetchOptions(body: unknown, options: JsonFetchOptions = {}): RequestInit {
+    return this.getFetchOptions({
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      },
+      body: JSON.stringify(body)
+    });
   }
 
   // Dashboard batch endpoint - fetches all 6 dashboard data sources in a single request
@@ -457,11 +488,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/stats/exclusions`,
-        this.getFetchOptions({
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ips })
-        })
+        this.getJsonFetchOptions({ ips }, { method: 'PUT' })
       );
       return await this.handleResponse<StatsExclusionsResponse>(res);
     } catch (error: unknown) {
@@ -478,11 +505,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/stats/exclusions`,
-        this.getFetchOptions({
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rules })
-        })
+        this.getJsonFetchOptions({ rules }, { method: 'PUT' })
       );
       return await this.handleResponse<StatsExclusionsResponse>(res);
     } catch (error: unknown) {
@@ -527,15 +550,14 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/stats/eviction`,
-        this.getFetchOptions({
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        this.getJsonFetchOptions(
+          {
             evictedDataMode,
             evictionScanNotifications,
             pruneOrphanedDownloads
-          })
-        })
+          },
+          { method: 'PUT' }
+        )
       );
       return await this.handleResponse<{
         evictedDataMode: string;
@@ -832,11 +854,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/database/tables`,
-        this.getFetchOptions({
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tables: tableNames })
-        })
+        this.getJsonFetchOptions({ tables: tableNames }, { method: 'DELETE' })
       );
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
@@ -850,12 +868,11 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/logs/position`,
-        this.getFetchOptions({
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reset: true, position: position === 'top' ? 0 : null })
-          // No timeout - may need to read entire log file to count lines
-        })
+        // No timeout - may need to read entire log file to count lines
+        this.getJsonFetchOptions(
+          { reset: true, position: position === 'top' ? 0 : null },
+          { method: 'PATCH' }
+        )
       );
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
@@ -872,11 +889,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/logs/position/${encodeURIComponent(datasourceName)}`,
-        this.getFetchOptions({
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ position: position === 'top' ? 0 : null })
-        })
+        this.getJsonFetchOptions({ position: position === 'top' ? 0 : null }, { method: 'PATCH' })
       );
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
@@ -949,17 +962,6 @@ class ApiService {
       console.error('getProcessingStatus error:', error);
       throw error;
     }
-  }
-
-  static async forceKillLogProcessing(): Promise<{ message: string }> {
-    const res = await fetch(
-      `${API_BASE}/logs/process/kill`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      })
-    );
-    return await this.handleResponse<{ message: string }>(res);
   }
 
   // Get log removal status
@@ -1053,11 +1055,7 @@ class ApiService {
   }> {
     const res = await fetch(
       `${API_BASE}/system/datasources/${encodeURIComponent(datasourceName)}/cache-size`,
-      this.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ size })
-      })
+      this.getJsonFetchOptions({ size }, { method: 'PUT' })
     );
     return await this.handleResponse(res);
   }
@@ -1078,11 +1076,7 @@ class ApiService {
   static async testSteamApiKey(apiKey: string): Promise<{ valid: boolean; message: string }> {
     const response = await fetch(
       `${API_BASE}/steam-api-keys/test`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey })
-      })
+      this.getJsonFetchOptions({ apiKey }, { method: 'POST' })
     );
     return this.handleResponse<{ valid: boolean; message: string }>(response);
   }
@@ -1091,11 +1085,7 @@ class ApiService {
   static async saveSteamApiKey(apiKey: string): Promise<void> {
     const response = await fetch(
       `${API_BASE}/steam-api-keys`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey })
-      })
+      this.getJsonFetchOptions({ apiKey }, { method: 'POST' })
     );
     await assertOk(response);
   }
@@ -1106,11 +1096,7 @@ class ApiService {
   static async setSteamAuthMode(mode: 'anonymous' | 'authenticated'): Promise<void> {
     const response = await fetch(
       `${API_BASE}/steam-auth/mode`,
-      this.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode })
-      })
+      this.getJsonFetchOptions({ mode }, { method: 'PUT' })
     );
     await assertOk(response);
   }
@@ -1156,12 +1142,7 @@ class ApiService {
   static async markSetupComplete(): Promise<void> {
     const response = await fetch(
       `${API_BASE}/system/setup`,
-      this.getFetchOptions({
-        cache: 'no-store',
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completed: true })
-      })
+      this.getJsonFetchOptions({ completed: true }, { cache: 'no-store', method: 'PATCH' })
     );
     await assertOk(response);
   }
@@ -1241,12 +1222,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/depots/rebuild/config/mode`,
-        this.getFetchOptions({
-          method: 'PUT',
-          signal,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        })
+        this.getJsonFetchOptions(payload, { method: 'PUT', signal })
       );
       await this.handleResponse<{ incrementalMode?: boolean | string; message?: string }>(res);
     } catch (error: unknown) {
@@ -1296,11 +1272,7 @@ class ApiService {
   ): Promise<{ message: string; deleteMode: string }> {
     const res = await fetch(
       `${API_BASE}/system/cache-delete-mode`,
-      this.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deleteMode })
-      })
+      this.getJsonFetchOptions({ deleteMode }, { method: 'PATCH' })
     );
     return await this.handleResponse<{ message: string; deleteMode: string }>(res);
   }
@@ -1863,11 +1835,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/auth/guest/config/duration`,
-        this.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ durationHours })
-        })
+        this.getJsonFetchOptions({ durationHours }, { method: 'POST' })
       );
       return await this.handleResponse<GuestDurationResponse>(res);
     } catch (error: unknown) {
@@ -1915,11 +1883,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/events`,
-        this.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        })
+        this.getJsonFetchOptions(data, { method: 'POST' })
       );
       return await this.handleResponse<Event>(res);
     } catch (error: unknown) {
@@ -1933,11 +1897,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/events/${id}`,
-        this.getFetchOptions({
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        })
+        this.getJsonFetchOptions(data, { method: 'PUT' })
       );
       return await this.handleResponse<Event>(res);
     } catch (error: unknown) {
@@ -1985,12 +1945,7 @@ class ApiService {
       // IMPORTANT: use getFetchOptions() to include credentials for HttpOnly session cookies.
       const res = await fetch(
         `${API_BASE}/downloads/batch-download-events`,
-        this.getFetchOptions({
-          signal,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ downloadIds })
-        })
+        this.getJsonFetchOptions({ downloadIds }, { signal, method: 'POST' })
       );
       return await this.handleResponse(res);
     } catch (error: unknown) {
@@ -2064,11 +2019,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/client-groups`,
-        this.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        })
+        this.getJsonFetchOptions(data, { method: 'POST' })
       );
       return await this.handleResponse<ClientGroup>(res);
     } catch (error: unknown) {
@@ -2082,11 +2033,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/client-groups/${id}`,
-        this.getFetchOptions({
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        })
+        this.getJsonFetchOptions(data, { method: 'PUT' })
       );
       return await this.handleResponse<ClientGroup>(res);
     } catch (error: unknown) {
@@ -2116,11 +2063,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/client-groups/${groupId}/members`,
-        this.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientIp })
-        })
+        this.getJsonFetchOptions({ clientIp }, { method: 'POST' })
       );
       return await this.handleResponse<ClientGroup>(res);
     } catch (error: unknown) {
@@ -2253,11 +2196,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/prefill-admin/sessions/${sessionId}/terminate`,
-        this.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason, force })
-        })
+        this.getJsonFetchOptions({ reason, force }, { method: 'POST' })
       );
       return await this.handleResponse<{ message: string }>(res);
     } catch (error: unknown) {
@@ -2274,11 +2213,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/prefill-admin/sessions/terminate-all`,
-        this.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason, force })
-        })
+        this.getJsonFetchOptions({ reason, force }, { method: 'POST' })
       );
       return await this.handleResponse<{ message: string }>(res);
     } catch (error: unknown) {
@@ -2313,11 +2248,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/prefill-admin/bans/by-session/${sessionId}`,
-        this.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason, expiresAt })
-        })
+        this.getJsonFetchOptions({ reason, expiresAt }, { method: 'POST' })
       );
       return await this.handleResponse<BannedSteamUserDto>(res);
     } catch (error: unknown) {
@@ -2369,12 +2300,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/${serviceBasePath}/sessions/${sessionId}/cache-status`,
-        this.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ appIds }),
-          signal
-        })
+        this.getJsonFetchOptions({ appIds }, { method: 'POST', signal })
       );
       return await this.handleResponse<PrefillCacheStatusDto>(res);
     } catch (error: unknown) {
@@ -2426,11 +2352,10 @@ class ApiService {
   ): Promise<MigrationImportResult> {
     const res = await fetch(
       `${API_BASE}/migration/import-lancache-manager`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ connectionString, batchSize, overwriteExisting })
-      })
+      this.getJsonFetchOptions(
+        { connectionString, batchSize, overwriteExisting },
+        { method: 'POST' }
+      )
     );
     return this.handleResponse<MigrationImportResult>(res);
   }
@@ -2439,26 +2364,26 @@ class ApiService {
   // Epic Game Mappings API
   // =====================================================
 
-  static async getEpicDaemonStatus(): Promise<EpicDaemonStatusDto> {
+  static async getEpicDaemonStatus(): Promise<DaemonStatusDto> {
     const response = await fetch(`${API_BASE}/epic-daemon/status`, this.getFetchOptions());
-    return ApiService.handleResponse<EpicDaemonStatusDto>(response);
+    return ApiService.handleResponse<DaemonStatusDto>(response);
   }
 
   // Battle.net daemon exposes the same service-agnostic status shape as Epic.
-  static async getBattleNetDaemonStatus(): Promise<EpicDaemonStatusDto> {
+  static async getBattleNetDaemonStatus(): Promise<DaemonStatusDto> {
     const response = await fetch(`${API_BASE}/battlenet-daemon/status`, this.getFetchOptions());
-    return ApiService.handleResponse<EpicDaemonStatusDto>(response);
+    return ApiService.handleResponse<DaemonStatusDto>(response);
   }
 
-  static async getRiotDaemonStatus(): Promise<EpicDaemonStatusDto> {
+  static async getRiotDaemonStatus(): Promise<DaemonStatusDto> {
     const response = await fetch(`${API_BASE}/riot-daemon/status`, this.getFetchOptions());
-    return ApiService.handleResponse<EpicDaemonStatusDto>(response);
+    return ApiService.handleResponse<DaemonStatusDto>(response);
   }
 
   // Xbox daemon exposes the same service-agnostic status shape as Epic.
-  static async getXboxDaemonStatus(): Promise<EpicDaemonStatusDto> {
+  static async getXboxDaemonStatus(): Promise<DaemonStatusDto> {
     const response = await fetch(`${API_BASE}/xbox-daemon/status`, this.getFetchOptions());
-    return ApiService.handleResponse<EpicDaemonStatusDto>(response);
+    return ApiService.handleResponse<DaemonStatusDto>(response);
   }
 
   // Xbox game mappings share Epic's SHARED-catalog model (AdminOnly read). Resolution is automatic
@@ -2558,11 +2483,7 @@ class ApiService {
   static async setEpicRefreshInterval(intervalHours: number): Promise<void> {
     await fetch(
       `${API_BASE}/epic/game-mappings/schedule/interval`,
-      this.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(intervalHours)
-      })
+      this.getJsonFetchOptions(intervalHours, { method: 'PUT' })
     );
   }
 
@@ -2588,12 +2509,7 @@ class ApiService {
   ): Promise<void> {
     const response = await fetch(
       `${API_BASE}/epic/game-mappings/auth/complete`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ authorizationCode }),
-        signal
-      })
+      this.getJsonFetchOptions({ authorizationCode }, { method: 'POST', signal })
     );
     await ApiService.handleResponse(response);
   }
@@ -2661,11 +2577,7 @@ class ApiService {
   static async saveSessionPreferences<T>(sessionId: string, preferences: unknown): Promise<T> {
     const response = await fetch(
       `${API_BASE}/user-preferences/session/${encodeURIComponent(sessionId)}`,
-      this.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(preferences)
-      })
+      this.getJsonFetchOptions(preferences, { method: 'PUT' })
     );
     return ApiService.handleResponse<T>(response);
   }
@@ -2673,11 +2585,7 @@ class ApiService {
   static async setSessionRefreshRate(sessionId: string, refreshRate: string): Promise<void> {
     const response = await fetch(
       `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/refresh-rate`,
-      this.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshRate })
-      })
+      this.getJsonFetchOptions({ refreshRate }, { method: 'PATCH' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2690,11 +2598,7 @@ class ApiService {
   }): Promise<void> {
     const response = await fetch(
       `${API_BASE}/sessions/me/client-info`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
+      this.getJsonFetchOptions(payload, { method: 'POST' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2706,11 +2610,7 @@ class ApiService {
   ): Promise<void> {
     const response = await fetch(
       `${API_BASE}/auth/guest/prefill/toggle/${encodeURIComponent(sessionId)}?service=${service}`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled })
-      })
+      this.getJsonFetchOptions({ enabled }, { method: 'POST' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2751,11 +2651,7 @@ class ApiService {
   static async setGuestConfigLock(isLocked: boolean): Promise<void> {
     const response = await fetch(
       `${API_BASE}/auth/guest/config/lock`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isLocked })
-      })
+      this.getJsonFetchOptions({ isLocked }, { method: 'POST' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2769,11 +2665,7 @@ class ApiService {
   }): Promise<{ success: boolean; message: string; restartRequired: boolean; error?: string }> {
     const response = await fetch(
       `${API_BASE}/setup/external`,
-      ApiService.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
+      ApiService.getJsonFetchOptions(payload, { method: 'POST' })
     );
     return response.json();
   }
@@ -2786,11 +2678,7 @@ class ApiService {
   static async setGuestThemePreference(themeId: string): Promise<void> {
     const response = await fetch(
       `${API_BASE}/themes/preferences/guest`,
-      this.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ themeId })
-      })
+      this.getJsonFetchOptions({ themeId }, { method: 'PUT' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2806,11 +2694,7 @@ class ApiService {
   static async setDefaultGuestRefreshRate(refreshRate: string): Promise<void> {
     const response = await fetch(
       `${API_BASE}/system/default-guest-refresh-rate`,
-      this.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshRate })
-      })
+      this.getJsonFetchOptions({ refreshRate }, { method: 'PATCH' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2818,11 +2702,7 @@ class ApiService {
   static async setGuestRefreshRateLock(locked: boolean): Promise<void> {
     const response = await fetch(
       `${API_BASE}/system/guest-refresh-rate-lock`,
-      this.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locked })
-      })
+      this.getJsonFetchOptions({ locked }, { method: 'PATCH' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2840,11 +2720,7 @@ class ApiService {
   static async setDefaultGuestPreference(key: string, value: boolean): Promise<void> {
     const response = await fetch(
       `${API_BASE}/system/default-guest-preferences/${key}`,
-      this.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value })
-      })
+      this.getJsonFetchOptions({ value }, { method: 'PATCH' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2852,11 +2728,7 @@ class ApiService {
   static async setDefaultGuestAllowedTimeFormats(formats: string[]): Promise<void> {
     const response = await fetch(
       `${API_BASE}/system/default-guest-preferences/allowed-time-formats`,
-      this.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ formats })
-      })
+      this.getJsonFetchOptions({ formats }, { method: 'PATCH' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2864,11 +2736,7 @@ class ApiService {
   static async setDefaultGuestTimeFormat(key: string, value: boolean): Promise<void> {
     const response = await fetch(
       `${API_BASE}/system/default-guest-preferences/${key}`,
-      this.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value })
-      })
+      this.getJsonFetchOptions({ value }, { method: 'PATCH' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2879,11 +2747,7 @@ class ApiService {
   ): Promise<T> {
     const response = await fetch(
       `${API_BASE}/auth/guest/${service}/config`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      })
+      this.getJsonFetchOptions(body, { method: 'POST' })
     );
     return ApiService.handleResponse<T>(response);
   }
@@ -2898,11 +2762,7 @@ class ApiService {
   static async updatePrefillDefaults(body: Record<string, unknown>): Promise<void> {
     const response = await fetch(
       `${API_BASE}/system/prefill-defaults`,
-      this.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      })
+      this.getJsonFetchOptions(body, { method: 'PATCH' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2933,11 +2793,7 @@ class ApiService {
   static async setDepotRebuildMode(mode: boolean | 'github'): Promise<void> {
     const response = await fetch(
       `${API_BASE}/depots/rebuild/config/mode`,
-      this.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(mode)
-      })
+      this.getJsonFetchOptions(mode, { method: 'PUT' })
     );
     await ApiService.handleResponse(response);
   }
@@ -2945,11 +2801,7 @@ class ApiService {
   static async setDepotRebuildInterval(intervalHours: number): Promise<void> {
     const response = await fetch(
       `${API_BASE}/depots/rebuild/config/interval`,
-      this.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(intervalHours)
-      })
+      this.getJsonFetchOptions(intervalHours, { method: 'PUT' })
     );
     await ApiService.handleResponse(response);
   }
@@ -3007,11 +2859,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/schedules/${serviceKey}`,
-        this.getFetchOptions({
-          method: 'PUT',
-          body: JSON.stringify({ intervalHours }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions({ intervalHours }, { method: 'PUT' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3024,11 +2872,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/schedules/${serviceKey}/runOnStartup`,
-        this.getFetchOptions({
-          method: 'PUT',
-          body: JSON.stringify({ runOnStartup }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions({ runOnStartup }, { method: 'PUT' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3044,11 +2888,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/schedules/${serviceKey}/notificationMode`,
-        this.getFetchOptions({
-          method: 'PUT',
-          body: JSON.stringify(mode),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions(mode, { method: 'PUT' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3064,11 +2904,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/schedules/${serviceKey}/notificationDisplayMode`,
-        this.getFetchOptions({
-          method: 'PUT',
-          body: JSON.stringify(displayMode),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions(displayMode, { method: 'PUT' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3135,11 +2971,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/schedules/scheduledPrefill/config`,
-        this.getFetchOptions({
-          method: 'PUT',
-          body: JSON.stringify(config),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions(config, { method: 'PUT' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3218,11 +3050,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/login`,
-        this.getFetchOptions({
-          method: 'POST',
-          body: JSON.stringify({ service }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions({ service }, { method: 'POST' })
       );
       return await this.handleResponse<PersistentChallengeResponse>(res);
     } catch (error: unknown) {
@@ -3272,11 +3100,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/credential`,
-        this.getFetchOptions({
-          method: 'POST',
-          body: JSON.stringify({ service, challenge, credential, sessionId }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions({ service, challenge, credential, sessionId }, { method: 'POST' })
       );
       if (res.status === 409) {
         throw await this.buildPersistentSessionConflictError(res);
@@ -3347,11 +3171,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/cancel-login`,
-        this.getFetchOptions({
-          method: 'POST',
-          body: JSON.stringify({ service, sessionId }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions({ service, sessionId }, { method: 'POST' })
       );
       // Per plan.md F3: a sessionId mismatch here is an idempotent 200 no-op (it must NOT cancel a
       // replacement session's login), so there is no 409 branch to special-case - unlike challenge/
@@ -3369,11 +3189,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/logout`,
-        this.getFetchOptions({
-          method: 'POST',
-          body: JSON.stringify({ service }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions({ service }, { method: 'POST' })
       );
       return await this.handleResponse<PersistentLogoutResponse>(res);
     } catch (error: unknown) {
@@ -3405,11 +3221,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/start`,
-        this.getFetchOptions({
-          method: 'POST',
-          body: JSON.stringify({ service }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions({ service }, { method: 'POST' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3425,11 +3237,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/selected-apps`,
-        this.getFetchOptions({
-          method: 'POST',
-          body: JSON.stringify({ service, appIds }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions({ service, appIds }, { method: 'POST' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3450,9 +3258,8 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/prefill`,
-        this.getFetchOptions({
-          method: 'POST',
-          body: JSON.stringify({
+        this.getJsonFetchOptions(
+          {
             service,
             appIds: options.appIds,
             all: false,
@@ -3460,9 +3267,9 @@ class ApiService {
             force: options.force ?? false,
             operatingSystems: options.operatingSystems,
             maxConcurrency: options.maxConcurrency ?? undefined
-          }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+          },
+          { method: 'POST' }
+        )
       );
       return await this.handleResponse<{ success: boolean; errorMessage?: string }>(res);
     } catch (error: unknown) {
@@ -3475,11 +3282,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/cancel-prefill`,
-        this.getFetchOptions({
-          method: 'POST',
-          body: JSON.stringify({ service }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions({ service }, { method: 'POST' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3492,11 +3295,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/stop`,
-        this.getFetchOptions({
-          method: 'POST',
-          body: JSON.stringify({ sessionId }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions({ sessionId }, { method: 'POST' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3530,11 +3329,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/validity`,
-        this.getFetchOptions({
-          method: 'PUT',
-          body: JSON.stringify(settings),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions(settings, { method: 'PUT' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3561,11 +3356,7 @@ class ApiService {
     try {
       const res = await fetch(
         `${API_BASE}/metrics/security`,
-        this.getFetchOptions({
-          method: 'POST',
-          body: JSON.stringify({ enabled }),
-          headers: { 'Content-Type': 'application/json' }
-        })
+        this.getJsonFetchOptions({ enabled }, { method: 'POST' })
       );
       return await this.handleResponse<MetricsSecurityResponse>(res);
     } catch (error: unknown) {
@@ -3604,11 +3395,7 @@ class ApiService {
   static async testStatusCheckDomain(domain: string): Promise<StatusCheckTestDomainResponse> {
     const response = await fetch(
       `${API_BASE}/status-check/test-domain`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ domain })
-      })
+      this.getJsonFetchOptions({ domain }, { method: 'POST' })
     );
     return this.handleResponse<StatusCheckTestDomainResponse>(response);
   }
@@ -3634,11 +3421,7 @@ class ApiService {
   ): Promise<StatusCheckResolverModeResponse> {
     const response = await fetch(
       `${API_BASE}/status-check/resolver-mode`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode })
-      })
+      this.getJsonFetchOptions({ mode }, { method: 'POST' })
     );
     return this.handleResponse<StatusCheckResolverModeResponse>(response);
   }

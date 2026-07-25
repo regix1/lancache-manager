@@ -153,43 +153,6 @@ public class PrefillCacheService
     }
 
     /// <summary>
-    /// Checks if an app is fully cached (all its depots with current manifests are in the cache).
-    /// </summary>
-    /// <param name="appId">The app ID to check</param>
-    /// <param name="depotManifests">Dictionary of depot ID to manifest ID that need to be cached</param>
-    /// <returns>True if all depots are cached with matching manifests</returns>
-    public async Task<bool> IsAppCachedAsync(long appId, Dictionary<long, ulong> depotManifests)
-    {
-        if (depotManifests == null || depotManifests.Count == 0)
-            return false;
-
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        var depotIds = depotManifests.Keys.ToList();
-
-        // Get all cached depots for this app
-        var cachedDepots = await context.PrefillCachedDepots
-            .AsNoTracking()
-            .Where(d => depotIds.Contains(d.DepotId))
-            .ToDictionaryAsync(d => d.DepotId, d => d.ManifestId);
-
-        // Check if ALL depots are cached with matching manifest IDs
-        foreach (var (depotId, requiredManifestId) in depotManifests)
-        {
-            if (!cachedDepots.TryGetValue(depotId, out var cachedManifestId) ||
-                cachedManifestId != requiredManifestId)
-            {
-                _logger.LogDebug("App {AppId} depot {DepotId} not cached or outdated. Required: {Required}, Cached: {Cached}",
-                    appId, depotId, requiredManifestId, cachedManifestId);
-                return false;
-            }
-        }
-
-        _logger.LogDebug("App {AppId} is fully cached (all {Count} depots match)", appId, depotManifests.Count);
-        return true;
-    }
-
-    /// <summary>
     /// Gets the cache status for multiple apps.
     /// </summary>
     /// <param name="appManifests">Dictionary of app ID to (depot ID -> manifest ID) mappings</param>

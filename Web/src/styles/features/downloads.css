@@ -587,7 +587,7 @@
   }
 
   /* Downloads Header - Mobile overrides */
-  @media (max-width: 767px) {
+  @media (max-width: 767.98px) {
     .downloads-header {
       padding: 1rem;
     }
@@ -725,12 +725,6 @@
     background: var(--theme-bg-tertiary);
     margin-top: 0.5rem;
     overflow: hidden;
-  }
-
-  .card-grid-item-collapse-btn {
-    display: flex;
-    justify-content: center;
-    padding: 0.5rem 0.75rem 0.75rem;
   }
 
   /* Banner-only mode: show just the game banner with no info text */
@@ -1026,15 +1020,6 @@
     min-width: 0;
   }
 
-  .active-downloads-view .active-service-badge {
-    padding: 0.1rem 0.4rem;
-    font-size: var(--font-size-2xs);
-    font-weight: 800;
-    border-radius: 0.3rem;
-    flex-shrink: 0;
-    line-height: 1.4;
-  }
-
   .active-downloads-view .download-name {
     font-size: var(--font-size-md);
     font-weight: 600;
@@ -1136,7 +1121,7 @@
   }
 
   /* Active Downloads View - Mobile overrides */
-  @media (max-width: 767px) {
+  @media (max-width: 767.98px) {
     .active-loading-state {
       padding: 2rem 1rem;
     }
@@ -1223,10 +1208,6 @@
     align-items: center;
     gap: 0.35rem;
     flex-shrink: 0;
-  }
-
-  .session-filter-group-ip {
-    position: relative;
   }
 
   /* Weight/uppercase/colour come from the shared .caps-label; keep the smaller
@@ -1410,7 +1391,7 @@
   }
 
   /* Session filter bar - mobile overrides */
-  @media (max-width: 767px) {
+  @media (max-width: 767.98px) {
     .session-filter-bar {
       flex-direction: column;
       gap: 0.4rem;
@@ -1457,20 +1438,6 @@
       width: 100%;
       text-align: center;
     }
-  }
-
-  /* Retro view chunked loading indicator */
-  .retro-chunked-loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    padding: 1rem 0;
-  }
-
-  .retro-chunked-loading span {
-    font-size: var(--font-size-md);
-    color: var(--theme-text-muted);
   }
 
   /* ===== RETRO VIEW - INSTRUMENT TABLE =====
@@ -1779,7 +1746,7 @@
     height: 0.625rem;
     border-radius: 4px;
     background: var(--theme-bg-tertiary);
-    animation: retro-skeleton-pulse 1.4s ease-in-out infinite;
+    animation: opacityPulse 1.4s ease-in-out infinite;
   }
 
   .retro-skeleton-bar + .retro-skeleton-bar {
@@ -1796,7 +1763,7 @@
     height: 48px;
     border-radius: var(--theme-border-radius);
     background: var(--theme-bg-tertiary);
-    animation: retro-skeleton-pulse 1.4s ease-in-out infinite;
+    animation: opacityPulse 1.4s ease-in-out infinite;
   }
 
   .retro-skeleton-gauge {
@@ -1804,17 +1771,7 @@
     height: 44px;
     border-radius: 50%;
     border: 4px solid var(--theme-bg-tertiary);
-    animation: retro-skeleton-pulse 1.4s ease-in-out infinite;
-  }
-
-  @keyframes retro-skeleton-pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.45;
-    }
+    animation: opacityPulse 1.4s ease-in-out infinite;
   }
 
   /* Empty-state decorative dots */
@@ -2065,7 +2022,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 479.98px) {
   .dl-live-row {
     flex-wrap: wrap;
     row-gap: 0.375rem;

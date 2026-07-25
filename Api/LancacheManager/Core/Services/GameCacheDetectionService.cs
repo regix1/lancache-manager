@@ -406,7 +406,7 @@ public partial class GameCacheDetectionService : IDisposable
                     if (cachedGames.Count > 0)
                     {
                         // Convert database records to GameCacheInfo
-                        existingGames = cachedGames.Select(ToGameCacheInfo).ToList();
+                        existingGames = cachedGames.Select(_detectionDataService.ToGameCacheInfo).ToList();
                         var excludedGameIds = existingGames.Select(g => g.GameAppId).ToList();
 
                         excludedIdsPath = Path.Combine(operationsDir, $"excluded_game_ids_{operationId}.json");
@@ -426,7 +426,7 @@ public partial class GameCacheDetectionService : IDisposable
                         .ToListAsync(cancellationToken);
                     if (cachedServices.Count > 0)
                     {
-                        existingServices = cachedServices.Select(ToServiceCacheInfo).ToList();
+                        existingServices = cachedServices.Select(_detectionDataService.ToServiceCacheInfo).ToList();
                         _logger.LogInformation("[GameDetection] Incremental scan: preserving {ServiceCount} existing services", existingServices.Count);
                     }
                 }
@@ -1359,23 +1359,6 @@ public partial class GameCacheDetectionService : IDisposable
     }
 
     /// <summary>
-    /// Deserializes a persisted JSON string-array column. Returns an empty list both when the
-    /// column is genuinely empty AND when the JSON fails to parse (logged as a warning) - the two
-    /// cases are indistinguishable to callers by design: this backs best-effort display fields
-    /// (sample URLs, cache file paths, datasources), not a required value.
-    /// </summary>
-    private List<string> DeserializeStringList(string? json)
-    {
-        if (string.IsNullOrEmpty(json)) return new List<string>();
-        try { return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>(); }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[GameDetection] Failed to deserialize JSON string list, treating as empty: {Json}", json);
-            return new List<string>();
-        }
-    }
-
-    /// <summary>
     /// Stable cross-datasource dedup identity for a detected game. Mirrors the persistence
     /// buckets in <see cref="GameCacheDetectionDataService.SaveGamesAsync"/> exactly so the
     /// in-memory aggregation can never collapse distinct games:
@@ -1424,40 +1407,6 @@ public partial class GameCacheDetectionService : IDisposable
         var sliceStart = bandStart + (sliceWidth * boundedIndex);
         var clampedRust = Math.Clamp(rustPercent, 0.0, 100.0);
         return sliceStart + (clampedRust * sliceWidth / 100.0);
-    }
-
-    private GameCacheInfo ToGameCacheInfo(CachedGameDetection cached)
-    {
-        var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson) ? "[]" : cached.DatasourcesJson;
-        return new GameCacheInfo
-        {
-            GameAppId = cached.GameAppId,
-            GameName = cached.GameName,
-            CacheFilesFound = cached.CacheFilesFound,
-            TotalSizeBytes = cached.TotalSizeBytes,
-            DepotIds = JsonSerializer.Deserialize<List<uint>>(cached.DepotIdsJson) ?? new List<uint>(),
-            SampleUrls = DeserializeStringList(cached.SampleUrlsJson),
-            CacheFilePaths = DeserializeStringList(cached.CacheFilePathsJson),
-            Datasources = DeserializeStringList(datasourcesJson),
-            Service = cached.Service,
-            EpicAppId = cached.EpicAppId,
-            IsEvicted = cached.IsEvicted
-        };
-    }
-
-    private ServiceCacheInfo ToServiceCacheInfo(CachedServiceDetection cached)
-    {
-        var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson) ? "[]" : cached.DatasourcesJson;
-        return new ServiceCacheInfo
-        {
-            ServiceName = cached.ServiceName,
-            CacheFilesFound = cached.CacheFilesFound,
-            TotalSizeBytes = cached.TotalSizeBytes,
-            SampleUrls = DeserializeStringList(cached.SampleUrlsJson),
-            CacheFilePaths = DeserializeStringList(cached.CacheFilePathsJson),
-            Datasources = DeserializeStringList(datasourcesJson),
-            IsEvicted = cached.IsEvicted
-        };
     }
 
     private class GameDetectionResult

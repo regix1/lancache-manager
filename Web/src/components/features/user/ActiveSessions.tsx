@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import {
   Users,
   Trash2,
-  AlertTriangle,
   Network,
   Globe,
   MapPin,
@@ -19,12 +18,8 @@ import {
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Tooltip } from '@components/ui/Tooltip';
-import { SteamIcon } from '@components/ui/SteamIcon';
-import { EpicIcon } from '@components/ui/EpicIcon';
-import { BlizzardIcon } from '@components/ui/BlizzardIcon';
-import { RiotIcon } from '@components/ui/RiotIcon';
-import { XboxIcon } from '@components/ui/XboxIcon';
 import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection, HelpDefinition } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -48,7 +43,7 @@ import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
 import { useErrorHandler } from '@hooks/useErrorHandler';
-import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { FormattedTimestamp } from '@components/common/FormattedDateTime';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
@@ -56,14 +51,22 @@ import type {
   EpicGuestPrefillConfigChangedEvent,
   XboxGuestPrefillConfigChangedEvent
 } from '@contexts/SignalRContext/types';
+import {
+  PREFILL_SERVICES,
+  prefillServiceConfig,
+  prefillServiceRecord,
+  type PrefillServiceConfig
+} from '@components/features/prefill/hooks/prefillServiceConfig';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useUserPresence } from '@contexts/UserPresenceContext/useUserPresence';
 import { storage } from '@utils/storage';
+import { parseUtcDate } from '@utils/timezone';
+import type { UserPreferences } from '@/types/userPreferences';
+import type { GameServiceId } from '@/types/gameService';
 import {
   type Session,
   type SessionFilter,
-  type UserPreferences,
   type ThemeOption,
   refreshRateOptions,
   cleanIpAddress,
@@ -87,6 +90,34 @@ const DEFAULT_PAGE_SIZE: SessionPageSize = 5;
 
 const isSessionPageSize = (value: number): value is SessionPageSize =>
   (PAGE_SIZE_OPTIONS as readonly number[]).includes(value);
+
+// ============================================================
+// Prefill thread limits (not exported - Fast Refresh)
+// ============================================================
+
+// Steam and Epic each enforce their own per-session thread limit, so the editor
+// renders one dropdown per service rather than a single shared control.
+type ThreadLimitKey = 'steamMaxThreadCount' | 'epicMaxThreadCount';
+
+interface ThreadLimitService {
+  key: ThreadLimitKey;
+  // Service brand names read the same in every locale, so they are not translated.
+  name: string;
+  defaultThreadCount: number | null;
+}
+
+// ============================================================
+// Pending prefill grants (not exported - Fast Refresh)
+// ============================================================
+
+// Unsaved grant/revoke toggles in the session editor. Distinct from the thread limits
+// above: those are saved preferences on the session, these are queued permission changes
+// posted one call per service when the editor is saved.
+type PendingPrefillChanges = Record<GameServiceId, boolean | null>;
+
+const NO_PENDING_PREFILL_CHANGES: PendingPrefillChanges = prefillServiceRecord<boolean | null>(
+  () => null
+);
 
 // ============================================================
 // Presence thresholds (not exported - Fast Refresh)
@@ -161,11 +192,6 @@ interface ActiveSessionsProps {
 // ============================================================
 // Helper Components
 // ============================================================
-
-const FormattedTimestamp: React.FC<{ timestamp: string }> = ({ timestamp }) => {
-  const formattedTime = useFormattedDateTime(timestamp);
-  return <>{formattedTime}</>;
-};
 
 // ============================================================
 // Pure Helper Functions
@@ -260,13 +286,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // Edit modal state
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [editingPreferences, setEditingPreferences] = useState<UserPreferences | null>(null);
-  const [pendingSteamPrefillChange, setPendingSteamPrefillChange] = useState<boolean | null>(null);
-  const [pendingEpicPrefillChange, setPendingEpicPrefillChange] = useState<boolean | null>(null);
-  const [pendingBattlenetPrefillChange, setPendingBattlenetPrefillChange] = useState<
-    boolean | null
-  >(null);
-  const [pendingRiotPrefillChange, setPendingRiotPrefillChange] = useState<boolean | null>(null);
-  const [pendingXboxPrefillChange, setPendingXboxPrefillChange] = useState<boolean | null>(null);
+  // Unsaved grant/revoke per service, keyed by service id. null means "no change pending",
+  // which is what distinguishes an untouched row from one toggled back to its saved value.
+  const [pendingPrefillChanges, setPendingPrefillChanges] = useState<PendingPrefillChanges>(
+    NO_PENDING_PREFILL_CHANGES
+  );
   const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
 
@@ -463,11 +487,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   const handleEditSession = async (session: Session) => {
     setEditingSession(session);
-    setPendingSteamPrefillChange(null);
-    setPendingEpicPrefillChange(null);
-    setPendingBattlenetPrefillChange(null);
-    setPendingRiotPrefillChange(null);
-    setPendingXboxPrefillChange(null);
+    setPendingPrefillChanges(NO_PENDING_PREFILL_CHANGES);
     setLoadingPreferences(true);
     try {
       const prefs = await ApiService.getSessionPreferences<UserPreferences>(session.id);
@@ -489,7 +509,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         refreshRate: prefs.refreshRate ?? null,
         refreshRateLocked: prefs.refreshRateLocked ?? null,
         allowedTimeFormats: prefs.allowedTimeFormats,
-        maxThreadCount: prefs.maxThreadCount ?? null
+        steamMaxThreadCount: prefs.steamMaxThreadCount ?? null,
+        epicMaxThreadCount: prefs.epicMaxThreadCount ?? null
       });
     } catch (err: unknown) {
       notifyError(t('activeSessions.errors.loadPreferences'), err, {
@@ -499,6 +520,17 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     } finally {
       setLoadingPreferences(false);
     }
+  };
+
+  // Assigns through an explicit branch rather than a computed key so the
+  // resulting object stays a fully typed UserPreferences.
+  const setThreadLimit = (key: ThreadLimitKey, threadCount: number | null) => {
+    setEditingPreferences((previous) => {
+      if (!previous) return previous;
+      return key === 'steamMaxThreadCount'
+        ? { ...previous, steamMaxThreadCount: threadCount }
+        : { ...previous, epicMaxThreadCount: threadCount };
+    });
   };
 
   const handleSavePreferences = async () => {
@@ -528,24 +560,15 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           editingPreferences.refreshRate || ''
         );
 
-        const prefillToggles: { service: string; enabled: boolean }[] = [];
-        if (pendingSteamPrefillChange !== null) {
-          prefillToggles.push({ service: 'steam', enabled: pendingSteamPrefillChange });
-        }
-        if (pendingEpicPrefillChange !== null) {
-          prefillToggles.push({ service: 'epic', enabled: pendingEpicPrefillChange });
-        }
-        if (pendingBattlenetPrefillChange !== null) {
-          prefillToggles.push({ service: 'battlenet', enabled: pendingBattlenetPrefillChange });
-        }
-        if (pendingRiotPrefillChange !== null) {
-          prefillToggles.push({ service: 'riot', enabled: pendingRiotPrefillChange });
-        }
-        if (pendingXboxPrefillChange !== null) {
-          prefillToggles.push({ service: 'xbox', enabled: pendingXboxPrefillChange });
+        const prefillToggles: { service: GameServiceId; enabled: boolean }[] = [];
+        for (const service of PREFILL_SERVICES) {
+          const pending = pendingPrefillChanges[service.id];
+          if (pending !== null) {
+            prefillToggles.push({ service: service.id, enabled: pending });
+          }
         }
         await Promise.all(
-          prefillToggles.map(({ service, enabled }: { service: string; enabled: boolean }) =>
+          prefillToggles.map(({ service, enabled }: { service: GameServiceId; enabled: boolean }) =>
             ApiService.toggleGuestPrefillService(editingSession.id, service, enabled)
           )
         );
@@ -553,11 +576,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
       setEditingSession(null);
       setEditingPreferences(null);
-      setPendingSteamPrefillChange(null);
-      setPendingEpicPrefillChange(null);
-      setPendingBattlenetPrefillChange(null);
-      setPendingRiotPrefillChange(null);
-      setPendingXboxPrefillChange(null);
+      setPendingPrefillChanges(NO_PENDING_PREFILL_CHANGES);
       loadSessions(false);
     } catch (err: unknown) {
       notifyError(t('activeSessions.errors.savePreferences'), err, {
@@ -647,41 +666,19 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       prefillExpiresAt?: string;
       service?: string;
     }) => {
+      // An absent or unrecognised service id resolves to Steam, matching the events sent
+      // before the permission was split into one field per service.
+      const service = prefillServiceConfig(data.service ?? '');
       setSessions((prev: Session[]) =>
-        prev.map((s: Session) => {
-          if (s.id !== data.sessionId) return s;
-          if (data.service === 'epic') {
-            return {
-              ...s,
-              epicPrefillEnabled: data.enabled,
-              epicPrefillExpiresAt: data.prefillExpiresAt || null
-            };
-          } else if (data.service === 'battlenet') {
-            return {
-              ...s,
-              battlenetPrefillEnabled: data.enabled,
-              battlenetPrefillExpiresAt: data.prefillExpiresAt || null
-            };
-          } else if (data.service === 'riot') {
-            return {
-              ...s,
-              riotPrefillEnabled: data.enabled,
-              riotPrefillExpiresAt: data.prefillExpiresAt || null
-            };
-          } else if (data.service === 'xbox') {
-            return {
-              ...s,
-              xboxPrefillEnabled: data.enabled,
-              xboxPrefillExpiresAt: data.prefillExpiresAt || null
-            };
-          } else {
-            return {
-              ...s,
-              steamPrefillEnabled: data.enabled,
-              steamPrefillExpiresAt: data.prefillExpiresAt || null
-            };
-          }
-        })
+        prev.map((s: Session) =>
+          s.id !== data.sessionId
+            ? s
+            : {
+                ...s,
+                [service.sessionEnabledField]: data.enabled,
+                [service.sessionExpiresAtField]: data.prefillExpiresAt || null
+              }
+        )
       );
     },
     [setSessions]
@@ -753,9 +750,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   const formatTimeRemaining = (expiresAt: string) => {
     const now = new Date();
-    const expiryStr =
-      expiresAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAt) ? expiresAt : expiresAt + 'Z';
-    const expiry = new Date(expiryStr);
+    const expiry = parseUtcDate(expiresAt);
     const diff = expiry.getTime() - now.getTime();
 
     if (diff <= 0) return t('activeSessions.prefill.status.expired');
@@ -783,11 +778,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const formatRelativeTime = (dateString: string | null): string => {
     if (!dateString) return t('activeSessions.relative.never', 'Never');
     const now = new Date();
-    const rawStr =
-      dateString.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(dateString)
-        ? dateString
-        : dateString + 'Z';
-    const date = new Date(rawStr);
+    const date = parseUtcDate(dateString);
     const diffSecs = Math.floor((now.getTime() - date.getTime()) / 1000);
     if (diffSecs < 60) return t('activeSessions.relative.justNow', 'Just now');
     const diffMins = Math.floor(diffSecs / 60);
@@ -820,11 +811,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     if (!session.lastSeenAt) return 'inactive';
 
     const now = new Date();
-    const lastSeenStr =
-      session.lastSeenAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(session.lastSeenAt)
-        ? session.lastSeenAt
-        : session.lastSeenAt + 'Z';
-    const lastSeen = new Date(lastSeenStr);
+    const lastSeen = parseUtcDate(session.lastSeenAt);
     const diffSeconds = (now.getTime() - lastSeen.getTime()) / 1000;
 
     if (diffSeconds <= ACTIVE_MAX_AGE_SECONDS) return 'active';
@@ -1243,36 +1230,18 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   {t('activeSessions.prefill.title', 'Prefill Access')}
                 </p>
                 <div className="session-prefill-readout">
-                  <span
-                    className={`session-prefill-svc ${session.steamPrefillEnabled ? 'is-enabled' : 'is-disabled'}`}
-                  >
-                    <SteamIcon size={12} />
-                    Steam
-                  </span>
-                  <span
-                    className={`session-prefill-svc ${session.epicPrefillEnabled ? 'is-enabled' : 'is-disabled'}`}
-                  >
-                    <EpicIcon size={12} />
-                    Epic
-                  </span>
-                  <span
-                    className={`session-prefill-svc ${session.battlenetPrefillEnabled ? 'is-enabled' : 'is-disabled'}`}
-                  >
-                    <BlizzardIcon size={12} />
-                    Battle.net
-                  </span>
-                  <span
-                    className={`session-prefill-svc ${session.riotPrefillEnabled ? 'is-enabled' : 'is-disabled'}`}
-                  >
-                    <RiotIcon size={12} />
-                    Riot
-                  </span>
-                  <span
-                    className={`session-prefill-svc ${session.xboxPrefillEnabled ? 'is-enabled' : 'is-disabled'}`}
-                  >
-                    <XboxIcon size={12} />
-                    Xbox
-                  </span>
+                  {PREFILL_SERVICES.map((service: PrefillServiceConfig) => {
+                    const ServiceIcon = service.icon;
+                    return (
+                      <span
+                        key={service.id}
+                        className={`session-prefill-svc ${session[service.sessionEnabledField] ? 'is-enabled' : 'is-disabled'}`}
+                      >
+                        <ServiceIcon size={12} />
+                        {service.shortName}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1499,7 +1468,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               {/* Guest lock control stays visible (not buried in kebab); filters stay in-body */}
               <div className="mgmt-toolbar session-toolbar">
                 {!loading && activeSessions.length > 0 ? (
-                  <div className="session-filter-cluster">
+                  <div className="session-filter-cluster cluster">
                     {(['all', 'admin', 'guest'] as const).map((filter: SessionFilter) => {
                       const isActive = activeFilterValue === filter;
                       return (
@@ -1655,250 +1624,141 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       {/* ============================================================ */}
 
       {/* Revoke Session Modal */}
-      <Modal
+      <ConfirmationModal
         opened={!!pendingRevokeSession}
-        onClose={() => {
-          if (!revokingSession) {
-            setPendingRevokeSession(null);
-          }
-        }}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('activeSessions.revokeModal.title')}</span>
-          </div>
-        }
-        size="md"
+        onClose={() => setPendingRevokeSession(null)}
+        onConfirm={confirmRevokeSession}
+        title={t('activeSessions.revokeModal.title')}
+        confirmLabel={t('activeSessions.revokeModal.confirm')}
+        confirmColor="orange"
+        loading={!!revokingSession}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('activeSessions.revokeModal.message', {
-              type:
-                pendingRevokeSession && isAdminSession(pendingRevokeSession)
-                  ? t('activeSessions.sessionTypes.authenticatedUser')
-                  : t('activeSessions.sessionTypes.guestUser')
-            })}
-          </p>
+        <p className="text-themed-secondary">
+          {t('activeSessions.revokeModal.message', {
+            type:
+              pendingRevokeSession && isAdminSession(pendingRevokeSession)
+                ? t('activeSessions.sessionTypes.authenticatedUser')
+                : t('activeSessions.sessionTypes.guestUser')
+          })}
+        </p>
 
-          {pendingRevokeSession && (
-            <div className="mgmt-panel">
-              <p className="text-sm text-themed-primary font-medium">
-                {parseUserAgent(pendingRevokeSession.userAgent).title}
-              </p>
-              <p className="text-xs text-themed-muted font-mono">
-                {t('activeSessions.labels.sessionIdWithValue', { id: pendingRevokeSession.id })}
-              </p>
-            </div>
-          )}
-
-          <Alert color="yellow">
-            <div>
-              <p className="text-sm font-medium mb-2">
-                {t('activeSessions.revokeModal.noteTitle')}
-              </p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>{t('activeSessions.revokeModal.points.marked')}</li>
-                <li>{t('activeSessions.revokeModal.points.logout')}</li>
-                <li>{t('activeSessions.revokeModal.points.history')}</li>
-              </ul>
-            </div>
-          </Alert>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setPendingRevokeSession(null)}
-              disabled={!!revokingSession}
-            >
-              {t('actions.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="orange"
-              onClick={confirmRevokeSession}
-              loading={!!revokingSession}
-            >
-              {t('activeSessions.revokeModal.confirm')}
-            </Button>
+        {pendingRevokeSession && (
+          <div className="mgmt-panel">
+            <p className="text-sm text-themed-primary font-medium">
+              {parseUserAgent(pendingRevokeSession.userAgent).title}
+            </p>
+            <p className="text-xs text-themed-muted font-mono">
+              {t('activeSessions.labels.sessionIdWithValue', { id: pendingRevokeSession.id })}
+            </p>
           </div>
-        </div>
-      </Modal>
+        )}
 
-      {/* Delete Session Modal */}
-      <Modal
+        <Alert color="yellow">
+          <div>
+            <p className="text-sm font-medium mb-2">{t('activeSessions.revokeModal.noteTitle')}</p>
+            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+              <li>{t('activeSessions.revokeModal.points.marked')}</li>
+              <li>{t('activeSessions.revokeModal.points.logout')}</li>
+              <li>{t('activeSessions.revokeModal.points.history')}</li>
+            </ul>
+          </div>
+        </Alert>
+      </ConfirmationModal>
+
+      {/* Delete Session Modal - a red trash separates the permanent delete from the revoke above,
+          which only ends the session and keeps its history. */}
+      <ConfirmationModal
         opened={!!pendingDeleteSession}
-        onClose={() => {
-          if (!deletingSession) {
-            setPendingDeleteSession(null);
-          }
-        }}
-        title={
-          <div className="flex items-center space-x-3">
-            <Trash2 className="w-6 h-6 text-themed-error" />
-            <span>{t('activeSessions.deleteModal.title')}</span>
-          </div>
-        }
-        size="md"
+        onClose={() => setPendingDeleteSession(null)}
+        onConfirm={confirmDeleteSession}
+        title={t('activeSessions.deleteModal.title')}
+        icon={<Trash2 className="w-6 h-6 text-themed-error" />}
+        confirmLabel={t('activeSessions.deleteModal.confirm')}
+        loading={!!deletingSession}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('activeSessions.deleteModal.message', {
-              type:
-                pendingDeleteSession && isAdminSession(pendingDeleteSession)
-                  ? t('activeSessions.sessionTypes.authenticatedDevice')
-                  : t('activeSessions.sessionTypes.guestDevice')
-            })}
-          </p>
+        <p className="text-themed-secondary">
+          {t('activeSessions.deleteModal.message', {
+            type:
+              pendingDeleteSession && isAdminSession(pendingDeleteSession)
+                ? t('activeSessions.sessionTypes.authenticatedDevice')
+                : t('activeSessions.sessionTypes.guestDevice')
+          })}
+        </p>
 
-          {pendingDeleteSession && (
-            <div className="mgmt-panel">
-              <p className="text-sm text-themed-primary font-medium">
-                {parseUserAgent(pendingDeleteSession.userAgent).title}
-              </p>
-              <p className="text-xs text-themed-muted font-mono">
-                {t('activeSessions.labels.sessionIdWithValue', { id: pendingDeleteSession.id })}
-              </p>
-            </div>
-          )}
-
-          <Alert color="red">
-            <div>
-              <p className="text-sm font-medium mb-2">
-                {t('activeSessions.deleteModal.noteTitle')}
-              </p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>{t('activeSessions.deleteModal.points.noUndo')}</li>
-                <li>{t('activeSessions.deleteModal.points.removed')}</li>
-                <li>{t('activeSessions.deleteModal.points.logout')}</li>
-              </ul>
-            </div>
-          </Alert>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setPendingDeleteSession(null)}
-              disabled={!!deletingSession}
-            >
-              {t('actions.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              leftSection={<Trash2 className="w-4 h-4" />}
-              onClick={confirmDeleteSession}
-              loading={!!deletingSession}
-            >
-              {t('activeSessions.deleteModal.confirm')}
-            </Button>
+        {pendingDeleteSession && (
+          <div className="mgmt-panel">
+            <p className="text-sm text-themed-primary font-medium">
+              {parseUserAgent(pendingDeleteSession.userAgent).title}
+            </p>
+            <p className="text-xs text-themed-muted font-mono">
+              {t('activeSessions.labels.sessionIdWithValue', { id: pendingDeleteSession.id })}
+            </p>
           </div>
-        </div>
-      </Modal>
+        )}
+
+        <Alert color="red">
+          <div>
+            <p className="text-sm font-medium mb-2">{t('activeSessions.deleteModal.noteTitle')}</p>
+            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+              <li>{t('activeSessions.deleteModal.points.noUndo')}</li>
+              <li>{t('activeSessions.deleteModal.points.removed')}</li>
+              <li>{t('activeSessions.deleteModal.points.logout')}</li>
+            </ul>
+          </div>
+        </Alert>
+      </ConfirmationModal>
 
       {/* Bulk Reset Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={showBulkResetConfirm}
-        onClose={() => {
-          if (!bulkActionInProgress) {
-            setShowBulkResetConfirm(false);
-          }
-        }}
-        title={
-          <div className="flex items-center space-x-3">
-            <RotateCcw className="w-6 h-6 text-themed-warning" />
-            <span>{t('user.bulkActions.resetModal.title')}</span>
-          </div>
-        }
-        size="md"
+        onClose={() => setShowBulkResetConfirm(false)}
+        onConfirm={handleBulkResetToDefaults}
+        title={t('user.bulkActions.resetModal.title')}
+        icon={<RotateCcw className="w-6 h-6 text-themed-warning" />}
+        confirmLabel={t('user.bulkActions.resetModal.confirm')}
+        confirmColor="orange"
+        loading={bulkActionInProgress === 'reset'}
+        confirmDisabled={!!bulkActionInProgress}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">{t('user.bulkActions.resetModal.message')}</p>
+        <p className="text-themed-secondary">{t('user.bulkActions.resetModal.message')}</p>
 
-          <Alert color="yellow">
-            <div>
-              <p className="text-sm font-medium mb-2">
-                {t('user.bulkActions.resetModal.noteTitle')}
-              </p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>{t('user.bulkActions.resetModal.points.theme')}</li>
-                <li>{t('user.bulkActions.resetModal.points.refreshRate')}</li>
-                <li>{t('user.bulkActions.resetModal.points.preferences')}</li>
-                <li>{t('user.bulkActions.resetModal.points.active')}</li>
-              </ul>
-            </div>
-          </Alert>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setShowBulkResetConfirm(false)}
-              disabled={!!bulkActionInProgress}
-            >
-              {t('actions.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="orange"
-              onClick={handleBulkResetToDefaults}
-              loading={bulkActionInProgress === 'reset'}
-            >
-              {t('user.bulkActions.resetModal.confirm')}
-            </Button>
+        <Alert color="yellow">
+          <div>
+            <p className="text-sm font-medium mb-2">{t('user.bulkActions.resetModal.noteTitle')}</p>
+            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+              <li>{t('user.bulkActions.resetModal.points.theme')}</li>
+              <li>{t('user.bulkActions.resetModal.points.refreshRate')}</li>
+              <li>{t('user.bulkActions.resetModal.points.preferences')}</li>
+              <li>{t('user.bulkActions.resetModal.points.active')}</li>
+            </ul>
           </div>
-        </div>
-      </Modal>
+        </Alert>
+      </ConfirmationModal>
 
       {/* Clear All Guests Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={showClearGuestsConfirm}
-        onClose={() => {
-          if (!bulkActionInProgress) {
-            setShowClearGuestsConfirm(false);
-          }
-        }}
-        title={
-          <div className="flex items-center space-x-3">
-            <Eraser className="w-6 h-6 text-themed-error" />
-            <span>{t('user.bulkActions.clearModal.title')}</span>
-          </div>
-        }
-        size="md"
+        onClose={() => setShowClearGuestsConfirm(false)}
+        onConfirm={handleClearAllGuests}
+        title={t('user.bulkActions.clearModal.title')}
+        icon={<Eraser className="w-6 h-6 text-themed-error" />}
+        confirmLabel={t('user.bulkActions.clearModal.confirm')}
+        loading={bulkActionInProgress === 'clear'}
+        confirmDisabled={!!bulkActionInProgress}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">{t('user.bulkActions.clearModal.message')}</p>
+        <p className="text-themed-secondary">{t('user.bulkActions.clearModal.message')}</p>
 
-          <Alert color="red">
-            <div>
-              <p className="text-sm font-medium mb-2">
-                {t('user.bulkActions.clearModal.noteTitle')}
-              </p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>{t('user.bulkActions.clearModal.points.deleted')}</li>
-                <li>{t('user.bulkActions.clearModal.points.logout')}</li>
-                <li>{t('user.bulkActions.clearModal.points.data')}</li>
-              </ul>
-            </div>
-          </Alert>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setShowClearGuestsConfirm(false)}
-              disabled={!!bulkActionInProgress}
-            >
-              {t('actions.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={handleClearAllGuests}
-              loading={bulkActionInProgress === 'clear'}
-            >
-              {t('user.bulkActions.clearModal.confirm')}
-            </Button>
+        <Alert color="red">
+          <div>
+            <p className="text-sm font-medium mb-2">{t('user.bulkActions.clearModal.noteTitle')}</p>
+            <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+              <li>{t('user.bulkActions.clearModal.points.deleted')}</li>
+              <li>{t('user.bulkActions.clearModal.points.logout')}</li>
+              <li>{t('user.bulkActions.clearModal.points.data')}</li>
+            </ul>
           </div>
-        </div>
-      </Modal>
+        </Alert>
+      </ConfirmationModal>
 
       {/* Edit User Preferences Modal */}
       <Modal
@@ -1907,11 +1767,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           if (!savingPreferences) {
             setEditingSession(null);
             setEditingPreferences(null);
-            setPendingSteamPrefillChange(null);
-            setPendingEpicPrefillChange(null);
-            setPendingBattlenetPrefillChange(null);
-            setPendingRiotPrefillChange(null);
-            setPendingXboxPrefillChange(null);
+            setPendingPrefillChanges(NO_PENDING_PREFILL_CHANGES);
           }
         }}
         title={
@@ -2134,19 +1990,19 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       </p>
                     </div>
                     <div className="mgmt-list divided-list">
-                      {/* Steam Prefill Row */}
-                      {(() => {
-                        const current = editingSession.steamPrefillEnabled;
-                        const effective =
-                          pendingSteamPrefillChange !== null ? pendingSteamPrefillChange : current;
-                        const hasChange =
-                          pendingSteamPrefillChange !== null &&
-                          pendingSteamPrefillChange !== current;
+                      {PREFILL_SERVICES.map((service: PrefillServiceConfig) => {
+                        const ServiceIcon = service.icon;
+                        const current = editingSession[service.sessionEnabledField];
+                        const pending = pendingPrefillChanges[service.id];
+                        const effective = pending !== null ? pending : current;
+                        const hasChange = pending !== null && pending !== current;
                         return (
-                          <div className="mgmt-row">
+                          <div key={service.id} className="mgmt-row">
                             <div className="session-prefill-edit__label">
-                              <SteamIcon size={16} className="session-prefill-edit__icon" />
-                              <span className="text-sm text-themed-secondary">Steam</span>
+                              <ServiceIcon size={16} className="session-prefill-edit__icon" />
+                              <span className="text-sm text-themed-secondary">
+                                {service.displayName}
+                              </span>
                               {hasChange && (
                                 <span className="text-xs text-themed-accent italic">
                                   ({t('common.unsaved')})
@@ -2165,7 +2021,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                                 variant="default"
                                 color={effective ? 'orange' : 'green'}
                                 size="sm"
-                                onClick={() => setPendingSteamPrefillChange(!effective)}
+                                onClick={() =>
+                                  setPendingPrefillChanges((previous: PendingPrefillChanges) => ({
+                                    ...previous,
+                                    [service.id]: !effective
+                                  }))
+                                }
                               >
                                 {effective
                                   ? t('activeSessions.prefill.actions.revoke')
@@ -2174,174 +2035,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             </div>
                           </div>
                         );
-                      })()}
-
-                      {/* Epic Prefill Row */}
-                      {(() => {
-                        const current = editingSession.epicPrefillEnabled;
-                        const effective =
-                          pendingEpicPrefillChange !== null ? pendingEpicPrefillChange : current;
-                        const hasChange =
-                          pendingEpicPrefillChange !== null && pendingEpicPrefillChange !== current;
-                        return (
-                          <div className="mgmt-row">
-                            <div className="session-prefill-edit__label">
-                              <EpicIcon size={16} className="session-prefill-edit__icon" />
-                              <span className="text-sm text-themed-secondary">Epic Games</span>
-                              {hasChange && (
-                                <span className="text-xs text-themed-accent italic">
-                                  ({t('common.unsaved')})
-                                </span>
-                              )}
-                            </div>
-                            <div className="mgmt-row__actions">
-                              <span
-                                className={`px-2 py-0.5 text-xs font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
-                              >
-                                {effective
-                                  ? t('activeSessions.prefill.status.enabled')
-                                  : t('activeSessions.prefill.status.disabled')}
-                              </span>
-                              <Button
-                                variant="default"
-                                color={effective ? 'orange' : 'green'}
-                                size="sm"
-                                onClick={() => setPendingEpicPrefillChange(!effective)}
-                              >
-                                {effective
-                                  ? t('activeSessions.prefill.actions.revoke')
-                                  : t('activeSessions.prefill.actions.grant')}
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Battle.net Prefill Row (anonymous - no account login) */}
-                      {(() => {
-                        const current = editingSession.battlenetPrefillEnabled;
-                        const effective =
-                          pendingBattlenetPrefillChange !== null
-                            ? pendingBattlenetPrefillChange
-                            : current;
-                        const hasChange =
-                          pendingBattlenetPrefillChange !== null &&
-                          pendingBattlenetPrefillChange !== current;
-                        return (
-                          <div className="mgmt-row">
-                            <div className="session-prefill-edit__label">
-                              <BlizzardIcon size={16} className="session-prefill-edit__icon" />
-                              <span className="text-sm text-themed-secondary">Battle.net</span>
-                              {hasChange && (
-                                <span className="text-xs text-themed-accent italic">
-                                  ({t('common.unsaved')})
-                                </span>
-                              )}
-                            </div>
-                            <div className="mgmt-row__actions">
-                              <span
-                                className={`px-2 py-0.5 text-xs font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
-                              >
-                                {effective
-                                  ? t('activeSessions.prefill.status.enabled')
-                                  : t('activeSessions.prefill.status.disabled')}
-                              </span>
-                              <Button
-                                variant="default"
-                                color={effective ? 'orange' : 'green'}
-                                size="sm"
-                                onClick={() => setPendingBattlenetPrefillChange(!effective)}
-                              >
-                                {effective
-                                  ? t('activeSessions.prefill.actions.revoke')
-                                  : t('activeSessions.prefill.actions.grant')}
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Riot Prefill Row (anonymous - no account login) */}
-                      {(() => {
-                        const current = editingSession.riotPrefillEnabled;
-                        const effective =
-                          pendingRiotPrefillChange !== null ? pendingRiotPrefillChange : current;
-                        const hasChange =
-                          pendingRiotPrefillChange !== null && pendingRiotPrefillChange !== current;
-                        return (
-                          <div className="mgmt-row">
-                            <div className="session-prefill-edit__label">
-                              <RiotIcon size={16} className="session-prefill-edit__icon" />
-                              <span className="text-sm text-themed-secondary">Riot Games</span>
-                              {hasChange && (
-                                <span className="text-xs text-themed-accent italic">
-                                  ({t('common.unsaved')})
-                                </span>
-                              )}
-                            </div>
-                            <div className="mgmt-row__actions">
-                              <span
-                                className={`px-2 py-0.5 text-xs font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
-                              >
-                                {effective
-                                  ? t('activeSessions.prefill.status.enabled')
-                                  : t('activeSessions.prefill.status.disabled')}
-                              </span>
-                              <Button
-                                variant="default"
-                                color={effective ? 'orange' : 'green'}
-                                size="sm"
-                                onClick={() => setPendingRiotPrefillChange(!effective)}
-                              >
-                                {effective
-                                  ? t('activeSessions.prefill.actions.revoke')
-                                  : t('activeSessions.prefill.actions.grant')}
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Xbox Prefill Row (login-required - mirrors Epic) */}
-                      {(() => {
-                        const current = editingSession.xboxPrefillEnabled;
-                        const effective =
-                          pendingXboxPrefillChange !== null ? pendingXboxPrefillChange : current;
-                        const hasChange =
-                          pendingXboxPrefillChange !== null && pendingXboxPrefillChange !== current;
-                        return (
-                          <div className="mgmt-row">
-                            <div className="session-prefill-edit__label">
-                              <XboxIcon size={16} className="session-prefill-edit__icon" />
-                              <span className="text-sm text-themed-secondary">Xbox</span>
-                              {hasChange && (
-                                <span className="text-xs text-themed-accent italic">
-                                  ({t('common.unsaved')})
-                                </span>
-                              )}
-                            </div>
-                            <div className="mgmt-row__actions">
-                              <span
-                                className={`px-2 py-0.5 text-xs font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
-                              >
-                                {effective
-                                  ? t('activeSessions.prefill.status.enabled')
-                                  : t('activeSessions.prefill.status.disabled')}
-                              </span>
-                              <Button
-                                variant="default"
-                                color={effective ? 'orange' : 'green'}
-                                size="sm"
-                                onClick={() => setPendingXboxPrefillChange(!effective)}
-                              >
-                                {effective
-                                  ? t('activeSessions.prefill.actions.revoke')
-                                  : t('activeSessions.prefill.actions.grant')}
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })()}
+                      })}
                     </div>
                   </div>
                 )}
@@ -2360,63 +2054,81 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       })
                     }))
                   ];
-                  const hasOverride = editingPreferences.maxThreadCount != null;
+                  const threadLimitServices: ThreadLimitService[] = [
+                    {
+                      key: 'steamMaxThreadCount',
+                      name: 'Steam',
+                      defaultThreadCount: defaultGuestMaxThreadCount
+                    },
+                    {
+                      key: 'epicMaxThreadCount',
+                      name: 'Epic',
+                      defaultThreadCount: epicDefaultGuestMaxThreadCount
+                    }
+                  ];
 
                   return (
                     <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium text-themed-primary flex items-center gap-1.5">
-                          <Network className="w-4 h-4" />
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <Network className="w-4 h-4 text-themed-primary" />
+                        <span className="text-sm font-medium text-themed-primary">
                           {t('user.guest.prefill.maxThreads.label')}
-                        </label>
-                        {hasOverride ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setEditingPreferences({
-                                ...editingPreferences,
-                                maxThreadCount: null
-                              })
-                            }
-                            className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
-                          >
-                            {t('actions.useDefault')}
-                          </button>
-                        ) : (
-                          <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
-                            {t('actions.usingDefault')}
-                          </span>
-                        )}
+                        </span>
                       </div>
-                      <EnhancedDropdown
-                        options={threadOptions}
-                        value={
-                          editingPreferences.maxThreadCount != null
-                            ? String(editingPreferences.maxThreadCount)
-                            : defaultGuestMaxThreadCount != null
-                              ? String(defaultGuestMaxThreadCount)
-                              : ''
-                        }
-                        onChange={(value: string) =>
-                          setEditingPreferences({
-                            ...editingPreferences,
-                            maxThreadCount: value === '' ? null : Number(value)
-                          })
-                        }
-                        className="w-full"
-                      />
-                      <p className="text-xs text-themed-muted mt-1">
-                        {hasOverride
-                          ? t('user.guest.prefill.maxThreads.overridden')
-                          : defaultGuestMaxThreadCount != null
-                            ? `${t('user.guest.prefill.maxThreads.usingDefault')}: ${defaultGuestMaxThreadCount} threads (Steam)`
-                            : `${t('user.guest.prefill.maxThreads.usingDefault')}: ${t('user.guest.prefill.maxThreads.noLimit')} (Steam)`}
-                      </p>
-                      {epicDefaultGuestMaxThreadCount !== null && (
-                        <p className="text-xs text-themed-muted mt-0.5">
-                          {`${t('user.guest.prefill.maxThreads.usingDefault')}: ${epicDefaultGuestMaxThreadCount} threads (Epic)`}
-                        </p>
-                      )}
+                      <div className="space-y-3">
+                        {threadLimitServices.map((service: ThreadLimitService) => {
+                          const overrideThreadCount = editingPreferences[service.key] ?? null;
+                          const hasOverride = overrideThreadCount != null;
+                          const defaultLabel =
+                            service.defaultThreadCount != null
+                              ? t('user.guest.prefill.maxThreads.threadsCount', {
+                                  count: service.defaultThreadCount
+                                })
+                              : t('user.guest.prefill.maxThreads.noLimit');
+
+                          return (
+                            <div key={service.key}>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-sm text-themed-secondary">
+                                  {service.name}
+                                </span>
+                                {hasOverride ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setThreadLimit(service.key, null)}
+                                    className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
+                                  >
+                                    {t('actions.useDefault')}
+                                  </button>
+                                ) : (
+                                  <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
+                                    {t('actions.usingDefault')}
+                                  </span>
+                                )}
+                              </div>
+                              <EnhancedDropdown
+                                options={threadOptions}
+                                value={
+                                  hasOverride
+                                    ? String(overrideThreadCount)
+                                    : service.defaultThreadCount != null
+                                      ? String(service.defaultThreadCount)
+                                      : ''
+                                }
+                                onChange={(value: string) =>
+                                  setThreadLimit(service.key, value === '' ? null : Number(value))
+                                }
+                                className="w-full"
+                              />
+                              <p className="text-xs text-themed-muted mt-1">
+                                {hasOverride
+                                  ? t('user.guest.prefill.maxThreads.overridden')
+                                  : `${t('user.guest.prefill.maxThreads.usingDefault')}: ${defaultLabel}`}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })()}
@@ -2660,11 +2372,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               onClick={() => {
                 setEditingSession(null);
                 setEditingPreferences(null);
-                setPendingSteamPrefillChange(null);
-                setPendingEpicPrefillChange(null);
-                setPendingBattlenetPrefillChange(null);
-                setPendingRiotPrefillChange(null);
-                setPendingXboxPrefillChange(null);
+                setPendingPrefillChanges(NO_PENDING_PREFILL_CHANGES);
               }}
               disabled={savingPreferences}
             >

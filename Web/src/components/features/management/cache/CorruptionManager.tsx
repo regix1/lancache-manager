@@ -43,7 +43,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
-import { Modal } from '@components/ui/Modal';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuDangerItem, ActionMenuDivider, ActionMenuItem } from '@components/ui/ActionMenu';
 import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
@@ -1378,175 +1378,118 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         </div>
       </AccordionSection>
 
-      <Modal
+      <ConfirmationModal
         opened={pendingRemoveAll}
         onClose={() => setPendingRemoveAll(false)}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>
-              {t(
-                detectionMethod === 'structural'
-                  ? 'management.corruption.modal.removeAllStructuralTitle'
-                  : 'management.corruption.modal.removeAllRepeatedMissTitle'
-              )}
-            </span>
-          </div>
-        }
+        onConfirm={() => void confirmRemoveAll()}
+        title={t(
+          detectionMethod === 'structural'
+            ? 'management.corruption.modal.removeAllStructuralTitle'
+            : 'management.corruption.modal.removeAllRepeatedMissTitle'
+        )}
+        confirmLabel={t(
+          detectionMethod === 'structural'
+            ? 'management.corruption.modal.removeAllStructuralConfirm'
+            : 'management.corruption.modal.removeAllRepeatedMissConfirm'
+        )}
+        confirmDisabled={removalBlocked}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t(
-              detectionMethod === 'structural'
-                ? 'management.corruption.modal.confirmRemoveAllStructural'
-                : 'management.corruption.modal.confirmRemoveAllRepeatedMiss',
-              {
-                services: projection.serviceTotal,
-                candidates: formatCount(projection.total)
-              }
-            )}
-          </p>
-          <CorruptionRemovalWarning
-            detectionMethod={detectionMethod}
-            extraCautions={<li>{t('management.corruption.modal.removeAllAcrossAllServices')}</li>}
-          />
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button variant="default" onClick={() => setPendingRemoveAll(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={() => void confirmRemoveAll()}
-              disabled={removalBlocked}
-            >
-              {t(
-                detectionMethod === 'structural'
-                  ? 'management.corruption.modal.removeAllStructuralConfirm'
-                  : 'management.corruption.modal.removeAllRepeatedMissConfirm'
-              )}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        <p className="text-themed-secondary">
+          {t(
+            detectionMethod === 'structural'
+              ? 'management.corruption.modal.confirmRemoveAllStructural'
+              : 'management.corruption.modal.confirmRemoveAllRepeatedMiss',
+            {
+              services: projection.serviceTotal,
+              candidates: formatCount(projection.total)
+            }
+          )}
+        </p>
+        <CorruptionRemovalWarning
+          detectionMethod={detectionMethod}
+          extraCautions={<li>{t('management.corruption.modal.removeAllAcrossAllServices')}</li>}
+        />
+      </ConfirmationModal>
 
-      <Modal
+      <ConfirmationModal
         opened={pendingRemoveSelected}
         onClose={() => setPendingRemoveSelected(false)}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>
-              {t(
-                detectionMethod === 'structural'
-                  ? 'management.corruption.modal.removeSelectedStructuralTitle'
-                  : 'management.corruption.modal.removeSelectedRepeatedMissTitle'
-              )}
-            </span>
-          </div>
-        }
+        onConfirm={() => void confirmRemoveSelected()}
+        title={t(
+          detectionMethod === 'structural'
+            ? 'management.corruption.modal.removeSelectedStructuralTitle'
+            : 'management.corruption.modal.removeSelectedRepeatedMissTitle'
+        )}
+        confirmLabel={t(
+          detectionMethod === 'structural'
+            ? 'management.corruption.modal.removeSelectedStructuralConfirm'
+            : 'management.corruption.modal.removeSelectedRepeatedMissConfirm',
+          { count: selectedServices.length }
+        )}
+        confirmDisabled={removalBlocked || selectedServices.length === 0}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t(
-              detectionMethod === 'structural'
-                ? 'management.corruption.modal.confirmRemoveSelectedStructural'
-                : 'management.corruption.modal.confirmRemoveSelectedRepeatedMiss',
-              {
-                services: selectedServices.length,
-                candidates: formatCount(selectedTotal)
-              }
-            )}
-          </p>
-          <CorruptionRemovalWarning detectionMethod={detectionMethod} />
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button variant="default" onClick={() => setPendingRemoveSelected(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={() => void confirmRemoveSelected()}
-              disabled={removalBlocked || selectedServices.length === 0}
-            >
-              {t(
-                detectionMethod === 'structural'
-                  ? 'management.corruption.modal.removeSelectedStructuralConfirm'
-                  : 'management.corruption.modal.removeSelectedRepeatedMissConfirm',
-                { count: selectedServices.length }
-              )}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        <p className="text-themed-secondary">
+          {t(
+            detectionMethod === 'structural'
+              ? 'management.corruption.modal.confirmRemoveSelectedStructural'
+              : 'management.corruption.modal.confirmRemoveSelectedRepeatedMiss',
+            {
+              services: selectedServices.length,
+              candidates: formatCount(selectedTotal)
+            }
+          )}
+        </p>
+        <CorruptionRemovalWarning detectionMethod={detectionMethod} />
+      </ConfirmationModal>
 
-      <Modal
+      <ConfirmationModal
         opened={pendingServiceRemoval !== null}
         onClose={() => setPendingServiceRemoval(null)}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>
-              {t(
-                detectionMethod === 'structural'
-                  ? 'management.corruption.modal.structuralTitle'
-                  : 'management.corruption.modal.repeatedMissTitle'
-              )}
-            </span>
-          </div>
-        }
+        onConfirm={() => void confirmServiceRemoval()}
+        title={t(
+          detectionMethod === 'structural'
+            ? 'management.corruption.modal.structuralTitle'
+            : 'management.corruption.modal.repeatedMissTitle'
+        )}
+        confirmLabel={t(
+          detectionMethod === 'structural'
+            ? 'management.corruption.modal.removeInvalidFiles'
+            : 'management.corruption.modal.removeSuspects'
+        )}
+        confirmDisabled={removalBlocked || !pendingServiceRemoval}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t(
-              detectionMethod === 'structural'
-                ? 'management.corruption.modal.confirmRemoveStructural'
-                : 'management.corruption.modal.confirmRemoveRepeatedMiss',
-              {
-                service: pendingServiceRemoval
-                  ? getServiceDisplayName(pendingServiceRemoval)
-                  : undefined
-              }
-            )}
-          </p>
-          <CorruptionRemovalWarning
-            detectionMethod={detectionMethod}
-            extraCautions={
-              <>
-                <li>
-                  {t('management.corruption.modal.validFilesRemain', {
-                    service: pendingServiceRemoval
-                      ? getServiceDisplayName(pendingServiceRemoval)
-                      : undefined
-                  })}
-                </li>
-                <li>
-                  {t('management.corruption.modal.removesApproximately', {
-                    count: corruptionCounts[pendingServiceRemoval ?? ''] ?? 0
-                  })}
-                </li>
-              </>
+        <p className="text-themed-secondary">
+          {t(
+            detectionMethod === 'structural'
+              ? 'management.corruption.modal.confirmRemoveStructural'
+              : 'management.corruption.modal.confirmRemoveRepeatedMiss',
+            {
+              service: pendingServiceRemoval
+                ? getServiceDisplayName(pendingServiceRemoval)
+                : undefined
             }
-          />
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button variant="default" onClick={() => setPendingServiceRemoval(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={() => void confirmServiceRemoval()}
-              disabled={removalBlocked || !pendingServiceRemoval}
-            >
-              {t(
-                detectionMethod === 'structural'
-                  ? 'management.corruption.modal.removeInvalidFiles'
-                  : 'management.corruption.modal.removeSuspects'
-              )}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          )}
+        </p>
+        <CorruptionRemovalWarning
+          detectionMethod={detectionMethod}
+          extraCautions={
+            <>
+              <li>
+                {t('management.corruption.modal.validFilesRemain', {
+                  service: pendingServiceRemoval
+                    ? getServiceDisplayName(pendingServiceRemoval)
+                    : undefined
+                })}
+              </li>
+              <li>
+                {t('management.corruption.modal.removesApproximately', {
+                  count: corruptionCounts[pendingServiceRemoval ?? ''] ?? 0
+                })}
+              </li>
+            </>
+          }
+        />
+      </ConfirmationModal>
     </>
   );
 };

@@ -383,6 +383,8 @@ class ThemeService {
           riotColor: '#d13639',
           xboxColor: '#107C10', // Xbox Green
           ubisoftColor: '#db2777', // Pink
+          gogColor: '#8B3FA0', // Darkened for white-card legibility
+          rockstarColor: '#B07D07', // Darkened for white-card legibility
           arenanetColor: '#5C7A4A',
           bsgColor: '#6E7B3A',
           cityofheroesColor: '#2A9CC9', // Darkened for white-card legibility
@@ -674,8 +676,8 @@ class ThemeService {
 
     // Every service with a dedicated base color gets a -subtle and -muted alpha tier
     // (steam/epic/blizzard/riot/xbox additionally keep their hand-tuned faint/on-border/strong below).
-    // rockstar and gog are intentionally excluded - they have no dedicated --theme-<svc> color
-    // and fall back to the generic accent color instead.
+    // A service with no entry here has no --theme-<svc> color, so callers fall back to the
+    // muted text color rather than emitting a variable that resolves to nothing.
     const platformColors: Record<string, string> = {
       steam,
       epic,
@@ -685,6 +687,8 @@ class ThemeService {
       riot,
       xbox,
       ubisoft: colors.ubisoftColor!,
+      gog: colors.gogColor!,
+      rockstar: colors.rockstarColor!,
       arenanet: colors.arenanetColor!,
       bsg: colors.bsgColor!,
       cityofheroes: colors.cityofheroesColor!,
@@ -846,6 +850,18 @@ class ThemeService {
       --theme-border-radius-inner: calc(var(--theme-border-radius) - 1px);
       /* Shared elevation for floating dropdown/menu surfaces. */
       --shadow-dropdown: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+      /* Shared elevation for resting and hovered card surfaces, and for the inset
+         well on range-input tracks. Values are verbatim from the rules that carried
+         them inline, so adopting them is not a visual change. */
+      --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+      --shadow-card-hover: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+      --shadow-control-inset: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+      /* Range-slider thumb elevation. Each value is written twice in the stylesheet
+         because the webkit and moz thumb pseudo-elements cannot share a selector, so
+         a token is the only way to keep the two halves from drifting. */
+      --shadow-range-thumb: 0 2px 4px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.1);
+      --shadow-range-thumb-hover: 0 3px 6px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.15);
+      --shadow-range-thumb-focus: 0 0 0 4px rgba(var(--theme-primary-rgb), 0.1), 0 3px 6px rgba(0, 0, 0, 0.3);
 
       /* Selected-state surface - the one token pair every selected row/pill/option
          uses, so the highlight weight is tuned here instead of per component. The
@@ -1026,6 +1042,8 @@ class ThemeService {
       --theme-riot: ${colors.riotColor};
       --theme-xbox: ${colors.xboxColor};
       --theme-ubisoft: ${colors.ubisoftColor};
+      --theme-gog: ${colors.gogColor};
+      --theme-rockstar: ${colors.rockstarColor};
       --theme-arenanet: ${colors.arenanetColor};
       --theme-bsg: ${colors.bsgColor};
       --theme-cityofheroes: ${colors.cityofheroesColor};

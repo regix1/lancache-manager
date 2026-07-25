@@ -54,7 +54,7 @@ public class CacheController : ControllerBase
     private BadRequestObjectResult? DenyIfKeyDependentUnavailable()
     {
         var denial = _capabilityService.CheckAllCanMapLogicalObjects();
-        return denial == null ? null : BadRequest(new ErrorResponse { Error = denial });
+        return denial == null ? null : BadRequest(ApiResponse.Error(denial));
     }
 
     public CacheController(
@@ -248,7 +248,7 @@ public class CacheController : ControllerBase
                 $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
             _logger.LogWarning("[ClearAllCache] Permission check failed: {Error}", errorMessage);
-            return BadRequest(new ErrorResponse { Error = errorMessage });
+            return BadRequest(ApiResponse.Error(errorMessage));
         }
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
@@ -302,7 +302,7 @@ public class CacheController : ControllerBase
 
         if (datasource == null)
         {
-            return NotFound(new NotFoundResponse { Error = $"Datasource '{name}' not found" });
+            return NotFound(ApiResponse.NotFound($"Datasource '{name}'"));
         }
 
         // Use cached permission flags (refreshed by DirectoryPermissionMonitor).
@@ -313,7 +313,7 @@ public class CacheController : ControllerBase
                 $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
             _logger.LogWarning("[ClearDatasourceCache] Permission check failed for {Datasource}: {Error}", name, errorMessage);
-            return BadRequest(new ErrorResponse { Error = errorMessage });
+            return BadRequest(ApiResponse.Error(errorMessage));
         }
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
@@ -380,7 +380,7 @@ public class CacheController : ControllerBase
 
         if (status == null)
         {
-            return NotFound(new NotFoundResponse { Error = "Cache clear operation not found", OperationId = id });
+            return NotFound(ApiResponse.NotFound("Cache clear operation", id));
         }
 
         return Ok(status);
@@ -1805,7 +1805,7 @@ public class CacheController : ControllerBase
             $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
         _logger.LogWarning("{Context} Permission check failed: {Error}", logContext, errorMessage);
-        return BadRequest(new ErrorResponse { Error = errorMessage });
+        return BadRequest(ApiResponse.Error(errorMessage));
     }
 
     /// <summary>
@@ -2216,18 +2216,18 @@ public class CacheController : ControllerBase
         // Validate key parameter.
         if (string.IsNullOrWhiteSpace(key))
         {
-            return BadRequest(new ErrorResponse { Error = "Query parameter 'key' is required and must not be empty." });
+            return BadRequest(ApiResponse.Error("Query parameter 'key' is required and must not be empty."));
         }
 
         // Normalise and validate scope.
         var scopeLower = scope.ToLowerInvariant();
         if (scopeLower == "named")
         {
-            return BadRequest(new ErrorResponse { Error = "For named (Blizzard/Riot) games use DELETE evicted/named/{service}/{gameName}." });
+            return BadRequest(ApiResponse.Error("For named (Blizzard/Riot) games use DELETE evicted/named/{service}/{gameName}."));
         }
         if (scopeLower != "steam" && scopeLower != "epic" && scopeLower != "service")
         {
-            return BadRequest(new ErrorResponse { Error = $"Invalid scope '{scope}'. Must be 'steam', 'epic', or 'service'." });
+            return BadRequest(ApiResponse.Error($"Invalid scope '{scope}'. Must be 'steam', 'epic', or 'service'."));
         }
 
         // Steam scope requires key to parse as a positive long.
@@ -2236,7 +2236,7 @@ public class CacheController : ControllerBase
         {
             if (!long.TryParse(key, out steamAppId) || steamAppId <= 0)
             {
-                return BadRequest(new ErrorResponse { Error = $"For scope 'steam', key must be a positive integer (GameAppId). Received: '{key}'." });
+                return BadRequest(ApiResponse.Error($"For scope 'steam', key must be a positive integer (GameAppId). Received: '{key}'."));
             }
         }
 
@@ -2354,11 +2354,11 @@ public class CacheController : ControllerBase
 
         if (string.IsNullOrWhiteSpace(service))
         {
-            return BadRequest(new ErrorResponse { Error = "Route parameter 'service' is required and must not be empty." });
+            return BadRequest(ApiResponse.Error("Route parameter 'service' is required and must not be empty."));
         }
         if (string.IsNullOrWhiteSpace(gameName))
         {
-            return BadRequest(new ErrorResponse { Error = "Route parameter 'gameName' is required and must not be empty." });
+            return BadRequest(ApiResponse.Error("Route parameter 'gameName' is required and must not be empty."));
         }
 
         // Service is stored lowercase; the eviction key carries the lowercased service while the

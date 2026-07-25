@@ -38,23 +38,6 @@ export interface Session {
   browserLanguage?: string | null;
 }
 
-export interface UserPreferences {
-  selectedTheme: string | null;
-  sharpCorners: boolean;
-  disableFocusOutlines: boolean;
-  disableTooltips: boolean;
-  picsAlwaysVisible: boolean;
-  disableStickyNotifications: boolean;
-  showDatasourceLabels: boolean;
-  useLocalTimezone: boolean;
-  use24HourFormat: boolean;
-  showYearInDates: boolean;
-  refreshRate?: string | null;
-  refreshRateLocked?: boolean | null;
-  allowedTimeFormats?: string[];
-  maxThreadCount?: number | null;
-}
-
 export interface ThemeOption {
   id: string;
   name: string;

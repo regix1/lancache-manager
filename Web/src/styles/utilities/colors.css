@@ -12,11 +12,6 @@
     background-color: var(--theme-progress-bg);
   }
 
-  /* Themed progress bar */
-  .progress-bar-green {
-    background-color: var(--theme-icon-green);
-  }
-
   /* Service Colors */
   .service-steam {
     color: var(--theme-steam);
@@ -114,6 +109,18 @@
     color: var(--theme-wargaming);
   }
 
+  .service-ubisoft {
+    color: var(--theme-ubisoft);
+  }
+
+  .service-gog {
+    color: var(--theme-gog);
+  }
+
+  .service-rockstar {
+    color: var(--theme-rockstar);
+  }
+
   /* Icon Colors - for component icons */
   .icon-blue {
     color: var(--theme-icon-blue);
@@ -123,16 +130,8 @@
     color: var(--theme-icon-green);
   }
 
-  .icon-emerald {
-    color: var(--theme-icon-emerald);
-  }
-
   .icon-purple {
     color: var(--theme-icon-purple);
-  }
-
-  .icon-indigo {
-    color: var(--theme-icon-indigo);
   }
 
   .icon-orange {
@@ -151,10 +150,6 @@
     color: var(--theme-icon-red);
   }
 
-  .icon-gray {
-    color: var(--theme-icon-gray, var(--theme-text-muted));
-  }
-
   /* Icon Background Colors - for icon containers */
   .icon-bg-blue {
     background-color: var(--theme-icon-blue-subtle);
@@ -164,24 +159,8 @@
     background-color: var(--theme-icon-green-subtle);
   }
 
-  .icon-bg-emerald {
-    background-color: var(--theme-icon-emerald-subtle);
-  }
-
-  .icon-bg-purple {
-    background-color: var(--theme-icon-purple-subtle);
-  }
-
-  .icon-bg-indigo {
-    background-color: var(--theme-icon-indigo-subtle);
-  }
-
   .icon-bg-orange {
     background-color: var(--theme-icon-orange-subtle);
-  }
-
-  .icon-bg-yellow {
-    background-color: var(--theme-icon-yellow-subtle);
   }
 
   .icon-bg-cyan {
@@ -190,10 +169,6 @@
 
   .icon-bg-red {
     background-color: var(--theme-icon-red-subtle);
-  }
-
-  .icon-bg-gray {
-    background-color: var(--theme-icon-gray-subtle);
   }
 
   /* Text Utility Classes */
@@ -231,14 +206,6 @@
 
   .text-themed-info {
     color: var(--theme-info-text);
-  }
-
-  .user-session-icon {
-    color: var(--theme-user-session);
-  }
-
-  .guest-session-icon {
-    color: var(--theme-guest-session);
   }
 
   /* Background Utility Classes */
@@ -344,22 +311,6 @@
     border-color: var(--theme-nav-border);
   }
 
-  .border-themed-warning {
-    border-color: var(--theme-warning);
-  }
-
-  .border-themed-success {
-    border-color: var(--theme-success);
-  }
-
-  .border-themed-info {
-    border-color: var(--theme-info);
-  }
-
-  .border-themed-error {
-    border-color: var(--theme-error);
-  }
-
   .border-themed-secondary {
     border-color: var(--theme-border-secondary);
   }
@@ -402,11 +353,6 @@
     color: var(--theme-nav-tab-active);
   }
 
-  /* Ring color utilities */
-  .ring-themed-accent {
-    --tw-ring-color: var(--theme-accent);
-  }
-
   /* Semantic icon colors (for direct icon use, not text content) */
   .icon-info {
     color: var(--theme-info);
@@ -426,10 +372,6 @@
 
   .icon-primary {
     color: var(--theme-primary);
-  }
-
-  .icon-muted {
-    color: var(--theme-muted);
   }
 
   /* Shorthand semantic icon/text colors */
@@ -457,22 +399,6 @@
     color: var(--theme-steam);
   }
 
-  .text-epic {
-    color: var(--theme-epic);
-  }
-
-  .text-blizzard {
-    color: var(--theme-blizzard);
-  }
-
-  .text-riot {
-    color: var(--theme-riot);
-  }
-
-  .text-xbox {
-    color: var(--theme-xbox);
-  }
-
   /* Semantic text content colors (for readable text in alert boxes) */
   .text-info-text {
     color: var(--theme-info-text);
@@ -484,16 +410,5 @@
 
   .text-warning-text {
     color: var(--theme-warning-text);
-  }
-
-  /* Dashed divider line */
-  .divider-dashed {
-    background: repeating-linear-gradient(
-      90deg,
-      var(--theme-border-secondary) 0px,
-      var(--theme-border-secondary) 4px,
-      transparent 4px,
-      transparent 8px
-    );
   }
 }
