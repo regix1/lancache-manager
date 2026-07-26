@@ -243,3 +243,14 @@ test('successful cache clearing forces all-range dashboard refresh while ordinar
     /handleRefreshEvent[\s\S]*?if \(currentTimeRangeRef\.current !== 'live'\) return;/
   );
 });
+
+test('successful eviction scan and removal force all-range dashboard refresh like cache clear', () => {
+  assert.match(
+    dashboardContext,
+    /handleEvictionScanComplete[\s\S]*?if \(!event\.success\) return;[\s\S]*?handleForcedRefreshEvent\('EvictionScanComplete'\)/
+  );
+  assert.match(
+    dashboardContext,
+    /handleEvictionRemovalComplete[\s\S]*?if \(!event\.success \|\| event\.cancelled\) return;[\s\S]*?clearDetectionState\(\);[\s\S]*?handleForcedRefreshEvent\('EvictionRemovalComplete'\)/
+  );
+});

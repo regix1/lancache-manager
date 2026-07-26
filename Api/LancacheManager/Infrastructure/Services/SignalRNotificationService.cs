@@ -50,8 +50,9 @@ public class SignalRNotificationService : ISignalRNotificationService
         {
             // Events that make the frontend refetch GET /api/dashboard/batch must first invalidate
             // the affected batch variants, or the refetch can receive a stale snapshot. This is the
-            // single chokepoint for downloads, log-processing, and detection completion emitters.
-            // Resolved lazily to avoid a constructor DI cycle (IDashboardBatchService is a singleton).
+            // single chokepoint for downloads, log-processing, detection, cache-clear, and eviction
+            // completion emitters. Resolved lazily to avoid a constructor DI cycle
+            // (IDashboardBatchService is a singleton).
             if (eventName == SignalREvents.GameDetectionComplete)
             {
                 // A successful run re-anchors the games-on-disk freshness baseline BEFORE the
@@ -68,6 +69,19 @@ public class SignalRNotificationService : ISignalRNotificationService
             }
             else if (eventName == SignalREvents.CacheClearingComplete &&
                      data is SignalRNotifications.CacheClearComplete { Success: true, Cancelled: false })
+            {
+                _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
+            }
+            // Eviction scan/removal change detection projections and download/client totals across
+            // every time range (same shape as a successful cache clear). Invalidate before broadcast
+            // so the forced frontend refetch cannot hit a still-valid stale batch.
+            else if (eventName == SignalREvents.EvictionScanComplete &&
+                     data is EvictionScanComplete { Success: true })
+            {
+                _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
+            }
+            else if (eventName == SignalREvents.EvictionRemovalComplete &&
+                     data is EvictionRemovalComplete { Success: true, Cancelled: false })
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
             }

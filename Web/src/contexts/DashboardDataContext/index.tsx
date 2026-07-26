@@ -10,6 +10,8 @@ import { useAuth } from '../useAuth';
 import {
   SIGNALR_REFRESH_EVENTS,
   type CacheClearCompleteEvent,
+  type EvictionRemovalCompleteEvent,
+  type EvictionScanCompleteEvent,
   type EventHandler
 } from '../SignalRContext/types';
 import type {
@@ -433,14 +435,27 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       handleForcedRefreshEvent('CacheClearingComplete');
     };
 
+    // Eviction scan/removal: same all-range force-refresh as cache clear so Dashboard,
+    // Downloads, and Clients do not keep stale batch data after detection or file removal.
+    const handleEvictionScanComplete = (event: EvictionScanCompleteEvent) => {
+      if (!event.success) return;
+      handleForcedRefreshEvent('EvictionScanComplete');
+    };
+
+    const handleEvictionRemovalComplete = (event: EvictionRemovalCompleteEvent) => {
+      if (!event.success || event.cancelled) return;
+      clearDetectionState();
+      handleForcedRefreshEvent('EvictionRemovalComplete');
+    };
+
     // Events with dedicated handlers — the keys of this map drive both the
     // registration below and their exclusion from the debounced live-only list,
     // so adding an entry here is the single edit site.
     const dedicatedHandlers: Record<string, EventHandler> = {
       GameDetectionComplete: handleGameDetectionComplete,
       CacheClearingComplete: handleCacheClearingComplete,
-      EvictionScanComplete: () => handleForcedRefreshEvent('EvictionScanComplete'),
-      EvictionRemovalComplete: () => handleForcedRefreshEvent('EvictionRemovalComplete')
+      EvictionScanComplete: handleEvictionScanComplete,
+      EvictionRemovalComplete: handleEvictionRemovalComplete
     };
     const throttledEvents = SIGNALR_REFRESH_EVENTS.filter((event) => !(event in dedicatedHandlers));
     const eventHandlers: Record<string, () => void> = {};

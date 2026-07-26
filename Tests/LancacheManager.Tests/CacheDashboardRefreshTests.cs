@@ -176,6 +176,42 @@ public sealed class CacheDashboardRefreshTests
     }
 
     [Fact]
+    public void SuccessfulEvictionScanAndRemoval_InvalidateAllDashboardVariantsBeforeBroadcast()
+    {
+        var notificationSource = ReadSource("Infrastructure", "Services", "SignalRNotificationService.cs");
+        var scanBranch = notificationSource.IndexOf(
+            "eventName == SignalREvents.EvictionScanComplete",
+            StringComparison.Ordinal);
+        var removalBranch = notificationSource.IndexOf(
+            "eventName == SignalREvents.EvictionRemovalComplete",
+            StringComparison.Ordinal);
+        var broadcastIndex = notificationSource.IndexOf(
+            "_downloadHubContext.Clients.All.SendAsync(eventName, data)",
+            StringComparison.Ordinal);
+
+        Assert.Contains(
+            "data is EvictionScanComplete { Success: true }",
+            notificationSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "data is EvictionRemovalComplete { Success: true, Cancelled: false }",
+            notificationSource,
+            StringComparison.Ordinal);
+
+        // Each eviction branch must call InvalidateAllCache before the shared broadcast.
+        var scanInvalidate = notificationSource.IndexOf(
+            "InvalidateAllCache()",
+            scanBranch,
+            StringComparison.Ordinal);
+        var removalInvalidate = notificationSource.IndexOf(
+            "InvalidateAllCache()",
+            removalBranch,
+            StringComparison.Ordinal);
+        Assert.True(scanBranch >= 0 && scanInvalidate > scanBranch && scanInvalidate < broadcastIndex);
+        Assert.True(removalBranch >= 0 && removalInvalidate > removalBranch && removalInvalidate < broadcastIndex);
+    }
+
+    [Fact]
     public void DashboardBatch_InvalidateAllCache_AdvancesLiveAndDetectionGenerations()
     {
         var interfaceSource = ReadSource("Core", "Interfaces", "IDashboardBatchService.cs");
