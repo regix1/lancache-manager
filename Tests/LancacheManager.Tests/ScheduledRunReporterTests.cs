@@ -31,7 +31,9 @@ public class ScheduledRunReporterTests
     private static ScheduledRunReporter CreateReporter(
         CapturingNotificationService notifications,
         UnifiedOperationTracker tracker,
-        bool showNotification = true)
+        bool showNotification = true,
+        CancellationToken stoppingToken = default,
+        Action? onTerminalCleanup = null)
         => new(
             notifications,
             tracker,
@@ -40,7 +42,8 @@ public class ScheduledRunReporterTests
             Events,
             "probe.complete",
             showNotification,
-            CancellationToken.None);
+            stoppingToken,
+            onTerminalCleanup: onTerminalCleanup);
 
     [Fact]
     public async Task ReportAsync_ClampsPercentMonotonic_WhenALowerValueFollowsAHigherOneAsync()
@@ -131,6 +134,56 @@ public class ScheduledRunReporterTests
         Assert.Equal("boom", payload.Error);
     }
 
+    [Fact]
+    public async Task CompleteAsync_CancellationCarriesCancelledStatusAndHighestSentPercentAsync()
+    {
+        var notifications = new CapturingNotificationService();
+        var tracker = CreateTracker();
+        await using var reporter = CreateReporter(notifications, tracker);
+
+        await reporter.StartAsync("probe.starting");
+        await reporter.ReportAsync(35, "probe.running");
+        await reporter.CompleteAsync(
+            success: false,
+            error: "Cancelled by user",
+            cancelled: true,
+            stageKey: "probe.cancelled");
+
+        var complete = await notifications.WhenEventAsync(CompleteEventName).WaitAsync(TimeSpan.FromSeconds(5));
+        var payload = Assert.IsType<ScheduledRunCompleteEvent>(complete.Payload);
+
+        Assert.False(payload.Success);
+        Assert.True(payload.Cancelled);
+        Assert.Equal(OperationStatus.Cancelled, payload.Status);
+        Assert.Equal(35, payload.PercentComplete);
+        Assert.Equal("probe.cancelled", payload.StageKey);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_ParentTokenCancellationStillEmitsCancelledTerminalAsync()
+    {
+        var notifications = new CapturingNotificationService();
+        var tracker = CreateTracker();
+        using var stoppingCts = new CancellationTokenSource();
+        await using var reporter = CreateReporter(
+            notifications,
+            tracker,
+            stoppingToken: stoppingCts.Token);
+
+        await reporter.StartAsync("probe.starting");
+        await reporter.ReportAsync(45, "probe.running");
+        stoppingCts.Cancel();
+        await reporter.CompleteAsync(
+            success: false,
+            error: "Cancelled by user",
+            cancelled: true);
+
+        var payload = notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName).Single();
+        Assert.True(payload.Cancelled);
+        Assert.Equal(OperationStatus.Cancelled, payload.Status);
+        Assert.Equal(45, payload.PercentComplete);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -194,6 +247,88 @@ public class ScheduledRunReporterTests
         Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
     }
 
+    [Fact]
+    public async Task ExternalCompletion_WaitsForInFlightStartedSendAsync()
+    {
+        var notifications = new CapturingNotificationService(blockedEventName: StartedEventName);
+        var tracker = CreateTracker();
+        await using var reporter = CreateReporter(notifications, tracker);
+
+        var startTask = reporter.StartAsync("probe.starting");
+        await notifications.WhenBlockedSendBeginsAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        tracker.CompleteOperation(
+            reporter.OperationId,
+            success: false,
+            error: "force-killed while start was in flight");
+
+        Assert.Empty(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
+
+        notifications.ReleaseBlockedSend();
+        await startTask;
+        await notifications.WhenEventAsync(CompleteEventName).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(
+            [StartedEventName, CompleteEventName],
+            notifications.Events.Select(captured => captured.EventName).ToArray());
+    }
+
+    [Fact]
+    public async Task TerminalTransport_HoldsProducerOwnershipUntilCompleteIsPublishedAsync()
+    {
+        var notifications = new CapturingNotificationService(blockedEventName: CompleteEventName);
+        var tracker = CreateTracker();
+        var producerActive = 1;
+        await using var first = CreateReporter(
+            notifications,
+            tracker,
+            onTerminalCleanup: () => Interlocked.Exchange(ref producerActive, 0));
+
+        await first.StartAsync("probe.starting");
+        var firstOperationId = first.OperationId;
+        var completion = first.CompleteAsync(success: true);
+        await notifications.WhenBlockedSendBeginsAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(completion.IsCompleted);
+        Assert.Equal(1, Volatile.Read(ref producerActive));
+        Assert.Equal(1, Interlocked.CompareExchange(ref producerActive, 1, 0));
+
+        notifications.ReleaseBlockedSend();
+        await completion;
+
+        Assert.Equal(0, Volatile.Read(ref producerActive));
+        Assert.Equal(0, Interlocked.CompareExchange(ref producerActive, 1, 0));
+
+        await using var second = CreateReporter(
+            notifications,
+            tracker,
+            onTerminalCleanup: () => Interlocked.Exchange(ref producerActive, 0));
+        await second.StartAsync("probe.starting");
+        var secondOperationId = second.OperationId;
+        await second.CompleteAsync(success: true);
+
+        var lifecycle = notifications.Events
+            .Where(captured => captured.Payload is ScheduledRunStartedEvent or ScheduledRunCompleteEvent)
+            .Select(captured => (
+                captured.EventName,
+                OperationId: captured.Payload switch
+                {
+                    ScheduledRunStartedEvent started => started.OperationId,
+                    ScheduledRunCompleteEvent complete => complete.OperationId,
+                    _ => Guid.Empty
+                }))
+            .ToArray();
+
+        Assert.Equal(
+            [
+                (StartedEventName, firstOperationId),
+                (CompleteEventName, firstOperationId),
+                (StartedEventName, secondOperationId),
+                (CompleteEventName, secondOperationId)
+            ],
+            lifecycle);
+    }
+
     private sealed record CapturedEvent(string EventName, object? Payload);
 
     private sealed class CapturingNotificationService : ISignalRNotificationService
@@ -201,6 +336,16 @@ public class ScheduledRunReporterTests
         private readonly object _lock = new();
         private readonly List<CapturedEvent> _events = new();
         private readonly Dictionary<string, TaskCompletionSource<CapturedEvent>> _waiters = new();
+        private readonly string? _blockedEventName;
+        private readonly TaskCompletionSource _blockedSendBegan =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _blockedSendRelease =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public CapturingNotificationService(string? blockedEventName = null)
+        {
+            _blockedEventName = blockedEventName;
+        }
 
         public IReadOnlyList<CapturedEvent> Events
         {
@@ -251,11 +396,20 @@ public class ScheduledRunReporterTests
             }
         }
 
-        public Task NotifyAllAsync(string eventName, object? data = null)
+        public async Task NotifyAllAsync(string eventName, object? data = null)
         {
+            if (string.Equals(eventName, _blockedEventName, StringComparison.Ordinal))
+            {
+                _blockedSendBegan.TrySetResult();
+                await _blockedSendRelease.Task;
+            }
+
             Capture(eventName, data);
-            return Task.CompletedTask;
         }
+
+        public Task WhenBlockedSendBeginsAsync() => _blockedSendBegan.Task;
+
+        public void ReleaseBlockedSend() => _blockedSendRelease.TrySetResult();
 
         public void NotifyAllFireAndForget(string eventName, object? data = null) => Capture(eventName, data);
 

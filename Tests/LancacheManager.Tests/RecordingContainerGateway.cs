@@ -61,6 +61,11 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
 
     public bool IsAvailable { get; private set; }
     public bool Disposed { get; private set; }
+    public bool HoldStartContainer { get; set; }
+    public TaskCompletionSource StartContainerEntered { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource ReleaseStartContainer { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public int CountOf(string opPrefix) => Calls.Count(c => c.StartsWith(opPrefix, StringComparison.Ordinal));
     public int DestructiveCallCount =>
@@ -159,7 +164,10 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
         return Task.FromResult(new CreateContainerResponse { ID = id });
     }
 
-    public Task<bool> StartContainerAsync(string id, ContainerStartParameters? parameters, CancellationToken cancellationToken)
+    public async Task<bool> StartContainerAsync(
+        string id,
+        ContainerStartParameters? parameters,
+        CancellationToken cancellationToken)
     {
         Calls.Add($"Start:{id}");
         var container = _containers.FirstOrDefault(c => c.Id == id);
@@ -168,7 +176,13 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
             container.Running = true;
         }
 
-        return Task.FromResult(true);
+        StartContainerEntered.TrySetResult();
+        if (HoldStartContainer)
+        {
+            await ReleaseStartContainer.Task.WaitAsync(cancellationToken);
+        }
+
+        return true;
     }
 
     public Task<bool> StopContainerAsync(string id, ContainerStopParameters parameters, CancellationToken cancellationToken)

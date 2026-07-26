@@ -258,6 +258,9 @@ struct Progress {
     recognized_ignored_lines: u64,
     /// Unterminated final records (writer mid-line at EOF); never counted toward positions.
     incomplete_final_records: u64,
+    /// Unique Riot CDN hosts observed and successfully resolved during this processor run.
+    riot_hosts_processed: u64,
+    riot_hosts_mapped: u64,
     /// "path: error" for every file that failed mid-run. Non-empty ⇒ terminal is at best
     /// `partial`, never plain `completed`.
     files_with_errors: Vec<String>,
@@ -285,6 +288,8 @@ fn seed_progress(run_id: &str, status: &str, terminal_status: &str, message: &st
         invalid_encoding_lines: 0,
         recognized_ignored_lines: 0,
         incomplete_final_records: 0,
+        riot_hosts_processed: 0,
+        riot_hosts_mapped: 0,
         files_with_errors: Vec::new(),
     }
 }
@@ -354,7 +359,7 @@ struct Processor {
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
     logged_depots: HashSet<u32>,    // Track depots that have already been logged
     logged_tact_products: HashSet<String>, // Track Blizzard TACT products already logged
-    logged_riot_hosts: HashSet<String>, // Track Riot CDN hosts already logged
+    riot_mapping: riot_hosts::RiotMappingCounters,
     datasource_name: String,
     /// Depot -> (AppId, AppName) memo, filled lazily per depot actually seen in a batch.
     /// The old shape preloaded the WHOLE owner-mapping table here on every spawn - and this
@@ -449,7 +454,7 @@ impl Processor {
             last_logged_percent: AtomicU64::new(0),
             logged_depots: HashSet::new(),
             logged_tact_products: HashSet::new(),
-            logged_riot_hosts: HashSet::new(),
+            riot_mapping: riot_hosts::RiotMappingCounters::default(),
             datasource_name,
             depot_map: HashMap::new(),
             depots_unmapped: HashSet::new(),
@@ -517,6 +522,8 @@ impl Processor {
             invalid_encoding_lines: self.invalid_encoding_lines,
             recognized_ignored_lines: self.recognized_ignored_lines,
             incomplete_final_records: self.incomplete_final_records,
+            riot_hosts_processed: self.riot_mapping.processed(),
+            riot_hosts_mapped: self.riot_mapping.mapped(),
             files_with_errors: self.files_with_errors.clone(),
         }
     }
@@ -1585,22 +1592,21 @@ impl Processor {
             // an unmapped depot) and are LOGGED once per run so a 1-line host entry can
             // close the gap later.
             if let Some(host) = primary_cdn_host.as_deref() {
-                match riot_hosts::resolve_riot_host(host) {
+                let observation = self.riot_mapping.observe(host);
+                match observation.game_name {
                     Some(name) => {
-                        if !self.logged_riot_hosts.contains(host) {
+                        if observation.first_observation {
                             eprintln!("Mapped Riot host {} -> {}", host, name);
-                            self.logged_riot_hosts.insert(host.to_string());
                         }
                         (None, Some(name.to_string()))
                     }
                     None => {
-                        if !self.logged_riot_hosts.contains(host) {
+                        if observation.first_observation {
                             let req_count = new_entries
                                 .iter()
                                 .filter(|e| e.cdn_host.as_deref() == Some(host))
                                 .count();
                             eprintln!("Unmapped Riot CDN host: {} ({} req)", host, req_count);
-                            self.logged_riot_hosts.insert(host.to_string());
                         }
                         (None, None)
                     }

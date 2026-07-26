@@ -1,16 +1,12 @@
 using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
-using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Core.Services.EpicMapping;
 
 public partial class EpicMappingService
 {
-    /// <summary>
-    /// Returns the Epic OAuth authorization URL for the user to visit.
-    /// No Docker container is created - the URL points directly to Epic's login page.
-    /// </summary>
     public string GetAuthorizationUrl()
     {
         var url = _epicApiClient.GetAuthorizationUrl();
@@ -19,77 +15,61 @@ public partial class EpicMappingService
     }
 
     /// <summary>
-    /// Called when the user submits an authorization code from the Epic login page.
-    /// Exchanges the code for tokens, fetches games, and saves credentials.
+    /// Exchanges the one-time auth code first. Only after that prerequisite succeeds does the owned
+    /// game/CDN mapping operation enter the tracked lifecycle.
     /// </summary>
     public async Task OnAuthCodeReceivedAsync(string authorizationCode)
     {
         if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0)
         {
-            _logger.LogWarning("Epic auth login rejected - another operation is already in progress");
             throw new InvalidOperationException("Epic auth is already in progress");
         }
 
         await _sessionLock.WaitAsync();
+        CancellationTokenSource authCts;
         try
         {
-            _logger.LogInformation("Exchanging Epic authorization code for tokens...");
+            authCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
+        }
+        catch (ObjectDisposedException)
+        {
+            authCts = new CancellationTokenSource();
+        }
 
-            var authCts = new CancellationTokenSource();
-            // onTerminalCleanup is the safety net for the universal force-kill path, which completes the
-            // operation immediately (no associated process) WITHOUT running this method's success/catch
-            // resets. The outer finally (below) only resets _sessionLock + _isProcessingInt, so a
-            // force-kill or a generic (non-OCE) exception would otherwise leave _currentOperationId and
-            // _currentStatus set, permanently blocking the next auth. The lambda resets exactly those.
-            // NOTE: it deliberately does NOT null _currentTokens — that field is the persistent auth
-            // credential consumed by catalog refresh / image refresh after a SUCCESSFUL login (the
-            // cleanup runs on success too via CompleteOperation(true) at line 137); nulling it here
-            // would wipe valid tokens on every successful auth. Logout/refresh-failure null it instead.
-            _currentOperationId = _operationTracker.RegisterOperation(
-                OperationType.EpicMapping,
-                "Epic Auth Login",
-                authCts,
-                onTerminalCleanup: () =>
-                {
-                    Interlocked.Exchange(ref _isProcessingInt, 0);
-                    _currentOperationId = null;
-                    _currentStatus = EpicMappingStatus.Idle;
-                },
-                onTerminalEmit: info => info.Cancelled
-                    ? _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
-                        new EpicMappingComplete(
-                            OperationId: _currentOperationId, Success: false,
-                            Status: OperationStatus.Completed,
-                            StageKey: "signalr.epicMapping.cancelled",
-                            PercentComplete: 100.0, GamesDiscovered: _gamesDiscovered,
-                            Cancelled: true, Context: new Dictionary<string, object?>()))
-                    : info.Success
-                        ? _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
-                            new EpicMappingComplete(
-                                OperationId: _currentOperationId, Success: true,
-                                Status: OperationStatus.Completed,
-                                StageKey: "signalr.epicMapping.completed",
-                                PercentComplete: 100.0, GamesDiscovered: _gamesDiscovered,
-                                Message: $"Epic catalog refresh completed - {_gamesDiscovered} games",
-                                Context: new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered }))
-                        : _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
-                            new EpicMappingComplete(
-                                OperationId: _currentOperationId, Success: false,
-                                Status: OperationStatus.Failed,
-                                StageKey: "signalr.epicMapping.failed",
-                                PercentComplete: 0.0, GamesDiscovered: _gamesDiscovered,
-                                Error: info.Error,
-                                Context: new Dictionary<string, object?> { ["errorDetail"] = info.Error }))
-            );
+        _currentRefreshCts = authCts;
+        MappingOperationReporter? reporter = null;
+        try
+        {
             _currentStatus = EpicMappingStatus.Authenticating;
-
-            // Exchange authorization code for tokens
-            var tokens = await _epicApiClient.ExchangeAuthCodeAsync(authorizationCode, authCts.Token);
+            _logger.LogInformation("Exchanging Epic authorization code for tokens...");
+            var tokens = await _epicApiClient.ExchangeAuthCodeAsync(
+                authorizationCode,
+                authCts.Token);
             _currentTokens = tokens;
-            _logger.LogDebug("Epic OAuth tokens received, expires at {ExpiresAt}", tokens.ExpiresAt);
 
-            // Fetch owned games with metadata
-            var games = await _epicApiClient.GetOwnedGamesAsync(tokens.AccessToken, authCts.Token);
+            // Authentication is an explicit user action. Do not inherit the visibility decision
+            // from the last scheduled refresh (which may have been silent under Manual mode).
+            _showNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
+            reporter = CreateEpicMappingReporter(
+                authCts.Token,
+                () =>
+                {
+                    _currentOperationId = null;
+                    _currentMappingReporter = null;
+                    _currentStatus = EpicMappingStatus.Idle;
+                });
+            _currentMappingReporter = reporter;
+            await reporter.StartAsync(CreateEpicContext());
+            _currentOperationId = reporter.OperationId;
+            _currentStatus = EpicMappingStatus.RefreshingCatalog;
+
+            await reporter.ReportAsync(
+                15,
+                "signalr.epicMapping.fetchingGames",
+                CreateEpicContext());
+            var games = await _epicApiClient.GetOwnedGamesAsync(
+                tokens.AccessToken,
+                reporter.Token);
             _gamesDiscovered = games.Count;
             _lastNewGames = 0;
             _lastUpdatedGames = 0;
@@ -97,76 +77,62 @@ public partial class EpicMappingService
             if (games.Count > 0)
             {
                 var sessionHash = CryptoUtils.ComputeAnonymousHash("mapping-session");
-                var result = await MergeOwnedGamesAsync(games, sessionHash, "mapping-login", authCts.Token);
-
-                _logger.LogInformation(
-                    "Mapping login game collection: {New} new, {Updated} updated, {Total} total",
-                    result.NewGames, result.UpdatedGames, result.TotalGames);
-
+                var result = await MergeOwnedGamesAsync(
+                    games,
+                    sessionHash,
+                    "mapping-login",
+                    reporter.Token);
                 _gamesDiscovered = result.TotalGames;
                 _lastNewGames = result.NewGames;
                 _lastUpdatedGames = result.UpdatedGames;
             }
 
-            await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
-            {
-                operationId = _currentOperationId,
-                status = "Collecting games",
-                percentComplete = 60.0,
-                gamesDiscovered = _gamesDiscovered,
-                stageKey = "signalr.epicMapping.gamesDiscovered",
-                context = new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered }
-            });
-
-            // Collect CDN patterns
+            await reporter.ReportAsync(
+                55,
+                "signalr.epicMapping.refreshingCdn",
+                CreateEpicContext());
             try
             {
-                var cdnInfos = await _epicApiClient.GetCdnInfoAsync(tokens.AccessToken, authCts.Token);
+                var cdnInfos = await _epicApiClient.GetCdnInfoAsync(
+                    tokens.AccessToken,
+                    reporter.Token);
                 if (cdnInfos.Count > 0)
                 {
-                    await MergeCdnPatternsAsync(cdnInfos, authCts.Token);
-                    _logger.LogInformation("Mapping login CDN patterns: {Count}", cdnInfos.Count);
+                    await MergeCdnPatternsAsync(cdnInfos, reporter.Token);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogWarning(ex, "Failed to collect CDN patterns from mapping login");
+                _logger.LogWarning(ex, "Failed to collect Epic CDN patterns from mapping login");
             }
 
-            // Save credentials for auto-reconnect
-            var authData = new EpicAuthData
+            _authStorage.SaveAuthData(new EpicAuthData
             {
                 RefreshToken = tokens.RefreshToken,
                 DisplayName = tokens.DisplayName,
                 AccountId = tokens.AccountId,
                 LastAuthenticated = DateTime.UtcNow,
                 GamesDiscovered = _gamesDiscovered
-            };
-            _authStorage.SaveAuthData(authData);
-
+            });
             SetIsAuthenticated(true);
             _displayName = tokens.DisplayName;
             _lastCollectionUtc = DateTime.UtcNow;
             _lastRefreshTime = DateTime.UtcNow;
-            // Persist the collection time to state.json so it survives restarts
-            // (uniform with Battle.net mapping's last-applied persistence).
             _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
 
-            // Resolve existing Epic downloads against the freshly collected CDN patterns
+            await reporter.ReportAsync(
+                85,
+                "signalr.epicMapping.applyingMappings",
+                CreateEpicContext());
             try
             {
-                var resolved = await ResolveDownloadsAsync(authCts.Token);
-                if (resolved > 0)
-                {
-                    _logger.LogInformation("Resolved {Count} Epic downloads to game names after login", resolved);
-                }
+                await ResolveDownloadsAsync(reporter.Token);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogWarning(ex, "Failed to resolve Epic downloads after login (non-fatal)");
+                _logger.LogWarning(ex, "Failed to resolve Epic downloads after login");
             }
 
-            // Notify frontend
             await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
             {
                 totalGames = _gamesDiscovered,
@@ -175,53 +141,69 @@ public partial class EpicMappingService
                 lastUpdatedUtc = DateTime.UtcNow,
                 source = "mapping-login"
             });
+            await reporter.CompleteAsync(success: true, context: CreateEpicContext());
 
-            if (_currentOperationId.HasValue)
-            {
-                _operationTracker.CompleteOperation(_currentOperationId.Value, true);
-                _currentOperationId = null;
-            }
-            _currentStatus = EpicMappingStatus.Idle;
-
-            _logger.LogInformation("Epic mapping login complete: {DisplayName}, {Games} games",
-                tokens.DisplayName, _gamesDiscovered);
+            _logger.LogInformation(
+                "Epic mapping login complete: {DisplayName}, {Games} games",
+                tokens.DisplayName,
+                _gamesDiscovered);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Epic mapping auth login cancelled");
-
-            // Terminal cancellation SignalR is emitted exactly once from the onTerminalEmit closure
-            // (CompletedFlag-gated) via CompleteOperation below.
-            if (_currentOperationId.HasValue)
+            _logger.LogInformation("Epic mapping auth or collection cancelled");
+            if (reporter is not null)
             {
-                _operationTracker.CompleteOperation(_currentOperationId.Value, false, "Cancelled");
-                _currentOperationId = null;
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: "Cancelled by user",
+                    cancelled: true,
+                    context: CreateEpicContext());
             }
-            _currentStatus = EpicMappingStatus.Idle;
+        }
+        catch (Exception ex)
+        {
+            if (reporter is not null)
+            {
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: ex.Message,
+                    context: CreateEpicContext(ex.Message));
+            }
+
+            throw;
         }
         finally
         {
+            if (reporter is not null)
+            {
+                await reporter.DisposeAsync();
+            }
+
+            authCts.Dispose();
+            if (ReferenceEquals(_currentRefreshCts, authCts))
+            {
+                _currentRefreshCts = null;
+            }
+
+            _currentMappingReporter = null;
+            _currentOperationId = null;
+            _currentStatus = EpicMappingStatus.Idle;
             _sessionLock.Release();
             Interlocked.Exchange(ref _isProcessingInt, 0);
         }
     }
 
-    /// <summary>
-    /// Logs out and clears saved credentials. No Docker container to terminate.
-    /// </summary>
     public async Task LogoutAsync()
     {
         await _sessionLock.WaitAsync();
         try
         {
             _authStorage.ClearAuthData();
-
             SetIsAuthenticated(false);
             _displayName = null;
             _lastCollectionUtc = null;
             _gamesDiscovered = 0;
             _currentTokens = null;
-
             _logger.LogInformation("Epic mapping session logged out and credentials cleared");
         }
         finally
@@ -230,14 +212,10 @@ public partial class EpicMappingService
         }
     }
 
-    /// <summary>
-    /// Attempts to reconnect using saved refresh token on startup.
-    /// Auth only - no scanning. Mirrors Steam's startup behavior.
-    /// </summary>
     private async Task TryAutoReconnectAsync()
     {
-        var ct = _cancellationTokenSource.Token;
-        await _sessionLock.WaitAsync(ct);
+        var cancellationToken = _cancellationTokenSource.Token;
+        await _sessionLock.WaitAsync(cancellationToken);
         try
         {
             var authData = _authStorage.GetAuthData();
@@ -247,41 +225,30 @@ public partial class EpicMappingService
                 return;
             }
 
-            _logger.LogInformation("Attempting Epic mapping auto-reconnect with saved refresh token...");
-
             try
             {
-                // Refresh the token directly via HTTP
-                var tokens = await _epicApiClient.RefreshTokenAsync(authData.RefreshToken, ct);
+                var tokens = await _epicApiClient.RefreshTokenAsync(
+                    authData.RefreshToken,
+                    cancellationToken);
                 _currentTokens = tokens;
-
-                // Update saved credentials with new refresh token
-                var updatedAuthData = new EpicAuthData
+                _authStorage.SaveAuthData(new EpicAuthData
                 {
                     RefreshToken = tokens.RefreshToken,
                     DisplayName = tokens.DisplayName,
                     AccountId = tokens.AccountId,
                     LastAuthenticated = DateTime.UtcNow,
                     GamesDiscovered = authData.GamesDiscovered
-                };
-                _authStorage.SaveAuthData(updatedAuthData);
-
+                });
                 SetIsAuthenticated(true);
                 _displayName = tokens.DisplayName;
                 _gamesDiscovered = authData.GamesDiscovered;
-                // Prefer the persisted collection time (captures scheduled refreshes too);
-                // fall back to the auth timestamp for pre-existing state.json without it.
                 _lastCollectionUtc =
                     _stateService.GetEpicMappingCollectedAt() ?? authData.LastAuthenticated;
-
-                _logger.LogInformation("Epic auto-reconnect authenticated: {DisplayName}, {Games} cached games",
-                    tokens.DisplayName, _gamesDiscovered);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Epic refresh token expired or invalid, clearing credentials");
                 _authStorage.ClearAuthData();
-
                 SetIsAuthenticated(false);
                 _displayName = null;
                 _gamesDiscovered = 0;

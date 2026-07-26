@@ -13,7 +13,7 @@ interface XboxMappingLoginModalProps {
 // Thin adapter: re-points XboxAuthModal from the prefill-daemon state stack
 // (usePrefillSignalR + usePrefillSteamAuth) to the manager-side useXboxMappingAuth hook.
 // XboxAuthModal consumes only the device-code slice, which XboxAuthState/XboxAuthActions
-// satisfy directly. Completion arrives via SignalR XboxMappingProgress in the hook;
+// satisfy directly. Completion arrives via SignalR XboxMappingAuthStateChanged in the hook;
 // onCancelLogin stops a pending poll server-side when the modal is closed.
 const XboxMappingLoginModal: React.FC<XboxMappingLoginModalProps> = ({
   opened,

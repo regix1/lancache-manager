@@ -5,6 +5,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -165,6 +166,200 @@ public class PersistentLoginSessionPinningTests
         Assert.Contains(nameof(IDaemonClient.ProvideCredentialAsync), activeClient.InvokedMethods);
     }
 
+    [Fact]
+    public async Task StartLogin_EditCommandDispatchedWithoutChallenge_CleanupCancelsAndResetsLogin()
+    {
+        const string sessionId = "session-shared";
+        const string editSessionId = "edit-session-login-timeout";
+        var (controller, daemon, activeClient) = CreateControllerWithActiveSession(sessionId);
+
+        var login = await controller.StartLoginAsync(
+            new PersistentLoginRequest
+            {
+                Service = PrefillPlatform.Steam,
+                SessionId = sessionId,
+                EditSessionId = editSessionId,
+                EditActionId = "login-timeout"
+            },
+            CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(login.Result);
+        Assert.Contains(
+            nameof(IDaemonClient.StartLoginWithDispatchAsync),
+            activeClient.InvokedMethods);
+        Assert.Equal(
+            DaemonAuthState.LoggingIn,
+            daemon.GetSession(sessionId)!.AuthState);
+        Assert.Single(daemon.PersistentEditSessionGate.GetCompensableResources(
+            editSessionId,
+            PersistentPrefillEditResourceKind.Login));
+
+        var cleanup = await controller.CleanupEditSessionAsync(
+            CreateCleanupRequest(editSessionId, sessionId),
+            CancellationToken.None);
+
+        Assert.IsType<OkResult>(cleanup);
+        Assert.Equal(
+            1,
+            activeClient.InvokedMethods.Count(
+                method => method == nameof(IDaemonClient.CancelLoginAsync)));
+        Assert.Equal(
+            DaemonAuthState.NotAuthenticated,
+            daemon.GetSession(sessionId)!.AuthState);
+        Assert.Empty(daemon.PersistentEditSessionGate.GetCompensableResources(
+            editSessionId,
+            PersistentPrefillEditResourceKind.Login));
+    }
+
+    [Fact]
+    public async Task StartLogin_EditCommandDispatchFails_CleanupDoesNotClaimOrCancelLogin()
+    {
+        const string sessionId = "session-shared";
+        const string editSessionId = "edit-session-login-dispatch-failure";
+        var (controller, daemon, activeClient) = CreateControllerWithActiveSession(sessionId);
+        activeClient.FailLoginDispatch = true;
+
+        await Assert.ThrowsAsync<IOException>(() => controller.StartLoginAsync(
+            new PersistentLoginRequest
+            {
+                Service = PrefillPlatform.Steam,
+                SessionId = sessionId,
+                EditSessionId = editSessionId,
+                EditActionId = "login-dispatch-failure"
+            },
+            CancellationToken.None));
+
+        Assert.Empty(daemon.PersistentEditSessionGate.GetCompensableResources(
+            editSessionId,
+            PersistentPrefillEditResourceKind.Login));
+        Assert.Equal(
+            DaemonAuthState.NotAuthenticated,
+            daemon.GetSession(sessionId)!.AuthState);
+
+        var cleanup = await controller.CleanupEditSessionAsync(
+            CreateCleanupRequest(editSessionId, sessionId),
+            CancellationToken.None);
+
+        Assert.IsType<OkResult>(cleanup);
+        Assert.DoesNotContain(
+            nameof(IDaemonClient.CancelLoginAsync),
+            activeClient.InvokedMethods);
+    }
+
+    [Fact]
+    public async Task PrefillConflict_CleanupDoesNotCancelExistingRun()
+    {
+        var (controller, daemon, activeClient) = CreateControllerWithActiveSession(
+            activeSessionId: "session-shared");
+        daemon.GetSession("session-shared")!.IsPrefilling = true;
+
+        await Assert.ThrowsAsync<ConflictException>(() => controller.StartPrefillAsync(
+            new PersistentStartPrefillRequest
+            {
+                Service = PrefillPlatform.Steam,
+                SessionId = "session-shared",
+                AppIds = ["10"],
+                EditSessionId = "edit-session-a",
+                EditActionId = "prefill-a"
+            },
+            CancellationToken.None));
+
+        var cleanup = await controller.CleanupEditSessionAsync(
+            new PersistentPrefillEditSessionCleanupRequest
+            {
+                EditSessionId = "edit-session-a",
+                CleanupId = "cleanup-a",
+                Services =
+                [
+                    new PersistentPrefillEditSessionCleanupServiceRequest
+                    {
+                        Service = PrefillPlatform.Steam,
+                        BaselineSessionId = "session-shared",
+                        BaselineSelectedAppIds = ["baseline"],
+                        StartSessionId = null,
+                        LoginSessionId = null,
+                        PrefillSessionId = "session-shared",
+                        SelectionSessionId = "session-shared"
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        Assert.IsType<OkResult>(cleanup);
+        Assert.DoesNotContain(
+            nameof(IDaemonClient.CancelPrefillAsync),
+            activeClient.InvokedMethods);
+        Assert.Equal(
+            2,
+            activeClient.InvokedMethods.Count(
+                method => method == nameof(IDaemonClient.SetSelectedAppsAsync)));
+        Assert.True(daemon.GetSession("session-shared")!.IsPrefilling);
+    }
+
+    [Fact]
+    public async Task CreatedSessionAdoptedByLaterEdit_IsRetainedAndEarlierSelectionIsRestored()
+    {
+        var (controller, daemon, activeClient) = CreateControllerWithActiveSession(
+            activeSessionId: "session-shared");
+
+        var selection = await controller.SetSelectedAppsAsync(
+            new PersistentSelectedAppsRequest
+            {
+                Service = PrefillPlatform.Steam,
+                SessionId = "session-shared",
+                AppIds = ["10"],
+                EditSessionId = "edit-session-a",
+                EditActionId = "selection-a"
+            },
+            CancellationToken.None);
+        Assert.IsType<OkResult>(selection);
+
+        _ = daemon.PersistentEditSessionGate.BeginStart("edit-session-a", "start-a");
+        daemon.PersistentEditSessionGate.CompleteStart(
+            "edit-session-a",
+            "start-a",
+            new PersistentPrefillEditSessionStartRecord(
+                "start-a",
+                "session-shared",
+                CreatedByEditSession: true));
+        _ = daemon.PersistentEditSessionGate.BeginStart("edit-session-b", "start-b");
+        daemon.PersistentEditSessionGate.CompleteStart(
+            "edit-session-b",
+            "start-b",
+            new PersistentPrefillEditSessionStartRecord(
+                "start-b",
+                "session-shared",
+                CreatedByEditSession: false));
+
+        var cleanup = await controller.CleanupEditSessionAsync(
+            new PersistentPrefillEditSessionCleanupRequest
+            {
+                EditSessionId = "edit-session-a",
+                CleanupId = "cleanup-a",
+                Services =
+                [
+                    new PersistentPrefillEditSessionCleanupServiceRequest
+                    {
+                        Service = PrefillPlatform.Steam,
+                        BaselineSessionId = "session-shared",
+                        BaselineSelectedAppIds = ["baseline"],
+                        StartSessionId = "session-shared",
+                        LoginSessionId = null,
+                        PrefillSessionId = null,
+                        SelectionSessionId = "session-shared"
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        Assert.IsType<OkResult>(cleanup);
+        Assert.NotNull(daemon.GetSession("session-shared"));
+        Assert.Equal(
+            2,
+            activeClient.InvokedMethods.Count(
+                method => method == nameof(IDaemonClient.SetSelectedAppsAsync)));
+    }
+
     // ---- RC3: dead-session challenge guard (#10) ------------------------------------------------
 
     [Fact]
@@ -227,6 +422,27 @@ public class PersistentLoginSessionPinningTests
 
         return (controller, daemon, recorder);
     }
+
+    private static PersistentPrefillEditSessionCleanupRequest CreateCleanupRequest(
+        string editSessionId,
+        string baselineSessionId) => new()
+    {
+        EditSessionId = editSessionId,
+        CleanupId = $"cleanup-{editSessionId}",
+        Services =
+        [
+            new PersistentPrefillEditSessionCleanupServiceRequest
+            {
+                Service = PrefillPlatform.Steam,
+                BaselineSessionId = baselineSessionId,
+                BaselineSelectedAppIds = [],
+                StartSessionId = null,
+                LoginSessionId = baselineSessionId,
+                PrefillSessionId = null,
+                SelectionSessionId = null
+            }
+        ]
+    };
 
     private static TestableSteamDaemonService CreateDaemon()
     {
@@ -307,6 +523,7 @@ public class PersistentLoginSessionPinningTests
     {
         public List<string> InvokedMethods { get; } = new();
         public bool RejectCredential { get; set; }
+        public bool FailLoginDispatch { get; set; }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
@@ -318,6 +535,18 @@ public class PersistentLoginSessionPinningTests
             if (RejectCredential && targetMethod?.Name == nameof(IDaemonClient.ProvideCredentialAsync))
             {
                 throw new DaemonCredentialRejectedException("No matching login challenge is pending for this credential");
+            }
+
+            if (targetMethod?.Name == nameof(IDaemonClient.StartLoginWithDispatchAsync))
+            {
+                if (FailLoginDispatch)
+                {
+                    return Task.FromException<CredentialChallenge?>(
+                        new IOException("Login command failed before dispatch"));
+                }
+
+                ((Action)args![1]!)();
+                return Task.FromResult<CredentialChallenge?>(null);
             }
 
             return DefaultReturnValue(targetMethod);

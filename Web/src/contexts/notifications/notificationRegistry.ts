@@ -11,13 +11,10 @@
  *     hand-built in createSpecialCaseHandlers and wired via
  *     SPECIAL_NOTIFICATION_CONTRACTS. The standard loop skips these.
  *
- * The four special-wiring entries (depot_mapping, database_reset,
- * epic_game_mapping, steam_session_error) appear here ONLY so cancel + recovery
+ * The remaining special-wiring entries appear here ONLY so cancel + recovery
  * live in one config surface per type. Their handler bodies are NOT inlined:
- *   - depot_mapping: special completion handler with animation/cancellation logic
  *   - database_reset: terminal DatabaseResetComplete handled via createCompletionHandler,
  *     idempotent with the legacy progress-status completion
- *   - epic_game_mapping: progress-only with custom EpicGameMappingsUpdated handler
  *   - steam_session_error: custom one-shot error toast (not a lifecycle, no recovery)
  */
 
@@ -48,7 +45,6 @@ import {
   formatLogProcessingDetailMessage,
   formatLogProcessingRecoveryMessage,
   formatLogProcessingRecoveryDetailMessage,
-  formatDepotMappingRecoveryDetailMessage,
   formatLogRemovalProgressMessage,
   formatLogRemovalCompleteMessage,
   formatGameRemovalProgressMessage,
@@ -75,6 +71,7 @@ import {
 } from './detailMessageFormatters';
 import {
   buildScheduledRunEntry,
+  buildMappingOperationEntry,
   buildStandardOperationEntry,
   cappedProgress,
   errorOrStageKeyMessage,
@@ -125,7 +122,22 @@ import type {
   EvictionRemovalCompleteEvent,
   ScheduledPrefillStartedEvent,
   ScheduledPrefillProgressEvent,
-  ScheduledPrefillCompletedEvent
+  ScheduledPrefillCompletedEvent,
+  DepotMappingStartedEvent,
+  DepotMappingProgressEvent,
+  DepotMappingCompleteEvent,
+  EpicMappingStartedEvent,
+  EpicMappingProgressEvent,
+  EpicMappingCompleteEvent,
+  XboxMappingStartedEvent,
+  XboxMappingProgressEvent,
+  XboxMappingCompleteEvent,
+  BattleNetMappingStartedEvent,
+  BattleNetMappingProgressEvent,
+  BattleNetMappingCompleteEvent,
+  RiotMappingStartedEvent,
+  RiotMappingProgressEvent,
+  RiotMappingCompleteEvent
 } from '../SignalRContext/types';
 
 /**
@@ -139,7 +151,7 @@ import type {
 function prefixCorruptionRemovalService(
   message: string,
   service: string | undefined,
-  context: Record<string, string | number | boolean> | undefined
+  context: Record<string, string | number | boolean | null> | undefined
 ): string {
   if (!service || service === 'all') return message;
   const label = getServiceDisplayName(service);
@@ -207,22 +219,6 @@ interface DatabaseResetStatusResponse {
   tablesCleared?: number | null;
   totalTables?: number | null;
   filesDeleted?: number | null;
-}
-
-/** GET /api/depots/rebuild/progress - SteamPicsProgress */
-interface DepotRebuildProgressResponse {
-  isProcessing: boolean;
-  statusMessage: string;
-  progressPercent: number;
-  processedBatches?: number;
-  totalBatches?: number;
-  depotMappingsFound?: number;
-  totalMappings: number;
-  processedMappings: number;
-  isLoggedOn: boolean;
-  operationId?: string;
-  /** Run-stable display flag; a silent run must not resurrect a card on reload mid-rebuild. */
-  showNotification?: boolean;
 }
 
 /** GET /api/logs/remove/status - RustServiceRemovalService.GetLogRemovalStatus() */
@@ -414,36 +410,6 @@ interface DataImportStatusResponse {
   context?: StageContext;
 }
 
-/**
- * GET /api/epic/game-mappings/schedule - EpicGameMappingController.GetScheduleStatus()
- * Returns EpicScheduleStatus from EpicMappingService.
- */
-interface EpicGameMappingScheduleResponse {
-  /** Always present */
-  isProcessing: boolean;
-  /** C# `string?` - only set when IsProcessing is true; null/absent when idle */
-  statusMessage?: string | null;
-  /** C# `double` (non-null) - always emitted; 0 when not processing */
-  progressPercent: number;
-  /**
-   * C# `string?` - non-null when isProcessing is true; absent/undefined when idle.
-   * Narrowed to `string | undefined` (not `| null`) to match the backend contract
-   * and prevent null from slipping into details.operationId.
-   */
-  operationId?: string;
-  /**
-   * Run-stable display flag for the active refresh. A silent automatic run reports false so
-   * recovery can skip resurrecting a card instead of leaving it stuck once the silent terminal arrives.
-   */
-  showNotification?: boolean;
-  /** Additional fields from EpicScheduleStatus (not used by recovery handler) */
-  refreshIntervalHours?: number;
-  nextRefreshIn?: number;
-  lastRefreshTime?: string | null;
-  isAuthenticated?: boolean;
-  status?: string;
-}
-
 /** GET /api/stats/eviction/scan/status - anonymous object from StatsController */
 interface EvictionScanStatusResponse {
   isProcessing: boolean;
@@ -493,6 +459,8 @@ const CANCEL_TOOLTIP = {
   databaseReset: 'common.notifications.cancelDatabaseReset',
   epicGameMapping: 'common.notifications.cancelEpicGameMapping',
   xboxGameMapping: 'common.notifications.cancelXboxGameMapping',
+  battleNetGameMapping: 'common.notifications.cancelBattleNetGameMapping',
+  riotGameMapping: 'common.notifications.cancelRiotGameMapping',
   bulkRemoval: 'common.notifications.cancelBulkRemoval'
 } as const;
 
@@ -1515,55 +1483,145 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   }),
 
   // ==========================================================================
+  // Scheduled mapping operations
+  // ==========================================================================
+  buildMappingOperationEntry<
+    DepotMappingStartedEvent,
+    DepotMappingProgressEvent,
+    DepotMappingCompleteEvent
+  >({
+    type: 'depot_mapping',
+    id: NOTIFICATION_IDS.DEPOT_MAPPING,
+    storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
+    serviceKey: 'depotMapping',
+    eventPrefix: 'DepotMapping',
+    i18nBase: 'signalr.depotMapping',
+    cancelTooltipKey: CANCEL_TOOLTIP.depotMapping,
+    defaultMessage: 'Starting depot mapping...',
+    staleMessage: 'Depot mapping completed',
+    recoveryCases: [
+      { stageKey: 'signalr.depotMapping.starting', context: {} },
+      {
+        stageKey: 'signalr.depotMapping.batchProgress',
+        context: { processedBatches: 1, totalBatches: 2 }
+      },
+      { stageKey: 'signalr.depotMapping.saving', context: {} },
+      { stageKey: 'signalr.depotMapping.resolvingOrphans', context: {} },
+      { stageKey: 'signalr.depotMapping.importing', context: {} },
+      { stageKey: 'signalr.depotMapping.applyingToDownloads', context: {} },
+      { stageKey: 'signalr.depotMapping.finalized', context: { updated: 1 } },
+      { stageKey: 'signalr.depotMapping.cancelled', context: {} },
+      { stageKey: 'signalr.depotMapping.failed', context: {} },
+      { stageKey: 'signalr.depotMapping.github.downloading', context: {} },
+      { stageKey: 'signalr.depotMapping.github.complete', context: {} },
+      { stageKey: 'signalr.depotMapping.github.failed', context: {} }
+    ]
+  }),
+  buildMappingOperationEntry<
+    EpicMappingStartedEvent,
+    EpicMappingProgressEvent,
+    EpicMappingCompleteEvent
+  >({
+    type: 'epic_game_mapping',
+    id: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
+    storageKey: NOTIFICATION_STORAGE_KEYS.EPIC_GAME_MAPPING,
+    serviceKey: 'epicMapping',
+    eventPrefix: 'EpicMapping',
+    i18nBase: 'signalr.epicMapping',
+    cancelTooltipKey: CANCEL_TOOLTIP.epicGameMapping,
+    defaultMessage: 'Starting Epic game mapping...',
+    staleMessage: 'Epic game mapping completed',
+    recoveryCases: [
+      { stageKey: 'signalr.epicMapping.starting', context: {} },
+      { stageKey: 'signalr.epicMapping.fetchingGames', context: {} },
+      { stageKey: 'signalr.epicMapping.refreshingCdn', context: {} },
+      { stageKey: 'signalr.epicMapping.checkingFreeGames', context: {} },
+      { stageKey: 'signalr.epicMapping.applyingMappings', context: {} },
+      { stageKey: 'signalr.epicMapping.completed', context: {} },
+      { stageKey: 'signalr.epicMapping.cancelled', context: {} },
+      { stageKey: 'signalr.epicMapping.failed', context: {} }
+    ]
+  }),
+  buildMappingOperationEntry<
+    XboxMappingStartedEvent,
+    XboxMappingProgressEvent,
+    XboxMappingCompleteEvent
+  >({
+    type: 'xbox_game_mapping',
+    id: NOTIFICATION_IDS.XBOX_GAME_MAPPING,
+    storageKey: NOTIFICATION_STORAGE_KEYS.XBOX_GAME_MAPPING,
+    serviceKey: 'xboxMapping',
+    eventPrefix: 'XboxMapping',
+    i18nBase: 'signalr.xboxMapping',
+    cancelTooltipKey: CANCEL_TOOLTIP.xboxGameMapping,
+    defaultMessage: 'Starting Xbox game mapping...',
+    staleMessage: 'Xbox game mapping completed',
+    recoveryCases: [
+      { stageKey: 'signalr.xboxMapping.starting', context: {} },
+      { stageKey: 'signalr.xboxMapping.collecting', context: {} },
+      { stageKey: 'signalr.xboxMapping.resolving', context: {} },
+      { stageKey: 'signalr.xboxMapping.backfilling', context: {} },
+      { stageKey: 'signalr.xboxMapping.completed', context: {} },
+      { stageKey: 'signalr.xboxMapping.cancelled', context: {} },
+      { stageKey: 'signalr.xboxMapping.failed', context: {} }
+    ]
+  }),
+  buildMappingOperationEntry<
+    BattleNetMappingStartedEvent,
+    BattleNetMappingProgressEvent,
+    BattleNetMappingCompleteEvent
+  >({
+    type: 'battle_net_game_mapping',
+    id: NOTIFICATION_IDS.BATTLE_NET_GAME_MAPPING,
+    storageKey: NOTIFICATION_STORAGE_KEYS.BATTLE_NET_GAME_MAPPING,
+    serviceKey: 'battleNetMapping',
+    eventPrefix: 'BattleNetMapping',
+    i18nBase: 'signalr.battleNetMapping',
+    cancelTooltipKey: CANCEL_TOOLTIP.battleNetGameMapping,
+    defaultMessage: 'Starting Battle.net game mapping...',
+    staleMessage: 'Battle.net game mapping completed',
+    recoveryCases: [
+      { stageKey: 'signalr.battleNetMapping.starting', context: {} },
+      { stageKey: 'signalr.battleNetMapping.resolving', context: {} },
+      { stageKey: 'signalr.battleNetMapping.saving', context: {} },
+      { stageKey: 'signalr.battleNetMapping.completed', context: {} },
+      { stageKey: 'signalr.battleNetMapping.cancelled', context: {} },
+      { stageKey: 'signalr.battleNetMapping.failed', context: {} }
+    ]
+  }),
+  buildMappingOperationEntry<
+    RiotMappingStartedEvent,
+    RiotMappingProgressEvent,
+    RiotMappingCompleteEvent
+  >({
+    type: 'riot_game_mapping',
+    id: NOTIFICATION_IDS.RIOT_GAME_MAPPING,
+    storageKey: NOTIFICATION_STORAGE_KEYS.RIOT_GAME_MAPPING,
+    serviceKey: 'riotMapping',
+    eventPrefix: 'RiotMapping',
+    i18nBase: 'signalr.riotMapping',
+    cancelTooltipKey: CANCEL_TOOLTIP.riotGameMapping,
+    defaultMessage: 'Starting Riot game mapping...',
+    staleMessage: 'Riot game mapping completed',
+    recoveryCases: [
+      { stageKey: 'signalr.riotMapping.starting', context: {} },
+      { stageKey: 'signalr.riotMapping.resolving', context: {} },
+      { stageKey: 'signalr.riotMapping.completed', context: {} },
+      { stageKey: 'signalr.riotMapping.cancelled', context: {} },
+      { stageKey: 'signalr.riotMapping.failed', context: {} }
+    ]
+  }),
+
+  // ==========================================================================
   // Special-wiring entries (metadata-only)
   // --------------------------------------------------------------------------
-  // These four types do NOT fit the standard Started->Progress->Complete loop.
+  // These types do NOT fit the standard Started->Progress->Complete loop.
   // Their SignalR handlers are hand-built in createSpecialCaseHandlers and wired
   // via SPECIAL_NOTIFICATION_CONTRACTS. They appear here ONLY to keep cancel +
   // recovery configured in one place per type. useNotificationHandlers skips
   // every wiring:'special' entry (no `events`/`started`/`progress`), so there is
   // no double-subscribe.
   // ==========================================================================
-
-  // ========== Depot Mapping (special) ==========
-  {
-    type: 'depot_mapping',
-    id: NOTIFICATION_IDS.DEPOT_MAPPING,
-    storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
-    wiring: 'special',
-    cancelKind: 'serverOp',
-    cancelTooltipKey: CANCEL_TOOLTIP.depotMapping,
-    recovery: {
-      kind: 'simple',
-      translationValidation: { kind: 'dedicated' },
-      apiEndpoint: '/api/depots/rebuild/progress',
-      isProcessing: (data: DepotRebuildProgressResponse) => data.isProcessing,
-      // A silent run must not resurrect a card when the page reloads mid-rebuild.
-      shouldSkip: (data: DepotRebuildProgressResponse) =>
-        data.isProcessing && data.showNotification === false,
-      createNotification: (data: DepotRebuildProgressResponse) => {
-        const detailMessage = formatDepotMappingRecoveryDetailMessage({
-          processedBatches: data.processedBatches,
-          totalBatches: data.totalBatches,
-          depotMappingsFound: data.depotMappingsFound
-        });
-
-        return {
-          message: data.statusMessage,
-          detailMessage,
-          progress: data.progressPercent,
-          details: {
-            operationId: data.operationId,
-            totalMappings: data.totalMappings,
-            processedMappings: data.processedMappings,
-            isLoggedOn: data.isLoggedOn,
-            percentComplete: data.progressPercent
-          }
-        };
-      },
-      staleMessage: 'Depot mapping completed'
-    } satisfies SimpleRecoveryConfig<DepotRebuildProgressResponse>
-  },
 
   // ========== Database Reset (special) ==========
   {
@@ -1620,52 +1678,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       staleMessage: 'Database reset completed'
     } satisfies SimpleRecoveryConfig<DatabaseResetStatusResponse>
-  },
-
-  // ========== Epic Game Mapping (special) ==========
-  {
-    type: 'epic_game_mapping',
-    id: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
-    storageKey: NOTIFICATION_STORAGE_KEYS.EPIC_GAME_MAPPING,
-    wiring: 'special',
-    cancelKind: 'serverOp',
-    cancelTooltipKey: CANCEL_TOOLTIP.epicGameMapping,
-    recovery: {
-      kind: 'simple',
-      translationValidation: { kind: 'dedicated' },
-      apiEndpoint: '/api/epic/game-mappings/schedule',
-      isProcessing: (data: EpicGameMappingScheduleResponse) =>
-        data.isProcessing && data.showNotification !== false,
-      // A silent automatic refresh still emits its terminal (display-gated). Skip recovery so a page
-      // reload mid-run does not resurrect a visible card that the silent terminal can never clear.
-      shouldSkip: (data: EpicGameMappingScheduleResponse) =>
-        data.isProcessing && data.showNotification === false,
-      createNotification: (data: EpicGameMappingScheduleResponse) => ({
-        // `statusMessage` is C# `string?` - only populated when processing.
-        // Fall back to i18n key when null/undefined (e.g. during idle recovery poll).
-        message: data.statusMessage ?? i18n.t('signalr.epicMapping.starting'),
-        // `progressPercent` is C# `double` (non-null) - no fallback needed.
-        progress: data.progressPercent,
-        details: {
-          operationId: data.operationId ?? undefined
-        }
-      }),
-      staleMessage: 'Epic game mapping completed'
-    } satisfies SimpleRecoveryConfig<EpicGameMappingScheduleResponse>
-  },
-
-  // ========== Xbox Game Mapping (special) ==========
-  // Mirrors epic_game_mapping but Xbox titles resolve automatically during Rust ingest, so there
-  // is NO schedule/recovery endpoint - a missed in-flight resolve simply isn't re-surfaced on
-  // refresh (recovery 'none'). Driven by XboxMappingProgress + XboxGameMappingsUpdated.
-  {
-    type: 'xbox_game_mapping',
-    id: NOTIFICATION_IDS.XBOX_GAME_MAPPING,
-    storageKey: NOTIFICATION_STORAGE_KEYS.XBOX_GAME_MAPPING,
-    wiring: 'special',
-    cancelKind: 'serverOp',
-    cancelTooltipKey: CANCEL_TOOLTIP.xboxGameMapping,
-    recovery: { kind: 'none' }
   },
 
   // ========== Steam Session Error (special; toast, no recovery, no cancel) ==========

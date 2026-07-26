@@ -263,7 +263,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return _operations.Values.Where(op => op.Status == OperationStatus.Waiting).ToList();
     }
 
-    public void CompleteOperation(Guid operationId, bool success, string? error = null)
+    public void CompleteOperation(
+        Guid operationId,
+        bool success,
+        string? error = null,
+        bool cancelled = false)
     {
         if (!_operations.TryGetValue(operationId, out var operation))
         {
@@ -278,6 +282,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         {
             _logger.LogDebug("Operation {Id} already completed — ignoring duplicate complete", operationId);
             return;
+        }
+
+        if (cancelled)
+        {
+            operation.Cancelled = true;
         }
 
         operation.Status = success

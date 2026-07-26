@@ -12,9 +12,11 @@ import type { SteamAuthActions, SteamLoginFlowState } from './useSteamAuthentica
 import {
   applyPersistentLoginChallenge,
   armPersistentLoginTimeout,
+  consumePersistentLoginStartRequest,
   derivePersistentChallengeFlags,
   extractPersistentSessionId,
   getPersistentLoginEpoch,
+  getPersistentLoginEditAction,
   getPersistentLoginSessionId,
   getPersistentLoginStartPromise,
   isPersistentLoginAuthenticatedResponse,
@@ -265,11 +267,14 @@ export function usePersistentPrefillAuth(
       setLoading(true);
       setError(null);
       try {
+        const editAction = getPersistentLoginEditAction(service);
         await ApiService.providePersistentCredential(
           service,
           challenge,
           credential,
-          getPersistentLoginSessionId(service) ?? ''
+          getPersistentLoginSessionId(service) ?? '',
+          editAction?.editSessionId,
+          editAction?.editActionId
         );
       } catch (err) {
         if (isPersistentSessionConflictError(err)) {
@@ -401,7 +406,13 @@ export function usePersistentPrefillAuth(
       const startEpoch = getPersistentLoginEpoch(service);
 
       try {
-        const challenge = await ApiService.startPersistentLogin(service);
+        const startRequest = consumePersistentLoginStartRequest(service);
+        const challenge = await ApiService.startPersistentLogin(
+          service,
+          startRequest?.sessionId,
+          startRequest?.editSessionId,
+          startRequest?.editActionId
+        );
         const epochStale = getPersistentLoginEpoch(service) !== startEpoch;
         if (epochStale || isPersistentLoginCancelled(service)) {
           if (!epochStale) {

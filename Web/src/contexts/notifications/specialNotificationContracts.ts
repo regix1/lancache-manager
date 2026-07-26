@@ -13,17 +13,13 @@
  * (collapse wiring, don't rewrite handlers).
  *
  * Invariants (load-bearing):
- * - `details.operationId` is carried through on every depot_mapping /
- *   database_reset / epic_game_mapping notification (start, progress AND the
- *   terminal `DatabaseResetComplete`). Cancel plumbing in
+ * - `details.operationId` is carried through every database-reset lifecycle
+ *   phase, including the terminal event. Cancel plumbing in
  *   `UniversalNotificationBar` depends on it.
  * - `database_reset` completes via the terminal `DatabaseResetComplete` event
  *   (handled by `createCompletionHandler`) which is idempotent with the legacy
  *   `DatabaseResetProgress(status==='completed')` completion — whichever arrives
  *   first wins, the other is a safe no-op (factory only acts on a 'running' slot).
- * - `createStatusAwareProgressHandler` MERGES details across progress ticks
- *   (`prev.details` spread into new details). Do not replace the handler with
- *   anything that uses set-semantics instead of merge-semantics.
  * - `EpicGameMappingsUpdated` is a one-shot completion with its own payload
  *   shape (`totalGames`, `newGames`, `updatedGames`) - NOT folded into the
  *   standard completion flow.
@@ -47,21 +43,12 @@ interface SpecialNotificationContract {
    * return the `{event, handler}` pairs to register with SignalR.
    *
    * Each contract entry may subscribe to multiple events that share the same
-   * underlying notification lifecycle (e.g. depot_mapping binds Started +
-   * Progress + Complete to three separate handler functions).
+   * underlying special-case behavior.
    */
   subscribe: (handlers: SpecialCaseHandlers) => SpecialNotificationSubscription[];
 }
 
 export const SPECIAL_NOTIFICATION_CONTRACTS: SpecialNotificationContract[] = [
-  {
-    key: 'depot_mapping',
-    subscribe: (h) => [
-      { event: 'DepotMappingStarted', handler: h.handleDepotMappingStarted as EventHandler },
-      { event: 'DepotMappingProgress', handler: h.handleDepotMappingProgress as EventHandler },
-      { event: 'DepotMappingComplete', handler: h.handleDepotMappingComplete as EventHandler }
-    ]
-  },
   {
     key: 'database_reset',
     subscribe: (h) => [
@@ -73,7 +60,6 @@ export const SPECIAL_NOTIFICATION_CONTRACTS: SpecialNotificationContract[] = [
   {
     key: 'epic_game_mapping',
     subscribe: (h) => [
-      { event: 'EpicMappingProgress', handler: h.handleEpicMappingProgress as EventHandler },
       {
         event: 'EpicGameMappingsUpdated',
         handler: h.handleEpicGameMappingsUpdated as EventHandler
@@ -83,7 +69,6 @@ export const SPECIAL_NOTIFICATION_CONTRACTS: SpecialNotificationContract[] = [
   {
     key: 'xbox_game_mapping',
     subscribe: (h) => [
-      { event: 'XboxMappingProgress', handler: h.handleXboxMappingProgress as EventHandler },
       {
         event: 'XboxGameMappingsUpdated',
         handler: h.handleXboxGameMappingsUpdated as EventHandler

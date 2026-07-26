@@ -2,9 +2,7 @@
    Only what Tailwind utilities + theme tokens can't express lives here:
    the hero status glyph and the resolution ribbon (the tab's signature element). */
 
-/* DNS resolver mode toolbar - forces the sweep's resolution strategy. A quiet
-   row at the top of the verdict card; each option's tooltip carries the strategy
-   explanation, so no hint paragraph floats below. */
+/* DNS resolver mode toolbar - quiet row above the verdict readout. */
 .status-check-resolver {
   display: flex;
   align-items: center;
@@ -366,10 +364,79 @@
 /* DNS remains the hero's primary scope. Content-path evidence is a separate,
    timestamped layer so its overlapping counts cannot be mistaken for the DNS tally. */
 .status-check-scope-title {
+  margin: 0;
   color: var(--theme-text-primary);
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.35;
+}
+
+/* [status indicator + title/subtitle] ........ [Run Check]
+ * Indicator sits left of the two status lines, vertically centered with them. */
+.status-check-verdict-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem 1.25rem;
+}
+
+.status-check-verdict-lead {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.status-check-verdict-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.status-check-verdict-line {
+  margin: 0.125rem 0 0;
+  font-weight: 500;
+  color: var(--theme-text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+.status-check-verdict-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--theme-text-secondary);
+}
+
+.status-check-verdict-warning {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--theme-warning);
+}
+
+.status-check-verdict-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+
+.status-check-last-checked {
+  display: block;
+  min-width: 0;
+  max-width: 11rem;
+}
+
+.status-check-last-checked-text {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: var(--theme-text-muted);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-check-scope-description {

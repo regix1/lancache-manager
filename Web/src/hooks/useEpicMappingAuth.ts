@@ -114,9 +114,9 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       // Send the authorization code directly to the backend
       // Backend exchanges it for tokens, fetches games, saves credentials
       await ApiService.completeEpicMappingAuth(authorizationCode.trim(), controller.signal);
-      // The backend's own EpicMappingProgress events (catalog refresh phases + terminal
-      // completed) own the card from here - cleared BEFORE onSuccess so the modal close it
-      // triggers can never read this as a login still needing a "cancelled" card.
+      // The backend's own Epic mapping lifecycle events own the card from here. Clear this
+      // BEFORE onSuccess so modal-close triggers can never read the login as still needing
+      // a "cancelled" card.
       loginNotificationActiveRef.current = false;
       onSuccess?.();
       return true;

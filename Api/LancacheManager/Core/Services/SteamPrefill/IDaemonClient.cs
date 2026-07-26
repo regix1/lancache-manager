@@ -40,6 +40,24 @@ public interface IDaemonClient : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Starts login and invokes <paramref name="onCommandDispatched"/> once the daemon login command
+    /// has actually begun. A dispatch failure must fault without invoking the callback. The default
+    /// adapter treats a successfully completed <see cref="StartLoginAsync"/> call as proof that work
+    /// began; production transports override this to signal immediately after the command is flushed.
+    /// </summary>
+    async Task<CredentialChallenge?> StartLoginWithDispatchAsync(
+        TimeSpan? timeout,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(onCommandDispatched);
+
+        var challenge = await StartLoginAsync(timeout, cancellationToken);
+        onCommandDispatched();
+        return challenge;
+    }
+
+    /// <summary>
     /// Provide encrypted credential in response to a challenge.
     /// </summary>
     Task ProvideCredentialAsync(

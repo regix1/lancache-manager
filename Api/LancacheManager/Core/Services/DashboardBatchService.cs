@@ -286,6 +286,13 @@ public class DashboardBatchService : IDashboardBatchService
         Interlocked.Increment(ref _detectionCacheGeneration);
     }
 
+    /// <inheritdoc />
+    public void InvalidateAllCache()
+    {
+        Interlocked.Increment(ref _liveCacheGeneration);
+        Interlocked.Increment(ref _detectionCacheGeneration);
+    }
+
     // ───────────────────── Sub-query implementations ─────────────────────
 
     // Deliberately takes no CancellationToken: the underlying call reads mount metadata and

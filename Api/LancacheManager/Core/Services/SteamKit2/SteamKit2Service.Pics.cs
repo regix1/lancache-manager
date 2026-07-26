@@ -1,5 +1,5 @@
 using LancacheManager.Extensions;
-using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using SteamKit2;
@@ -9,15 +9,8 @@ namespace LancacheManager.Core.Services.SteamKit2;
 
 public partial class SteamKit2Service
 {
-    // Captured-by-value completion metrics for the depot-mapping onTerminalEmit closure. The success
-    // metrics (totalMappings/downloadsUpdated/scanMode) are only known in the success path
-    // (UpdateDownloadsWithDepotMappingsAsync), NOT at CompleteOperation, so they are stashed here
-    // immediately before that path returns. Only one depot-mapping op runs at a time (enforced by the
-    // _rebuildActive guard), so a single set is safe. The closure (which fires exactly once inside
-    // CompleteOperation) reads these for the success branch.
     private int _emitTotalMappings;
     private int _emitDownloadsUpdated;
-    private DepotScanMode _emitScanMode;
 
     public bool TryStartRebuild(
         CancellationToken cancellationToken = default,
@@ -40,148 +33,113 @@ public partial class SteamKit2Service
         _logger.LogInformation("Starting Steam PICS depot crawl");
         _lastScanWasForced = false; // Reset flag at start of new scan
         _automaticScanSkipped = false; // Reset flag at start of new scan
+        _activeDepotScanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full;
 
-        // Dispose previous cancellation token source if it exists
-        _currentRebuildCts?.Dispose();
-
+        CancellationTokenSource runCts;
         try
         {
-            _currentRebuildCts = cancellationToken.CanBeCanceled
+            runCts = cancellationToken.CanBeCanceled
                 ? CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token, cancellationToken)
                 : CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
         }
         catch (ObjectDisposedException)
         {
-            // Main cancellation token source was disposed, use provided token or none
-            _currentRebuildCts = cancellationToken.CanBeCanceled
+            runCts = cancellationToken.CanBeCanceled
                 ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
                 : new CancellationTokenSource();
         }
-
-        // Register the operation with the unified tracker.
-        // onTerminalCleanup is the safety net for the universal force-kill path, which completes the
-        // operation immediately (no associated process to wait on) WITHOUT unwinding RunAsync's finally.
-        // It mirrors the worker finally (lines 95-108): release the busy flag, dispose+null the CTS,
-        // and null the current operation id so the next TryStartRebuild can run.
-        // Pre-declared so the onTerminalEmit closure below can capture it: the closure only runs at
-        // terminal time (inside CompleteOperation), long after this assignment completes.
-        Guid operationId = default;
-        operationId = _operationTracker.RegisterOperation(
-            OperationType.DepotMapping,
-            "Depot Mapping",
-            _currentRebuildCts,
-            onTerminalCleanup: () =>
-            {
-                Interlocked.Exchange(ref _rebuildActive, 0);
-                _currentRebuildCts?.Dispose();
-                _currentRebuildCts = null;
-                _currentPicsOperationId = null;
-                // The operation is already terminal (removed from the tracker's active set) at this
-                // point, and this cleanup runs on BOTH the normal completion and the universal force-kill
-                // paths - so it is the one reliable place to clear the depot status dot for a manual
-                // rebuild. (The scheduled path also clears via its base loop; a duplicate is a no-op.)
-                RaiseExecutionStateChanged();
-            },
-            // Terminal DepotMappingComplete (success/cancel/error) fires EXACTLY ONCE from inside
-            // CompleteOperation via this closure. Success metrics are captured by value into the
-            // _emit* fields by the success path immediately before CompleteOperation runs.
-            onTerminalEmit: info => info.Cancelled
-                ? _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete,
-                    new DepotMappingComplete(
-                        OperationId: operationId,
-                        Success: false,
-                        Message: "Depot mapping scan cancelled",
-                        Cancelled: true,
-                        IsLoggedOn: IsSteamAuthenticated,
-                        Timestamp: DateTime.UtcNow,
-                        ShowNotification: _depotRunShowNotification))
-                : info.Success
-                    ? _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete,
-                        new DepotMappingComplete(
-                            OperationId: operationId,
-                            Success: true,
-                            Message: $"Depot mapping completed - {_emitTotalMappings} mappings, {_emitDownloadsUpdated} downloads updated",
-                            TotalMappings: _emitTotalMappings,
-                            DownloadsUpdated: _emitDownloadsUpdated,
-                            ScanMode: _emitScanMode,
-                            IsLoggedOn: IsSteamAuthenticated,
-                            Timestamp: DateTime.UtcNow,
-                            ShowNotification: _depotRunShowNotification))
-                    : _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete,
-                        new DepotMappingComplete(
-                            OperationId: operationId,
-                            Success: false,
-                            Message: $"Depot mapping failed: {info.Error}",
-                            Error: info.Error,
-                            IsLoggedOn: IsSteamAuthenticated,
-                            Timestamp: DateTime.UtcNow,
-                            ShowNotification: _depotRunShowNotification))
-        );
-        _currentPicsOperationId = operationId;
-
-        // Send start notification via SignalR (fire-and-forget) - after registration so we have operationId
-        _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingStarted, new
-        {
-            operationId,
-            scanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full,
-            message = incrementalOnly ? "Starting incremental depot mapping scan..." : "Starting full depot mapping scan...",
-            isLoggedOn = IsSteamAuthenticated,
-            showNotification = _depotRunShowNotification,
-            timestamp = DateTime.UtcNow
-        });
+        _currentRebuildCts = runCts;
 
         async Task RunAsync()
         {
-            bool success = false;
-            string? errorMessage = null;
+            await using var reporter = CreateDepotMappingReporter(
+                runCts.Token,
+                () =>
+                {
+                    if (ReferenceEquals(_currentRebuildCts, runCts))
+                    {
+                        _currentRebuildCts = null;
+                        _currentMappingReporter = null;
+                        _currentPicsOperationId = null;
+                    }
+
+                    Interlocked.Exchange(ref _rebuildActive, 0);
+                    RaiseExecutionStateChanged();
+                });
+            _currentMappingReporter = reporter;
+
             try
             {
-                await ConnectAndBuildIndexAsync(_currentRebuildCts.Token, incrementalOnly).ConfigureAwait(false);
+                await reporter.StartAsync(new Dictionary<string, object?>
+                {
+                    ["scanMode"] = _activeDepotScanMode,
+                    ["message"] = incrementalOnly
+                        ? "Starting incremental depot mapping scan..."
+                        : "Starting full depot mapping scan...",
+                });
+                _currentPicsOperationId = reporter.OperationId;
+
+                await ConnectAndBuildIndexAsync(reporter.Token, incrementalOnly).ConfigureAwait(false);
                 _logger.LogInformation("PICS crawl completed successfully");
-                success = true;
+                await reporter.CompleteAsync(
+                    success: true,
+                    stageKey: "signalr.depotMapping.finalized",
+                    context: CreateDepotContext(
+                        message: $"Depot mapping completed - {_emitTotalMappings} mappings, {_emitDownloadsUpdated} downloads updated",
+                        depotMappingsFound: _emitTotalMappings,
+                        totalMappings: _emitTotalMappings,
+                        mappingsApplied: _emitDownloadsUpdated));
             }
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Steam PICS depot crawl cancelled");
-                errorMessage = "Operation cancelled";
-
-                // Terminal DepotMappingComplete (cancelled) is emitted by the onTerminalEmit closure
-                // inside CompleteOperation (exactly-once, CompletedFlag-gated), regardless of which
-                // cancel path was used (CancelRebuildAsync via REST, or the unified tracker cancel path).
+                _depotRunFailures.TryRemove(reporter.OperationId, out var failure);
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: failure ?? "Cancelled by user",
+                    cancelled: failure is null,
+                    stageKey: failure is null
+                        ? "signalr.depotMapping.cancelled"
+                        : "signalr.depotMapping.failed",
+                    context: CreateDepotContext(
+                        message: failure ?? "Depot mapping scan cancelled",
+                        errorDetail: failure));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Steam PICS depot crawl failed");
-                errorMessage = ex.Message;
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: ex.Message,
+                    stageKey: "signalr.depotMapping.failed",
+                    context: CreateDepotContext(
+                        message: $"Depot mapping failed: {ex.Message}",
+                        errorDetail: ex.Message));
             }
             finally
             {
-                // Complete the operation tracking
-                _operationTracker.CompleteOperation(operationId, success, errorMessage);
-
-                // Clear rebuild flag BEFORE disconnecting to prevent reconnection attempts
-                Interlocked.Exchange(ref _rebuildActive, 0);
-                // Note: the depot status dot is cleared from the operation's onTerminalCleanup closure
-                // (which also covers the force-kill path), not here, so both paths clear it exactly once.
-
-                // Explicitly disconnect after crawl completion to prevent reconnection loops
                 if (_steamClient?.IsConnected == true)
                 {
                     _intentionalDisconnect = true;
                     await DisconnectAsync();
                 }
 
-                // Dispose the cancellation token source
-                _currentRebuildCts?.Dispose();
-                _currentRebuildCts = null;
-                _currentPicsOperationId = null;
+                runCts.Dispose();
+                _depotRunFailures.TryRemove(reporter.OperationId, out _);
+                if (ReferenceEquals(_currentRebuildCts, runCts))
+                {
+                    _currentRebuildCts = null;
+                    _currentMappingReporter = null;
+                    _currentPicsOperationId = null;
+                    Interlocked.Exchange(ref _rebuildActive, 0);
+                    RaiseExecutionStateChanged();
+                }
             }
         }
 
         // A manual "rebuild now" bypasses the scheduled base loop that normally flips the running state.
-        // The tracked operation is already registered above, so raise the schedule/activity broadcast
-        // BEFORE starting the worker - this lights the depot status dot for manual rebuilds too, and
-        // avoids a race where an instantly-terminating worker could clear the state before this fires.
+        // Raise the schedule/activity broadcast before starting the worker so manual rebuilds light the
+        // depot status dot immediately and an instantly terminating worker cannot clear the state first.
         RaiseExecutionStateChanged();
         _currentBuildTask = Task.Run(RunAsync, CancellationToken.None);
         return true;
@@ -206,6 +164,11 @@ public partial class SteamKit2Service
             // Fail any pending connection/login tasks to unblock waiting code
             FailConnectionTasks(new OperationCanceledException("PICS rebuild cancelled by user"));
 
+            if (_currentPicsOperationId.HasValue)
+            {
+                _depotRunFailures.TryRemove(_currentPicsOperationId.Value, out _);
+            }
+            _currentMappingReporter?.RequestCancellation();
             _currentRebuildCts.Cancel();
 
             // Reset the schedule timer so next run is at full interval
@@ -223,6 +186,138 @@ public partial class SteamKit2Service
             return false;
         }
     }
+
+    private MappingOperationReporter CreateDepotMappingReporter(
+        CancellationToken token,
+        Action? onTerminalCleanup = null) =>
+        new(
+            _notifications,
+            _operationTracker,
+            MappingOperations.Steam,
+            _depotRunShowNotification,
+            token,
+            _logger,
+            CreateDepotPayloadFactories(),
+            onTerminalCleanup);
+
+    private ScheduledRunPayloadFactories CreateDepotPayloadFactories() =>
+        new(
+            started => new DepotMappingStarted(
+                started.ServiceKey,
+                started.OperationId,
+                started.StageKey,
+                started.Context,
+                started.ShowNotification,
+                _activeDepotScanMode,
+                ContextString(started.Context, "message") ?? "Starting depot mapping...",
+                IsSteamAuthenticated,
+                DateTime.UtcNow,
+                TotalApps: ContextInt(started.Context, "totalApps"),
+                ProcessedApps: ContextInt(started.Context, "processedApps")),
+            progress => new DepotMappingProgress(
+                progress.ServiceKey,
+                progress.OperationId,
+                ContextString(progress.Context, "status") ?? progress.Status,
+                progress.StageKey,
+                progress.PercentComplete,
+                progress.Context,
+                progress.ShowNotification,
+                _activeDepotScanMode,
+                ContextString(progress.Context, "message"),
+                IsSteamAuthenticated,
+                DateTime.UtcNow,
+                TotalApps: ContextInt(progress.Context, "totalApps"),
+                ProcessedApps: ContextInt(progress.Context, "processedApps"),
+                TotalBatches: ContextInt(progress.Context, "totalBatches"),
+                ProcessedBatches: ContextInt(progress.Context, "processedBatches"),
+                DepotMappingsFound: ContextInt(progress.Context, "depotMappingsFound"),
+                FailedBatches: ContextInt(progress.Context, "failedBatches"),
+                RemainingApps: ContextInt(progress.Context, "remainingApps"),
+                IsReconnecting: ContextBool(progress.Context, "isReconnecting"),
+                ReconnectAttempt: ContextNullableInt(progress.Context, "reconnectAttempt"),
+                MaxReconnectAttempts: ContextNullableInt(progress.Context, "maxReconnectAttempts"),
+                ProcessedMappings: ContextInt(progress.Context, "processedMappings"),
+                TotalMappings: ContextInt(progress.Context, "totalMappings"),
+                MappingsApplied: ContextInt(progress.Context, "mappingsApplied")),
+            complete => new DepotMappingComplete(
+                complete.OperationId,
+                complete.Success,
+                ContextString(complete.Context, "message")
+                    ?? (complete.Cancelled
+                        ? "Depot mapping scan cancelled"
+                        : complete.Success
+                            ? $"Depot mapping completed - {_emitTotalMappings} mappings, {_emitDownloadsUpdated} downloads updated"
+                            : $"Depot mapping failed: {complete.Error}"),
+                complete.Cancelled,
+                TotalMappings: ContextNullableInt(complete.Context, "totalMappings") ?? _emitTotalMappings,
+                DownloadsUpdated: ContextNullableInt(complete.Context, "mappingsApplied") ?? _emitDownloadsUpdated,
+                ScanMode: _activeDepotScanMode,
+                IsLoggedOn: IsSteamAuthenticated,
+                Error: complete.Error,
+                Timestamp: DateTime.UtcNow,
+                ShowNotification: complete.ShowNotification,
+                StageKey: complete.StageKey,
+                PercentComplete: complete.PercentComplete,
+                Context: complete.Context,
+                DepotMappingsFound: ContextNullableInt(complete.Context, "depotMappingsFound"),
+                TotalApps: ContextNullableInt(complete.Context, "totalApps"),
+                TotalBatches: ContextNullableInt(complete.Context, "totalBatches")));
+
+    private Dictionary<string, object?> CreateDepotContext(
+        string? status = null,
+        string? message = null,
+        int? depotMappingsFound = null,
+        int? totalMappings = null,
+        int? processedMappings = null,
+        int? mappingsApplied = null,
+        bool isReconnecting = false,
+        int? reconnectAttempt = null,
+        string? errorDetail = null) =>
+        new()
+        {
+            ["status"] = status,
+            ["message"] = message,
+            ["totalApps"] = _totalAppsToProcess,
+            ["processedApps"] = _processedApps,
+            ["totalBatches"] = _totalBatches,
+            ["processedBatches"] = _processedBatches,
+            ["depotMappingsFound"] = depotMappingsFound ?? _depotToAppMappings.Count,
+            ["remainingApps"] = Math.Max(0, _totalAppsToProcess - _processedApps),
+            ["totalMappings"] = totalMappings ?? 0,
+            ["processedMappings"] = processedMappings ?? 0,
+            ["mappingsApplied"] = mappingsApplied ?? 0,
+            ["isReconnecting"] = isReconnecting,
+            ["reconnectAttempt"] = reconnectAttempt,
+            ["maxReconnectAttempts"] = isReconnecting ? MaxBatchConnectionRetries : null,
+            ["errorDetail"] = errorDetail,
+            ["scanMode"] = _activeDepotScanMode,
+        };
+
+    private static string? ContextString(Dictionary<string, object?>? context, string key) =>
+        context?.TryGetValue(key, out var value) == true ? value?.ToString() : null;
+
+    private static int ContextInt(Dictionary<string, object?>? context, string key) =>
+        ContextNullableInt(context, key) ?? 0;
+
+    private static int? ContextNullableInt(Dictionary<string, object?>? context, string key)
+    {
+        if (context?.TryGetValue(key, out var value) != true || value is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Convert.ToInt32(value);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static bool ContextBool(Dictionary<string, object?>? context, string key) =>
+        context?.TryGetValue(key, out var value) == true && value is bool flag && flag;
 
     private async Task ConnectAndBuildIndexAsync(CancellationToken ct, bool incrementalOnly = false)
     {
@@ -509,7 +604,11 @@ public partial class SteamKit2Service
         _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
 
         // Send progress update for post-processing phase
-        await SendPostProcessingProgressAsync("Saving depot mappings to JSON...", 100, _depotToAppMappings.Count);
+        await SendPostProcessingProgressAsync(
+            "Saving depot mappings to JSON...",
+            80,
+            _depotToAppMappings.Count,
+            "signalr.depotMapping.saving");
 
         // Final save - use merge for incremental, full save for complete rebuild
         await SaveAllMappingsToJsonAsync(incrementalOnly);
@@ -518,7 +617,11 @@ public partial class SteamKit2Service
         // This handles delisted/removed games whose depots are still served by the lancache
         // Must run while Steam connection is still active (before disconnect in RunAsync.finally)
         _currentStatus = DepotScanPhase.ResolvingOrphans;
-        await SendPostProcessingProgressAsync("Resolving orphan depots...", 100, _depotToAppMappings.Count);
+        await SendPostProcessingProgressAsync(
+            "Resolving orphan depots...",
+            85,
+            _depotToAppMappings.Count,
+            "signalr.depotMapping.resolvingOrphans");
         List<uint> orphanDepotIds = [];
         try
         {
@@ -537,7 +640,11 @@ public partial class SteamKit2Service
         }
 
         _currentStatus = DepotScanPhase.Importing;
-        await SendPostProcessingProgressAsync("Importing to database...", 100, _depotToAppMappings.Count);
+        await SendPostProcessingProgressAsync(
+            "Importing to database...",
+            90,
+            _depotToAppMappings.Count,
+            "signalr.depotMapping.importing");
 
         // Single DB import - includes both main scan results and any orphan-resolved mappings
         try
@@ -563,10 +670,18 @@ public partial class SteamKit2Service
 
         // Auto-apply depot mappings to downloads after PICS data is ready
         _currentStatus = DepotScanPhase.ApplyingMappings;
-        await SendPostProcessingProgressAsync("Applying mappings to downloads...", 100, _depotToAppMappings.Count);
+        await SendPostProcessingProgressAsync(
+            "Applying mappings to downloads...",
+            95,
+            _depotToAppMappings.Count,
+            "signalr.depotMapping.applyingToDownloads");
         _logger.LogInformation("Automatically applying depot mappings after PICS completion");
 
-        var (downloadsUpdated, downloadsNotFound) = await ApplyDepotMappingsAsync();
+        var (downloadsUpdated, downloadsNotFound) = await ApplyDepotMappingsAsync(
+            _currentMappingReporter,
+            ct,
+            progressStart: 95,
+            progressEnd: 99);
 
         _currentStatus = DepotScanPhase.Completed;
         _lastCrawlTime = DateTime.UtcNow;
@@ -583,7 +698,6 @@ public partial class SteamKit2Service
         var totalMappings = _depotToAppMappings.Count;
         _emitTotalMappings = totalMappings;
         _emitDownloadsUpdated = downloadsUpdated;
-        _emitScanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full;
     }
 
     private List<uint> ProcessAppDepots(SteamApps.PICSProductInfoCallback.PICSProductInfo app)
@@ -1028,39 +1142,43 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task SendDepotMappingProgressAsync(string status, string? message = null, bool isReconnecting = false, int? reconnectAttempt = null)
     {
-        await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
+        var reporter = _currentMappingReporter;
+        if (reporter is null)
         {
-            operationId = _currentPicsOperationId,
-            status,
-            percentComplete = _totalBatches > 0 ? (_processedBatches * 100.0 / _totalBatches) : 0,
-            processedBatches = _processedBatches,
-            totalBatches = _totalBatches,
-            depotMappingsFound = _depotToAppMappings.Count,
-            isLoggedOn = IsSteamAuthenticated,
-            isReconnecting,
-            reconnectAttempt,
-            maxReconnectAttempts = isReconnecting ? MaxBatchConnectionRetries : (int?)null,
-            showNotification = _depotRunShowNotification,
-            message
-        });
+            return;
+        }
+
+        var percent = _totalBatches > 0
+            ? _processedBatches * 75.0 / _totalBatches
+            : 0;
+        await reporter.ReportAsync(
+            percent,
+            "signalr.depotMapping.batchProgress",
+            CreateDepotContext(
+                status,
+                message,
+                isReconnecting: isReconnecting,
+                reconnectAttempt: reconnectAttempt));
     }
 
     /// <summary>
     /// Send SignalR progress update during post-processing phases (after batch loop)
     /// </summary>
-    private async Task SendPostProcessingProgressAsync(string message, double percentComplete, int depotMappingsFound)
+    private async Task SendPostProcessingProgressAsync(
+        string message,
+        double percentComplete,
+        int depotMappingsFound,
+        string stageKey)
     {
-        await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
+        var reporter = _currentMappingReporter;
+        if (reporter is null)
         {
-            operationId = _currentPicsOperationId,
-            status = message,
+            return;
+        }
+
+        await reporter.ReportAsync(
             percentComplete,
-            processedBatches = _processedBatches,
-            totalBatches = _totalBatches,
-            depotMappingsFound,
-            isLoggedOn = IsSteamAuthenticated,
-            showNotification = _depotRunShowNotification,
-            message
-        });
+            stageKey,
+            CreateDepotContext(message, message, depotMappingsFound));
     }
 }

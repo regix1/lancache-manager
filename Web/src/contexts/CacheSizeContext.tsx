@@ -62,7 +62,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
       }
       if ('available' in size) {
         // No persisted scan exists yet. This is the cache panel's normal empty state; only
-        // the configured schedule or an explicit Refresh should launch the full-disk walk.
+        // the configured schedule or an explicit cache-size scan should launch the full-disk walk.
         setCacheSize(null);
         return;
       }
@@ -88,7 +88,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
         /failed to fetch|load failed|network ?error/i.test(err.message)
       ) {
         // Record the quiet attempt so a disconnected client cannot spin the mount effect into
-        // an immediate retry loop. A later scheduled completion or explicit Refresh retries it.
+        // an immediate retry loop. A later scheduled completion or explicit scan retries it.
         setHasFetched(true);
         return;
       }

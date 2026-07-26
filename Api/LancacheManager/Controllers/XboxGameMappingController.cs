@@ -100,8 +100,9 @@ public class XboxGameMappingController : ControllerBase
     /// <summary>
     /// Starts the daemon-free Xbox MSA device-code login: returns the <c>userCode</c>/<c>verificationUri</c>
     /// for the user to approve in their browser and kicks a background poll loop. No Docker container and no
-    /// prefill daemon are created. Completion is surfaced via the <c>XboxMappingProgress</c> SignalR event
-    /// (there is no code-paste complete step - the backend polls the token endpoint).
+    /// prefill daemon are created. Authentication state is surfaced via
+    /// <c>XboxMappingAuthStateChanged</c>; approved catalog work then uses the tracked Xbox mapping
+    /// lifecycle (there is no code-paste complete step - the backend polls the token endpoint).
     /// </summary>
     [HttpPost("auth/login")]
     public async Task<ActionResult> StartLoginAsync(CancellationToken ct = default)

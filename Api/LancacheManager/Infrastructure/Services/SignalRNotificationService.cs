@@ -66,6 +66,11 @@ public class SignalRNotificationService : ISignalRNotificationService
 
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateDetectionCache();
             }
+            else if (eventName == SignalREvents.CacheClearingComplete &&
+                     data is SignalRNotifications.CacheClearComplete { Success: true, Cancelled: false })
+            {
+                _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
+            }
             else if (eventName is SignalREvents.DownloadsRefresh or SignalREvents.LogProcessingComplete)
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateLiveCache();

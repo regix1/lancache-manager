@@ -30,7 +30,7 @@ export interface PicsProgress {
   startTime?: string;
   lastChangeNumber?: number;
   failedBatches?: number;
-  remainingApps?: number[];
+  remainingApps?: number;
 
   // Scan flags
   isReady?: boolean;

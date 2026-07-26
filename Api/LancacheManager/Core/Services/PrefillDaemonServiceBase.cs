@@ -90,6 +90,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// expected). Idiom matches <c>CacheClearingService._startLock</c>.
     /// </summary>
     private readonly SemaphoreSlim _persistentStartLock = new(1, 1);
+    internal PersistentPrefillEditSessionGate PersistentEditSessionGate { get; } = new();
 
     // Configuration defaults
     private const int DefaultSessionTimeoutMinutes = 120;
@@ -1360,7 +1361,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         bool reuseExistingSession,
         DateTime? persistentExpiresAtOverrideUtc,
         bool involuntaryRecreate,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<bool>? persistentCreationResult = null,
+        Action<string, string>? persistentContainerCreated = null)
     {
         // Check if user already has an active session - return it instead of creating a new one.
         // This match is userId-keyed and only safe because every persistent create path derives userId
@@ -1374,6 +1377,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             if (existingSession != null)
             {
                 _logger.LogInformation("Returning existing active session {SessionId} for user {UserId}", existingSession.Id, userId);
+                persistentCreationResult?.Invoke(false);
                 return existingSession;
             }
         }
@@ -1444,6 +1448,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 var adopted = GetActivePersistentSession();
                 if (adopted != null)
                 {
+                    persistentCreationResult?.Invoke(false);
                     return adopted;
                 }
 
@@ -1718,6 +1723,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         var containerId = createResponse.ID;
         _logger.LogInformation("Created container {ContainerId} for session {SessionId}", containerId, sessionId);
+        persistentContainerCreated?.Invoke(sessionId, containerId);
 
         // Start container
         var started = await _containerGateway.StartContainerAsync(containerId, null, cancellationToken);
@@ -1836,6 +1842,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             involuntaryRecreate: involuntaryRecreate || involuntaryReplacement,
             cancellationToken);
 
+        persistentCreationResult?.Invoke(isPersistent);
         return session;
     }
 
@@ -2410,7 +2417,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             session.SuppressLoginChallengePublication = true;
             try
             {
-                var result = await StartLoginCoreAsync(session, session.Id, timeout: null, abandonedLoginCleanup, cancellationToken);
+                var result = await StartLoginCoreAsync(
+                    session,
+                    session.Id,
+                    timeout: null,
+                    abandonedLoginCleanup,
+                    onCommandDispatched: null,
+                    cancellationToken);
                 switch (result.Outcome)
                 {
                     case LoginAttemptOutcome.Authenticated:
@@ -2608,7 +2621,36 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// Starts the login process for a daemon session.
     /// Returns a credential challenge if credentials are needed.
     /// </summary>
-    public async Task<CredentialChallenge?> StartLoginAsync(string sessionId, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    public Task<CredentialChallenge?> StartLoginAsync(
+        string sessionId,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+        => StartLoginEntryAsync(
+            sessionId,
+            timeout,
+            onCommandDispatched: null,
+            cancellationToken);
+
+    /// <summary>
+    /// Edit-session login entry point that reports the exact point a fresh daemon login command has
+    /// been dispatched. Cached challenge resumes do not invoke the callback because they start no new
+    /// daemon work.
+    /// </summary>
+    internal Task<CredentialChallenge?> StartLoginForEditAsync(
+        string sessionId,
+        TimeSpan? timeout,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(onCommandDispatched);
+        return StartLoginEntryAsync(sessionId, timeout, onCommandDispatched, cancellationToken);
+    }
+
+    private async Task<CredentialChallenge?> StartLoginEntryAsync(
+        string sessionId,
+        TimeSpan? timeout,
+        Action? onCommandDispatched,
+        CancellationToken cancellationToken)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
@@ -2631,7 +2673,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             // Public contract unchanged: callers receive the challenge (or null for
             // authenticated / failed-fast / no-response, exactly as before the outcome
             // was made explicit for the headless coordinator).
-            var result = await StartLoginCoreAsync(session, sessionId, timeout, abandonedLoginCleanup, cancellationToken);
+            var result = await StartLoginCoreAsync(
+                session,
+                sessionId,
+                timeout,
+                abandonedLoginCleanup,
+                onCommandDispatched,
+                cancellationToken);
             return result.Challenge;
         }
         finally
@@ -2675,7 +2723,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     private async Task<LoginAttemptResult> StartLoginCoreAsync(
-        DaemonSession session, string sessionId, TimeSpan? timeout, AbandonedLoginCleanupHolder abandonedLoginCleanup, CancellationToken cancellationToken)
+        DaemonSession session,
+        string sessionId,
+        TimeSpan? timeout,
+        AbandonedLoginCleanupHolder abandonedLoginCleanup,
+        Action? onCommandDispatched,
+        CancellationToken cancellationToken)
     {
         // Resume path: a challenge from an earlier StartLoginAsync call on this session is still
         // pending (e.g. the frontend closed/reopened the login modal, or a second request raced in
@@ -2756,8 +2809,18 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             session.AuthState = DaemonAuthState.LoggingIn;
             await NotifyAuthStateChangeAsync(session);
 
+            var loginTask = onCommandDispatched is null
+                ? session.Client.StartLoginAsync(timeout, cancellationToken)
+                : StartLoginWithDispatchTrackingAsync(
+                    session,
+                    timeout,
+                    onCommandDispatched,
+                    cancellationToken);
             var challenge = await AwaitChallengeOrLoginFailureAsync(
-                session, session.Client.StartLoginAsync(timeout, cancellationToken), loginFailureTcs, abandonedLoginCleanup);
+                session,
+                loginTask,
+                loginFailureTcs,
+                abandonedLoginCleanup);
             if (loginFailureTcs.Task.IsCompleted)
             {
                 await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
@@ -2843,6 +2906,39 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         finally
         {
             session.Client.OnStatusUpdate -= onDaemonStatusUpdate;
+        }
+    }
+
+    private async Task<CredentialChallenge?> StartLoginWithDispatchTrackingAsync(
+        DaemonSession session,
+        TimeSpan? timeout,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken)
+    {
+        var commandDispatched = false;
+        try
+        {
+            return await session.Client.StartLoginWithDispatchAsync(
+                timeout,
+                () =>
+                {
+                    commandDispatched = true;
+                    onCommandDispatched();
+                },
+                cancellationToken);
+        }
+        catch
+        {
+            if (!commandDispatched)
+            {
+                // The state was moved to LoggingIn immediately before the transport call. If no
+                // command reached the daemon, restore the pre-attempt state and leave no edit-owned
+                // work for cleanup to claim.
+                session.AuthState = DaemonAuthState.NotAuthenticated;
+                await NotifyAuthStateChangeAsync(session);
+            }
+
+            throw;
         }
     }
 
@@ -3719,6 +3815,139 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         return session;
     }
 
+    internal async Task<(DaemonSession Session, bool CreatedByEditSession)> StartPersistentSessionForEditAsync(
+        PrefillPlatform service,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_containerGateway.IsAvailable)
+        {
+            throw new InvalidOperationException(
+                "Docker is not running or not accessible. Please start Docker Desktop and try again.");
+        }
+
+        await _persistentStartLock.WaitAsync(cancellationToken);
+        try
+        {
+            _logger.LogInformation(
+                "Starting edit-session-owned persistent {Service} session for user {UserId}",
+                service,
+                userId);
+
+            var createdByEditSession = false;
+            string? createdSessionId = null;
+            string? createdContainerId = null;
+            try
+            {
+                var session = await CreateSessionCoreAsync(
+                    userId,
+                    ipAddress: null,
+                    userAgent: null,
+                    SessionType.Admin,
+                    isPersistent: true,
+                    reuseExistingSession: true,
+                    persistentExpiresAtOverrideUtc: null,
+                    involuntaryRecreate: false,
+                    cancellationToken,
+                    persistentCreationResult: created => createdByEditSession = created,
+                    persistentContainerCreated: (sessionId, containerId) =>
+                    {
+                        createdSessionId = sessionId;
+                        createdContainerId = containerId;
+                    });
+
+                return (session, createdByEditSession);
+            }
+            catch (Exception startError)
+                when (createdSessionId is not null && createdContainerId is not null)
+            {
+                try
+                {
+                    await RollbackPersistentSessionStartForEditCoreAsync(
+                        createdSessionId,
+                        createdContainerId);
+                }
+                catch (Exception rollbackError)
+                {
+                    throw new PersistentPrefillEditStartRollbackException(
+                        createdSessionId,
+                        createdContainerId,
+                        new AggregateException(startError, rollbackError));
+                }
+
+                throw;
+            }
+        }
+        finally
+        {
+            _persistentStartLock.Release();
+        }
+    }
+
+    internal async Task RollbackPersistentSessionStartForEditAsync(
+        string sessionId,
+        string containerId)
+    {
+        await _persistentStartLock.WaitAsync(CancellationToken.None);
+        try
+        {
+            await RollbackPersistentSessionStartForEditCoreAsync(sessionId, containerId);
+        }
+        finally
+        {
+            _persistentStartLock.Release();
+        }
+    }
+
+    private async Task RollbackPersistentSessionStartForEditCoreAsync(
+        string sessionId,
+        string containerId)
+    {
+        if (GetSession(sessionId) is not null)
+        {
+            await TerminateSessionAsync(
+                sessionId,
+                "Scheduled-prefill edit start rolled back",
+                force: true,
+                terminatedBy: "edit-session-cleanup");
+        }
+        else
+        {
+            var removal = await RemoveContainerForceAsync(
+                containerId,
+                CancellationToken.None,
+                removeVolumes: false);
+            if (removal == ContainerRemovalOutcome.RemovalInProgress)
+            {
+                try
+                {
+                    await _containerGateway.InspectContainerAsync(
+                        containerId,
+                        CancellationToken.None);
+                }
+                catch (DockerContainerNotFoundException)
+                {
+                    return;
+                }
+
+                throw new InvalidOperationException(
+                    $"Persistent container {containerId} for edit-owned session {sessionId} is still being removed.");
+            }
+        }
+
+        try
+        {
+            await _containerGateway.InspectContainerAsync(containerId, CancellationToken.None);
+        }
+        catch (DockerContainerNotFoundException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Persistent container {containerId} for edit-owned session {sessionId} survived rollback.");
+    }
+
     /// <summary>
     /// Stops a PERSISTENT session's container via the existing teardown path. Because the session is
     /// persistent, <see cref="TerminateSessionAsync"/> tears the container down with RemoveVolumes=false,
@@ -3776,6 +4005,32 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             // Reuse the existing teardown; IsPersistent keeps RemoveVolumes=false so the daemon's auth survives.
             await TerminateSessionAsync(sessionId, "Persistent session stopped", force: false, terminatedBy: terminatedBy);
+        }
+        finally
+        {
+            _persistentStartLock.Release();
+        }
+    }
+
+    internal async Task<bool> StopPersistentSessionIfOwnedByEditAsync(
+        string sessionId,
+        Func<bool> stillOwned,
+        string? terminatedBy = null)
+    {
+        await _persistentStartLock.WaitAsync();
+        try
+        {
+            if (!stillOwned() || GetSession(sessionId) is not { IsPersistent: true })
+            {
+                return false;
+            }
+
+            await TerminateSessionAsync(
+                sessionId,
+                "Scheduled-prefill edit session cleaned up",
+                force: false,
+                terminatedBy: terminatedBy);
+            return true;
         }
         finally
         {

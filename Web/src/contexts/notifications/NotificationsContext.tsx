@@ -157,6 +157,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         data_import: NOTIFICATION_IDS.DATA_IMPORT,
         epic_game_mapping: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
         xbox_game_mapping: NOTIFICATION_IDS.XBOX_GAME_MAPPING,
+        battle_net_game_mapping: NOTIFICATION_IDS.BATTLE_NET_GAME_MAPPING,
+        riot_game_mapping: NOTIFICATION_IDS.RIOT_GAME_MAPPING,
         eviction_scan: NOTIFICATION_IDS.EVICTION_SCAN,
         eviction_removal: NOTIFICATION_IDS.EVICTION_REMOVAL,
         scheduled_prefill: NOTIFICATION_IDS.SCHEDULED_PREFILL
@@ -293,7 +295,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     });
   }, [cancelAutoDismissTimer]);
 
-  // Registry-driven handlers (handles 11 standard notification lifecycle types)
+  // Registry-driven handlers for standard notification lifecycle types
   useNotificationHandlers(
     NOTIFICATION_REGISTRY,
     setNotifications,
@@ -303,15 +305,14 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   );
 
   // Special case handlers that don't fit the standard Started->Progress->Complete registry pattern:
-  // - Depot Mapping: uses special createDepotMappingCompletionHandler
-  // - Database Reset: only started + progress, no complete event
-  // - Epic Game Mapping: progress only + custom EpicGameMappingsUpdated one-shot handler
+  // - Database Reset: legacy progress completion plus its idempotent terminal event
+  // - Epic/Xbox mapping-data updates: custom one-shot handlers separate from run lifecycles
   // - Steam Session Error: custom one-shot error display
   //
   // Wiring is driven by SPECIAL_NOTIFICATION_CONTRACTS - see
   // ./specialNotificationContracts.ts. Each contract entry maps a logical
   // lifecycle to a set of SignalR event subscriptions. The iterator below
-  // collapses what used to be 16 imperative on/off calls into a single loop.
+  // collapses the imperative on/off calls into a single loop.
   React.useEffect(() => {
     const handlers = createSpecialCaseHandlers(
       setNotifications,

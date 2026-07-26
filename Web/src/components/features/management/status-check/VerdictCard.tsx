@@ -1,5 +1,6 @@
 import React from 'react';
 import '../managementSectionContent.css';
+import './StatusCheckSection.css';
 import { useTranslation } from 'react-i18next';
 import { Activity, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
@@ -372,26 +373,22 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   return (
     <Card>
       {resolverControl && <div className="status-check-resolver">{resolverControl}</div>}
-      {/* Header stacks below sm so the verdict text column spans the full width and stops
-          wrapping a word per line; the action column drops to its own full-width row. */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
+      <div className="status-check-verdict-header">
+        <div className="status-check-verdict-lead">
           {glyph}
-          <div className="min-w-0">
+          <div className="status-check-verdict-copy">
             <h3 className="status-check-scope-title">{t(`${keys}.scopeTitle`)}</h3>
-            <p className="font-medium text-themed-primary tabular-nums">{verdictLine}</p>
+            <p className="status-check-verdict-line">{verdictLine}</p>
             {!isRunning && cantVerify && (
-              <p className="text-sm text-themed-secondary">{t(`${keys}.verdictUnverifiedHint`)}</p>
+              <p className="status-check-verdict-hint">{t(`${keys}.verdictUnverifiedHint`)}</p>
             )}
             {!isRunning &&
               lastResult?.resolverSource === 'system' &&
               failingServices.length > 0 && (
-                <p className="text-sm text-[var(--theme-warning)]">
-                  {t(`${keys}.systemResolverCaveat`)}
-                </p>
+                <p className="status-check-verdict-warning">{t(`${keys}.systemResolverCaveat`)}</p>
               )}
             {isRunning && progress?.currentService && (
-              <p className="text-sm text-themed-muted">
+              <p className="status-check-verdict-hint">
                 {t(`${keys}.sweepCurrentService`, {
                   service: formatServiceLabel(progress.currentService)
                 })}
@@ -399,7 +396,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
             )}
           </div>
         </div>
-        <div className="flex flex-row items-center justify-between gap-3 w-full sm:w-auto sm:flex-col sm:items-end sm:justify-start sm:gap-1 flex-shrink-0">
+        <div className="status-check-verdict-actions">
           <Button variant="filled" color="blue" size="md" loading={isRunning} onClick={onRun}>
             {t(`${keys}.runCheck`)}
           </Button>
@@ -409,9 +406,9 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
                 time: formatDateTime(lastResult.completedAtUtc)
               })}
               position="top"
-              className="block min-w-0"
+              className="status-check-last-checked"
             >
-              <span className="text-xs text-themed-muted text-right max-w-[10rem] truncate">
+              <span className="status-check-last-checked-text">
                 {t(`${keys}.lastChecked`, { time: formatDateTime(lastResult.completedAtUtc) })}
               </span>
             </Tooltip>

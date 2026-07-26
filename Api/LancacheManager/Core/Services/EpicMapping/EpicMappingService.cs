@@ -42,6 +42,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     private DateTime _lastRefreshTime = DateTime.MinValue;
     private Task? _currentRefreshTask;
     private CancellationTokenSource? _currentRefreshCts;
+    private MappingOperationReporter? _currentMappingReporter;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private int _isRunning;
     private bool _disposed;

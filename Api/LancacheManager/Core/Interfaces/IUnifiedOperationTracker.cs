@@ -103,7 +103,11 @@ public interface IUnifiedOperationTracker
     /// <summary>
     /// Marks an operation as complete and cleans up resources.
     /// </summary>
-    void CompleteOperation(Guid operationId, bool success, string? error = null);
+    void CompleteOperation(
+        Guid operationId,
+        bool success,
+        string? error = null,
+        bool cancelled = false);
 
     /// <summary>
     /// Updates the progress of an operation.

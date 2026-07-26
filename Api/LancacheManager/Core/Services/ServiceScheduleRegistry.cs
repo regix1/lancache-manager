@@ -39,6 +39,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         ["depotMapping"] = OperationType.DepotMapping,
         ["epicMapping"] = OperationType.EpicMapping,
         ["xboxMapping"] = OperationType.XboxMapping,
+        ["battleNetMapping"] = OperationType.BattleNetMapping,
+        ["riotMapping"] = OperationType.RiotMapping,
         ["scheduledPrefill"] = OperationType.ScheduledPrefill,
     };
 

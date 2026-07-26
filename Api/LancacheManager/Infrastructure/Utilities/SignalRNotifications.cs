@@ -399,6 +399,57 @@ public static class SignalRNotifications
     #region Mapping / Import Notifications
 
     /// <summary>
+    /// Steam depot mapping start payload. The leading fields are the canonical mapping lifecycle;
+    /// the remaining fields preserve the established Steam consumers.
+    /// </summary>
+    public record DepotMappingStarted(
+        string ServiceKey,
+        Guid OperationId,
+        string StageKey,
+        Dictionary<string, object?>? Context,
+        bool ShowNotification,
+        Models.DepotScanMode ScanMode,
+        string Message,
+        bool IsLoggedOn,
+        DateTime Timestamp,
+        string Status = "running",
+        double PercentComplete = 0,
+        int TotalApps = 0,
+        int ProcessedApps = 0
+    );
+
+    /// <summary>
+    /// Steam depot mapping progress payload. Platform-specific counters remain top-level for existing
+    /// consumers while the canonical fields make the event usable by the shared mapping lifecycle.
+    /// </summary>
+    public record DepotMappingProgress(
+        string ServiceKey,
+        Guid OperationId,
+        string Status,
+        string StageKey,
+        double PercentComplete,
+        Dictionary<string, object?>? Context,
+        bool ShowNotification,
+        Models.DepotScanMode ScanMode,
+        string? Message,
+        bool IsLoggedOn,
+        DateTime Timestamp,
+        int TotalApps = 0,
+        int ProcessedApps = 0,
+        int TotalBatches = 0,
+        int ProcessedBatches = 0,
+        int DepotMappingsFound = 0,
+        int FailedBatches = 0,
+        int RemainingApps = 0,
+        bool IsReconnecting = false,
+        int? ReconnectAttempt = null,
+        int? MaxReconnectAttempts = null,
+        int ProcessedMappings = 0,
+        int TotalMappings = 0,
+        int MappingsApplied = 0
+    );
+
+    /// <summary>
     /// Notification when the Steam depot mapping scan completes (success, failure, or cancellation).
     /// Property names/casing mirror the previous anonymous payloads emitted on the
     /// <c>DepotMappingComplete</c> SignalR event EXACTLY (serialized camelCase via the global
@@ -422,22 +473,36 @@ public static class SignalRNotifications
         DateTime? Timestamp = null,
         // Run-stable display flag stamped from the service's notification mode + run trigger. The
         // terminal event is always emitted; the frontend gates whether the card is shown.
-        bool ShowNotification = true
+        bool ShowNotification = true,
+        string StageKey = "signalr.depotMapping.completed",
+        double PercentComplete = 100,
+        Dictionary<string, object?>? Context = null,
+        int? DepotMappingsFound = null,
+        int? TotalApps = null,
+        int? TotalBatches = null
     ) : IOperationComplete
     {
-        OperationStatus IOperationComplete.Status =>
+        public string ServiceKey => "depotMapping";
+
+        public OperationStatus Status =>
             Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
     }
 
     /// <summary>
-    /// Notification when the Epic catalog mapping / auth-login terminal state is reached (success,
-    /// failure, or cancellation). Emitted on the <c>EpicMappingProgress</c> SignalR event (there is no
-    /// dedicated <c>EpicMappingComplete</c> event const — the terminal rides the progress event, exactly
-    /// as the prior anonymous payloads did). Property names/casing mirror those terminal anons EXACTLY
-    /// (<c>operationId / status / percentComplete / gamesDiscovered / stageKey / cancelled / context</c>);
-    /// <c>status</c> is the <c>OperationStatus</c> enum (Completed / Failed) as before. <c>Success</c> is
-    /// carried additively (the prior anon conveyed success via <c>status</c> only). Emitted from a single
-    /// place via <c>OperationInfo.OnTerminalEmit</c>.
+    /// Xbox device-code authentication state. Authentication can precede a mapping run, so it uses
+    /// its own compatibility event instead of impersonating tracked mapping progress.
+    /// </summary>
+    public record XboxMappingAuthStateChanged(
+        Guid OperationId,
+        string Status,
+        string StageKey,
+        string? Message = null,
+        string? Error = null
+    );
+
+    /// <summary>
+    /// Compatibility DTO for Epic catalog mapping completion payloads. The canonical mapping
+    /// lifecycle emits its terminal payload on the dedicated <c>EpicMappingComplete</c> event.
     /// </summary>
     public record EpicMappingComplete(
         Guid? OperationId,

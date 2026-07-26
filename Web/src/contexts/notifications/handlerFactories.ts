@@ -13,7 +13,6 @@ import type {
   ScheduleAutoDismiss,
   CancelAutoDismissTimer
 } from './types';
-import type { DepotMappingCompleteEvent } from '../SignalRContext/types';
 import { isTerminalNotificationStatus } from './notificationStatus';
 import i18n from '@/i18n';
 
@@ -47,15 +46,37 @@ function eventOperationId(event: unknown): string | undefined {
  * overwrite its operationId (so the X button cancels the WRONG operation), and let the running
  * op's completion auto-dismiss a card whose operation never even started.
  *
- * So a running card keeps the historical behavior of accepting its type's events, while any other
- * card is touched ONLY when the event provably belongs to it (matching operationId). Unprovable
- * means no: that is the pre-existing, safe behavior.
+ * A known operation-id mismatch is always rejected, including for a running card. When either side
+ * does not yet have an operation id, a running card keeps the historical type-level fallback; any
+ * other card is touched ONLY when the event provably belongs to it (matching operationId).
  */
 function eventTargetsCard(existing: UnifiedNotification, event: unknown): boolean {
-  if (existing.status === 'running') return true;
   const cardOperationId = existing.details?.operationId;
   const incomingOperationId = eventOperationId(event);
+  if (cardOperationId && incomingOperationId && cardOperationId !== incomingOperationId) {
+    return false;
+  }
+  if (existing.status === 'running') return true;
   return Boolean(cardOperationId && incomingOperationId && cardOperationId === incomingOperationId);
+}
+
+function clearPersistedNotificationIfTargeted(storageKey: string, event: unknown): boolean {
+  const persisted = localStorage.getItem(storageKey);
+  if (!persisted) {
+    return true;
+  }
+
+  try {
+    const notification = JSON.parse(persisted) as UnifiedNotification;
+    if (!eventTargetsCard(notification, event)) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  localStorage.removeItem(storageKey);
+  return true;
 }
 
 /**
@@ -100,18 +121,12 @@ function mergeEventDetails(
   return { ...base, ...incoming };
 }
 import {
-  NOTIFICATION_STORAGE_KEYS,
-  NOTIFICATION_IDS,
-  INCREMENTAL_SCAN_ANIMATION_STEPS,
-  INCREMENTAL_SCAN_ANIMATION_DURATION_MS,
-  NOTIFICATION_ANIMATION_DURATION_MS,
   CANCELLED_NOTIFICATION_DELAY_MS,
   FULL_PROGRESS_PERCENT,
   GENERIC_COMPLETION_I18N_KEY,
   GENERIC_FAILURE_I18N_KEY,
   LIVE_ONLY_CANCEL_DETAIL_KEYS
 } from './constants';
-import { APP_EVENTS } from '@utils/constants';
 
 // ============================================================================
 // Started Handler Factory
@@ -176,12 +191,19 @@ export function createStartedHandler<T>(
     const notificationId = config.getId(event);
 
     if (config.shouldDisplay?.(event) === false) {
-      localStorage.removeItem(config.storageKey);
-      cancelAutoDismissTimer?.(notificationId);
       const idsToRemove = new Set([notificationId, ...(config.additionalIdsToRemove ?? [])]);
-      setNotifications((prev: UnifiedNotification[]) =>
-        prev.filter((notification) => !idsToRemove.has(notification.id))
-      );
+      setNotifications((prev: UnifiedNotification[]) => {
+        const existing = prev.find((notification) => notification.id === notificationId);
+        if (
+          (existing && !eventTargetsCard(existing, event)) ||
+          !clearPersistedNotificationIfTargeted(config.storageKey, event)
+        ) {
+          return prev;
+        }
+
+        cancelAutoDismissTimer?.(notificationId);
+        return prev.filter((notification) => !idsToRemove.has(notification.id));
+      });
       return;
     }
 
@@ -312,10 +334,17 @@ export function createCompletionHandler<
     const notificationId = config.getId(event);
 
     if (config.shouldDisplay?.(event) === false) {
-      localStorage.removeItem(config.storageKey);
-      setNotifications((prev: UnifiedNotification[]) =>
-        prev.filter((notification) => notification.id !== notificationId)
-      );
+      setNotifications((prev: UnifiedNotification[]) => {
+        const existing = prev.find((notification) => notification.id === notificationId);
+        if (
+          (existing && !eventTargetsCard(existing, event)) ||
+          !clearPersistedNotificationIfTargeted(config.storageKey, event)
+        ) {
+          return prev;
+        }
+
+        return prev.filter((notification) => notification.id !== notificationId);
+      });
       return;
     }
 
@@ -337,9 +366,6 @@ export function createCompletionHandler<
         i18n.t(GENERIC_FAILURE_I18N_KEY)
       );
     };
-
-    // Clear from localStorage IMMEDIATELY to prevent stuck state on refresh
-    localStorage.removeItem(config.storageKey);
 
     // Track the ID to schedule (may be different for fast completion)
     let idToSchedule = notificationId;
@@ -392,14 +418,25 @@ export function createCompletionHandler<
         if (existing && !eventTargetsCard(existing, event)) {
           return prev;
         }
+        if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+          return prev;
+        }
 
         // Fast completion - no live slot to transition (missing or already terminal);
         // materialize a terminal card instead of dropping the event
         if (!existing || isTerminalNotificationStatus(existing.status)) {
           const newNotification = buildFastCompletionNotification();
+          scheduleAutoDismiss(
+            idToSchedule,
+            isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : undefined
+          );
           return [...prev.filter((n) => n.id !== newNotification.id), newNotification];
         }
 
+        scheduleAutoDismiss(
+          idToSchedule,
+          isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : undefined
+        );
         return prev.map((n) => {
           if (n.id === notificationId) {
             if (event.success && !isCancelled) {
@@ -442,7 +479,15 @@ export function createCompletionHandler<
 
         if (!existing) {
           // Fast completion - no prior started event
-          return [...prev, buildFastCompletionNotification()];
+          if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+            return prev;
+          }
+          const newNotification = buildFastCompletionNotification();
+          scheduleAutoDismiss(
+            idToSchedule,
+            isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : undefined
+          );
+          return [...prev, newNotification];
         }
 
         // Never touch a card belonging to a DIFFERENT operation of this type (a queued op's
@@ -450,7 +495,14 @@ export function createCompletionHandler<
         if (!eventTargetsCard(existing, event) || isTerminalNotificationStatus(existing.status)) {
           return prev;
         }
+        if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+          return prev;
+        }
 
+        scheduleAutoDismiss(
+          idToSchedule,
+          isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : undefined
+        );
         return prev.map((n) => {
           if (n.id === notificationId) {
             if (event.success && !isCancelled) {
@@ -494,8 +546,6 @@ export function createCompletionHandler<
         });
       });
     }
-
-    scheduleAutoDismiss(idToSchedule, isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : undefined);
   };
 }
 
@@ -581,24 +631,31 @@ export function createStatusAwareProgressHandler<T>(
     const notificationId = config.getId(event);
 
     if (config.shouldDisplay?.(event) === false) {
-      localStorage.removeItem(config.storageKey);
-      cancelAutoDismissTimer?.(notificationId);
-      setNotifications((prev: UnifiedNotification[]) =>
-        prev.filter((notification) => notification.id !== notificationId)
-      );
+      setNotifications((prev: UnifiedNotification[]) => {
+        const existing = prev.find((notification) => notification.id === notificationId);
+        if (
+          (existing && !eventTargetsCard(existing, event)) ||
+          !clearPersistedNotificationIfTargeted(config.storageKey, event)
+        ) {
+          return prev;
+        }
+
+        cancelAutoDismissTimer?.(notificationId);
+        return prev.filter((notification) => notification.id !== notificationId);
+      });
       return;
     }
 
     const status = config.getStatus(event);
 
     if (status?.toLowerCase() === 'completed') {
-      // Handle completion - clear localStorage FIRST
-      localStorage.removeItem(config.storageKey);
-
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
         if (!existing) {
+          if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+            return prev;
+          }
           // Fast completion - notification doesn't exist yet (operation completed before UI created it)
           if (config.supportFastCompletion) {
             const newNotification: UnifiedNotification = {
@@ -611,6 +668,7 @@ export function createStatusAwareProgressHandler<T>(
               details: config.getDetails?.(event)
             };
 
+            scheduleAutoDismiss(notificationId);
             return [...prev, newNotification];
           }
           return prev;
@@ -622,7 +680,11 @@ export function createStatusAwareProgressHandler<T>(
         if (isTerminalNotificationStatus(existing.status) || !eventTargetsCard(existing, event)) {
           return prev;
         }
+        if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+          return prev;
+        }
 
+        scheduleAutoDismiss(notificationId);
         return prev.map((n) => {
           if (n.id === notificationId) {
             return {
@@ -636,15 +698,7 @@ export function createStatusAwareProgressHandler<T>(
           return n;
         });
       });
-
-      // ALWAYS schedule auto-dismiss for completed status - React 18 batching means
-      // we can't rely on closure variables set inside setNotifications callback.
-      // scheduleAutoDismiss will verify the notification is in terminal state before dismissing.
-      scheduleAutoDismiss(notificationId);
     } else if (status?.toLowerCase() === 'failed') {
-      // Handle error - clear localStorage FIRST
-      localStorage.removeItem(config.storageKey);
-
       const errorMessage = config.getErrorMessage?.(event) ?? 'Operation failed';
 
       setNotifications((prev: UnifiedNotification[]) => {
@@ -652,15 +706,20 @@ export function createStatusAwareProgressHandler<T>(
 
         // If notification doesn't exist, nothing to do
         if (!existing) {
+          clearPersistedNotificationIfTargeted(config.storageKey, event);
           return prev;
         }
 
-        // If already terminal, just ensure it gets dismissed. A failure from a DIFFERENT op of
-        // this type must not fail a queued op's waiting card either.
+        // An already-terminal card is left to its existing dismiss timer. A failure from a
+        // DIFFERENT op of this type must not fail a queued op's waiting card either.
         if (isTerminalNotificationStatus(existing.status) || !eventTargetsCard(existing, event)) {
           return prev;
         }
+        if (!clearPersistedNotificationIfTargeted(config.storageKey, event)) {
+          return prev;
+        }
 
+        scheduleAutoDismiss(notificationId);
         const eventDetails = config.getDetails?.(event);
         return prev.map((n) => {
           if (n.id === notificationId) {
@@ -676,9 +735,6 @@ export function createStatusAwareProgressHandler<T>(
           return n;
         });
       });
-
-      // Always schedule auto-dismiss for failed status
-      scheduleAutoDismiss(notificationId);
     } else {
       // Handle progress - update existing or create new
       setNotifications((prev: UnifiedNotification[]) => {
@@ -699,7 +755,7 @@ export function createStatusAwareProgressHandler<T>(
           const eventDetails = config.getDetails?.(event);
           return prev.map((n) => {
             if (n.id === notificationId) {
-              return {
+              const updatedNotification: UnifiedNotification = {
                 ...n,
                 status: promoteStatus(n.status),
                 message: config.getMessage(event),
@@ -717,6 +773,8 @@ export function createStatusAwareProgressHandler<T>(
                 // cancel flags are dropped when the operationId changed (see mergeEventDetails).
                 ...(eventDetails ? { details: mergeEventDetails(n.details, eventDetails) } : {})
               };
+              localStorage.setItem(config.storageKey, JSON.stringify(updatedNotification));
+              return updatedNotification;
             }
             return n;
           });
@@ -751,278 +809,6 @@ export function createStatusAwareProgressHandler<T>(
           return [...filtered, newNotification];
         }
       });
-    }
-  };
-}
-
-// ============================================================================
-// Depot Mapping Completion Handler Factory
-// ============================================================================
-
-/**
- * Creates a specialized completion handler for depot mapping operations.
- * This handles the complex depot mapping completion logic including:
- * - Cancellation handling
- * - Incremental scan progress animation
- * - Full scan immediate completion
- * - Full scan modal trigger for errors requiring full scan
- *
- * @param setNotifications - React setState function for notifications
- * @param scheduleAutoDismiss - Function to schedule auto-dismissal
- * @returns A handler function that processes depot mapping completion events
- */
-export function createDepotMappingCompletionHandler(
-  setNotifications: SetNotifications,
-  scheduleAutoDismiss: ScheduleAutoDismiss
-): (event: DepotMappingCompleteEvent) => void {
-  const notificationId = NOTIFICATION_IDS.DEPOT_MAPPING;
-  const storageKey = NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING;
-
-  /** Animates progress from current value to 100% over multiple steps */
-  const animateProgressToCompletion = (
-    startProgress: number,
-    successMessage: string,
-    successDetails: Record<string, unknown>,
-    onComplete: () => void
-  ): void => {
-    const steps = INCREMENTAL_SCAN_ANIMATION_STEPS;
-    const interval = INCREMENTAL_SCAN_ANIMATION_DURATION_MS / steps;
-    const progressIncrement = (100 - startProgress) / steps;
-    let currentStep = 0;
-
-    const animationInterval = setInterval(() => {
-      currentStep++;
-      const newProgress = Math.min(100, startProgress + progressIncrement * currentStep);
-
-      setNotifications((prev: UnifiedNotification[]) =>
-        prev.map((n) =>
-          n.id === notificationId
-            ? {
-                ...n,
-                progress: newProgress,
-                message: newProgress >= 100 ? successMessage : n.message
-              }
-            : n
-        )
-      );
-
-      if (currentStep >= steps) {
-        clearInterval(animationInterval);
-        setTimeout(() => {
-          setNotifications((prev: UnifiedNotification[]) => {
-            const existing = prev.find((n) => n.id === notificationId);
-            if (!existing) return prev;
-
-            localStorage.removeItem(storageKey);
-            return prev.map((n) =>
-              n.id === notificationId
-                ? {
-                    ...n,
-                    status: 'completed' as const,
-                    message: successMessage,
-                    details: { ...n.details, ...successDetails }
-                  }
-                : n
-            );
-          });
-          onComplete();
-        }, NOTIFICATION_ANIMATION_DURATION_MS);
-      }
-    }, interval);
-  };
-
-  /** Handles depot mapping cancellation */
-  const handleCancelled = (allowCreate: boolean): void => {
-    localStorage.removeItem(storageKey);
-    const newStartedAt = new Date();
-
-    setNotifications((prev: UnifiedNotification[]) => {
-      const existing = prev.find((n) => n.id === notificationId);
-
-      if (!existing) {
-        // A silent run streams its lifecycle events but must not create a card; only an already
-        // visible (e.g. recovered) card completes.
-        if (!allowCreate) return prev;
-        // Fast completion - create notification for cancellation
-        const newNotification: UnifiedNotification = {
-          id: notificationId,
-          type: 'depot_mapping',
-          status: 'completed',
-          message: i18n.t('signalr.depotMapping.cancelled'),
-          startedAt: newStartedAt,
-          progress: FULL_PROGRESS_PERCENT,
-          details: { cancelled: true }
-        };
-        return [...prev, newNotification];
-      }
-
-      // Update existing notification
-      return prev.map((n) =>
-        n.id === notificationId
-          ? {
-              ...n,
-              status: 'completed' as const,
-              message: i18n.t('signalr.depotMapping.cancelled'),
-              progress: FULL_PROGRESS_PERCENT,
-              details: { ...n.details, cancelled: true }
-            }
-          : n
-      );
-    });
-
-    scheduleAutoDismiss(notificationId, CANCELLED_NOTIFICATION_DELAY_MS);
-  };
-
-  /** Handles successful depot mapping completion */
-  const handleSuccess = (event: DepotMappingCompleteEvent, allowCreate: boolean): void => {
-    const successMessage = event.stageKey
-      ? i18n.t(event.stageKey, event.context ?? {})
-      : i18n.t('signalr.depotMapping.finalized', { updated: event.downloadsUpdated ?? 0 });
-    const successDetails = {
-      totalMappings: event.totalMappings,
-      downloadsUpdated: event.downloadsUpdated
-    };
-    const isIncremental = event.scanMode === 'incremental';
-
-    localStorage.removeItem(storageKey);
-
-    if (isIncremental) {
-      // For incremental scans, animate progress to 100%
-      setNotifications((prev: UnifiedNotification[]) => {
-        const notification = prev.find((n) => n.id === notificationId);
-
-        if (!notification) {
-          // A silent run must not create a card; only an already visible card completes.
-          if (!allowCreate) return prev;
-          // Fast completion - create completed notification
-          const newNotification: UnifiedNotification = {
-            id: notificationId,
-            type: 'depot_mapping',
-            status: 'completed',
-            message: successMessage,
-            startedAt: new Date(),
-            progress: FULL_PROGRESS_PERCENT,
-            details: successDetails
-          };
-          return [...prev, newNotification];
-        }
-
-        // Animation callback will schedule auto-dismiss when complete
-        animateProgressToCompletion(
-          notification.progress || 0,
-          successMessage,
-          successDetails,
-          () => scheduleAutoDismiss(notificationId)
-        );
-        return prev;
-      });
-
-      // Schedule auto-dismiss for fast completion case (animation handles the existing case)
-      scheduleAutoDismiss(notificationId);
-    } else {
-      // For full scans, complete immediately
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((n) => n.id === notificationId);
-
-        if (!existing) {
-          // A silent run must not create a card; only an already visible card completes.
-          if (!allowCreate) return prev;
-          // Fast completion - create completed notification
-          const newNotification: UnifiedNotification = {
-            id: notificationId,
-            type: 'depot_mapping',
-            status: 'completed',
-            message: successMessage,
-            startedAt: new Date(),
-            progress: FULL_PROGRESS_PERCENT,
-            details: successDetails
-          };
-          return [...prev, newNotification];
-        }
-
-        // Update existing notification
-        return prev.map((n) =>
-          n.id === notificationId
-            ? {
-                ...n,
-                status: 'completed' as const,
-                message: successMessage,
-                progress: FULL_PROGRESS_PERCENT,
-                details: { ...n.details, ...successDetails }
-              }
-            : n
-        );
-      });
-
-      scheduleAutoDismiss(notificationId);
-    }
-  };
-
-  /** Handles failed depot mapping with optional full scan modal trigger */
-  const handleFailure = (event: DepotMappingCompleteEvent, allowCreate: boolean): void => {
-    const errorMessage =
-      event.error ??
-      (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-      i18n.t(GENERIC_FAILURE_I18N_KEY);
-    const requiresFullScan =
-      errorMessage.includes('change gap is too large') ||
-      errorMessage.includes('requires full scan') ||
-      errorMessage.includes('requires a full scan');
-
-    if (requiresFullScan) {
-      window.dispatchEvent(
-        new CustomEvent(APP_EVENTS.SHOW_FULL_SCAN_MODAL, { detail: { error: errorMessage } })
-      );
-    }
-
-    localStorage.removeItem(storageKey);
-
-    setNotifications((prev: UnifiedNotification[]) => {
-      const existing = prev.find((n) => n.id === notificationId);
-
-      if (!existing) {
-        // A silent run must not create a card; only an already visible card completes.
-        if (!allowCreate) return prev;
-        // Fast completion - create failed notification
-        const newNotification: UnifiedNotification = {
-          id: notificationId,
-          type: 'depot_mapping',
-          status: 'failed',
-          message: 'Depot mapping failed',
-          error: errorMessage,
-          startedAt: new Date(),
-          progress: FULL_PROGRESS_PERCENT
-        };
-        return [...prev, newNotification];
-      }
-
-      // Update existing notification
-      return prev.map((n) =>
-        n.id === notificationId
-          ? {
-              ...n,
-              status: 'failed' as const,
-              error: errorMessage,
-              progress: FULL_PROGRESS_PERCENT
-            }
-          : n
-      );
-    });
-
-    scheduleAutoDismiss(notificationId);
-  };
-
-  // Return the main handler function
-  return (event: DepotMappingCompleteEvent): void => {
-    // A run that opted out of notifications still emits its terminal; the flag only gates whether a
-    // card may be created. An existing (e.g. recovered) card always completes regardless of the flag.
-    const allowCreate = event.showNotification !== false;
-    if (event.cancelled) {
-      handleCancelled(allowCreate);
-    } else if (event.success) {
-      handleSuccess(event, allowCreate);
-    } else {
-      handleFailure(event, allowCreate);
     }
   };
 }

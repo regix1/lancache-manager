@@ -22,6 +22,7 @@ import { setServerTimezone } from '@utils/timezone';
 import { isAbortError } from '@utils/error';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
+import { ScheduledPrefillEditSessionCleanupRecovery } from '@components/features/management/schedules/scheduled-prefill/ScheduledPrefillEditSessionCleanupRecovery';
 
 const Dashboard = lazy(() => import('@components/features/dashboard/Dashboard'));
 const DownloadsTab = lazy(() => import('@components/features/downloads/DownloadsTab'));
@@ -546,6 +547,8 @@ const AppContent: React.FC = () => {
 
   return (
     <>
+      {authMode === 'authenticated' && <ScheduledPrefillEditSessionCleanupRecovery />}
+
       {/* Full Scan Required Modal - Shows globally on all pages */}
       {showFullScanRequiredModal && authMode === 'authenticated' && (
         <FullScanRequiredModal

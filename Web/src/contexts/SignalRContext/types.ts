@@ -210,13 +210,22 @@ export const SIGNALR_EVENTS = [
   // Xbox Guest Prefill Config
   'XboxGuestPrefillConfigChanged',
 
-  // Epic Game Mappings
+  // Scheduled game mappings
+  'EpicMappingStarted',
   'EpicMappingProgress',
+  'EpicMappingComplete',
   'EpicGameMappingsUpdated',
-
-  // Xbox Game Mappings
+  'XboxMappingStarted',
   'XboxMappingProgress',
+  'XboxMappingComplete',
+  'XboxMappingAuthStateChanged',
   'XboxGameMappingsUpdated',
+  'BattleNetMappingStarted',
+  'BattleNetMappingProgress',
+  'BattleNetMappingComplete',
+  'RiotMappingStarted',
+  'RiotMappingProgress',
+  'RiotMappingComplete',
 
   // Eviction Scan
   'EvictionScanStarted',
@@ -679,10 +688,40 @@ export interface CacheClearingStartedEvent {
   message?: string;
 }
 
-export interface DepotMappingStartedEvent {
+export type MappingStageContext = Record<string, string | number | boolean | null>;
+
+export interface MappingStartedEvent {
+  serviceKey: string;
   operationId: string;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
+  stageKey: string;
+  context: MappingStageContext | null;
+  showNotification: boolean;
+}
+
+export interface MappingProgressEvent {
+  serviceKey: string;
+  operationId: string;
+  status: OperationStatus;
+  stageKey: string;
+  percentComplete: number;
+  context: MappingStageContext | null;
+  showNotification: boolean;
+}
+
+export interface MappingCompleteEvent {
+  serviceKey: string;
+  operationId: string;
+  success: boolean;
+  stageKey: string;
+  percentComplete: number;
+  error: string | null;
+  context: MappingStageContext | null;
+  showNotification: boolean;
+  cancelled: boolean;
+  status: OperationStatus;
+}
+
+export interface DepotMappingStartedEvent extends MappingStartedEvent {
   /** @deprecated use stageKey instead */
   message?: string;
   isLoggedOn?: boolean;
@@ -693,19 +732,15 @@ export interface DepotMappingStartedEvent {
   percentComplete?: number;
   progressPercent?: number;
   startTime?: string;
-  showNotification?: boolean;
+  timestamp?: string;
 }
 
-export interface DepotMappingProgressEvent {
-  operationId: string;
-  percentComplete: number;
-  status: OperationStatus;
+export interface DepotMappingProgressEvent extends MappingProgressEvent {
   progressPercent?: number;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
   isLoggedOn?: boolean;
+  scanMode?: 'incremental' | 'full' | 'github';
   processedBatches?: number;
   totalBatches?: number;
   depotMappingsFound?: number;
@@ -715,26 +750,23 @@ export interface DepotMappingProgressEvent {
   totalApps?: number;
   processedApps?: number;
   failedBatches?: number;
-  remainingApps?: number[];
-  showNotification?: boolean;
+  remainingApps?: number;
+  isReconnecting?: boolean;
+  reconnectAttempt?: number;
+  maxReconnectAttempts?: number;
 }
 
-export interface DepotMappingCompleteEvent {
-  operationId: string;
-  success: boolean;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
+export interface DepotMappingCompleteEvent extends MappingCompleteEvent {
   /** @deprecated use stageKey instead */
   message: string;
-  cancelled?: boolean;
   scanMode?: 'incremental' | 'full' | 'github';
-  error?: string;
   totalMappings?: number;
   downloadsUpdated?: number;
   totalApps?: number;
   totalBatches?: number;
   depotMappingsFound?: number;
-  showNotification?: boolean;
+  isLoggedOn?: boolean;
+  timestamp?: string;
 }
 
 export interface SteamSessionErrorEvent {
@@ -945,18 +977,16 @@ export interface XboxGuestPrefillConfigChangedEvent {
 // Epic Game Mapping Events
 // ============================================================================
 
-export interface EpicMappingProgressEvent {
-  operationId: string;
-  status: OperationStatus;
-  percentComplete: number;
-  gamesDiscovered: number;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
+export type EpicMappingStartedEvent = MappingStartedEvent;
+
+export interface EpicMappingProgressEvent extends MappingProgressEvent {
+  gamesDiscovered?: number;
   /** @deprecated use stageKey instead */
-  message: string;
+  message?: string;
   cancelled?: boolean;
-  showNotification?: boolean;
 }
+
+export type EpicMappingCompleteEvent = MappingCompleteEvent;
 
 export interface EpicGameMappingsUpdatedEvent {
   totalGames: number;
@@ -969,20 +999,34 @@ export interface EpicGameMappingsUpdatedEvent {
 // Xbox Game Mapping Events
 // ============================================================================
 
-export interface XboxMappingProgressEvent {
-  operationId: string;
-  status: OperationStatus;
-  percentComplete: number;
-  gamesDiscovered: number;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
+export type XboxMappingStartedEvent = MappingStartedEvent;
+
+export interface XboxMappingProgressEvent extends MappingProgressEvent {
+  gamesDiscovered?: number;
   /** @deprecated use stageKey instead */
-  message: string;
+  message?: string;
   cancelled?: boolean;
   /** True only on the final success/failure/cancel event; interim progress ticks are false. */
   isTerminal?: boolean;
-  showNotification?: boolean;
 }
+
+export type XboxMappingCompleteEvent = MappingCompleteEvent;
+
+export interface XboxMappingAuthStateChangedEvent {
+  operationId: string;
+  status: OperationStatus;
+  stageKey: string;
+  message?: string | null;
+  error?: string | null;
+}
+
+export type BattleNetMappingStartedEvent = MappingStartedEvent;
+export type BattleNetMappingProgressEvent = MappingProgressEvent;
+export type BattleNetMappingCompleteEvent = MappingCompleteEvent;
+
+export type RiotMappingStartedEvent = MappingStartedEvent;
+export type RiotMappingProgressEvent = MappingProgressEvent;
+export type RiotMappingCompleteEvent = MappingCompleteEvent;
 
 export interface ScheduledPrefillStartedEvent {
   operationId: string;

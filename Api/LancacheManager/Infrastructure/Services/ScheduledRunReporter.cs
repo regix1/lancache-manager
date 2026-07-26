@@ -33,11 +33,21 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     private readonly bool _showNotification;
     private readonly CancellationTokenSource _cts;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
+    private readonly ScheduledRunPayloadFactories? _payloadFactories;
+    private readonly Action? _onTerminalCleanup;
+    private readonly ILogger? _logger;
+    private readonly bool _bestEffortNotifications;
+    private readonly Func<OperationTerminalInfo, string>? _externalTerminalStageKey;
+    private readonly TaskCompletionSource _terminalEmitted =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private Guid _operationId;
     private bool _started;
     private bool _ctsHandedOff;
     private int _completed;
+    private int _terminalCleanupInvoked;
+    private string _terminalStageKey;
+    private bool _terminalStagePublished;
 
     // Guarded by _sendGate. Read by the terminal-emit closure, which the tracker starts synchronously
     // on the CompleteOperation stack (inside CompleteAsync, while _sendGate has already published these
@@ -62,7 +72,12 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         ScheduledRunEventNames events,
         string completeStageKey,
         bool showNotification,
-        CancellationToken stoppingToken)
+        CancellationToken stoppingToken,
+        ScheduledRunPayloadFactories? payloadFactories = null,
+        Action? onTerminalCleanup = null,
+        ILogger? logger = null,
+        bool bestEffortNotifications = false,
+        Func<OperationTerminalInfo, string>? externalTerminalStageKey = null)
     {
         _notifications = notifications;
         _tracker = tracker;
@@ -70,9 +85,21 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         _operationType = operationType;
         _events = events;
         _completeStageKey = completeStageKey;
+        _terminalStageKey = completeStageKey;
         _showNotification = showNotification;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        _payloadFactories = payloadFactories;
+        _onTerminalCleanup = onTerminalCleanup;
+        _logger = logger;
+        _bestEffortNotifications = bestEffortNotifications;
+        _externalTerminalStageKey = externalTerminalStageKey;
     }
+
+    /// <summary>The tracker-owned id for this run, or <see cref="Guid.Empty"/> before it starts.</summary>
+    public Guid OperationId => _operationId;
+
+    /// <summary>Whether the reporter has registered its operation and emitted its started payload.</summary>
+    public bool IsStarted => _started;
 
     /// <summary>
     /// The run's cancellation token. Callers pass this to the work they perform so the tracker can
@@ -87,39 +114,52 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     /// </summary>
     public async Task StartAsync(string stageKey, Dictionary<string, object?>? context = null)
     {
-        if (_started)
+        await _sendGate.WaitAsync(CancellationToken.None);
+        try
         {
-            throw new InvalidOperationException($"ScheduledRunReporter for '{_serviceKey}' was already started.");
-        }
-
-        // Persist the run's immutable display flag onto the tracked operation so the run-status
-        // recovery endpoint can report it - without this, a page refresh during a SILENT run would
-        // resurrect the card (recovery would have to assume every active run is visible). The
-        // "context" slot is seeded here (never structurally added later) so progress updates only
-        // overwrite an existing value reference and can never structurally race a concurrent
-        // status read; recovery uses it to rehydrate a mid-run card with its interpolation values.
-        _operationId = _tracker.RegisterOperation(
-            _operationType,
-            _serviceKey,
-            _cts,
-            metadata: new Dictionary<string, object?>
+            if (_started)
             {
-                ["showNotification"] = _showNotification,
-                ["context"] = context,
-            },
-            onTerminalCleanup: null,
-            onTerminalEmit: EmitTerminalAsync);
-        _ctsHandedOff = true;
-        _started = true;
-        _lastContext = context;
+                throw new InvalidOperationException($"ScheduledRunReporter for '{_serviceKey}' was already started.");
+            }
 
-        _tracker.UpdateProgress(_operationId, 0, stageKey);
-        await _notifications.NotifyAllAsync(_events.Started, new ScheduledRunStartedEvent(
-            _serviceKey,
-            _operationId,
-            stageKey,
-            context,
-            _showNotification));
+            // Persist the run's immutable display flag onto the tracked operation so the run-status
+            // recovery endpoint can report it - without this, a page refresh during a SILENT run would
+            // resurrect the card (recovery would have to assume every active run is visible). The
+            // "context" slot is seeded here (never structurally added later) so progress updates only
+            // overwrite an existing value reference and can never structurally race a concurrent
+            // status read; recovery uses it to rehydrate a mid-run card with its interpolation values.
+            _operationId = _tracker.RegisterOperation(
+                _operationType,
+                _serviceKey,
+                _cts,
+                metadata: new Dictionary<string, object?>
+                {
+                    ["showNotification"] = _showNotification,
+                    ["context"] = context,
+                },
+                onTerminalCleanup: null,
+                onTerminalEmit: EmitTerminalAsync);
+            _ctsHandedOff = true;
+            _started = true;
+            _lastContext = context;
+
+            _tracker.UpdateProgress(_operationId, 0, stageKey);
+            var started = new ScheduledRunStartedEvent(
+                _serviceKey,
+                _operationId,
+                stageKey,
+                context,
+                _showNotification);
+            await SendAsync(
+                () => _notifications.NotifyAllAsync(
+                    _events.Started,
+                    _payloadFactories?.Started(started) ?? started),
+                "started");
+        }
+        finally
+        {
+            _sendGate.Release();
+        }
     }
 
     /// <summary>
@@ -140,9 +180,15 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         await _sendGate.WaitAsync(_cts.Token);
         try
         {
-            if (percent > _highestPercent)
+            if (Volatile.Read(ref _completed) != 0)
             {
-                _highestPercent = percent;
+                return;
+            }
+
+            var bounded = Math.Clamp(percent, 0, 100);
+            if (bounded > _highestPercent)
+            {
+                _highestPercent = bounded;
             }
 
             var clamped = _highestPercent;
@@ -160,14 +206,19 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             });
 
             _tracker.UpdateProgress(_operationId, clamped, stageKey);
-            await _notifications.NotifyAllAsync(_events.Progress, new ScheduledRunProgressEvent(
+            var progress = new ScheduledRunProgressEvent(
                 _serviceKey,
                 _operationId,
                 status.ToWireString(),
                 stageKey,
                 clamped,
                 context,
-                _showNotification));
+                _showNotification);
+            await SendAsync(
+                () => _notifications.NotifyAllAsync(
+                    _events.Progress,
+                    _payloadFactories?.Progress(progress) ?? progress),
+                "progress");
         }
         finally
         {
@@ -179,59 +230,159 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     /// Completes the run exactly once. The terminal event is produced by the tracker's terminal-emit
     /// gate, so a later duplicate completion (e.g. a racing force-kill) is a no-op.
     /// </summary>
-    public async Task CompleteAsync(bool success, string? error = null, bool cancelled = false)
+    public async Task CompleteAsync(
+        bool success,
+        string? error = null,
+        bool cancelled = false,
+        string? stageKey = null,
+        Dictionary<string, object?>? context = null)
     {
         if (!_started)
         {
             return;
         }
 
-        if (Interlocked.CompareExchange(ref _completed, 1, 0) != 0)
-        {
-            return;
-        }
-
-        // Publish the terminal context under the same gate the progress sends use, so the terminal
-        // payload cannot race a final in-flight ReportAsync.
         await _sendGate.WaitAsync(CancellationToken.None);
-        _sendGate.Release();
-
-        if (cancelled)
+        try
         {
-            // Mark the tracked op cancelled so CompleteOperation yields the Cancelled terminal state
-            // (distinct from a failure) before we complete it.
-            _tracker.CancelOperation(_operationId);
+            if (Interlocked.CompareExchange(ref _completed, 1, 0) == 0)
+            {
+                // Publish the terminal context under the same gate the progress sends use, so the terminal
+                // payload cannot race a final in-flight ReportAsync.
+                _terminalStageKey = stageKey ?? _completeStageKey;
+                _terminalStagePublished = true;
+                if (context is not null)
+                {
+                    _lastContext = context;
+                    _tracker.UpdateMetadata(_operationId, metadata =>
+                    {
+                        if (metadata is Dictionary<string, object?> bag)
+                        {
+                            bag["context"] = context;
+                        }
+                    });
+                }
+
+                _tracker.CompleteOperation(_operationId, success, error, cancelled);
+            }
+        }
+        finally
+        {
+            _sendGate.Release();
         }
 
-        _tracker.CompleteOperation(_operationId, success, error);
+        await _terminalEmitted.Task;
+    }
+
+    /// <summary>
+    /// Requests cancellation through the unified tracker after start, or cancels the local linked
+    /// source before start. The actual terminal payload remains owned by <see cref="CompleteAsync"/>.
+    /// </summary>
+    public bool RequestCancellation()
+    {
+        if (_started)
+        {
+            return _tracker.CancelOperation(_operationId);
+        }
+
+        _cts.Cancel();
+        return true;
     }
 
     // The single terminal emit, invoked exactly once by the tracker (CompletedFlag-gated). Success
     // carries 100; failure and cancellation carry the highest percent reached. Failure routes through
     // the uniform NotifyOperationFailedAsync funnel; success and cancellation broadcast directly.
-    private Task EmitTerminalAsync(OperationTerminalInfo info)
+    private async Task EmitTerminalAsync(OperationTerminalInfo info)
     {
-        var percent = info.Success ? 100d : _highestPercent;
-        var error = info.Success
-            ? null
-            : (info.Cancelled ? "Cancelled by user" : (info.Error ?? "Scheduled run failed"));
-
-        var terminal = new ScheduledRunCompleteEvent(
-            _serviceKey,
-            _operationId,
-            info.Success,
-            _completeStageKey,
-            percent,
-            error,
-            _lastContext,
-            _showNotification);
-
-        if (info.Success || info.Cancelled)
+        // An external tracker completion can arrive while Started or Progress is still in flight.
+        // Mark terminal immediately so no new progress starts, then join the same send gate so the
+        // already-started lifecycle send finishes before Complete is constructed and published.
+        Interlocked.Exchange(ref _completed, 1);
+        await _sendGate.WaitAsync(CancellationToken.None);
+        try
         {
-            return _notifications.NotifyAllAsync(_events.Complete, terminal);
+            var percent = info.Success ? 100d : _highestPercent;
+            var error = info.Success
+                ? null
+                : (info.Cancelled ? "Cancelled by user" : (info.Error ?? "Scheduled run failed"));
+
+            var status = info.Cancelled
+                ? OperationStatus.Cancelled
+                : info.Success ? OperationStatus.Completed : OperationStatus.Failed;
+            var terminalStageKey = _terminalStagePublished
+                ? _terminalStageKey
+                : _externalTerminalStageKey?.Invoke(info) ?? _terminalStageKey;
+            var terminal = new ScheduledRunCompleteEvent(
+                _serviceKey,
+                _operationId,
+                info.Success,
+                terminalStageKey,
+                percent,
+                error,
+                _lastContext,
+                _showNotification,
+                info.Cancelled,
+                status);
+            var payload = _payloadFactories?.Complete(terminal) ?? terminal;
+
+            if (info.Success || info.Cancelled)
+            {
+                await SendAsync(
+                    () => _notifications.NotifyAllAsync(_events.Complete, payload),
+                    "complete");
+            }
+            else
+            {
+                await SendAsync(
+                    () => _notifications.NotifyOperationFailedAsync(_events.Complete, payload),
+                    "complete");
+            }
+        }
+        finally
+        {
+            _sendGate.Release();
+            RunTerminalCleanup();
+            _terminalEmitted.TrySetResult();
+        }
+    }
+
+    private void RunTerminalCleanup()
+    {
+        if (_onTerminalCleanup is null
+            || Interlocked.Exchange(ref _terminalCleanupInvoked, 1) != 0)
+        {
+            return;
         }
 
-        return _notifications.NotifyOperationFailedAsync(_events.Complete, terminal);
+        try
+        {
+            _onTerminalCleanup();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(
+                ex,
+                "Terminal cleanup failed for {ServiceKey} operation {OperationId}",
+                _serviceKey,
+                _operationId);
+        }
+    }
+
+    private async Task SendAsync(Func<Task> send, string lifecyclePhase)
+    {
+        try
+        {
+            await send();
+        }
+        catch (Exception ex) when (_bestEffortNotifications)
+        {
+            _logger?.LogWarning(
+                ex,
+                "Failed to send {LifecyclePhase} lifecycle event for {ServiceKey} operation {OperationId}",
+                lifecyclePhase,
+                _serviceKey,
+                _operationId);
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -247,6 +398,11 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 cancelled: cancelled);
         }
 
+        if (_started)
+        {
+            await _terminalEmitted.Task;
+        }
+
         // The tracker is the CTS's single disposer once the run started; only an unstarted run's CTS
         // is ours to dispose.
         if (!_ctsHandedOff)
@@ -257,3 +413,13 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         _sendGate.Dispose();
     }
 }
+
+/// <summary>
+/// Optional adapters for producers that must preserve additive platform-specific fields while using
+/// the canonical scheduled-run lifecycle. The complete adapter must retain the
+/// <see cref="IOperationComplete"/> terminal contract.
+/// </summary>
+public sealed record ScheduledRunPayloadFactories(
+    Func<ScheduledRunStartedEvent, object> Started,
+    Func<ScheduledRunProgressEvent, object> Progress,
+    Func<ScheduledRunCompleteEvent, IOperationComplete> Complete);

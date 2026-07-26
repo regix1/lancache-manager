@@ -7,7 +7,11 @@ import { useTimeFilter } from '../useTimeFilter';
 import { useRefreshRate } from '../useRefreshRate';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import { useAuth } from '../useAuth';
-import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
+import {
+  SIGNALR_REFRESH_EVENTS,
+  type CacheClearCompleteEvent,
+  type EventHandler
+} from '../SignalRContext/types';
 import type {
   CacheInfo,
   ClientStat,
@@ -403,11 +407,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       }
     };
 
-    const handleCacheClearingComplete = () => {
-      clearDetectionState();
-      handleRefreshEvent('CacheClearingComplete');
-    };
-
     // Handler for game detection completion - always refresh game detection data
     // regardless of the current time range (detection data is not time-range dependent)
     const handleGameDetectionComplete = () => {
@@ -428,10 +427,16 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       );
     };
 
+    const handleCacheClearingComplete = (event: CacheClearCompleteEvent) => {
+      if (!event.success || event.cancelled) return;
+      clearDetectionState();
+      handleForcedRefreshEvent('CacheClearingComplete');
+    };
+
     // Events with dedicated handlers — the keys of this map drive both the
     // registration below and their exclusion from the debounced live-only list,
     // so adding an entry here is the single edit site.
-    const dedicatedHandlers: Record<string, () => void> = {
+    const dedicatedHandlers: Record<string, EventHandler> = {
       GameDetectionComplete: handleGameDetectionComplete,
       CacheClearingComplete: handleCacheClearingComplete,
       EvictionScanComplete: () => handleForcedRefreshEvent('EvictionScanComplete'),

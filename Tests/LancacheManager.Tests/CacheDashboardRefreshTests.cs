@@ -154,6 +154,49 @@ public sealed class CacheDashboardRefreshTests
     }
 
     [Fact]
+    public void SuccessfulCacheClear_InvalidatesAllDashboardVariantsBeforeBroadcast()
+    {
+        var notificationSource = ReadSource("Infrastructure", "Services", "SignalRNotificationService.cs");
+        var invalidationIndex = notificationSource.IndexOf(
+            "GetRequiredService<IDashboardBatchService>().InvalidateAllCache()",
+            StringComparison.Ordinal);
+        var broadcastIndex = notificationSource.IndexOf(
+            "_downloadHubContext.Clients.All.SendAsync(eventName, data)",
+            StringComparison.Ordinal);
+
+        Assert.Contains(
+            "eventName == SignalREvents.CacheClearingComplete",
+            notificationSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SignalRNotifications.CacheClearComplete { Success: true, Cancelled: false }",
+            notificationSource,
+            StringComparison.Ordinal);
+        Assert.True(invalidationIndex >= 0 && invalidationIndex < broadcastIndex);
+    }
+
+    [Fact]
+    public void DashboardBatch_InvalidateAllCache_AdvancesLiveAndDetectionGenerations()
+    {
+        var interfaceSource = ReadSource("Core", "Interfaces", "IDashboardBatchService.cs");
+        var batchSource = ReadSource("Core", "Services", "DashboardBatchService.cs");
+        var methodStart = batchSource.IndexOf("public void InvalidateAllCache()", StringComparison.Ordinal);
+        var liveIncrement = batchSource.IndexOf(
+            "Interlocked.Increment(ref _liveCacheGeneration)",
+            methodStart,
+            StringComparison.Ordinal);
+        var detectionIncrement = batchSource.IndexOf(
+            "Interlocked.Increment(ref _detectionCacheGeneration)",
+            methodStart,
+            StringComparison.Ordinal);
+
+        Assert.Contains("void InvalidateAllCache();", interfaceSource, StringComparison.Ordinal);
+        Assert.True(methodStart >= 0);
+        Assert.True(liveIncrement > methodStart);
+        Assert.True(detectionIncrement > methodStart);
+    }
+
+    [Fact]
     public void DashboardBatch_CapturesGenerationBeforeComputeAndGuardsCacheStore()
     {
         var source = ReadSource("Core", "Services", "DashboardBatchService.cs");

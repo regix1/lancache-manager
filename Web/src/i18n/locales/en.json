@@ -171,6 +171,8 @@
         "dataImport": "Data Import",
         "epicGameMapping": "Epic Game Mapping",
         "xboxGameMapping": "Xbox Game Mapping",
+        "battleNetGameMapping": "Battle.net Game Mapping",
+        "riotGameMapping": "Riot Game Mapping",
         "evictionScan": "Eviction Scan",
         "evictionRemoval": "Eviction Removal",
         "cacheSizeScan": "Cache File Scan",
@@ -198,6 +200,8 @@
       "cancelDataImport": "Cancel data import",
       "cancelEpicGameMapping": "Cancel Epic game mapping",
       "cancelXboxGameMapping": "Cancel Xbox game mapping",
+      "cancelBattleNetGameMapping": "Cancel Battle.net game mapping",
+      "cancelRiotGameMapping": "Cancel Riot game mapping",
       "cancelEvictionScan": "Cancel eviction scan",
       "cancelCacheSizeScan": "Cancel cache file scan",
       "cancelScheduledPrefill": "Cancel scheduled prefill",
@@ -550,7 +554,7 @@
       },
       "cacheFiles": {
         "term": "Cache Files",
-        "description": "Total files from the last whole-cache scan. Schedule automatic scans under Management → Schedules → Cache File Scan, or refresh manually in Management → Cache."
+        "description": "Total files from the last whole-cache scan. Schedule automatic scans under Management → Schedules → Cache File Scan, or start a manual scan in Management → Cache."
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
@@ -2412,7 +2416,7 @@
       "title": "Disk Cache Management",
       "summary": "Inspect and clear the cached game files stored on disk.",
       "subtitle": "Clear cached game files from disk",
-      "refreshCacheSize": "Refresh cache size",
+      "refreshCacheSize": "Scan cache size",
       "cacheSize": "Cache Size",
       "cacheSizeError": "Cache Size Error",
       "clearCache": "Clear Cache",
@@ -2425,7 +2429,7 @@
       "files": "Files",
       "directories": "Directories",
       "estDeletionTime": "Est. deletion time",
-      "clickRefreshToCalculate": "Click refresh to calculate cache size",
+      "clickScanToCalculate": "Run a cache size scan to calculate cache usage",
       "deletionMethod": "Deletion Method",
       "deleteModeSet": "Delete mode set to: {{mode}}",
       "deleteModes": {
@@ -3576,7 +3580,6 @@
     },
     "schedules": {
       "title": "Service Schedules",
-      "subtitle": "Configure how often background services run",
       "taskColumn": "Task",
       "startupOn": "Startup on",
       "startupOff": "Startup off",
@@ -3941,7 +3944,7 @@
           "displayName": "Cache File Scan",
           "description": "Walks the entire cache directory and totals every file on disk (mapped and unmapped). Updates the Cache Files dashboard stat, scan timestamp, and unmapped-cache hint.",
           "summary": "Totals every cached file on disk.",
-          "gain": "File counts and unmapped-cache totals stay current without clicking Refresh in Management → Cache",
+          "gain": "File counts and unmapped-cache totals stay current without starting a manual scan in Management → Cache",
           "loss": "The Cache Files stat and unmapped-cache subtitle may stay outdated until the next scan runs"
         },
         "gameDetection": {
@@ -6765,17 +6768,21 @@
       "completedDetail": "{{imported}} imported, {{skipped}} skipped, {{errors}} errors"
     },
     "depotMapping": {
+      "starting": "Starting depot mapping...",
       "batchProgress": "{{processedBatches}} / {{totalBatches}} batches",
-      "batchProgressWithMappings": "{{processedBatches}} / {{totalBatches}} batches • {{depotMappingsFound}} mappings found",
-      "mappingsFoundOnly": "{{depotMappingsFound}} mappings found",
       "github": {
         "downloading": "Downloading depot mappings from GitHub...",
-        "complete": "GitHub depot data imported - {{totalMappings}} mappings",
+        "complete": "GitHub depot data imported",
         "failed": "[GitHub Mode] {{errorDetail}}"
       },
       "cancelled": "Depot mapping scan cancelled",
-      "applyingToDownloads": "Applying depot mappings to downloads... {{processed}}/{{totalDownloads}}",
-      "finalized": "Depot mapping complete - {{updated}} downloads updated",
+      "saving": "Saving depot mappings...",
+      "resolvingOrphans": "Resolving orphaned depot mappings...",
+      "importing": "Importing depot mappings...",
+      "applyingToDownloads": "Applying depot mappings to downloads...",
+      "finalized": "Depot mapping complete",
+      "completed": "Depot mapping complete",
+      "failed": "Depot mapping failed",
       "scan": {
         "skippedFullRequired": "Scheduled scan skipped - full scan required"
       }
@@ -6783,11 +6790,10 @@
     "epicMapping": {
       "starting": "Starting Epic catalog refresh...",
       "fetchingGames": "Fetching owned games from Epic catalog...",
-      "refreshingCdn": "Discovered {{gamesDiscovered}} games, refreshing CDN patterns...",
+      "refreshingCdn": "Refreshing Epic CDN patterns...",
       "checkingFreeGames": "Checking for free game promotions...",
       "applyingMappings": "Resolving Epic downloads to game names...",
-      "gamesDiscovered": "Discovered {{gamesDiscovered}} games",
-      "completed": "Epic catalog refresh completed - {{gamesDiscovered}} games",
+      "completed": "Epic catalog refresh completed",
       "cancelled": "Epic catalog refresh cancelled",
       "failed": "Epic catalog refresh failed: {{errorDetail}}",
       "waitingSignIn": "Waiting for Epic sign-in...",
@@ -6817,9 +6823,27 @@
     },
     "xboxMapping": {
       "starting": "Starting Xbox catalog resolve...",
-      "gamesDiscovered": "Discovered {{gamesDiscovered}} games",
-      "cancelled": "Xbox sign-in cancelled",
+      "collecting": "Collecting Xbox catalog data...",
+      "resolving": "Resolving Xbox downloads to game names...",
+      "backfilling": "Backfilling Xbox game mappings...",
+      "completed": "Xbox catalog resolve completed",
+      "cancelled": "Xbox catalog resolve cancelled",
       "failed": "Xbox catalog resolve failed: {{errorDetail}}"
+    },
+    "battleNetMapping": {
+      "starting": "Starting Battle.net game mapping...",
+      "resolving": "Resolving Battle.net downloads to game names...",
+      "saving": "Saving Battle.net game mappings...",
+      "completed": "Battle.net game mapping completed",
+      "cancelled": "Battle.net game mapping cancelled",
+      "failed": "Battle.net game mapping failed"
+    },
+    "riotMapping": {
+      "starting": "Starting Riot game mapping...",
+      "resolving": "Resolving Riot downloads to game names...",
+      "completed": "Riot game mapping completed",
+      "cancelled": "Riot game mapping cancelled",
+      "failed": "Riot game mapping failed"
     },
     "xbox": {
       "mapping": {

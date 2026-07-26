@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services.BattleNet;
@@ -29,16 +31,20 @@ public class BattleNetMappingService
 
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly ISignalRNotificationService _notifications;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private readonly ILogger<BattleNetMappingService> _logger;
     private readonly Lazy<TactCatalog> _catalog;
+    private readonly SemaphoreSlim _resolveGate = new(1, 1);
 
     public BattleNetMappingService(
         IDbContextFactory<AppDbContext> dbContextFactory,
         ISignalRNotificationService notifications,
+        IUnifiedOperationTracker operationTracker,
         ILogger<BattleNetMappingService> logger)
     {
         _dbContextFactory = dbContextFactory;
         _notifications = notifications;
+        _operationTracker = operationTracker;
         _logger = logger;
         _catalog = new Lazy<TactCatalog>(LoadCatalog);
     }
@@ -51,86 +57,134 @@ public class BattleNetMappingService
     /// </summary>
     public async Task<int> ResolveDownloadsAsync(CancellationToken ct = default)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
-        const string blizzardServicePattern = "%blizzard%";
-
-        // Service names are normalized to lowercase during log processing, so a lowercase
-        // LIKE pattern preserves the intended matching while staying SQL-translatable.
-        var unresolvedDownloads = await db.Downloads
-            .Where(d => EF.Functions.Like(d.Service, blizzardServicePattern)
-                        && d.GameName == null
-                        && d.LastUrl != null)
-            .ToListAsync(ct);
-
-        if (unresolvedDownloads.Count == 0)
+        await _resolveGate.WaitAsync(ct);
+        try
         {
-            _logger.LogInformation("No unnamed Blizzard downloads with a LastUrl to resolve");
-            return 0;
-        }
+            await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
+            const string blizzardServicePattern = "%blizzard%";
+            var unresolvedDownloads = await db.Downloads
+                .Where(d => EF.Functions.Like(d.Service, blizzardServicePattern)
+                            && d.GameName == null
+                            && d.LastUrl != null)
+                .ToListAsync(ct);
 
-        var resolvedCount = 0;
-        var unmatchedSampleLogged = false;
-        foreach (var download in unresolvedDownloads)
-        {
-            if (string.IsNullOrEmpty(download.LastUrl)) continue;
-
-            var segment = ExtractTactSegment(download.LastUrl);
-            if (segment == null)
+            if (unresolvedDownloads.Count == 0)
             {
-                // Some products publish a CDN path with no tpr/ prefix (btlr is
-                // cortez/Cerberus-B-Live), so fall back to the first path segment, but only
-                // when the catalog knows it. An unknown root is an arbitrary Blizzard-vhost
-                // path, not a product, and must stay unnamed without tripping the
-                // unmapped-segment warning below.
-                var rootSegment = ExtractCdnPathRootSegment(download.LastUrl);
-                if (rootSegment == null
-                    || _catalog.Value.Resolve(rootSegment).Kind == TactResolutionKind.Unknown)
-                {
-                    continue;
-                }
-                segment = rootSegment;
+                _logger.LogInformation("No unnamed Blizzard downloads with a LastUrl to resolve");
+                return 0;
             }
 
-            var resolution = _catalog.Value.Resolve(segment);
-            if (resolution.Kind == TactResolutionKind.Unknown)
-            {
-                if (!unmatchedSampleLogged)
+            var processed = 0;
+            var resolvedCount = 0;
+            var lastReportedBucket = -1;
+            Dictionary<string, object?> Context(string? errorDetail = null) =>
+                new()
                 {
-                    _logger.LogWarning(
-                        "Unmapped Blizzard CDN path '{Segment}' (sample url: '{Url}')",
-                        segment, download.LastUrl);
-                    unmatchedSampleLogged = true;
-                }
-                continue;
-            }
+                    ["processed"] = processed,
+                    ["total"] = unresolvedDownloads.Count,
+                    ["mapped"] = resolvedCount,
+                    ["errorDetail"] = errorDetail,
+                };
 
-            // GameAppId stays NULL for Blizzard (no integer app id), matching ingest behavior.
-            download.GameName = resolution.Name;
-            resolvedCount++;
-        }
+            await using var reporter = new MappingOperationReporter(
+                _notifications,
+                _operationTracker,
+                MappingOperations.BattleNet,
+                showNotification: false,
+                ct,
+                _logger,
+                bestEffortNotifications: true);
+            await reporter.StartAsync(Context());
 
-        if (resolvedCount > 0)
-        {
-            await db.SaveChangesAsync(ct);
-            _logger.LogInformation(
-                "Resolved {Count}/{Total} Blizzard downloads to game names",
-                resolvedCount, unresolvedDownloads.Count);
-
-            // DownloadsRefresh so the dashboard re-pulls the renamed rows.
-            await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
+            try
             {
-                source = "blizzard-download-resolution",
-                resolvedCount
-            });
-        }
-        else
-        {
-            _logger.LogInformation(
-                "0 of {Count} unnamed Blizzard downloads matched the TACT catalog",
-                unresolvedDownloads.Count);
-        }
+                var unmatchedSampleLogged = false;
+                foreach (var download in unresolvedDownloads)
+                {
+                    reporter.Token.ThrowIfCancellationRequested();
+                    if (!string.IsNullOrEmpty(download.LastUrl))
+                    {
+                        var segment = ExtractTactSegment(download.LastUrl);
+                        if (segment == null)
+                        {
+                            var rootSegment = ExtractCdnPathRootSegment(download.LastUrl);
+                            if (rootSegment != null
+                                && _catalog.Value.Resolve(rootSegment).Kind != TactResolutionKind.Unknown)
+                            {
+                                segment = rootSegment;
+                            }
+                        }
 
-        return resolvedCount;
+                        if (segment != null)
+                        {
+                            var resolution = _catalog.Value.Resolve(segment);
+                            if (resolution.Kind != TactResolutionKind.Unknown)
+                            {
+                                download.GameName = resolution.Name;
+                                resolvedCount++;
+                            }
+                            else if (!unmatchedSampleLogged)
+                            {
+                                _logger.LogWarning(
+                                    "Unmapped Blizzard CDN path '{Segment}' (sample url: '{Url}')",
+                                    segment,
+                                    download.LastUrl);
+                                unmatchedSampleLogged = true;
+                            }
+                        }
+                    }
+
+                    processed++;
+                    var bucket = processed * 20 / unresolvedDownloads.Count;
+                    if (bucket > lastReportedBucket || processed == unresolvedDownloads.Count)
+                    {
+                        lastReportedBucket = bucket;
+                        await reporter.ReportAsync(
+                            processed * 90.0 / unresolvedDownloads.Count,
+                            "signalr.battleNetMapping.resolving",
+                            Context());
+                    }
+                }
+
+                if (resolvedCount > 0)
+                {
+                    await reporter.ReportAsync(
+                        95,
+                        "signalr.battleNetMapping.saving",
+                        Context());
+                    await db.SaveChangesAsync(reporter.Token);
+                    await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
+                    {
+                        source = "blizzard-download-resolution",
+                        resolvedCount
+                    });
+                }
+
+                await reporter.CompleteAsync(success: true, context: Context());
+                return resolvedCount;
+            }
+            catch (OperationCanceledException)
+            {
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: "Cancelled by user",
+                    cancelled: true,
+                    context: Context());
+                throw;
+            }
+            catch (Exception ex)
+            {
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: ex.Message,
+                    context: Context(ex.Message));
+                throw;
+            }
+        }
+        finally
+        {
+            _resolveGate.Release();
+        }
     }
 
     /// <summary>

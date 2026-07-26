@@ -590,7 +590,8 @@ public abstract class DaemonClientBase : IDaemonClient
         string type,
         Dictionary<string, string>? parameters,
         TimeSpan? timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onCommandDispatched = null)
     {
         var command = new CommandRequest
         {
@@ -634,6 +635,7 @@ public abstract class DaemonClientBase : IDaemonClient
                 // Send message body
                 await stream.WriteAsync(bytes, cancellationToken);
                 await stream.FlushAsync(cancellationToken);
+                onCommandDispatched?.Invoke();
 
                 _logger?.LogDebug("Sent command: {Type} ({Id})", type, command.Id);
             }
@@ -687,9 +689,25 @@ public abstract class DaemonClientBase : IDaemonClient
     /// <summary>
     /// Start login process.
     /// </summary>
-    public async Task<CredentialChallenge?> StartLoginAsync(
+    public Task<CredentialChallenge?> StartLoginAsync(
         TimeSpan? timeout = null,
         CancellationToken cancellationToken = default)
+        => StartLoginCoreAsync(timeout, onCommandDispatched: null, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<CredentialChallenge?> StartLoginWithDispatchAsync(
+        TimeSpan? timeout,
+        Action onCommandDispatched,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(onCommandDispatched);
+        return StartLoginCoreAsync(timeout, onCommandDispatched, cancellationToken);
+    }
+
+    private async Task<CredentialChallenge?> StartLoginCoreAsync(
+        TimeSpan? timeout,
+        Action? onCommandDispatched,
+        CancellationToken cancellationToken)
     {
         // Clear any pending challenges
         ClearPendingChallenges();
@@ -702,20 +720,39 @@ public abstract class DaemonClientBase : IDaemonClient
             _challengeWaiterOwnedByLogin = true;
         }
 
+        TaskCompletionSource? dispatchCompletion = null;
         try
         {
             // Send login command (don't await the response - it comes after auth is complete)
+            dispatchCompletion = onCommandDispatched is null
+                ? null
+                : new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await SendCommandAsync("login", timeout: TimeSpan.FromMinutes(10), cancellationToken: cancellationToken);
+                    await EnsureConnectedAsync(cancellationToken);
+                    await SendCoreAsync(
+                        "login",
+                        parameters: null,
+                        timeout: TimeSpan.FromMinutes(10),
+                        cancellationToken,
+                        dispatchCompletion is null
+                            ? null
+                            : () => dispatchCompletion.TrySetResult());
                 }
                 catch (Exception ex)
                 {
+                    dispatchCompletion?.TrySetException(ex);
                     _logger?.LogDebug(ex, "Login command completed or failed");
                 }
-            }, cancellationToken);
+            }, CancellationToken.None);
+
+            if (dispatchCompletion is not null)
+            {
+                await dispatchCompletion.Task;
+                onCommandDispatched!();
+            }
 
             // Wait for credential challenge with timeout
             using var timeoutCts = new CancellationTokenSource(timeout ?? TimeSpan.FromSeconds(30));
@@ -724,7 +761,9 @@ public abstract class DaemonClientBase : IDaemonClient
 
             return await challengeTcs.Task;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (
+            dispatchCompletion is null
+            || dispatchCompletion.Task.IsCompletedSuccessfully)
         {
             return null;
         }

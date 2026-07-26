@@ -167,6 +167,70 @@ const loginAttemptListeners = new Map<PersistentPrefillServiceId, Set<Listener>>
 // the replacement attempt's auth modal.
 const loginEpochs = new Map<PersistentPrefillServiceId, number>();
 
+interface PersistentLoginStartRequest {
+  sessionId: string;
+  editSessionId?: string;
+  editActionId?: string;
+}
+
+interface PersistentLoginEditAction {
+  editSessionId: string;
+  editActionId: string;
+}
+
+const requestedLoginStarts = new Map<PersistentPrefillServiceId, PersistentLoginStartRequest>();
+const activeLoginEditActions = new Map<PersistentPrefillServiceId, PersistentLoginEditAction>();
+
+export function setPersistentLoginStartSessionId(
+  service: PersistentPrefillServiceId,
+  sessionId: string,
+  editSessionId?: string,
+  editActionId?: string
+): void {
+  requestedLoginStarts.set(service, { sessionId, editSessionId, editActionId });
+}
+
+export function setPersistentLoginStartRequest(
+  service: PersistentPrefillServiceId,
+  request: PersistentLoginStartRequest
+): void {
+  requestedLoginStarts.set(service, request);
+}
+
+export function getPersistentLoginStartRequest(
+  service: PersistentPrefillServiceId
+): PersistentLoginStartRequest | undefined {
+  return requestedLoginStarts.get(service);
+}
+
+export function consumePersistentLoginStartRequest(
+  service: PersistentPrefillServiceId
+): PersistentLoginStartRequest | undefined {
+  const request = requestedLoginStarts.get(service);
+  requestedLoginStarts.delete(service);
+  if (request?.editSessionId && request.editActionId) {
+    activeLoginEditActions.set(service, {
+      editSessionId: request.editSessionId,
+      editActionId: request.editActionId
+    });
+  }
+  return request;
+}
+
+export function getPersistentLoginEditAction(
+  service: PersistentPrefillServiceId
+): PersistentLoginEditAction | undefined {
+  const active = activeLoginEditActions.get(service);
+  if (active) {
+    return active;
+  }
+
+  const requested = requestedLoginStarts.get(service);
+  return requested?.editSessionId && requested.editActionId
+    ? { editSessionId: requested.editSessionId, editActionId: requested.editActionId }
+    : undefined;
+}
+
 /** Reads the current login epoch for a service - see `loginEpochs`. Captured by start() when an
  *  attempt begins; a later mismatch marks that attempt's settlement as stale. */
 export function getPersistentLoginEpoch(service: PersistentPrefillServiceId): number {
@@ -186,6 +250,7 @@ export function getPersistentLoginEpoch(service: PersistentPrefillServiceId): nu
 function invalidateInFlightLogin(service: PersistentPrefillServiceId): void {
   loginEpochs.set(service, (loginEpochs.get(service) ?? 0) + 1);
   startPromises.delete(service);
+  activeLoginEditActions.delete(service);
   const cancelFlag = cancelFlags.get(service);
   if (cancelFlag) {
     cancelFlag.current = false;
@@ -251,6 +316,8 @@ export function armPersistentLoginTimeout(service: PersistentPrefillServiceId): 
 
 export function resetPersistentLoginState(service: PersistentPrefillServiceId): void {
   clearPersistentLoginTimeout(service);
+  requestedLoginStarts.delete(service);
+  activeLoginEditActions.delete(service);
   const current = states.get(service);
   if (current === undefined || current === INITIAL_PERSISTENT_LOGIN_STATE) {
     // Already at rest - skip the Map write + subscriber notify. Matters because a container-list
@@ -265,6 +332,17 @@ export function resetPersistentLoginState(service: PersistentPrefillServiceId): 
   invalidateInFlightLogin(service);
   states.set(service, INITIAL_PERSISTENT_LOGIN_STATE);
   notify(service);
+}
+
+export function retirePersistentLoginState(service: PersistentPrefillServiceId): void {
+  clearPersistentLoginTimeout(service);
+  requestedLoginStarts.delete(service);
+  invalidateInFlightLogin(service);
+  const current = states.get(service);
+  if (current !== undefined && current !== INITIAL_PERSISTENT_LOGIN_STATE) {
+    states.set(service, INITIAL_PERSISTENT_LOGIN_STATE);
+    notify(service);
+  }
 }
 
 /**
@@ -387,6 +465,14 @@ export function usePersistentLoginStoreState(
 export function hasActivePersistentLogin(service: PersistentPrefillServiceId): boolean {
   const state = getPersistentLoginState(service);
   return state.loading || state.pendingChallenge !== null;
+}
+
+export function hasPersistentLoginIntent(service: PersistentPrefillServiceId): boolean {
+  return (
+    requestedLoginStarts.has(service) ||
+    activeLoginEditActions.has(service) ||
+    hasActivePersistentLogin(service)
+  );
 }
 
 /**

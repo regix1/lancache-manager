@@ -25,6 +25,8 @@ export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, Notificati
   logRemoval: 'log_removal',
   epicMapping: 'epic_game_mapping',
   xboxMapping: 'xbox_game_mapping',
+  battleNetMapping: 'battle_net_game_mapping',
+  riotMapping: 'riot_game_mapping',
   evictionScan: 'eviction_scan',
   evictionRemoval: 'eviction_removal',
   cacheSizeScan: 'cache_size_scan',
@@ -55,7 +57,9 @@ export const SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY: Partial<Record<Notifica
     game_detection: 'gameDetection',
     depot_mapping: 'depotMapping',
     epic_game_mapping: 'epicMapping',
-    xbox_game_mapping: 'xboxMapping'
+    xbox_game_mapping: 'xboxMapping',
+    battle_net_game_mapping: 'battleNetMapping',
+    riot_game_mapping: 'riotMapping'
   };
 
 /**
@@ -177,6 +181,10 @@ export const NOTIFICATION_STORAGE_KEYS = {
   EPIC_GAME_MAPPING: 'notification_epic_game_mapping',
   /** Key for Xbox game mapping operation state */
   XBOX_GAME_MAPPING: 'notification_xbox_game_mapping',
+  /** Key for Battle.net game mapping operation state */
+  BATTLE_NET_GAME_MAPPING: 'notification_battle_net_game_mapping',
+  /** Key for Riot game mapping operation state */
+  RIOT_GAME_MAPPING: 'notification_riot_game_mapping',
   /** Key for eviction scan operation state */
   EVICTION_SCAN: 'eviction-scan-storage',
   /** Key for eviction removal operation state */
@@ -234,10 +242,18 @@ export const NOTIFICATION_IDS = {
   CORRUPTION_DETECTION: 'corruption_detection',
   /** ID for data import operations */
   DATA_IMPORT: 'data_import',
-  /** ID for Epic game mapping updates */
+  /** ID for the tracked Epic mapping lifecycle */
   EPIC_GAME_MAPPING: 'epic_game_mapping',
-  /** ID for Xbox game mapping updates */
+  /** ID for Epic's secondary catalog-data update toast */
+  EPIC_GAME_MAPPING_UPDATE: 'epic_game_mapping_update',
+  /** ID for the tracked Xbox mapping lifecycle */
   XBOX_GAME_MAPPING: 'xbox_game_mapping',
+  /** ID for Xbox's secondary catalog-data update toast */
+  XBOX_GAME_MAPPING_UPDATE: 'xbox_game_mapping_update',
+  /** ID for Battle.net game mapping updates */
+  BATTLE_NET_GAME_MAPPING: 'battle_net_game_mapping',
+  /** ID for Riot game mapping updates */
+  RIOT_GAME_MAPPING: 'riot_game_mapping',
   /** ID for Steam session errors */
   STEAM_SESSION_ERROR: 'steam_session_error',
   /** ID for eviction scan operations */

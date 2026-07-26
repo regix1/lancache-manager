@@ -1,7 +1,7 @@
 using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
-using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Core.Services.EpicMapping;
 
@@ -10,430 +10,314 @@ public partial class EpicMappingService
     public string ScheduleServiceKey => "epicMapping";
 
     protected override bool SupportsNotifications => true;
-    // Anonymous catalog refresh that self-heals on the next run: scheduled runs stay quiet by
-    // default; manually triggered runs still notify.
     protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
 
-    /// <summary>
-    /// Display flag for the run currently in flight, resolved once per ExecuteWorkAsync call from
-    /// CurrentRunTrigger so it stays stable across the whole refresh (TryStartRefresh/
-    /// RefreshCatalogAsync run later, on a background Task). Lifecycle events are ALWAYS emitted; the
-    /// frontend gates the card on this flag (display-flag pattern, not transport suppression).
-    /// </summary>
     private bool _showNotification = true;
 
-    /// <summary>
-    /// Called by the ConfigurableScheduledService base class on each interval tick.
-    /// Checks preconditions and triggers a catalog refresh if appropriate.
-    /// Awaits the background refresh task so the base class sets LastRunUtc and fires the run-end
-    /// ServiceExecutionStateChanged broadcast only after the actual catalog refresh finishes.
-    /// </summary>
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
         if (_cancellationTokenSource.Token.IsCancellationRequested || Volatile.Read(ref _isRunning) == 0)
+        {
             return;
+        }
 
         await WaitForAutoReconnectAsync(stoppingToken);
-
-        if (_cancellationTokenSource.Token.IsCancellationRequested || Volatile.Read(ref _isRunning) == 0)
+        if (!_isAuthenticated || _currentTokens is null)
+        {
             return;
-
-        // Skip if not authenticated (need valid tokens to refresh)
-        if (!_isAuthenticated || _currentTokens == null)
-            return;
-
-        _showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        }
 
         _logger.LogInformation("Starting scheduled Epic catalog refresh");
-
-        if (TryStartRefresh())
+        if (TryStartRefresh(stoppingToken, CurrentRunTrigger) && _currentRefreshTask is not null)
         {
-            // Await the background task so the base class sets LastRunUtc and fires the run-end
-            // ServiceExecutionStateChanged broadcast only after the actual catalog refresh finishes -
-            // not immediately after TryStartRefresh returns.
-            if (_currentRefreshTask is not null)
-            {
-                await _currentRefreshTask;
-            }
+            await _currentRefreshTask;
         }
     }
 
-    /// <summary>
-    /// Starts a catalog refresh in the background. Returns true if started, false if already running.
-    /// Mirrors SteamKit2Service.TryStartRebuild() - used by both periodic timer and manual "Apply Now".
-    /// </summary>
-    public bool TryStartRefresh(CancellationToken cancellationToken = default)
+    public bool TryStartRefresh(
+        CancellationToken cancellationToken = default,
+        RunTrigger trigger = RunTrigger.Manual)
     {
         if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0)
         {
             return false;
         }
 
-        if (!_isAuthenticated || _currentTokens == null)
+        if (!_isAuthenticated || _currentTokens is null)
         {
             Interlocked.Exchange(ref _isProcessingInt, 0);
             return false;
         }
 
-        // Create per-operation CTS linked to service-level CTS (mirrors Steam's _currentRebuildCts)
-        _currentRefreshCts?.Dispose();
+        _showNotification = EffectiveNotificationMode.AllowsTrigger(trigger);
+        CancellationTokenSource runCts;
         try
         {
-            _currentRefreshCts = cancellationToken.CanBeCanceled
-                ? CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token, cancellationToken)
-                : CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
+            runCts = CancellationTokenSource.CreateLinkedTokenSource(
+                _cancellationTokenSource.Token,
+                cancellationToken);
         }
         catch (ObjectDisposedException)
         {
-            _currentRefreshCts = cancellationToken.CanBeCanceled
-                ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
-                : new CancellationTokenSource();
+            runCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         }
 
-        // Register with operation tracker (mirrors Steam's TryStartRebuild).
-        // onTerminalCleanup is the safety net for the universal force-kill path, which completes the
-        // operation immediately (no associated process) WITHOUT unwinding the worker finally below.
-        // It mirrors that finally (lines 163-167): release the busy flag, dispose+null the per-op CTS,
-        // null the current operation id, and reset status to Idle so the next TryStartRefresh can run.
-        _currentOperationId = _operationTracker.RegisterOperation(
-            OperationType.EpicMapping,
-            "Epic Catalog Refresh",
-            _currentRefreshCts,
-            onTerminalCleanup: () =>
-            {
-                Interlocked.Exchange(ref _isProcessingInt, 0);
-                _currentProgressPercent = 0;
-                _currentRefreshCts?.Dispose();
-                _currentRefreshCts = null;
-                _currentOperationId = null;
-                _currentStatus = EpicMappingStatus.Idle;
-            },
-            onTerminalEmit: info =>
-            {
-                // Always emit the terminal event; the display flag (not transport suppression)
-                // decides whether the frontend surfaces the card.
-                return info.Cancelled
-                    ? _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
-                        new EpicMappingComplete(
-                            OperationId: _currentOperationId, Success: false,
-                            Status: OperationStatus.Completed,
-                            StageKey: "signalr.epicMapping.cancelled",
-                            PercentComplete: 100.0, GamesDiscovered: _gamesDiscovered,
-                            Cancelled: true, Context: new Dictionary<string, object?>(),
-                            ShowNotification: _showNotification))
-                    : info.Success
-                        ? _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
-                            new EpicMappingComplete(
-                                OperationId: _currentOperationId, Success: true,
-                                Status: OperationStatus.Completed,
-                                StageKey: "signalr.epicMapping.completed",
-                                PercentComplete: 100.0, GamesDiscovered: _gamesDiscovered,
-                                Message: $"Epic catalog refresh completed - {_gamesDiscovered} games",
-                                Context: new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered },
-                                ShowNotification: _showNotification))
-                        : _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
-                            new EpicMappingComplete(
-                                OperationId: _currentOperationId, Success: false,
-                                Status: OperationStatus.Failed,
-                                StageKey: "signalr.epicMapping.failed",
-                                PercentComplete: 0.0, GamesDiscovered: _gamesDiscovered,
-                                Error: info.Error,
-                                Context: new Dictionary<string, object?> { ["errorDetail"] = info.Error },
-                                ShowNotification: _showNotification));
-            }
-        );
-
+        _currentRefreshCts = runCts;
         _currentProgressPercent = 0;
         _lastNewGames = 0;
         _lastUpdatedGames = 0;
 
         _currentRefreshTask = Task.Run(async () =>
         {
-            var success = false;
-            string? errorMessage = null;
+            await using var reporter = CreateEpicMappingReporter(
+                runCts.Token,
+                () =>
+                {
+                    if (ReferenceEquals(_currentRefreshCts, runCts))
+                    {
+                        _currentRefreshCts = null;
+                        _currentMappingReporter = null;
+                        _currentOperationId = null;
+                    }
+
+                    _currentProgressPercent = 0;
+                    _currentStatus = EpicMappingStatus.Idle;
+                    Interlocked.Exchange(ref _isProcessingInt, 0);
+                });
+            _currentMappingReporter = reporter;
 
             try
             {
-                // Always emit the initial 0% Started event and AWAIT it before any progress event so
-                // a slow Started send cannot land after the first 15% tick (the 0-after-15 race).
-                await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
-                {
-                    operationId = _currentOperationId,
-                    status = "starting",
-                    percentComplete = 0.0,
-                    gamesDiscovered = _gamesDiscovered,
-                    stageKey = "signalr.epicMapping.starting",
-                    showNotification = _showNotification
-                });
-
+                await reporter.StartAsync(CreateEpicContext());
+                _currentOperationId = reporter.OperationId;
                 _currentStatus = EpicMappingStatus.RefreshingCatalog;
 
-                await RefreshCatalogAsync(_currentRefreshCts.Token);
-
+                await RefreshCatalogAsync(reporter, reporter.Token);
                 _lastRefreshTime = DateTime.UtcNow;
-                _currentStatus = EpicMappingStatus.Idle;
-                success = true;
-
-                // Persist last refresh time so it survives restarts (mirrors Steam's SaveLastCrawlTime)
                 _authStorage.UpdateAuthData(data => data.LastAuthenticated = _lastRefreshTime);
 
+                await reporter.CompleteAsync(
+                    success: true,
+                    context: CreateEpicContext());
                 _logger.LogInformation("Epic catalog refresh completed successfully");
             }
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Epic catalog refresh cancelled");
-                errorMessage = "Operation cancelled";
-
-                // Terminal cancellation SignalR is emitted exactly once from the onTerminalEmit
-                // closure (CompletedFlag-gated) via CompleteOperation in the finally below.
-                _currentProgressPercent = 0;
-                _currentStatus = EpicMappingStatus.Idle;
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: "Cancelled by user",
+                    cancelled: true,
+                    context: CreateEpicContext());
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Epic catalog refresh failed");
-                errorMessage = ex.Message;
-
-                // Terminal failure SignalR (status=failed, context[errorDetail]) is emitted exactly
-                // once from the onTerminalEmit closure via CompleteOperation in the finally below.
-                _currentProgressPercent = 0;
-                _currentStatus = EpicMappingStatus.Idle;
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: ex.Message,
+                    context: CreateEpicContext(ex.Message));
             }
             finally
             {
-                // Complete the operation in the tracker (mirrors Steam's finally block)
-                if (_currentOperationId.HasValue)
+                runCts.Dispose();
+                if (ReferenceEquals(_currentRefreshCts, runCts))
                 {
-                    _operationTracker.CompleteOperation(_currentOperationId.Value, success, errorMessage);
+                    _currentRefreshCts = null;
+                    _currentMappingReporter = null;
+                    _currentOperationId = null;
+                    _currentProgressPercent = 0;
+                    _currentStatus = EpicMappingStatus.Idle;
+                    Interlocked.Exchange(ref _isProcessingInt, 0);
                 }
-
-                _currentProgressPercent = 0;
-                _currentRefreshCts?.Dispose();
-                _currentRefreshCts = null;
-                _currentOperationId = null;
-                Interlocked.Exchange(ref _isProcessingInt, 0);
             }
-        });
+        }, CancellationToken.None);
 
         return true;
     }
 
+    private MappingOperationReporter CreateEpicMappingReporter(
+        CancellationToken token,
+        Action? onTerminalCleanup = null) =>
+        new(
+            _notifications,
+            _operationTracker,
+            MappingOperations.Epic,
+            _showNotification,
+            token,
+            _logger,
+            onTerminalCleanup: onTerminalCleanup);
+
+    private Dictionary<string, object?> CreateEpicContext(string? errorDetail = null) =>
+        new()
+        {
+            ["gamesDiscovered"] = _gamesDiscovered,
+            ["newGames"] = _lastNewGames,
+            ["updatedGames"] = _lastUpdatedGames,
+            ["errorDetail"] = errorDetail,
+        };
+
     private async Task WaitForAutoReconnectAsync(CancellationToken stoppingToken)
     {
-        if (_startupAutoReconnectCompleted.Task.IsCompleted)
+        if (!_startupAutoReconnectCompleted.Task.IsCompleted)
         {
-            return;
+            _logger.LogInformation("Waiting for Epic startup auto-reconnect to finish before scheduled refresh");
+            await _startupAutoReconnectCompleted.Task.WaitAsync(stoppingToken);
         }
-
-        _logger.LogInformation("Waiting for Epic startup auto-reconnect to finish before scheduled refresh");
-        await _startupAutoReconnectCompleted.Task.WaitAsync(stoppingToken);
     }
 
-    /// <summary>
-    /// Cancels the current Epic catalog refresh if one is running.
-    /// Mirrors SteamKit2Service.CancelRebuildAsync() pattern.
-    /// </summary>
     public Task<bool> CancelRefreshAsync()
     {
-        if (_isProcessingInt == 0 || _currentRefreshCts == null)
+        if (_isProcessingInt == 0 || _currentRefreshCts is null)
         {
             return Task.FromResult(false);
         }
 
-        _logger.LogInformation("Cancelling active Epic catalog refresh (operationId: {OperationId})", _currentOperationId);
-
+        _logger.LogInformation(
+            "Cancelling active Epic catalog refresh (operationId: {OperationId})",
+            _currentOperationId);
+        _currentMappingReporter?.RequestCancellation();
         try
         {
             _currentRefreshCts.Cancel();
+            return Task.FromResult(true);
         }
         catch (ObjectDisposedException)
         {
             return Task.FromResult(false);
         }
-
-        return Task.FromResult(true);
     }
 
-    /// <summary>
-    /// Refreshes the Epic game catalog by re-fetching owned games, CDN patterns,
-    /// then resolving downloads. Sends progress events at each stage.
-    /// </summary>
-    private async Task RefreshCatalogAsync(CancellationToken ct)
+    private async Task RefreshCatalogAsync(
+        MappingOperationReporter reporter,
+        CancellationToken cancellationToken)
     {
         _lastNewGames = 0;
         _lastUpdatedGames = 0;
         _currentProgressPercent = 0;
 
-        // First, try to refresh the token if it's expired
-        if (_currentTokens != null && _currentTokens.ExpiresAt <= DateTime.UtcNow)
+        if (_currentTokens is not null && _currentTokens.ExpiresAt <= DateTime.UtcNow)
         {
             _logger.LogInformation("Access token expired, refreshing before catalog update...");
             try
             {
-                var tokens = await _epicApiClient.RefreshTokenAsync(_currentTokens.RefreshToken, ct);
+                var tokens = await _epicApiClient.RefreshTokenAsync(
+                    _currentTokens.RefreshToken,
+                    cancellationToken);
                 _currentTokens = tokens;
-                _logger.LogDebug("Epic token refreshed successfully, proceeding with catalog update");
-
-                var authData = new EpicAuthData
+                _authStorage.SaveAuthData(new EpicAuthData
                 {
                     RefreshToken = tokens.RefreshToken,
                     DisplayName = tokens.DisplayName,
                     AccountId = tokens.AccountId,
                     LastAuthenticated = DateTime.UtcNow,
                     GamesDiscovered = _gamesDiscovered
-                };
-                _authStorage.SaveAuthData(authData);
-
+                });
                 _displayName = tokens.DisplayName;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Token refresh failed during catalog update, clearing credentials");
                 _authStorage.ClearAuthData();
                 SetIsAuthenticated(false);
                 _displayName = null;
                 _gamesDiscovered = 0;
                 _currentTokens = null;
-                return;
+                throw new InvalidOperationException("Epic access token refresh failed", ex);
             }
         }
 
-        if (_currentTokens == null)
+        if (_currentTokens is null)
         {
-            _logger.LogWarning("No valid tokens available for catalog refresh");
-            return;
+            throw new InvalidOperationException("No valid Epic token is available for catalog refresh");
         }
 
-        ct.ThrowIfCancellationRequested();
-
-        // Fetch owned games
         _currentProgressPercent = 15;
-        await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
-        {
-            operationId = _currentOperationId,
-            status = "Fetching owned games...",
-            percentComplete = 15.0,
-            gamesDiscovered = _gamesDiscovered,
-            stageKey = "signalr.epicMapping.fetchingGames",
-            context = new Dictionary<string, object?>(),
-            showNotification = _showNotification
-        });
-
-        var games = await _epicApiClient.GetOwnedGamesAsync(_currentTokens.AccessToken, ct);
+        await reporter.ReportAsync(
+            15,
+            "signalr.epicMapping.fetchingGames",
+            CreateEpicContext());
+        var games = await _epicApiClient.GetOwnedGamesAsync(
+            _currentTokens.AccessToken,
+            cancellationToken);
         if (games.Count > 0)
         {
             var sessionHash = CryptoUtils.ComputeAnonymousHash("mapping-session");
-            var result = await MergeOwnedGamesAsync(games, sessionHash, "scheduled-refresh", ct);
-
+            var result = await MergeOwnedGamesAsync(
+                games,
+                sessionHash,
+                "scheduled-refresh",
+                cancellationToken);
             _gamesDiscovered = result.TotalGames;
             _lastCollectionUtc = DateTime.UtcNow;
-            // Persist so a scheduled refresh's collection time survives restarts
-            // (auth storage's LastAuthenticated only tracks login/token-refresh).
             _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
             _lastNewGames += result.NewGames;
             _lastUpdatedGames += result.UpdatedGames;
-
-            _logger.LogInformation(
-                "Catalog refresh: {New} new, {Updated} updated, {Total} total games",
-                result.NewGames, result.UpdatedGames, result.TotalGames);
         }
 
-        ct.ThrowIfCancellationRequested();
-
-        // Refresh CDN patterns
         _currentProgressPercent = 40;
-        await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
-        {
-            operationId = _currentOperationId,
-            status = "Refreshing CDN patterns...",
-            percentComplete = 40.0,
-            gamesDiscovered = _gamesDiscovered,
-            stageKey = "signalr.epicMapping.refreshingCdn",
-            context = new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered },
-            showNotification = _showNotification
-        });
-
+        await reporter.ReportAsync(
+            40,
+            "signalr.epicMapping.refreshingCdn",
+            CreateEpicContext());
         try
         {
-            var cdnInfos = await _epicApiClient.GetCdnInfoAsync(_currentTokens.AccessToken, ct);
+            var cdnInfos = await _epicApiClient.GetCdnInfoAsync(
+                _currentTokens.AccessToken,
+                cancellationToken);
             if (cdnInfos.Count > 0)
             {
-                await MergeCdnPatternsAsync(cdnInfos, ct);
-                _logger.LogInformation("Catalog refresh CDN patterns: {Count}", cdnInfos.Count);
+                await MergeCdnPatternsAsync(cdnInfos, cancellationToken);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Failed to refresh CDN patterns during catalog update");
+            _logger.LogWarning(ex, "Failed to refresh Epic CDN patterns");
         }
 
-        ct.ThrowIfCancellationRequested();
-
-        // Discover free games
         _currentProgressPercent = 60;
-        await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
-        {
-            operationId = _currentOperationId,
-            status = "Discovering free games...",
-            percentComplete = 60.0,
-            gamesDiscovered = _gamesDiscovered,
-            stageKey = "signalr.epicMapping.checkingFreeGames",
-            context = new Dictionary<string, object?>(),
-            showNotification = _showNotification
-        });
-
+        await reporter.ReportAsync(
+            60,
+            "signalr.epicMapping.checkingFreeGames",
+            CreateEpicContext());
         try
         {
-            var freeGames = await _epicApiClient.GetFreeGamesAsync(ct);
+            var freeGames = await _epicApiClient.GetFreeGamesAsync(cancellationToken);
             if (freeGames.Count > 0)
             {
                 var sessionHash = CryptoUtils.ComputeAnonymousHash("free-games-discovery");
-                var freeResult = await MergeOwnedGamesAsync(freeGames, sessionHash, "free-games", ct);
-                _lastNewGames += freeResult.NewGames;
-                _lastUpdatedGames += freeResult.UpdatedGames;
-                _logger.LogInformation(
-                    "Free games discovery: {New} new, {Updated} updated from {Count} promotions",
-                    freeResult.NewGames, freeResult.UpdatedGames, freeGames.Count);
+                var result = await MergeOwnedGamesAsync(
+                    freeGames,
+                    sessionHash,
+                    "free-games",
+                    cancellationToken);
+                _lastNewGames += result.NewGames;
+                _lastUpdatedGames += result.UpdatedGames;
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogDebug(ex, "Free games discovery skipped or failed (non-critical)");
+            _logger.LogDebug(ex, "Epic free-game discovery skipped");
         }
 
-        ct.ThrowIfCancellationRequested();
-
-        // Resolve downloads against CDN patterns (mirrors Steam applying depot mappings after scan)
         _currentProgressPercent = 85;
-        await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
-        {
-            operationId = _currentOperationId,
-            status = "Applying mappings to downloads...",
-            percentComplete = 85.0,
-            gamesDiscovered = _gamesDiscovered,
-            stageKey = "signalr.epicMapping.applyingMappings",
-            context = new Dictionary<string, object?>(),
-            showNotification = _showNotification
-        });
-
+        await reporter.ReportAsync(
+            85,
+            "signalr.epicMapping.applyingMappings",
+            CreateEpicContext());
         try
         {
-            var resolved = await ResolveDownloadsAsync(ct);
-            if (resolved > 0)
-            {
-                _logger.LogInformation("Resolved {Count} Epic downloads to game names", resolved);
-            }
+            await ResolveDownloadsAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Failed to resolve Epic downloads (non-fatal)");
+            _logger.LogWarning(ex, "Failed to resolve Epic downloads");
         }
 
-        // Terminal completion SignalR (status=completed, percentComplete=100, success message) is
-        // emitted exactly once from the onTerminalEmit closure via CompleteOperation in TryStartRefresh.
-        _currentProgressPercent = 100;
-
-        // Notify frontend of data updates
+        _currentProgressPercent = 99;
         await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
         {
             totalGames = _gamesDiscovered,

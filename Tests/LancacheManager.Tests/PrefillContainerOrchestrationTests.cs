@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Reflection;
+using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
@@ -696,7 +697,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
     [Fact]
     public async Task CancelPrefillAsync_DaemonRejects_PreservesActiveSessionAndHistoryAsync()
     {
-        var (_, dbFactory) = NewDatabase();
+        var (dbOptions, dbFactory) = NewDatabase();
         var sessionService = new PrefillSessionService(
             dbFactory,
             NullLogger<PrefillSessionService>.Instance);
@@ -806,6 +807,76 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         var cancelledHistory = Assert.Single(await sessionService.GetHistoryAsync(session.Id));
         Assert.Equal(PrefillHistoryEntryStatus.Cancelled, cancelledHistory.Status);
         Assert.NotNull(cancelledHistory.CompletedAtUtc);
+
+        daemon.Dispose();
+    }
+
+    [Fact]
+    public async Task EditOwnedStart_RequestAbortAfterDockerStart_CleanupWaitsAndRemovesContainerAsync()
+    {
+        var (dbOptions, dbFactory) = NewDatabase();
+        var sessionService = new PrefillSessionService(
+            dbFactory,
+            NullLogger<PrefillSessionService>.Instance);
+        var gateway = new RecordingContainerGateway { HoldStartContainer = true };
+        var deps = MakeDeps(
+            dbFactory,
+            sessionService,
+            Config(PersistenceMode.FullPersistence, steamEnabled: true));
+        var daemon = new TestSteamDaemon(deps, gateway);
+        var controller = new PersistentPrefillController(
+            new SingleDaemonServiceProvider(daemon),
+            deps.StateService,
+            deps.CacheService,
+            NullLogger<PersistentPrefillController>.Instance);
+        using var requestAbort = new CancellationTokenSource();
+
+        var start = controller.StartAsync(
+            new StartPersistentSessionRequest
+            {
+                Service = PrefillPlatform.Steam,
+                EditSessionId = "edit-session-abort",
+                EditActionId = "start-abort"
+            },
+            requestAbort.Token);
+
+        await gateway.StartContainerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, gateway.ContainerCount);
+        requestAbort.Cancel();
+
+        var cleanup = controller.CleanupEditSessionAsync(
+            new PersistentPrefillEditSessionCleanupRequest
+            {
+                EditSessionId = "edit-session-abort",
+                CleanupId = "cleanup-abort",
+                Services =
+                [
+                    new PersistentPrefillEditSessionCleanupServiceRequest
+                    {
+                        Service = PrefillPlatform.Steam,
+                        BaselineSessionId = null,
+                        BaselineSelectedAppIds = [],
+                        StartSessionId = null,
+                        LoginSessionId = null,
+                        PrefillSessionId = null,
+                        SelectionSessionId = null
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        await Task.Delay(100);
+        Assert.False(start.IsCompleted);
+        Assert.False(cleanup.IsCompleted);
+        Assert.Equal(1, gateway.ContainerCount);
+
+        gateway.ReleaseStartContainer.TrySetResult();
+        await start;
+        await cleanup;
+
+        Assert.Equal(0, gateway.ContainerCount);
+        Assert.Empty(SessionsOf(daemon));
+        Assert.Null(await GetActivePersistentRowAsync(dbOptions, PrefillPlatform.Steam));
 
         daemon.Dispose();
     }
@@ -1067,6 +1138,19 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         public PooledDbFactory(DbContextOptions<AppDbContext> options) => _options = options;
         public AppDbContext CreateDbContext() => new(_options);
         public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) => Task.FromResult(new AppDbContext(_options));
+    }
+
+    private sealed class SingleDaemonServiceProvider : IServiceProvider
+    {
+        private readonly SteamDaemonService _daemon;
+
+        public SingleDaemonServiceProvider(SteamDaemonService daemon)
+        {
+            _daemon = daemon;
+        }
+
+        public object? GetService(Type serviceType) =>
+            serviceType == typeof(SteamDaemonService) ? _daemon : null;
     }
 
     private sealed class StaticOptionsMonitor : IOptionsMonitor<PrefillNetworkOptions>

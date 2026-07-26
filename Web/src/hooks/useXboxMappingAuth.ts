@@ -3,7 +3,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import ApiService from '@services/api.service';
 import { useErrorHandler } from './useErrorHandler';
 import { getErrorMessage } from '@utils/error';
-import type { XboxMappingProgressEvent } from '../contexts/SignalRContext/types';
+import type { XboxMappingAuthStateChangedEvent } from '../contexts/SignalRContext/types';
 
 interface UseXboxMappingAuthOptions {
   onSuccess?: () => void;
@@ -36,7 +36,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const [deviceVerificationUri, setDeviceVerificationUri] = useState('');
   const [abortController, setAbortController] = useState<AbortController | null>(null);
 
-  // True while a manager-side login is in flight; gates the XboxMappingProgress listener so
+  // True while a manager-side login is in flight; gates the auth-state listener so
   // unrelated terminal events (catalog refresh) do not close the modal prematurely.
   const loginInProgressRef = useRef(false);
 
@@ -52,28 +52,23 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     setAbortController(null);
   }, [abortController]);
 
-  // Listen for the terminal XboxMappingProgress event that signals login success or failure.
-  // The gate (loginInProgressRef) prevents catalog-refresh events from being mistaken for auth.
+  // Listen for the dedicated, non-notification auth event that signals login success or failure.
   useEffect(() => {
-    const handleProgress = (event: XboxMappingProgressEvent) => {
+    const handleAuthStateChanged = (event: XboxMappingAuthStateChangedEvent) => {
       if (!loginInProgressRef.current) return;
       if (!TERMINAL_STATUSES.has(event.status)) return;
       loginInProgressRef.current = false;
       setNeedsDeviceCode(false);
       setLoading(false);
-      if (event.status === 'completed' && !event.cancelled) {
+      if (event.status === 'completed') {
         onSuccess?.();
+      } else if (event.status === 'failed') {
+        onError?.(event.error ?? event.message ?? 'Xbox login failed');
       }
-      // A failed/cancelled terminal event is deliberately NOT forwarded to onError here: the global
-      // xbox_game_mapping notification (handleXboxMappingProgress) already renders the canonical
-      // terminal card for this exact XboxMappingProgress event. Forwarding it produced a second,
-      // duplicate "Xbox login failed" card in the universal notification bar. onError still fires for
-      // a failed login-START request (the startLogin catch below), which emits no SignalR event and
-      // therefore has no registry card of its own.
     };
-    on('XboxMappingProgress', handleProgress);
-    return () => off('XboxMappingProgress', handleProgress);
-  }, [on, off, onSuccess]);
+    on('XboxMappingAuthStateChanged', handleAuthStateChanged);
+    return () => off('XboxMappingAuthStateChanged', handleAuthStateChanged);
+  }, [on, off, onSuccess, onError]);
 
   const startLogin = useCallback(async () => {
     resetAuthForm();

@@ -171,6 +171,8 @@
         "dataImport": "数据导入",
         "epicGameMapping": "Epic 游戏映射",
         "xboxGameMapping": "Xbox 游戏映射",
+        "battleNetGameMapping": "Battle.net 游戏映射",
+        "riotGameMapping": "Riot 游戏映射",
         "evictionScan": "淘汰扫描",
         "evictionRemoval": "淘汰移除",
         "cacheSizeScan": "缓存文件扫描",
@@ -198,6 +200,8 @@
       "cancelDataImport": "取消数据导入",
       "cancelEpicGameMapping": "取消 Epic 游戏映射",
       "cancelXboxGameMapping": "取消 Xbox 游戏映射",
+      "cancelBattleNetGameMapping": "取消 Battle.net 游戏映射",
+      "cancelRiotGameMapping": "取消 Riot 游戏映射",
       "cancelEvictionScan": "取消淘汰扫描",
       "cancelCacheSizeScan": "取消缓存文件扫描",
       "cancelScheduledPrefill": "取消计划预填充",
@@ -550,7 +554,7 @@
       },
       "cacheFiles": {
         "term": "缓存文件",
-        "description": "上次全量缓存扫描的文件总数。可在 管理 → 计划 → 缓存文件扫描 中设置自动扫描，或在 管理 → 缓存 中手动刷新。"
+        "description": "上次全量缓存扫描的文件总数。可在 管理 → 计划 → 缓存文件扫描 中设置自动扫描，或在 管理 → 缓存 中启动手动扫描。"
       },
       "gamesOnDisk": {
         "term": "磁盘上的游戏",
@@ -2412,7 +2416,7 @@
       "title": "磁盘缓存管理",
       "summary": "查看并清除磁盘上缓存的游戏文件。",
       "subtitle": "从磁盘清除缓存的游戏文件",
-      "refreshCacheSize": "刷新缓存大小",
+      "refreshCacheSize": "扫描缓存大小",
       "cacheSize": "缓存大小",
       "cacheSizeError": "缓存大小错误",
       "clearCache": "清除缓存",
@@ -2425,7 +2429,7 @@
       "files": "文件",
       "directories": "目录",
       "estDeletionTime": "预计删除时间",
-      "clickRefreshToCalculate": "点击刷新以计算缓存大小",
+      "clickScanToCalculate": "运行缓存大小扫描以计算缓存使用量",
       "deletionMethod": "删除方法",
       "deleteModeSet": "删除模式设置为：{{mode}}",
       "deleteModes": {
@@ -3576,7 +3580,6 @@
     },
     "schedules": {
       "title": "服务计划",
-      "subtitle": "配置后台服务的运行频率",
       "taskColumn": "任务",
       "startupOn": "启动开启",
       "startupOff": "启动关闭",
@@ -3940,7 +3943,7 @@
           "displayName": "缓存文件扫描",
           "description": "遍历整个缓存目录并统计磁盘上的所有文件（已映射和未映射）。更新仪表板的缓存文件统计、扫描时间戳和未映射缓存提示。",
           "summary": "统计磁盘上所有缓存文件的总量。",
-          "gain": "文件数量和未映射缓存总量保持最新，无需在管理 → 缓存中点击刷新",
+          "gain": "文件数量和未映射缓存总量保持最新，无需在管理 → 缓存中启动手动扫描",
           "loss": "缓存文件统计和未映射缓存副标题可能保持过期，直到下次扫描运行"
         },
         "gameDetection": {
@@ -6729,17 +6732,21 @@
       "progress": "正在导入: {{processed}}/{{total}} 条记录"
     },
     "depotMapping": {
+      "starting": "正在开始仓库映射...",
       "batchProgress": "{{processedBatches}} / {{totalBatches}} 批次",
-      "batchProgressWithMappings": "{{processedBatches}} / {{totalBatches}} 批次 • 找到 {{depotMappingsFound}} 个映射",
-      "mappingsFoundOnly": "找到 {{depotMappingsFound}} 个映射",
       "github": {
         "downloading": "正在从 GitHub 下载仓库映射...",
-        "complete": "GitHub 仓库数据已导入 - {{totalMappings}} 个映射",
+        "complete": "GitHub 仓库数据已导入",
         "failed": "[GitHub 模式] {{errorDetail}}"
       },
       "cancelled": "仓库映射扫描已取消",
-      "applyingToDownloads": "正在将仓库映射应用于下载记录... {{processed}}/{{totalDownloads}}",
-      "finalized": "仓库映射完成 - 已更新 {{updated}} 条下载记录",
+      "saving": "正在保存仓库映射...",
+      "resolvingOrphans": "正在解析孤立的仓库映射...",
+      "importing": "正在导入仓库映射...",
+      "applyingToDownloads": "正在将仓库映射应用于下载记录...",
+      "finalized": "仓库映射完成",
+      "completed": "仓库映射完成",
+      "failed": "仓库映射失败",
       "scan": {
         "skippedFullRequired": "计划扫描已跳过 - 需要全面扫描"
       }
@@ -6747,11 +6754,10 @@
     "epicMapping": {
       "starting": "正在刷新 Epic 游戏目录...",
       "fetchingGames": "正在从 Epic 目录获取拥有的游戏...",
-      "refreshingCdn": "发现 {{gamesDiscovered}} 个游戏，正在刷新 CDN 模式...",
+      "refreshingCdn": "正在刷新 Epic CDN 模式...",
       "checkingFreeGames": "正在检查免费游戏促销活动...",
       "applyingMappings": "正在将 Epic 下载解析为游戏名称...",
-      "gamesDiscovered": "发现 {{gamesDiscovered}} 个游戏",
-      "completed": "Epic 目录刷新完成 - {{gamesDiscovered}} 个游戏",
+      "completed": "Epic 目录刷新完成",
       "cancelled": "Epic 游戏目录刷新已取消",
       "failed": "Epic 游戏目录刷新失败: {{errorDetail}}",
       "waitingSignIn": "正在等待 Epic 登录...",
@@ -6781,9 +6787,27 @@
     },
     "xboxMapping": {
       "starting": "正在解析 Xbox 游戏目录...",
-      "gamesDiscovered": "发现 {{gamesDiscovered}} 个游戏",
-      "cancelled": "Xbox 登录已取消",
+      "collecting": "正在收集 Xbox 游戏目录数据...",
+      "resolving": "正在将 Xbox 下载解析为游戏名称...",
+      "backfilling": "正在回填 Xbox 游戏映射...",
+      "completed": "Xbox 游戏目录解析完成",
+      "cancelled": "Xbox 游戏目录解析已取消",
       "failed": "Xbox 目录解析失败: {{errorDetail}}"
+    },
+    "battleNetMapping": {
+      "starting": "正在开始 Battle.net 游戏映射...",
+      "resolving": "正在将 Battle.net 下载解析为游戏名称...",
+      "saving": "正在保存 Battle.net 游戏映射...",
+      "completed": "Battle.net 游戏映射完成",
+      "cancelled": "Battle.net 游戏映射已取消",
+      "failed": "Battle.net 游戏映射失败"
+    },
+    "riotMapping": {
+      "starting": "正在开始 Riot 游戏映射...",
+      "resolving": "正在将 Riot 下载解析为游戏名称...",
+      "completed": "Riot 游戏映射完成",
+      "cancelled": "Riot 游戏映射已取消",
+      "failed": "Riot 游戏映射失败"
     },
     "xbox": {
       "mapping": {

@@ -15,7 +15,10 @@ import {
 } from './persistentPrefillSignalREvents';
 import {
   applyPersistentLoginChallenge,
+  getPersistentLoginEditAction,
   getPersistentLoginSessionId,
+  getPersistentLoginStartRequest,
+  hasPersistentLoginIntent,
   markPersistentLoginAuthenticated
 } from './persistentLoginStore';
 
@@ -85,8 +88,12 @@ export function usePersistentLoginChallengeSignalR({
       if (!container || container.sessionId !== eventSessionId) {
         return false;
       }
+      if (!hasPersistentLoginIntent(serviceId)) {
+        return false;
+      }
       const pinnedSessionId = getPersistentLoginSessionId(serviceId);
-      return pinnedSessionId === null || pinnedSessionId === eventSessionId;
+      const requestedSessionId = getPersistentLoginStartRequest(serviceId)?.sessionId;
+      return (pinnedSessionId ?? requestedSessionId) === eventSessionId;
     };
 
     const handlers = LOGIN_REQUIRED_SERVICE_IDS.flatMap((serviceId) => {
@@ -110,11 +117,14 @@ export function usePersistentLoginChallengeSignalR({
           !acknowledgedDeviceConfirmationIds.has(event.challenge.challengeId)
         ) {
           acknowledgedDeviceConfirmationIds.add(event.challenge.challengeId);
+          const editAction = getPersistentLoginEditAction(serviceId);
           void ApiService.providePersistentCredential(
             serviceId,
             event.challenge,
             'confirm',
-            event.sessionId
+            event.sessionId,
+            editAction?.editSessionId,
+            editAction?.editActionId
           ).catch(() => undefined);
         }
       };

@@ -1,5 +1,6 @@
 using LancacheManager.Extensions;
-using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -38,24 +39,109 @@ public partial class SteamKit2Service
     /// </summary>
     public async Task ManuallyApplyDepotMappingsAsync()
     {
+        if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
+        {
+            throw new ConflictException("A depot mapping operation is already running.");
+        }
+
+        _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
+        _activeDepotScanMode = DepotScanMode.Incremental;
+        var runCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
+        _currentRebuildCts = runCts;
+        await using var reporter = CreateDepotMappingReporter(
+            runCts.Token,
+            () =>
+            {
+                if (ReferenceEquals(_currentRebuildCts, runCts))
+                {
+                    _currentRebuildCts = null;
+                    _currentMappingReporter = null;
+                    _currentPicsOperationId = null;
+                }
+
+                Interlocked.Exchange(ref _rebuildActive, 0);
+                RaiseExecutionStateChanged();
+            });
+        _currentMappingReporter = reporter;
+
+        try
+        {
+            await reporter.StartAsync(new Dictionary<string, object?>
+            {
+                ["scanMode"] = _activeDepotScanMode,
+                ["message"] = "Applying depot mappings to downloads...",
+            }, "signalr.depotMapping.applyingToDownloads");
+            _currentPicsOperationId = reporter.OperationId;
+            RaiseExecutionStateChanged();
+
+            await ManuallyApplyDepotMappingsCoreAsync(reporter, reporter.Token);
+            await reporter.CompleteAsync(
+                success: true,
+                stageKey: "signalr.depotMapping.finalized",
+                context: CreateDepotContext(
+                    message: "Depot mappings applied to downloads",
+                    depotMappingsFound: _depotToAppMappings.Count));
+        }
+        catch (OperationCanceledException)
+        {
+            await reporter.CompleteAsync(
+                success: false,
+                error: "Cancelled by user",
+                cancelled: true,
+                stageKey: "signalr.depotMapping.cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await reporter.CompleteAsync(
+                success: false,
+                error: ex.Message,
+                stageKey: "signalr.depotMapping.failed",
+                context: CreateDepotContext(errorDetail: ex.Message));
+            throw;
+        }
+        finally
+        {
+            runCts.Dispose();
+            if (ReferenceEquals(_currentRebuildCts, runCts))
+            {
+                _currentRebuildCts = null;
+                _currentMappingReporter = null;
+                _currentPicsOperationId = null;
+                Interlocked.Exchange(ref _rebuildActive, 0);
+                RaiseExecutionStateChanged();
+            }
+        }
+    }
+
+    private async Task ManuallyApplyDepotMappingsCoreAsync(
+        MappingOperationReporter reporter,
+        CancellationToken cancellationToken)
+    {
         _logger.LogInformation("Manually applying depot mappings to downloads");
 
         // Wait a moment to ensure database operations have completed
         _logger.LogInformation("Waiting 2 seconds to ensure database is fully synced...");
-        await Task.Delay(2000);
+        await Task.Delay(2000, cancellationToken);
 
         // Reload depot mappings from database to ensure we have latest data
         _logger.LogInformation("Reloading depot mappings from database...");
         await LoadDepotMappingsAsync();
 
-        await ApplyDepotMappingsAsync();
+        await reporter.ReportAsync(
+            90,
+            "signalr.depotMapping.applyingToDownloads",
+            CreateDepotContext(
+                status: "Applying mappings to downloads",
+                message: "Applying mappings to downloads"));
+        await ApplyDepotMappingsAsync(reporter, cancellationToken, progressStart: 90, progressEnd: 99);
 
         using var scopedDb = _scopeFactory.CreateScopedDbContext();
         var unmappedCount = await scopedDb.DbContext.Downloads
             .Where(d => d.DepotId.HasValue && d.GameAppId == null)
             .Select(d => d.DepotId!.Value)
             .Distinct()
-            .CountAsync();
+            .CountAsync(cancellationToken);
         if (unmappedCount > 0)
         {
             _logger.LogInformation("{Count} depot(s) remain unmapped. Running a full PICS scan may resolve these (delisted/removed games).", unmappedCount);
@@ -233,7 +319,11 @@ public partial class SteamKit2Service
     /// <summary>
     /// Update downloads that have depot IDs but no game information
     /// </summary>
-    private async Task<(int updated, int notFound)> ApplyDepotMappingsAsync()
+    private async Task<(int updated, int notFound)> ApplyDepotMappingsAsync(
+        MappingOperationReporter? reporter,
+        CancellationToken cancellationToken,
+        double progressStart,
+        double progressEnd)
     {
         try
         {
@@ -248,7 +338,7 @@ public partial class SteamKit2Service
                     string.IsNullOrEmpty(d.GameImageUrl) ||
                     d.GameName == null ||
                     EF.Functions.Like(d.GameName, "Steam App %")))
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             _logger.LogInformation($"Found {downloadsNeedingGameInfo.Count} downloads needing game info after PICS completion");
 
@@ -261,7 +351,7 @@ public partial class SteamKit2Service
 
             var depotMappingsFromDb = await scopedDb.DbContext.SteamDepotMappings
                 .Where(m => depotIds.Contains(m.DepotId) && m.IsOwner)
-                .ToDictionaryAsync(m => m.DepotId, m => new { m.AppId, m.AppName });
+                .ToDictionaryAsync(m => m.DepotId, m => new { m.AppId, m.AppName }, cancellationToken);
 
             _logger.LogDebug($"Pre-loaded {depotMappingsFromDb.Count} depot mappings from database for batch processing");
 
@@ -273,6 +363,7 @@ public partial class SteamKit2Service
 
             foreach (var download in downloadsNeedingGameInfo)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
                     uint? appId = download.GameAppId.HasValue ? (uint)download.GameAppId.Value : null; // Use existing appId if available
@@ -380,25 +471,19 @@ public partial class SteamKit2Service
                     {
                         lastLoggedBucket = currentBucket;
                         double percentComplete = (double)processed / totalDownloads * 100;
-                        try
+                        if (reporter is not null)
                         {
-                            await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
-                            {
-                                operationId = _currentPicsOperationId,
-                                status = "Applying mappings to downloads",
-                                percentComplete,
-                                processedMappings = processed,
-                                totalMappings = totalDownloads,
-                                mappingsApplied = updated,
-                                isLoggedOn = IsSteamAuthenticated,
-                                showNotification = _depotRunShowNotification,
-                                stageKey = "signalr.depotMapping.applyingToDownloads",
-                                context = new Dictionary<string, object?> { ["processed"] = processed, ["totalDownloads"] = totalDownloads }
-                            });
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to send depot mapping progress via SignalR");
+                            var overallPercent = progressStart
+                                + (progressEnd - progressStart) * percentComplete / 100;
+                            await reporter.ReportAsync(
+                                overallPercent,
+                                "signalr.depotMapping.applyingToDownloads",
+                                CreateDepotContext(
+                                    status: "Applying mappings to downloads",
+                                    message: "Applying mappings to downloads",
+                                    totalMappings: totalDownloads,
+                                    processedMappings: processed,
+                                    mappingsApplied: updated));
                         }
                     }
                 }
@@ -406,7 +491,7 @@ public partial class SteamKit2Service
 
             if (updated > 0)
             {
-                await scopedDb.DbContext.SaveChangesAsync();
+                await scopedDb.DbContext.SaveChangesAsync(cancellationToken);
                 scopedDb.DbContext.ChangeTracker.Clear();
                 _logger.LogInformation($"Updated {updated} downloads with game information, {notFound} not found");
             }
@@ -415,32 +500,24 @@ public partial class SteamKit2Service
                 _logger.LogInformation($"No downloads updated, {notFound} depots without mappings");
             }
 
-            // Send final 100% progress update
-            if (totalDownloads > 0)
+            if (totalDownloads > 0 && reporter is not null)
             {
-                try
-                {
-                    await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
-                    {
-                        operationId = _currentPicsOperationId,
-                        status = "Finalizing depot mappings",
-                        percentComplete = 100.0,
-                        processedMappings = totalDownloads,
-                        totalMappings = totalDownloads,
-                        mappingsApplied = updated,
-                        isLoggedOn = IsSteamAuthenticated,
-                        showNotification = _depotRunShowNotification,
-                        stageKey = "signalr.depotMapping.finalized",
-                        context = new Dictionary<string, object?> { ["updated"] = updated }
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to send final depot mapping progress via SignalR");
-                }
+                await reporter.ReportAsync(
+                    progressEnd,
+                    "signalr.depotMapping.finalized",
+                    CreateDepotContext(
+                        status: "Finalizing depot mappings",
+                        message: "Finalizing depot mappings",
+                        totalMappings: totalDownloads,
+                        processedMappings: totalDownloads,
+                        mappingsApplied: updated));
             }
 
             return (updated, notFound);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

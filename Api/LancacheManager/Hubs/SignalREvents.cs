@@ -201,11 +201,26 @@ public static class SignalREvents
 
     // Epic Game Mapping
     public const string EpicGameMappingsUpdated = "EpicGameMappingsUpdated";
+    public const string EpicMappingStarted = "EpicMappingStarted";
     public const string EpicMappingProgress = "EpicMappingProgress";
+    public const string EpicMappingComplete = "EpicMappingComplete";
 
     // Xbox Game Mapping
     public const string XboxGameMappingsUpdated = "XboxGameMappingsUpdated";
+    public const string XboxMappingStarted = "XboxMappingStarted";
     public const string XboxMappingProgress = "XboxMappingProgress";
+    public const string XboxMappingComplete = "XboxMappingComplete";
+    public const string XboxMappingAuthStateChanged = "XboxMappingAuthStateChanged";
+
+    // Battle.net Game Mapping
+    public const string BattleNetMappingStarted = "BattleNetMappingStarted";
+    public const string BattleNetMappingProgress = "BattleNetMappingProgress";
+    public const string BattleNetMappingComplete = "BattleNetMappingComplete";
+
+    // Riot Game Mapping
+    public const string RiotMappingStarted = "RiotMappingStarted";
+    public const string RiotMappingProgress = "RiotMappingProgress";
+    public const string RiotMappingComplete = "RiotMappingComplete";
 
     // Directory Permissions
     public const string DirectoryPermissionsChanged = "DirectoryPermissionsChanged";

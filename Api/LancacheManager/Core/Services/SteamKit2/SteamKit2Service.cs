@@ -46,7 +46,10 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private Task? _currentBuildTask;
     private CancellationTokenSource? _currentRebuildCts;
+    private MappingOperationReporter? _currentMappingReporter;
     private Guid? _currentPicsOperationId;
+    private readonly ConcurrentDictionary<Guid, string> _depotRunFailures = new();
+    private DepotScanMode _activeDepotScanMode;
     private int _rebuildActive;
     private bool _disposed;
     private bool _initialized;
@@ -399,23 +402,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     {
         _connectedTcs?.TrySetException(exception);
         _loggedOnTcs?.TrySetException(exception);
-    }
-
-    /// <summary>
-    /// Sends a DepotMappingComplete failure notification via SignalR.
-    /// Used in error paths when a rebuild fails due to connection, login, or session errors.
-    /// </summary>
-    private void SendDepotMappingFailure(string errorMessage, string errorType)
-    {
-        _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingComplete, new
-        {
-            success = false,
-            error = errorMessage,
-            errorType,
-            depotMappingsFound = _depotToAppMappings.Count,
-            showNotification = _depotRunShowNotification,
-            timestamp = DateTime.UtcNow
-        });
     }
 
     /// <summary>

@@ -1,5 +1,7 @@
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Services.Xbox;
 
@@ -10,7 +12,7 @@ namespace LancacheManager.Services.Xbox;
 /// startup auto-reconnect, feeding the EXISTING <c>MergeDaemonCatalogAsync</c> + <c>ResolveDownloadsAsync</c>),
 /// but adapted for the MSA device-code grant: the backend POLLS the token endpoint in the background
 /// instead of accepting a pasted code, so <see cref="StartLoginAsync"/> returns a device-code challenge
-/// and completion is surfaced over the <c>XboxMappingProgress</c> SignalR event.
+/// and authentication state is surfaced separately from the tracked mapping lifecycle.
 /// </summary>
 public partial class XboxCatalogMappingService
 {
@@ -61,8 +63,8 @@ public partial class XboxCatalogMappingService
     /// <summary>
     /// Starts the device-code login: requests a device code from MSA, kicks a background poll loop, and
     /// returns the <c>userCode</c>/<c>verificationUri</c> for the user to approve in their own browser.
-    /// No Docker container and no prefill daemon are involved. Completion (success/failure/cancel) is
-    /// emitted over <see cref="SignalREvents.XboxMappingProgress"/>; the frontend re-fetches auth-status.
+    /// No Docker container and no prefill daemon are involved. Authentication state is emitted over
+    /// <see cref="SignalREvents.XboxMappingAuthStateChanged"/>; catalog mapping starts only after approval.
     /// </summary>
     public async Task<XboxDeviceCodeChallenge> StartLoginAsync(CancellationToken ct = default)
     {
@@ -111,7 +113,7 @@ public partial class XboxCatalogMappingService
                 var operationId = Guid.NewGuid();
 
                 // Device-code grant: the BACKEND polls. Fire-and-forget the poll loop; it disposes pollCts
-                // and emits a terminal XboxMappingProgress event when it finishes.
+                // and emits auth-state plus a tracked mapping lifecycle when it finishes.
                 _ = Task.Run(() => RunLoginPollAsync(deviceCode, signer, operationId, pollCts), CancellationToken.None);
 
                 return new XboxDeviceCodeChallenge
@@ -143,28 +145,58 @@ public partial class XboxCatalogMappingService
     /// <summary>
     /// Background poll loop for a started device-code login. On approval it runs the full token chain +
     /// catalog harvest, merges into the shared catalog, resolves downloads, persists credentials, and
-    /// emits a terminal <c>XboxMappingProgress</c> event.
+    /// emits a terminal auth-state event and, after approval, a tracked mapping lifecycle.
     /// </summary>
     private async Task RunLoginPollAsync(
         XboxDeviceCodeResponse deviceCode, XblRequestSigner signer, Guid operationId, CancellationTokenSource pollCts)
     {
         var ct = pollCts.Token;
+        MappingOperationReporter? reporter = null;
+        var refreshGateHeld = false;
         try
         {
-            await EmitProgressAsync(operationId, "signalr.xbox.mapping.authenticating", 10, "Waiting for Microsoft sign-in...");
+            await EmitAuthStateAsync(
+                operationId,
+                "waiting",
+                "signalr.xbox.mapping.authenticating",
+                "Waiting for Microsoft sign-in...");
 
             var msaToken = await _authClient.PollForTokenAsync(deviceCode, ct);
 
-            await EmitProgressAsync(operationId, "signalr.xbox.mapping.collecting", 40, "Collecting Xbox library...");
+            await _refreshGate.WaitAsync(ct);
+            refreshGateHeld = true;
 
-            var harvest = await _authClient.HarvestCatalogAsync(msaToken.AccessToken!, signer, ct);
+            _refreshShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
+            reporter = new MappingOperationReporter(
+                _notifications,
+                _operationTracker,
+                MappingOperations.Xbox,
+                _refreshShowNotification,
+                ct,
+                _logger,
+                bestEffortNotifications: true);
+            _currentMappingReporter = reporter;
+            await reporter.StartAsync(CreateXboxMappingContext());
+            await reporter.ReportAsync(
+                25,
+                "signalr.xboxMapping.collecting",
+                CreateXboxMappingContext());
 
-            // Reuse the existing producer + resolver - mapping/banner/detection logic is unchanged.
+            var harvest = await _authClient.HarvestCatalogAsync(
+                msaToken.AccessToken!,
+                signer,
+                reporter.Token);
+
             if (harvest.CdnInfos.Count > 0)
             {
-                await _mappingService.MergeDaemonCatalogAsync(harvest.CdnInfos, ct);
+                await _mappingService.MergeDaemonCatalogAsync(harvest.CdnInfos, reporter.Token);
             }
-            var resolved = await _mappingService.ResolveDownloadsAsync(ct);
+            _gamesDiscovered = harvest.CdnInfos.Count;
+            await reporter.ReportAsync(
+                70,
+                "signalr.xboxMapping.resolving",
+                CreateXboxMappingContext());
+            var resolved = await _mappingService.ResolveDownloadsAsync(reporter.Token);
             _logger.LogInformation("Xbox mapping login resolved {Resolved} existing download(s)", resolved);
 
             await _authSessionLock.WaitAsync(CancellationToken.None);
@@ -173,7 +205,7 @@ public partial class XboxCatalogMappingService
                 // A concurrent logout cancels this login's CTS and clears credentials while holding the
                 // same lock. Re-check under the lock so we never persist or keep credentials a logout just
                 // cleared (which would leave the session in-memory-authenticated with no stored creds).
-                ct.ThrowIfCancellationRequested();
+                reporter.Token.ThrowIfCancellationRequested();
 
                 // Persist credentials (refresh token + device key) for auto-reconnect, atomically with the
                 // in-memory state under the lock so logout and login-success are mutually exclusive.
@@ -198,9 +230,27 @@ public partial class XboxCatalogMappingService
                 _authSessionLock.Release();
             }
 
-            await EmitTerminalAsync(operationId, success: true, cancelled: false,
-                "signalr.xbox.mapping.completed", $"Xbox login complete - {harvest.CdnInfos.Count} games",
-                _gamesDiscovered, error: null);
+            await reporter.ReportAsync(
+                90,
+                "signalr.xboxMapping.backfilling",
+                CreateXboxMappingContext(resolved: resolved));
+            try
+            {
+                await _mappingService.BackfillMissingBannerArtAsync(reporter.Token);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Xbox banner-art backfill failed after login");
+            }
+
+            await reporter.CompleteAsync(
+                success: true,
+                context: CreateXboxMappingContext(resolved: resolved));
+            await EmitAuthStateAsync(
+                operationId,
+                "completed",
+                "signalr.xbox.mapping.completed",
+                $"Xbox login complete - {harvest.CdnInfos.Count} games");
 
             _logger.LogInformation("Xbox mapping login complete: {DisplayName}, {Games} games",
                 harvest.DisplayName, harvest.CdnInfos.Count);
@@ -208,23 +258,66 @@ public partial class XboxCatalogMappingService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Xbox mapping login cancelled");
-            await EmitTerminalAsync(operationId, success: false, cancelled: true,
-                "signalr.xbox.mapping.cancelled", "Xbox login cancelled", _gamesDiscovered, error: null);
+            if (reporter is not null)
+            {
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: "Cancelled by user",
+                    cancelled: true,
+                    context: CreateXboxMappingContext());
+            }
+
+            await EmitAuthStateAsync(
+                operationId,
+                "cancelled",
+                "signalr.xbox.mapping.cancelled",
+                "Xbox login cancelled");
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Xbox mapping login failed");
-            await EmitTerminalAsync(operationId, success: false, cancelled: false,
-                "signalr.xbox.mapping.failed", "Xbox login failed", _gamesDiscovered, error: ex.Message);
+            if (reporter is not null)
+            {
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: ex.Message,
+                    context: CreateXboxMappingContext(errorDetail: ex.Message));
+            }
+
+            await EmitAuthStateAsync(
+                operationId,
+                "failed",
+                "signalr.xbox.mapping.failed",
+                "Xbox login failed",
+                ex.Message);
         }
         finally
         {
-            signer.Dispose();
-            if (ReferenceEquals(_loginPollCts, pollCts))
+            try
             {
-                _loginPollCts = null;
+                if (reporter is not null)
+                {
+                    await reporter.DisposeAsync();
+                    if (ReferenceEquals(_currentMappingReporter, reporter))
+                    {
+                        _currentMappingReporter = null;
+                    }
+                }
             }
-            pollCts.Dispose();
+            finally
+            {
+                if (refreshGateHeld)
+                {
+                    _refreshGate.Release();
+                }
+
+                signer.Dispose();
+                if (ReferenceEquals(_loginPollCts, pollCts))
+                {
+                    _loginPollCts = null;
+                }
+                pollCts.Dispose();
+            }
         }
     }
 
@@ -425,63 +518,27 @@ public partial class XboxCatalogMappingService
         }
     }
 
-    // Best-effort: the poll loop is fire-and-forget, so a SignalR send failure must never fault the
-    // unobserved task (especially when emitted from a catch block). Swallow and log instead.
-    private async Task EmitProgressAsync(Guid operationId, string stageKey, double percentComplete, string message)
+    private async Task EmitAuthStateAsync(
+        Guid operationId,
+        string status,
+        string stageKey,
+        string? message = null,
+        string? error = null)
     {
         try
         {
-            await _notifications.NotifyAllAsync(SignalREvents.XboxMappingProgress, new
-            {
-                operationId,
-                success = false,
-                // OperationStatus serializes lowercase ("running"/"completed"/"failed"/"cancelled") via its
-                // type-level converter, matching the frontend XboxMappingProgressEvent.status contract.
-                status = OperationStatus.Running,
-                stageKey,
-                percentComplete,
-                gamesDiscovered = _gamesDiscovered,
-                cancelled = false,
-                error = (string?)null,
-                message,
-                isTerminal = false
-            });
+            await _notifications.NotifyAllAsync(
+                SignalREvents.XboxMappingAuthStateChanged,
+                new XboxMappingAuthStateChanged(
+                    operationId,
+                    status,
+                    stageKey,
+                    message,
+                    error));
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to emit Xbox mapping progress ({StageKey})", stageKey);
-        }
-    }
-
-    private async Task EmitTerminalAsync(
-        Guid operationId, bool success, bool cancelled, string stageKey, string message, int gamesDiscovered, string? error)
-    {
-        try
-        {
-            await _notifications.NotifyAllAsync(SignalREvents.XboxMappingProgress, new
-            {
-                operationId,
-                success,
-                // Mirror Epic: a cancel is emitted as Completed (with cancelled:true), NOT a raw
-                // Cancelled status. The frontend status-aware notification handler only treats
-                // completed/failed as terminal, so a "cancelled" status would never auto-dismiss and
-                // the "Xbox login cancelled" card would stick forever. The cancelled flag still drives
-                // the cancelled message + dismiss behavior.
-                status = success || cancelled
-                    ? OperationStatus.Completed
-                    : OperationStatus.Failed,
-                stageKey,
-                percentComplete = success || cancelled ? 100.0 : 0.0,
-                gamesDiscovered,
-                cancelled,
-                error,
-                message,
-                isTerminal = true
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to emit terminal Xbox mapping progress ({StageKey})", stageKey);
+            _logger.LogDebug(ex, "Failed to emit Xbox auth state ({StageKey})", stageKey);
         }
     }
 }

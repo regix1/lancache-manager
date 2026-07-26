@@ -62,7 +62,7 @@ public partial class SteamKit2Service
             if (IsGithubMode(_crawlIncrementalMode))
             {
                 _logger.LogInformation("[GitHub Mode] Downloading depot data from GitHub (no Steam connection)");
-                var success = await ImportFromGitHubAsync(stoppingToken);
+                var success = await ImportFromGitHubAsync(stoppingToken, RunTrigger.Scheduled);
 
                 if (success)
                 {

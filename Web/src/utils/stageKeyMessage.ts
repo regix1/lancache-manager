@@ -1,6 +1,7 @@
 import i18n from '@/i18n';
 
 const UNRESOLVED_INTERPOLATION = /{{|}}/;
+type StageInterpolation = Record<string, string | number | boolean | null>;
 
 /** True when an i18n result still exposes an interpolation token to the UI. */
 export function hasUnresolvedInterpolation(value: string): boolean {
@@ -14,7 +15,7 @@ export function hasUnresolvedInterpolation(value: string): boolean {
  */
 export function translateRecoveryStage(
   stageKey: string | undefined | null,
-  context: Record<string, string | number | boolean> | undefined,
+  context: StageInterpolation | undefined,
   fallbackKey: string
 ): string {
   const fallback = i18n.t(fallbackKey);
@@ -32,7 +33,7 @@ export function translateRecoveryStage(
 /** Translate a backend stage key, or pass through plain-text status messages. */
 export function translateStageKeyMessage(
   stageKeyOrMessage: string | undefined | null,
-  context?: Record<string, string | number | boolean>,
+  context?: StageInterpolation,
   fallbackKey?: string
 ): string {
   if (stageKeyOrMessage?.startsWith('signalr.')) {

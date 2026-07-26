@@ -19,8 +19,8 @@ namespace LancacheManager.Tests;
 /// <summary>
 /// Proves the scheduled Xbox catalog refresh owns a tracked operation and drives the universal bar:
 /// <see cref="XboxCatalogMappingService.RefreshNowAsync"/> registers exactly one tracker op, emits
-/// operationId-scoped <see cref="SignalREvents.XboxMappingProgress"/> ticks with non-decreasing
-/// percent, and finishes with exactly one terminal event. It also proves the display-flag pattern:
+/// an operationId-scoped started/progress/complete triple with non-decreasing percent, and finishes
+/// with exactly one terminal event. It also proves the display-flag pattern:
 /// a silent-mode run still emits every lifecycle event, only stamped <c>showNotification=false</c>
 /// (never transport suppression), so the frontend gates the card rather than the backend dropping events.
 /// The run executes with no authenticated session, no daemon, and an empty database, so only the
@@ -45,7 +45,7 @@ public class XboxScheduledRefreshProgressTests
         await harness.Service.RefreshNowAsync();
         await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        var events = harness.Notifications.XboxProgressEvents();
+        var events = harness.Notifications.XboxLifecycleEvents();
 
         // Exactly one tracker op: every event carries the same non-empty operationId, and the tracker
         // fired its terminal exactly once for this type.
@@ -90,7 +90,7 @@ public class XboxScheduledRefreshProgressTests
         await harness.Service.RefreshNowAsync();
         await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        var events = harness.Notifications.XboxProgressEvents();
+        var events = harness.Notifications.XboxLifecycleEvents();
 
         Assert.True(events.Count >= 2, "lifecycle events must always emit, even when silent");
         Assert.Contains(events, e => e.IsTerminal);
@@ -99,6 +99,54 @@ public class XboxScheduledRefreshProgressTests
         // The terminal still reports success (display gating never changes the outcome).
         var terminal = events.Single(e => e.IsTerminal);
         Assert.True(terminal.Success);
+    }
+
+    [Fact]
+    public void PostAuthenticationMapping_UsesTheSharedRefreshGate()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            root,
+            "Api",
+            "LancacheManager",
+            "Services",
+            "Xbox",
+            "XboxCatalogMappingService.Authentication.cs"));
+
+        var pollIndex = source.IndexOf(
+            "await _authClient.PollForTokenAsync(deviceCode, ct)",
+            StringComparison.Ordinal);
+        var waitIndex = source.IndexOf(
+            "await _refreshGate.WaitAsync(ct)",
+            StringComparison.Ordinal);
+        var reporterIndex = source.IndexOf(
+            "reporter = new MappingOperationReporter(",
+            StringComparison.Ordinal);
+        var releaseIndex = source.IndexOf(
+            "_refreshGate.Release();",
+            StringComparison.Ordinal);
+
+        Assert.True(pollIndex >= 0, "post-auth mapping must begin only after token approval");
+        Assert.True(waitIndex > pollIndex, "post-auth mapping must acquire the shared refresh gate");
+        Assert.True(reporterIndex > waitIndex, "the mapping reporter must be created only after serialization");
+        Assert.True(releaseIndex > reporterIndex, "the shared refresh gate must be released during cleanup");
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (Directory.Exists(Path.Combine(directory.FullName, "Api")) &&
+                Directory.Exists(Path.Combine(directory.FullName, "Web")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate repository root.");
     }
 
     // ---- harness (hand-rolled; no mocking framework, matching the suite idiom) ----
@@ -207,7 +255,7 @@ public class XboxScheduledRefreshProgressTests
             lock (_sync)
             {
                 _events.Add((eventName, data));
-                terminal = eventName == SignalREvents.XboxMappingProgress && GetBool(data, "isTerminal");
+                terminal = eventName == SignalREvents.XboxMappingComplete;
             }
 
             if (terminal)
@@ -218,30 +266,42 @@ public class XboxScheduledRefreshProgressTests
             return Task.CompletedTask;
         }
 
-        public List<ProgressSnapshot> XboxProgressEvents()
+        public List<ProgressSnapshot> XboxLifecycleEvents()
         {
             lock (_sync)
             {
                 return _events
-                    .Where(e => e.EventName == SignalREvents.XboxMappingProgress && e.Data != null)
-                    .Select(e => new ProgressSnapshot(
-                        GetValue<Guid>(e.Data!, "operationId"),
-                        GetValue<double>(e.Data!, "percentComplete"),
-                        GetBool(e.Data!, "isTerminal"),
-                        GetValue<OperationStatus>(e.Data!, "status"),
-                        GetBool(e.Data!, "success"),
-                        GetBool(e.Data!, "showNotification")))
+                    .Where(e => e.Data != null && e.EventName is
+                        SignalREvents.XboxMappingStarted or
+                        SignalREvents.XboxMappingProgress or
+                        SignalREvents.XboxMappingComplete)
+                    .Select(e => e.Data switch
+                    {
+                        ScheduledRunStartedEvent started => new ProgressSnapshot(
+                            started.OperationId,
+                            0,
+                            false,
+                            OperationStatus.Running,
+                            false,
+                            started.ShowNotification),
+                        ScheduledRunProgressEvent progress => new ProgressSnapshot(
+                            progress.OperationId,
+                            progress.PercentComplete,
+                            false,
+                            OperationStatus.Running,
+                            false,
+                            progress.ShowNotification),
+                        ScheduledRunCompleteEvent complete => new ProgressSnapshot(
+                            complete.OperationId,
+                            complete.PercentComplete,
+                            true,
+                            complete.Status,
+                            complete.Success,
+                            complete.ShowNotification),
+                        _ => throw new InvalidOperationException("Unexpected Xbox lifecycle payload")
+                    })
                     .ToList();
             }
-        }
-
-        private static T GetValue<T>(object data, string prop)
-            => (T)data.GetType().GetProperty(prop)!.GetValue(data)!;
-
-        private static bool GetBool(object? data, string prop)
-        {
-            var value = data?.GetType().GetProperty(prop)?.GetValue(data);
-            return value is bool b && b;
         }
 
         // Unused transport surface for this test - every path is a no-op.

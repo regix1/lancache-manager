@@ -25,4 +25,10 @@ public interface IDashboardBatchService
     /// Invalidates the detection slice in every cached batch response, including fixed ranges.
     /// </summary>
     void InvalidateDetectionCache();
+
+    /// <summary>
+    /// Invalidates every dashboard batch variant after a successful cache clear.
+    /// Cache totals and detection-derived slices can both change.
+    /// </summary>
+    void InvalidateAllCache();
 }

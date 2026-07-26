@@ -27,6 +27,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatCount } from '@utils/formatters';
 import { getErrorMessage } from '@utils/error';
 import type { DatasourceInfo } from '../../../../types';
+import type { CacheClearCompleteEvent } from '@contexts/SignalRContext/types';
 
 const formatScanTime = (timestamp: string): string => {
   try {
@@ -97,7 +98,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   // Wait-queue model: a running cache file scan no longer disables the Clear buttons
   // (clicking enqueues; the purple waiting card is the feedback). This flag now only
-  // (a) gates the Refresh button - refresh triggers the SAME scan, a meaningless
+  // (a) gates the Scan cache size action - it triggers the SAME scan, a meaningless
   // re-click - and (b) drives the "will start after..." tooltip on the Clear buttons.
   const isCacheSizeScanRunning = useOperationBusy({
     types: ['cache_size_scan'],
@@ -129,13 +130,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const cacheOperationInProgressRef = useRef(false);
   const deleteModeChangeInProgressRef = useRef(false);
 
-  const handleRefreshCacheSize = useCallback(async () => {
+  const handleScanCacheSize = useCallback(async () => {
     await fetchCacheSize(true);
     await refreshStats(true);
   }, [fetchCacheSize, refreshStats]);
 
   // Read the persisted cache-size result once. A valid empty response marks the context as
-  // fetched so the empty state cannot turn into a request loop; only Refresh starts a scan.
+  // fetched so the empty state cannot turn into a request loop; only Scan cache size starts a scan.
   useEffect(() => {
     if (
       !mockMode &&
@@ -188,7 +189,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   useEffect(() => {
     if (mockMode) return;
 
-    const handleCacheClearingComplete = () => {
+    const handleCacheClearingComplete = (event: CacheClearCompleteEvent) => {
+      if (!event.success || event.cancelled) return;
       // Clear the cached size so it refetches with new values
       clearCacheSize();
     };
@@ -331,11 +333,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               icon={<RefreshCw className="w-3.5 h-3.5" />}
               disabled={cacheSizeLoading || isCacheSizeScanRunning}
               onClick={() => {
-                handleRefreshCacheSize();
+                handleScanCacheSize();
                 close();
               }}
             >
-              {t('common.refresh')}
+              {t('management.cache.refreshCacheSize')}
             </ActionMenuItem>
             {hasMultipleDatasources && (
               <>
@@ -436,7 +438,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 </div>
               ) : (
                 <p className="py-6 text-sm text-themed-muted text-center">
-                  {t('management.cache.clickRefreshToCalculate')}
+                  {t('management.cache.clickScanToCalculate')}
                 </p>
               )}
             </div>

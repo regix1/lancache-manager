@@ -15,6 +15,8 @@ export const NOTIFICATION_TITLE_KEYS: Record<NotificationType, string | null> = 
   data_import: 'common.notifications.titles.dataImport',
   epic_game_mapping: 'common.notifications.titles.epicGameMapping',
   xbox_game_mapping: 'common.notifications.titles.xboxGameMapping',
+  battle_net_game_mapping: 'common.notifications.titles.battleNetGameMapping',
+  riot_game_mapping: 'common.notifications.titles.riotGameMapping',
   eviction_scan: 'common.notifications.titles.evictionScan',
   eviction_removal: 'common.notifications.titles.evictionRemoval',
   cache_size_scan: 'common.notifications.titles.cacheSizeScan',

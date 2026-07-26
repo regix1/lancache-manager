@@ -37,7 +37,9 @@ public enum OperationType
     OperationHistoryCleanup,
     PerformanceOptimization,
     DashboardCacheWarmer,
-    XboxMapping
+    XboxMapping,
+    BattleNetMapping,
+    RiotMapping
 }
 
 /// <summary>
@@ -105,6 +107,8 @@ public static class OperationTypeExtensions
         OperationType.PerformanceOptimization => "performanceOptimization",
         OperationType.DashboardCacheWarmer => "dashboardCacheWarmer",
         OperationType.XboxMapping => "xboxMapping",
+        OperationType.BattleNetMapping => "battleNetMapping",
+        OperationType.RiotMapping => "riotMapping",
         _ => JsonNamingPolicy.CamelCase.ConvertName(type.ToString())
     };
 

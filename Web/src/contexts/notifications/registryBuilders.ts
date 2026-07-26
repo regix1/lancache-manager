@@ -1,13 +1,15 @@
 /**
  * Shared shapes for the entries in {@link NOTIFICATION_REGISTRY}.
  *
- * Two builders live here, one per lifecycle family:
+ * Three builders live here, one per lifecycle family:
  *   - {@link buildStandardOperationEntry} - a cancellable server operation with a
  *     Started -> Progress -> Complete event triple and per-type messages.
+ *   - {@link buildMappingOperationEntry} - the five scheduled mapping services,
+ *     combining that standard lifecycle with shared tracker recovery.
  *   - {@link buildScheduledRunEntry} - a pipeline-less maintenance service whose
  *     whole lifecycle is derived from an event prefix and an i18n base.
  *
- * Both derive the three SignalR event names from one `eventPrefix`, so the names
+ * All three derive the SignalR event names from one `eventPrefix`, so the names
  * cannot drift apart from each other and a new type cannot register two events
  * for one pipeline and a third for another. The names are therefore NOT literals
  * in the registry: a text search for `DataImportStarted` will not find the
@@ -37,7 +39,10 @@ import type {
 import type {
   ScheduledRunStartedEvent,
   ScheduledRunProgressEvent,
-  ScheduledRunCompleteEvent
+  ScheduledRunCompleteEvent,
+  MappingStartedEvent as MappingStartedContract,
+  MappingProgressEvent as MappingProgressContract,
+  MappingCompleteEvent as MappingCompleteContract
 } from '../SignalRContext/types';
 
 // ============================================================================
@@ -65,7 +70,7 @@ interface SilentRunEvent {
 /** Carries an i18n stage key and its interpolation context. */
 interface StageKeyEvent {
   stageKey?: string;
-  context?: StageContext;
+  context?: StageContext | null;
 }
 
 /** Carries a completion percentage. */
@@ -75,7 +80,7 @@ interface PercentCompleteEvent {
 
 /** A terminal event that may report a server-formatted error instead of a stage key. */
 interface TerminalStageKeyEvent extends StageKeyEvent {
-  error?: string;
+  error?: string | null;
 }
 
 /** Carries an operation status string from the shared backend `OperationStatus`. */
@@ -235,6 +240,102 @@ export function buildStandardOperationEntry<TStarted, TProgress, TComplete>(
 }
 
 // ============================================================================
+// Mapping operation entries
+// ============================================================================
+
+interface MappingRunStatusResponse {
+  isRunning: boolean;
+  operationId?: string | null;
+  percentComplete: number;
+  stageKey?: string | null;
+  context?: StageContext | null;
+  showNotification: boolean;
+}
+
+interface MappingOperationEntryOptions {
+  type: NotificationType;
+  id: string;
+  storageKey: string;
+  serviceKey: string;
+  eventPrefix: string;
+  i18nBase: string;
+  cancelTooltipKey: string;
+  defaultMessage: string;
+  staleMessage: string;
+  recoveryCases: readonly { stageKey: string; context: StageContext }[];
+}
+
+/**
+ * Builds one of the five mapping cards. All mapping services share the operation
+ * tracker endpoint, server-operation cancellation, silent-run display gate, and
+ * canonical lifecycle payload; only identity and translations vary by platform.
+ */
+export function buildMappingOperationEntry<
+  TStarted extends MappingStartedContract,
+  TProgress extends MappingProgressContract,
+  TComplete extends MappingCompleteContract
+>(options: MappingOperationEntryOptions): NotificationRegistryEntry {
+  const {
+    type,
+    id,
+    storageKey,
+    serviceKey,
+    eventPrefix,
+    i18nBase,
+    cancelTooltipKey,
+    defaultMessage,
+    staleMessage,
+    recoveryCases
+  } = options;
+
+  return buildStandardOperationEntry<TStarted, TProgress, TComplete>({
+    type,
+    id,
+    storageKey,
+    eventPrefix,
+    cancelTooltipKey,
+    silentRunGate: true,
+    recovery: {
+      kind: 'simple',
+      translationValidation: { kind: 'stageKey', cases: recoveryCases },
+      apiEndpoint: `/api/system/schedules/${serviceKey}/run-status`,
+      isProcessing: (data: MappingRunStatusResponse) => data.isRunning,
+      shouldSkip: (data: MappingRunStatusResponse) =>
+        data.isRunning && data.showNotification === false,
+      createNotification: (data: MappingRunStatusResponse) => ({
+        message: translateRecoveryStage(
+          data.stageKey,
+          data.context ?? undefined,
+          `${i18nBase}.starting`
+        ),
+        progress: Math.min(ACTIVE_PROGRESS_PERCENT_CAP, data.percentComplete),
+        details: { operationId: data.operationId ?? undefined }
+      }),
+      staleMessage
+    } satisfies SimpleRecoveryConfig<MappingRunStatusResponse>,
+    started: {
+      defaultMessage,
+      getMessage: stageKeyMessage<TStarted>(`${i18nBase}.starting`),
+      replaceExisting: true
+    },
+    progress: {
+      getMessage: stageKeyMessage<TProgress>(`${i18nBase}.starting`),
+      getProgress: cappedProgress,
+      getCompletedMessage: stageKeyMessage<TProgress>(`${i18nBase}.completed`),
+      getErrorMessage: errorOrStageKeyMessage<TProgress>(`${i18nBase}.failed`),
+      supportFastCompletion: true
+    },
+    complete: {
+      getSuccessMessage: stageKeyMessage<TComplete>(`${i18nBase}.completed`),
+      getFailureMessage: errorOrStageKeyMessage<TComplete>(`${i18nBase}.failed`),
+      getCancelledMessage: stageKeyMessage<TComplete>(`${i18nBase}.cancelled`),
+      getSuccessDetails: operationIdDetails,
+      getCancelledDetails: operationIdDetails
+    }
+  });
+}
+
+// ============================================================================
 // Scheduled service run entries (pipeline-less maintenance services)
 // ============================================================================
 // Each of these services runs on a schedule (or via Run Now) and emits a
@@ -250,7 +351,7 @@ interface ScheduledRunStatusResponse {
   operationId?: string | null;
   percentComplete: number;
   stageKey?: string;
-  context?: StageContext;
+  context?: StageContext | null;
   showNotification: boolean;
 }
 
@@ -313,7 +414,11 @@ export function buildScheduledRunEntry(
       shouldSkip: (data: ScheduledRunStatusResponse) =>
         data.isRunning && data.showNotification === false,
       createNotification: (data: ScheduledRunStatusResponse) => ({
-        message: translateRecoveryStage(data.stageKey, data.context, `${i18nBase}.starting`),
+        message: translateRecoveryStage(
+          data.stageKey,
+          data.context ?? undefined,
+          `${i18nBase}.starting`
+        ),
         progress: data.percentComplete,
         details: { operationId: data.operationId ?? undefined }
       }),

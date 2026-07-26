@@ -7,14 +7,9 @@
  */
 
 import type {
-  DepotMappingStartedEvent,
-  DepotMappingProgressEvent,
-  DepotMappingCompleteEvent,
   DatabaseResetStartedEvent,
   DatabaseResetProgressEvent,
-  EpicMappingProgressEvent,
   EpicGameMappingsUpdatedEvent,
-  XboxMappingProgressEvent,
   XboxGameMappingsUpdatedEvent,
   SteamSessionErrorEvent
 } from '../SignalRContext/types';
@@ -35,20 +30,13 @@ import {
 import {
   createStartedHandler,
   createStatusAwareProgressHandler,
-  createCompletionHandler,
-  createDepotMappingCompletionHandler
+  createCompletionHandler
 } from './handlerFactories';
 import i18n from '@/i18n';
 import {
   formatDatabaseResetProgressMessage,
   formatDatabaseResetCompleteMessage,
-  formatDepotMappingStartedMessage,
-  formatDepotMappingProgressMessage,
-  formatEpicMappingProgressMessage,
-  formatEpicMappingCompleteMessage,
   formatEpicGameMappingsUpdatedMessage,
-  formatXboxMappingProgressMessage,
-  formatXboxMappingCompleteMessage,
   formatXboxGameMappingsUpdatedMessage
 } from './detailMessageFormatters';
 
@@ -71,15 +59,10 @@ interface DatabaseResetCompleteEvent {
 }
 
 export interface SpecialCaseHandlers {
-  handleDepotMappingStarted: (event: DepotMappingStartedEvent) => void;
-  handleDepotMappingProgress: (event: DepotMappingProgressEvent) => void;
-  handleDepotMappingComplete: (event: DepotMappingCompleteEvent) => void;
   handleDatabaseResetStarted: (event: DatabaseResetStartedEvent) => void;
   handleDatabaseResetProgress: (event: DatabaseResetProgressEvent) => void;
   handleDatabaseResetComplete: (event: DatabaseResetCompleteEvent) => void;
-  handleEpicMappingProgress: (event: EpicMappingProgressEvent) => void;
   handleEpicGameMappingsUpdated: (event: EpicGameMappingsUpdatedEvent) => void;
-  handleXboxMappingProgress: (event: XboxMappingProgressEvent) => void;
   handleXboxGameMappingsUpdated: (event: XboxGameMappingsUpdatedEvent) => void;
   handleSteamSessionError: (event: SteamSessionErrorEvent) => void;
 }
@@ -87,61 +70,15 @@ export interface SpecialCaseHandlers {
 /**
  * Creates all special-case notification handlers.
  * These are handlers that don't fit the standard registry pattern because they:
- * - Use a custom completion handler (depot mapping)
  * - Complete via a terminal event that is idempotent with a legacy progress-status
  *   completion (database reset)
- * - Have only progress events (epic game mapping)
- * - Are one-shot custom handlers (EpicGameMappingsUpdated, SteamSessionError)
+ * - Are one-shot custom handlers (mapping data updates, SteamSessionError)
  */
 export function createSpecialCaseHandlers(
   setNotifications: SetNotifications,
   scheduleAutoDismiss: ScheduleAutoDismiss,
   cancelAutoDismissTimer: CancelAutoDismissTimer
 ): SpecialCaseHandlers {
-  // ========== Depot Mapping (uses special createDepotMappingCompletionHandler) ==========
-  const handleDepotMappingStarted = createStartedHandler<DepotMappingStartedEvent>(
-    {
-      type: 'depot_mapping',
-      getId: () => NOTIFICATION_IDS.DEPOT_MAPPING,
-      storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
-      shouldDisplay: (event) => event.showNotification !== false,
-      defaultMessage: 'Starting depot mapping scan...',
-      getMessage: formatDepotMappingStartedMessage,
-      getDetails: (e) => ({ operationId: e.operationId, isLoggedOn: e.isLoggedOn }),
-      replaceExisting: true // Depot mapping can be restarted
-    },
-    setNotifications,
-    cancelAutoDismissTimer
-  );
-
-  const handleDepotMappingProgress = createStatusAwareProgressHandler<DepotMappingProgressEvent>(
-    {
-      type: 'depot_mapping',
-      getId: () => NOTIFICATION_IDS.DEPOT_MAPPING,
-      storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
-      shouldDisplay: (event) => event.showNotification !== false,
-      getMessage: (event) => formatDepotMappingProgressMessage(event, undefined),
-      getProgress: (event) => event.percentComplete ?? event.progressPercent ?? 0,
-      getStatus: (e) => {
-        if (e.status === 'completed') return 'completed';
-        if (e.status === 'failed') return 'failed';
-        return undefined;
-      },
-      getCompletedMessage: (e) =>
-        i18n.t(e.stageKey ?? 'signalr.depotMapping.finalized', e.context ?? {}),
-      getErrorMessage: (e) => i18n.t(e.stageKey ?? GENERIC_FAILURE_I18N_KEY, e.context ?? {}),
-      getDetails: (e) => ({ operationId: e.operationId })
-    },
-    setNotifications,
-    scheduleAutoDismiss,
-    cancelAutoDismissTimer
-  );
-
-  const handleDepotMappingComplete = createDepotMappingCompletionHandler(
-    setNotifications,
-    scheduleAutoDismiss
-  );
-
   // ========== Database Reset (started + progress + terminal complete event) ==========
   const handleDatabaseResetStarted = createStartedHandler<DatabaseResetStartedEvent>(
     {
@@ -206,28 +143,6 @@ export function createSpecialCaseHandlers(
     scheduleAutoDismiss
   );
 
-  // ========== Epic Game Mapping (progress only via createStatusAwareProgressHandler) ==========
-  const handleEpicMappingProgress = createStatusAwareProgressHandler<EpicMappingProgressEvent>(
-    {
-      type: 'epic_game_mapping',
-      getId: () => NOTIFICATION_IDS.EPIC_GAME_MAPPING,
-      storageKey: NOTIFICATION_STORAGE_KEYS.EPIC_GAME_MAPPING,
-      shouldDisplay: (event) => event.showNotification !== false,
-      getMessage: formatEpicMappingProgressMessage,
-      getProgress: (e) => e.percentComplete || 0,
-      getStatus: (e) =>
-        e.status === 'completed' ? 'completed' : e.status === 'failed' ? 'failed' : undefined,
-      getCompletedMessage: (e) =>
-        e.cancelled ? i18n.t('signalr.epicMapping.cancelled') : formatEpicMappingCompleteMessage(e),
-      getErrorMessage: (e) => i18n.t(e.stageKey ?? 'signalr.epicMapping.failed', e.context ?? {}),
-      supportFastCompletion: true,
-      getDetails: (e) => ({ operationId: e.operationId, cancelled: e.cancelled })
-    },
-    setNotifications,
-    scheduleAutoDismiss,
-    cancelAutoDismissTimer
-  );
-
   // ========== Epic Game Mappings Updated ==========
   // Simple one-shot completion notification: no start/progress phases, just a completion event.
   // Only shows a notification when there are actual changes (new or updated games).
@@ -237,9 +152,9 @@ export function createSpecialCaseHandlers(
     const detailMessage = formatEpicGameMappingsUpdatedMessage(event);
 
     setNotifications((prev: UnifiedNotification[]) => {
-      const filtered = prev.filter((n) => n.id !== NOTIFICATION_IDS.EPIC_GAME_MAPPING);
+      const filtered = prev.filter((n) => n.id !== NOTIFICATION_IDS.EPIC_GAME_MAPPING_UPDATE);
       const newNotification: UnifiedNotification = {
-        id: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
+        id: NOTIFICATION_IDS.EPIC_GAME_MAPPING_UPDATE,
         type: 'epic_game_mapping',
         status: 'completed',
         message: 'Epic Games Updated',
@@ -255,30 +170,8 @@ export function createSpecialCaseHandlers(
       return [...filtered, newNotification];
     });
 
-    scheduleAutoDismiss(NOTIFICATION_IDS.EPIC_GAME_MAPPING);
+    scheduleAutoDismiss(NOTIFICATION_IDS.EPIC_GAME_MAPPING_UPDATE);
   };
-
-  // ========== Xbox Game Mapping (progress only via createStatusAwareProgressHandler) ==========
-  const handleXboxMappingProgress = createStatusAwareProgressHandler<XboxMappingProgressEvent>(
-    {
-      type: 'xbox_game_mapping',
-      getId: () => NOTIFICATION_IDS.XBOX_GAME_MAPPING,
-      storageKey: NOTIFICATION_STORAGE_KEYS.XBOX_GAME_MAPPING,
-      shouldDisplay: (event) => event.showNotification !== false,
-      getMessage: formatXboxMappingProgressMessage,
-      getProgress: (e) => e.percentComplete || 0,
-      getStatus: (e) =>
-        e.status === 'completed' ? 'completed' : e.status === 'failed' ? 'failed' : undefined,
-      getCompletedMessage: (e) =>
-        e.cancelled ? i18n.t('signalr.xboxMapping.cancelled') : formatXboxMappingCompleteMessage(e),
-      getErrorMessage: (e) => i18n.t(e.stageKey ?? 'signalr.xboxMapping.failed', e.context ?? {}),
-      supportFastCompletion: true,
-      getDetails: (e) => ({ operationId: e.operationId, cancelled: e.cancelled })
-    },
-    setNotifications,
-    scheduleAutoDismiss,
-    cancelAutoDismissTimer
-  );
 
   // ========== Xbox Game Mappings Updated ==========
   // Simple one-shot completion notification: no start/progress phases, just a completion event.
@@ -290,9 +183,9 @@ export function createSpecialCaseHandlers(
     const detailMessage = formatXboxGameMappingsUpdatedMessage(event);
 
     setNotifications((prev: UnifiedNotification[]) => {
-      const filtered = prev.filter((n) => n.id !== NOTIFICATION_IDS.XBOX_GAME_MAPPING);
+      const filtered = prev.filter((n) => n.id !== NOTIFICATION_IDS.XBOX_GAME_MAPPING_UPDATE);
       const newNotification: UnifiedNotification = {
-        id: NOTIFICATION_IDS.XBOX_GAME_MAPPING,
+        id: NOTIFICATION_IDS.XBOX_GAME_MAPPING_UPDATE,
         type: 'xbox_game_mapping',
         status: 'completed',
         message: 'Xbox Games Updated',
@@ -307,7 +200,7 @@ export function createSpecialCaseHandlers(
       return [...filtered, newNotification];
     });
 
-    scheduleAutoDismiss(NOTIFICATION_IDS.XBOX_GAME_MAPPING);
+    scheduleAutoDismiss(NOTIFICATION_IDS.XBOX_GAME_MAPPING_UPDATE);
   };
 
   // ========== Steam Session Error ==========
@@ -371,15 +264,10 @@ export function createSpecialCaseHandlers(
   };
 
   return {
-    handleDepotMappingStarted,
-    handleDepotMappingProgress,
-    handleDepotMappingComplete,
     handleDatabaseResetStarted,
     handleDatabaseResetProgress,
     handleDatabaseResetComplete,
-    handleEpicMappingProgress,
     handleEpicGameMappingsUpdated,
-    handleXboxMappingProgress,
     handleXboxGameMappingsUpdated,
     handleSteamSessionError
   };

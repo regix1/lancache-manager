@@ -50,7 +50,9 @@ public class PersistentPrefillController : ControllerBase
     /// Starts a persistent admin-owned session for the given platform.
     /// </summary>
     [HttpPost("start")]
-    public async Task<ActionResult<DaemonSessionDto>> StartAsync([FromBody] StartPersistentSessionRequest request)
+    public async Task<ActionResult<DaemonSessionDto>> StartAsync(
+        [FromBody] StartPersistentSessionRequest request,
+        CancellationToken cancellationToken)
     {
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, request.Service);
         if (daemon is null)
@@ -58,8 +60,57 @@ public class PersistentPrefillController : ControllerBase
             return BadRequest(ApiResponse.Error($"No daemon registered for service '{request.Service}'"));
         }
 
-        DaemonSession session = await daemon.StartPersistentSessionAsync(request.Service, _systemUserId);
-        return Ok(DaemonSessionDto.FromSession(session));
+        if (string.IsNullOrWhiteSpace(request.EditSessionId)
+            && string.IsNullOrWhiteSpace(request.EditActionId))
+        {
+            DaemonSession session = await daemon.StartPersistentSessionAsync(
+                request.Service,
+                _systemUserId,
+                cancellationToken: cancellationToken);
+            return Ok(DaemonSessionDto.FromSession(session));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.EditSessionId)
+            || string.IsNullOrWhiteSpace(request.EditActionId))
+        {
+            return BadRequest(ApiResponse.Required("editSessionId and editActionId"));
+        }
+
+        var lease = daemon.PersistentEditSessionGate.BeginStart(request.EditSessionId, request.EditActionId);
+        if (!lease.Accepted)
+        {
+            return Conflict(ApiResponse.Error("This scheduled-prefill edit session is already being cleaned up."));
+        }
+
+        if (!lease.IsOwner)
+        {
+            var prior = await lease.Completion;
+            var priorSession = daemon.GetSession(prior.SessionId);
+            return priorSession is null
+                ? Conflict(ApiResponse.Error("The edit-session-owned persistent session has already ended."))
+                : Ok(DaemonSessionDto.FromSession(priorSession));
+        }
+
+        try
+        {
+            var started = await daemon.StartPersistentSessionForEditAsync(
+                request.Service,
+                _systemUserId,
+                CancellationToken.None);
+            daemon.PersistentEditSessionGate.CompleteStart(
+                request.EditSessionId,
+                request.EditActionId,
+                new PersistentPrefillEditSessionStartRecord(
+                    request.EditActionId,
+                    started.Session.Id,
+                    started.CreatedByEditSession));
+            return Ok(DaemonSessionDto.FromSession(started.Session));
+        }
+        catch (Exception ex)
+        {
+            daemon.PersistentEditSessionGate.FailStart(request.EditSessionId, request.EditActionId, ex);
+            throw;
+        }
     }
 
     /// <summary>
@@ -83,6 +134,62 @@ public class PersistentPrefillController : ControllerBase
         }
 
         return NotFound(ApiResponse.Error($"No persistent session found with id {request.SessionId}"));
+    }
+
+    [HttpPost("edit-session-cleanup")]
+    public async Task<ActionResult> CleanupEditSessionAsync(
+        [FromBody] PersistentPrefillEditSessionCleanupRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.EditSessionId)
+            || string.IsNullOrWhiteSpace(request.CleanupId))
+        {
+            return BadRequest(ApiResponse.Required("editSessionId and cleanupId"));
+        }
+
+        var duplicateService = request.Services
+            .GroupBy(service => service.Service)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateService is not null)
+        {
+            return BadRequest(ApiResponse.Error(
+                $"Cleanup contains duplicate service '{duplicateService.Key}'."));
+        }
+
+        var resolved = new List<(
+            PersistentPrefillEditSessionCleanupServiceRequest Request,
+            PrefillDaemonServiceBase Daemon)>();
+
+        foreach (var serviceRequest in request.Services)
+        {
+            var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, serviceRequest.Service);
+            if (daemon is null)
+            {
+                return BadRequest(ApiResponse.Error(
+                    $"No daemon registered for service '{serviceRequest.Service}'"));
+            }
+
+            resolved.Add((serviceRequest, daemon));
+        }
+
+        var targets = resolved
+            .Select(target => (
+                target.Request,
+                target.Daemon,
+                Lease: target.Daemon.PersistentEditSessionGate.BeginCleanup(
+                    request.EditSessionId,
+                    request.CleanupId)))
+            .ToArray();
+
+        await Task.WhenAll(targets.Select(target => CleanupEditSessionServiceAsync(
+            request.EditSessionId,
+            request.CleanupId,
+            target.Request,
+            target.Daemon,
+            target.Lease,
+            cancellationToken)));
+
+        return Ok();
     }
 
     /// <summary>
@@ -217,14 +324,45 @@ public class PersistentPrefillController : ControllerBase
         [FromBody] PersistentSelectedAppsRequest request,
         CancellationToken cancellationToken)
     {
-        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        var (daemon, session, error) = ResolveRunningPersistentSession(
+            request.Service,
+            request.SessionId);
         if (error is not null)
         {
             return error;
         }
 
-        await daemon!.SetSelectedAppsAsync(session!.Id, request.AppIds, cancellationToken);
-        return Ok();
+        var editActionError = BeginEditAction(
+            daemon!,
+            request.EditSessionId,
+            request.EditActionId,
+            PersistentPrefillEditActionKind.Selection,
+            session!.Id,
+            out var editAction);
+        if (editActionError is not null)
+        {
+            return editActionError;
+        }
+
+        var outcome = PersistentPrefillEditActionOutcome.Failed;
+        try
+        {
+            await using var mutation = await daemon!.PersistentEditSessionGate.EnterMutationAsync(
+                cancellationToken);
+            await daemon!.SetSelectedAppsAsync(session!.Id, request.AppIds, cancellationToken);
+            editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Selection);
+            outcome = PersistentPrefillEditActionOutcome.Succeeded;
+            return Ok();
+        }
+        catch (OperationCanceledException)
+        {
+            outcome = PersistentPrefillEditActionOutcome.Cancelled;
+            throw;
+        }
+        finally
+        {
+            editAction?.Complete(outcome);
+        }
     }
 
     /// <summary>
@@ -236,10 +374,24 @@ public class PersistentPrefillController : ControllerBase
         [FromBody] PersistentStartPrefillRequest request,
         CancellationToken cancellationToken)
     {
-        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        var (daemon, session, error) = ResolveRunningPersistentSession(
+            request.Service,
+            request.SessionId);
         if (error is not null)
         {
             return error;
+        }
+
+        var editActionError = BeginEditAction(
+            daemon!,
+            request.EditSessionId,
+            request.EditActionId,
+            PersistentPrefillEditActionKind.Prefill,
+            session!.Id,
+            out var editAction);
+        if (editActionError is not null)
+        {
+            return editActionError;
         }
 
         _logger.LogInformation(
@@ -249,15 +401,19 @@ public class PersistentPrefillController : ControllerBase
             request.Force,
             request.AppIds?.Count ?? 0);
 
-        if (request.AppIds is { Count: > 0 })
-        {
-            await daemon!.SetSelectedAppsAsync(session.Id, request.AppIds, cancellationToken);
-        }
-
+        var outcome = PersistentPrefillEditActionOutcome.Failed;
         try
         {
+            await using var mutation = await daemon!.PersistentEditSessionGate.EnterMutationAsync(
+                cancellationToken);
+            if (request.AppIds is { Count: > 0 })
+            {
+                await daemon!.SetSelectedAppsAsync(session!.Id, request.AppIds, cancellationToken);
+                editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Selection);
+            }
+
             var result = await daemon!.PrefillAsync(
-                session.Id,
+                session!.Id,
                 all: request.All,
                 recent: request.Recent,
                 recentlyPurchased: request.RecentlyPurchased,
@@ -267,13 +423,29 @@ public class PersistentPrefillController : ControllerBase
                 maxConcurrency: request.MaxConcurrency,
                 cancellationToken: cancellationToken);
 
+            if (result.Success)
+            {
+                editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Prefill);
+                outcome = PersistentPrefillEditActionOutcome.Succeeded;
+            }
+
             return Ok(result);
         }
         catch (PrefillAlreadyRunningException ex)
         {
+            outcome = PersistentPrefillEditActionOutcome.Conflict;
             // ex.Message is developer-authored on this exception type, safe to surface directly.
             // Throw the typed 409 so the middleware emits the unified { error, statusCode, traceId } shape.
             throw new ConflictException(ex.Message);
+        }
+        catch (OperationCanceledException)
+        {
+            outcome = PersistentPrefillEditActionOutcome.Cancelled;
+            throw;
+        }
+        finally
+        {
+            editAction?.Complete(outcome);
         }
     }
 
@@ -285,7 +457,9 @@ public class PersistentPrefillController : ControllerBase
         [FromBody] PersistentServiceRequest request,
         CancellationToken cancellationToken)
     {
-        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        var (daemon, session, error) = ResolveRunningPersistentSession(
+            request.Service,
+            request.SessionId);
         if (error is not null)
         {
             return error;
@@ -308,43 +482,89 @@ public class PersistentPrefillController : ControllerBase
         [FromBody] PersistentLoginRequest request,
         CancellationToken cancellationToken)
     {
-        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        var (daemon, session, error) = ResolveRunningPersistentSession(
+            request.Service,
+            request.SessionId);
         if (error is not null)
         {
             return error;
         }
 
-        var challenge = await daemon!.StartLoginAsync(session!.Id, TimeSpan.FromSeconds(30), cancellationToken);
-
-        if (challenge == null)
+        var editActionError = BeginEditAction(
+            daemon!,
+            request.EditSessionId,
+            request.EditActionId,
+            PersistentPrefillEditActionKind.Login,
+            session!.Id,
+            out var editAction);
+        if (editActionError is not null)
         {
-            // No challenge means either already logged in, a fail-fast daemon failure, or a genuine timeout.
-            var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
-            if (status?.Status == "logged-in")
-            {
-                // RC3: every login response variant carries the
-                // resolved sessionId so the frontend can pin the session this flow belongs to.
-                return Ok(new PersistentLoginStatusResponse
-                {
-                    SessionId = session.Id,
-                    Status = "logged-in",
-                    Message = "Already logged in"
-                });
-            }
-
-            if (!string.IsNullOrEmpty(session.LastLoginFailureMessage))
-            {
-                return BadRequest(ApiResponse.Error(session.LastLoginFailureMessage));
-            }
-
-            return BadRequest(ApiResponse.Error("Login timeout - daemon may not be ready"));
+            return editActionError;
         }
 
-        // Stamp the resolved sessionId onto the challenge so the frontend pins the flow to THIS session
-        // (RC3). The value is invariant for the session, so mutating even the cached challenge instance
-        // is safe.
-        challenge.SessionId = session.Id;
-        return Ok(challenge);
+        var outcome = PersistentPrefillEditActionOutcome.Failed;
+        try
+        {
+            await using var mutation = await daemon!.PersistentEditSessionGate.EnterMutationAsync(
+                cancellationToken);
+            var loginCommandDispatched = false;
+            var challenge = await daemon!.StartLoginForEditAsync(
+                session!.Id,
+                TimeSpan.FromSeconds(30),
+                () =>
+                {
+                    editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Login);
+                    loginCommandDispatched = true;
+                },
+                cancellationToken);
+
+            if (challenge == null)
+            {
+                // No challenge means either already logged in, a fail-fast daemon failure, or a genuine timeout.
+                var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
+                if (status?.Status == "logged-in")
+                {
+                    outcome = PersistentPrefillEditActionOutcome.NoChange;
+                    // RC3: every login response variant carries the
+                    // resolved sessionId so the frontend can pin the session this flow belongs to.
+                    return Ok(new PersistentLoginStatusResponse
+                    {
+                        SessionId = session.Id,
+                        Status = "logged-in",
+                        Message = "Already logged in"
+                    });
+                }
+
+                if (!string.IsNullOrEmpty(session.LastLoginFailureMessage))
+                {
+                    return BadRequest(ApiResponse.Error(session.LastLoginFailureMessage));
+                }
+
+                return BadRequest(ApiResponse.Error("Login timeout - daemon may not be ready"));
+            }
+
+            // Stamp the resolved sessionId onto the challenge so the frontend pins the flow to THIS session
+            // (RC3). The value is invariant for the session, so mutating even the cached challenge instance
+            // is safe.
+            challenge.SessionId = session.Id;
+            if (!loginCommandDispatched)
+            {
+                // A cached challenge resume dispatches no new command, but this edit action has
+                // explicitly adopted the still-running login and must own its cleanup.
+                editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Login);
+            }
+            outcome = PersistentPrefillEditActionOutcome.Succeeded;
+            return Ok(challenge);
+        }
+        catch (OperationCanceledException)
+        {
+            outcome = PersistentPrefillEditActionOutcome.Cancelled;
+            throw;
+        }
+        finally
+        {
+            editAction?.Complete(outcome);
+        }
     }
 
     /// <summary>
@@ -376,12 +596,34 @@ public class PersistentPrefillController : ControllerBase
             return BadRequest(ApiResponse.Required("Challenge and credential"));
         }
 
+        var editActionError = BeginEditAction(
+            daemon!,
+            request.EditSessionId,
+            request.EditActionId,
+            PersistentPrefillEditActionKind.Credential,
+            session!.Id,
+            out var editAction);
+        if (editActionError is not null)
+        {
+            return editActionError;
+        }
+
+        var outcome = PersistentPrefillEditActionOutcome.Failed;
         try
         {
-            await daemon!.ProvideCredentialAsync(session!.Id, request.Challenge, request.Credential, cancellationToken);
+            await using var mutation = await daemon!.PersistentEditSessionGate.EnterMutationAsync(
+                cancellationToken);
+            await daemon!.ProvideCredentialAsync(
+                session!.Id,
+                request.Challenge,
+                request.Credential,
+                cancellationToken);
+            editAction!.ConfirmEffect(PersistentPrefillEditResourceKind.Login);
+            outcome = PersistentPrefillEditActionOutcome.Succeeded;
         }
         catch (DaemonCredentialRejectedException ex)
         {
+            outcome = PersistentPrefillEditActionOutcome.Conflict;
             // RC4: a fixed daemon reported it had no matching
             // pending challenge for this credential. Surface it as a typed conflict the frontend reads
             // via error.cause, so a misrouted/rejected credential is never celebrated as accepted.
@@ -393,6 +635,15 @@ public class PersistentPrefillController : ControllerBase
                 Error = PersistentLoginConflictReasons.CredentialRejected,
                 State = "active"
             });
+        }
+        catch (OperationCanceledException)
+        {
+            outcome = PersistentPrefillEditActionOutcome.Cancelled;
+            throw;
+        }
+        finally
+        {
+            editAction?.Complete(outcome);
         }
 
         return Ok(ApiResponse.Message("Credential sent"));
@@ -585,6 +836,261 @@ public class PersistentPrefillController : ControllerBase
         });
     }
 
+    private async Task CleanupEditSessionServiceAsync(
+        string editSessionId,
+        string cleanupId,
+        PersistentPrefillEditSessionCleanupServiceRequest request,
+        PrefillDaemonServiceBase daemon,
+        PersistentPrefillEditSessionCleanupLease lease,
+        CancellationToken cancellationToken)
+    {
+        if (!lease.IsOwner)
+        {
+            await lease.Completion;
+            return;
+        }
+
+        try
+        {
+            await Task.WhenAll(lease.PendingEditActions);
+
+            var starts = new List<PersistentPrefillEditSessionStartRecord>();
+            foreach (var pendingStart in lease.PendingStarts)
+            {
+                try
+                {
+                    starts.Add(await pendingStart);
+                }
+                catch (PersistentPrefillEditStartRollbackException rollback)
+                {
+                    await daemon.RollbackPersistentSessionStartForEditAsync(
+                        rollback.SessionId,
+                        rollback.ContainerId);
+                }
+                catch
+                {
+                    // A failed start produced no edit-session-owned session to compensate.
+                }
+            }
+
+            await using var mutation = await daemon.PersistentEditSessionGate.EnterMutationAsync(
+                cancellationToken);
+
+            var createdStarts = starts.Where(start => start.CreatedByEditSession).ToArray();
+            if (createdStarts.Length > 0)
+            {
+                var allStoppedOrAbsent = true;
+                foreach (var start in createdStarts)
+                {
+                    allStoppedOrAbsent &= await StopEditSessionOwnedSessionAsync(
+                        daemon,
+                        editSessionId,
+                        start);
+                }
+
+                if (allStoppedOrAbsent)
+                {
+                    daemon.PersistentEditSessionGate.CompleteCleanup(editSessionId, cleanupId);
+                    return;
+                }
+            }
+
+            var untrackedStartSessionId = request.StartSessionId;
+            if (starts.Count == 0
+                && !string.IsNullOrWhiteSpace(untrackedStartSessionId)
+                && !string.Equals(
+                    untrackedStartSessionId,
+                    request.BaselineSessionId,
+                    StringComparison.Ordinal))
+            {
+                if (await StopUntrackedSessionCreatedByEditAsync(daemon, untrackedStartSessionId))
+                {
+                    daemon.PersistentEditSessionGate.CompleteCleanup(editSessionId, cleanupId);
+                    return;
+                }
+            }
+
+            foreach (var ownership in daemon.PersistentEditSessionGate.GetCompensableResources(
+                editSessionId,
+                PersistentPrefillEditResourceKind.Prefill))
+            {
+                if (TryGetExactPersistentSession(daemon, ownership.SessionId, out var prefillSession)
+                    && prefillSession.IsPrefilling)
+                {
+                    await daemon.CancelPrefillAsync(prefillSession.Id, cancellationToken);
+                }
+
+                daemon.PersistentEditSessionGate.CompleteCompensation(editSessionId, ownership);
+            }
+
+            foreach (var ownership in daemon.PersistentEditSessionGate.GetCompensableResources(
+                editSessionId,
+                PersistentPrefillEditResourceKind.Login))
+            {
+                if (TryGetExactPersistentSession(daemon, ownership.SessionId, out var loginSession))
+                {
+                    var status = await daemon.GetSessionStatusAsync(
+                        loginSession.Id,
+                        cancellationToken);
+                    if (status?.Status == "logged-in")
+                    {
+                        var logout = await daemon.LogoutPersistentSessionAsync(
+                            loginSession.Id,
+                            cancellationToken);
+                        if (!logout.LoggedOut)
+                        {
+                            throw new InvalidOperationException(
+                                $"Edit-session-owned login could not be cleared from session {loginSession.Id}.");
+                        }
+                    }
+                    else
+                    {
+                        await daemon.CancelLoginAsync(loginSession.Id, cancellationToken);
+                    }
+                }
+
+                daemon.PersistentEditSessionGate.CompleteCompensation(editSessionId, ownership);
+            }
+
+            foreach (var ownership in daemon.PersistentEditSessionGate.GetCompensableResources(
+                editSessionId,
+                PersistentPrefillEditResourceKind.Selection))
+            {
+                if (TryGetExactPersistentSession(
+                    daemon,
+                    ownership.SessionId,
+                    out var selectionSession))
+                {
+                    await daemon.SetSelectedAppsAsync(
+                        selectionSession.Id,
+                        request.BaselineSelectedAppIds,
+                        cancellationToken);
+                }
+
+                daemon.PersistentEditSessionGate.CompleteCompensation(editSessionId, ownership);
+            }
+
+            daemon.PersistentEditSessionGate.CompleteCleanup(editSessionId, cleanupId);
+        }
+        catch (Exception ex)
+        {
+            daemon.PersistentEditSessionGate.FailCleanup(editSessionId, cleanupId, ex);
+            throw;
+        }
+    }
+
+    private static ActionResult? BeginEditAction(
+        PrefillDaemonServiceBase daemon,
+        string? editSessionId,
+        string? editActionId,
+        PersistentPrefillEditActionKind kind,
+        string sessionId,
+        out PersistentPrefillEditActionLease? editAction)
+    {
+        if (string.IsNullOrWhiteSpace(editSessionId) || string.IsNullOrWhiteSpace(editActionId))
+        {
+            if (!string.IsNullOrWhiteSpace(editSessionId)
+                || !string.IsNullOrWhiteSpace(editActionId))
+            {
+                editAction = null;
+                return new BadRequestObjectResult(
+                    ApiResponse.Required("editSessionId and editActionId"));
+            }
+        }
+
+        editAction = daemon.PersistentEditSessionGate.BeginEditAction(
+            editSessionId,
+            editActionId,
+            kind,
+            sessionId);
+        return editAction.Accepted
+            ? null
+            : new ConflictObjectResult(
+                ApiResponse.Error("This scheduled-prefill edit session is already being cleaned up."));
+    }
+
+    private static async Task<bool> StopEditSessionOwnedSessionAsync(
+        PrefillDaemonServiceBase daemon,
+        string editSessionId,
+        PersistentPrefillEditSessionStartRecord start)
+    {
+        while (true)
+        {
+            var stopped = await daemon.StopPersistentSessionIfOwnedByEditAsync(
+                start.SessionId,
+                () => daemon.PersistentEditSessionGate.CanStopStartedSession(editSessionId, start),
+                terminatedBy: "edit-session-cleanup");
+            if (stopped || daemon.GetSession(start.SessionId) is not { IsPersistent: true })
+            {
+                return true;
+            }
+
+            if (daemon.PersistentEditSessionGate.HasPendingLaterStart(editSessionId, start))
+            {
+                throw new InvalidOperationException(
+                    $"Edit-session cleanup is waiting for a later persistent start before releasing session {start.SessionId}.");
+            }
+
+            if (!daemon.PersistentEditSessionGate.CanStopStartedSession(editSessionId, start))
+            {
+                // A completed later edit session adopted this exact session, so it now owns the container.
+                return false;
+            }
+
+            // Ownership changed from unresolved to stoppable after the locked check. Retry under the
+            // daemon's persistent-start lock so the exact session cannot be replaced mid-stop.
+        }
+    }
+
+    private static async Task<bool> StopUntrackedSessionCreatedByEditAsync(
+        PrefillDaemonServiceBase daemon,
+        string sessionId)
+    {
+        while (true)
+        {
+            var stopped = await daemon.StopPersistentSessionIfOwnedByEditAsync(
+                sessionId,
+                () => daemon.PersistentEditSessionGate.CanStopUntrackedSession(sessionId),
+                terminatedBy: "edit-session-cleanup");
+            if (stopped || daemon.GetSession(sessionId) is not { IsPersistent: true })
+            {
+                return true;
+            }
+
+            if (daemon.PersistentEditSessionGate.HasPendingStart())
+            {
+                throw new InvalidOperationException(
+                    $"Edit-session cleanup is waiting for a persistent start before releasing session {sessionId}.");
+            }
+
+            if (!daemon.PersistentEditSessionGate.CanStopUntrackedSession(sessionId))
+            {
+                return false;
+            }
+        }
+    }
+
+    private static bool TryGetExactPersistentSession(
+        PrefillDaemonServiceBase daemon,
+        string? sessionId,
+        out DaemonSession session)
+    {
+        session = null!;
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return false;
+        }
+
+        var exact = daemon.GetSession(sessionId);
+        if (exact is not { IsPersistent: true, Status: DaemonSessionStatus.Active })
+        {
+            return false;
+        }
+
+        session = exact;
+        return true;
+    }
+
     /// <summary>
     /// Updates the admin-configured persistent login validity window (1-365 days).
     /// </summary>
@@ -728,19 +1234,24 @@ public class PersistentPrefillController : ControllerBase
 public sealed class PersistentServiceRequest
 {
     public required PrefillPlatform Service { get; init; }
+    public string? SessionId { get; init; }
 }
 
 /// <summary>Sets selected apps on the running persistent session.</summary>
 public sealed class PersistentSelectedAppsRequest
 {
     public required PrefillPlatform Service { get; init; }
+    public string? SessionId { get; init; }
     public required List<string> AppIds { get; init; }
+    public string? EditSessionId { get; init; }
+    public string? EditActionId { get; init; }
 }
 
 /// <summary>Starts prefill on the running persistent session (mirrors guest StartPrefillRequest).</summary>
 public sealed class PersistentStartPrefillRequest
 {
     public required PrefillPlatform Service { get; init; }
+    public string? SessionId { get; init; }
     public List<string>? AppIds { get; init; }
     public bool All { get; init; }
     public bool Recent { get; init; }
@@ -749,6 +1260,8 @@ public sealed class PersistentStartPrefillRequest
     public bool Force { get; init; }
     public List<string>? OperatingSystems { get; init; }
     public int? MaxConcurrency { get; init; }
+    public string? EditSessionId { get; init; }
+    public string? EditActionId { get; init; }
 }
 
 /// <summary>Request body for starting a persistent session.</summary>
@@ -756,6 +1269,9 @@ public sealed class StartPersistentSessionRequest
 {
     /// <summary>Platform whose daemon should own the persistent session.</summary>
     public required PrefillPlatform Service { get; init; }
+
+    public string? EditSessionId { get; init; }
+    public string? EditActionId { get; init; }
 }
 
 /// <summary>
@@ -766,6 +1282,27 @@ public sealed class PersistentLoginRequest
 {
     /// <summary>Platform whose running persistent session should be logged in / cancelled.</summary>
     public required PrefillPlatform Service { get; init; }
+    public string? SessionId { get; init; }
+    public string? EditSessionId { get; init; }
+    public string? EditActionId { get; init; }
+}
+
+public sealed class PersistentPrefillEditSessionCleanupRequest
+{
+    public required string EditSessionId { get; init; }
+    public required string CleanupId { get; init; }
+    public required List<PersistentPrefillEditSessionCleanupServiceRequest> Services { get; init; }
+}
+
+public sealed class PersistentPrefillEditSessionCleanupServiceRequest
+{
+    public required PrefillPlatform Service { get; init; }
+    public string? BaselineSessionId { get; init; }
+    public required List<string> BaselineSelectedAppIds { get; init; }
+    public string? StartSessionId { get; init; }
+    public string? LoginSessionId { get; init; }
+    public string? PrefillSessionId { get; init; }
+    public string? SelectionSessionId { get; init; }
 }
 
 /// <summary>
@@ -790,6 +1327,8 @@ public sealed class PersistentProvideCredentialRequest
 
     /// <summary>The encrypted credential value (same shape as the user credential route).</summary>
     public string? Credential { get; init; }
+    public string? EditSessionId { get; init; }
+    public string? EditActionId { get; init; }
 }
 
 /// <summary>

@@ -451,11 +451,16 @@ public partial class SteamKit2Service
             if (IsRebuildRunning)
             {
                 _logger.LogError("Steam session error during active rebuild: {ErrorType} - {Message}", errorType, errorMessage);
+                var operationId = _currentPicsOperationId;
+                if (!operationId.HasValue && _currentMappingReporter is { IsStarted: true } reporter)
+                {
+                    operationId = reporter.OperationId;
+                }
 
-                // Send a failure completion event
-                SendDepotMappingFailure(errorMessage, errorType);
-
-                // Cancel the rebuild
+                if (operationId.HasValue && operationId.Value != Guid.Empty)
+                {
+                    _depotRunFailures[operationId.Value] = errorMessage;
+                }
                 _currentRebuildCts?.Cancel();
             }
         }

@@ -150,6 +150,11 @@ public partial class SteamKit2Service
                 _logger.LogInformation("Cancelling active PICS rebuild before logout");
                 try
                 {
+                    if (_currentPicsOperationId.HasValue)
+                    {
+                        _depotRunFailures.TryRemove(_currentPicsOperationId.Value, out _);
+                    }
+                    _currentMappingReporter?.RequestCancellation();
                     _currentRebuildCts.Cancel();
 
                     // Wait briefly for cancellation to complete

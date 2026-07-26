@@ -4,7 +4,10 @@ import { XboxIcon } from '@components/ui/XboxIcon';
 import DaemonStatusCard from '../daemon-status/DaemonStatusCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
-import type { XboxMappingProgressEvent } from '@contexts/SignalRContext/types';
+import type {
+  XboxMappingAuthStateChangedEvent,
+  XboxMappingCompleteEvent
+} from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import type { XboxMappingAuthStatus } from '../../../../types';
@@ -16,7 +19,7 @@ import { useXboxMappingAuth } from '@hooks/useXboxMappingAuth';
 // mapping admin card — to discover their library and populate the shared mapping table WITHOUT
 // starting a prefill, mirroring Epic's admin-page login (EpicDaemonStatus). Login is daemon-free:
 // the manager hosts the MSA OAuth device-code flow directly, so Docker is NOT required to sign in.
-// Status is refreshed live via XboxMappingProgress and XboxGameMappingsUpdated SignalR events.
+// Status is refreshed live via mapping/auth completion and mapping-data update events.
 
 interface XboxDaemonStatusProps {
   authMode: AuthMode;
@@ -24,6 +27,8 @@ interface XboxDaemonStatusProps {
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
 }
+
+const TERMINAL_AUTH_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
 const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   authMode,
@@ -82,18 +87,19 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
     const handleMappingsUpdated = () => {
       loadStatus();
     };
-    // Only the terminal login event changes auth status; interim 10%/40% ticks would redundantly
-    // re-fetch the AdminOnly auth-status endpoint.
-    const handleProgress = (event: XboxMappingProgressEvent) => {
-      if (event.isTerminal) {
-        loadStatus();
-      }
+    const handleMappingComplete = (_event: XboxMappingCompleteEvent) => {
+      loadStatus();
+    };
+    const handleAuthStateChanged = (event: XboxMappingAuthStateChangedEvent) => {
+      if (TERMINAL_AUTH_STATUSES.has(event.status)) loadStatus();
     };
     on('XboxGameMappingsUpdated', handleMappingsUpdated);
-    on('XboxMappingProgress', handleProgress);
+    on('XboxMappingComplete', handleMappingComplete);
+    on('XboxMappingAuthStateChanged', handleAuthStateChanged);
     return () => {
       off('XboxGameMappingsUpdated', handleMappingsUpdated);
-      off('XboxMappingProgress', handleProgress);
+      off('XboxMappingComplete', handleMappingComplete);
+      off('XboxMappingAuthStateChanged', handleAuthStateChanged);
     };
   }, [on, off, loadStatus]);
 

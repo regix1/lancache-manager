@@ -1,7 +1,12 @@
 import { useCallback, useRef } from 'react';
 import { usePersistentPrefillAuth } from './usePersistentPrefillAuth';
 import { useErrorHandler } from './useErrorHandler';
-import { getPersistentLoginSessionId } from '@components/features/management/schedules/scheduled-prefill/persistentLoginStore';
+import {
+  getPersistentLoginEditAction,
+  getPersistentLoginSessionId,
+  getPersistentLoginStartRequest,
+  setPersistentLoginStartRequest
+} from '@components/features/management/schedules/scheduled-prefill/persistentLoginStore';
 import type { CredentialChallenge } from './usePrefillSteamAuth';
 import type { XboxAuthActions, XboxAuthState } from './useXboxMappingAuth';
 
@@ -69,7 +74,17 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
   const startLogin = useCallback(async (): Promise<CredentialChallenge | null> => {
     pollGenerationRef.current += 1;
     const generation = pollGenerationRef.current;
+    const activeEditAction = getPersistentLoginEditAction('Xbox');
+    const activeSessionId = getPersistentLoginSessionId('Xbox');
+    const requestedStart =
+      getPersistentLoginStartRequest('Xbox') ??
+      (activeEditAction && activeSessionId
+        ? { sessionId: activeSessionId, ...activeEditAction }
+        : undefined);
     coreActions.resetAuthForm();
+    if (requestedStart) {
+      setPersistentLoginStartRequest('Xbox', requestedStart);
+    }
 
     const challenge = await coreActions.start();
     if (challenge?.credentialType === 'device-code') {

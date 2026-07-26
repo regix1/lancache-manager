@@ -63,9 +63,11 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
     };
     on('EpicGameMappingsUpdated', handleUpdate);
     on('EpicMappingProgress', handleUpdate);
+    on('EpicMappingComplete', handleUpdate);
     return () => {
       off('EpicGameMappingsUpdated', handleUpdate);
       off('EpicMappingProgress', handleUpdate);
+      off('EpicMappingComplete', handleUpdate);
     };
   }, [on, off, loadStatus]);
 

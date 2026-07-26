@@ -503,6 +503,12 @@ public class RustLogProcessorService
         [System.Text.Json.Serialization.JsonPropertyName("incomplete_final_records")]
         public long IncompleteFinalRecords { get; set; }
 
+        [System.Text.Json.Serialization.JsonPropertyName("riot_hosts_processed")]
+        public long RiotHostsProcessed { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("riot_hosts_mapped")]
+        public long RiotHostsMapped { get; set; }
+
         [System.Text.Json.Serialization.JsonPropertyName("files_with_errors")]
         public List<string> FilesWithErrors { get; set; } = new();
     }
@@ -589,6 +595,7 @@ public class RustLogProcessorService
         datasourceName ??= _datasourceService.GetDefaultDatasource()?.Name ?? "default";
 
         var shouldFinalizeOperation = finalizeOperation;
+        RiotMappingRunReporter? riotMappingRun = null;
 
         try
         {
@@ -627,6 +634,20 @@ public class RustLogProcessorService
             var processingToken = _cancellationTokenSource?.Token
                 ?? _operationTracker.GetOperation(_currentOperationId!.Value)?.CancellationTokenSource?.Token
                 ?? CancellationToken.None;
+            var ownerOperationId = _currentOperationId;
+            riotMappingRun = new RiotMappingRunReporter(
+                _notifications,
+                _operationTracker,
+                _logger,
+                processingToken,
+                showNotification: !silentMode,
+                cancelOwner: () =>
+                {
+                    if (ownerOperationId.HasValue)
+                    {
+                        _operationTracker.CancelOperation(ownerOperationId.Value);
+                    }
+                });
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressPath = Path.Combine(operationsDir, $"rust_progress_{datasourceName}.json");
@@ -787,8 +808,13 @@ public class RustLogProcessorService
                             MbTotal = 0.0
                         });
 
-                        _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, monitorCts.Token));
                     }
+                    _progressMonitorTask = Task.Run(
+                        async () => await MonitorProgressAsync(
+                            progressPath,
+                            monitorCts.Token,
+                            emitLogProgress: !silentMode,
+                            riotMappingRun));
 
                     await process.WaitForExitAsync(processingToken);
 
@@ -824,6 +850,27 @@ public class RustLogProcessorService
                 ((hasTerminalCheckpoint && finalProgress!.TerminalStatus == "cancelled") ||
                  finalProgress?.Status == OperationStatus.Cancelled.ToWireString() ||
                  exitCode != 0);
+
+            if (finalProgress is not null)
+            {
+                await riotMappingRun.ObserveAsync(
+                    finalProgress.RiotHostsProcessed,
+                    finalProgress.RiotHostsMapped,
+                    finalProgress.PercentComplete);
+            }
+
+            var riotSuccess = exitCode == 0
+                && hasTerminalCheckpoint
+                && finalProgress!.TerminalStatus is "completed" or "completed_with_warnings";
+            var riotError = riotSuccess || wasCancelled
+                ? null
+                : finalProgress?.TerminalStatus is { Length: > 0 } terminalStatus
+                    ? $"Log processing ended with {terminalStatus}"
+                    : $"Log processing failed with exit code {exitCode}";
+            await riotMappingRun.CompleteAsync(
+                riotSuccess,
+                wasCancelled,
+                wasCancelled ? "Cancelled by user" : riotError);
 
             // Committed rows become visible NOW, before any cancellation/partial/success
             // branching and before the post-passes below (auto-tag and the Epic/Blizzard/Xbox
@@ -1244,6 +1291,11 @@ public class RustLogProcessorService
         }
         finally
         {
+            if (riotMappingRun is not null)
+            {
+                await riotMappingRun.DisposeAsync();
+            }
+
             if (shouldFinalizeOperation)
             {
                 EndOperation();
@@ -1256,7 +1308,11 @@ public class RustLogProcessorService
         }
     }
 
-    private Task MonitorProgressAsync(string progressPath, CancellationToken cancellationToken)
+    private Task MonitorProgressAsync(
+        string progressPath,
+        CancellationToken cancellationToken,
+        bool emitLogProgress,
+        RiotMappingRunReporter riotMappingRun)
     {
         var loggedWarnings = new HashSet<string>();
         var loggedErrors = new HashSet<string>();
@@ -1264,6 +1320,16 @@ public class RustLogProcessorService
         var monitor = new RustProgressMonitor<ProgressData>(_rustProcessHelper, _logger);
         return monitor.MonitorAsync(progressPath, async (ProgressData progress) =>
         {
+            await riotMappingRun.ObserveAsync(
+                progress.RiotHostsProcessed,
+                progress.RiotHostsMapped,
+                progress.PercentComplete);
+
+            if (!emitLogProgress)
+            {
+                return;
+            }
+
             // Log any new warnings
             foreach (var warning in progress.Warnings)
             {

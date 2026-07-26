@@ -43,8 +43,25 @@ import {
   isPersistentLoginDismissed,
   reconcilePersistentLoginFromServer,
   requestPersistentLoginAttempt,
-  resetPersistentLoginState
+  resetPersistentLoginState,
+  retirePersistentLoginState,
+  setPersistentLoginStartSessionId
 } from './persistentLoginStore';
+import {
+  beginEditSessionCleanup,
+  buildEditSessionCleanupRequest,
+  clearConfirmedEditSession,
+  createScheduledPrefillEditSession,
+  createScheduledPrefillEditSessionId,
+  discardCommittedEditSession,
+  hasScheduledPrefillEditActions,
+  loadScheduledPrefillEditSession,
+  recordEditActionIntent,
+  recordEditSessionStartResult,
+  type ScheduledPrefillEditSessionLedger,
+  type ScheduledPrefillEditActionKind,
+  type ScheduledPrefillEditSessionServiceId
+} from './scheduledPrefillEditSessionLedger';
 import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
 import { usePersistentLoginChallengeSignalR } from './usePersistentLoginChallengeSignalR';
 import type {
@@ -264,6 +281,12 @@ export function ScheduledPrefillConfigModal({
   const [gameSelectionError, setGameSelectionError] = useState<string | null>(null);
   const [persistentLoginTarget, setPersistentLoginTarget] =
     useState<ScheduledPrefillServiceKey | null>(null);
+  const [closingEditSession, setClosingEditSession] = useState(false);
+  const [editSessionCleanupPending, setEditSessionCleanupPending] = useState(false);
+  const editSessionRef = useRef<ScheduledPrefillEditSessionLedger | null>(null);
+  const editSessionRetiredRef = useRef(false);
+  const editSessionCleanupPromiseRef = useRef<Promise<void> | null>(null);
+  const storedCleanupPromiseRef = useRef<Promise<void> | null>(null);
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
 
   // Auto-dismiss the "logins cleared" success note so it does not linger forever.
@@ -335,6 +358,113 @@ export function ScheduledPrefillConfigModal({
     }
   }, []);
 
+  const retireEditSessionLoginState = useCallback(
+    (editSession: ScheduledPrefillEditSessionLedger) => {
+      let retiredAny = false;
+      for (const serviceKey of SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS) {
+        const serviceId = getPersistentServiceId(serviceKey);
+        const serviceEditSession =
+          editSession.services[serviceId as ScheduledPrefillEditSessionServiceId];
+        if (serviceEditSession.login || serviceEditSession.start) {
+          retirePersistentLoginState(serviceId);
+          retiredAny = true;
+        }
+      }
+      if (retiredAny) {
+        setPersistentLoginTarget(null);
+      }
+    },
+    []
+  );
+
+  const retryStoredEditSessionCleanup = useCallback(async () => {
+    if (storedCleanupPromiseRef.current) {
+      return storedCleanupPromiseRef.current;
+    }
+
+    const stored = loadScheduledPrefillEditSession(sessionStorage);
+    if (!stored || !hasScheduledPrefillEditActions(stored)) {
+      return;
+    }
+
+    const request = (async () => {
+      const pending = beginEditSessionCleanup(
+        sessionStorage,
+        stored,
+        createScheduledPrefillEditSessionId
+      );
+      editSessionRef.current = pending;
+      editSessionRetiredRef.current = true;
+      setEditSessionCleanupPending(true);
+      retireEditSessionLoginState(pending);
+      await ApiService.cleanupPersistentPrefillEditSession(buildEditSessionCleanupRequest(pending));
+      clearConfirmedEditSession(sessionStorage, pending.editSessionId, pending.cleanupId!);
+      if (editSessionRef.current?.editSessionId === pending.editSessionId) {
+        editSessionRef.current = null;
+      }
+      editSessionRetiredRef.current = false;
+      setEditSessionCleanupPending(false);
+    })();
+
+    storedCleanupPromiseRef.current = request;
+    try {
+      await request;
+    } finally {
+      storedCleanupPromiseRef.current = null;
+    }
+  }, [retireEditSessionLoginState]);
+
+  useEffect(() => {
+    void retryStoredEditSessionCleanup().catch(() => undefined);
+  }, [retryStoredEditSessionCleanup]);
+
+  useEffect(() => {
+    const handlePageHide = () => {
+      const editSession = editSessionRef.current ?? loadScheduledPrefillEditSession(sessionStorage);
+      if (!editSession || !hasScheduledPrefillEditActions(editSession)) {
+        return;
+      }
+
+      editSessionRetiredRef.current = true;
+      retireEditSessionLoginState(editSession);
+      const pending = beginEditSessionCleanup(
+        sessionStorage,
+        editSession,
+        createScheduledPrefillEditSessionId
+      );
+      editSessionRef.current = pending;
+      void ApiService.cleanupPersistentPrefillEditSession(
+        buildEditSessionCleanupRequest(pending),
+        true
+      )
+        .then(() => {
+          clearConfirmedEditSession(sessionStorage, pending.editSessionId, pending.cleanupId!);
+        })
+        .catch(() => undefined);
+    };
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) {
+        return;
+      }
+
+      if (loadScheduledPrefillEditSession(sessionStorage)) {
+        void retryStoredEditSessionCleanup().catch(() => undefined);
+      } else if (editSessionRetiredRef.current) {
+        editSessionRef.current = null;
+        editSessionRetiredRef.current = false;
+        setEditSessionCleanupPending(false);
+      }
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, [retireEditSessionLoginState, retryStoredEditSessionCleanup]);
+
   useEffect(() => {
     if (!scrollAreaEl) {
       return;
@@ -354,6 +484,18 @@ export function ScheduledPrefillConfigModal({
     }
 
     const controller = new AbortController();
+    const storedEditSession = loadScheduledPrefillEditSession(sessionStorage);
+    if (!storedEditSession) {
+      editSessionRef.current = null;
+      editSessionRetiredRef.current = false;
+      setEditSessionCleanupPending(false);
+    } else {
+      void retryStoredEditSessionCleanup().catch((error: unknown) => {
+        setPersistentError(getErrorMessage(error));
+      });
+    }
+    setConfig(null);
+    setPersistentContainers(null);
     setValidationError(null);
     setSaveError(null);
     setPersistentError(null);
@@ -367,7 +509,13 @@ export function ScheduledPrefillConfigModal({
     return () => {
       controller.abort();
     };
-  }, [opened, loadConfig, loadPersistentContainers, loadGlobalSettings]);
+  }, [
+    opened,
+    loadConfig,
+    loadPersistentContainers,
+    loadGlobalSettings,
+    retryStoredEditSessionCleanup
+  ]);
 
   const persistentContainerByService = useMemo(
     () =>
@@ -388,6 +536,67 @@ export function ScheduledPrefillConfigModal({
   // (below) when an enabled toggle actually flips.
   const configRef = useRef(config);
   configRef.current = config;
+
+  const initializeEditSession = useCallback((): ScheduledPrefillEditSessionLedger => {
+    if (editSessionRetiredRef.current) {
+      throw new Error('Scheduled-prefill cleanup is already pending.');
+    }
+    if (editSessionRef.current) {
+      return editSessionRef.current;
+    }
+    if (!config || persistentContainers === null) {
+      throw new Error('Scheduled-prefill edit session data is still loading.');
+    }
+
+    const selectedAppIdsByService = {} as Record<ScheduledPrefillEditSessionServiceId, string[]>;
+    const sessionIdByService = {} as Record<ScheduledPrefillEditSessionServiceId, string | null>;
+    for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
+      const serviceId = getPersistentServiceId(serviceKey) as ScheduledPrefillEditSessionServiceId;
+      selectedAppIdsByService[serviceId] = [...config[serviceKey].selectedAppIds];
+      sessionIdByService[serviceId] =
+        persistentContainerByService.get(serviceId)?.sessionId ?? null;
+    }
+
+    const editSession = createScheduledPrefillEditSession(
+      { selectedAppIdsByService, sessionIdByService },
+      createScheduledPrefillEditSessionId
+    );
+    editSessionRef.current = editSession;
+    return editSession;
+  }, [config, persistentContainers, persistentContainerByService]);
+
+  const recordEditAction = useCallback(
+    (
+      service: PersistentPrefillServiceId,
+      kind: ScheduledPrefillEditActionKind,
+      sessionId: string | null
+    ): { editSession: ScheduledPrefillEditSessionLedger; editActionId: string } => {
+      const recorded = recordEditActionIntent(
+        sessionStorage,
+        initializeEditSession(),
+        service as ScheduledPrefillEditSessionServiceId,
+        kind,
+        sessionId,
+        createScheduledPrefillEditSessionId
+      );
+      editSessionRef.current = recorded.editSession;
+      return recorded;
+    },
+    [initializeEditSession]
+  );
+
+  useEffect(() => {
+    if (
+      opened &&
+      config &&
+      persistentContainers !== null &&
+      !editSessionRef.current &&
+      !editSessionRetiredRef.current &&
+      !loadScheduledPrefillEditSession(sessionStorage)
+    ) {
+      initializeEditSession();
+    }
+  }, [opened, config, persistentContainers, initializeEditSession]);
 
   // Stable signature of ONLY the account services' enabled flags. Added to the reconcile effect's
   // deps so it re-checks for a resumable login when a service is enabled/disabled, WITHOUT re-firing
@@ -689,6 +898,7 @@ export function ScheduledPrefillConfigModal({
 
   const isLoading = loadingConfig;
   const hasInitialData = config !== null;
+  const editSessionActionsDisabled = saving || closingEditSession || editSessionCleanupPending;
 
   // Keep-previous-data: once the container list has loaded once, a background refresh must never
   // swap the persistent card's body (or the nav hints) back to a loading placeholder (diagnostic
@@ -898,7 +1108,25 @@ export function ScheduledPrefillConfigModal({
     // The start POST already resolves once the container's daemon socket is connected (i.e. once
     // it is running - diagnostic §2), so a single refresh is enough to reflect the new state; no
     // bounded wait is needed here.
-    await ApiService.startPersistentPrefillContainer(serviceId);
+    const { editSession, editActionId } = recordEditAction(serviceId, 'start', null);
+    const started = await ApiService.startPersistentPrefillContainer(
+      serviceId,
+      editSession.editSessionId,
+      editActionId
+    );
+    const updated = recordEditSessionStartResult(
+      sessionStorage,
+      editSession,
+      serviceId as ScheduledPrefillEditSessionServiceId,
+      editActionId,
+      started.id
+    );
+    if (!editSessionRetiredRef.current) {
+      editSessionRef.current = updated;
+    }
+    if (editSessionRetiredRef.current) {
+      return;
+    }
     await loadPersistentContainers();
     setPersistentError(null);
   };
@@ -910,9 +1138,13 @@ export function ScheduledPrefillConfigModal({
     try {
       await runPersistentStartFlow(serviceKey);
     } catch (error: unknown) {
-      setPersistentError(getErrorMessage(error));
+      if (!editSessionRetiredRef.current) {
+        setPersistentError(getErrorMessage(error));
+      }
     } finally {
-      setPersistentAction(null);
+      if (!editSessionRetiredRef.current) {
+        setPersistentAction(null);
+      }
     }
   };
 
@@ -1003,20 +1235,34 @@ export function ScheduledPrefillConfigModal({
   };
 
   const handlePersistentLogin = (serviceKey: ScheduledPrefillServiceKey) => {
-    const container = persistentContainerByService.get(getPersistentServiceId(serviceKey));
+    const serviceId = getPersistentServiceId(serviceKey);
+    const container = persistentContainerByService.get(serviceId);
     if (!container?.isRunning) {
       setPersistentError(t(`${baseKey}.selectedGames.requiresPersistentContainer`));
       return;
     }
 
     setPersistentError(null);
+    if (!hasActivePersistentLogin(serviceId)) {
+      const { editSession, editActionId } = recordEditAction(
+        serviceId,
+        'login',
+        container.sessionId
+      );
+      setPersistentLoginStartSessionId(
+        serviceId,
+        container.sessionId,
+        editSession.editSessionId,
+        editActionId
+      );
+    }
     setPersistentLoginTarget(serviceKey);
     // Setting the target above is a same-value no-op for React whenever this service was already
     // the target (a dismissed-but-pending challenge, or a wedge where a prior start() settled with
     // nothing) - the mounted login component would never see the click. This nonce is watched by
     // its autostart effect independently of the target's value, so the click always reaches
     // beginLogin(), which itself decides resume-vs-fresh-start via state.hasChallenge.
-    requestPersistentLoginAttempt(getPersistentServiceId(serviceKey));
+    requestPersistentLoginAttempt(serviceId);
   };
 
   const loadGameSelection = useCallback(
@@ -1102,7 +1348,18 @@ export function ScheduledPrefillConfigModal({
     const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
     if (container?.isRunning && (isAnonymous || container.isAuthenticated)) {
       try {
-        await ApiService.setPersistentPrefillSelectedApps(serviceId, selectedAppIds);
+        const { editSession, editActionId } = recordEditAction(
+          serviceId,
+          'selection',
+          container.sessionId
+        );
+        await ApiService.setPersistentPrefillSelectedApps(
+          serviceId,
+          container.sessionId,
+          selectedAppIds,
+          editSession.editSessionId,
+          editActionId
+        );
       } catch (error: unknown) {
         setGameSelectionError(getErrorMessage(error));
       }
@@ -1136,6 +1393,9 @@ export function ScheduledPrefillConfigModal({
       setPersistentError(t(`${baseKey}.persistentContainer.downloadRequiresAuth`));
       return;
     }
+    if (container.isPrefilling) {
+      return;
+    }
 
     if (serviceConfig.selectedAppIds.length === 0) {
       setPersistentError(t(`${baseKey}.persistentContainer.downloadRequiresSelection`));
@@ -1149,11 +1409,19 @@ export function ScheduledPrefillConfigModal({
       const maxConcurrency =
         serviceConfig.maxConcurrency.mode === 'Fixed' ? serviceConfig.maxConcurrency.value : null;
 
+      const { editSession, editActionId } = recordEditAction(
+        serviceId,
+        'download',
+        container.sessionId
+      );
       await ApiService.startPersistentPrefill(serviceId, {
+        sessionId: container.sessionId,
         appIds: serviceConfig.selectedAppIds,
         force: serviceConfig.force,
         operatingSystems: mapOperatingSystems(serviceConfig.operatingSystems),
-        maxConcurrency
+        maxConcurrency,
+        editSessionId: editSession.editSessionId,
+        editActionId
       });
       void loadPersistentContainers();
     } catch (error: unknown) {
@@ -1165,11 +1433,15 @@ export function ScheduledPrefillConfigModal({
 
   const handleCancelPersistentDownload = async (serviceKey: ScheduledPrefillServiceKey) => {
     const serviceId = getPersistentServiceId(serviceKey);
+    const container = persistentContainerByService.get(serviceId);
+    if (!container?.isRunning) {
+      return;
+    }
     setPersistentAction({ serviceKey, action: 'cancel' });
     setPersistentError(null);
 
     try {
-      await ApiService.cancelPersistentPrefill(serviceId);
+      await ApiService.cancelPersistentPrefill(serviceId, container.sessionId);
       void loadPersistentContainers();
     } catch (error: unknown) {
       setPersistentError(getErrorMessage(error));
@@ -1204,6 +1476,13 @@ export function ScheduledPrefillConfigModal({
         ApiService.updateScheduledPrefillConfig(config),
         ApiService.updatePersistentPrefillValidity({ days: nextValidityDays })
       ]);
+      editSessionRetiredRef.current = true;
+      const committedEditSession = editSessionRef.current;
+      if (committedEditSession) {
+        discardCommittedEditSession(sessionStorage, committedEditSession.editSessionId);
+      }
+      editSessionRef.current = null;
+      setPersistentLoginTarget(null);
       await Promise.resolve(onSaved?.());
       onClose();
     } catch (error: unknown) {
@@ -1214,10 +1493,45 @@ export function ScheduledPrefillConfigModal({
   };
 
   const handleClose = () => {
-    if (!saving) {
-      setGameSelection(null);
-      onClose();
+    if (saving || editSessionCleanupPromiseRef.current) {
+      return;
     }
+
+    const cleanup = (async () => {
+      setClosingEditSession(true);
+      setGameSelection(null);
+
+      const editSession = editSessionRef.current ?? loadScheduledPrefillEditSession(sessionStorage);
+      if (!editSession || !hasScheduledPrefillEditActions(editSession)) {
+        onClose();
+        return;
+      }
+
+      editSessionRetiredRef.current = true;
+      setEditSessionCleanupPending(true);
+      retireEditSessionLoginState(editSession);
+      const pending = beginEditSessionCleanup(
+        sessionStorage,
+        editSession,
+        createScheduledPrefillEditSessionId
+      );
+      editSessionRef.current = pending;
+      await ApiService.cleanupPersistentPrefillEditSession(buildEditSessionCleanupRequest(pending));
+      clearConfirmedEditSession(sessionStorage, pending.editSessionId, pending.cleanupId!);
+      editSessionRef.current = null;
+      setEditSessionCleanupPending(false);
+      onClose();
+    })();
+
+    editSessionCleanupPromiseRef.current = cleanup;
+    void cleanup
+      .catch((error: unknown) => {
+        setPersistentError(getErrorMessage(error));
+      })
+      .finally(() => {
+        editSessionCleanupPromiseRef.current = null;
+        setClosingEditSession(false);
+      });
   };
 
   return (
@@ -1317,7 +1631,7 @@ export function ScheduledPrefillConfigModal({
                               onClick={() => handleSetAllServicesEnabled(true)}
                               disabled={
                                 !config ||
-                                saving ||
+                                editSessionActionsDisabled ||
                                 loadingConfig ||
                                 enabledCount === SCHEDULED_PREFILL_SERVICE_RUN_ORDER.length
                               }
@@ -1329,7 +1643,12 @@ export function ScheduledPrefillConfigModal({
                               variant="default"
                               size={SCHEDULED_PREFILL_BUTTON_SIZE}
                               onClick={() => handleSetAllServicesEnabled(false)}
-                              disabled={!config || saving || loadingConfig || enabledCount === 0}
+                              disabled={
+                                !config ||
+                                editSessionActionsDisabled ||
+                                loadingConfig ||
+                                enabledCount === 0
+                              }
                             >
                               {t(`${baseKey}.bulkToggle.disableAll`)}
                             </Button>
@@ -1360,7 +1679,7 @@ export function ScheduledPrefillConfigModal({
                               max={PERSISTENT_PREFILL_VALIDITY_BOUNDS.max}
                               step={1}
                               value={persistentValidityDays}
-                              disabled={loadingGlobalSettings || saving}
+                              disabled={loadingGlobalSettings || editSessionActionsDisabled}
                               aria-label={t(`${baseKey}.settings.persistentValidityLabel`)}
                               onChange={handlePersistentValidityDaysChange}
                             />
@@ -1389,7 +1708,7 @@ export function ScheduledPrefillConfigModal({
                                 options={PERSISTENCE_MODE_OPTIONS.map((option) => ({
                                   value: option,
                                   label: t(`${baseKey}.settings.persistenceMode.${option}`),
-                                  disabled: !config || saving || loadingConfig
+                                  disabled: !config || editSessionActionsDisabled || loadingConfig
                                 }))}
                                 value={config?.persistenceMode ?? 'keepAcrossRestart'}
                                 onChange={(value) => {
@@ -1455,7 +1774,7 @@ export function ScheduledPrefillConfigModal({
                     {config ? (
                       <ScheduledPrefillPlatformsPanel
                         config={config}
-                        disabled={saving || loadingConfig}
+                        disabled={editSessionActionsDisabled || loadingConfig}
                         statusLoading={isInitialPersistentContainersLoad}
                         containersByServiceKey={containersByServiceKey}
                         selectedGamesCountByServiceKey={selectedGamesCountByServiceKey}
@@ -1491,7 +1810,8 @@ export function ScheduledPrefillConfigModal({
               variant="default"
               size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={handleClose}
-              disabled={saving}
+              disabled={saving || closingEditSession}
+              loading={closingEditSession}
             >
               {t('common.cancel')}
             </Button>
@@ -1501,7 +1821,7 @@ export function ScheduledPrefillConfigModal({
               color="green"
               size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={handleSave}
-              disabled={!config || saving || loadingConfig}
+              disabled={!config || editSessionActionsDisabled || loadingConfig}
               loading={saving}
             >
               {saving ? t(`${baseKey}.actions.saving`) : t(`${baseKey}.actions.save`)}

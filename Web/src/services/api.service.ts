@@ -65,6 +65,7 @@ import type {
   ScheduledPrefillConfigDto,
   ScheduledPrefillServiceScheduleDto
 } from '../components/features/management/schedules/scheduled-prefill/types';
+import type { PersistentPrefillEditSessionCleanupRequest } from '../components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger';
 import type {
   PersistentPrefillContainerDto,
   PersistentPrefillServiceId,
@@ -3045,12 +3046,18 @@ class ApiService {
   }
 
   static async startPersistentLogin(
-    service: PersistentPrefillServiceId
+    service: PersistentPrefillServiceId,
+    sessionId?: string,
+    editSessionId?: string,
+    editActionId?: string
   ): Promise<PersistentChallengeResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/login`,
-        this.getJsonFetchOptions({ service }, { method: 'POST' })
+        this.getJsonFetchOptions(
+          { service, sessionId, editSessionId, editActionId },
+          { method: 'POST' }
+        )
       );
       return await this.handleResponse<PersistentChallengeResponse>(res);
     } catch (error: unknown) {
@@ -3095,12 +3102,17 @@ class ApiService {
     service: PersistentPrefillServiceId,
     challenge: CredentialChallenge,
     credential: string,
-    sessionId: string
+    sessionId: string,
+    editSessionId?: string,
+    editActionId?: string
   ): Promise<void> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/credential`,
-        this.getJsonFetchOptions({ service, challenge, credential, sessionId }, { method: 'POST' })
+        this.getJsonFetchOptions(
+          { service, challenge, credential, sessionId, editSessionId, editActionId },
+          { method: 'POST' }
+        )
       );
       if (res.status === 409) {
         throw await this.buildPersistentSessionConflictError(res);
@@ -3217,13 +3229,17 @@ class ApiService {
     }
   }
 
-  static async startPersistentPrefillContainer(service: PersistentPrefillServiceId): Promise<void> {
+  static async startPersistentPrefillContainer(
+    service: PersistentPrefillServiceId,
+    editSessionId?: string,
+    editActionId?: string
+  ): Promise<DaemonSessionDto> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/start`,
-        this.getJsonFetchOptions({ service }, { method: 'POST' })
+        this.getJsonFetchOptions({ service, editSessionId, editActionId }, { method: 'POST' })
       );
-      await this.handleResponse<void>(res);
+      return await this.handleResponse<DaemonSessionDto>(res);
     } catch (error: unknown) {
       console.error('startPersistentPrefillContainer error:', error);
       throw error;
@@ -3232,12 +3248,18 @@ class ApiService {
 
   static async setPersistentPrefillSelectedApps(
     service: PersistentPrefillServiceId,
-    appIds: string[]
+    sessionId: string,
+    appIds: string[],
+    editSessionId?: string,
+    editActionId?: string
   ): Promise<void> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/selected-apps`,
-        this.getJsonFetchOptions({ service, appIds }, { method: 'POST' })
+        this.getJsonFetchOptions(
+          { service, sessionId, appIds, editSessionId, editActionId },
+          { method: 'POST' }
+        )
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3249,10 +3271,13 @@ class ApiService {
   static async startPersistentPrefill(
     service: PersistentPrefillServiceId,
     options: {
+      sessionId: string;
       appIds: string[];
       force?: boolean;
       operatingSystems?: string[];
       maxConcurrency?: number | null;
+      editSessionId?: string;
+      editActionId?: string;
     }
   ): Promise<{ success: boolean; errorMessage?: string }> {
     try {
@@ -3261,12 +3286,15 @@ class ApiService {
         this.getJsonFetchOptions(
           {
             service,
+            sessionId: options.sessionId,
             appIds: options.appIds,
             all: false,
             recent: false,
             force: options.force ?? false,
             operatingSystems: options.operatingSystems,
-            maxConcurrency: options.maxConcurrency ?? undefined
+            maxConcurrency: options.maxConcurrency ?? undefined,
+            editSessionId: options.editSessionId,
+            editActionId: options.editActionId
           },
           { method: 'POST' }
         )
@@ -3278,11 +3306,14 @@ class ApiService {
     }
   }
 
-  static async cancelPersistentPrefill(service: PersistentPrefillServiceId): Promise<void> {
+  static async cancelPersistentPrefill(
+    service: PersistentPrefillServiceId,
+    sessionId: string
+  ): Promise<void> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/cancel-prefill`,
-        this.getJsonFetchOptions({ service }, { method: 'POST' })
+        this.getJsonFetchOptions({ service, sessionId }, { method: 'POST' })
       );
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
@@ -3300,6 +3331,22 @@ class ApiService {
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('stopPersistentPrefillContainer error:', error);
+      throw error;
+    }
+  }
+
+  static async cleanupPersistentPrefillEditSession(
+    request: PersistentPrefillEditSessionCleanupRequest,
+    keepalive = false
+  ): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/edit-session-cleanup`,
+        this.getJsonFetchOptions(request, { method: 'POST', keepalive })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('cleanupPersistentPrefillEditSession error:', error);
       throw error;
     }
   }

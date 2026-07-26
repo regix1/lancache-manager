@@ -29,6 +29,8 @@ export type NotificationType =
   | 'data_import'
   | 'epic_game_mapping'
   | 'xbox_game_mapping'
+  | 'battle_net_game_mapping'
+  | 'riot_game_mapping'
   | 'eviction_scan'
   | 'eviction_removal'
   | 'cache_size_scan'
@@ -378,7 +380,7 @@ export type CancelKind = 'serverOp' | 'clientQueue' | 'none';
  * NOT be normalized against the SignalR event property names (a field can cross
  * both boundaries with different casing).
  */
-export type StageContext = Record<string, string | number | boolean>;
+export type StageContext = Record<string, string | number | boolean | null>;
 
 export type RecoveryTranslationValidation =
   | {

@@ -1,6 +1,5 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
-using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Models;
@@ -38,14 +37,12 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
 
-    // Display flag + highest percent for the refresh currently in flight. RefreshNowAsync is serialized
-    // by _refreshGate, so a single run owns these at a time; the terminal-emit closure reads them so the
-    // final event carries the run's stable visibility and does not regress the bar.
     private bool _refreshShowNotification = true;
-    private double _refreshHighestPercent;
+    private MappingOperationReporter? _currentMappingReporter;
 
-    // Serializes the scheduled tick, the manual refresh endpoint, and the on-authentication nudge so
-    // concurrent triggers never double-poll the daemon's get-cdn-info at the same time.
+    // Serializes every Xbox catalog-mapping producer: the scheduled tick, manual refresh, and
+    // post-authentication harvest. Besides avoiding duplicate catalog work, this preserves the
+    // frontend's one-card/one-operation recovery contract for OperationType.XboxMapping.
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
 
     // Service-lifetime token: links the fire-and-forget on-authentication refresh to shutdown so a
@@ -172,70 +169,58 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
         await _refreshGate.WaitAsync(ct);
         try
         {
-            // Resolve the display flag once per run from the trigger that started it (Manual/Startup/
-            // Scheduled) so it stays stable across the whole refresh. Lifecycle events are ALWAYS
-            // emitted; the frontend gates the card on this flag (display-flag pattern, not transport
-            // suppression). The tracker owns the CTS and is its single disposer once registered.
             _refreshShowNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
-            _refreshHighestPercent = 0;
+            await using var reporter = new MappingOperationReporter(
+                _notifications,
+                _operationTracker,
+                MappingOperations.Xbox,
+                _refreshShowNotification,
+                ct,
+                _logger,
+                bestEffortNotifications: true);
+            _currentMappingReporter = reporter;
 
-            var refreshCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-
-            // Assigned by RegisterOperation below; the terminal-emit closure captures the variable and
-            // runs later (inside CompleteOperation), so it observes the real id.
-            var operationId = Guid.Empty;
-            operationId = _operationTracker.RegisterOperation(
-                OperationType.XboxMapping,
-                "Xbox Catalog Refresh",
-                refreshCts,
-                onTerminalEmit: info => EmitRefreshTerminalAsync(info, operationId));
-
-            var token = refreshCts.Token;
-            var success = false;
-            string? error = null;
             try
             {
-                // Four equal-weight phases (manager harvest, daemon harvest, download resolve, banner
-                // backfill). The 0% Started is awaited before any phase so a slow Started send cannot
-                // land after the first progress tick.
-                await EmitRefreshProgressAsync(operationId, 0, "signalr.xboxMapping.starting");
+                await reporter.StartAsync(CreateXboxMappingContext());
 
                 var newPatterns = 0;
-
-                // Source 1: the manager-side daemon-free login (Epic-style). Refreshes the saved MSA token,
-                // re-harvests titlehub titles + packagespc CDN fragments, and merges them. No daemon needed.
+                await reporter.ReportAsync(
+                    20,
+                    "signalr.xboxMapping.collecting",
+                    CreateXboxMappingContext());
                 if (IsAuthenticated)
                 {
-                    newPatterns += await HarvestManagerCatalogAsync(token);
+                    newPatterns += await HarvestManagerCatalogAsync(reporter.Token);
                 }
 
-                await EmitRefreshProgressAsync(operationId, 25, "signalr.xbox.mapping.collecting");
-
-                // Source 2: authenticated prefill daemon session(s). PRESERVED so prefill still feeds the SAME
-                // shared library (the Epic two-source model) - a prefill login contributes its owned catalog too.
+                await reporter.ReportAsync(
+                    45,
+                    "signalr.xboxMapping.collecting",
+                    CreateXboxMappingContext(newPatterns: newPatterns));
                 var daemon = ResolveDaemonService();
                 if (daemon != null)
                 {
-                    newPatterns += await daemon.RefreshCatalogFromActiveSessionsAsync(token);
+                    newPatterns += await daemon.RefreshCatalogFromActiveSessionsAsync(reporter.Token);
                 }
                 else
                 {
                     _logger.LogDebug("XboxPrefillDaemonService unavailable - skipping the daemon catalog source");
                 }
 
-                await EmitRefreshProgressAsync(operationId, 50, "signalr.xbox.mapping.collecting");
+                await reporter.ReportAsync(
+                    70,
+                    "signalr.xboxMapping.resolving",
+                    CreateXboxMappingContext(newPatterns: newPatterns));
+                var resolved = await _mappingService.ResolveDownloadsAsync(reporter.Token);
 
-                var resolved = await _mappingService.ResolveDownloadsAsync(token);
-
-                await EmitRefreshProgressAsync(operationId, 75, "signalr.xboxMapping.starting");
-
-                // Self-heal art-less mappings: retry the DisplayCatalog banner for any title whose first
-                // fetch hiccupped transiently (ResolveDownloadsAsync only fetches art for products resolved
-                // in that pass). Catalog-refresh path only (bounded 12h cadence), best-effort - a failure
-                // here must never fail the whole refresh.
+                await reporter.ReportAsync(
+                    90,
+                    "signalr.xboxMapping.backfilling",
+                    CreateXboxMappingContext(newPatterns, resolved));
                 try
                 {
-                    await _mappingService.BackfillMissingBannerArtAsync(token);
+                    await _mappingService.BackfillMissingBannerArtAsync(reporter.Token);
                 }
                 catch (OperationCanceledException)
                 {
@@ -250,25 +235,34 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
                     "Xbox catalog refresh: {NewPatterns} new CDN pattern(s), {Resolved} download(s) re-tagged",
                     newPatterns, resolved);
 
-                success = true;
+                await reporter.CompleteAsync(
+                    success: true,
+                    context: CreateXboxMappingContext(newPatterns, resolved));
                 return new XboxCatalogRefreshResult { NewPatterns = newPatterns, Resolved = resolved };
             }
             catch (OperationCanceledException)
             {
-                // Mark the tracked op cancelled so the single terminal event is a cancellation, not a failure.
-                _operationTracker.CancelOperation(operationId);
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: "Cancelled by user",
+                    cancelled: true,
+                    context: CreateXboxMappingContext());
                 throw;
             }
             catch (Exception ex)
             {
-                error = ex.Message;
+                await reporter.CompleteAsync(
+                    success: false,
+                    error: ex.Message,
+                    context: CreateXboxMappingContext(errorDetail: ex.Message));
                 throw;
             }
             finally
             {
-                // Single terminal, emitted exactly once from the onTerminalEmit gate (CompletedFlag-gated),
-                // even when the run threw. The tracker disposes the run's CTS here.
-                _operationTracker.CompleteOperation(operationId, success, error);
+                if (ReferenceEquals(_currentMappingReporter, reporter))
+                {
+                    _currentMappingReporter = null;
+                }
             }
         }
         finally
@@ -277,82 +271,17 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
         }
     }
 
-    /// <summary>
-    /// Emits a running progress tick for the in-flight refresh over the existing
-    /// <see cref="SignalREvents.XboxMappingProgress"/> event (the frontend handler is status-aware).
-    /// Percent is clamped monotonic so the bar never regresses. Best-effort: a SignalR send failure
-    /// must never fault the refresh (it can run from the fire-and-forget on-authentication nudge).
-    /// </summary>
-    private async Task EmitRefreshProgressAsync(Guid operationId, double percent, string stageKey)
-    {
-        if (percent > _refreshHighestPercent)
+    private Dictionary<string, object?> CreateXboxMappingContext(
+        int newPatterns = 0,
+        int resolved = 0,
+        string? errorDetail = null) =>
+        new()
         {
-            _refreshHighestPercent = percent;
-        }
-
-        _operationTracker.UpdateProgress(operationId, _refreshHighestPercent, stageKey);
-
-        try
-        {
-            await _notifications.NotifyAllAsync(SignalREvents.XboxMappingProgress, new
-            {
-                operationId,
-                success = false,
-                // OperationStatus serializes lowercase ("running") via its converter, matching the
-                // frontend XboxMappingProgressEvent.status contract.
-                status = OperationStatus.Running,
-                stageKey,
-                percentComplete = _refreshHighestPercent,
-                gamesDiscovered = _gamesDiscovered,
-                cancelled = false,
-                error = (string?)null,
-                context = new Dictionary<string, object?>(),
-                message = string.Empty,
-                isTerminal = false,
-                showNotification = _refreshShowNotification
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to emit Xbox scheduled refresh progress ({StageKey})", stageKey);
-        }
-    }
-
-    /// <summary>
-    /// The single terminal emit for a scheduled/manual refresh, invoked exactly once by the tracker.
-    /// Success carries 100; failure carries the highest percent reached. A cancel is surfaced as
-    /// Completed (with cancelled:true), mirroring the auth flow: the status-aware frontend handler only
-    /// treats completed/failed as terminal, so a raw Cancelled status would leave the card stuck.
-    /// </summary>
-    private Task EmitRefreshTerminalAsync(OperationTerminalInfo info, Guid operationId)
-    {
-        var status = info.Success || info.Cancelled ? OperationStatus.Completed : OperationStatus.Failed;
-        var percent = info.Success || info.Cancelled ? 100.0 : _refreshHighestPercent;
-        var stageKey = info.Success
-            ? "signalr.xboxMapping.gamesDiscovered"
-            : info.Cancelled ? "signalr.xboxMapping.cancelled" : "signalr.xboxMapping.failed";
-        var context = info.Success
-            ? new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered }
-            : info.Cancelled
-                ? new Dictionary<string, object?>()
-                : new Dictionary<string, object?> { ["errorDetail"] = info.Error };
-
-        return _notifications.NotifyAllAsync(SignalREvents.XboxMappingProgress, new
-        {
-            operationId,
-            success = info.Success,
-            status,
-            stageKey,
-            percentComplete = percent,
-            gamesDiscovered = _gamesDiscovered,
-            cancelled = info.Cancelled,
-            error = info.Success || info.Cancelled ? null : info.Error,
-            context,
-            message = string.Empty,
-            isTerminal = true,
-            showNotification = _refreshShowNotification
-        });
-    }
+            ["gamesDiscovered"] = _gamesDiscovered,
+            ["newPatterns"] = newPatterns,
+            ["resolved"] = resolved,
+            ["errorDetail"] = errorDetail,
+        };
 
     /// <summary>
     /// Resolves the singleton daemon. Prefers the reference captured at subscribe time; otherwise

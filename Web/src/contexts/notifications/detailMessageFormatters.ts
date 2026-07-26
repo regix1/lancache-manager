@@ -1,6 +1,5 @@
 import type {
   ProcessingProgressEvent,
-  DepotMappingProgressEvent,
   LogRemovalProgressEvent,
   LogRemovalCompleteEvent,
   GameRemovalProgressEvent,
@@ -16,14 +15,11 @@ import type {
   DatabaseResetProgressEvent,
   CacheClearProgressEvent,
   CacheClearCompleteEvent,
-  DepotMappingStartedEvent,
   ScheduledPrefillProgressEvent,
   DataImportStartedEvent,
   DataImportProgressEvent,
   DataImportCompleteEvent,
-  EpicMappingProgressEvent,
   EpicGameMappingsUpdatedEvent,
-  XboxMappingProgressEvent,
   XboxGameMappingsUpdatedEvent
 } from '../SignalRContext/types';
 import i18n from '@/i18n';
@@ -33,7 +29,7 @@ import { hasUnresolvedInterpolation, translateRecoveryStage } from '@/utils/stag
 import type { NotificationProgressMode, StageContext } from './types';
 import { GENERIC_COMPLETION_I18N_KEY, GENERIC_FAILURE_I18N_KEY } from './constants';
 
-type GameDetectionInterpolation = Record<string, string | number | boolean>;
+type GameDetectionInterpolation = Record<string, string | number | boolean | null>;
 
 /** Merge SignalR/API context with top-level detection counts for i18n interpolation. */
 export function buildGameDetectionInterpolation(
@@ -99,50 +95,6 @@ export const formatLogProcessingDetailMessage = (
   });
 };
 
-// ============================================================================
-// Depot Mapping
-// ============================================================================
-
-/**
- * Formats the detail message for depot mapping recovery.
- * Includes optional mappings found count.
- * @param data - The recovery data from the API
- * @returns Formatted detail message or undefined
- */
-export const formatDepotMappingRecoveryDetailMessage = (data: {
-  processedBatches?: number;
-  totalBatches?: number;
-  depotMappingsFound?: number;
-}): string | undefined => {
-  // Batch counts only apply to PICS crawls; GitHub/JSON imports never set them,
-  // so a 0-batch total means "no batch phase" rather than "0 of 0 done".
-  const hasBatchProgress =
-    data.processedBatches !== undefined && data.totalBatches !== undefined && data.totalBatches > 0;
-
-  if (hasBatchProgress) {
-    if (data.depotMappingsFound !== undefined) {
-      return i18n.t('signalr.depotMapping.batchProgressWithMappings', {
-        processedBatches: data.processedBatches!.toLocaleString(),
-        totalBatches: data.totalBatches!.toLocaleString(),
-        depotMappingsFound: data.depotMappingsFound.toLocaleString()
-      });
-    }
-    return i18n.t('signalr.depotMapping.batchProgress', {
-      processedBatches: data.processedBatches!.toLocaleString(),
-      totalBatches: data.totalBatches!.toLocaleString()
-    });
-  }
-
-  if (data.depotMappingsFound !== undefined && data.depotMappingsFound > 0) {
-    return i18n.t('signalr.depotMapping.mappingsFoundOnly', {
-      depotMappingsFound: data.depotMappingsFound.toLocaleString()
-    });
-  }
-
-  return undefined;
-};
-
-// ============================================================================
 // Recovery Message Formatters (for recoveryFactory.ts)
 // ============================================================================
 
@@ -838,53 +790,6 @@ export const formatCacheClearFailureMessage = (event: CacheClearCompleteEvent): 
 };
 
 // ============================================================================
-// Depot Mapping
-// ============================================================================
-
-/**
- * Formats the message for depot mapping started.
- * @param event - The depot mapping started event from SignalR
- * @returns Formatted message string
- */
-export const formatDepotMappingStartedMessage = (event: DepotMappingStartedEvent): string => {
-  return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
-    : (event.message ?? i18n.t('signalr.depotMapping.github.downloading'));
-};
-
-/**
- * Formats the message for depot mapping progress.
- * Falls back to existing notification message if event has no message.
- * @param event - The depot mapping progress event from SignalR
- * @param existingMessage - Optional existing notification message for fallback
- * @returns Formatted message string
- */
-export const formatDepotMappingProgressMessage = (
-  event: DepotMappingProgressEvent,
-  existingMessage?: string
-): string => {
-  if (event.stageKey) {
-    return i18n.t(event.stageKey, event.context ?? {});
-  }
-
-  if (event.processedMappings !== undefined || event.totalMappings !== undefined) {
-    return i18n.t('signalr.depotMapping.applyingToDownloads', {
-      processed: (event.processedMappings ?? 0).toLocaleString(),
-      totalDownloads: (event.totalMappings ?? 0).toLocaleString()
-    });
-  }
-
-  return (
-    event.message ??
-    existingMessage ??
-    i18n.t('signalr.depotMapping.applyingToDownloads', {
-      processed: 0,
-      totalDownloads: 0
-    })
-  );
-};
-
-// ============================================================================
 // Data Import
 // ============================================================================
 
@@ -966,30 +871,8 @@ export const formatDataImportFailureMessage = (event: DataImportCompleteEvent): 
 };
 
 // ============================================================================
-// Epic Game Mapping
+// Mapping data updates
 // ============================================================================
-
-/**
- * Formats the progress message for Epic game mapping.
- * @param event - The Epic mapping progress event from SignalR
- * @returns Formatted progress message string
- */
-export const formatEpicMappingProgressMessage = (event: EpicMappingProgressEvent): string => {
-  return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.epicMapping.starting');
-};
-
-/**
- * Formats the completion message for Epic game mapping progress.
- * @param event - The Epic mapping progress event from SignalR
- * @returns Formatted completion message string
- */
-export const formatEpicMappingCompleteMessage = (event: EpicMappingProgressEvent): string => {
-  return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.epicMapping.gamesDiscovered', { gamesDiscovered: event.gamesDiscovered });
-};
 
 /**
  * Formats the detail message for Epic game mappings updated.
@@ -1009,28 +892,6 @@ export const formatEpicGameMappingsUpdatedMessage = (
   }
   const detail = parts.join(', ');
   return detail ? `${detail}, ${event.totalGames} total` : `${event.totalGames} total`;
-};
-
-/**
- * Formats the progress message for Xbox game mapping.
- * @param event - The Xbox mapping progress event from SignalR
- * @returns Formatted progress message string
- */
-export const formatXboxMappingProgressMessage = (event: XboxMappingProgressEvent): string => {
-  return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.xboxMapping.starting');
-};
-
-/**
- * Formats the completion message for Xbox game mapping progress.
- * @param event - The Xbox mapping progress event from SignalR
- * @returns Formatted completion message string
- */
-export const formatXboxMappingCompleteMessage = (event: XboxMappingProgressEvent): string => {
-  return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.xboxMapping.gamesDiscovered', { gamesDiscovered: event.gamesDiscovered });
 };
 
 /**
