@@ -459,10 +459,9 @@ export function GameSelectionModal({
                                     {t('prefill.gameSelection.appId', { id: game.appId })}
                                   </span>
                                   {isCached && (
-                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--theme-success-bg)] text-[var(--theme-success-text)]">
-                                      <Database className="h-2.5 w-2.5" />
+                                    <Badge variant="success">
                                       {t('prefill.gameSelection.cachedBadge')}
-                                    </span>
+                                    </Badge>
                                   )}
                                 </div>
                               </div>
@@ -517,10 +516,9 @@ export function GameSelectionModal({
                                     {t('prefill.gameSelection.appId', { id: game.appId })}
                                   </span>
                                   {isCached && (
-                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--theme-success-bg)] text-[var(--theme-success-text)]">
-                                      <Database className="h-2.5 w-2.5" />
+                                    <Badge variant="success">
                                       {t('prefill.gameSelection.cachedBadge')}
-                                    </span>
+                                    </Badge>
                                   )}
                                 </div>
                               </div>

@@ -1847,6 +1847,9 @@
         "probeBlockedFallbackHint": "正常情况下,nslookup 会返回缓存的局域网 IP,curl 的响应会包含 X-LanCache-Processed-By 标头。",
         "probeCopied": "已复制",
         "probeRetry": "再次检查",
+        "probeResolverMismatch": "上方的服务器检查可以通过该地址访问缓存,但此浏览器无法访问。这通常意味着浏览器在自行解析域名,而没有使用游戏客户端所用的网络 DNS 服务器。上方的服务器检查结果不受影响。",
+        "probeResolverMismatchHelp": "部分浏览器默认开启 DNS over HTTPS。请在浏览器设置中将其关闭,或让网络 DNS 服务器对 use-application-dns.net 返回空结果。",
+        "probeResolverMismatchCheck": "检查此浏览器是否使用 DNS over HTTPS",
         "testLane": "测试域名",
         "testLaneDesc": "解析单个域名并对响应方进行心跳检测。",
         "browseDomains": "已知域名",
@@ -2404,7 +2407,15 @@
           "failedToUpdateExcluded": "更新排除的 IP 失败",
           "failedToLoadExcluded": "加载排除的 IP 失败"
         },
-        "groupManagement": "客户端管理"
+        "groupManagement": "客户端管理",
+        "hostnames": {
+          "title": "客户端主机名",
+          "description": "在网络 DNS 服务器上查询每个客户端地址对应的名称",
+          "toggleLabel": "显示客户端主机名",
+          "toggleDescription": "向网络 DNS 服务器查询每个客户端地址对应的名称，并用该名称代替地址显示。默认关闭，因为未配置反向 DNS 的网络可能响应缓慢。昵称始终优先于主机名。",
+          "enabled": "开启",
+          "disabled": "关闭"
+        }
       },
       "theme": {
         "groupAppearance": "外观"

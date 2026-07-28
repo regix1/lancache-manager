@@ -3,6 +3,7 @@ import { Globe, Check, Moon, Sun, ExternalLink, Eye, EyeOff, RefreshCw } from 'l
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -572,9 +573,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                     <div className="flex items-center gap-2 text-xs text-themed-muted">
                       {theme.meta?.author && <span>by {theme.meta.author}</span>}
                       {theme.meta?.version && (
-                        <span className="px-1.5 py-0.5 rounded text-xs bg-themed-tertiary">
-                          v{theme.meta.version}
-                        </span>
+                        <Badge variant="neutral">v{theme.meta.version}</Badge>
                       )}
                     </div>
                   </div>

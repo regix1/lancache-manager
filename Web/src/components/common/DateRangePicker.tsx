@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Calendar, ChevronDown } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import { useEvents } from '@contexts/useEvents';
 import { getEventColorVar } from '@utils/eventColors';
 import { formatEventDateRange } from '@utils/formatters';
@@ -586,9 +587,9 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                       />
                       <span className="truncate max-w-[100px]">{event.name}</span>
                       {status === 'active' && (
-                        <span className="live-badge px-1 py-0.5 text-[9px] rounded font-medium">
+                        <Badge variant="success" className="live-badge">
                           {t('common.dateRangePicker.liveBadge')}
-                        </span>
+                        </Badge>
                       )}
                     </button>
                   </Tooltip>

@@ -1847,6 +1847,9 @@
         "probeBlockedFallbackHint": "A healthy setup answers nslookup with your cache's LAN IP, and the curl reply includes an X-LanCache-Processed-By header.",
         "probeCopied": "Copied",
         "probeRetry": "Check again",
+        "probeResolverMismatch": "The server check above reached the cache at this address, but this browser could not. That usually means the browser is resolving names on its own instead of using the network's DNS server that game clients use. The server results above are not affected.",
+        "probeResolverMismatchHelp": "Some browsers turn on DNS over HTTPS by default. Turn it off in the browser settings, or have the network's DNS server return no address for use-application-dns.net.",
+        "probeResolverMismatchCheck": "Check whether this browser uses DNS over HTTPS",
         "testLane": "Test a domain",
         "testLaneDesc": "Look up a single domain and see whether the cache answers.",
         "browseDomains": "Known domains",
@@ -2404,7 +2407,15 @@
           "failedToUpdateExcluded": "Failed to update excluded IPs",
           "failedToLoadExcluded": "Failed to load excluded IPs"
         },
-        "groupManagement": "Client Management"
+        "groupManagement": "Client Management",
+        "hostnames": {
+          "title": "Client hostnames",
+          "description": "Look up a name for each client address on your network's DNS server",
+          "toggleLabel": "Show client hostnames",
+          "toggleDescription": "Ask the network's DNS server for the name behind each client address and show that name in place of the address. Off by default, because a network without reverse DNS entries can be slow to answer. Nicknames always win over hostnames.",
+          "enabled": "On",
+          "disabled": "Off"
+        }
       },
       "theme": {
         "groupAppearance": "Appearance"

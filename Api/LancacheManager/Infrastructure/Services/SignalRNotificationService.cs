@@ -95,6 +95,14 @@ public class SignalRNotificationService : ISignalRNotificationService
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
             }
+            // Turning client hostnames on or off relabels every client-stats row, so it restructures
+            // the table in every time range just as a group write does. A live-only generation bump
+            // would leave historical batch keys untouched and hand the forced refetch the identical
+            // stale entry.
+            else if (eventName == SignalREvents.ClientHostnamesChanged)
+            {
+                _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
+            }
             else if (eventName is SignalREvents.DownloadsRefresh or SignalREvents.LogProcessingComplete)
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateLiveCache();

@@ -169,6 +169,10 @@ public interface IStateService
     bool GetPruneOrphanedDownloads();
     void SetPruneOrphanedDownloads(bool enabled);
 
+    // Client Hostname Lookup Methods (reverse DNS on client addresses)
+    bool GetClientHostnameLookup();
+    void SetClientHostnameLookup(bool enabled);
+
     // Stats Exclusion Methods
     List<string> GetExcludedClientIps();
     void SetExcludedClientIps(List<string> ips);

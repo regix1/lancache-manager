@@ -63,6 +63,23 @@ public static class ClientStatsAggregationHelper
     }
 
     /// <summary>
+    /// The addresses worth naming for a caller about to show <paramref name="limit"/> rows: the
+    /// busiest first, cut to what will be displayed. The ranking has to happen before names are
+    /// looked up rather than after, because reading the aggregate list in the order the database
+    /// grouped it and cutting there spends the lookup budget on machines no row shows while the
+    /// busiest client keeps a bare address. Both client-stats surfaces call this so their name
+    /// coverage cannot drift from each other.
+    /// </summary>
+    public static List<string> TopClientIpsByTraffic(IEnumerable<ClientIpAggregate> ipAggregates, int limit)
+    {
+        return ipAggregates
+            .OrderByDescending(a => a.TotalCacheHitBytes + a.TotalCacheMissBytes)
+            .Take(limit)
+            .Select(a => a.ClientIp)
+            .ToList();
+    }
+
+    /// <summary>
     /// Turns per-IP totals into ranked client rows, honouring each group's reporting mode.
     /// A group that reports combined collapses every member IP into one nicknamed row, and
     /// that fold happens BEFORE the top-N cut so a nickname spread over several IPs still
@@ -72,10 +89,13 @@ public static class ClientStatsAggregationHelper
     /// Every aggregate feeds exactly one row, so no traffic is counted twice and the three
     /// row kinds rank against each other coherently. <paramref name="limit"/> caps ROWS: a
     /// separated group of five members can occupy five of them.
+    /// <paramref name="ipToHostname"/> carries the reverse-DNS names known for these addresses and
+    /// is empty whenever the hostname lookup is off.
     /// </summary>
     public static List<ClientStatsWithGroup> AggregateAndRank(
         IEnumerable<ClientIpAggregate> ipAggregates,
         IReadOnlyDictionary<string, ClientGroupAssignment> ipToGroupMapping,
+        IReadOnlyDictionary<string, string> ipToHostname,
         int limit)
     {
         // The assignment travels with its member list so the nickname cannot go missing for a
@@ -95,7 +115,8 @@ public static class ClientStatsAggregationHelper
                     totalDownloads: aggregate.TotalDownloads,
                     totalDurationSeconds: aggregate.TotalDurationSeconds,
                     lastActivityUtc: aggregate.LastActivityUtc,
-                    isGrouped: false));
+                    isGrouped: false,
+                    displayName: ResolveDisplayName(null, ipToHostname, aggregate.ClientIp)));
                 continue;
             }
 
@@ -112,7 +133,7 @@ public static class ClientStatsAggregationHelper
                     totalDurationSeconds: aggregate.TotalDurationSeconds,
                     lastActivityUtc: aggregate.LastActivityUtc,
                     isGrouped: false,
-                    displayName: assignment.Nickname,
+                    displayName: ResolveDisplayName(assignment.Nickname, ipToHostname, aggregate.ClientIp),
                     groupId: assignment.GroupId,
                     groupMemberIps: null));
                 continue;
@@ -161,7 +182,7 @@ public static class ClientStatsAggregationHelper
                 totalDurationSeconds: durationSeconds,
                 lastActivityUtc: lastActivityUtc,
                 isGrouped: true,
-                displayName: groupEntry.Assignment.Nickname,
+                displayName: ResolveDisplayName(groupEntry.Assignment.Nickname, ipToHostname, members[0].ClientIp),
                 groupId: groupId,
                 groupMemberIps: memberIps));
         }
@@ -172,6 +193,34 @@ public static class ClientStatsAggregationHelper
             .OrderByDescending(c => c.TotalBytes)
             .Take(limit)
             .ToList();
+    }
+
+    /// <summary>
+    /// One precedence for every client label: the nickname, else the machine's own name from
+    /// reverse DNS, else nothing so the row keeps showing the address. The short name (the text
+    /// before the first dot) is what a row displays, because network reverse-DNS answers are
+    /// usually fully qualified and a row has no width for the full name; the client applies the
+    /// same rule to the hostname map, so both surfaces read alike. Returning null rather than the
+    /// address itself is deliberate: consumers treat a display name as a label standing in for the
+    /// address, and give it the affordance that reveals the address underneath.
+    /// </summary>
+    private static string? ResolveDisplayName(
+        string? nickname,
+        IReadOnlyDictionary<string, string> ipToHostname,
+        string clientIp)
+    {
+        if (!string.IsNullOrWhiteSpace(nickname))
+        {
+            return nickname;
+        }
+
+        if (!ipToHostname.TryGetValue(clientIp, out var hostname) || string.IsNullOrWhiteSpace(hostname))
+        {
+            return null;
+        }
+
+        var firstDot = hostname.IndexOf('.');
+        return firstDot > 0 ? hostname[..firstDot] : hostname;
     }
 
     private static ClientStatsWithGroup BuildClientStats(

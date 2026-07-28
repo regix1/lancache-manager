@@ -4,6 +4,8 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { TogglePill } from '@components/ui/TogglePill';
 import { useClientGroups } from '@contexts/useClientGroups';
+import { useClientHostnames } from '@contexts/useClientHostnames';
+import { resolveClientLabel } from '@utils/clientLabel';
 import type {
   SessionFilters,
   CacheStatusFilter,
@@ -70,9 +72,12 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
 }) => {
   // Nickname mapping loads for admins and guests; mutations stay AdminOnly server-side.
   const { getGroupForIp } = useClientGroups();
+  const { getHostnameForIp } = useClientHostnames();
 
-  // Labels only: every filter value stays the raw IP the downloads are keyed by.
-  const labelForIp = (ip: string): string => getGroupForIp(ip)?.nickname || ip;
+  // Labels only: every filter value stays the raw IP the downloads are keyed by. The dropdown has to
+  // read the same label as the rows it filters, so it shares their precedence rather than its own.
+  const labelForIp = (ip: string): string =>
+    resolveClientLabel(ip, getGroupForIp(ip)?.nickname, getHostnameForIp(ip)).text;
 
   const handleToggleIp = (ip: string): void => {
     const current = filters.clientIps;
@@ -89,11 +94,16 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
   };
 
   const ipOptions = uniqueIps.map((ip: string) => {
-    const nickname = getGroupForIp(ip)?.nickname;
+    const { text, substitutesAddress } = resolveClientLabel(
+      ip,
+      getGroupForIp(ip)?.nickname,
+      getHostnameForIp(ip)
+    );
     return {
       value: ip,
-      label: nickname || ip,
-      description: nickname ? ip : undefined
+      label: text,
+      // The address is worth showing underneath only when the label replaced it.
+      description: substitutesAddress ? ip : undefined
     };
   });
 

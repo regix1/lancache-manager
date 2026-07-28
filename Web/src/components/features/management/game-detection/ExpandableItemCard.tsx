@@ -6,6 +6,7 @@ import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Tooltip } from '@components/ui/Tooltip';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import Badge from '@components/ui/Badge';
 import { GameImage } from '../../../common/GameImage';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
@@ -143,9 +144,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
                 {title}
               </h4>
               {isUnknownGame && (
-                <span className="text-xs font-medium px-2 py-0.5 rounded bg-themed-elevated text-themed-warning">
-                  {t('management.gameDetection.unknownGameBadge')}
-                </span>
+                <Badge variant="warning">{t('management.gameDetection.unknownGameBadge')}</Badge>
               )}
               {subtitle && subtitle}
             </div>

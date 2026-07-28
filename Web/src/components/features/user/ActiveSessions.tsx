@@ -1323,14 +1323,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               {admin ? t('activeSessions.labels.userBadge') : t('activeSessions.labels.guestBadge')}
             </span>
             {session.isRevoked && (
-              <span className="themed-badge status-badge-error session-type-badge">
+              <Badge variant="error" className="session-type-badge">
                 {t('activeSessions.status.revoked')}
-              </span>
+              </Badge>
             )}
             {session.isExpired && !session.isRevoked && (
-              <span className="themed-badge status-badge-warning session-type-badge">
+              <Badge variant="warning" className="session-type-badge">
                 {t('activeSessions.prefill.status.expired')}
-              </span>
+              </Badge>
             )}
           </div>
           <div className="mgmt-row__meta session-row__meta">
@@ -1827,9 +1827,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       {t('actions.useDefault')}
                     </button>
                   ) : (
-                    <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
-                      {t('actions.usingDefault')}
-                    </span>
+                    <Badge variant="neutral">{t('actions.usingDefault')}</Badge>
                   )}
                 </div>
                 <EnhancedDropdown
@@ -1879,9 +1877,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         {t('actions.useDefault')}
                       </button>
                     ) : (
-                      <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
-                        {t('actions.usingDefault')}
-                      </span>
+                      <Badge variant="neutral">{t('actions.usingDefault')}</Badge>
                     )}
                   </div>
                   <EnhancedDropdown
@@ -2010,13 +2006,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                               )}
                             </div>
                             <div className="mgmt-row__actions">
-                              <span
-                                className={`px-2 py-0.5 text-xs font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
-                              >
+                              <Badge variant={effective ? 'success' : 'warning'}>
                                 {effective
                                   ? t('activeSessions.prefill.status.enabled')
                                   : t('activeSessions.prefill.status.disabled')}
-                              </span>
+                              </Badge>
                               <Button
                                 variant="default"
                                 color={effective ? 'orange' : 'green'}
@@ -2101,9 +2095,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                                     {t('actions.useDefault')}
                                   </button>
                                 ) : (
-                                  <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
-                                    {t('actions.usingDefault')}
-                                  </span>
+                                  <Badge variant="neutral">{t('actions.usingDefault')}</Badge>
                                 )}
                               </div>
                               <EnhancedDropdown
@@ -2270,9 +2262,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                           currentFormats.every((f: string) => defaultFormats.includes(f)));
 
                       return isUsingDefault ? (
-                        <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
-                          {t('actions.usingDefault')}
-                        </span>
+                        <Badge variant="neutral">{t('actions.usingDefault')}</Badge>
                       ) : (
                         <button
                           type="button"

@@ -105,6 +105,10 @@ public class AppState
     // Whether the eviction scan also prunes orphaned downloads (no log entries backing them)
     public bool PruneOrphanedDownloads { get; set; } = false;
 
+    // Whether client addresses are looked up on the network's DNS server and shown by name.
+    // Off by default: a network without reverse DNS entries can be slow to answer.
+    public bool ClientHostnameLookup { get; set; } = false;
+
     // Setup wizard state (persisted for resumption across page refreshes)
     public SetupStep? CurrentSetupStep { get; set; }
     public DataSourceChoice? DataSourceChoice { get; set; }

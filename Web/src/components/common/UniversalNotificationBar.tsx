@@ -1,17 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  CheckCircle,
-  AlertCircle,
-  X,
-  User,
-  UserX,
-  Trash2,
-  XCircle,
-  Info,
-  Key,
-  Clock
-} from 'lucide-react';
+import { CheckCircle, AlertCircle, X, Trash2, XCircle, Info, Clock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import i18n from '../../i18n';
@@ -25,6 +14,7 @@ import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { formatCount, formatBytes } from '@utils/formatters';
 import themeService from '@services/theme.service';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
 import {
@@ -290,25 +280,14 @@ const renderDepotMappingTitle = ({ notification, t, webApiStatus }: ContentRende
     {/* Auth mode badge for depot mapping */}
     {notification.details?.isLoggedOn !== undefined && (
       <div className="flex items-center gap-2">
-        <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)]">
-          {notification.details.isLoggedOn ? (
-            <>
-              <User className="w-3 h-3" />
-              <span>{t('common.notifications.steamAuthenticated')}</span>
-            </>
-          ) : (
-            <>
-              <UserX className="w-3 h-3" />
-              <span>{t('common.notifications.steamAnonymous')}</span>
-            </>
-          )}
-        </span>
+        <Badge variant="neutral">
+          {notification.details.isLoggedOn
+            ? t('common.notifications.steamAuthenticated')
+            : t('common.notifications.steamAnonymous')}
+        </Badge>
         {/* Show Web API Key pill when API key is configured */}
         {webApiStatus?.hasApiKey && (
-          <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded flex-shrink-0 bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]">
-            <Key className="w-3 h-3" />
-            <span>{t('common.notifications.webApiKey')}</span>
-          </span>
+          <Badge variant="info">{t('common.notifications.webApiKey')}</Badge>
         )}
       </div>
     )}

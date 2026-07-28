@@ -16,6 +16,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { useClientGroups } from '@contexts/useClientGroups';
+import { useClientHostnames } from '@contexts/useClientHostnames';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useTimeFilter } from '@contexts/useTimeFilter';
@@ -341,6 +342,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const latestDownloads = useMemo(() => downloads, [downloads]);
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();
+  const { getHostnameForIp } = useClientHostnames();
   const { speedSnapshot, gameSpeeds, activeDownloadCount, isLoading: speedLoading } = useSpeed();
   const { timeRange: contextTimeRange, selectedEventIds } = useTimeFilter();
 
@@ -477,9 +479,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       buildClientFilterOptions(
         availableClients,
         getGroupForIp,
+        getHostnameForIp,
         t('dashboard.downloadsPanel.allClients')
       ),
-    [availableClients, getGroupForIp, t]
+    [availableClients, getGroupForIp, getHostnameForIp, t]
   );
 
   const filteredDownloads = useMemo(() => {

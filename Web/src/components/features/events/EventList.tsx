@@ -256,9 +256,7 @@ const EventCard = React.memo(
                   className="flex items-center justify-between py-2 px-3 rounded-lg bg-[var(--theme-bg-secondary)]"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="themed-badge status-badge-neutral">
-                      {game.service.toUpperCase()}
-                    </span>
+                    <Badge variant="neutral">{game.service.toUpperCase()}</Badge>
                     <Tooltip content={game.name} position="top" className="flex min-w-0">
                       <span className="text-sm font-medium truncate text-[var(--theme-text-primary)]">
                         {game.name}

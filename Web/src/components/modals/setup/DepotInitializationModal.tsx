@@ -2,6 +2,7 @@ import React from 'react';
 import { Rocket, ArrowLeft } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import { useTranslation } from 'react-i18next';
 import { useInitializationFlow, type InitStep } from '@hooks/useInitializationFlow';
 import {
@@ -199,9 +200,12 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
               </span>
             </div>
           </div>
-          <div className="text-xs font-medium px-2.5 py-1 rounded-full bg-themed-tertiary text-themed-secondary">
+          <Badge
+            variant="neutral"
+            ariaLabel={`${t('initialization.modal.setupWizard')} ${stepInfo.number} / ${stepInfo.total}`}
+          >
             {stepInfo.number} / {stepInfo.total}
-          </div>
+          </Badge>
         </div>
 
         {/* Progress Bar */}

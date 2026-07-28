@@ -1,3 +1,4 @@
+import type { StatusCheckResult } from '@services/api.service';
 import { getServiceBadgeStyles, getServiceColorClass } from '@utils/serviceColors';
 
 const UNKNOWN_SERVICE_COLOR_CLASS = getServiceColorClass('');
@@ -32,4 +33,22 @@ export function formatRepoShortName(repoUrl: string): string {
 
 export function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
+ * True when the server sweep's domain result for `host` came back heartbeat-verified. This is the
+ * DoH-disagreement signal: if the server reached the cache at this host but a browser-side probe
+ * for the same host could not, the browser is very likely resolving names on its own instead of
+ * using the network's DNS server.
+ */
+export function isProbeHostHeartbeatVerified(
+  lastResult: StatusCheckResult | null,
+  host: string
+): boolean {
+  if (!lastResult) return false;
+  for (const service of lastResult.services) {
+    const domain = service.domains.find((entry) => entry.domain === host);
+    if (domain) return domain.heartbeatVerified;
+  }
+  return false;
 }

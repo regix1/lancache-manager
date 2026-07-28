@@ -124,11 +124,7 @@ const GameCard: React.FC<GameCardProps> = ({
         {isEpic && <EpicIcon size={10} className="game-card-epic-icon" />}
         {serviceBadgeLabel}
       </span>
-      {isSteam && (
-        <span className="text-xs text-themed-muted bg-themed-elevated px-2 py-0.5 rounded">
-          AppID: {game.game_app_id}
-        </span>
-      )}
+      {isSteam && <Badge variant="neutral">AppID: {game.game_app_id}</Badge>}
       {isEvicted && <EvictedBadge />}
       {!isEvicted && variant === 'active' && (game.evicted_downloads_count ?? 0) > 0 && (
         <Badge variant="warning">
@@ -189,12 +185,9 @@ const GameCard: React.FC<GameCardProps> = ({
                 </p>
                 <div className="flex flex-wrap gap-1">
                   {depotIds.map((depotId) => (
-                    <span
-                      key={depotId}
-                      className="text-xs px-2 py-0.5 rounded border bg-themed-elevated border-themed-primary text-themed-secondary"
-                    >
+                    <Badge key={depotId} variant="neutral">
                       {depotId}
-                    </span>
+                    </Badge>
                   ))}
                 </div>
               </div>

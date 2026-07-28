@@ -13,22 +13,24 @@ import { Alert } from '@components/ui/Alert';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Pagination } from '@components/ui/Pagination';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
+import { Checkbox } from '@components/ui/Checkbox';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useClientGroups } from '@contexts/useClientGroups';
+import { useClientHostnames } from '@contexts/useClientHostnames';
 import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
-import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { useKnownClientIps } from '@/hooks/useKnownClientIps';
 import {
   Users,
   EyeOff,
   Trash2,
   Edit2,
   X,
-  AlertTriangle,
   ChevronDown,
   ChevronUp,
-  Plus
+  Plus,
+  Network
 } from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
@@ -50,8 +52,13 @@ interface ClientsSectionProps {
 
 const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuccess }) => {
   const { t } = useTranslation();
-  const { notifyError } = useErrorHandler();
   const { clientGroups, loading, deleteClientGroup, removeMember } = useClientGroups();
+  const {
+    enabled: hostnamesEnabled,
+    loading: hostnamesLoading,
+    error: hostnamesError,
+    setEnabled: setHostnamesEnabled
+  } = useClientHostnames();
   const { refreshStats } = useStats();
   const { refreshDownloads } = useDownloads();
 
@@ -63,49 +70,30 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   useAccordionGroupItem('clients-exclusions', exclusionsExpanded, () =>
     setExclusionsExpanded((prev) => !prev)
   );
+  const [hostnamesExpanded, setHostnamesExpanded] = useState(false);
+  useAccordionGroupItem('clients-hostnames', hostnamesExpanded, () =>
+    setHostnamesExpanded((prev) => !prev)
+  );
+  const [savingHostnames, setSavingHostnames] = useState(false);
 
-  // Fetch ALL client IPs without time filtering - management sections should not be affected by time filters
-  const [allClientIps, setAllClientIps] = useState<string[]>([]);
-  const [loadingClients, setLoadingClients] = useState(true);
+  // ALL client IPs without time filtering - management sections should not be affected by time
+  // filters - kept current as client groups change.
+  const {
+    clientIps: allClientIps,
+    loading: loadingClients,
+    refresh: refreshKnownClientIps
+  } = useKnownClientIps();
 
+  // A machine downloading for the first time joins this list without any client-group event to
+  // announce it, and these two sections are where the list is browsed. Reloading as a section opens
+  // is therefore the moment a new address can first be looked at, and it costs nothing while both
+  // stay closed. Asking on every open is safe: the hook serves an already current list from what it
+  // has and never restarts a load that is still running.
+  const knownClientsVisible = nicknamesExpanded || exclusionsExpanded;
   useEffect(() => {
-    let cancelled = false;
-    const fetchAllClients = async () => {
-      try {
-        // Call getClientStats without time params to get all clients ever seen
-        const stats = await ApiService.getClientStats(
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          true
-        );
-        if (!cancelled) {
-          const ips = stats.map((stat) => stat.clientIp);
-          setAllClientIps(ips);
-        }
-      } catch (err) {
-        // Background list population for the "known IPs" picker; the section still functions
-        // with an empty list, so this is genuine background noise, not a blocking failure.
-        notifyError(
-          t('management.sections.clients.errors.failedToLoadIps', 'Failed to load client IPs'),
-          err,
-          {
-            silent: true,
-            logLabel: 'Failed to fetch all client IPs'
-          }
-        );
-      } finally {
-        if (!cancelled) {
-          setLoadingClients(false);
-        }
-      }
-    };
-    fetchAllClients();
-    return () => {
-      cancelled = true;
-    };
-  }, [notifyError, t]);
+    if (!knownClientsVisible) return;
+    refreshKnownClientIps();
+  }, [knownClientsVisible, refreshKnownClientIps]);
 
   const [excludedRules, setExcludedRules] = useState<ClientExclusionRule[]>([]);
   const [savedExcludedRules, setSavedExcludedRules] = useState<ClientExclusionRule[]>([]);
@@ -276,6 +264,16 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ClientGroup | null>(null);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<number>>(new Set());
 
+  // The modal's member picker reads this same list, and the button that opens it for a new nickname
+  // sits in the section header, which is there whether the section is open or shut - so opening the
+  // modal can be the first time anyone looks at these addresses. Same non-forced request as the one
+  // above: a list loaded moments ago is served as it stands, and a load already running is left to
+  // finish rather than restarted under the open modal.
+  useEffect(() => {
+    if (!isModalOpen) return;
+    refreshKnownClientIps();
+  }, [isModalOpen, refreshKnownClientIps]);
+
   const toggleGroupExpanded = (groupId: number) => {
     setExpandedGroupIds((prev) => {
       const next = new Set(prev);
@@ -368,6 +366,22 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     setQuickNameIps([]);
   };
 
+  // The setting is global, so it is written through the API rather than the per-user preferences
+  // service. Only the hostname map is reloaded afterwards, never the download or stats tables.
+  const handleHostnameLookupChange = useCallback(
+    async (enabled: boolean) => {
+      setSavingHostnames(true);
+      try {
+        await setHostnamesEnabled(enabled);
+      } catch (err: unknown) {
+        onError(getErrorMessage(err));
+      } finally {
+        setSavingHostnames(false);
+      }
+    },
+    [setHostnamesEnabled, onError]
+  );
+
   const handleModalSuccess = (message: string) => {
     onSuccess(message);
     handleModalClose();
@@ -456,11 +470,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                               </Tooltip>
                               {isMultiIp && (
                                 <Tooltip content={t('modals.clientGroup.multiIpWarning')}>
-                                  <span className="flex flex-shrink-0 items-center gap-1 px-1.5 py-0.5 rounded text-xs icon-bg-orange icon-orange">
-                                    <AlertTriangle className="w-3 h-3" />
+                                  <Badge variant="warning">
                                     {group.memberIps.length}{' '}
                                     {t('management.sections.clients.ipsLabel')}
-                                  </span>
+                                  </Badge>
                                 </Tooltip>
                               )}
                               {/* Combined is the default, so only separated groups are labelled. */}
@@ -823,6 +836,58 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   >
                     {t('management.sections.clients.saveChanges')}
                   </Button>
+                </div>
+              </div>
+            )}
+          </AccordionSection>
+
+          <AccordionSection
+            title={t('management.sections.clients.hostnames.title')}
+            description={t('management.sections.clients.hostnames.description')}
+            icon={Network}
+            iconColor="var(--theme-icon-teal)"
+            isExpanded={hostnamesExpanded}
+            onToggle={() => setHostnamesExpanded((prev) => !prev)}
+            badge={
+              <Badge variant={hostnamesEnabled ? 'success' : 'neutral'}>
+                {t(
+                  hostnamesEnabled
+                    ? 'management.sections.clients.hostnames.enabled'
+                    : 'management.sections.clients.hostnames.disabled'
+                )}
+              </Badge>
+            }
+          >
+            {!isAdmin ? (
+              <Alert color="yellow">
+                <span className="text-sm">
+                  {t('management.sections.clients.authenticateToManage')}
+                </span>
+              </Alert>
+            ) : (
+              <div className="space-y-3">
+                {hostnamesError && <Alert color="red">{hostnamesError}</Alert>}
+                <div className="flex items-start gap-3 py-2">
+                  <div className="pt-0.5">
+                    <Checkbox
+                      checked={hostnamesEnabled}
+                      onChange={(e) => void handleHostnameLookupChange(e.target.checked)}
+                      disabled={savingHostnames || hostnamesLoading}
+                      aria-label={t('management.sections.clients.hostnames.toggleLabel')}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-themed-primary">
+                      {t('management.sections.clients.hostnames.toggleLabel')}
+                    </p>
+                    <p className="text-xs mt-0.5 text-themed-muted">
+                      {t('management.sections.clients.hostnames.toggleDescription')}
+                    </p>
+                  </div>
+                  {/* Fixed slot so the row does not reflow when the spinner appears. */}
+                  <div className="w-4 shrink-0 pt-0.5">
+                    {(savingHostnames || hostnamesLoading) && <LoadingSpinner inline size="sm" />}
+                  </div>
                 </div>
               </div>
             )}

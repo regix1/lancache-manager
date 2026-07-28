@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, AlertTriangle } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import Badge from '@components/ui/Badge';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
@@ -301,10 +302,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                       {t('management.steamAuth.logout')}
                     </Button>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-                      <CheckCircle size={14} />
-                      {t('management.steamAuth.connected')}
-                    </span>
+                    <Badge variant="success">{t('management.steamAuth.connected')}</Badge>
                   )}
                 </div>
               </div>

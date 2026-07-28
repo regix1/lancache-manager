@@ -19,6 +19,7 @@ import { useDownloads, useGameDetection } from '@contexts/DashboardDataContext/h
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useClientGroups } from '@contexts/useClientGroups';
+import { useClientHostnames } from '@contexts/useClientHostnames';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
@@ -369,6 +370,7 @@ const DownloadsTab: React.FC = () => {
   const { timeRange, selectedEventIds, getTimeRangeParams, customStartDate, customEndDate } =
     useTimeFilter();
   const { getGroupForIp } = useClientGroups();
+  const { getHostnameForIp } = useClientHostnames();
   const { authMode } = useAuth();
   const isGuest = authMode === 'guest';
   const { on, off } = useSignalR();
@@ -803,9 +805,10 @@ const DownloadsTab: React.FC = () => {
       buildClientFilterOptions(
         availableClients,
         getGroupForIp,
+        getHostnameForIp,
         t('downloads.tab.filters.allClients')
       ),
-    [availableClients, getGroupForIp, t]
+    [availableClients, getGroupForIp, getHostnameForIp, t]
   );
 
   const itemsPerPageOptions = useMemo(() => {

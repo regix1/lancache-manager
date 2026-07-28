@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { CheckCircle, XCircle } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import Badge from '@components/ui/Badge';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { LoadingState } from '@components/ui/ManagerCard';
@@ -88,15 +88,9 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
 
   const statusBadge = !loading ? (
     connected ? (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-        <CheckCircle size={14} />
-        {connectedLabel}
-      </span>
+      <Badge variant="success">{connectedLabel}</Badge>
     ) : (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-        <XCircle size={14} />
-        {notConnectedLabel}
-      </span>
+      <Badge variant="neutral">{notConnectedLabel}</Badge>
     )
   ) : undefined;
 

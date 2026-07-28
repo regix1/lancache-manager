@@ -23,6 +23,13 @@ public sealed class ClientStatsAggregationTests
         DateTime? lastActivityUtc = null)
         => new(clientIp, hitBytes, missBytes, downloads, durationSeconds, lastActivityUtc ?? BaseActivity);
 
+    /// <summary>No client address has a reverse-DNS name, which is also the shape every surface
+    /// passes while the hostname lookup is turned off.</summary>
+    private static readonly Dictionary<string, string> NoHostnames = new();
+
+    private static Dictionary<string, string> Hostnames(params (string Ip, string Hostname)[] entries)
+        => entries.ToDictionary(e => e.Ip, e => e.Hostname);
+
     private static Dictionary<string, ClientGroupAssignment> Mapping(
         params (string Ip, long GroupId, string Nickname)[] entries)
         => entries.ToDictionary(
@@ -49,6 +56,7 @@ public sealed class ClientStatsAggregationTests
         var result = ClientStatsAggregationHelper.AggregateAndRank(
             aggregates,
             Mapping(("10.0.0.1", 7, "Lab PCs"), ("10.0.0.2", 7, "Lab PCs")),
+            NoHostnames,
             limit: 10);
 
         var row = Assert.Single(result);
@@ -79,14 +87,14 @@ public sealed class ClientStatsAggregationTests
         };
         var mapping = Mapping(("10.0.0.1", 3, "Lab PCs"), ("10.0.0.2", 3, "Lab PCs"));
 
-        var topOne = ClientStatsAggregationHelper.AggregateAndRank(aggregates, mapping, limit: 1);
+        var topOne = ClientStatsAggregationHelper.AggregateAndRank(aggregates, mapping, NoHostnames, limit: 1);
 
         var winner = Assert.Single(topOne);
         Assert.Equal("Lab PCs", winner.DisplayName);
         Assert.Equal(120, winner.TotalBytes);
 
         // With room for both, the group still ranks above the larger single IP.
-        var topTwo = ClientStatsAggregationHelper.AggregateAndRank(aggregates, mapping, limit: 2);
+        var topTwo = ClientStatsAggregationHelper.AggregateAndRank(aggregates, mapping, NoHostnames, limit: 2);
         Assert.Equal(new[] { "Lab PCs", null }, topTwo.Select(r => r.DisplayName));
         Assert.Equal(new[] { 120L, 100L }, topTwo.Select(r => r.TotalBytes));
     }
@@ -97,6 +105,7 @@ public sealed class ClientStatsAggregationTests
         var result = ClientStatsAggregationHelper.AggregateAndRank(
             new[] { Aggregate("10.0.0.9", hitBytes: 25, missBytes: 75, downloads: 4, durationSeconds: 5) },
             Mapping(("10.0.0.1", 3, "Lab PCs")),
+            NoHostnames,
             limit: 10);
 
         var row = Assert.Single(result);
@@ -115,6 +124,7 @@ public sealed class ClientStatsAggregationTests
         var result = ClientStatsAggregationHelper.AggregateAndRank(
             new[] { Aggregate("10.0.0.9", hitBytes: 0, missBytes: 0, downloads: 0, durationSeconds: 0) },
             Mapping(),
+            NoHostnames,
             limit: 10);
 
         var row = Assert.Single(result);
@@ -143,6 +153,7 @@ public sealed class ClientStatsAggregationTests
         var result = ClientStatsAggregationHelper.AggregateAndRank(
             aggregates,
             SeparatedMapping(("10.0.0.1", 7, "Lab PCs"), ("10.0.0.2", 7, "Lab PCs")),
+            NoHostnames,
             limit: 10);
 
         Assert.Equal(2, result.Count);
@@ -180,6 +191,7 @@ public sealed class ClientStatsAggregationTests
         var topOne = ClientStatsAggregationHelper.AggregateAndRank(
             aggregates,
             SeparatedMapping(("10.0.0.1", 3, "Lab PCs"), ("10.0.0.2", 3, "Lab PCs")),
+            NoHostnames,
             limit: 1);
 
         var winner = Assert.Single(topOne);
@@ -203,7 +215,7 @@ public sealed class ClientStatsAggregationTests
             .Concat(SeparatedMapping(("10.0.1.1", 2, "Dorm"), ("10.0.1.2", 2, "Dorm")))
             .ToDictionary(entry => entry.Key, entry => entry.Value);
 
-        var result = ClientStatsAggregationHelper.AggregateAndRank(aggregates, mapping, limit: 50);
+        var result = ClientStatsAggregationHelper.AggregateAndRank(aggregates, mapping, NoHostnames, limit: 50);
 
         // One combined row, two separated member rows, one ungrouped row.
         Assert.Equal(4, result.Count);
@@ -222,9 +234,9 @@ public sealed class ClientStatsAggregationTests
         };
 
         var ungrouped = Assert.Single(ClientStatsAggregationHelper.AggregateAndRank(
-            aggregates, Mapping(), limit: 10));
+            aggregates, Mapping(), NoHostnames, limit: 10));
         var separated = Assert.Single(ClientStatsAggregationHelper.AggregateAndRank(
-            aggregates, SeparatedMapping(("10.0.0.1", 7, "Lab PCs")), limit: 10));
+            aggregates, SeparatedMapping(("10.0.0.1", 7, "Lab PCs")), NoHostnames, limit: 10));
 
         Assert.Equal(ungrouped.CacheHitPercent, separated.CacheHitPercent);
         Assert.Equal(ungrouped.AverageBytesPerSecond, separated.AverageBytesPerSecond);
@@ -240,9 +252,9 @@ public sealed class ClientStatsAggregationTests
         };
 
         var combined = Assert.Single(ClientStatsAggregationHelper.AggregateAndRank(
-            aggregates, Mapping(("10.0.0.1", 7, "Lab PCs")), limit: 10));
+            aggregates, Mapping(("10.0.0.1", 7, "Lab PCs")), NoHostnames, limit: 10));
         var separated = Assert.Single(ClientStatsAggregationHelper.AggregateAndRank(
-            aggregates, SeparatedMapping(("10.0.0.1", 7, "Lab PCs")), limit: 10));
+            aggregates, SeparatedMapping(("10.0.0.1", 7, "Lab PCs")), NoHostnames, limit: 10));
 
         Assert.Equal(combined.TotalBytes, separated.TotalBytes);
         Assert.Equal(combined.TotalDownloads, separated.TotalDownloads);
@@ -275,13 +287,74 @@ public sealed class ClientStatsAggregationTests
         };
 
         var combinedRow = Assert.Single(ClientStatsAggregationHelper.AggregateAndRank(
-            aggregates, Mapping(entries), limit: 10));
+            aggregates, Mapping(entries), NoHostnames, limit: 10));
         Assert.Equal("10.0.0.1", combinedRow.ClientIp);
         Assert.Equal(new[] { "10.0.0.1" }, combinedRow.GroupMemberIps);
 
         var separatedRow = Assert.Single(ClientStatsAggregationHelper.AggregateAndRank(
-            aggregates, SeparatedMapping(entries), limit: 10));
+            aggregates, SeparatedMapping(entries), NoHostnames, limit: 10));
         Assert.Equal("10.0.0.1", separatedRow.ClientIp);
+    }
+
+    [Fact]
+    public void AClientWithNoNicknameIsLabelledWithItsHostname()
+    {
+        var result = ClientStatsAggregationHelper.AggregateAndRank(
+            new[] { Aggregate("10.0.0.9", hitBytes: 40, missBytes: 0) },
+            Mapping(),
+            Hostnames(("10.0.0.9", "gaming-pc.lan")),
+            limit: 10);
+
+        var row = Assert.Single(result);
+        // The short name is what a row shows: reverse-DNS answers are usually fully qualified and
+        // a row has no width for the full name.
+        Assert.Equal("gaming-pc", row.DisplayName);
+        Assert.Equal("10.0.0.9", row.ClientIp);
+        Assert.False(row.IsGrouped);
+        Assert.Null(row.GroupId);
+    }
+
+    [Fact]
+    public void ANicknameOutranksAHostname()
+    {
+        var aggregates = new[] { Aggregate("10.0.0.1", hitBytes: 40, missBytes: 0) };
+        var hostnames = Hostnames(("10.0.0.1", "gaming-pc.lan"));
+
+        var grouped = Assert.Single(ClientStatsAggregationHelper.AggregateAndRank(
+            aggregates, Mapping(("10.0.0.1", 7, "Lab PCs")), hostnames, limit: 10));
+        var separated = Assert.Single(ClientStatsAggregationHelper.AggregateAndRank(
+            aggregates, SeparatedMapping(("10.0.0.1", 7, "Lab PCs")), hostnames, limit: 10));
+
+        Assert.Equal("Lab PCs", grouped.DisplayName);
+        Assert.Equal("Lab PCs", separated.DisplayName);
+    }
+
+    [Fact]
+    public void AClientWithNeitherNicknameNorHostnameKeepsShowingItsAddress()
+    {
+        var result = ClientStatsAggregationHelper.AggregateAndRank(
+            new[] { Aggregate("10.0.0.9", hitBytes: 40, missBytes: 0) },
+            Mapping(),
+            Hostnames(("10.0.0.1", "other-pc.lan")),
+            limit: 10);
+
+        var row = Assert.Single(result);
+        // No display name at all, rather than the address repeated into it: every consumer reads a
+        // display name as a label standing in for the address and decorates it accordingly.
+        Assert.Null(row.DisplayName);
+        Assert.Equal("10.0.0.9", row.ClientIp);
+    }
+
+    [Fact]
+    public void AHostnameWithNoDomainPartIsUsedWhole()
+    {
+        var result = ClientStatsAggregationHelper.AggregateAndRank(
+            new[] { Aggregate("10.0.0.9", hitBytes: 40, missBytes: 0) },
+            Mapping(),
+            Hostnames(("10.0.0.9", "gaming-pc")),
+            limit: 10);
+
+        Assert.Equal("gaming-pc", Assert.Single(result).DisplayName);
     }
 
     [Fact]

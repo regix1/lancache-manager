@@ -1,6 +1,7 @@
 import React from 'react';
 import { FolderOpen, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import Badge from '@components/ui/Badge';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Tooltip } from '@components/ui/Tooltip';
 
@@ -74,11 +75,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
             </Tooltip>
 
             {/* Disabled Badge */}
-            {!enabled && (
-              <span className="px-2 py-0.5 text-xs rounded font-medium bg-themed-tertiary text-themed-muted">
-                {t('ui.datasource.disabled')}
-              </span>
-            )}
+            {!enabled && <Badge variant="neutral">{t('ui.datasource.disabled')}</Badge>}
           </div>
 
           <div className="flex items-center gap-3">

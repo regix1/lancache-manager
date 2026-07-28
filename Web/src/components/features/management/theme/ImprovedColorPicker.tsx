@@ -4,6 +4,7 @@ import { HexColorPicker, HexColorInput } from 'react-colorful';
 import { Percent, Copy, Check, RotateCcw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 
 interface ImprovedColorPickerProps {
   value: string;
@@ -179,12 +180,9 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
         {affects.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
             {affects.map((item, idx) => (
-              <span
-                key={idx}
-                className="text-xs px-1.5 py-0.5 rounded bg-themed-hover text-themed-secondary"
-              >
+              <Badge key={idx} variant="neutral">
                 {item}
-              </span>
+              </Badge>
             ))}
           </div>
         )}

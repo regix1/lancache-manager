@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -602,9 +603,9 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-themed-primary">{ds.name}</span>
                         {!ds.enabled && (
-                          <span className="px-2 py-0.5 text-xs rounded font-medium bg-themed-tertiary text-themed-muted">
+                          <Badge variant="neutral">
                             {t('initialization.logProcessing.disabled')}
-                          </span>
+                          </Badge>
                         )}
                       </div>
                       <div className="flex items-center gap-3">

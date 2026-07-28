@@ -7,6 +7,7 @@ import LanguageSelector from '../common/LanguageSelector';
 import GitHubProjectsDropdown from '../common/GitHubProjectsDropdown';
 import ThemePreviewBanner from '../ui/ThemePreviewBanner';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import LancacheIcon from '../ui/LancacheIcon';
 import LoadingSpinner from '../common/LoadingSpinner';
 import { useMockMode } from '@contexts/useMockMode';
@@ -108,10 +109,10 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                 <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted">
                   <span className="truncate">{resolvedSubtitle}</span>
                   {isGuestMode && (
-                    <div className="px-2 py-0.5 text-xs font-medium themed-badge status-badge-warning whitespace-nowrap">
+                    <Badge variant="warning">
                       {t('guest.guestMode')}
                       {timeRemaining ? ` \u00B7 ${timeRemaining}` : ''}
-                    </div>
+                    </Badge>
                   )}
                 </div>
               </div>
@@ -163,10 +164,10 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
             {/* Guest Mode Pill - Mobile (below controls if present) */}
             {isGuestMode && (
               <div className="flex justify-center mt-1.5">
-                <div className="px-2 py-0.5 text-xs font-medium themed-badge status-badge-warning whitespace-nowrap">
+                <Badge variant="warning">
                   {t('guest.guest')}
                   {timeRemaining ? ` \u00B7 ${timeRemaining}` : ''}
-                </div>
+                </Badge>
               </div>
             )}
           </div>

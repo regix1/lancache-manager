@@ -2,6 +2,8 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from './Tooltip';
 import { useClientGroups } from '@contexts/useClientGroups';
+import { useClientHostnames } from '@contexts/useClientHostnames';
+import { resolveClientLabel } from '@utils/clientLabel';
 
 interface ClientIpDisplayProps {
   clientIp: string;
@@ -10,9 +12,10 @@ interface ClientIpDisplayProps {
 }
 
 /**
- * Displays a client IP with its nickname if one exists.
- * Shows the nickname as the display text with the IP in a tooltip.
- * Falls back to showing just the IP if no nickname is assigned.
+ * Displays a client IP with the friendly name that stands in for it: the nickname if one exists,
+ * otherwise the hostname the network's DNS server reports.
+ * Shows that name as the display text with the IP in a tooltip.
+ * Falls back to showing just the IP when neither is available.
  */
 export const ClientIpDisplay: React.FC<ClientIpDisplayProps> = ({
   clientIp,
@@ -21,12 +24,16 @@ export const ClientIpDisplay: React.FC<ClientIpDisplayProps> = ({
 }) => {
   const { t } = useTranslation();
   const { getGroupForIp } = useClientGroups();
+  const { getHostnameForIp } = useClientHostnames();
   const group = getGroupForIp(clientIp);
 
-  const displayName = group?.nickname || clientIp;
-  const hasNickname = !!group?.nickname;
+  const { text: displayName, substitutesAddress } = resolveClientLabel(
+    clientIp,
+    group?.nickname,
+    getHostnameForIp(clientIp)
+  );
 
-  if (!hasNickname || !showTooltip) {
+  if (!substitutesAddress || !showTooltip) {
     return <span className={className}>{displayName}</span>;
   }
 

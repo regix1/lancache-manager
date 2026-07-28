@@ -7,6 +7,7 @@ import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import { EventProvider } from '@contexts/EventContext';
 import { CalendarSettingsProvider } from '@contexts/CalendarSettingsContext';
 import { ClientGroupProvider } from '@contexts/ClientGroupContext';
+import { ClientHostnameProvider } from '@contexts/ClientHostnameContext';
 import { DownloadAssociationsProvider } from '@contexts/DownloadAssociationsContext';
 import { RefreshRateProvider } from '@contexts/RefreshRateContext';
 import { SignalRProvider } from '@contexts/SignalRContext';
@@ -87,9 +88,11 @@ const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => 
                                                     <CalendarSettingsProvider>
                                                       <EventProvider>
                                                         <ClientGroupProvider>
-                                                          <DownloadAssociationsProvider>
-                                                            {children}
-                                                          </DownloadAssociationsProvider>
+                                                          <ClientHostnameProvider>
+                                                            <DownloadAssociationsProvider>
+                                                              {children}
+                                                            </DownloadAssociationsProvider>
+                                                          </ClientHostnameProvider>
                                                         </ClientGroupProvider>
                                                       </EventProvider>
                                                     </CalendarSettingsProvider>

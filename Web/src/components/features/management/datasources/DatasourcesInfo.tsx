@@ -9,6 +9,7 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -496,11 +497,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                         </p>
                       </div>
                       <div className="mgmt-row__actions">
-                        <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-themed-tertiary text-themed-secondary">
+                        <Badge variant="neutral">
                           {t('management.datasources.scheme.effective', {
                             scheme: cacheKeySchemeLabel
                           })}
-                        </span>
+                        </Badge>
                       </div>
                     </div>
 

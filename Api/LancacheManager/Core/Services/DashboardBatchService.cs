@@ -34,6 +34,7 @@ public class DashboardBatchService : IDashboardBatchService
     private readonly ILogger<DashboardBatchService> _logger;
     private readonly CacheSnapshotService _cacheSnapshotService;
     private readonly IMemoryCache _memoryCache;
+    private readonly IClientHostnameService _clientHostnameService;
     private readonly JsonSerializerOptions _wireJsonOptions;
 
     // Every request captures both applicable generations before doing any work. Generations are
@@ -59,6 +60,7 @@ public class DashboardBatchService : IDashboardBatchService
         ILogger<DashboardBatchService> logger,
         CacheSnapshotService cacheSnapshotService,
         IMemoryCache memoryCache,
+        IClientHostnameService clientHostnameService,
         IOptions<Microsoft.AspNetCore.Mvc.JsonOptions> mvcJsonOptions)
     {
         _cacheService = cacheService;
@@ -70,6 +72,7 @@ public class DashboardBatchService : IDashboardBatchService
         _logger = logger;
         _cacheSnapshotService = cacheSnapshotService;
         _memoryCache = memoryCache;
+        _clientHostnameService = clientHostnameService;
         // The MVC wire options: pre-serialized sections must match what the output formatter
         // would have produced for the same object, byte for byte.
         _wireJsonOptions = mvcJsonOptions.Value.JsonSerializerOptions;
@@ -344,10 +347,16 @@ public class DashboardBatchService : IDashboardBatchService
             ipToGroupMapping = await clientGroupsService.GetIpMappingAsync(ct);
         }
 
+        // Empty unless the hostname lookup is on, in which case a row with no nickname is labelled
+        // with the machine's own name instead of its address. Only the addresses that will be
+        // displayed are resolved, so the busiest clients are the ones that get names. [33]
+        var ipToHostname = await _clientHostnameService.ResolveAsync(
+            ClientStatsAggregationHelper.TopClientIpsByTraffic(ipAggregates, effectiveLimit), ct);
+
         // Same shared fold as GET /api/stats/clients: groups are summed before the top-N cut and
         // the rows carry the nickname, so both surfaces rank and label clients identically.
         return ClientStatsAggregationHelper.AggregateAndRank(
-            ipAggregates, ipToGroupMapping, effectiveLimit);
+            ipAggregates, ipToGroupMapping, ipToHostname, effectiveLimit);
     }
 
     private async Task<object> GetServiceStatsAsync(

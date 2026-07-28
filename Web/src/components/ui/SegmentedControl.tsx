@@ -75,6 +75,9 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
         const buttonElement = (
           <button
             key={option.value}
+            // Without this the button defaults to type="submit", so picking a segment inside a
+            // form submits it instead of just changing the selection.
+            type="button"
             onClick={() => !isDisabled && onChange(option.value)}
             disabled={isDisabled}
             className={`segmented-control-button ${sizes.button} transition flex items-center justify-center gap-[0.5rem] font-semibold whitespace-nowrap text-xs ${
@@ -100,13 +103,16 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
 
         // The tooltip wrapper (not the button) becomes the container's flex item, so
         // width-splitting styles (e.g. the segment-uniform recipes) must be able to
-        // target it - hence the stable segmented-control-slot class.
+        // target it - hence the stable segmented-control-slot class. For the same reason
+        // the wrapper carries the width split under fullWidth: flex-1 on the inner button
+        // only divides the wrapper, which would otherwise stay sized to its own text and
+        // leave the segments bunched at one end of a full-width container.
         return option.tooltip ? (
           <Tooltip
             key={option.value}
             content={option.tooltip}
             strategy="overlay"
-            className="inline-flex segmented-control-slot"
+            className={`inline-flex segmented-control-slot ${fullWidth ? 'flex-1' : ''}`}
           >
             {buttonElement}
           </Tooltip>

@@ -9,6 +9,7 @@ import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { Tooltip } from '@components/ui/Tooltip';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import Badge from '@components/ui/Badge';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
@@ -514,9 +515,15 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                   clientIp={ip}
                                   className="font-mono text-[var(--theme-text-primary)] text-[11px]"
                                 />
-                                <span className="text-[10px] text-[var(--theme-text-muted)] bg-[var(--theme-bg-primary)] px-1 rounded">
+                                <Badge
+                                  variant="neutral"
+                                  className="badge-count"
+                                  ariaLabel={t('downloads.tab.compact.labels.sessions', {
+                                    count: ipDownloads.length
+                                  })}
+                                >
                                   {ipDownloads.length}
-                                </span>
+                                </Badge>
                               </div>
                               <div className="flex items-center gap-3 text-[11px]">
                                 <span className="font-medium text-[var(--theme-text-primary)] font-mono">

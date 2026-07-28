@@ -18,6 +18,7 @@ import { useEvents } from '@contexts/useEvents';
 import DateRangePicker from './DateRangePicker';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import { getEventColorVar } from '@utils/eventColors';
 import { formatEventDateRange } from '@utils/formatters';
 import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
@@ -523,9 +524,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                                       {event.name}
                                     </span>
                                     {status === 'active' && (
-                                      <span className="live-badge px-1.5 py-0.5 text-[10px] rounded-full font-medium">
+                                      <Badge variant="success" className="live-badge">
                                         {t('common.timeFilter.liveBadge')}
-                                      </span>
+                                      </Badge>
                                     )}
                                   </div>
                                   <span className="text-xs mt-0.5 text-[var(--theme-text-secondary)]">

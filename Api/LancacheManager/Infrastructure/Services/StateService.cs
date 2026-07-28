@@ -175,6 +175,9 @@ public class StateService : IStateService
         // orphans its genuine download history.
         public bool PruneOrphanedDownloads { get; set; } = false;
 
+        // Whether client addresses are looked up on the network's DNS server and shown by name
+        public bool ClientHostnameLookup { get; set; } = false;
+
         // Setup wizard state
         public string? CurrentSetupStep { get; set; }
         public string? DataSourceChoice { get; set; }
@@ -1789,6 +1792,8 @@ public class StateService : IStateService
             // Restore the migration marker so the one-time seeding never reruns after a restart.
             EvictionNotificationsMigrated = persisted.EvictionNotificationsMigrated,
             PruneOrphanedDownloads = persisted.PruneOrphanedDownloads,
+            // Client hostname lookup
+            ClientHostnameLookup = persisted.ClientHostnameLookup,
             // Setup wizard state
             CurrentSetupStep = SetupStepExtensions.TryParseWire(persisted.CurrentSetupStep),
             DataSourceChoice = DataSourceChoiceExtensions.TryParseWire(persisted.DataSourceChoice),
@@ -1903,6 +1908,8 @@ public class StateService : IStateService
             // Persist the migration marker so a restart never reruns the one-time seeding.
             EvictionNotificationsMigrated = state.EvictionNotificationsMigrated,
             PruneOrphanedDownloads = state.PruneOrphanedDownloads,
+            // Client hostname lookup
+            ClientHostnameLookup = state.ClientHostnameLookup,
             // Setup wizard state
             CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
             DataSourceChoice = state.DataSourceChoice?.ToWireString(),
@@ -2205,6 +2212,16 @@ public class StateService : IStateService
     public void SetEvictionScanNotifications(bool enabled)
     {
         UpdateState(state => state.EvictionScanNotifications = enabled);
+    }
+
+    public bool GetClientHostnameLookup()
+    {
+        return GetState().ClientHostnameLookup;
+    }
+
+    public void SetClientHostnameLookup(bool enabled)
+    {
+        UpdateState(state => state.ClientHostnameLookup = enabled);
     }
 
     private static List<ClientExclusionRule> ResolveExcludedClientRules(PersistedState persisted)

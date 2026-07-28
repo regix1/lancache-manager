@@ -104,6 +104,9 @@ export const SIGNALR_EVENTS = [
   'ClientGroupMemberRemoved',
   'ClientGroupsCleared',
 
+  // Client Hostnames
+  'ClientHostnamesChanged',
+
   // Events
   'EventCreated',
   'EventUpdated',
@@ -285,6 +288,12 @@ export const SIGNALR_EVENTS = [
   'StatusCheckComplete',
   'CacheDomainsRefreshed'
 ] as const;
+
+/**
+ * Every name the hub can dispatch. Typing a subscription list against this union makes a typo or a
+ * renamed event a compile error instead of a handler that silently never fires.
+ */
+export type SignalREventName = (typeof SIGNALR_EVENTS)[number];
 
 /**
  * Events that trigger a data refresh in DownloadsContext/StatsContext.

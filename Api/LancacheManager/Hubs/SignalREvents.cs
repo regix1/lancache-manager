@@ -14,6 +14,9 @@ public static class SignalREvents
     public const string ClientGroupMemberRemoved = "ClientGroupMemberRemoved";
     public const string ClientGroupsCleared = "ClientGroupsCleared";
 
+    // Client Hostnames
+    public const string ClientHostnamesChanged = "ClientHostnamesChanged";
+
     // Events
     public const string EventCreated = "EventCreated";
     public const string EventUpdated = "EventUpdated";

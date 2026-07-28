@@ -17,6 +17,10 @@ const BLOCKED_FALLBACK_COMMANDS = [
 interface ClientProbeCardProps {
   state: ClientProbeState;
   onRetry: () => void;
+  /** True when the server sweep heartbeat-verified CLIENT_PROBE_HOST this session. Paired with
+   *  an inconclusive/unreachable browser probe, this is the evidence that the browser is using a
+   *  different DNS resolver than the network's - see the probeResolverMismatch caveat below. */
+  hostHeartbeatVerified: boolean;
 }
 
 const GLYPH_CLASS_BY_STATUS: Record<ClientProbeStatus, string> = {
@@ -35,7 +39,11 @@ const DETAIL_BOX_CLASS_BY_STATUS: Record<ClientProbeStatus, string> = {
   blocked: 'bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]'
 };
 
-const ClientProbeCard: React.FC<ClientProbeCardProps> = ({ state, onRetry }) => {
+const ClientProbeCard: React.FC<ClientProbeCardProps> = ({
+  state,
+  onRetry,
+  hostHeartbeatVerified
+}) => {
   const { t } = useTranslation();
   const keys = 'management.sections.statusCheck';
   const [copied, setCopied] = useState(false);
@@ -96,6 +104,22 @@ const ClientProbeCard: React.FC<ClientProbeCardProps> = ({ state, onRetry }) => 
           className={`mt-3 text-xs p-2.5 rounded leading-relaxed ${DETAIL_BOX_CLASS_BY_STATUS[state.status]}`}
         >
           {detailByStatus[state.status]}
+        </div>
+      )}
+      {hostHeartbeatVerified && state.status === 'unreachable' && (
+        <div className="mt-2 space-y-1">
+          <p className="text-xs text-themed-muted">{t(`${keys}.probeResolverMismatch`)}</p>
+          <p className="text-xs text-themed-muted">
+            {t(`${keys}.probeResolverMismatchHelp`)}{' '}
+            <a
+              href="https://one.one.one.one/help"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium underline hover:no-underline text-themed-primary focus-ring"
+            >
+              {t(`${keys}.probeResolverMismatchCheck`)}
+            </a>
+          </p>
         </div>
       )}
       {state.status === 'blocked' && (

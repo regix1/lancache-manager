@@ -6,6 +6,7 @@
  */
 
 import type { ClientGroup } from '../types';
+import { resolveClientLabel } from './clientLabel';
 
 /** One entry of the client filter dropdown. */
 interface ClientFilterOption {
@@ -19,10 +20,15 @@ interface ClientFilterOption {
  * listed in the description), sorted by nickname, followed by the ungrouped IPs
  * sorted individually. `allClientsLabel` is passed in because each surface has
  * its own translation for the leading "all clients" entry.
+ *
+ * An ungrouped client reads the same label as the rows it filters, so a hostname
+ * shows here too rather than the dropdown disagreeing with the list below it. A
+ * group spans several addresses and so has no hostname of its own.
  */
 export const buildClientFilterOptions = (
   availableClients: string[],
   getGroupForIp: (clientIp: string) => ClientGroup | null,
+  getHostnameForIp: (clientIp: string) => string | null,
   allClientsLabel: string
 ): ClientFilterOption[] => {
   const groupedIps = new Map<number, { group: ClientGroup; ips: string[] }>();
@@ -55,9 +61,11 @@ export const buildClientFilterOptions = (
     });
 
   ungroupedIps.sort().forEach((ip) => {
+    const { text, substitutesAddress } = resolveClientLabel(ip, null, getHostnameForIp(ip));
     options.push({
       value: ip,
-      label: ip
+      label: text,
+      description: substitutesAddress ? ip : undefined
     });
   });
 

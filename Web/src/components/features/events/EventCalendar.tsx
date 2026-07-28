@@ -8,6 +8,7 @@ import { useCalendarSettings } from '@contexts/useCalendarSettings';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import CalendarSettingsPopover from './CalendarSettingsPopover';
@@ -464,9 +465,12 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                   <div
                     className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg flex items-start justify-center pt-2 bg-[var(--theme-bg-tertiary-strong)]`}
                   >
-                    <span className="text-xs font-semibold px-1.5 py-0.5 rounded text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)]">
+                    <Badge
+                      variant="neutral"
+                      ariaLabel={`${t('events.calendar.weekNumber')} ${weekNumber}`}
+                    >
                       {weekNumber}
-                    </span>
+                    </Badge>
                   </div>
                 )}
                 {week.days.map((day, colIndex) => {
@@ -595,15 +599,13 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                               </button>
                             </Tooltip>
                           ) : (
-                            <span
-                              className="themed-badge badge-count"
-                              style={{
-                                backgroundColor: 'var(--theme-bg-tertiary)',
-                                color: 'var(--theme-text-secondary)'
-                              }}
+                            <Badge
+                              variant="neutral"
+                              className="badge-count"
+                              ariaLabel={t('events.calendar.eventCount', { count: eventCount })}
                             >
                               {eventCount}
-                            </span>
+                            </Badge>
                           ))}
                       </div>
                     </div>

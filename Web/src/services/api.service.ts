@@ -417,7 +417,8 @@ class ApiService {
     endTime?: number,
     eventIds?: number[],
     includeExcluded?: boolean,
-    cacheBust?: number
+    cacheBust?: number,
+    limit?: number
   ): Promise<ClientStat[]> {
     try {
       let url = `${API_BASE}/stats/clients`;
@@ -427,6 +428,9 @@ class ApiService {
       if (eventIds && eventIds.length > 0) params.append('eventId', eventIds[0].toString());
       if (includeExcluded) params.append('includeExcluded', 'true');
       if (cacheBust) params.append('cacheBust', cacheBust.toString());
+      // Omitted by default so the server applies its own row count; the endpoint returns the
+      // busiest clients first, so a caller that needs more than a leaderboard has to ask.
+      if (limit) params.append('limit', limit.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ClientStat[]>(res);
@@ -3350,6 +3354,20 @@ class ApiService {
     );
     return this.handleResponse<StatusCheckResolverModeResponse>(response);
   }
+
+  // Client hostnames (reverse DNS names shown in place of client addresses)
+  static async getClientHostnames(signal?: AbortSignal): Promise<ClientHostnamesResponse> {
+    const response = await fetch(`${API_BASE}/clients/hostnames`, this.getFetchOptions({ signal }));
+    return this.handleResponse<ClientHostnamesResponse>(response);
+  }
+
+  static async setClientHostnameLookup(enabled: boolean): Promise<ClientHostnameLookupResponse> {
+    const response = await fetch(
+      `${API_BASE}/clients/hostnames/enabled`,
+      this.getJsonFetchOptions({ enabled }, { method: 'POST' })
+    );
+    return this.handleResponse<ClientHostnameLookupResponse>(response);
+  }
 }
 
 // Prefill admin types
@@ -3566,6 +3584,17 @@ interface StatusCheckRunResponse {
 
 interface StatusCheckResolverModeResponse {
   resolverMode: StatusCheckResolverMode;
+}
+
+/** Reverse-DNS names for the client addresses currently known to the server. An address missing
+ *  from the map has no name; the lookup is a global admin setting and is off by default. */
+export interface ClientHostnamesResponse {
+  enabled: boolean;
+  hostnames: Record<string, string>;
+}
+
+interface ClientHostnameLookupResponse {
+  enabled: boolean;
 }
 
 /** Current public-edge HTTP/HTTPS behaviour of one ad hoc tested hostname (v1.5), produced by

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Lock } from 'lucide-react';
+import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useTranslation } from 'react-i18next';
 
@@ -123,10 +123,7 @@ export const ReadOnlyBadge: React.FC<ReadOnlyBadgeProps> = ({ message }) => {
 
   return (
     <div className="flex items-center justify-center py-4">
-      <span className="themed-badge status-badge-warning flex items-center gap-1.5">
-        <Lock className="w-3 h-3" />
-        {message || t('ui.managerCard.readOnly')}
-      </span>
+      <Badge variant="warning">{message || t('ui.managerCard.readOnly')}</Badge>
     </div>
   );
 };

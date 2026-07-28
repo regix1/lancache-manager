@@ -7,11 +7,9 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import type { SIGNALR_EVENTS } from '@contexts/SignalRContext/types';
+import type { SignalREventName } from '@contexts/SignalRContext/types';
 import { FormattedDateCell } from '@components/common/FormattedDateTime';
 import { getErrorMessage } from '@utils/error';
-
-type SignalREventName = (typeof SIGNALR_EVENTS)[number];
 
 /**
  * The fields every service's mapping row carries under the same name. The fields that differ

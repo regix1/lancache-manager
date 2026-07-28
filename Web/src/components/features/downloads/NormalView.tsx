@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import './VirtualizedList.css';
 import Drawer from '@components/ui/Drawer';
+import Badge from '@components/ui/Badge';
 import { ChevronDown, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
 import { formatBytes, formatCount, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
@@ -651,9 +652,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                   clientIp={clientIp}
                                   className="font-mono text-xs font-bold text-[var(--theme-text-primary)]"
                                 />
-                                <span className="text-[10px] uppercase tracking-wide text-[var(--theme-text-muted)] font-semibold px-1.5 py-0.5 rounded bg-[var(--theme-bg-primary)]">
+                                <Badge variant="neutral" className="uppercase tracking-wide">
                                   {clientDownloads.length} sessions
-                                </span>
+                                </Badge>
                               </div>
                               <div className="flex items-center gap-3 text-xs">
                                 <span className="font-medium text-[var(--theme-text-secondary)]">
@@ -1227,7 +1228,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
           {group.service.toUpperCase()}
         </span>
         {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
-          <span className="themed-badge status-badge-neutral">{group.downloads[0].datasource}</span>
+          <Badge variant="neutral">{group.downloads[0].datasource}</Badge>
         )}
         {storeLink && (
           <a
@@ -1442,9 +1443,9 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                         clientIp={clientIp}
                         className="font-mono text-xs font-bold text-[var(--theme-text-primary)]"
                       />
-                      <span className="text-[10px] uppercase tracking-wide text-[var(--theme-text-muted)] font-semibold px-1.5 py-0.5 rounded bg-[var(--theme-bg-primary)]">
+                      <Badge variant="neutral" className="uppercase tracking-wide">
                         {clientDownloads.length} sessions
-                      </span>
+                      </Badge>
                     </div>
                     <div className="flex items-center gap-3 text-xs">
                       <span className="font-medium text-[var(--theme-text-secondary)]">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, Lock, Unlock, Lightbulb, RefreshCw, Clock, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import Badge from '@components/ui/Badge';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -302,18 +303,11 @@ const GrafanaEndpoints: React.FC = () => {
 
   const accessBadge =
     metricsSecurity != null ? (
-      <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${
-          metricsSecurity.requiresAuthentication
-            ? 'bg-themed-success text-themed-success'
-            : 'bg-themed-secondary text-themed-muted'
-        }`}
-      >
-        {metricsSecurity.requiresAuthentication ? <Lock size={14} /> : <Unlock size={14} />}
+      <Badge variant={metricsSecurity.requiresAuthentication ? 'success' : 'neutral'}>
         {metricsSecurity.requiresAuthentication
           ? t('management.grafana.securedOption')
           : t('management.grafana.publicOption')}
-      </span>
+      </Badge>
     ) : undefined;
 
   const helpAccessory = (

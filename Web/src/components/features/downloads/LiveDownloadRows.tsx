@@ -5,6 +5,7 @@ import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import type { LiveDownloadPreview } from './liveDownloadPreviews';
 
 interface LiveDownloadRowsProps {
@@ -50,9 +51,9 @@ const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews, variant }
               <div className="rdl-row-info">
                 <div className="rdl-row-name">
                   <span className="rdl-name-text">{preview.displayName}</span>
-                  <span className="themed-badge status-badge-neutral rdl-live-badge">
+                  <Badge variant="neutral" className="rdl-live-badge">
                     {t('dashboard.downloadsPanel.inProgress')}
-                  </span>
+                  </Badge>
                 </div>
                 <div className="rdl-row-meta">
                   <BadgesRow service={preview.service} showDatasource={false} />
@@ -103,9 +104,9 @@ const LiveDownloadRows: React.FC<LiveDownloadRowsProps> = ({ previews, variant }
             <div className="dl-live-name">
               <BadgesRow service={preview.service} showDatasource={false} />
               <span className="dl-live-name-text">{preview.displayName}</span>
-              <span className="themed-badge status-badge-neutral dl-live-badge">
+              <Badge variant="neutral" className="dl-live-badge">
                 {t('downloads.provisional.inProgress')}
-              </span>
+              </Badge>
             </div>
             {preview.clientIp && (
               <div className="dl-live-meta">

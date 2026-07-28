@@ -9,8 +9,7 @@ import {
   EyeOff,
   Edit,
   Download,
-  Trash2,
-  Globe
+  Trash2
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { type Theme } from './types';
@@ -20,6 +19,7 @@ import {
   ActionMenuDivider,
   ActionMenuDangerItem
 } from '@components/ui/ActionMenu';
+import Badge from '@components/ui/Badge';
 import { Tooltip } from '@components/ui/Tooltip';
 
 interface ThemeCardProps {
@@ -103,10 +103,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
           {/* Badges Row */}
           <div className="flex flex-wrap gap-1 mb-2">
             {theme.meta.isCommunityTheme && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded bg-themed-info text-info">
-                <Globe className="w-2.5 h-2.5" />
-                {t('management.themes.communityBadge')}
-              </span>
+              <Badge variant="info">{t('management.themes.communityBadge')}</Badge>
             )}
             {theme.meta.basedOn && (
               <span className="px-1.5 py-0.5 text-xs rounded bg-themed-accent-subtle text-themed-accent">
@@ -129,11 +126,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
                 {t('management.themes.by')} {theme.meta.author}
               </span>
             )}
-            {theme.meta.version && (
-              <span className="px-1.5 py-0.5 rounded bg-themed-tertiary">
-                v{theme.meta.version}
-              </span>
-            )}
+            {theme.meta.version && <Badge variant="neutral">v{theme.meta.version}</Badge>}
           </div>
         </div>
 

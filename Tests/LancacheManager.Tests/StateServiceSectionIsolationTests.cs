@@ -512,6 +512,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         EvictedDataMode = EvictedDataMode.Hide,
         EvictionScanNotifications = true,
         PruneOrphanedDownloads = true,
+        ClientHostnameLookup = true,
         CurrentSetupStep = SetupStep.DepotInit,
         DataSourceChoice = DataSourceChoice.Steam,
         CompletedPlatforms = "{\"steam\":\"github\"}",

@@ -22,9 +22,9 @@ import ClientProbeCard from './ClientProbeCard';
 import TestDomainCard from './TestDomainCard';
 import DomainSourceFooter from './DomainSourceFooter';
 import { useClientProbe } from './useClientProbe';
-import { prefersReducedMotion } from './helpers';
+import { isProbeHostHeartbeatVerified, prefersReducedMotion } from './helpers';
 import { isVisibleWithProblemsOnly } from './contentPathHelpers';
-import { RESOLVER_MODE_OPTIONS } from './constants';
+import { CLIENT_PROBE_HOST, RESOLVER_MODE_OPTIONS } from './constants';
 import {
   getCachedDomainGroups,
   getCachedStatus,
@@ -367,6 +367,7 @@ const StatusCheckSection: React.FC = () => {
   }
 
   const lastResult = status?.lastResult ?? null;
+  const hostHeartbeatVerified = isProbeHostHeartbeatVerified(lastResult, CLIENT_PROBE_HOST);
 
   // Rendered as a quiet toolbar at the top of the verdict card; each option's
   // tooltip explains its strategy, so no hint paragraph floats in the layout.
@@ -443,7 +444,11 @@ const StatusCheckSection: React.FC = () => {
 
         <section>
           <h3 className="integrations-group-label caps-label mb-3">{t(`${keys}.deviceLane`)}</h3>
-          <ClientProbeCard state={probeState} onRetry={retryProbe} />
+          <ClientProbeCard
+            state={probeState}
+            onRetry={retryProbe}
+            hostHeartbeatVerified={hostHeartbeatVerified}
+          />
         </section>
 
         <section>
