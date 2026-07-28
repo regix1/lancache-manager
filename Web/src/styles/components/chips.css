@@ -22,6 +22,15 @@
   min-width: 0;
 }
 
+/* A word of context after the address, quieter than it and never squeezed out by it, so the
+   chip still reads correctly when the address itself has been truncated. */
+.ip-chip__note {
+  flex-shrink: 0;
+  font-size: var(--font-size-2xs);
+  font-weight: 400;
+  opacity: 0.75;
+}
+
 /* An address the group already holds, and the glance-only variant. */
 .ip-chip--current,
 .ip-chip--readonly,

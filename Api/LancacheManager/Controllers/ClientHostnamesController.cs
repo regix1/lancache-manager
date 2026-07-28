@@ -2,6 +2,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Models;
 using LancacheManager.Models.Responses;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -25,6 +26,9 @@ public class ClientHostnamesController : ControllerBase
     /// request rather than widening the DNS fan-out.
     /// </summary>
     private const int MaxClientsResolved = 256;
+
+    /// <summary>The longest a DNS name can be, so an oversized one is turned down before it is asked about.</summary>
+    private const int MaxHostnameLength = 253;
 
     private readonly AppDbContext _context;
     private readonly IClientHostnameService _hostnameService;
@@ -86,6 +90,38 @@ public class ClientHostnamesController : ControllerBase
         {
             Enabled = true,
             Hostnames = new Dictionary<string, string>(outcome.Hostnames, StringComparer.OrdinalIgnoreCase),
+            Reason = outcome.Reason
+        });
+    }
+
+    /// <summary>
+    /// The addresses the network publishes for one name, so a machine that has never downloaded
+    /// anything can still be given a nickname. Admin-only because it is the nickname editor's own
+    /// lookup and it sends a name typed into the browser out to the LAN's DNS server.
+    /// </summary>
+    [HttpPost("resolve")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<ActionResult<ResolveClientAddressResponse>> ResolveAddressesAsync(
+        [FromBody] ResolveClientAddressRequest request,
+        CancellationToken ct)
+    {
+        // The trailing dot is the root label and is accepted, because a name copied out of a zone
+        // file carries one. Anything that is not a name is turned down here rather than sent on:
+        // an address needs no lookup, and the picker offers it directly.
+        var hostname = (request.Hostname ?? string.Empty).Trim().TrimEnd('.');
+        if (hostname.Length == 0 ||
+            hostname.Length > MaxHostnameLength ||
+            Uri.CheckHostName(hostname) != UriHostNameType.Dns)
+        {
+            return BadRequest(ApiResponse.Invalid("hostname is not a valid host name."));
+        }
+
+        var outcome = await _hostnameService.ResolveAddressesAsync(hostname, ct);
+
+        return Ok(new ResolveClientAddressResponse
+        {
+            Hostname = hostname,
+            Addresses = outcome.Addresses.ToList(),
             Reason = outcome.Reason
         });
     }

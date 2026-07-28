@@ -3422,6 +3422,21 @@ class ApiService {
     );
     return this.handleResponse<ClientHostnameLookupResponse>(response);
   }
+
+  /**
+   * The addresses the network publishes for a name. The other direction from getClientHostnames,
+   * and unaffected by that lookup's global toggle: this one runs only when someone asks for it.
+   */
+  static async resolveClientAddresses(
+    hostname: string,
+    signal?: AbortSignal
+  ): Promise<ResolveClientAddressResponse> {
+    const response = await fetch(
+      `${API_BASE}/clients/hostnames/resolve`,
+      this.getJsonFetchOptions({ hostname }, { method: 'POST', signal })
+    );
+    return this.handleResponse<ResolveClientAddressResponse>(response);
+  }
 }
 
 // Prefill admin types
@@ -3663,6 +3678,19 @@ export interface ClientHostnamesResponse {
 
 interface ClientHostnameLookupResponse {
   enabled: boolean;
+}
+
+/** Why a forward lookup found no address for the name it was given. Narrower than
+ *  ClientHostnamesReason because one name is asked about at a time: there is no partial batch,
+ *  no cap, and nothing still running after the answer. */
+export type ClientAddressLookupReason = 'none' | 'noRecords' | 'noResolver' | 'resolverTimeout';
+
+/** Every address the network publishes for one name, and why the list is empty when it is. The
+ *  name comes back as it was asked about, so a reply can be matched to the request that made it. */
+interface ResolveClientAddressResponse {
+  hostname: string;
+  addresses: string[];
+  reason: ClientAddressLookupReason;
 }
 
 /** Current public-edge HTTP/HTTPS behaviour of one ad hoc tested hostname (v1.5), produced by

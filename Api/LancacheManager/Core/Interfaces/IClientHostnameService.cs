@@ -25,4 +25,15 @@ public interface IClientHostnameService
     Task<ClientHostnameLookupOutcome> ResolveAsync(
         IReadOnlyCollection<string> clientIps,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every address the network publishes for one name, asked of the same resolver the reverse
+    /// lookup uses, so a machine that has not downloaded anything yet can still be found by name.
+    /// Unlike <see cref="ResolveAsync"/> this ignores the global toggle: that toggle exists because
+    /// reverse names are looked up for every row on their own, while this runs only when someone
+    /// types a name and asks for it.
+    /// </summary>
+    Task<ClientAddressLookupOutcome> ResolveAddressesAsync(
+        string hostname,
+        CancellationToken cancellationToken);
 }

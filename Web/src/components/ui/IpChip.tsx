@@ -13,6 +13,7 @@ export const IpChip: React.FC<IpChipProps> = ({
   disabled = false,
   mono = true,
   tooltip,
+  note,
   className = ''
 }) => {
   const { t } = useTranslation();
@@ -33,6 +34,8 @@ export const IpChip: React.FC<IpChipProps> = ({
           {address}
         </span>
       </Tooltip>
+      {/* Never truncated with the label: a qualifier that is cut off changes what the chip says. */}
+      {note !== undefined && <span className="ip-chip__note">{note}</span>}
       {showRemove && (
         <Tooltip content={removeText} position="top" className="flex items-center flex-shrink-0">
           <button

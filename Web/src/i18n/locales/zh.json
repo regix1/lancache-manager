@@ -4899,11 +4899,11 @@
       "placeholders": {
         "name": "例如：游戏电脑、客厅、服务器",
         "description": "此组的可选描述",
-        "searchAddresses": "搜索地址"
+        "searchAddresses": "搜索，或输入地址或主机名"
       },
       "emptyStates": {
         "everyAddressNamed": "每个地址都已有昵称",
-        "everyAddressNamedHint": "新地址出现在下载记录中后会显示在这里。",
+        "everyAddressNamedHint": "新地址出现在下载记录中后会显示在这里。也可以直接输入。",
         "noAddressMatches": "没有符合该搜索的地址",
         "allMatchingChosen": "所有符合条件的地址都已选择",
         "noAddressesYet": "尚无地址"
@@ -4914,7 +4914,17 @@
         "addAllMatching": "添加全部 {{count}} 个匹配项",
         "clearSelection": "清除选择",
         "clearSearch": "清除搜索",
-        "undoRemove": "撤销移除"
+        "undoRemove": "撤销移除",
+        "lookUpHostname": "在 DNS 服务器上查询 {{hostname}}"
+      },
+      "lookup": {
+        "added": "{{hostname}} 解析到 {{addresses}}",
+        "alreadyHeld": "{{hostname}} 解析到的地址此昵称已经拥有。",
+        "ownedElsewhere": "{{addresses}} 已属于其他昵称",
+        "noRecords": "DNS 服务器没有 {{hostname}} 的地址记录。请检查拼写，或直接添加地址。",
+        "noResolver": "未找到 lancache DNS 服务器，无处查询 {{hostname}}。请改为直接添加地址。",
+        "resolverTimeout": "DNS 服务器未及时响应。请重试。",
+        "failed": "无法查询 {{hostname}}。"
       },
       "messages": {
         "andAddedIps": " 并添加了 {{count}} 个 IP",
@@ -4922,7 +4932,9 @@
         "updatedNickname": "已更新昵称 \"{{nickname}}\"{{ipsAdded}}",
         "addedNickname": "已添加昵称 \"{{nickname}}\"",
         "matchCount": "{{total}} 个中有 {{shown}} 个匹配",
-        "alreadyNamed": "已命名为 {{nickname}}"
+        "alreadyNamed": "已命名为 {{nickname}}",
+        "notSeenYet": "尚未出现",
+        "notSeenOnNetwork": "尚未在网络上出现"
       },
       "errors": {
         "nicknameRequired": "昵称为必填项",

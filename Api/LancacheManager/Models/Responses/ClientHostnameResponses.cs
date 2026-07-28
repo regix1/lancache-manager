@@ -85,3 +85,60 @@ public class SetClientHostnameLookupResponse
 {
     public bool Enabled { get; set; }
 }
+
+/// <summary>
+/// Why a forward lookup found no address for the name it was given. Deliberately narrower than
+/// <see cref="ClientHostnamesReason"/>: one name is asked about at a time, so there is no partial
+/// batch, no cap and nothing left running after the answer.
+/// </summary>
+[JsonConverter(typeof(ClientAddressLookupReasonJsonConverter))]
+public enum ClientAddressLookupReason
+{
+    /// <summary>Addresses were found; there is nothing to explain.</summary>
+    None,
+
+    /// <summary>The DNS server answered, and the name has no address record.</summary>
+    NoRecords,
+
+    /// <summary>
+    /// No lancache DNS server could be found to ask, so the query went to the container's own
+    /// system resolver, which does not carry the LAN's names.
+    /// </summary>
+    NoResolver,
+
+    /// <summary>The DNS server did not answer in time.</summary>
+    ResolverTimeout
+}
+
+internal sealed class ClientAddressLookupReasonJsonConverter : JsonStringEnumConverter<ClientAddressLookupReason>
+{
+    public ClientAddressLookupReasonJsonConverter()
+        : base(JsonNamingPolicy.CamelCase, allowIntegerValues: false)
+    {
+    }
+}
+
+/// <summary>
+/// What one forward lookup established: every address the network publishes for the name, and why
+/// there is none when the list is empty.
+/// </summary>
+public sealed record ClientAddressLookupOutcome(
+    IReadOnlyList<string> Addresses,
+    ClientAddressLookupReason Reason);
+
+/// <summary>Request for POST api/clients/hostnames/resolve.</summary>
+public class ResolveClientAddressRequest
+{
+    public string Hostname { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Response for POST api/clients/hostnames/resolve: the name as it was asked about, every address
+/// the network publishes for it, and why the list is empty when it is.
+/// </summary>
+public class ResolveClientAddressResponse
+{
+    public string Hostname { get; set; } = string.Empty;
+    public List<string> Addresses { get; set; } = new();
+    public ClientAddressLookupReason Reason { get; set; }
+}

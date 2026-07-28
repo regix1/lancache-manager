@@ -104,6 +104,28 @@
   }
 }
 
+/* The name lookup sits between the search box and the picker, on the same left edge as
+   both, so the box reads as the thing it acts on. */
+.clientgroup-lookup {
+  display: flex;
+  margin-bottom: 0.5rem;
+}
+
+/* What the lookup came to. One line, wrapping rather than truncating: it names addresses
+   and the nickname that already holds them, and a cut-off half of that is misleading. */
+.clientgroup-lookup-note {
+  margin-bottom: 0.5rem;
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+
+/* Addresses the lookup found but could not take. Its own line under the ones it did take,
+   because they are two different outcomes of the same lookup. */
+.clientgroup-lookup-note__clash {
+  display: block;
+  margin-top: 0.125rem;
+}
+
 /* The live filter result, sitting after the Addresses label without inheriting its
    uppercase tracking. */
 .clientgroup-match-count {

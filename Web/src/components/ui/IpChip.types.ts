@@ -32,5 +32,10 @@ export interface IpChipProps {
    * swapped for a name can still put the raw address on hover. [13]
    */
   tooltip?: string;
+  /**
+   * A short qualifier shown after the label, for a chip whose address needs a word of explanation
+   * to be read correctly, such as one typed in by hand that no download has ever come from. [63]
+   */
+  note?: string;
   className?: string;
 }

@@ -323,6 +323,122 @@ public sealed class ClientHostnameService : IClientHostnameService
     }
 
     /// <summary>
+    /// The addresses one name resolves to. Both address families are asked for at once so a
+    /// dual-stacked machine answers in a single round trip, and each query is bounded exactly like
+    /// a reverse one. Nothing here is cached: a name is typed in by hand and asked about once, and
+    /// the person typing it has usually just changed the record they are checking for.
+    /// </summary>
+    public async Task<ClientAddressLookupOutcome> ResolveAddressesAsync(
+        string hostname,
+        CancellationToken cancellationToken)
+    {
+        var name = hostname?.Trim().TrimEnd('.') ?? string.Empty;
+        if (name.Length == 0)
+        {
+            return new ClientAddressLookupOutcome(Array.Empty<string>(), ClientAddressLookupReason.NoRecords);
+        }
+
+        LookupClient client;
+        string resolverAddress;
+        try
+        {
+            // Prepared before the query clock starts, for the same reason the reverse path does it:
+            // detection runs orders of magnitude slower than the query it sets up, and charging it
+            // to the query timeout would fail every lookup on a cold start.
+            (client, resolverAddress) = await GetLookupClientAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug("Finding a resolver to look up {Hostname} took too long", name);
+            return new ClientAddressLookupOutcome(Array.Empty<string>(), ClientAddressLookupReason.ResolverTimeout);
+        }
+
+        var queries = await Task.WhenAll(
+            QueryAddressesAsync(client, name, QueryType.A, cancellationToken),
+            QueryAddressesAsync(client, name, QueryType.AAAA, cancellationToken));
+
+        // De-duplicated across the two families, in the order the resolver gave them, so a machine
+        // that answers on both stacks is not offered the same address twice.
+        var addresses = queries
+            .SelectMany(query => query.Addresses)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (addresses.Count > 0)
+        {
+            return new ClientAddressLookupOutcome(addresses, ClientAddressLookupReason.None);
+        }
+
+        // Which of the three silences this was decides whether the person typing should fix their
+        // DNS, their spelling, or simply try again, so an empty list is never left to speak for
+        // itself. [31]
+        if (!queries.Any(query => query.Answered))
+        {
+            return new ClientAddressLookupOutcome(Array.Empty<string>(), ClientAddressLookupReason.ResolverTimeout);
+        }
+
+        return new ClientAddressLookupOutcome(
+            Array.Empty<string>(),
+            resolverAddress == SystemResolverAddress
+                ? ClientAddressLookupReason.NoResolver
+                : ClientAddressLookupReason.NoRecords);
+    }
+
+    /// <summary>
+    /// One address family's answer for a name, and whether the question was answered at all. A
+    /// resolver that refused or never replied says nothing about the name, and is kept apart from
+    /// the flat "this name has no address" that a real answer carries.
+    /// </summary>
+    private async Task<(IReadOnlyList<string> Addresses, bool Answered)> QueryAddressesAsync(
+        LookupClient client,
+        string hostname,
+        QueryType queryType,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var queryTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            queryTimeout.CancelAfter(_queryTimeout);
+
+            var response = await client.QueryAsync(hostname, queryType, cancellationToken: queryTimeout.Token);
+
+            // Sorted exactly as the reverse path sorts them: only an answer or a stated
+            // non-existence says anything about the name, and anything else is the resolver
+            // reporting on itself.
+            var responseCode = response.Header.ResponseCode;
+            if (responseCode != DnsHeaderResponseCode.NoError &&
+                responseCode != DnsHeaderResponseCode.NotExistentDomain)
+            {
+                _logger.LogDebug(
+                    "The {QueryType} lookup for {Hostname} was answered with {ResponseCode}",
+                    queryType, hostname, responseCode);
+                return (Array.Empty<string>(), false);
+            }
+
+            var addresses = queryType == QueryType.AAAA
+                ? response.Answers.AaaaRecords().Select(record => record.Address.ToString()).ToList()
+                : response.Answers.ARecords().Select(record => record.Address.ToString()).ToList();
+
+            return (addresses, true);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug("The {QueryType} lookup for {Hostname} did not answer in time", queryType, hostname);
+            return (Array.Empty<string>(), false);
+        }
+        catch (DnsResponseException ex)
+        {
+            _logger.LogDebug(ex, "The {QueryType} lookup for {Hostname} failed", queryType, hostname);
+            return (Array.Empty<string>(), false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "The {QueryType} lookup for {Hostname} failed unexpectedly", queryType, hostname);
+            return (Array.Empty<string>(), false);
+        }
+    }
+
+    /// <summary>
     /// One address's reverse name, or nothing when the network has no name for it, the query
     /// failed, or it timed out. Every caller shows the raw address in all three cases, but the
     /// outcome also records whether the question was answered, because a network that has no name

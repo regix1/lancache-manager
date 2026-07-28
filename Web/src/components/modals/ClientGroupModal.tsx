@@ -15,8 +15,10 @@ import { useClientHostnames } from '@contexts/useClientHostnames';
 import { useSelectionSet } from '@hooks/useSelectionSet';
 import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import { useTranslation } from 'react-i18next';
+import ApiService, { type ClientAddressLookupReason } from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { resolveClientLabel } from '@utils/clientLabel';
+import { isPlausibleHostname, isValidIpAddress, parseIpCandidates } from '@utils/ipAddress';
 import type { ClientGroup } from '../../types';
 import '@components/features/management/managementSectionContent.css';
 import './ClientGroupModal.css';
@@ -33,11 +35,38 @@ const SEARCH_DEBOUNCE_MS = 250;
 // else, so this is the only thing bounding it. [14]
 const PICKER_MAX_HEIGHT = '18rem';
 
+/** One i18n key per reason a name lookup came back with nothing, or null when nothing is to be
+ *  said. A Record keyed by every member of the union forces this to stay exhaustive. */
+const lookupReasonKeys: Readonly<Record<ClientAddressLookupReason, string | null>> = {
+  none: null,
+  noRecords: 'modals.clientGroup.lookup.noRecords',
+  noResolver: 'modals.clientGroup.lookup.noResolver',
+  resolverTimeout: 'modals.clientGroup.lookup.resolverTimeout'
+};
+
+/**
+ * What the name lookup last did. One value rather than a flag beside a message, so the button, the
+ * line under it and the addresses it chose can never disagree about which name is being talked
+ * about. [63]
+ */
+type HostnameLookup =
+  | { status: 'idle' }
+  | { status: 'looking'; hostname: string }
+  | { status: 'resolved'; hostname: string; added: string[]; ownedElsewhere: string[] }
+  | { status: 'empty'; hostname: string; reason: ClientAddressLookupReason }
+  | { status: 'failed'; hostname: string };
+
 /** One address offered by the picker, with the nickname that already holds it. */
 interface PickerRow {
   address: string;
   /** Set when a DIFFERENT nickname owns the address, which makes the row unpickable. */
   ownerNickname: string | null;
+  /**
+   * True for an address the install has no record of. It is offered because it was typed into the
+   * box, not because anything has ever downloaded from it, so the row says so rather than sitting
+   * among the seen addresses looking identical to them. [63]
+   */
+  unseen: boolean;
 }
 
 /**
@@ -52,14 +81,28 @@ const matchAddresses = (
   savedGroupId: number | null
 ): PickerRow[] => {
   const needle = search.trim().toLowerCase();
-  return knownIps
+  const toRow = (ip: string, unseen: boolean): PickerRow => {
+    const owner = ownerOfIp(ip);
+    const ownedElsewhere = owner !== null && owner.id !== savedGroupId;
+    return { address: ip, ownerNickname: ownedElsewhere ? owner.nickname : null, unseen };
+  };
+
+  const knownIpSet = new Set(knownIps);
+  // A whole address typed into the box asks for that address; it does not filter the ones already
+  // listed. So it is offered first and offered even though nothing has been seen from it, which is
+  // what lets a machine be named before it has ever downloaded anything. A pasted list works the
+  // same way, so a set of machines that are all still quiet gets named in one go. [63]
+  const typed = parseIpCandidates(search)
+    .filter((ip) => isValidIpAddress(ip) && !knownIpSet.has(ip) && !currentMemberSet.has(ip))
+    .filter((ip, index, all) => all.indexOf(ip) === index)
+    .map((ip) => toRow(ip, true));
+
+  const matched = knownIps
     .filter((ip) => !currentMemberSet.has(ip))
     .filter((ip) => needle === '' || ip.toLowerCase().includes(needle))
-    .map((ip) => {
-      const owner = ownerOfIp(ip);
-      const ownedElsewhere = owner !== null && owner.id !== savedGroupId;
-      return { address: ip, ownerNickname: ownedElsewhere ? owner.nickname : null };
-    });
+    .map((ip) => toRow(ip, false));
+
+  return [...typed, ...matched];
 };
 
 /** The nearest row at or past `from` in the `step` direction that this nickname may take. */
@@ -126,6 +169,15 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   const [activeIndex, setActiveIndex] = useState(-1);
   const [lastTouchedAddress, setLastTouchedAddress] = useState<string | null>(null);
 
+  const [lookup, setLookup] = useState<HostnameLookup>({ status: 'idle' });
+  /**
+   * The name each address was found under, so a chip for a machine that has never downloaded
+   * anything reads as the machine rather than as a number nobody recognises. Kept here because a
+   * forward lookup is the only thing that knows it: the reverse-name map is built from addresses
+   * the install has already seen. [63]
+   */
+  const [lookupNames, setLookupNames] = useState<Record<string, string>>({});
+
   const chosen = useSelectionSet<string>();
   const clearChosen = chosen.clear;
   const setChosenMany = chosen.setMany;
@@ -138,6 +190,12 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   const pendingFocusRef = useRef<number | null>(null);
   /** Which nickname the form fields were last seeded for. */
   const seededForRef = useRef<string | null>(null);
+  /**
+   * Bumped for every editing session and every lookup. An answer that comes back after the dialog
+   * was closed and reopened belongs to a question nobody is looking at any more, and applying it
+   * would choose addresses in a nickname that never asked for them.
+   */
+  const lookupTokenRef = useRef(0);
   /**
    * The stamp of the copy this editing session is working from. Taken once when the session starts,
    * then moved forward by this session's own writes so a second Save is not turned down by the
@@ -155,11 +213,13 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   useEffect(() => {
     if (!isOpen) {
       seededForRef.current = null;
+      lookupTokenRef.current += 1;
       return;
     }
     const sessionKey = group ? `group-${group.id}` : 'new';
     if (seededForRef.current === sessionKey) return;
     seededForRef.current = sessionKey;
+    lookupTokenRef.current += 1;
     expectedUpdatedAtRef.current = group?.updatedAtUtc ?? null;
 
     if (group) {
@@ -185,6 +245,8 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     scheduleSearch(() => setSearchQuery(''));
     setActiveIndex(-1);
     setLastTouchedAddress(null);
+    setLookup({ status: 'idle' });
+    setLookupNames({});
   }, [isOpen, group, initialIps, clearChosen, setChosenMany, scheduleSearch]);
 
   const currentMemberIps = useMemo(() => group?.memberIps ?? [], [group]);
@@ -220,6 +282,14 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   // reads as "all of them are in" even though a chosen row leaves the list.
   const selectableAddresses = useMemo(
     () => matchingRows.filter((row) => row.ownerNickname === null).map((row) => row.address),
+    [matchingRows]
+  );
+
+  // "x of y match" counts the addresses the install knows about against the addresses it knows
+  // about. A row that exists only because it was typed in is in neither total, and counting it
+  // would put the shown figure above the one it is shown out of.
+  const seenMatchCount = useMemo(
+    () => matchingRows.filter((row) => !row.unseen).length,
     [matchingRows]
   );
 
@@ -392,6 +462,75 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   const handleSelectAllToggle = useCallback((): void => {
     setChosenMany(selectableAddresses, !allMatchingChosen);
   }, [setChosenMany, selectableAddresses, allMatchingChosen]);
+
+  /** The name in the box worth asking the resolver about, or null when the text is not one. */
+  const lookupCandidate = useMemo((): string | null => {
+    const typed = searchInput.trim().replace(/\.$/, '');
+    return isPlausibleHostname(typed) ? typed : null;
+  }, [searchInput]);
+
+  /**
+   * Asks the network what a name resolves to and takes the addresses it gives back. This is the
+   * other direction from the reverse names shown beside client addresses, and the one that works
+   * on a LAN whose DNS answers forward queries but publishes no reverse zone. [63]
+   */
+  const handleLookupHostname = useCallback(async (): Promise<void> => {
+    if (lookupCandidate === null) return;
+    const hostname = lookupCandidate;
+    const token = lookupTokenRef.current + 1;
+    lookupTokenRef.current = token;
+    setLookup({ status: 'looking', hostname });
+
+    try {
+      const result = await ApiService.resolveClientAddresses(hostname);
+      if (lookupTokenRef.current !== token) return;
+
+      if (result.addresses.length === 0) {
+        setLookup({ status: 'empty', hostname, reason: result.reason });
+        return;
+      }
+
+      const added: string[] = [];
+      const ownedElsewhere: string[] = [];
+      for (const address of result.addresses) {
+        const owner = getGroupForIp(address);
+        if (owner !== null && owner.id !== savedGroupId) {
+          ownedElsewhere.push(address);
+          continue;
+        }
+        // An address this nickname already holds is in already; taking it again would list it
+        // twice in the chips and count it twice in the badge above them.
+        if (currentMemberSet.has(address)) continue;
+        added.push(address);
+      }
+
+      if (added.length > 0) {
+        setChosenMany(added, true);
+        setLookupNames((prev) => {
+          const next = { ...prev };
+          for (const address of added) {
+            next[address] = hostname;
+          }
+          return next;
+        });
+        // The name has done its job. Leaving it in the box would hold the picker on a filter that
+        // matches no address at all, which reads as an empty list rather than a finished lookup.
+        handleClearSearch();
+      }
+      setLookup({ status: 'resolved', hostname, added, ownedElsewhere });
+    } catch (err) {
+      if (lookupTokenRef.current !== token) return;
+      console.error('Failed to look up client hostname:', getErrorMessage(err));
+      setLookup({ status: 'failed', hostname });
+    }
+  }, [
+    lookupCandidate,
+    getGroupForIp,
+    savedGroupId,
+    currentMemberSet,
+    setChosenMany,
+    handleClearSearch
+  ]);
 
   const handleRowClick = useCallback(
     (index: number, e: React.MouseEvent<HTMLButtonElement>): void => {
@@ -711,7 +850,10 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
         </div>
       );
     }
-    if (addressableCount === 0) {
+    // An install with an empty client list still has a working picker, because an address can be
+    // typed straight into the box. The "nothing to choose from" state only stands while the box
+    // is not offering one. [63]
+    if (addressableCount === 0 && matchingRows.length === 0) {
       return (
         <EmptyState
           variant="plain"
@@ -795,6 +937,11 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                       })}
                     </span>
                   )}
+                  {!owned && row.unseen && (
+                    <span className="mgmt-row__meta">
+                      {t('modals.clientGroup.messages.notSeenOnNetwork')}
+                    </span>
+                  )}
                 </span>
                 {!owned && <Plus className="w-3.5 h-3.5 flex-shrink-0 text-themed-muted" />}
               </button>
@@ -802,6 +949,56 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           })}
         </div>
       </CustomScrollbar>
+    );
+  };
+
+  /** What the last lookup came to, in one line under the box that started it. */
+  const renderLookupNote = (): React.ReactNode => {
+    if (lookup.status === 'idle' || lookup.status === 'looking') return null;
+
+    if (lookup.status === 'failed') {
+      return (
+        <p className="clientgroup-lookup-note text-themed-error">
+          {t('modals.clientGroup.lookup.failed', { hostname: lookup.hostname })}
+        </p>
+      );
+    }
+
+    if (lookup.status === 'empty') {
+      const reasonKey = lookupReasonKeys[lookup.reason];
+      if (reasonKey === null) return null;
+      return (
+        <p className="clientgroup-lookup-note text-themed-error">
+          {t(reasonKey, { hostname: lookup.hostname })}
+        </p>
+      );
+    }
+
+    // The name resolved to addresses this nickname already holds. Saying nothing here would leave
+    // the lookup looking like it did not run.
+    if (lookup.added.length === 0 && lookup.ownedElsewhere.length === 0) {
+      return (
+        <p className="clientgroup-lookup-note text-themed-muted">
+          {t('modals.clientGroup.lookup.alreadyHeld', { hostname: lookup.hostname })}
+        </p>
+      );
+    }
+
+    return (
+      <p className="clientgroup-lookup-note text-themed-muted">
+        {lookup.added.length > 0 &&
+          t('modals.clientGroup.lookup.added', {
+            hostname: lookup.hostname,
+            addresses: lookup.added.join(', ')
+          })}
+        {lookup.ownedElsewhere.length > 0 && (
+          <span className="clientgroup-lookup-note__clash">
+            {t('modals.clientGroup.lookup.ownedElsewhere', {
+              addresses: lookup.ownedElsewhere.join(', ')
+            })}
+          </span>
+        )}
+      </p>
     );
   };
 
@@ -914,7 +1111,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             {searchQuery !== '' && (
               <span className="clientgroup-match-count">
                 {t('modals.clientGroup.messages.matchCount', {
-                  shown: matchingRows.length,
+                  shown: seenMatchCount,
                   total: addressableCount
                 })}
               </span>
@@ -944,7 +1141,13 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                 );
               })}
               {chosenList.map((ip) => {
-                const label = resolveClientLabel(ip, null, getHostnameForIp(ip)).text;
+                // A name a lookup found outranks the reverse-name map, which only covers addresses
+                // the install has already seen and so has nothing for the machine just added.
+                const label = resolveClientLabel(
+                  ip,
+                  null,
+                  lookupNames[ip] ?? getHostnameForIp(ip)
+                ).text;
                 return (
                   <IpChip
                     key={ip}
@@ -954,6 +1157,11 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                     disabled={saving}
                     mono={false}
                     tooltip={ip}
+                    // An address nothing has downloaded from shows no stats once it is saved, so it
+                    // says why here rather than looking like a nickname that quietly does nothing.
+                    note={
+                      knownIpSet.has(ip) ? undefined : t('modals.clientGroup.messages.notSeenYet')
+                    }
                   />
                 );
               })}
@@ -1002,6 +1210,25 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             placeholder={t('modals.clientGroup.placeholders.searchAddresses')}
             aria-label={t('modals.clientGroup.placeholders.searchAddresses')}
           />
+
+          {/* A name cannot be matched against a list of addresses, so it gets an action instead of
+              a row: the network is asked what it resolves to, and the answer is what gets picked. */}
+          {lookupCandidate !== null && (
+            <div className="clientgroup-lookup">
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                onClick={() => void handleLookupHostname()}
+                loading={lookup.status === 'looking'}
+                disabled={saving || lookup.status === 'looking'}
+              >
+                {t('modals.clientGroup.actions.lookUpHostname', { hostname: lookupCandidate })}
+              </Button>
+            </div>
+          )}
+
+          {renderLookupNote()}
 
           <div className="mgmt-list divided-list clientgroup-ip-picker">{renderPickerBody()}</div>
         </div>

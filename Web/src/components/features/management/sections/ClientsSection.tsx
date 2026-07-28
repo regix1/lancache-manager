@@ -25,6 +25,7 @@ import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { resolveClientLabel } from '@utils/clientLabel';
 import { getClientHostnameReasonKey } from '@utils/clientHostnameReason';
+import { isValidIpAddress, parseIpCandidates } from '@utils/ipAddress';
 import { useKnownClientIps } from '@/hooks/useKnownClientIps';
 import {
   Users,
@@ -148,36 +149,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     loadExcludedIps();
   }, [loadExcludedIps]);
 
-  const isValidIpv4 = (value: string) => {
-    const parts = value.split('.');
-    if (parts.length !== 4) return false;
-    return parts.every((part) => {
-      if (!/^\d{1,3}$/.test(part)) return false;
-      const num = Number(part);
-      return num >= 0 && num <= 255;
-    });
-  };
-
-  const isValidIpv6 = (value: string) => {
-    if (!value.includes(':')) return false;
-    if (!/^[0-9a-fA-F:]+$/.test(value)) return false;
-    const parts = value.split(':');
-    if (parts.length < 3 || parts.length > 8) return false;
-    return parts.every((part) => part.length <= 4);
-  };
-
-  const parseIpCandidates = useCallback(
-    (input: string) =>
-      input
-        .split(/[,\s]+/)
-        .map((ip) => ip.trim())
-        .filter(Boolean),
-    []
-  );
-
   const invalidInputIps = useMemo(
-    () => parseIpCandidates(excludeInput).filter((ip) => !isValidIpv4(ip) && !isValidIpv6(ip)),
-    [excludeInput, parseIpCandidates]
+    () => parseIpCandidates(excludeInput).filter((ip) => !isValidIpAddress(ip)),
+    [excludeInput]
   );
 
   // New entries default to stats-only exclusion (visible, omitted from calculations).
@@ -199,7 +173,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
   const handleAddExcluded = () => {
     const candidates = parseIpCandidates(excludeInput);
-    const validCandidates = candidates.filter((ip) => isValidIpv4(ip) || isValidIpv6(ip));
+    const validCandidates = candidates.filter((ip) => isValidIpAddress(ip));
 
     if (validCandidates.length === 0) return;
 

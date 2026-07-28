@@ -4900,11 +4900,11 @@
       "placeholders": {
         "name": "e.g., Gaming PC, Living Room, Server",
         "description": "Optional description for this group",
-        "searchAddresses": "Search addresses"
+        "searchAddresses": "Search, or type an address or machine name"
       },
       "emptyStates": {
         "everyAddressNamed": "Every address already has a nickname",
-        "everyAddressNamedHint": "New addresses appear here once they show up in downloads.",
+        "everyAddressNamedHint": "New addresses appear here once they show up in downloads. You can also type one in.",
         "noAddressMatches": "No address matches that search",
         "allMatchingChosen": "Every matching address is already chosen",
         "noAddressesYet": "No addresses yet"
@@ -4915,7 +4915,17 @@
         "addAllMatching": "Add all {{count}} matching",
         "clearSelection": "Clear selection",
         "clearSearch": "Clear search",
-        "undoRemove": "Undo removal"
+        "undoRemove": "Undo removal",
+        "lookUpHostname": "Look up {{hostname}} on your DNS server"
+      },
+      "lookup": {
+        "added": "{{hostname}} resolved to {{addresses}}",
+        "alreadyHeld": "{{hostname}} resolved to addresses this nickname already has.",
+        "ownedElsewhere": "Another nickname already holds {{addresses}}",
+        "noRecords": "Your DNS server has no address for {{hostname}}. Check the spelling, or add the address itself.",
+        "noResolver": "No lancache DNS server was found, so there is nowhere to look up {{hostname}}. Add the address itself instead.",
+        "resolverTimeout": "Your DNS server did not answer in time. Try again.",
+        "failed": "Could not look up {{hostname}}."
       },
       "messages": {
         "andAddedIps": " and added {{count}} IP",
@@ -4923,7 +4933,9 @@
         "updatedNickname": "Updated nickname \"{{nickname}}\"{{ipsAdded}}",
         "addedNickname": "Added nickname \"{{nickname}}\"",
         "matchCount": "{{shown}} of {{total}} match",
-        "alreadyNamed": "Already named {{nickname}}"
+        "alreadyNamed": "Already named {{nickname}}",
+        "notSeenYet": "not seen yet",
+        "notSeenOnNetwork": "Not seen on the network yet"
       },
       "errors": {
         "nicknameRequired": "Nickname is required",
