@@ -160,3 +160,6 @@ DEAD_CODE_AUDIT.md
 
 # Generated documentation site (built from the READMEs by docs-site/build.py)
 docs-site/generated/
+
+# Local analyzer strictness; keeps CI off the pre-existing Tests-project CA warnings
+Directory.Build.props
