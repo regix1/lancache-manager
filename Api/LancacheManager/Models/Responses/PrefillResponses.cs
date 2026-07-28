@@ -128,7 +128,7 @@ public class PrefillSessionDto
     public Guid CreatedBySessionId { get; set; }
     public string? ContainerId { get; set; }
     public string? ContainerName { get; set; }
-    public string? SteamUsername { get; set; }
+    public string? AccountUsername { get; set; }
     public string Platform { get; set; } = "Steam";
     public string? Username { get; set; }
     public string Status { get; set; } = string.Empty;
@@ -163,9 +163,9 @@ public class PrefillSessionDto
             CreatedBySessionId = entity.CreatedBySessionId,
             ContainerId = entity.ContainerId,
             ContainerName = entity.ContainerName,
-            SteamUsername = liveSession?.SteamUsername ?? entity.SteamUsername,
+            AccountUsername = liveSession?.AccountUsername ?? entity.AccountUsername,
             Platform = liveSession?.Platform ?? entity.Platform.ToString(),
-            Username = liveSession != null ? (liveSession.Username ?? liveSession.SteamUsername) : entity.SteamUsername,
+            Username = liveSession != null ? (liveSession.Username ?? liveSession.AccountUsername) : entity.AccountUsername,
             Status = liveSession?.Status.ToString() ?? entity.Status.ToString(),
             IsAuthenticated = liveSession?.AuthState == DaemonAuthState.Authenticated || entity.IsAuthenticated,
             IsPrefilling = liveSession?.IsPrefilling ?? entity.IsPrefilling,
@@ -181,9 +181,9 @@ public class PrefillSessionDto
 }
 
 /// <summary>
-/// DTO for banned Steam user information
+/// DTO for banned prefill user information
 /// </summary>
-public class BannedSteamUserDto
+public class BannedPrefillUserDto
 {
     public long Id { get; set; }
     public string? Username { get; set; }

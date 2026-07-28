@@ -37,10 +37,10 @@ public class PrefillSession
     public string? ContainerName { get; set; }
 
     /// <summary>
-    /// The Steam username used for login (stored lowercase for ban identification)
+    /// The prefill account username used for login (stored lowercase for ban identification)
     /// </summary>
     [MaxLength(100)]
-    public string? SteamUsername { get; set; }
+    public string? AccountUsername { get; set; }
 
     /// <summary>
     /// Platform identifier (Steam or Epic). Defaults to Steam for backward compatibility.

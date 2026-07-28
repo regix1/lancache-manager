@@ -27,6 +27,7 @@ import { buildTrafficKey, filterLivePreviews } from '../downloads/liveDownloadPr
 import { storage } from '@utils/storage';
 import { APP_EVENTS, STORAGE_KEYS } from '@utils/constants';
 import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
+import { buildClientFilterOptions } from '@utils/clientFilterOptions';
 import type {
   Download,
   DownloadGroup,
@@ -471,50 +472,15 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     return Array.from(clients).sort();
   }, [latestDownloads]);
 
-  const clientOptions = useMemo(() => {
-    // Build a map of group IDs to the IPs in downloads that belong to that group
-    const groupedIps = new Map<number, { group: (typeof clientGroups)[0]; ips: string[] }>();
-    const ungroupedIps: string[] = [];
-
-    availableClients.forEach((clientIp) => {
-      const group = getGroupForIp(clientIp);
-      if (group && group.nickname) {
-        const existing = groupedIps.get(group.id);
-        if (existing) {
-          existing.ips.push(clientIp);
-        } else {
-          groupedIps.set(group.id, { group, ips: [clientIp] });
-        }
-      } else {
-        ungroupedIps.push(clientIp);
-      }
-    });
-
-    const options: { value: string; label: string; description?: string }[] = [
-      { value: 'all', label: t('dashboard.downloadsPanel.allClients') }
-    ];
-
-    // Add grouped clients - show once per group with IPs in description
-    Array.from(groupedIps.values())
-      .sort((a, b) => a.group.nickname.localeCompare(b.group.nickname))
-      .forEach(({ group, ips }) => {
-        options.push({
-          value: `group-${group.id}`,
-          label: group.nickname,
-          description: ips.join(', ')
-        });
-      });
-
-    // Add ungrouped IPs individually
-    ungroupedIps.sort().forEach((ip) => {
-      options.push({
-        value: ip,
-        label: ip
-      });
-    });
-
-    return options;
-  }, [availableClients, getGroupForIp, t]);
+  const clientOptions = useMemo(
+    () =>
+      buildClientFilterOptions(
+        availableClients,
+        getGroupForIp,
+        t('dashboard.downloadsPanel.allClients')
+      ),
+    [availableClients, getGroupForIp, t]
+  );
 
   const filteredDownloads = useMemo(() => {
     return latestDownloads.filter((download) => {

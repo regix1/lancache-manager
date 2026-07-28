@@ -245,36 +245,6 @@ public class PersistentLogoutTests
     }
 
     /// <summary>
-    /// Minimal do-nothing proxy for interfaces whose members are not exercised by these tests' happy
-    /// paths (mirrors NullReturningProxy in PersistentLoginChallengeResumeTests.cs /
-    /// PersistentLoginFailFastTests.cs).
-    /// </summary>
-    private class NullReturningProxy : DispatchProxy
-    {
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            var returnType = targetMethod?.ReturnType;
-
-            if (returnType is null || returnType == typeof(void))
-            {
-                return null;
-            }
-
-            if (returnType == typeof(Task))
-            {
-                return Task.CompletedTask;
-            }
-
-            if (returnType.IsValueType && Nullable.GetUnderlyingType(returnType) is null)
-            {
-                return Activator.CreateInstance(returnType);
-            }
-
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Fake <see cref="IDaemonClient"/> exposing only the surface a persistent-logout scenario
     /// touches; every other member throws <see cref="NotSupportedException"/> so an unexpected call
     /// fails loudly (mirrors TestDaemonClientBase in the sibling persistent-login test files).

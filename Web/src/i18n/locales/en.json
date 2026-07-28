@@ -1603,7 +1603,7 @@
       "clientsDesc": "Assign nicknames to client IPs",
       "prefillSessions": "Prefill Sessions",
       "prefillSessionsShort": "Prefill",
-      "prefillSessionsDesc": "Manage Steam Prefill daemon sessions",
+      "prefillSessionsDesc": "Manage Prefill daemon sessions",
       "schedules": "Schedules",
       "schedulesShort": "Schedules",
       "schedulesDesc": "Configure service run intervals",
@@ -1958,7 +1958,7 @@
           "userSessionsCleared": "All registered devices will be cleared - you will need to re-authenticate",
           "clientGroups": "All client groups and their member associations will be permanently deleted",
           "prefillSessions": "All prefill sessions will be permanently deleted",
-          "bannedSteamUsers": "All banned Steam users will be unblocked and can prefill again",
+          "bannedPrefillUsers": "All banned prefill users will be unblocked and can prefill again",
           "epicGameMappings": "Epic games will show as \"Unknown\" until mappings are rebuilt",
           "epicCdnPatterns": "Epic game detection may not work until CDN patterns are re-fetched",
           "xboxGameMappings": "Xbox games will show as \"Unknown\" until mappings are rebuilt",
@@ -2029,7 +2029,7 @@
           },
           "prefillSessions": {
             "label": "Prefill Sessions",
-            "description": "Steam-lancache-prefill session tracking",
+            "description": "Prefill session tracking",
             "details": "Active and historical prefill sessions with status and configuration",
             "affectedPages": "Management → Prefill Sessions section"
           },
@@ -2039,10 +2039,10 @@
             "details": "Records of individual game prefill operations including progress and status",
             "affectedPages": "Management → Prefill Sessions section"
           },
-          "bannedSteamUsers": {
-            "label": "Banned Steam Users",
-            "description": "Steam accounts blocked from prefill operations",
-            "details": "Users banned due to authentication failures or rate limiting",
+          "bannedPrefillUsers": {
+            "label": "Banned Prefill Users",
+            "description": "Game accounts and devices blocked from prefill operations",
+            "details": "Users banned from Steam, Epic, Xbox, Battle.net, or Riot prefill sessions",
             "affectedPages": "Management → Prefill Sessions section"
           },
           "userSessions": {
@@ -2398,6 +2398,8 @@
         "delete": "Delete",
         "loadingClients": "Loading clients...",
         "ipsLabel": "IPs",
+        "separateRowsLabel": "Separate rows",
+        "separateRowsTooltip": "This nickname shows one row per IP in the client stats",
         "errors": {
           "failedToUpdateExcluded": "Failed to update excluded IPs",
           "failedToLoadExcluded": "Failed to load excluded IPs"
@@ -4053,7 +4055,7 @@
       "allStatuses": "All Statuses",
       "banReason": "Enter ban reason...",
       "title": "Prefill Sessions",
-      "subtitle": "Manage Steam Prefill daemon sessions and user bans",
+      "subtitle": "Manage Prefill daemon sessions and user bans",
       "refresh": "Refresh",
       "endAll": "End All",
       "activeSessions": "Active Sessions",
@@ -4073,7 +4075,7 @@
       "liveSessions": "Live Sessions",
       "loadingSessions": "Loading sessions...",
       "noActiveSessions": "No active prefill sessions",
-      "noActiveSessionsDesc": "Sessions appear here when users start Steam Prefill",
+      "noActiveSessionsDesc": "Sessions appear here when users start Prefill",
       "sessionHistory": "Session History",
       "loading": "Loading...",
       "noSessionsFound": "No sessions found",
@@ -4119,9 +4121,9 @@
         "cached": "Cached"
       },
       "labels": {
-        "unauthorizedAccount": "Unauthorized Steam account",
+        "authenticatedAccount": "Authenticated {{service}} account",
         "notLoggedInSession": "Not logged in session",
-        "anonymousAccount": "Battle.net, no login required",
+        "anonymousAccount": "{{service}}, no login required",
         "persistentContainer": "Persistent container",
         "persistentBadge": "Persistent",
         "loading": "Loading...",
@@ -4160,7 +4162,7 @@
         "summary": "Long-lived daemon containers managed from Schedules."
       },
       "tooltips": {
-        "steamAuthenticated": "Steam authenticated",
+        "steamAuthenticated": "Authenticated",
         "gamesPrefilled": "{{count}} game prefilled",
         "gamesPrefilled_other": "{{count}} games prefilled",
         "totalDataDownloaded": "Total data downloaded",
@@ -4193,7 +4195,7 @@
         },
         "ban": {
           "title": "Ban User",
-          "message": "This will ban the user associated with this session. They will not be able to prefill in the future. For sessions with a game account (Steam/Epic) the ban applies to that username; for anonymous sessions (Battle.net) it applies to this device's session.",
+          "message": "This will ban the user associated with this session. They will not be able to prefill in the future. For sessions with a game account (Steam/Epic/Xbox) the ban applies to that username; for anonymous sessions (Battle.net/Riot) it applies to this device's session.",
           "reasonLabel": "Reason (optional)",
           "reasonPlaceholder": "Enter ban reason...",
           "warning": "The same user cannot create a new prefill session while banned.",
@@ -4840,7 +4842,15 @@
         "ipsToAdd": "IPs to Add",
         "addMoreIps": "Add More IPs",
         "clientIps": "Client IPs",
-        "selectAtLeastOne": "select at least one"
+        "selectAtLeastOne": "select at least one",
+        "rowMode": "Stats rows"
+      },
+      "mode": {
+        "combined": "Combined",
+        "separate": "Separate",
+        "combinedTooltip": "Add every IP together and show one row for this nickname",
+        "separateTooltip": "Show one row per IP, each labelled with this nickname",
+        "help": "Combined totals every IP into one row. Separate keeps one row per machine, all sharing the nickname."
       },
       "placeholders": {
         "name": "e.g., Gaming PC, Living Room, Server",

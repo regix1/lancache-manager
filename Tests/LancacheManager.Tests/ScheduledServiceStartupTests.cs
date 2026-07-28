@@ -2,6 +2,7 @@ using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -81,14 +82,18 @@ public class ScheduledServiceStartupTests
             _ => DefaultReturn(method.ReturnType)
         });
 
+        // Cleanup now routes through ScheduledRunReporter, which awaits the tracker's
+        // onTerminalEmit gate. A no-op DispatchProxy never fires that gate and hangs.
+        var tracker = CreateRealTracker();
         var service = new TestOperationHistoryCleanupService(
             NullLogger<OperationHistoryCleanupService>.Instance,
             new ConfigurationBuilder().Build(),
             stateService,
             CreateDefaultProxy<ISignalRNotificationService>(),
-            CreateDefaultProxy<IUnifiedOperationTracker>());
+            tracker);
 
-        await service.InvokeStartupAsync(CancellationToken.None);
+        await service.InvokeStartupAsync(CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Contains(expiredId, removedIds);
         Assert.DoesNotContain(recentId, removedIds);
@@ -114,6 +119,12 @@ public class ScheduledServiceStartupTests
 
         Assert.Equal(TimeSpan.FromMinutes(30), service.EffectiveInterval);
         Assert.False(service.RunOnStartup);
+    }
+
+    private static UnifiedOperationTracker CreateRealTracker()
+    {
+        var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
+        return new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
     }
 
     private static Task TrackCallAsync(string call, ICollection<string> calls)

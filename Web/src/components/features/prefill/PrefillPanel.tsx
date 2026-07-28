@@ -34,7 +34,13 @@ import { PrefillConfirmModal } from './PrefillConfirmModal';
 import { CompletionBanner } from './CompletionBanner';
 import { usePrefillSignalR } from './hooks/usePrefillSignalR';
 import { prefillServiceConfig } from './hooks/prefillServiceConfig';
-import { type PrefillPanelProps, type CommandType, formatTimeRemaining } from './types';
+import {
+  type PrefillPanelProps,
+  type CommandType,
+  type EstimatedSize,
+  type EstimatedSizeApp,
+  formatTimeRemaining
+} from './types';
 import type { DaemonAuthState } from '@/types/operations';
 
 export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
@@ -235,19 +241,10 @@ function ServicePrefillPanel({
 
   // Confirmation dialog state
   const [pendingConfirmCommand, setPendingConfirmCommand] = useState<CommandType | null>(null);
-  const [estimatedSize, setEstimatedSize] = useState<{
-    bytes: number;
-    loading: boolean;
-    error?: string;
-    apps?: {
-      appId: string;
-      name: string;
-      downloadSize: number;
-      isUnsupportedOs?: boolean;
-      unavailableReason?: string;
-    }[];
-    message?: string;
-  }>({ bytes: 0, loading: false });
+  const [estimatedSize, setEstimatedSize] = useState<EstimatedSize>({
+    bytes: 0,
+    loading: false
+  });
   // Monotonic id for size-estimate requests. Each fetch captures the current id; a slower
   // in-flight request whose id is no longer current (the selection changed, or a newer retry
   // started) must not commit its result over the newer state.
@@ -787,13 +784,7 @@ function ServicePrefillPanel({
       )) as {
         totalDownloadSize: number;
         message?: string;
-        apps?: {
-          appId: string;
-          name: string;
-          downloadSize: number;
-          isUnsupportedOs?: boolean;
-          unavailableReason?: string;
-        }[];
+        apps?: EstimatedSizeApp[];
       };
 
       const bytes = status.totalDownloadSize || 0;

@@ -2865,11 +2865,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             var status = await session.Client.GetStatusAsync(cancellationToken);
             if (status?.Status == "logged-in")
             {
-                session.AuthState = DaemonAuthState.Authenticated;
-                await NotifyAuthStateChangeAsync(session);
-
-                // Notify derived class that a session is now authenticated
-                FireAndForgetAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
+                // Route through OnStatusChangeAsync so username capture, ban re-enforcement, and
+                // SessionUpdated run exactly once - do not also fire OnSessionAuthenticated here.
+                await OnStatusChangeAsync(session, status);
 
                 _logger.LogInformation("Session {SessionId} already authenticated - no challenge needed", sessionId);
                 return LoginAttemptResult.Authenticated;
@@ -2890,9 +2888,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             var finalStatus = await session.Client.GetStatusAsync(cancellationToken);
             if (finalStatus?.Status == "logged-in")
             {
-                session.AuthState = DaemonAuthState.Authenticated;
-                await NotifyAuthStateChangeAsync(session);
-                FireAndForgetAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
+                // Same single-path rule as the earlier already-logged-in branch.
+                await OnStatusChangeAsync(session, finalStatus);
                 _logger.LogInformation(
                     "Session {SessionId} already authenticated per daemon status - no challenge needed", sessionId);
                 return LoginAttemptResult.Authenticated;
@@ -3091,7 +3088,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // If this is the username credential, capture it
         if (challenge.CredentialType.Equals("username", StringComparison.OrdinalIgnoreCase))
         {
-            session.SteamUsername = credential;
+            session.AccountUsername = credential;
             session.Username = credential;
 
             // Update the database record with the username

@@ -33,7 +33,8 @@ import IpSessionList from './IpSessionList';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
-import type { Download, DownloadGroup, GameDetectionSummary } from '../../../types';
+import type { DownloadAssociations } from '@contexts/DownloadAssociationsContext.types';
+import type { Download, DownloadGroup, EventSummary, GameDetectionSummary } from '../../../types';
 import { useFlatRows } from '@hooks/useFlatRows';
 import type { HeaderRowKind } from './types';
 
@@ -50,6 +51,26 @@ const getDefaultSectionLabels = (
   singleDownloads: t('downloads.tab.normal.sections.singleDownloads'),
   individual: t('downloads.tab.normal.sections.individual')
 });
+
+/**
+ * Unique events across every download in a group, in first-seen order. The card,
+ * grid and drawer layouts all badge a group with the same aggregate, so they share
+ * this one pass instead of each keeping its own copy.
+ */
+const collectGroupEvents = (
+  downloads: Download[],
+  getAssociations: (downloadId: number) => DownloadAssociations
+): EventSummary[] => {
+  const eventsMap = new Map<number, EventSummary>();
+  downloads.forEach((download) => {
+    getAssociations(download.id).events.forEach((event) => {
+      if (!eventsMap.has(event.id)) {
+        eventsMap.set(event.id, { ...event });
+      }
+    });
+  });
+  return Array.from(eventsMap.values());
+};
 
 interface NormalViewProps {
   items: (Download | DownloadGroup)[];
@@ -240,22 +261,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
     fetchAssociations(downloadIds);
   }, [group.downloads, fetchAssociations, refreshVersion]);
 
-  // Aggregate unique events from all downloads in the group
-  const groupEvents = React.useMemo(() => {
-    const eventsMap = new Map<
-      number,
-      { id: number; name: string; colorIndex: number; autoTagged: boolean }
-    >();
-    group.downloads.forEach((d) => {
-      const associations = getAssociations(d.id);
-      associations.events.forEach((event) => {
-        if (!eventsMap.has(event.id)) {
-          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged });
-        }
-      });
-    });
-    return Array.from(eventsMap.values());
-  }, [group.downloads, getAssociations]);
+  const groupEvents = React.useMemo(
+    () => collectGroupEvents(group.downloads, getAssociations),
+    [group.downloads, getAssociations]
+  );
 
   let bannerContent: React.ReactNode | null = null;
 
@@ -921,21 +930,10 @@ const GridCard: React.FC<GridCardProps> = ({
     fetchAssociations(downloadIds);
   }, [group.downloads, fetchAssociations, refreshVersion]);
 
-  const groupEvents = React.useMemo(() => {
-    const eventsMap = new Map<
-      number,
-      { id: number; name: string; colorIndex: number; autoTagged: boolean }
-    >();
-    group.downloads.forEach((d) => {
-      const associations = getAssociations(d.id);
-      associations.events.forEach((event) => {
-        if (!eventsMap.has(event.id)) {
-          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged });
-        }
-      });
-    });
-    return Array.from(eventsMap.values());
-  }, [group.downloads, getAssociations]);
+  const groupEvents = React.useMemo(
+    () => collectGroupEvents(group.downloads, getAssociations),
+    [group.downloads, getAssociations]
+  );
 
   // Build banner content for the card
   const shouldRenderBanner =
@@ -1165,21 +1163,10 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     fetchAssociations(downloadIds);
   }, [group.downloads, fetchAssociations, refreshVersion]);
 
-  const groupEvents = React.useMemo(() => {
-    const eventsMap = new Map<
-      number,
-      { id: number; name: string; colorIndex: number; autoTagged: boolean }
-    >();
-    group.downloads.forEach((d) => {
-      const associations = getAssociations(d.id);
-      associations.events.forEach((event) => {
-        if (!eventsMap.has(event.id)) {
-          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged });
-        }
-      });
-    });
-    return Array.from(eventsMap.values());
-  }, [group.downloads, getAssociations]);
+  const groupEvents = React.useMemo(
+    () => collectGroupEvents(group.downloads, getAssociations),
+    [group.downloads, getAssociations]
+  );
 
   // Build banner for drawer header
   const shouldRenderBanner =

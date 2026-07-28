@@ -588,11 +588,6 @@ public class PersistentLoginSessionPinningTests
         }
     }
 
-    private class NullReturningProxy : DispatchProxy
-    {
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) => DefaultReturnValue(targetMethod);
-    }
-
     private static object? DefaultReturnValue(MethodInfo? targetMethod)
     {
         var returnType = targetMethod?.ReturnType;

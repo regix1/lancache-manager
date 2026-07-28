@@ -17,6 +17,7 @@ public static class MappingExtensions
         Id = group.Id,
         Nickname = group.Nickname,
         Description = group.Description,
+        SeparateMemberRows = group.SeparateMemberRows,
         CreatedAtUtc = group.CreatedAtUtc,
         UpdatedAtUtc = group.UpdatedAtUtc,
         MemberIps = group.Members.Select(m => m.ClientIp).OrderBy(ip => ip).ToList()

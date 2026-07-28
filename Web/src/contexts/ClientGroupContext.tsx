@@ -33,10 +33,14 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
     }
   }, []);
 
-  // Initial load - only fetch when admin-authenticated (not for guests)
+  // Load nickname mapping for any signed-in viewer (admin or guest). Guests need
+  // this for ClientIpDisplay / RetroView labels; mutations stay AdminOnly server-side.
   useEffect(() => {
-    if (!authLoading && authMode === 'authenticated') {
+    if (authLoading) return;
+    if (authMode === 'authenticated' || authMode === 'guest') {
       refreshGroups();
+    } else {
+      setClientGroups([]);
     }
   }, [authLoading, authMode, refreshGroups]);
 
@@ -109,30 +113,34 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
     refreshGroupsRef.current = refreshGroups;
   }, [refreshGroups]);
 
-  // Listen for SignalR events - only process when admin-authenticated
+  // Listen for SignalR events - refresh for any signed-in viewer so guest
+  // nicknames stay current when an admin edits groups.
   useEffect(() => {
+    const hasSession = () =>
+      authModeRef.current === 'authenticated' || authModeRef.current === 'guest';
+
     const handleGroupCreated = () => {
-      if (authModeRef.current !== 'authenticated') return;
+      if (!hasSession()) return;
       refreshGroupsRef.current?.();
     };
 
     const handleGroupUpdated = () => {
-      if (authModeRef.current !== 'authenticated') return;
+      if (!hasSession()) return;
       refreshGroupsRef.current?.();
     };
 
     const handleGroupDeleted = () => {
-      if (authModeRef.current !== 'authenticated') return;
+      if (!hasSession()) return;
       refreshGroupsRef.current?.();
     };
 
     const handleMemberAdded = () => {
-      if (authModeRef.current !== 'authenticated') return;
+      if (!hasSession()) return;
       refreshGroupsRef.current?.();
     };
 
     const handleMemberRemoved = () => {
-      if (authModeRef.current !== 'authenticated') return;
+      if (!hasSession()) return;
       refreshGroupsRef.current?.();
     };
 

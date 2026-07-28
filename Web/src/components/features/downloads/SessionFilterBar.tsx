@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { TogglePill } from '@components/ui/TogglePill';
+import { useClientGroups } from '@contexts/useClientGroups';
 import type {
   SessionFilters,
   CacheStatusFilter,
@@ -67,6 +68,12 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
   filteredCount,
   hasActiveFilters
 }) => {
+  // Nickname mapping loads for admins and guests; mutations stay AdminOnly server-side.
+  const { getGroupForIp } = useClientGroups();
+
+  // Labels only: every filter value stays the raw IP the downloads are keyed by.
+  const labelForIp = (ip: string): string => getGroupForIp(ip)?.nickname || ip;
+
   const handleToggleIp = (ip: string): void => {
     const current = filters.clientIps;
     const next = current.includes(ip) ? current.filter((x: string) => x !== ip) : [...current, ip];
@@ -81,10 +88,14 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
     updateFilter('timeRange', 'all');
   };
 
-  const ipOptions = uniqueIps.map((ip: string) => ({
-    value: ip,
-    label: ip
-  }));
+  const ipOptions = uniqueIps.map((ip: string) => {
+    const nickname = getGroupForIp(ip)?.nickname;
+    return {
+      value: ip,
+      label: nickname || ip,
+      description: nickname ? ip : undefined
+    };
+  });
 
   const sortDropdownOptions = SORT_OPTIONS.map((opt) => ({
     value: opt.value,
@@ -105,13 +116,14 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
 
   if (filters.clientIps.length > 0) {
     filters.clientIps.forEach((ip: string) => {
+      const label = labelForIp(ip);
       activeChips.push(
         <span key={`ip-${ip}`} className="session-filter-chip">
-          IP: {ip}
+          IP: {label}
           <button
             className="session-filter-chip-remove"
             onClick={() => handleToggleIp(ip)}
-            aria-label={`Remove IP filter ${ip}`}
+            aria-label={`Remove IP filter ${label}`}
           >
             <X size={10} />
           </button>

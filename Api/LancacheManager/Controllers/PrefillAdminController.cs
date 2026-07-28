@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace LancacheManager.Controllers;
 
 /// <summary>
-/// Admin endpoints for managing prefill sessions and Steam user bans.
+/// Admin endpoints for managing prefill sessions and prefill user bans.
 /// Requires authentication.
 /// </summary>
 [ApiController]
@@ -46,9 +46,9 @@ public class PrefillAdminController : ControllerBase
     }
 
     /// <summary>
-    /// Builds a BannedSteamUserDto from a BannedSteamUser entity (always sets IsActive = true for new bans).
+    /// Builds a BannedPrefillUserDto from a BannedPrefillUser entity (always sets IsActive = true for new bans).
     /// </summary>
-    private static BannedSteamUserDto ToBanDto(BannedSteamUser ban) => new()
+    private static BannedPrefillUserDto ToBanDto(BannedPrefillUser ban) => new()
     {
         Id = ban.Id,
         Username = ban.Username,
@@ -283,13 +283,13 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("bans")]
-    public async Task<ActionResult<List<BannedSteamUserDto>>> GetBansAsync([FromQuery] bool includeLifted = false)
+    public async Task<ActionResult<List<BannedPrefillUserDto>>> GetBansAsync([FromQuery] bool includeLifted = false)
     {
         var bans = includeLifted
             ? await _sessionService.GetAllBansAsync()
             : await _sessionService.GetActiveBansAsync();
 
-        return Ok(bans.Select(b => new BannedSteamUserDto
+        return Ok(bans.Select(b => new BannedPrefillUserDto
         {
             Id = b.Id,
             Username = b.Username,
@@ -307,12 +307,12 @@ public class PrefillAdminController : ControllerBase
     }
 
     /// <summary>
-    /// Bans a Steam user by session ID.
+    /// Bans a prefill user by session ID.
     /// Looks up the username from the session.
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("bans/by-session/{sessionId}")]
-    public async Task<ActionResult<BannedSteamUserDto>> BanBySessionAsync(
+    public async Task<ActionResult<BannedPrefillUserDto>> BanBySessionAsync(
         string sessionId,
         [FromBody] BanRequest request)
     {
@@ -344,11 +344,11 @@ public class PrefillAdminController : ControllerBase
     }
 
     /// <summary>
-    /// Bans a Steam user by username.
+    /// Bans a prefill user by username.
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("bans")]
-    public async Task<ActionResult<BannedSteamUserDto>> BanByUsernameAsync([FromBody] BanByUsernameRequest request)
+    public async Task<ActionResult<BannedPrefillUserDto>> BanByUsernameAsync([FromBody] BanByUsernameRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Username))
         {
@@ -365,7 +365,7 @@ public class PrefillAdminController : ControllerBase
             adminSessionIdString,
             request.ExpiresAt);
 
-        _logger.LogWarning("Admin session {AdminId} banned Steam user {Username}. Reason: {Reason}",
+        _logger.LogWarning("Admin session {AdminId} banned prefill user {Username}. Reason: {Reason}",
             adminSessionId, ban.Username, request.Reason);
 
         return Ok(ToBanDto(ban));

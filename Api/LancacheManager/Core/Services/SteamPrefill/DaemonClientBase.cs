@@ -495,14 +495,16 @@ public abstract class DaemonClientBase : IDaemonClient
                     {
                         var state = authData.TryGetProperty("state", out var stateElem) ? stateElem.GetString() : null;
                         var message = authData.TryGetProperty("message", out var msgElem) ? msgElem.GetString() : null;
-                        var displayName = authData.TryGetProperty("displayName", out var dnElem) ? dnElem.GetString() : null;
+                        // Mirror onto both properties so OnStatusChangeAsync can resolve either ingest path.
+                        var accountName = DaemonStatus.ParseAccountDisplayName(authData);
                         _logger?.LogInformation("Auth state changed: {State} - {Message}", state, message);
                         // Convert auth state to DaemonStatus for the status event
                         await DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, new DaemonStatus
                         {
                             Status = state ?? "unknown",
                             Message = message,
-                            DisplayName = displayName,
+                            DisplayName = accountName,
+                            AccountDisplayName = accountName,
                             Timestamp = DateTime.UtcNow
                         }, _logger);
                     }
@@ -668,12 +670,15 @@ public abstract class DaemonClientBase : IDaemonClient
             var response = await SendCommandAsync("status", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
             if (response.Success && response.Data is JsonElement element)
             {
+                // Mirror onto both properties so OnStatusChangeAsync can resolve either ingest path.
+                var accountName = DaemonStatus.ParseAccountDisplayName(element);
                 return new DaemonStatus
                 {
                     Status = element.TryGetProperty("isLoggedIn", out var loggedIn) && loggedIn.GetBoolean() ? "logged-in" : "not-logged-in",
                     Message = element.TryGetProperty("isInitialized", out var init) && init.GetBoolean() ? "Initialized" : "Not initialized",
                     AuthExpiryUtc = DaemonStatus.ParseAuthExpiry(element),
-                    AccountDisplayName = DaemonStatus.ParseAccountDisplayName(element),
+                    AccountDisplayName = accountName,
+                    DisplayName = accountName,
                     Timestamp = DateTime.UtcNow
                 };
             }

@@ -1,7 +1,7 @@
 {
   "name": "lancache-manager",
   "private": true,
-  "version": "1.10.3",
+  "version": "1.10.4",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {

@@ -40,6 +40,9 @@ public class UpdateClientGroupRequestValidator : AbstractValidator<UpdateClientG
         RuleFor(x => x.Description)
             .MaximumLength(500).WithMessage("Description must be 500 characters or less")
             .When(x => !string.IsNullOrEmpty(x.Description));
+
+        RuleFor(x => x.SeparateMemberRows)
+            .NotNull().WithMessage("Separate member rows is required");
     }
 }
 

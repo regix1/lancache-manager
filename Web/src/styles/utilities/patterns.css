@@ -67,6 +67,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Secondary readout sitting beside an identity label that several rows share, so those
+   rows stay tellable apart without hovering for the tooltip. Kept below the label's size
+   and weight so it reads as data rather than a second label, and so it never grows the
+   row. --font-mono is intentionally undefined, making the fallback stack load-bearing. */
+.identity-subtext {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+  color: var(--theme-text-muted);
+}
+
 /* Inset keyboard focus outline for controls whose edge sits flush with a container
    (rows, tabs) where the default +2px ring would clip; pairs with .focus-ring. */
 .focus-ring--inset:focus-visible {

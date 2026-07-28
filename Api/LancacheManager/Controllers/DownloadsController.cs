@@ -1,7 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
@@ -14,7 +13,7 @@ namespace LancacheManager.Controllers;
 
 /// <summary>
 /// RESTful controller for download history
-/// Handles retrieval of latest and active downloads
+/// Handles single-download lookups, event associations, and the grouped retro view
 /// </summary>
 [ApiController]
 [Route("api/downloads")]
@@ -23,114 +22,17 @@ public class DownloadsController : ControllerBase
 {
 
     private readonly AppDbContext _context;
-    private readonly StatsDataService _statsService;
     private readonly IStateService _stateRepository;
     private readonly ILogger<DownloadsController> _logger;
 
     public DownloadsController(
         AppDbContext context,
-        StatsDataService statsService,
         IStateService stateRepository,
         ILogger<DownloadsController> logger)
     {
         _context = context;
-        _statsService = statsService;
         _stateRepository = stateRepository;
         _logger = logger;
-    }
-
-    [HttpGet("latest")]
-    public async Task<IActionResult> GetLatestAsync([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] long? eventId = null)
-    {
-        // Convert single eventId to list for filtering
-        var eventIdList = eventId.HasValue
-            ? new List<long> { eventId.Value }
-            : new List<long>();
-        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
-        var evictedMode = _stateRepository.GetEvictedDataMode();
-
-        try
-        {
-            List<Download> downloads;
-
-            // If no time filtering and no event filter, use cached service method
-            if (!startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0)
-            {
-                downloads = await _statsService.GetLatestDownloadsAsync(count);
-            }
-            else
-            {
-                // With filtering, query database directly
-                // Database stores dates in UTC, so filter with UTC
-                var startDate = startTime.HasValue
-                    ? startTime.Value.FromUnixSeconds()
-                    : DateTime.MinValue;
-                var endDate = endTime.HasValue
-                    ? endTime.Value.FromUnixSeconds()
-                    : DateTime.UtcNow;
-
-                // Apply event filter if provided (filters to only tagged downloads)
-                if (eventIdList.Count > 0)
-                {
-                    // Use subquery to atomically fetch downloads with event associations
-                    // This eliminates the race condition by using a single query
-                    var eventQuery = _context.Downloads
-                            .AsNoTracking()
-                            .Where(d => _context.EventDownloads
-                                .Where(ed => eventIdList.Contains(ed.EventId))
-                                .Select(ed => ed.DownloadId)
-                                .Contains(d.Id))
-                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
-                            .ApplyEvictedFilter(evictedMode)
-                            .ApplyEmptySessionFilter();
-                    downloads = await eventQuery
-                        .OrderByDescending(d => d.StartTimeUtc)
-                        .Take(count)
-                        .ToListAsync();
-                }
-                else
-                {
-                    var baseQuery = _context.Downloads
-                            .AsNoTracking()
-                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
-                            .ApplyEvictedFilter(evictedMode)
-                            .ApplyEmptySessionFilter();
-                    downloads = await baseQuery
-                        .OrderByDescending(d => d.StartTimeUtc)
-                        .Take(count)
-                        .ToListAsync();
-                }
-
-                downloads.WithUtcMarking();
-            }
-
-            // Apply hidden-client filter (both cached and direct query paths) and the prefill
-            // safety net (StatsDataService already filters, but direct queries may not) in one
-            // pass - the unfiltered list can be the whole downloads table.
-            downloads = downloads
-                .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp))
-                .Where(d => !string.Equals(d.ClientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
-                .Where(d => !string.Equals(d.Datasource, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            // ShowClean: include evicted downloads but mask the flag (no badge/dimming on frontend)
-            // Note: Hide/Remove modes are already filtered at the DB level via ApplyEvictedFilter
-            if (evictedMode == EvictedDataMode.ShowClean.ToWireString())
-            {
-                foreach (var d in downloads) d.IsEvicted = false;
-            }
-
-            // Resolve game names via Steam depot mappings + Epic lookup
-            await ResolveNamesAsync(downloads);
-
-            // Return just the array - frontend will use array.length for actual count
-            return Ok(downloads);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting latest downloads");
-            return Ok(new List<Download>());
-        }
     }
 
     /// <summary>
@@ -309,7 +211,7 @@ public class DownloadsController : ControllerBase
     /// <summary>
     /// Get paginated, grouped download data for the Retro view.
     /// Groups downloads by DepotId + ClientIp and aggregates cache statistics.
-    /// Resolves game names via shared ResolveGameNamesAsync method.
+    /// Resolves game names on the aggregated rows before returning them.
     /// </summary>
     [HttpGet("retro")]
     public async Task<ActionResult<RetroDownloadResponse>> GetRetroDownloadsAsync([FromQuery] RetroDownloadQuery query)
@@ -641,11 +543,6 @@ public class DownloadsController : ControllerBase
     }
 
     /// <summary>
-    /// Resolves game names for downloads using Steam depot mappings and Epic game mappings.
-    /// Priority: existing GameName → Steam AppName → Epic Name → fallback to Service.
-    /// Mutates the download objects in-place.
-    /// </summary>
-    /// <summary>
     /// SQL-side aggregate projection for one retro group (DepotId + ClientIp, or a single
     /// no-depot download identified by RowKey).
     /// </summary>
@@ -720,7 +617,7 @@ public class DownloadsController : ControllerBase
         var evictedMode = _stateRepository.GetEvictedDataMode();
         baseQuery = baseQuery.ApplyEvictedFilter(evictedMode).ApplyEmptySessionFilter();
 
-        // Filter: time range (matches GetLatestAsync behavior)
+        // Filter: time range
         if (query.StartTime.HasValue || query.EndTime.HasValue)
         {
             var startDate = query.StartTime.HasValue
@@ -781,8 +678,8 @@ public class DownloadsController : ControllerBase
     }
 
     /// <summary>
-    /// Group-level variant of ResolveGameNamesAsync: fills missing game names on aggregated
-    /// retro rows from Steam depot mappings and Epic game mappings.
+    /// Fills missing game names on aggregated retro rows from Steam depot mappings and
+    /// Epic game mappings.
     /// </summary>
     private async Task ResolveGroupNamesAsync(List<RetroGroupRow> rows)
     {
@@ -908,86 +805,6 @@ public class DownloadsController : ControllerBase
                 {
                     item.DownloadIds.AddRange(ids);
                 }
-            }
-        }
-    }
-
-    private async Task ResolveNamesAsync(List<Download> downloads)
-    {
-        if (downloads.Count == 0) return;
-
-        // Build Steam depot mapping lookup for downloads with a DepotId
-        var depotIds = downloads
-            .Where(d => d.DepotId.HasValue)
-            .Select(d => d.DepotId!.Value)
-            .Distinct()
-            .ToList();
-
-        var steamMappings = depotIds.Count > 0
-            ? await _context.SteamDepotMappings
-                .AsNoTracking()
-                .Where(m => m.IsOwner && depotIds.Contains(m.DepotId))
-                .ToDictionaryAsync(m => m.DepotId, m => m)
-            : new Dictionary<long, SteamDepotMapping>();
-
-        // Build Epic game name lookup for Epic downloads
-        var epicAppIds = downloads
-            .Where(d => !string.IsNullOrEmpty(d.EpicAppId))
-            .Select(d => d.EpicAppId!)
-            .Distinct()
-            .ToList();
-
-        var epicMappings = epicAppIds.Count > 0
-            ? await _context.EpicGameMappings
-                .AsNoTracking()
-                .Where(m => epicAppIds.Contains(m.AppId))
-                .ToDictionaryAsync(m => m.AppId, m => m.Name)
-            : new Dictionary<string, string>();
-
-        // Build Xbox game name lookup for Xbox downloads (named-style: GameName from the shared
-        // XboxGameMapping catalog keyed by XboxProductId metadata).
-        var xboxProductIds = downloads
-            .Where(d => !string.IsNullOrEmpty(d.XboxProductId))
-            .Select(d => d.XboxProductId!)
-            .Distinct()
-            .ToList();
-
-        var xboxMappings = xboxProductIds.Count > 0
-            ? await _context.XboxGameMappings
-                .AsNoTracking()
-                .Where(m => xboxProductIds.Contains(m.ProductId))
-                .ToDictionaryAsync(m => m.ProductId, m => m.Title)
-            : new Dictionary<string, string>();
-
-        // Apply name resolution priority: existing GameName → Steam AppName → Epic Name → Xbox Title → fallback to Service
-        foreach (var d in downloads)
-        {
-            // Fill from Steam mapping if game name is missing
-            if (string.IsNullOrEmpty(d.GameName) && d.DepotId.HasValue
-                && steamMappings.TryGetValue(d.DepotId.Value, out var steamMapping))
-            {
-                d.GameName = steamMapping.AppName;
-                d.GameAppId = steamMapping.AppId;
-            }
-
-            // Fill from Epic mapping if still missing
-            if (string.IsNullOrEmpty(d.GameName) && !string.IsNullOrEmpty(d.EpicAppId)
-                && epicMappings.TryGetValue(d.EpicAppId, out var epicName))
-            {
-                d.GameName = epicName;
-            }
-
-            // Fill from Xbox mapping if still missing
-            if (string.IsNullOrEmpty(d.GameName) && !string.IsNullOrEmpty(d.XboxProductId)
-                && xboxMappings.TryGetValue(d.XboxProductId, out var xboxTitle))
-            {
-                d.GameName = xboxTitle;
-            }
-
-            // Final fallback: use service name
-            if (string.IsNullOrEmpty(d.GameName))
-            {
-                d.GameName = d.Service;
             }
         }
     }

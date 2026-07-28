@@ -1211,12 +1211,6 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         }
     }
 
-    private class NullReturningProxy : DispatchProxy
-    {
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-            => OrchestrationStateService.DefaultReturn(targetMethod?.ReturnType);
-    }
-
     // Builds and registers a persistent session directly (no create round-trip), for the concurrency
     // and cancel scenarios that drive AttemptHeadlessPersistentSelfAuthAsync by hand.
     private static DaemonSession InjectedPersistentSession(TestSteamDaemon daemon, IDaemonClient client)

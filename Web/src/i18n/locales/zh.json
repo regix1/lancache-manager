@@ -1603,7 +1603,7 @@
       "clientsDesc": "为客户端 IP 分配昵称",
       "prefillSessions": "预填充会话",
       "prefillSessionsShort": "预填充",
-      "prefillSessionsDesc": "管理 Steam 预填充守护进程会话",
+      "prefillSessionsDesc": "管理预填充守护进程会话",
       "schedules": "计划任务",
       "schedulesShort": "计划任务",
       "schedulesDesc": "配置服务运行间隔",
@@ -1958,7 +1958,7 @@
           "userSessionsCleared": "所有注册设备将被清除 - 您需要重新认证",
           "clientGroups": "所有客户端组及其成员关联将被永久删除",
           "prefillSessions": "所有预填充会话将被永久删除",
-          "bannedSteamUsers": "所有被封禁的 Steam 用户将被解封并可以再次预填充",
+          "bannedPrefillUsers": "所有被封禁的预填充用户将被解封并可以再次预填充",
           "epicGameMappings": "Epic 游戏将显示为\"未知\"，直到重新建立映射",
           "epicCdnPatterns": "在重新获取 CDN 模式之前，Epic 游戏检测可能无法工作",
           "xboxGameMappings": "Xbox 游戏将显示为\"未知\"，直到重新建立映射",
@@ -2029,7 +2029,7 @@
           },
           "prefillSessions": {
             "label": "预填充会话",
-            "description": "Steam-lancache-prefill 会话跟踪",
+            "description": "预填充会话跟踪",
             "details": "带有状态和配置的活动和历史预填充会话",
             "affectedPages": "管理 → 预填充会话部分"
           },
@@ -2039,10 +2039,10 @@
             "details": "单个游戏预填充操作的记录，包括进度和状态",
             "affectedPages": "管理 → 预填充会话部分"
           },
-          "bannedSteamUsers": {
-            "label": "被封禁的 Steam 用户",
-            "description": "被阻止进行预填充操作的 Steam 账户",
-            "details": "因认证失败或速率限制被封禁的用户",
+          "bannedPrefillUsers": {
+            "label": "被封禁的预填充用户",
+            "description": "被阻止进行预填充操作的游戏账户和设备",
+            "details": "因 Steam、Epic、Xbox、战网或 Riot 预填充会话被封禁的用户",
             "affectedPages": "管理 → 预填充会话部分"
           },
           "userSessions": {
@@ -2398,6 +2398,8 @@
         "delete": "删除",
         "loadingClients": "加载客户端中...",
         "ipsLabel": "IP",
+        "separateRowsLabel": "分行显示",
+        "separateRowsTooltip": "此昵称在客户端统计中每个 IP 显示一行",
         "errors": {
           "failedToUpdateExcluded": "更新排除的 IP 失败",
           "failedToLoadExcluded": "加载排除的 IP 失败"
@@ -4052,7 +4054,7 @@
       "allStatuses": "所有状态",
       "banReason": "输入封禁原因...",
       "title": "预填充会话",
-      "subtitle": "管理 Steam 预填充守护进程会话和用户封禁",
+      "subtitle": "管理预填充守护进程会话和用户封禁",
       "refresh": "刷新",
       "endAll": "全部结束",
       "activeSessions": "活跃会话",
@@ -4072,7 +4074,7 @@
       "liveSessions": "实时会话",
       "loadingSessions": "加载会话中...",
       "noActiveSessions": "没有活跃的预填充会话",
-      "noActiveSessionsDesc": "当用户启动 Steam 预填充时会话显示在此处",
+      "noActiveSessionsDesc": "当用户启动预填充时，会话将显示在此处",
       "sessionHistory": "会话历史",
       "loading": "加载中...",
       "noSessionsFound": "未找到会话",
@@ -4118,9 +4120,9 @@
         "cached": "已缓存"
       },
       "labels": {
-        "unauthorizedAccount": "未授权的 Steam 账户",
+        "authenticatedAccount": "已认证的 {{service}} 账户",
         "notLoggedInSession": "未登录的会话",
-        "anonymousAccount": "Battle.net，无需登录",
+        "anonymousAccount": "{{service}}，无需登录",
         "persistentContainer": "持久化容器",
         "persistentBadge": "持久化",
         "loading": "加载中...",
@@ -4159,7 +4161,7 @@
         "summary": "由计划任务页面管理的常驻守护容器。"
       },
       "tooltips": {
-        "steamAuthenticated": "Steam 已验证",
+        "steamAuthenticated": "已认证",
         "gamesPrefilled": "已预填充 {{count}} 个游戏",
         "gamesPrefilled_other": "已预填充 {{count}} 个游戏",
         "totalDataDownloaded": "总下载数据量",
@@ -4192,7 +4194,7 @@
         },
         "ban": {
           "title": "封禁用户",
-          "message": "这将封禁与此会话关联的用户。他们将无法再进行预填充。对于拥有游戏账户的会话（Steam/Epic），封禁将应用于该用户名；对于匿名会话（Battle.net），封禁将应用于此设备的会话。",
+          "message": "这将封禁与此会话关联的用户。他们将无法再进行预填充。对于拥有游戏账户的会话（Steam/Epic/Xbox），封禁将应用于该用户名；对于匿名会话（Battle.net/Riot），封禁将应用于此设备的会话。",
           "reasonLabel": "原因（可选）",
           "reasonPlaceholder": "输入封禁原因...",
           "warning": "被封禁期间，同一用户无法创建新的预填充会话。",
@@ -4839,7 +4841,15 @@
         "ipsToAdd": "待添加 IP",
         "addMoreIps": "添加更多 IP",
         "clientIps": "客户端 IP",
-        "selectAtLeastOne": "至少选择一个"
+        "selectAtLeastOne": "至少选择一个",
+        "rowMode": "统计行"
+      },
+      "mode": {
+        "combined": "合并",
+        "separate": "分开",
+        "combinedTooltip": "将所有 IP 相加，为此昵称显示一行",
+        "separateTooltip": "每个 IP 显示一行，均标注此昵称",
+        "help": "合并会将所有 IP 汇总为一行。分开则每台机器一行，共用同一昵称。"
       },
       "placeholders": {
         "name": "例如：游戏电脑、客厅、服务器",

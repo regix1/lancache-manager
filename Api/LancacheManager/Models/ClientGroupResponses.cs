@@ -5,6 +5,7 @@ public class ClientGroupDto
     public long Id { get; set; }
     public string Nickname { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public bool SeparateMemberRows { get; set; }
     public DateTime CreatedAtUtc { get; set; }
     public DateTime? UpdatedAtUtc { get; set; }
     public List<string> MemberIps { get; set; } = new();

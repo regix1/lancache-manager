@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { formatBytes, formatPercent } from '@utils/formatters';
+import { isSeparatedMemberRow } from '@utils/clientRows';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { Card } from '@components/ui/Card';
 import Badge from '@components/ui/Badge';
@@ -27,18 +28,25 @@ const ClientListItem: React.FC<ClientListItemProps> = ({ client }) => {
   const { t } = useTranslation();
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
   const displayLabel = client.displayName || client.clientIp;
+  const hasGroupIps = !!(client.isGrouped && (client.groupMemberIps?.length ?? 0) > 0);
   const showGroupCount = !!(client.isGrouped && (client.groupMemberIps?.length ?? 0) > 1);
   const hitRateTone = client.cacheHitPercent > 50 ? 'is-success' : 'is-warning';
+  // Every member row of a separately-reported nickname shows the same label, so the
+  // row's own address rides alongside it and the rows stay tellable apart without hovering.
+  const showMemberIp = isSeparatedMemberRow(client);
 
-  // The tooltip must reveal whatever text is actually truncated: the nickname
-  // when one is set (plus its IP(s) as supporting detail), or the raw IP itself
-  // when there is no nickname to show.
-  const identityTooltipContent = client.displayName ? (
+  // The dashed underline is the affordance for "this label stands in for the address", so it
+  // appears only when a nickname is displayed instead of the raw IP. Grouped rows always carry
+  // the group's nickname as displayName, so this one check covers them too.
+  const hasNicknameLabel = !!client.displayName;
+  // Every row still gets a tooltip: this cell truncates, so a long IPv6 address on a plain row
+  // would otherwise have no way to be read in full.
+  const identityTooltipContent = hasNicknameLabel ? (
     <div>
       <div>{displayLabel}</div>
       <div className="text-themed-muted">
-        {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 0
-          ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps.join(', ') })
+        {hasGroupIps
+          ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps!.join(', ') })
           : t('clients.tooltips.singleIp', { ip: client.clientIp })}
       </div>
     </div>
@@ -50,11 +58,19 @@ const ClientListItem: React.FC<ClientListItemProps> = ({ client }) => {
     <div className="clients-grid">
       <div className="clients-cell clients-cell--client">
         {client.isGrouped && <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />}
-        <Tooltip content={identityTooltipContent}>
-          <span className="cursor-help border-b border-dashed border-themed-muted truncate">
+        {/* min-w-0 on the trigger keeps the wrapper shrinkable so the label still ellipsizes */}
+        <Tooltip content={identityTooltipContent} className="inline-flex min-w-0">
+          <span
+            className={
+              hasNicknameLabel
+                ? 'cursor-help border-b border-dashed border-themed-muted truncate'
+                : 'truncate'
+            }
+          >
             {displayLabel}
           </span>
         </Tooltip>
+        {showMemberIp && <span className="identity-subtext truncate">{client.clientIp}</span>}
         {showGroupCount && (
           <Badge
             variant="neutral"

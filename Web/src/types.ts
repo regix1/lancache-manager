@@ -649,6 +649,8 @@ export interface ClientGroup {
   id: number;
   nickname: string;
   description?: string;
+  /** True when the client stats surfaces show one row per member IP instead of one summed row. */
+  separateMemberRows: boolean;
   createdAtUtc: string;
   updatedAtUtc?: string;
   memberIps: string[];
@@ -658,11 +660,17 @@ export interface CreateClientGroupRequest {
   nickname: string;
   description?: string;
   initialIps?: string[];
+  separateMemberRows?: boolean;
 }
 
 export interface UpdateClientGroupRequest {
   nickname: string;
   description?: string;
+  /**
+   * Required because the update endpoint fully replaces the group: an omitted field
+   * arrives as `false` server-side and would silently reset a group back to one summed row.
+   */
+  separateMemberRows: boolean;
 }
 
 // Real-time download speed types

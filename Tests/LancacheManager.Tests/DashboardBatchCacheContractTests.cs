@@ -241,7 +241,8 @@ public sealed class DashboardBatchCacheContractTests
             ".ToDictionaryAsync(m => m.DepotId, m => m, ct)",
             ".ToDictionaryAsync(m => m.AppId, m => m.Name, ct)",
             ".ToDictionaryAsync(m => m.ProductId, m => m.Title, ct)",
-            "await _cacheSnapshotService.GetSnapshotSummaryAsync(startUtc, endUtc, ct)"
+            "await _cacheSnapshotService.GetSnapshotSummaryAsync(startUtc, endUtc, ct)",
+            "await ClientStatsAggregationHelper.QueryIpAggregatesAsync(query, ct)"
         ];
         foreach (var callSite in requiredCallSites)
         {

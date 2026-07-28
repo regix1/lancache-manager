@@ -321,37 +321,4 @@ public class ScheduleControllerNotificationModeTests
         public Task BroadcastSchedulesAsync() => Task.CompletedTask;
         public ScheduleRunStatus? GetRunStatus(string serviceKey) => RunStatus;
     }
-
-    // Returns the default value for every member; Task-returning members yield a completed task so
-    // awaited controller/registry calls do not fault. Mirrors the null-proxy pattern used elsewhere
-    // in this suite for interfaces whose behavior is irrelevant to the test.
-    private class NullReturningProxy : DispatchProxy
-    {
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            var returnType = targetMethod?.ReturnType;
-
-            if (returnType == typeof(Task))
-            {
-                return Task.CompletedTask;
-            }
-
-            if (returnType is { IsGenericType: true } && returnType.GetGenericTypeDefinition() == typeof(Task<>))
-            {
-                var inner = returnType.GetGenericArguments()[0];
-                var value = inner.IsValueType ? Activator.CreateInstance(inner) : null;
-                return typeof(Task)
-                    .GetMethod(nameof(Task.FromResult))!
-                    .MakeGenericMethod(inner)
-                    .Invoke(null, new[] { value });
-            }
-
-            if (returnType is { IsValueType: true } && returnType != typeof(void))
-            {
-                return Activator.CreateInstance(returnType);
-            }
-
-            return null;
-        }
-    }
 }

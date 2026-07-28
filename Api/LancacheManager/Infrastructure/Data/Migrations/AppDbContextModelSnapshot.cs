@@ -22,7 +22,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("LancacheManager.Models.BannedSteamUser", b =>
+            modelBuilder.Entity("LancacheManager.Models.BannedPrefillUser", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -68,18 +68,18 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("BannedAtUtc")
-                        .HasDatabaseName("IX_BannedSteamUsers_BannedAtUtc");
+                        .HasDatabaseName("IX_BannedPrefillUsers_BannedAtUtc");
 
                     b.HasIndex("BannedUserId")
-                        .HasDatabaseName("IX_BannedSteamUsers_BannedUserId");
+                        .HasDatabaseName("IX_BannedPrefillUsers_BannedUserId");
 
                     b.HasIndex("IsLifted")
-                        .HasDatabaseName("IX_BannedSteamUsers_IsLifted");
+                        .HasDatabaseName("IX_BannedPrefillUsers_IsLifted");
 
                     b.HasIndex("Username")
-                        .HasDatabaseName("IX_BannedSteamUsers_Username");
+                        .HasDatabaseName("IX_BannedPrefillUsers_Username");
 
-                    b.ToTable("BannedSteamUsers");
+                    b.ToTable("BannedPrefillUsers");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.CacheSnapshot", b =>
@@ -372,6 +372,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<string>("Nickname")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool>("SeparateMemberRows")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -940,6 +943,10 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("AccountUsername")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("ContainerId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -986,10 +993,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("SteamUsername")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
                     b.Property<string>("TerminatedBy")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -999,6 +1002,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(200)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AccountUsername")
+                        .HasDatabaseName("IX_PrefillSessions_AccountUsername");
 
                     b.HasIndex("ContainerId")
                         .HasDatabaseName("IX_PrefillSessions_ContainerId");
@@ -1018,9 +1024,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     b.HasIndex("Status")
                         .HasDatabaseName("IX_PrefillSessions_Status");
-
-                    b.HasIndex("SteamUsername")
-                        .HasDatabaseName("IX_PrefillSessions_SteamUsername");
 
                     b.ToTable("PrefillSessions");
                 });

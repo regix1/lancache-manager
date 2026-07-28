@@ -4,23 +4,7 @@ import { Button } from '../../ui/Button';
 import { Tooltip } from '../../ui/Tooltip';
 import { AlertCircle } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { type CommandType, formatBytes } from './types';
-
-interface EstimatedSizeApp {
-  appId: string;
-  name: string;
-  downloadSize: number;
-  isUnsupportedOs?: boolean;
-  unavailableReason?: string;
-}
-
-interface EstimatedSize {
-  bytes: number;
-  loading: boolean;
-  error?: string;
-  apps?: EstimatedSizeApp[];
-  message?: string;
-}
+import { type CommandType, type EstimatedSize, formatBytes } from './types';
 
 interface PrefillConfirmModalProps {
   pendingCommand: CommandType | null;

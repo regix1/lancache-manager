@@ -85,6 +85,16 @@ public class SignalRNotificationService : ISignalRNotificationService
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
             }
+            // A group write changes how client stats rows are built - one summed row per nickname
+            // versus one row per member address - so it restructures the table in every time range,
+            // not just live. The live-only generation bump leaves historical batch keys unchanged,
+            // which would hand the forced frontend refetch the identical stale entry.
+            else if (eventName is SignalREvents.ClientGroupCreated or SignalREvents.ClientGroupUpdated
+                     or SignalREvents.ClientGroupDeleted or SignalREvents.ClientGroupMemberAdded
+                     or SignalREvents.ClientGroupMemberRemoved or SignalREvents.ClientGroupsCleared)
+            {
+                _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
+            }
             else if (eventName is SignalREvents.DownloadsRefresh or SignalREvents.LogProcessingComplete)
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateLiveCache();

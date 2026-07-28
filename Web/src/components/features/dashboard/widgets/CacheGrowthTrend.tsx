@@ -21,7 +21,7 @@ interface CacheGrowthTrendProps {
 
 /**
  * Widget showing cache growth trend with sparkline and projection
- * Uses real API data from /api/stats/cache-growth
+ * Reads the cache growth slice of the batched dashboard response
  */
 const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
   ({ usedCacheSize, totalCacheSize, glassmorphism = false }) => {

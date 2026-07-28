@@ -296,35 +296,4 @@ public class ScheduledPrefillScheduleGateTests
             return null;
         }
     }
-
-    /// <summary>Minimal do-nothing proxy for interfaces whose members are never exercised.</summary>
-    private class NullReturningProxy : DispatchProxy
-    {
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod is null)
-            {
-                throw new InvalidOperationException("Target method was null.");
-            }
-
-            var returnType = targetMethod.ReturnType;
-
-            if (returnType == typeof(void))
-            {
-                return null;
-            }
-
-            if (returnType == typeof(Task))
-            {
-                return Task.CompletedTask;
-            }
-
-            if (returnType.IsValueType && Nullable.GetUnderlyingType(returnType) is null)
-            {
-                return Activator.CreateInstance(returnType);
-            }
-
-            return null;
-        }
-    }
 }

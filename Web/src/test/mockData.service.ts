@@ -95,6 +95,12 @@ const CLIENT_IPS = [
   '10.0.0.52'
 ];
 
+// Mirrors /api/stats/clients group folding: nicknamed rows + multi-IP collapse.
+const MOCK_CLIENT_GROUPS: { id: number; nickname: string; memberIps: string[] }[] = [
+  { id: 1, nickname: 'Living Room', memberIps: ['192.168.1.100', '192.168.1.101'] },
+  { id: 2, nickname: 'Office PC', memberIps: ['10.0.0.50'] }
+];
+
 class MockDataService {
   static generateMockData(downloadCount: number | 'unlimited' = 'unlimited'): MockData {
     const clients = CLIENT_IPS;
@@ -246,35 +252,74 @@ class MockDataService {
       (a, b) => new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime()
     );
 
-    // Generate client stats based on actual download activity
-    const clientStats: ClientStat[] = clients
-      .map((ip) => {
-        const activity = clientActivity[ip];
+    // Generate client stats based on actual download activity, then fold nicknamed
+    // groups the same way ClientStatsAggregationHelper does for the live API.
+    const ipToGroup = new Map(
+      MOCK_CLIENT_GROUPS.flatMap((g) => g.memberIps.map((ip) => [ip, g] as const))
+    );
+    const foldedGroups = new Map<number, ClientStat>();
+    const ungrouped: ClientStat[] = [];
 
-        if (activity) {
-          // Use actual data from downloads
-          const totalBytes = activity.totalCacheHitBytes + activity.totalCacheMissBytes;
-          const lastSeenIso = activity.lastSeen.toISOString();
-          return {
-            clientIp: ip,
-            displayName: undefined,
-            groupId: undefined,
-            isGrouped: false,
-            groupMemberIps: undefined,
-            totalCacheHitBytes: activity.totalCacheHitBytes,
-            totalCacheMissBytes: activity.totalCacheMissBytes,
-            totalBytes: totalBytes,
-            cacheHitPercent: totalBytes > 0 ? (activity.totalCacheHitBytes / totalBytes) * 100 : 0,
-            totalDownloads: activity.totalDownloads,
-            lastActivityUtc: lastSeenIso,
-            lastActivityLocal: lastSeenIso
-          } as ClientStat;
-        } else {
-          // Client had no downloads - return null to filter out
-          return null;
-        }
-      })
-      .filter((client): client is ClientStat => client !== null && client.totalBytes > 0);
+    for (const ip of clients) {
+      const activity = clientActivity[ip];
+      if (!activity) continue;
+
+      const totalBytes = activity.totalCacheHitBytes + activity.totalCacheMissBytes;
+      if (totalBytes <= 0) continue;
+
+      const lastSeenIso = activity.lastSeen.toISOString();
+      const group = ipToGroup.get(ip);
+
+      if (!group) {
+        ungrouped.push({
+          clientIp: ip,
+          displayName: undefined,
+          groupId: undefined,
+          isGrouped: false,
+          groupMemberIps: undefined,
+          totalCacheHitBytes: activity.totalCacheHitBytes,
+          totalCacheMissBytes: activity.totalCacheMissBytes,
+          totalBytes,
+          cacheHitPercent: (activity.totalCacheHitBytes / totalBytes) * 100,
+          totalDownloads: activity.totalDownloads,
+          lastActivityUtc: lastSeenIso
+        });
+        continue;
+      }
+
+      const existing = foldedGroups.get(group.id);
+      if (!existing) {
+        foldedGroups.set(group.id, {
+          clientIp: ip,
+          displayName: group.nickname,
+          groupId: group.id,
+          isGrouped: true,
+          groupMemberIps: [...group.memberIps],
+          totalCacheHitBytes: activity.totalCacheHitBytes,
+          totalCacheMissBytes: activity.totalCacheMissBytes,
+          totalBytes,
+          cacheHitPercent: (activity.totalCacheHitBytes / totalBytes) * 100,
+          totalDownloads: activity.totalDownloads,
+          lastActivityUtc: lastSeenIso
+        });
+        continue;
+      }
+
+      existing.totalCacheHitBytes += activity.totalCacheHitBytes;
+      existing.totalCacheMissBytes += activity.totalCacheMissBytes;
+      existing.totalBytes += totalBytes;
+      existing.totalDownloads += activity.totalDownloads;
+      existing.cacheHitPercent =
+        existing.totalBytes > 0 ? (existing.totalCacheHitBytes / existing.totalBytes) * 100 : 0;
+      if (new Date(lastSeenIso) > new Date(existing.lastActivityUtc)) {
+        existing.lastActivityUtc = lastSeenIso;
+        existing.clientIp = ip;
+      }
+    }
+
+    const clientStats: ClientStat[] = [...foldedGroups.values(), ...ungrouped].sort(
+      (a, b) => b.totalBytes - a.totalBytes
+    );
 
     // Generate service stats
     const serviceStats = SERVICES.map((service) => {

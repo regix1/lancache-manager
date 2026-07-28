@@ -154,10 +154,17 @@ public class GameDetectionService : ScheduledBackgroundService
             _logger.LogInformation("[GameDetection] Running detection data reconciliation...");
             await _detectionService.ReconcileDetectionDataAsync();
 
-            var cached = await _detectionService.GetCachedDetectionAsync();
-            if (cached != null)
+            // Gate on persisted detection rows, not a non-null GetCachedDetectionAsync() response.
+            // LoadDetectionAsync may return response-only partial-eviction synthetics with no
+            // CachedGameDetection/CachedServiceDetection rows; those must not suppress a real scan.
+            var hasPersistedDetections =
+                await context.CachedGameDetections.AnyAsync(stoppingToken)
+                || await context.CachedServiceDetections.AnyAsync(stoppingToken);
+            if (hasPersistedDetections)
             {
                 _logger.LogInformation("[GameDetection] Game detection data already cached, skipping startup scan");
+                // Warm the in-memory detection cache for subsequent dashboard reads.
+                await _detectionService.GetCachedDetectionAsync();
                 return;
             }
 

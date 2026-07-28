@@ -14,7 +14,6 @@ import type {
   CacheSizeScanningInfo,
   CacheSizeUnavailableInfo,
   CacheSizeScanStartInfo,
-  Download,
   ClientStat,
   ServiceStat,
   ProcessingStatus,
@@ -22,9 +21,6 @@ import type {
   MessageResponse,
   Config,
   DashboardStats,
-  HourlyActivityResponse,
-  CacheGrowthResponse,
-  SparklineDataResponse,
   CacheSnapshotResponse,
   CachedCorruptionDetectionResponse,
   CorruptionDetectionMethod,
@@ -55,6 +51,7 @@ import type {
   PicsStatus
 } from '../types';
 import type { StructuralScanMode } from '../types/corruptionScan';
+import type { ImportResult, ValidationResult } from '../types/migration';
 import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
 import type {
   NotificationMode,
@@ -376,36 +373,6 @@ class ApiService {
     }
   }
 
-  static async getLatestDownloads(
-    signal?: AbortSignal,
-    count: number | 'unlimited' = 'unlimited',
-    startTime?: number,
-    endTime?: number,
-    eventIds?: number[],
-    cacheBust?: number
-  ): Promise<Download[]> {
-    try {
-      const actualCount = count === 'unlimited' ? 2147483647 : count;
-      let url = `${API_BASE}/downloads/latest`;
-      const params = new URLSearchParams();
-      params.append('count', actualCount.toString());
-      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
-      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
-      if (eventIds && eventIds.length > 0) params.append('eventId', eventIds[0].toString());
-      if (cacheBust) params.append('cacheBust', cacheBust.toString());
-      url += `?${params}`;
-      const res = await fetch(url, this.getFetchOptions({ signal }));
-      return await this.handleResponse<Download[]>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else {
-        console.error('getLatestDownloads error:', error);
-      }
-      throw error;
-    }
-  }
-
   static async getRetroDownloads(
     params: RetroDownloadQueryParams,
     signal?: AbortSignal
@@ -657,91 +624,6 @@ class ApiService {
         // Silently ignore abort errors
       } else {
         console.error('getDashboardStats error:', error);
-      }
-      throw error;
-    }
-  }
-
-  // Hourly activity data for Peak Usage Hours widget
-  static async getHourlyActivity(
-    signal?: AbortSignal,
-    startTime?: number,
-    endTime?: number,
-    eventId?: number
-  ): Promise<HourlyActivityResponse> {
-    try {
-      let url = `${API_BASE}/stats/hourly-activity`;
-      const params = new URLSearchParams();
-      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
-      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
-      if (eventId) params.append('eventId', eventId.toString());
-      if (params.toString()) url += `?${params}`;
-      const res = await fetch(url, this.getFetchOptions({ signal }));
-      return await this.handleResponse<HourlyActivityResponse>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else {
-        console.error('getHourlyActivity error:', error);
-      }
-      throw error;
-    }
-  }
-
-  // Cache growth data for Cache Growth widget
-  static async getCacheGrowth(
-    signal?: AbortSignal,
-    startTime?: number,
-    endTime?: number,
-    interval = 'daily',
-    actualCacheSize?: number,
-    eventId?: number
-  ): Promise<CacheGrowthResponse> {
-    try {
-      let url = `${API_BASE}/stats/cache-growth`;
-      const params = new URLSearchParams();
-      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
-      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
-      params.append('interval', interval);
-      // Pass actual cache size to detect deletions and calculate net growth
-      if (actualCacheSize && actualCacheSize > 0) {
-        params.append('actualCacheSize', actualCacheSize.toString());
-      }
-      if (eventId) params.append('eventId', eventId.toString());
-      url += `?${params}`;
-      const res = await fetch(url, this.getFetchOptions({ signal }));
-      return await this.handleResponse<CacheGrowthResponse>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else {
-        console.error('getCacheGrowth error:', error);
-      }
-      throw error;
-    }
-  }
-
-  // Sparkline data for dashboard stat cards
-  static async getSparklineData(
-    signal?: AbortSignal,
-    startTime?: number,
-    endTime?: number,
-    eventId?: number
-  ): Promise<SparklineDataResponse> {
-    try {
-      let url = `${API_BASE}/stats/sparklines`;
-      const params = new URLSearchParams();
-      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
-      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
-      if (eventId) params.append('eventId', eventId.toString());
-      if (params.toString()) url += `?${params}`;
-      const res = await fetch(url, this.getFetchOptions({ signal }));
-      return await this.handleResponse<SparklineDataResponse>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else {
-        console.error('getSparklineData error:', error);
       }
       throw error;
     }
@@ -2223,45 +2105,43 @@ class ApiService {
     }
   }
 
-  // Get Steam user bans
-  static async getSteamBans(
+  // Get prefill user bans
+  static async getPrefillBans(
     includeLifted = false,
     signal?: AbortSignal
-  ): Promise<BannedSteamUserDto[]> {
+  ): Promise<BannedPrefillUserDto[]> {
     try {
       const res = await fetch(
         `${API_BASE}/prefill-admin/bans?includeLifted=${includeLifted}`,
         this.getFetchOptions({ signal })
       );
-      return await this.handleResponse<BannedSteamUserDto[]>(res);
+      return await this.handleResponse<BannedPrefillUserDto[]>(res);
     } catch (error: unknown) {
-      if (!isAbortError(error)) console.error('getSteamBans error:', error);
+      if (!isAbortError(error)) console.error('getPrefillBans error:', error);
       throw error;
     }
   }
 
-  // Ban a Steam user by session ID
-  static async banSteamUserBySession(
+  // Ban a prefill user by session ID
+  static async banPrefillUserBySession(
     sessionId: string,
     reason?: string,
     expiresAt?: string
-  ): Promise<BannedSteamUserDto> {
+  ): Promise<BannedPrefillUserDto> {
     try {
       const res = await fetch(
         `${API_BASE}/prefill-admin/bans/by-session/${sessionId}`,
         this.getJsonFetchOptions({ reason, expiresAt }, { method: 'POST' })
       );
-      return await this.handleResponse<BannedSteamUserDto>(res);
+      return await this.handleResponse<BannedPrefillUserDto>(res);
     } catch (error: unknown) {
-      console.error('banSteamUserBySession error:', error);
+      console.error('banPrefillUserBySession error:', error);
       throw error;
     }
   }
 
-  // Ban a Steam user by username
-
-  // Lift a Steam user ban
-  static async liftSteamBan(banId: number): Promise<{ message: string }> {
+  // Lift a prefill user ban
+  static async liftPrefillBan(banId: number): Promise<{ message: string }> {
     try {
       const res = await fetch(
         `${API_BASE}/prefill-admin/bans/${banId}/lift`,
@@ -2271,7 +2151,7 @@ class ApiService {
       );
       return await this.handleResponse<{ message: string }>(res);
     } catch (error: unknown) {
-      console.error('liftSteamBan error:', error);
+      console.error('liftPrefillBan error:', error);
       throw error;
     }
   }
@@ -2335,14 +2215,12 @@ class ApiService {
   // =====================================================
 
   // Validate a connection string for migration
-  static async validateMigrationConnection(
-    connectionString: string
-  ): Promise<MigrationValidationResult> {
+  static async validateMigrationConnection(connectionString: string): Promise<ValidationResult> {
     const res = await fetch(
       `${API_BASE}/migration/validate-connection?connectionString=${encodeURIComponent(connectionString)}`,
       this.getFetchOptions({ method: 'GET' })
     );
-    return this.handleResponse<MigrationValidationResult>(res);
+    return this.handleResponse<ValidationResult>(res);
   }
 
   // Import from LancacheManager database
@@ -2350,7 +2228,7 @@ class ApiService {
     connectionString: string,
     batchSize: number,
     overwriteExisting: boolean
-  ): Promise<MigrationImportResult> {
+  ): Promise<ImportResult> {
     const res = await fetch(
       `${API_BASE}/migration/import-lancache-manager`,
       this.getJsonFetchOptions(
@@ -2358,7 +2236,7 @@ class ApiService {
         { method: 'POST' }
       )
     );
-    return this.handleResponse<MigrationImportResult>(res);
+    return this.handleResponse<ImportResult>(res);
   }
 
   // =====================================================
@@ -3480,7 +3358,7 @@ export interface PrefillSessionDto {
   sessionId: string;
   containerId?: string;
   containerName?: string;
-  steamUsername?: string;
+  accountUsername?: string;
   status: PrefillSessionStatus;
   isAuthenticated: boolean;
   isPrefilling: boolean;
@@ -3757,7 +3635,7 @@ export interface DaemonSessionDto {
   operatingSystem?: string;
   browser?: string;
   lastSeenAt: string;
-  steamUsername?: string;
+  accountUsername?: string;
   // Current prefill progress info for admin visibility
   currentAppId?: string;
   currentAppName?: string;
@@ -3781,7 +3659,7 @@ interface PrefillSessionsResponse {
   lastPrefillCacheIpSource?: string | null;
 }
 
-export interface BannedSteamUserDto {
+export interface BannedPrefillUserDto {
   id: number;
   username: string;
   banReason?: string;
@@ -3830,21 +3708,6 @@ interface PersistentPrefillOwnedGameDto {
 interface PersistentPrefillGamesDto {
   games: PersistentPrefillOwnedGameDto[];
   cachedAppIds: string[];
-}
-
-interface MigrationValidationResult {
-  valid: boolean;
-  message: string;
-  recordCount?: number;
-}
-
-interface MigrationImportResult {
-  message: string;
-  totalRecords: number;
-  imported: number;
-  skipped: number;
-  errors: number;
-  backupPath?: string;
 }
 
 export default ApiService;

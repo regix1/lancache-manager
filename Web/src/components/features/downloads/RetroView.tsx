@@ -27,6 +27,7 @@ import type { ColumnWidths } from '@utils/textMeasurement';
 import { Alert } from '@components/ui/Alert';
 import { Pagination } from '@components/ui/Pagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
+import { useClientGroups } from '@contexts/useClientGroups';
 import { resolveGameDetection } from '@utils/gameDetection';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import RetroRow from './RetroRow';
@@ -245,6 +246,7 @@ const RetroView = memo(
       const { t } = useTranslation();
       const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
       const availableImages = useAvailableGameImages();
+      const { getGroupForIp } = useClientGroups();
 
       // Use JavaScript-based breakpoint detection for conditional rendering
       // This completely removes desktop layout from DOM on mobile, preventing width calculation conflicts
@@ -358,10 +360,11 @@ const RetroView = memo(
                   : data.depotId
                     ? String(data.depotId)
                     : t('downloads.tab.retro.notAvailable'),
+              // Must match RetroRow: nickname when present, otherwise the raw IP.
               clientLabel:
                 data.clientsSet.size > 1
                   ? t('downloads.tab.retro.clientCount', { count: data.clientsSet.size })
-                  : data.clientIp,
+                  : getGroupForIp(data.clientIp)?.nickname || data.clientIp,
               clientSubLabel:
                 data.requestCount > 1
                   ? t('downloads.tab.retro.requestCount', { count: data.requestCount })
@@ -377,7 +380,7 @@ const RetroView = memo(
                     : t('downloads.tab.retro.gauge.miss')
             };
           }),
-        [groupedItems, t, detectionLookup, detectionByName, detectionByService]
+        [groupedItems, t, detectionLookup, detectionByName, detectionByService, getGroupForIp]
       );
 
       // Column widths: auto-fit measured content to the available table width

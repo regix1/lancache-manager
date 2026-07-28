@@ -20,16 +20,19 @@ namespace LancacheManager.Controllers;
 public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGroupDto, CreateClientGroupRequest, UpdateClientGroupRequest, long>
 {
     private readonly IClientGroupsService _clientGroupsRepository;
+    private readonly IDashboardBatchService _dashboardBatchService;
 
     protected override string ResourceName => "Client group";
 
     public ClientGroupsController(
         IClientGroupsService clientGroupsRepository,
         ISignalRNotificationService notifications,
-        ILogger<ClientGroupsController> logger)
+        ILogger<ClientGroupsController> logger,
+        IDashboardBatchService dashboardBatchService)
         : base(clientGroupsRepository, notifications, logger)
     {
         _clientGroupsRepository = clientGroupsRepository;
+        _dashboardBatchService = dashboardBatchService;
     }
 
     // ===== Abstract Method Implementations =====
@@ -41,7 +44,8 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         return new ClientGroup
         {
             Nickname = request.Nickname.Trim(),
-            Description = request.Description?.Trim()
+            Description = request.Description?.Trim(),
+            SeparateMemberRows = request.SeparateMemberRows
         };
     }
 
@@ -49,6 +53,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     {
         entity.Nickname = request.Nickname.Trim();
         entity.Description = request.Description?.Trim();
+        entity.SeparateMemberRows = request.SeparateMemberRows!.Value;
     }
 
     /// <summary>
@@ -89,18 +94,25 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
 
     // ===== SignalR Notifications =====
 
+    // The dashboard batch's clients section carries group nicknames, so every membership or
+    // nickname write must expire the live batch BEFORE the event goes out - otherwise the
+    // refetch the event triggers is served the previous nickname for the rest of the window.
+
     protected override async Task OnCreatedAsync(ClientGroup entity, ClientGroupDto dto)
     {
+        _dashboardBatchService.InvalidateLiveCache();
         await _notifications.NotifyAllAsync(SignalREvents.ClientGroupCreated, dto);
     }
 
     protected override async Task OnUpdatedAsync(ClientGroup entity, ClientGroupDto dto)
     {
+        _dashboardBatchService.InvalidateLiveCache();
         await _notifications.NotifyAllAsync(SignalREvents.ClientGroupUpdated, dto);
     }
 
     protected override async Task OnDeletedAsync(long id)
     {
+        _dashboardBatchService.InvalidateLiveCache();
         await _notifications.NotifyAllAsync(SignalREvents.ClientGroupDeleted, id);
     }
 
@@ -169,6 +181,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         var dto = ToDto(updated!);
 
         // Notify clients via SignalR
+        _dashboardBatchService.InvalidateLiveCache();
         await _notifications.NotifyAllAsync(SignalREvents.ClientGroupMemberAdded, new ClientGroupMemberAdded(id, request.ClientIp.Trim()));
 
         return Ok(dto);
@@ -186,6 +199,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         await _clientGroupsRepository.RemoveMemberAsync(id, ip, ct);
 
         // Notify clients via SignalR
+        _dashboardBatchService.InvalidateLiveCache();
         await _notifications.NotifyAllAsync(SignalREvents.ClientGroupMemberRemoved, new ClientGroupMemberRemoved(id, ip));
 
         return NoContent();
@@ -200,7 +214,12 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         var mapping = await _clientGroupsRepository.GetIpMappingAsync(ct);
         var result = mapping.ToDictionary(
             kvp => kvp.Key,
-            kvp => new { groupId = kvp.Value.GroupId, nickname = kvp.Value.Nickname }
+            kvp => new
+            {
+                groupId = kvp.Value.GroupId,
+                nickname = kvp.Value.Nickname,
+                separateMemberRows = kvp.Value.SeparateMemberRows
+            }
         );
         return Ok(result);
     }

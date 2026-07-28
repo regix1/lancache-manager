@@ -68,6 +68,7 @@ public class ClientGroupsService : IClientGroupsService
 
         existing.Nickname = group.Nickname;
         existing.Description = group.Description;
+        existing.SeparateMemberRows = group.SeparateMemberRows;
         existing.UpdatedAtUtc = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -131,7 +132,7 @@ public class ClientGroupsService : IClientGroupsService
         }
     }
 
-    public async Task<Dictionary<string, (long GroupId, string Nickname)>> GetIpMappingAsync(CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, ClientGroupAssignment>> GetIpMappingAsync(CancellationToken cancellationToken = default)
     {
         var mappings = await _context.ClientGroupMembers
             .AsNoTracking()
@@ -139,14 +140,23 @@ public class ClientGroupsService : IClientGroupsService
                 _context.ClientGroups.AsNoTracking(),
                 member => member.ClientGroupId,
                 group => group.Id,
-                (member, group) => new { member.ClientIp, member.ClientGroupId, group.Nickname })
+                (member, group) => new
+                {
+                    member.ClientIp,
+                    member.ClientGroupId,
+                    group.Nickname,
+                    group.SeparateMemberRows
+                })
             .ToListAsync(cancellationToken);
 
         return mappings
             .GroupBy(m => m.ClientIp)
             .ToDictionary(
                 g => g.Key,
-                g => ((long)g.First().ClientGroupId, g.First().Nickname));
+                g => new ClientGroupAssignment(
+                    g.First().ClientGroupId,
+                    g.First().Nickname,
+                    g.First().SeparateMemberRows));
     }
 
     // ===== ICrudRepository-like methods (delegating to entity-specific methods) =====

@@ -51,6 +51,24 @@ export interface PrefillPanelProps {
   onSessionEnd?: () => void;
 }
 
+/** One app row of a size estimate, as returned by the daemon's selected-apps status. */
+export interface EstimatedSizeApp {
+  appId: string;
+  name: string;
+  downloadSize: number;
+  isUnsupportedOs?: boolean;
+  unavailableReason?: string;
+}
+
+/** Size-estimate state shared by the panel and the confirmation modal. */
+export interface EstimatedSize {
+  bytes: number;
+  loading: boolean;
+  error?: string;
+  apps?: EstimatedSizeApp[];
+  message?: string;
+}
+
 export type CommandType =
   | 'select-apps'
   | 'prefill'

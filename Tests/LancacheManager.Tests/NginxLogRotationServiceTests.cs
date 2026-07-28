@@ -356,10 +356,12 @@ public sealed class NginxLogRotationServiceTests
         Assert.False(result.Success);
         Assert.False(result.DockerSocketMissing);
         Assert.Contains("pid: host", result.ErrorMessage, StringComparison.Ordinal);
-        Assert.Contains("root", result.ErrorMessage, StringComparison.Ordinal);
         Assert.Contains("CAP_KILL", result.ErrorMessage, StringComparison.Ordinal);
         Assert.DoesNotContain("code 3", result.ErrorMessage, StringComparison.Ordinal);
-        Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
+        var warning = Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
+        Assert.Contains("pid: host", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("root is not required", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("CAP_KILL", warning.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -382,8 +384,8 @@ public sealed class NginxLogRotationServiceTests
         Assert.Contains("Failed to signal host nginx", first.ErrorMessage, StringComparison.Ordinal);
         Assert.Contains("Operation not permitted", first.ErrorMessage, StringComparison.Ordinal);
         var warning = Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
-        Assert.Contains("--pid=host", warning.Message, StringComparison.Ordinal);
-        Assert.Contains("root", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("pid: host", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("root is not required", warning.Message, StringComparison.Ordinal);
         Assert.Contains("CAP_KILL", warning.Message, StringComparison.Ordinal);
         Assert.Contains("logrotate", warning.Message, StringComparison.Ordinal);
         Assert.Contains("nginx -s reopen", warning.Message, StringComparison.Ordinal);

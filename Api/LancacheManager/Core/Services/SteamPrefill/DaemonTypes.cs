@@ -163,14 +163,42 @@ public class DaemonStatus
 
     /// <summary>
     /// Extracts the daemon's account display name from a status payload, tolerant of per-daemon casing
-    /// (Steam <c>Username</c>, Epic/Xbox <c>accountDisplayName</c>).
+    /// and key names (Steam <c>Username</c>, Epic/Xbox <c>accountDisplayName</c>, AuthState
+    /// <c>displayName</c>). Candidates are tried in priority order so a payload that includes multiple
+    /// aliases still prefers <c>accountDisplayName</c> over <c>username</c> over <c>displayName</c>.
     /// </summary>
     public static string? ParseAccountDisplayName(JsonElement element)
     {
-        if (TryGetPropertyCaseInsensitive(element, out var name, "accountDisplayName", "username")
-            && name.ValueKind == JsonValueKind.String)
+        foreach (var candidate in new[] { "accountDisplayName", "username", "displayName" })
         {
-            return name.GetString();
+            if (TryGetPropertyCaseInsensitive(element, out var name, candidate)
+                && name.ValueKind == JsonValueKind.String)
+            {
+                var value = name.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves the human-readable account name from whichever ingest field was populated
+    /// (<see cref="AccountDisplayName"/> from GetStatus, <see cref="DisplayName"/> from AuthState).
+    /// </summary>
+    public string? ResolveAccountDisplayName()
+    {
+        if (!string.IsNullOrWhiteSpace(AccountDisplayName))
+        {
+            return AccountDisplayName.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(DisplayName))
+        {
+            return DisplayName.Trim();
         }
 
         return null;

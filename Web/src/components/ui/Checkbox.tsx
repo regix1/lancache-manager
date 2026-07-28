@@ -6,7 +6,7 @@ import React from 'react';
  * IMPORTANT - Avoiding Flicker When Filtering Data:
  * When using a checkbox to filter data (e.g., "Show Lifted Bans"), do NOT trigger
  * an API call on every toggle. Instead:
- * 1. Fetch all data once upfront (e.g., getSteamBans(true) to include all items)
+ * 1. Fetch all data once upfront (e.g., getPrefillBans(true) to include all items)
  * 2. Use useMemo to filter the data client-side based on checkbox state
  * 3. Render the memoized filtered array
  *

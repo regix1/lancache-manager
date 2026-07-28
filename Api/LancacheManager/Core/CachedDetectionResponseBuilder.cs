@@ -31,7 +31,9 @@ public static class CachedDetectionResponseBuilder
         DateTime? summaryComputedAtUtc = null,
         bool detectionStale = false)
     {
-        var activeGamesCount = games.Count(g => !g.IsEvicted);
+        var activeGamesCount = games.Count(g => !g.IsEvicted && g.CacheFilesFound > 0);
+        // Synthetics-only LoadDetectionAsync supplies an explicit zero aggregate. A null here
+        // means persisted detection rows without a derived summary — keep that integrity fault loud.
         var summary = diskSummary ?? throw new InvalidOperationException(
             "Cached detection rows exist without a derived disk summary");
 

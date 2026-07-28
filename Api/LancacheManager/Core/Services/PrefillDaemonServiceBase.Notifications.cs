@@ -129,16 +129,59 @@ public abstract partial class PrefillDaemonServiceBase
 
             session.AuthState = newAuthState;
 
-            // Capture the login-required service display name (Epic account name / Xbox gamertag)
-            // from daemon status updates. This populates session.Username AND persists it via
-            // SetUsernameAsync so it drives both the admin display AND username-banning. Anonymous
-            // services (Battle.net/Riot) never report a DisplayName and ban via the UserId GUID path.
-            if (newAuthState == DaemonAuthState.Authenticated
-                && (session.Platform == "Epic" || session.Platform == "Xbox")
-                && !string.IsNullOrEmpty(status.DisplayName))
+            // Capture the resolved account display name from either ingest field (GetStatus
+            // AccountDisplayName or AuthState DisplayName). No platform string gate: any authenticated
+            // session with a non-empty resolved name gets Username + AccountUsername set so admin UI and
+            // username bans work. Anonymous Battle.net/Riot daemons report no name and ban via UserId.
+            if (newAuthState == DaemonAuthState.Authenticated)
             {
-                session.Username = status.DisplayName;
-                await _sessionService.SetUsernameAsync(session.Id, status.DisplayName);
+                var accountName = status.ResolveAccountDisplayName();
+                if (!string.IsNullOrEmpty(accountName)
+                    && !string.Equals(session.Username, accountName, StringComparison.Ordinal))
+                {
+                    session.Username = accountName;
+                    session.AccountUsername = accountName;
+                    await _sessionService.SetUsernameAsync(session.Id, accountName);
+
+                    // Late name capture while already Authenticated: KickBanned skips empty Username, so
+                    // re-enforce now that a ban key exists. Awaited (not fire-and-forget) so the ban
+                    // window is not lost.
+                    if (!IsSessionLive(session))
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        await KickBannedSessionsAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Failed to enforce username bans after account name capture for session {SessionId}",
+                            session.Id);
+                    }
+
+                    // Push SessionUpdated only while live so management UIs see the username without
+                    // polling. Auth-state transitions also push via NotifyAuthStateChangeAsync; this
+                    // covers the late-capture path where AuthState does not change.
+                    if (!IsSessionLive(session))
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        var dto = DaemonSessionDto.FromSession(session);
+                        await NotifyHubAsync(EventSessionUpdated, dto);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Failed to broadcast session update after account name capture for session {SessionId}",
+                            session.Id);
+                    }
+                }
             }
 
             // Re-check liveness after the durable write before broadcasting: teardown may have won during
@@ -623,7 +666,7 @@ public abstract partial class PrefillDaemonServiceBase
                                 numericAppId,
                                 progress.CurrentAppName,
                                 progress.Depots.Select(d => (d.DepotId, d.ManifestId, d.TotalBytes)),
-                                session.SteamUsername);
+                                session.AccountUsername);
                         }
                     }
                     catch (Exception cacheEx)

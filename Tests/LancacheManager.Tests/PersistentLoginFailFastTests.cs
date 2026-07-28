@@ -187,35 +187,6 @@ public class PersistentLoginFailFastTests
     }
 
     /// <summary>
-    /// Minimal do-nothing proxy for interfaces whose members are not exercised by these tests' happy
-    /// paths (mirrors NullReturningProxy in ScheduledPrefillAnonymousRunPathTests.cs).
-    /// </summary>
-    private class NullReturningProxy : DispatchProxy
-    {
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            var returnType = targetMethod?.ReturnType;
-
-            if (returnType is null || returnType == typeof(void))
-            {
-                return null;
-            }
-
-            if (returnType == typeof(Task))
-            {
-                return Task.CompletedTask;
-            }
-
-            if (returnType.IsValueType && Nullable.GetUnderlyingType(returnType) is null)
-            {
-                return Activator.CreateInstance(returnType);
-            }
-
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Base fake <see cref="IDaemonClient"/> exposing the same event surface as the real transports;
     /// every member outside a scenario's login-flow scope throws <see cref="NotSupportedException"/> so
     /// an unexpected call fails loudly (mirrors FakeAnonymousDaemonClient in

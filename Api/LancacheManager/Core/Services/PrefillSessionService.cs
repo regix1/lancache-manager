@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LancacheManager.Core.Services;
 
 /// <summary>
-/// Service for managing prefill sessions and Steam user bans.
+/// Service for managing prefill sessions and prefill user bans.
 /// Handles session persistence, ban checking, and orphan container detection.
 /// </summary>
 public class PrefillSessionService
@@ -51,7 +51,7 @@ public class PrefillSessionService
     #region Ban Management
 
     /// <summary>
-    /// Checks if a Steam username is banned.
+    /// Checks if a prefill account username is banned.
     /// Returns true if the user is banned and the ban is active.
     /// Comparison is case-insensitive.
     /// </summary>
@@ -63,7 +63,7 @@ public class PrefillSessionService
         var normalizedUsername = username.Trim().ToLowerInvariant();
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        var ban = await context.BannedSteamUsers
+        var ban = await context.BannedPrefillUsers
             .AsNoTracking()
             .Where(b => b.Username == normalizedUsername && !b.IsLifted)
             .Where(b => b.ExpiresAtUtc == null || b.ExpiresAtUtc > DateTime.UtcNow)
@@ -84,7 +84,7 @@ public class PrefillSessionService
 
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        var ban = await context.BannedSteamUsers
+        var ban = await context.BannedPrefillUsers
             .AsNoTracking()
             .Where(b => b.BannedUserId == userId && !b.IsLifted)
             .Where(b => b.ExpiresAtUtc == null || b.ExpiresAtUtc > DateTime.UtcNow)
@@ -94,9 +94,9 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Bans a Steam user by their username.
+    /// Bans a prefill user by their username.
     /// </summary>
-    public async Task<BannedSteamUser> BanUserAsync(
+    public async Task<BannedPrefillUser> BanUserAsync(
         string username,
         string? reason = null,
         string? bannedBySessionId = null,
@@ -110,7 +110,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         // Check if already banned
-        var existingBan = await context.BannedSteamUsers
+        var existingBan = await context.BannedPrefillUsers
             .Where(b => b.Username == normalizedUsername && !b.IsLifted)
             .FirstOrDefaultAsync();
 
@@ -120,7 +120,7 @@ public class PrefillSessionService
             return existingBan;
         }
 
-        var ban = new BannedSteamUser
+        var ban = new BannedPrefillUser
         {
             Username = normalizedUsername,
             BanReason = reason,
@@ -130,10 +130,10 @@ public class PrefillSessionService
             ExpiresAtUtc = expiresAt
         };
 
-        context.BannedSteamUsers.Add(ban);
+        context.BannedPrefillUsers.Add(ban);
         await context.SaveChangesAsync();
 
-        _logger.LogWarning("Banned Steam user {Username} by session {BannedBySessionId}. Reason: {Reason}",
+        _logger.LogWarning("Banned prefill user {Username} by session {BannedBySessionId}. Reason: {Reason}",
             username, bannedBySessionId ?? "admin", reason ?? "No reason provided");
 
         return ban;
@@ -143,7 +143,7 @@ public class PrefillSessionService
     /// Bans a prefill user by their lancache-manager auth-session id (DaemonSession.UserId GUID).
     /// Used for anonymous services (e.g. Battle.net) that have no game username to ban.
     /// </summary>
-    public async Task<BannedSteamUser> BanByUserIdAsync(
+    public async Task<BannedPrefillUser> BanByUserIdAsync(
         Guid bannedUserId,
         string? reason = null,
         string? bannedBySessionId = null,
@@ -156,7 +156,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         // Check if already banned
-        var existingBan = await context.BannedSteamUsers
+        var existingBan = await context.BannedPrefillUsers
             .Where(b => b.BannedUserId == bannedUserId && !b.IsLifted)
             .FirstOrDefaultAsync();
 
@@ -166,7 +166,7 @@ public class PrefillSessionService
             return existingBan;
         }
 
-        var ban = new BannedSteamUser
+        var ban = new BannedPrefillUser
         {
             Username = null,
             BannedUserId = bannedUserId,
@@ -177,7 +177,7 @@ public class PrefillSessionService
             ExpiresAtUtc = expiresAt
         };
 
-        context.BannedSteamUsers.Add(ban);
+        context.BannedPrefillUsers.Add(ban);
         await context.SaveChangesAsync();
 
         _logger.LogWarning("Banned prefill user id {BannedUserId} by session {BannedBySessionId}. Reason: {Reason}",
@@ -187,13 +187,13 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Lifts a ban for a Steam user.
+    /// Lifts a ban for a prefill user.
     /// </summary>
-    public async Task<BannedSteamUser?> LiftBanAsync(long banId, string? liftedBy = null)
+    public async Task<BannedPrefillUser?> LiftBanAsync(long banId, string? liftedBy = null)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        var ban = await context.BannedSteamUsers.FindAsync(banId);
+        var ban = await context.BannedPrefillUsers.FindAsync(banId);
         if (ban == null || ban.IsLifted)
             return null;
 
@@ -212,11 +212,11 @@ public class PrefillSessionService
     /// <summary>
     /// Gets all active bans.
     /// </summary>
-    public async Task<List<BannedSteamUser>> GetActiveBansAsync()
+    public async Task<List<BannedPrefillUser>> GetActiveBansAsync()
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        return await context.BannedSteamUsers
+        return await context.BannedPrefillUsers
             .AsNoTracking()
             .Where(b => !b.IsLifted)
             .Where(b => b.ExpiresAtUtc == null || b.ExpiresAtUtc > DateTime.UtcNow)
@@ -227,11 +227,11 @@ public class PrefillSessionService
     /// <summary>
     /// Gets all bans (including lifted and expired).
     /// </summary>
-    public async Task<List<BannedSteamUser>> GetAllBansAsync()
+    public async Task<List<BannedPrefillUser>> GetAllBansAsync()
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        return await context.BannedSteamUsers
+        return await context.BannedPrefillUsers
             .AsNoTracking()
             .OrderByDescending(b => b.BannedAtUtc)
             .ToListAsync();
@@ -339,8 +339,8 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Updates the Steam username for a session.
-    /// Called when the user provides their username credential.
+    /// Updates the prefill account username for a session.
+    /// Called when the user provides a username credential or the daemon reports an authenticated account name.
     /// </summary>
     public async Task SetUsernameAsync(string sessionId, string username)
     {
@@ -351,7 +351,7 @@ public class PrefillSessionService
 
         if (session != null)
         {
-            session.SteamUsername = username.Trim();
+            session.AccountUsername = username.Trim();
             await context.SaveChangesAsync();
 
             _logger.LogDebug("Set username for session {SessionId}: {Username}", sessionId, username);
@@ -686,13 +686,13 @@ public class PrefillSessionService
 
     /// <summary>
     /// Bans a user by session ID.
-    /// For sessions that captured a game username (Steam/Epic) the ban keys on that username.
-    /// For anonymous sessions with no username (e.g. Battle.net) the ban falls back to the
+    /// For sessions that captured a game username (Steam/Epic/Xbox) the ban keys on that username.
+    /// For anonymous sessions with no username (Battle.net/Riot) the ban falls back to the
     /// shared lancache-manager auth-session id (<see cref="PrefillSession.CreatedBySessionId"/>,
     /// the DaemonSession.UserId GUID) so anonymous prefill users remain bannable.
     /// Returns null only when the session itself cannot be found.
     /// </summary>
-    public async Task<BannedSteamUser?> BanUserBySessionAsync(
+    public async Task<BannedPrefillUser?> BanUserBySessionAsync(
         string sessionId,
         string? reason = null,
         string? bannedBy = null,
@@ -714,11 +714,11 @@ public class PrefillSessionService
             ? null
             : session.CreatedBySessionId.ToString();
 
-        // Username-based ban (Steam/Epic): preserve the existing behavior exactly.
-        if (!string.IsNullOrEmpty(session.SteamUsername))
+        // Username-based ban (Steam/Epic/Xbox): preserve the existing behavior exactly.
+        if (!string.IsNullOrEmpty(session.AccountUsername))
         {
             return await BanUserAsync(
-                session.SteamUsername,
+                session.AccountUsername,
                 reason,
                 bannedBySessionId,
                 bannedBy,

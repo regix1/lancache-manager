@@ -7,17 +7,10 @@ import { EmptyState } from '@components/ui/ManagerCard';
 import { CacheInfoTooltip } from '@components/ui/Tooltip';
 import { getServiceColorClass } from '@utils/serviceColors';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import type { ServiceStat } from '@/types';
 
 interface ServiceRowProps {
-  service: {
-    service: string;
-    totalDownloads: number;
-    totalBytes: number;
-    totalCacheHitBytes: number;
-    totalCacheMissBytes: number;
-    cacheHitPercent: number;
-    lastActivityUtc: string;
-  };
+  service: ServiceStat;
 }
 
 const ServiceRow: React.FC<ServiceRowProps> = ({ service }) => {

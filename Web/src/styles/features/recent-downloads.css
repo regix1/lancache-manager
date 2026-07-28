@@ -302,7 +302,7 @@
    per-tick speed updates cannot shift the layout. */
 
 .rdl-live-badge {
-  font-size: 0.625rem;
+  font-size: var(--font-size-2xs);
   line-height: 1.4;
   text-transform: uppercase;
   letter-spacing: 0.04em;

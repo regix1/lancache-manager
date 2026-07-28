@@ -331,48 +331,23 @@ public class DashboardBatchService : IDashboardBatchService
             query = query.Where(d => d.StartTimeUtc <= endDate);
         }
 
-        var ipStats = await query
-            .GroupBy(d => d.ClientIp)
-            .Select(g => new
-            {
-                ClientIp = g.Key,
-                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
-                TotalDownloads = g.Count(),
-                MinStartTimeUtc = g.Min(d => d.StartTimeUtc),
-                MaxEndTimeUtc = g.Max(d => d.EndTimeUtc),
-                LastActivityUtc = g.Max(d => d.StartTimeUtc)
-            })
-            .ToListAsync(ct);
+        // The GROUP BY and its client-side duration fold are shared with GET /api/stats/clients, so
+        // the two surfaces cannot drift at the step above the shared ranking helper.
+        var ipAggregates = await ClientStatsAggregationHelper.QueryIpAggregatesAsync(query, ct);
 
-        // Calculate duration client-side (DateTime subtraction can't be translated to SQL)
-        var ipStatsWithDuration = ipStats.Select(s => new
+        // IClientGroupsService is Scoped (its AppDbContext is) and this service is a singleton,
+        // so the nickname mapping is read through a per-call scope, like the live downloads path.
+        Dictionary<string, ClientGroupAssignment> ipToGroupMapping;
+        using (var scope = _scopeFactory.CreateScope())
         {
-            s.ClientIp,
-            s.TotalCacheHitBytes,
-            s.TotalCacheMissBytes,
-            s.TotalDownloads,
-            TotalDurationSeconds = s.MaxEndTimeUtc > s.MinStartTimeUtc
-                ? (s.MaxEndTimeUtc - s.MinStartTimeUtc).TotalSeconds
-                : 0,
-            s.LastActivityUtc
-        }).ToList();
+            var clientGroupsService = scope.ServiceProvider.GetRequiredService<IClientGroupsService>();
+            ipToGroupMapping = await clientGroupsService.GetIpMappingAsync(ct);
+        }
 
-        var result = ipStatsWithDuration
-            .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
-            .Take(effectiveLimit)
-            .Select(s => new ClientStats
-            {
-                ClientIp = s.ClientIp,
-                TotalCacheHitBytes = s.TotalCacheHitBytes,
-                TotalCacheMissBytes = s.TotalCacheMissBytes,
-                TotalDownloads = s.TotalDownloads,
-                TotalDurationSeconds = s.TotalDurationSeconds,
-                LastActivityUtc = s.LastActivityUtc.AsUtc()
-            })
-            .ToList();
-
-        return result;
+        // Same shared fold as GET /api/stats/clients: groups are summed before the top-N cut and
+        // the rows carry the nickname, so both surfaces rank and label clients identically.
+        return ClientStatsAggregationHelper.AggregateAndRank(
+            ipAggregates, ipToGroupMapping, effectiveLimit);
     }
 
     private async Task<object> GetServiceStatsAsync(
@@ -733,10 +708,10 @@ public class DashboardBatchService : IDashboardBatchService
 
         return new SparklineDataResponse
         {
-            BandwidthSaved = BuildSparklineMetric(bandwidthSavedData),
-            CacheHitRatio = BuildRatioSparkline(cacheHitRatioData),
-            TotalServed = BuildSparklineMetric(totalServedData),
-            AddedToCache = BuildSparklineMetric(addedToCacheData),
+            BandwidthSaved = BuildSparklineMetric(bandwidthSavedData, SparklineTrendScale.Proportional),
+            CacheHitRatio = BuildSparklineMetric(cacheHitRatioData, SparklineTrendScale.Points),
+            TotalServed = BuildSparklineMetric(totalServedData, SparklineTrendScale.Proportional),
+            AddedToCache = BuildSparklineMetric(addedToCacheData, SparklineTrendScale.Proportional),
             Period = startTime.HasValue ? "filtered" : "all"
         };
     }
@@ -1066,34 +1041,18 @@ public class DashboardBatchService : IDashboardBatchService
         public long CacheMissBytes { get; set; }
     }
 
-    private static SparklineMetric BuildSparklineMetric(List<double> data)
+    /// <summary>
+    /// How a sparkline's trend is measured. Byte counts have no fixed upper bound, so they are
+    /// compared proportionally; a percentage ratio is already normalised to 0-100, so it is
+    /// compared by point difference instead.
+    /// </summary>
+    private enum SparklineTrendScale
     {
-        var trimmed = data.ToList();
-        while (trimmed.Count > 1 && trimmed.Last() == 0)
-            trimmed.RemoveAt(trimmed.Count - 1);
-
-        if (trimmed.Count < 2)
-            return new SparklineMetric { Data = trimmed, Trend = "stable" };
-
-        string trend = "stable";
-        if (trimmed.Count >= 4)
-        {
-            int recentCount = Math.Min(3, trimmed.Count / 2);
-            double recent = trimmed.TakeLast(recentCount).Average();
-            double earlier = trimmed.Skip(Math.Max(0, trimmed.Count - recentCount * 2)).Take(recentCount).Average();
-            double diff = (recent - earlier) / Math.Max(earlier, 0.001);
-            trend = diff > 0.05 ? "up" : diff < -0.05 ? "down" : "stable";
-        }
-        else if (trimmed.Count >= 2)
-        {
-            double diff = (trimmed.Last() - trimmed.First()) / Math.Max(trimmed.First(), 0.001);
-            trend = diff > 0.05 ? "up" : diff < -0.05 ? "down" : "stable";
-        }
-
-        return new SparklineMetric { Data = trimmed, Trend = trend };
+        Proportional,
+        Points
     }
 
-    private static SparklineMetric BuildRatioSparkline(List<double> data)
+    private static SparklineMetric BuildSparklineMetric(List<double> data, SparklineTrendScale scale)
     {
         var trimmed = data.ToList();
         while (trimmed.Count > 1 && trimmed.Last() == 0)
@@ -1102,20 +1061,28 @@ public class DashboardBatchService : IDashboardBatchService
         if (trimmed.Count < 2)
             return new SparklineMetric { Data = trimmed, Trend = "stable" };
 
-        string trend = "stable";
+        double recent;
+        double earlier;
         if (trimmed.Count >= 4)
         {
+            // Compare the last few points to the points immediately before them, so the trend
+            // matches what the tail of the rendered sparkline looks like.
             int recentCount = Math.Min(3, trimmed.Count / 2);
-            double recent = trimmed.TakeLast(recentCount).Average();
-            double earlier = trimmed.Skip(Math.Max(0, trimmed.Count - recentCount * 2)).Take(recentCount).Average();
-            double diff = recent - earlier;
-            trend = diff > 2 ? "up" : diff < -2 ? "down" : "stable";
+            recent = trimmed.TakeLast(recentCount).Average();
+            earlier = trimmed.Skip(Math.Max(0, trimmed.Count - recentCount * 2)).Take(recentCount).Average();
         }
-        else if (trimmed.Count >= 2)
+        else
         {
-            double diff = trimmed.Last() - trimmed.First();
-            trend = diff > 2 ? "up" : diff < -2 ? "down" : "stable";
+            // Too few points to window, so compare last to first.
+            recent = trimmed.Last();
+            earlier = trimmed.First();
         }
+
+        double diff = scale == SparklineTrendScale.Proportional
+            ? (recent - earlier) / Math.Max(earlier, 0.001)
+            : recent - earlier;
+        double threshold = scale == SparklineTrendScale.Proportional ? 0.05 : 2.0;
+        string trend = diff > threshold ? "up" : diff < -threshold ? "down" : "stable";
 
         return new SparklineMetric { Data = trimmed, Trend = trend };
     }
@@ -1230,8 +1197,8 @@ public class DashboardBatchService : IDashboardBatchService
     }
 
     /// <summary>
-    /// Resolve game names for downloads using Steam depot mappings and Epic lookup.
-    /// Mirrors the logic in DownloadsController.ResolveGameNamesAsync.
+    /// Resolve game names for downloads, filling blanks from the Steam depot, Epic and Xbox
+    /// mapping tables in that order and falling back to the service name.
     /// </summary>
     private static async Task EnrichGameNamesAsync(AppDbContext context, List<Download> downloads, CancellationToken ct)
     {

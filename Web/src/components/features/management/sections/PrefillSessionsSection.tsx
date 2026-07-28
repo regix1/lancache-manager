@@ -40,7 +40,7 @@ import Badge from '@components/ui/Badge';
 import ApiService, {
   type PrefillSessionDto,
   type DaemonSessionDto,
-  type BannedSteamUserDto,
+  type BannedPrefillUserDto,
   type PrefillHistoryEntryDto
 } from '@services/api.service';
 import type { PrefillSessionStatus } from '@/types/operations';
@@ -309,8 +309,8 @@ const SessionCard: React.FC<{
     : ((session as PrefillSessionDto).isPersistent ?? false);
 
   const displayUsername = isDaemonSession
-    ? (session as DaemonSessionDto).username || (session as DaemonSessionDto).steamUsername
-    : (session as PrefillSessionDto).username || (session as PrefillSessionDto).steamUsername;
+    ? (session as DaemonSessionDto).username || (session as DaemonSessionDto).accountUsername
+    : (session as PrefillSessionDto).username || (session as PrefillSessionDto).accountUsername;
   const containerName = isDaemonSession
     ? (session as DaemonSessionDto).containerName
     : (session as PrefillSessionDto).containerName;
@@ -387,11 +387,15 @@ const SessionCard: React.FC<{
                 ) : (
                   <span className="prefill-session-no-user">
                     {isAnonymousService
-                      ? t('management.prefillSessions.labels.anonymousAccount')
+                      ? t('management.prefillSessions.labels.anonymousAccount', {
+                          service: platformDisplayName
+                        })
                       : isPersistentSession
                         ? t('management.prefillSessions.labels.persistentContainer')
                         : isAuthenticated_
-                          ? t('management.prefillSessions.labels.unauthorizedAccount')
+                          ? t('management.prefillSessions.labels.authenticatedAccount', {
+                              service: platformDisplayName
+                            })
                           : t('management.prefillSessions.labels.notLoggedInSession')}
                   </span>
                 )}
@@ -652,7 +656,7 @@ const SessionCard: React.FC<{
 
 // Banned user card component
 const BannedUserCard: React.FC<{
-  ban: BannedSteamUserDto;
+  ban: BannedPrefillUserDto;
   isAdmin: boolean;
   onLiftBan: () => void;
   isLifting: boolean;
@@ -865,7 +869,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const [bansError, setBansError] = useState<string | null>(null);
 
   // Bans state
-  const [bans, setBans] = useState<BannedSteamUserDto[]>([]);
+  const [bans, setBans] = useState<BannedPrefillUserDto[]>([]);
   const [loadingBans, setLoadingBans] = useState(true);
   const [includeLifted, setIncludeLifted] = useState(false);
 
@@ -878,7 +882,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   // Modal states
   const [terminateAllConfirm, setTerminateAllConfirm] = useState(false);
   const [banConfirm, setBanConfirm] = useState<{ sessionId: string; reason: string } | null>(null);
-  const [liftBanConfirm, setLiftBanConfirm] = useState<BannedSteamUserDto | null>(null);
+  const [liftBanConfirm, setLiftBanConfirm] = useState<BannedPrefillUserDto | null>(null);
 
   // Prefill history states
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
@@ -948,7 +952,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     setBansError(null);
     try {
       // Always fetch full ban list so toggling the filter doesn't trigger reloads.
-      const bansRes = await ApiService.getSteamBans(true);
+      const bansRes = await ApiService.getPrefillBans(true);
       setBans(bansRes);
     } catch (error) {
       setBansError(getErrorMessage(error));
@@ -1175,7 +1179,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     if (!banConfirm) return;
     setBanningSession(banConfirm.sessionId);
     try {
-      await ApiService.banSteamUserBySession(banConfirm.sessionId, banConfirm.reason || undefined);
+      await ApiService.banPrefillUserBySession(
+        banConfirm.sessionId,
+        banConfirm.reason || undefined
+      );
       onSuccess(t('management.prefillSessions.actions.banUser'));
       setBanConfirm(null);
       await Promise.all([loadSessions(), loadBans()]);
@@ -1189,7 +1196,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const handleLiftBan = async (banId: number) => {
     setLiftingBan(banId);
     try {
-      await ApiService.liftSteamBan(banId);
+      await ApiService.liftPrefillBan(banId);
       onSuccess(t('management.prefillSessions.actions.liftBan'));
       setLiftBanConfirm(null);
       await loadBans();

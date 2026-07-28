@@ -1,6 +1,7 @@
 import React, { useMemo, memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
+import { isSeparatedMemberRow } from '@utils/clientRows';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { Card } from '@components/ui/Card';
@@ -23,17 +24,7 @@ interface TopClientsTableProps {
 type SortOption = 'total' | 'hits' | 'misses' | 'hitRate';
 
 interface TopClientRowProps {
-  client: {
-    clientIp: string;
-    displayName?: string;
-    isGrouped: boolean;
-    groupMemberIps?: string[];
-    totalBytes: number;
-    totalCacheHitBytes: number;
-    totalCacheMissBytes: number;
-    cacheHitPercent: number;
-    lastActivityUtc: string;
-  };
+  client: ClientStat;
 }
 
 const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
@@ -63,6 +54,9 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
           )}
           {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 1 && (
             <span className="text-xs text-themed-muted">({client.groupMemberIps.length})</span>
+          )}
+          {isSeparatedMemberRow(client) && (
+            <span className="identity-subtext">{client.clientIp}</span>
           )}
         </div>
       </td>

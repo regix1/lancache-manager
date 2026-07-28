@@ -311,7 +311,8 @@ export const SIGNALR_REFRESH_EVENTS = [
   'ClientGroupUpdated',
   'ClientGroupDeleted',
   'ClientGroupMemberAdded',
-  'ClientGroupMemberRemoved'
+  'ClientGroupMemberRemoved',
+  'ClientGroupsCleared'
 ] as const;
 
 // SignalR Event Types
@@ -825,7 +826,7 @@ export interface DaemonSessionCreatedEvent {
   operatingSystem?: string;
   browser?: string;
   lastSeenAt: string;
-  steamUsername?: string;
+  accountUsername?: string;
   currentAppId?: string;
   currentAppName?: string;
   platform?: string;
@@ -847,7 +848,7 @@ export interface DaemonSessionUpdatedEvent {
   operatingSystem?: string;
   browser?: string;
   lastSeenAt: string;
-  steamUsername?: string;
+  accountUsername?: string;
   currentAppId?: string;
   currentAppName?: string;
   platform?: string;

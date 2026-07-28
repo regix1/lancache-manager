@@ -4,6 +4,7 @@ import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Pagination } from '@components/ui/Pagination';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { useClientGroups } from '@contexts/useClientGroups';
@@ -15,6 +16,10 @@ import '@components/features/management/managementSectionContent.css';
 import './ClientGroupModal.css';
 
 const IPS_PER_PAGE = 20;
+
+// The row mode is a boolean on the wire; these are the segmented control's option ids.
+const ROW_MODE_COMBINED = 'combined';
+const ROW_MODE_SEPARATE = 'separate';
 
 interface ClientGroupModalProps {
   isOpen: boolean;
@@ -43,6 +48,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   // Form state
   const [nickname, setNickname] = useState('');
   const [description, setDescription] = useState('');
+  const [separateMemberRows, setSeparateMemberRows] = useState(false);
   // Create mode: the group's initial IPs. Edit mode: IPs added on save.
   const [chosenIps, setChosenIps] = useState<string[]>([]);
   const [ipSearchQuery, setIpSearchQuery] = useState('');
@@ -54,10 +60,12 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
       if (group) {
         setNickname(group.nickname);
         setDescription(group.description || '');
+        setSeparateMemberRows(group.separateMemberRows);
         setChosenIps([]);
       } else {
         setNickname('');
         setDescription('');
+        setSeparateMemberRows(false);
         setChosenIps(initialIps ?? []);
       }
       setError(null);
@@ -113,7 +121,8 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           // Update nickname/description
           await updateClientGroup(group.id, {
             nickname: nickname.trim(),
-            description: description.trim() || undefined
+            description: description.trim() || undefined,
+            separateMemberRows
           });
           // Add any pending IPs
           for (const ip of chosenIps) {
@@ -133,7 +142,8 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           await createClientGroup({
             nickname: nickname.trim(),
             description: description.trim() || undefined,
-            initialIps: chosenIps.length > 0 ? chosenIps : undefined
+            initialIps: chosenIps.length > 0 ? chosenIps : undefined,
+            separateMemberRows
           });
           onSuccess(t('modals.clientGroup.messages.addedNickname', { nickname: nickname.trim() }));
         }
@@ -148,6 +158,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     [
       nickname,
       description,
+      separateMemberRows,
       chosenIps,
       isEditing,
       group,
@@ -224,6 +235,42 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             placeholder={t('modals.clientGroup.placeholders.description')}
             rows={2}
           />
+        </div>
+
+        {/* How this nickname reports in the client stats. Shown for every group, including a
+            one-IP one, so the choice is made once at creation rather than appearing later. */}
+        <div>
+          <span id="clientgroup-row-mode-label" className="form-field-label">
+            {t('modals.clientGroup.labels.rowMode')}
+          </span>
+          <div
+            role="group"
+            aria-labelledby="clientgroup-row-mode-label"
+            aria-describedby="clientgroup-row-mode-help"
+          >
+            <SegmentedControl
+              options={[
+                {
+                  value: ROW_MODE_COMBINED,
+                  label: t('modals.clientGroup.mode.combined'),
+                  tooltip: t('modals.clientGroup.mode.combinedTooltip')
+                },
+                {
+                  value: ROW_MODE_SEPARATE,
+                  label: t('modals.clientGroup.mode.separate'),
+                  tooltip: t('modals.clientGroup.mode.separateTooltip')
+                }
+              ]}
+              value={separateMemberRows ? ROW_MODE_SEPARATE : ROW_MODE_COMBINED}
+              onChange={(value) => setSeparateMemberRows(value === ROW_MODE_SEPARATE)}
+              size="md"
+              showLabels
+              fullWidth
+            />
+          </div>
+          <p id="clientgroup-row-mode-help" className="text-xs text-themed-muted mt-2">
+            {t('modals.clientGroup.mode.help')}
+          </p>
         </div>
 
         {/* Current members (edit mode) */}

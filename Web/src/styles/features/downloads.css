@@ -1978,7 +1978,7 @@
 }
 
 .dl-live-badge {
-  font-size: 0.625rem;
+  font-size: var(--font-size-2xs);
   line-height: 1.4;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -2009,7 +2009,7 @@
 }
 
 .dl-live-speed-tag {
-  font-size: 0.625rem;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;

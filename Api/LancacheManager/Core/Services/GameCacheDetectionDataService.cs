@@ -363,6 +363,23 @@ public sealed partial class GameCacheDetectionDataService
             }
         }
 
+        // Response-only synthetics for partial evictions that have no persisted detection row.
+        // Fully-evicted entities stay owned by RecoverEvicted*; do not invent full-eviction rows here.
+        await AppendMissingPartialEvictedProjectionsAsync(
+            dbContext,
+            games,
+            services,
+            steamEvictedMap,
+            epicEvictedMap,
+            serviceEvictedMap,
+            namedEvictedMap,
+            steamEvictedUrlMap,
+            epicEvictedUrlMap,
+            serviceEvictedUrlMap,
+            namedEvictedUrlMap,
+            steamEvictedDepotMap,
+            cancellationToken);
+
         await EnrichImageUrlsAsync(dbContext, games, cancellationToken);
 
         if (games.Count == 0 && services.Count == 0)
@@ -385,13 +402,28 @@ public sealed partial class GameCacheDetectionDataService
             }
         }
 
+        // Synthetics-only responses have no persisted LastDetectedUtc. StartTime is the
+        // operation-envelope field both API call sites ship to the client — leave DateTime.MinValue
+        // and they serialize 0001-01-01. UtcNow avoids that leak; scan staleness uses
+        // SummaryComputedAtUtc / IsDetectionSummaryStaleAsync independently.
+        if (lastDetectedTime == DateTime.MinValue)
+        {
+            lastDetectedTime = DateTime.UtcNow;
+        }
+
         var loadedStageKey = games.Count > 0 && services.Count > 0
             ? "signalr.gameDetect.loaded.gamesAndServices"
             : "signalr.gameDetect.loaded.gamesOnly";
 
-        var steamCount = games.Count(g => string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted);
-        var epicCount = games.Count(g => !string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted);
-        var evictedCount = games.Count(g => g.IsEvicted);
+        // Active tallies exclude zero-file partial synthetics so dashboard/UI "detected" counts
+        // are not inflated by response-only eviction projections.
+        var activeGames = games.Count(g => !g.IsEvicted && g.CacheFilesFound > 0);
+        var activeServices = services.Count(s => !s.IsEvicted && s.CacheFilesFound > 0);
+        var steamCount = games.Count(g =>
+            string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted && g.CacheFilesFound > 0);
+        var epicCount = games.Count(g =>
+            !string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted && g.CacheFilesFound > 0);
+        var evictedCount = games.Count(g => g.IsEvicted || g.EvictedDownloadsCount > 0);
         _logger.LogDebug(
             "[GameDetection] === Detection Summary (cache load) === Steam: {Steam} | Epic: {Epic} | Total: {Total} | Evicted: {Evicted}",
             steamCount,
@@ -400,6 +432,13 @@ public sealed partial class GameCacheDetectionDataService
             evictedCount);
 
         var (diskSummary, summaryComputedAt) = await LoadDetectionSummaryAsync(dbContext, cancellationToken);
+        // Synthetics-only (no persisted detection rows) never produces a CachedDetectionSummary —
+        // supply honest zeros so Build can succeed. Persisted rows without a summary remain an
+        // integrity fault: leave diskSummary null and let CachedDetectionResponseBuilder throw.
+        if (cachedGames.Count == 0 && cachedServices.Count == 0)
+        {
+            diskSummary ??= new IdentifiedCacheAggregate(0, 0, 0, 0, 0);
+        }
 
         return new DetectionOperationResponse
         {
@@ -409,11 +448,302 @@ public sealed partial class GameCacheDetectionDataService
             Message = loadedStageKey,
             Games = games,
             Services = services,
-            TotalGamesDetected = games.Count,
-            TotalServicesDetected = services.Count,
+            TotalGamesDetected = activeGames,
+            TotalServicesDetected = activeServices,
             DiskSummary = diskSummary,
             SummaryComputedAtUtc = summaryComputedAt
         };
+    }
+
+    /// <summary>
+    /// Appends response-only <see cref="GameCacheInfo"/> / <see cref="ServiceCacheInfo"/> entries for
+    /// entities that have byte-backed evicted Downloads AND a byte-backed live sibling, but no
+    /// matching persisted detection row. Keeps Evicted Items populated after an eviction scan
+    /// without promoting partials via <c>RecoverEvicted*</c> (which must stay full-eviction-only).
+    /// </summary>
+    private static async Task AppendMissingPartialEvictedProjectionsAsync(
+        AppDbContext dbContext,
+        List<GameCacheInfo> games,
+        List<ServiceCacheInfo> services,
+        Dictionary<long, (int Count, ulong Bytes)> steamEvictedMap,
+        Dictionary<string, (int Count, ulong Bytes)> epicEvictedMap,
+        Dictionary<string, (int Count, ulong Bytes)> serviceEvictedMap,
+        Dictionary<(string Service, string GameName), (int Count, ulong Bytes)> namedEvictedMap,
+        Dictionary<long, List<string>> steamEvictedUrlMap,
+        Dictionary<string, List<string>> epicEvictedUrlMap,
+        Dictionary<string, List<string>> serviceEvictedUrlMap,
+        Dictionary<(string Service, string GameName), List<string>> namedEvictedUrlMap,
+        Dictionary<long, List<uint>> steamEvictedDepotMap,
+        CancellationToken cancellationToken)
+    {
+        var existingSteamIds = games
+            .Where(g => g.EpicAppId == null && g.GameAppId > 0)
+            .Select(g => g.GameAppId)
+            .ToHashSet();
+        var existingEpicIds = games
+            .Where(g => g.EpicAppId != null)
+            .Select(g => g.EpicAppId!)
+            .ToHashSet(StringComparer.Ordinal);
+        var existingNamedKeys = games
+            .Where(g => g.GameAppId == 0 && g.Service != null && g.EpicAppId == null)
+            .Select(g => (g.Service!.ToLower(), g.GameName))
+            .ToHashSet();
+        var existingServiceKeys = services
+            .Select(s => s.ServiceName.ToLower())
+            .ToHashSet(StringComparer.Ordinal);
+
+        var missingSteamIds = steamEvictedMap.Keys.Where(id => !existingSteamIds.Contains(id)).ToList();
+        var missingEpicIds = epicEvictedMap.Keys.Where(id => !existingEpicIds.Contains(id)).ToList();
+        var missingNamedKeys = namedEvictedMap.Keys.Where(k => !existingNamedKeys.Contains(k)).ToList();
+        var missingServiceKeys = serviceEvictedMap.Keys
+            .Where(k => !existingServiceKeys.Contains(k))
+            .ToList();
+
+        if (missingSteamIds.Count == 0
+            && missingEpicIds.Count == 0
+            && missingNamedKeys.Count == 0
+            && missingServiceKeys.Count == 0)
+        {
+            return;
+        }
+
+        // Partial predicate: byte-backed live sibling (same veto RecoverEvicted* uses). Zero-byte
+        // !IsEvicted siblings do not make an entity partial.
+        var partialSteamIds = missingSteamIds.Count == 0
+            ? new List<long>()
+            : await dbContext.Downloads
+                .AsNoTracking()
+                .Where(d => d.GameAppId != null
+                         && d.EpicAppId == null
+                         && missingSteamIds.Contains(d.GameAppId.Value)
+                         && !d.IsEvicted
+                         && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0))
+                .Select(d => d.GameAppId!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+        var partialEpicIds = missingEpicIds.Count == 0
+            ? new List<string>()
+            : await dbContext.Downloads
+                .AsNoTracking()
+                .Where(d => d.EpicAppId != null
+                         && missingEpicIds.Contains(d.EpicAppId)
+                         && !d.IsEvicted
+                         && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0))
+                .Select(d => d.EpicAppId!)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+        var partialServiceKeys = missingServiceKeys.Count == 0
+            ? new List<string>()
+            : await dbContext.Downloads
+                .AsNoTracking()
+                .Where(d => d.GameAppId == null
+                         && d.EpicAppId == null
+                         && d.Service != null
+                         && d.GameName == null
+                         && missingServiceKeys.Contains(d.Service.ToLower())
+                         && !d.IsEvicted
+                         && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0))
+                .Select(d => d.Service!.ToLower())
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+        // Coarse SQL pre-filter on the missing named services (same pattern as the
+        // Steam/Epic/service arms). Exact (Service, GameName) membership stays in memory.
+        var missingNamedServices = missingNamedKeys
+            .Select(k => k.Service)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var partialNamedFlat = missingNamedKeys.Count == 0
+            ? new List<(string Service, string GameName)>()
+            : (await dbContext.Downloads
+                .AsNoTracking()
+                .Where(d => d.GameAppId == null
+                         && d.EpicAppId == null
+                         && d.Service != null
+                         && d.GameName != null
+                         && missingNamedServices.Contains(d.Service.ToLower())
+                         && !d.IsEvicted
+                         && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0))
+                .Select(d => new { Service = d.Service!.ToLower(), GameName = d.GameName! })
+                .Distinct()
+                .ToListAsync(cancellationToken))
+                .Select(x => (x.Service, x.GameName))
+                .Where(k => missingNamedKeys.Contains(k))
+                .ToList();
+
+        if (partialSteamIds.Count > 0)
+        {
+            var steamIdentity = await dbContext.Downloads
+                .AsNoTracking()
+                .Where(d => d.GameAppId != null
+                         && d.EpicAppId == null
+                         && partialSteamIds.Contains(d.GameAppId.Value))
+                .GroupBy(d => d.GameAppId!.Value)
+                .Select(g => new
+                {
+                    GameAppId = g.Key,
+                    GameName = g.Max(d => d.GameName),
+                    Service = g.Min(d => d.Service),
+                    Datasource = g.Min(d => d.Datasource)
+                })
+                .ToListAsync(cancellationToken);
+
+            foreach (var row in steamIdentity)
+            {
+                var (count, bytes) = steamEvictedMap[row.GameAppId];
+                steamEvictedUrlMap.TryGetValue(row.GameAppId, out var urls);
+                steamEvictedDepotMap.TryGetValue(row.GameAppId, out var depots);
+                games.Add(new GameCacheInfo
+                {
+                    GameAppId = row.GameAppId,
+                    GameName = row.GameName ?? "Unknown",
+                    Service = row.Service ?? "steam",
+                    CacheFilesFound = 0,
+                    TotalSizeBytes = 0,
+                    IsEvicted = false,
+                    EvictedDownloadsCount = count,
+                    EvictedBytes = bytes,
+                    EvictedSampleUrls = urls ?? [],
+                    EvictedDepotIds = depots ?? [],
+                    Datasources = string.IsNullOrEmpty(row.Datasource)
+                        ? []
+                        : [row.Datasource]
+                });
+            }
+        }
+
+        if (partialEpicIds.Count > 0)
+        {
+            var epicIdentity = await dbContext.Downloads
+                .AsNoTracking()
+                .Where(d => d.EpicAppId != null && partialEpicIds.Contains(d.EpicAppId))
+                .GroupBy(d => d.EpicAppId!)
+                .Select(g => new
+                {
+                    EpicAppId = g.Key,
+                    GameName = g.Max(d => d.GameName),
+                    Service = g.Min(d => d.Service),
+                    Datasource = g.Min(d => d.Datasource)
+                })
+                .ToListAsync(cancellationToken);
+
+            foreach (var row in epicIdentity)
+            {
+                var (count, bytes) = epicEvictedMap[row.EpicAppId];
+                epicEvictedUrlMap.TryGetValue(row.EpicAppId, out var urls);
+                games.Add(new GameCacheInfo
+                {
+                    GameAppId = 0,
+                    EpicAppId = row.EpicAppId,
+                    GameName = row.GameName ?? "Unknown",
+                    Service = row.Service ?? "epicgames",
+                    CacheFilesFound = 0,
+                    TotalSizeBytes = 0,
+                    IsEvicted = false,
+                    EvictedDownloadsCount = count,
+                    EvictedBytes = bytes,
+                    EvictedSampleUrls = urls ?? [],
+                    Datasources = string.IsNullOrEmpty(row.Datasource)
+                        ? []
+                        : [row.Datasource]
+                });
+            }
+        }
+
+        if (partialNamedFlat.Count > 0)
+        {
+            var namedKeySet = partialNamedFlat.ToHashSet();
+            var partialNamedServices = partialNamedFlat
+                .Select(k => k.Service)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            var namedIdentity = await dbContext.Downloads
+                .AsNoTracking()
+                .Where(d => d.GameAppId == null
+                         && d.EpicAppId == null
+                         && d.Service != null
+                         && d.GameName != null
+                         && partialNamedServices.Contains(d.Service.ToLower()))
+                .GroupBy(d => new { Service = d.Service!.ToLower(), GameName = d.GameName! })
+                .Select(g => new
+                {
+                    g.Key.Service,
+                    g.Key.GameName,
+                    DisplayService = g.Min(d => d.Service),
+                    Datasource = g.Min(d => d.Datasource)
+                })
+                .ToListAsync(cancellationToken);
+
+            foreach (var row in namedIdentity)
+            {
+                var key = (row.Service, row.GameName);
+                if (!namedKeySet.Contains(key) || !namedEvictedMap.TryGetValue(key, out var entry))
+                {
+                    continue;
+                }
+
+                namedEvictedUrlMap.TryGetValue(key, out var urls);
+                games.Add(new GameCacheInfo
+                {
+                    GameAppId = 0,
+                    GameName = row.GameName,
+                    Service = row.DisplayService ?? row.Service,
+                    CacheFilesFound = 0,
+                    TotalSizeBytes = 0,
+                    IsEvicted = false,
+                    EvictedDownloadsCount = entry.Count,
+                    EvictedBytes = entry.Bytes,
+                    EvictedSampleUrls = urls ?? [],
+                    Datasources = string.IsNullOrEmpty(row.Datasource)
+                        ? []
+                        : [row.Datasource]
+                });
+            }
+        }
+
+        if (partialServiceKeys.Count > 0)
+        {
+            var serviceIdentity = await dbContext.Downloads
+                .AsNoTracking()
+                .Where(d => d.GameAppId == null
+                         && d.EpicAppId == null
+                         && d.Service != null
+                         && d.GameName == null
+                         && partialServiceKeys.Contains(d.Service.ToLower()))
+                .GroupBy(d => d.Service!.ToLower())
+                .Select(g => new
+                {
+                    Key = g.Key,
+                    DisplayName = g.Min(d => d.Service)!,
+                    Datasource = g.Min(d => d.Datasource)
+                })
+                .ToListAsync(cancellationToken);
+
+            foreach (var row in serviceIdentity)
+            {
+                if (!serviceEvictedMap.TryGetValue(row.Key, out var entry))
+                {
+                    continue;
+                }
+
+                serviceEvictedUrlMap.TryGetValue(row.Key, out var urls);
+                services.Add(new ServiceCacheInfo
+                {
+                    ServiceName = row.DisplayName,
+                    CacheFilesFound = 0,
+                    TotalSizeBytes = 0,
+                    IsEvicted = false,
+                    EvictedDownloadsCount = entry.Count,
+                    EvictedBytes = entry.Bytes,
+                    EvictedSampleUrls = urls ?? [],
+                    Datasources = string.IsNullOrEmpty(row.Datasource)
+                        ? []
+                        : [row.Datasource]
+                });
+            }
+        }
     }
 
     /// <summary>

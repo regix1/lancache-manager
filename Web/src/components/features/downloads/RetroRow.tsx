@@ -5,6 +5,7 @@ import type { RetroRowData } from './RetroView.types';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
+import { useClientGroups } from '@contexts/useClientGroups';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
@@ -177,6 +178,8 @@ const RetroRow: React.FC<RetroRowProps> = memo(
     translateY
   }) => {
     const { t } = useTranslation();
+    // Nickname mapping loads for admins and guests; mutations stay AdminOnly server-side.
+    const { getGroupForIp } = useClientGroups();
     const {
       totalBytes,
       cacheHitBytes,
@@ -198,12 +201,14 @@ const RetroRow: React.FC<RetroRowProps> = memo(
     }`;
 
     // Full "client • depot" string for the mobile row's reveal tooltip, so the
-    // appended depot suffix stays readable when the line truncates.
+    // appended depot suffix stays readable when the line truncates. The client half
+    // must match what the row renders, which is the nickname whenever one exists.
     const depotLabel =
       data.depotsSet.size > 1
         ? t('downloads.tab.retro.depotCount', { count: data.depotsSet.size })
         : data.depotId || null;
-    const clientDepotTitle = depotLabel ? `${data.clientIp} • ${depotLabel}` : data.clientIp;
+    const clientLabel = getGroupForIp(data.clientIp)?.nickname || data.clientIp;
+    const clientDepotTitle = depotLabel ? `${clientLabel} • ${depotLabel}` : clientLabel;
 
     return (
       <div

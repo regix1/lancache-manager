@@ -44,7 +44,7 @@ public class DatabaseService
         "PrefillSessions",
         "PrefillHistoryEntries",
         "PrefillCachedDepots",
-        "BannedSteamUsers",
+        "BannedPrefillUsers",
         "CacheSnapshots",
         "EpicGameMappings",
         "EpicCdnPatterns"
@@ -672,16 +672,16 @@ public class DatabaseService
                                 $"Cleared prefill history ({prefillHistoryCount:N0} rows)");
                             break;
 
-                        case "BannedSteamUsers":
+                        case "BannedPrefillUsers":
                             // Use ExecuteDeleteAsync for direct deletion
-                            var bannedUsersCount = await context.BannedSteamUsers.ExecuteDeleteAsync(cancellationToken);
-                            _logger.LogInformation($"Cleared {bannedUsersCount:N0} banned Steam users");
+                            var bannedUsersCount = await context.BannedPrefillUsers.ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {bannedUsersCount:N0} banned prefill users");
                             deletedRows += bannedUsersCount;
 
                             await ReportClearedTableAsync(operationId,
                                 Math.Min(currentProgress + progressPerTable, 85.0),
-                                "BannedSteamUsers", bannedUsersCount,
-                                $"Cleared banned Steam users ({bannedUsersCount:N0} rows)");
+                                "BannedPrefillUsers", bannedUsersCount,
+                                $"Cleared banned prefill users ({bannedUsersCount:N0} rows)");
 
                             break;
 
@@ -1039,7 +1039,7 @@ public class DatabaseService
             "PrefillSessions" => await context.PrefillSessions.CountAsync(cancellationToken),
             "PrefillHistoryEntries" => await context.PrefillHistoryEntries.CountAsync(cancellationToken),
             "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(cancellationToken),
-            "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(cancellationToken),
+            "BannedPrefillUsers" => await context.BannedPrefillUsers.CountAsync(cancellationToken),
             "CacheSnapshots" => await context.CacheSnapshots.CountAsync(cancellationToken),
             "EpicGameMappings" => await context.EpicGameMappings.CountAsync(cancellationToken),
             "EpicCdnPatterns" => await context.EpicCdnPatterns.CountAsync(cancellationToken),

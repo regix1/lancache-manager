@@ -639,42 +639,4 @@ public class ScheduledPrefillServiceTests
 
     private static IStateService CreateNullStateService()
         => (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>();
-
-    /// <summary>
-    /// Minimal <see cref="IStateService"/> stub. The <see cref="ScheduledPrefillService"/> constructor
-    /// only reads <c>GetServiceInterval</c> / <c>GetServiceRunOnStartup</c> (both nullable) via
-    /// <c>LoadStateOverrides</c>; returning null is the "no saved override" path. Every other member
-    /// returns its type default — none are exercised during construction.
-    /// </summary>
-    private class NullReturningProxy : DispatchProxy
-    {
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod is null)
-            {
-                throw new InvalidOperationException("Target method was null.");
-            }
-
-            var returnType = targetMethod.ReturnType;
-
-            if (returnType == typeof(void))
-            {
-                return null;
-            }
-
-            if (returnType == typeof(Task))
-            {
-                return Task.CompletedTask;
-            }
-
-            // Non-nullable value types need a concrete default; reference types and Nullable<T>
-            // (e.g. double? / bool?) resolve to null.
-            if (returnType.IsValueType && Nullable.GetUnderlyingType(returnType) is null)
-            {
-                return Activator.CreateInstance(returnType);
-            }
-
-            return null;
-        }
-    }
 }

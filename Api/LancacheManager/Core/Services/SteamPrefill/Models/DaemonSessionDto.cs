@@ -40,7 +40,7 @@ public class DaemonSessionDto
     public string? OperatingSystem { get; set; }
     public string? Browser { get; set; }
     public DateTime LastSeenAt { get; set; }
-    public string? SteamUsername { get; set; }
+    public string? AccountUsername { get; set; }
     public string Platform { get; set; } = "Steam";
     public string? Username { get; set; }
 
@@ -87,9 +87,9 @@ public class DaemonSessionDto
             OperatingSystem = session.OperatingSystem,
             Browser = session.Browser,
             LastSeenAt = session.LastSeenAt,
-            SteamUsername = session.SteamUsername,
+            AccountUsername = session.AccountUsername,
             Platform = session.Platform,
-            Username = session.Username ?? session.SteamUsername,
+            Username = session.Username ?? session.AccountUsername,
             CurrentAppId = session.CurrentAppId,
             CurrentAppName = session.CurrentAppName,
             TotalBytesTransferred = session.TotalBytesTransferred,

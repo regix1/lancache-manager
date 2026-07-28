@@ -463,6 +463,16 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                                   </span>
                                 </Tooltip>
                               )}
+                              {/* Combined is the default, so only separated groups are labelled. */}
+                              {group.separateMemberRows && (
+                                <Tooltip
+                                  content={t('management.sections.clients.separateRowsTooltip')}
+                                >
+                                  <Badge variant="neutral" className="flex-shrink-0">
+                                    {t('management.sections.clients.separateRowsLabel')}
+                                  </Badge>
+                                </Tooltip>
+                              )}
                             </div>
                             <Tooltip content={metaText} className="block min-w-0">
                               <p className="mgmt-row__meta truncate">

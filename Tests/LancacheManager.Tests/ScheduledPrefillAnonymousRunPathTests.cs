@@ -274,17 +274,7 @@ public class ScheduledPrefillAnonymousRunPathTests
     }
 
     /// <summary>
-    /// Minimal do-nothing proxy for interfaces whose members are not exercised by this test's
-    /// happy path (mirrors the pattern in ScheduledPrefillServiceTests.NullReturningProxy).
-    /// </summary>
-    // Not sealed: DispatchProxy.Create requires TProxy to be a non-sealed class at runtime.
-    private class NullReturningProxy : DispatchProxy
-    {
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) => DefaultReturnValue(targetMethod);
-    }
-
-    /// <summary>
-    /// Shared default-return logic for both proxies above: Task methods get a completed task,
+    /// Default-return logic for the recording proxy above: Task methods get a completed task,
     /// non-nullable value types get their default instance, everything else (including void) is null.
     /// </summary>
     private static object? DefaultReturnValue(MethodInfo? targetMethod)

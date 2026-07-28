@@ -161,10 +161,10 @@ public class DaemonSession
     public bool NeedsRelogin { get; set; }
 
     /// <summary>
-    /// The Steam username (set when user provides username credential).
+    /// The prefill account username (set from a username credential or the daemon's authenticated account name).
     /// Used for ban display and admin visibility.
     /// </summary>
-    public string? SteamUsername { get; set; }
+    public string? AccountUsername { get; set; }
 
     /// <summary>
     /// Platform identifier (e.g., "Steam", "Epic")

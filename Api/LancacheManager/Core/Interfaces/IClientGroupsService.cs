@@ -13,5 +13,5 @@ public interface IClientGroupsService : ICrudRepository<ClientGroup, long>
     Task DeleteAsync(long id, CancellationToken cancellationToken = default);
     Task<ClientGroupMember> AddMemberAsync(long groupId, string clientIp, CancellationToken cancellationToken = default);
     Task RemoveMemberAsync(long groupId, string clientIp, CancellationToken cancellationToken = default);
-    Task<Dictionary<string, (long GroupId, string Nickname)>> GetIpMappingAsync(CancellationToken cancellationToken = default);
+    Task<Dictionary<string, ClientGroupAssignment>> GetIpMappingAsync(CancellationToken cancellationToken = default);
 }

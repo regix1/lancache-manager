@@ -147,11 +147,11 @@ const DataSection: React.FC<DataSectionProps> = ({
       affectedPages: t('management.sections.data.tables.prefillCachedDepots.affectedPages')
     },
     {
-      name: 'BannedSteamUsers',
-      label: t('management.sections.data.tables.bannedSteamUsers.label'),
-      description: t('management.sections.data.tables.bannedSteamUsers.description'),
-      details: t('management.sections.data.tables.bannedSteamUsers.details'),
-      affectedPages: t('management.sections.data.tables.bannedSteamUsers.affectedPages')
+      name: 'BannedPrefillUsers',
+      label: t('management.sections.data.tables.bannedPrefillUsers.label'),
+      description: t('management.sections.data.tables.bannedPrefillUsers.description'),
+      details: t('management.sections.data.tables.bannedPrefillUsers.details'),
+      affectedPages: t('management.sections.data.tables.bannedPrefillUsers.affectedPages')
     },
     {
       name: 'UserSessions',
@@ -470,8 +470,8 @@ const DataSection: React.FC<DataSectionProps> = ({
               {selectedTables.includes('PrefillSessions') && (
                 <li>{t('management.sections.data.confirmClearWarnings.prefillSessions')}</li>
               )}
-              {selectedTables.includes('BannedSteamUsers') && (
-                <li>{t('management.sections.data.confirmClearWarnings.bannedSteamUsers')}</li>
+              {selectedTables.includes('BannedPrefillUsers') && (
+                <li>{t('management.sections.data.confirmClearWarnings.bannedPrefillUsers')}</li>
               )}
               {selectedTables.includes('EpicGameMappings') && (
                 <li>{t('management.sections.data.confirmClearWarnings.epicGameMappings')}</li>

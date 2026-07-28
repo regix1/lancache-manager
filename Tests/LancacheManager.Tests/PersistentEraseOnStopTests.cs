@@ -962,35 +962,6 @@ public class PersistentEraseOnStopTests
     }
 
     /// <summary>
-    /// Minimal do-nothing proxy for interfaces whose members are not exercised by these tests' happy
-    /// paths (mirrors NullReturningProxy in PersistentLogoutTests.cs).
-    /// </summary>
-    private class NullReturningProxy : DispatchProxy
-    {
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            var returnType = targetMethod?.ReturnType;
-
-            if (returnType is null || returnType == typeof(void))
-            {
-                return null;
-            }
-
-            if (returnType == typeof(Task))
-            {
-                return Task.CompletedTask;
-            }
-
-            if (returnType.IsValueType && Nullable.GetUnderlyingType(returnType) is null)
-            {
-                return Activator.CreateInstance(returnType);
-            }
-
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Fake <see cref="IDaemonClient"/> exposing only the surface these scenarios touch; every other
     /// member throws <see cref="NotSupportedException"/> so an unexpected call fails loudly (mirrors
     /// TestDaemonClientBase in PersistentLogoutTests.cs).

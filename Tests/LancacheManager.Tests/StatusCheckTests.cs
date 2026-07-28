@@ -1144,21 +1144,4 @@ public class StatusCheckTests
         public Task<EnvValueResult> GetValueAsync(string key, CancellationToken cancellationToken) =>
             Task.FromResult(new EnvValueResult { Value = null, Source = EnvValueSource.EnvFile });
     }
-
-    /// <summary>Returns null/default from every <see cref="IStateService"/> member. These tests only
-    /// exercise the config tier, which short-circuits before any state is read; if the resolver-mode
-    /// read ever runs, Normalize maps the null to "auto".</summary>
-    private class NullReturningProxy : DispatchProxy
-    {
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            var returnType = targetMethod?.ReturnType;
-            if (returnType is null || returnType == typeof(void) || !returnType.IsValueType)
-            {
-                return null;
-            }
-
-            return Activator.CreateInstance(returnType);
-        }
-    }
 }
