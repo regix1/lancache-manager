@@ -1,31 +1,82 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Plus } from 'lucide-react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Plus, Users } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
+import { Checkbox } from '@components/ui/Checkbox';
+import { IpChip } from '@components/ui/IpChip';
+import { Tooltip } from '@components/ui/Tooltip';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
-import { Pagination } from '@components/ui/Pagination';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
 import { useClientGroups } from '@contexts/useClientGroups';
-import { usePaginatedList } from '@hooks/usePaginatedList';
+import { useSelectionSet } from '@hooks/useSelectionSet';
+import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import { useTranslation } from 'react-i18next';
 import { getErrorMessage } from '@utils/error';
 import type { ClientGroup } from '../../types';
 import '@components/features/management/managementSectionContent.css';
 import './ClientGroupModal.css';
 
-const IPS_PER_PAGE = 20;
-
 // The row mode is a boolean on the wire; these are the segmented control's option ids.
 const ROW_MODE_COMBINED = 'combined';
 const ROW_MODE_SEPARATE = 'separate';
+
+// Long enough that a full address typed at speed filters once, short enough that the
+// list still feels like it reacts to the keystroke.
+const SEARCH_DEBOUNCE_MS = 250;
+
+// 18rem = 288px = 8 rows at the 36px pick-row height. The picker scrolls and nothing
+// else, so this is the only thing bounding it. [14]
+const PICKER_MAX_HEIGHT = '18rem';
+
+/** One address offered by the picker, with the nickname that already holds it. */
+interface PickerRow {
+  address: string;
+  /** Set when a DIFFERENT nickname owns the address, which makes the row unpickable. */
+  ownerNickname: string | null;
+}
+
+/**
+ * Every address this nickname could still take, narrowed by the search text. Written as a plain
+ * function so a keystroke can resolve the list for search text the debounce has not applied yet.
+ */
+const matchAddresses = (
+  knownIps: string[],
+  currentMemberSet: Set<string>,
+  search: string,
+  ownerOfIp: (ip: string) => ClientGroup | null,
+  savedGroupId: number | null
+): PickerRow[] => {
+  const needle = search.trim().toLowerCase();
+  return knownIps
+    .filter((ip) => !currentMemberSet.has(ip))
+    .filter((ip) => needle === '' || ip.toLowerCase().includes(needle))
+    .map((ip) => {
+      const owner = ownerOfIp(ip);
+      const ownedElsewhere = owner !== null && owner.id !== savedGroupId;
+      return { address: ip, ownerNickname: ownedElsewhere ? owner.nickname : null };
+    });
+};
+
+/** The nearest row at or past `from` in the `step` direction that this nickname may take. */
+const enabledIndexIn = (rows: PickerRow[], from: number, step: number): number => {
+  for (let i = from; i >= 0 && i < rows.length; i += step) {
+    if (rows[i].ownerNickname === null) return i;
+  }
+  return -1;
+};
 
 interface ClientGroupModalProps {
   isOpen: boolean;
   onClose: () => void;
   group: ClientGroup | null; // null for create, ClientGroup for edit
-  ungroupedIps: string[];
+  /**
+   * Every address the install knows about, grouped and ungrouped alike, so an address
+   * another nickname holds can be shown with its owner instead of silently missing.
+   */
+  knownIps: string[];
   /** Create mode only: IPs pre-selected when the modal opens (quick-name flow). */
   initialIps?: string[];
   onSuccess: (message: string) => void;
@@ -36,135 +87,600 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   isOpen,
   onClose,
   group,
-  ungroupedIps,
+  knownIps,
   initialIps,
   onSuccess
 }) => {
   const { t } = useTranslation();
-  const { createClientGroup, updateClientGroup, addMember } = useClientGroups();
+  const {
+    createClientGroup,
+    updateClientGroup,
+    setMembers,
+    refreshGroups,
+    getGroupForIp,
+    loading: groupsLoading,
+    error: groupsError
+  } = useClientGroups();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rejectedIps, setRejectedIps] = useState<string[]>([]);
 
   // Form state
   const [nickname, setNickname] = useState('');
   const [description, setDescription] = useState('');
   const [separateMemberRows, setSeparateMemberRows] = useState(false);
-  // Create mode: the group's initial IPs. Edit mode: IPs added on save.
-  const [chosenIps, setChosenIps] = useState<string[]>([]);
-  const [ipSearchQuery, setIpSearchQuery] = useState('');
-  const [ipPage, setIpPage] = useState(1);
+  /** Edit mode: current members marked for removal, still shown so the mark is undoable. */
+  const [removedIps, setRemovedIps] = useState<string[]>([]);
+  /**
+   * Set once a create request has succeeded, so a second Save after a partial result
+   * edits the nickname that now exists instead of creating a duplicate.
+   */
+  const [createdGroupId, setCreatedGroupId] = useState<number | null>(null);
 
-  // Reset form when modal opens/closes or group changes
-  useEffect(() => {
-    if (isOpen) {
-      if (group) {
-        setNickname(group.nickname);
-        setDescription(group.description || '');
-        setSeparateMemberRows(group.separateMemberRows);
-        setChosenIps([]);
-      } else {
-        setNickname('');
-        setDescription('');
-        setSeparateMemberRows(false);
-        setChosenIps(initialIps ?? []);
-      }
-      setError(null);
-      setIpSearchQuery('');
-      setIpPage(1);
-    }
-  }, [isOpen, group, initialIps]);
+  // Picker state. The input value is immediate; only the filtering waits for the debounce.
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [lastTouchedAddress, setLastTouchedAddress] = useState<string | null>(null);
 
-  // Reset page when search query changes
-  useEffect(() => {
-    setIpPage(1);
-  }, [ipSearchQuery]);
+  const chosen = useSelectionSet<string>();
+  const clearChosen = chosen.clear;
+  const setChosenMany = chosen.setMany;
+  const toggleChosen = chosen.toggle;
+
+  const scheduleSearch = useTimeoutCallback(SEARCH_DEBOUNCE_MS);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  /** Row index to focus once the list has re-rendered without the rows just chosen. */
+  const pendingFocusRef = useRef<number | null>(null);
+  /** Which nickname the form fields were last seeded for. */
+  const seededForRef = useRef<string | null>(null);
+  /**
+   * The stamp of the copy this editing session is working from. Taken once when the session starts,
+   * then moved forward by this session's own writes so a second Save is not turned down by the
+   * first one, and by a refusal so the retry is checked against what the server now holds. [41]
+   */
+  const expectedUpdatedAtRef = useRef<string | null>(null);
+  /** Holds focus while a save disables the control the editor was on. */
+  const formRef = useRef<HTMLFormElement>(null);
 
   const isEditing = group !== null;
+  const savedGroupId = group !== null ? group.id : createdGroupId;
 
-  // IPs still selectable: match the search and aren't chosen yet
-  const availableIps = useMemo(
-    () =>
-      ungroupedIps.filter(
-        (ip) => ip.toLowerCase().includes(ipSearchQuery.toLowerCase()) && !chosenIps.includes(ip)
-      ),
-    [ungroupedIps, ipSearchQuery, chosenIps]
+  // Seed the form once per editing session. A background refresh hands down a new group
+  // object for the same nickname, and re-seeding on that would wipe an in-progress edit.
+  useEffect(() => {
+    if (!isOpen) {
+      seededForRef.current = null;
+      return;
+    }
+    const sessionKey = group ? `group-${group.id}` : 'new';
+    if (seededForRef.current === sessionKey) return;
+    seededForRef.current = sessionKey;
+    expectedUpdatedAtRef.current = group?.updatedAtUtc ?? null;
+
+    if (group) {
+      setNickname(group.nickname);
+      setDescription(group.description || '');
+      setSeparateMemberRows(group.separateMemberRows);
+    } else {
+      setNickname('');
+      setDescription('');
+      setSeparateMemberRows(false);
+    }
+    setRemovedIps([]);
+    setCreatedGroupId(null);
+    clearChosen();
+    if (!group && initialIps && initialIps.length > 0) {
+      setChosenMany(initialIps, true);
+    }
+    setError(null);
+    setRejectedIps([]);
+    setSearchInput('');
+    setSearchQuery('');
+    // Cancels a debounce left pending by the previous session.
+    scheduleSearch(() => setSearchQuery(''));
+    setActiveIndex(-1);
+    setLastTouchedAddress(null);
+  }, [isOpen, group, initialIps, clearChosen, setChosenMany, scheduleSearch]);
+
+  const currentMemberIps = useMemo(() => group?.memberIps ?? [], [group]);
+  const currentMemberSet = useMemo(() => new Set(currentMemberIps), [currentMemberIps]);
+  const removedSet = useMemo(() => new Set(removedIps), [removedIps]);
+  const knownIpSet = useMemo(() => new Set(knownIps), [knownIps]);
+
+  // Chosen addresses in the order the picker offers them, so the chip row is stable.
+  const chosenList = useMemo(() => {
+    const offered = knownIps.filter((ip) => chosen.selected.has(ip));
+    const unlisted = [...chosen.selected].filter((ip) => !knownIpSet.has(ip));
+    return [...offered, ...unlisted];
+  }, [knownIps, knownIpSet, chosen.selected]);
+
+  /** The membership Save would write: current members minus the marked ones, plus the chosen. */
+  const pendingMemberIps = useMemo(
+    () => [...currentMemberIps.filter((ip) => !removedSet.has(ip)), ...chosenList],
+    [currentMemberIps, removedSet, chosenList]
   );
 
-  const { paginatedItems: paginatedAvailableIps, totalPages } = usePaginatedList<string>({
-    items: availableIps,
-    pageSize: IPS_PER_PAGE,
-    page: ipPage,
-    onPageChange: setIpPage
-  });
+  // Everything this nickname could still take: every known address it does not already hold.
+  const addressableCount = useMemo(
+    () => knownIps.filter((ip) => !currentMemberSet.has(ip)).length,
+    [knownIps, currentMemberSet]
+  );
 
-  const handleChooseIp = (ip: string) => {
-    setChosenIps((prev) => (prev.includes(ip) ? prev : [...prev, ip]));
-  };
+  const matchingRows = useMemo<PickerRow[]>(
+    () => matchAddresses(knownIps, currentMemberSet, searchQuery, getGroupForIp, savedGroupId),
+    [knownIps, currentMemberSet, searchQuery, getGroupForIp, savedGroupId]
+  );
 
-  const handleUnchooseIp = (ip: string) => {
-    setChosenIps((prev) => prev.filter((i) => i !== ip));
-  };
+  // Select-all covers every match a nickname could take, chosen or not, so the checkbox
+  // reads as "all of them are in" even though a chosen row leaves the list.
+  const selectableAddresses = useMemo(
+    () => matchingRows.filter((row) => row.ownerNickname === null).map((row) => row.address),
+    [matchingRows]
+  );
+
+  const pickerRows = useMemo(
+    () => matchingRows.filter((row) => !chosen.selected.has(row.address)),
+    [matchingRows, chosen.selected]
+  );
+
+  const allMatchingChosen = chosen.allSelected(selectableAddresses);
+
+  const firstEnabledIndex = useMemo(() => enabledIndexIn(pickerRows, 0, 1), [pickerRows]);
+
+  // Where each offered address sits in `matchingRows`. Ranges are resolved and sliced in those
+  // coordinates because `matchingRows` keeps the rows already chosen, while `pickerRows` drops a
+  // row the moment it is taken. [52]
+  const matchingIndexByAddress = useMemo(() => {
+    const positions = new Map<string, number>();
+    matchingRows.forEach((row, index) => positions.set(row.address, index));
+    return positions;
+  }, [matchingRows]);
+
+  const matchingIndexOf = useCallback(
+    (address: string | null): number => {
+      if (address === null) return -1;
+      return matchingIndexByAddress.get(address) ?? -1;
+    },
+    [matchingIndexByAddress]
+  );
+
+  // The range anchor is held by address, not by position: choosing a row takes it out of the
+  // list, so an index kept from an earlier keystroke points at whichever row slid into that slot
+  // and extends the range over addresses the user never touched. [35]
+  // Looking it up in `pickerRows` removed it in the same commit that set it, which left the anchor
+  // permanently unresolved and every range silently reduced to a single toggle. [52]
+  const anchorIndex = matchingIndexOf(lastTouchedAddress);
+  // Exactly one row is reachable by Tab; the arrows move it from there. When the list
+  // shrinks under the cursor and leaves it on an address another nickname owns, the
+  // fallback keeps a reachable row rather than dropping the list out of the tab order.
+  const rovingIndex =
+    activeIndex >= 0 && pickerRows[activeIndex]?.ownerNickname === null
+      ? activeIndex
+      : firstEnabledIndex;
+
+  useEffect(() => {
+    setActiveIndex((prev) => {
+      if (pickerRows.length === 0) return -1;
+      if (prev < 0) return prev;
+      return Math.min(prev, pickerRows.length - 1);
+    });
+  }, [pickerRows.length]);
+
+  const focusRow = useCallback((address: string | undefined): void => {
+    if (address === undefined) return;
+    const node = rowRefs.current.get(address);
+    if (!node) return;
+    node.focus();
+    node.scrollIntoView({ block: 'nearest' });
+  }, []);
+
+  // A chosen row leaves the list, so the keyboard cursor stays put by index and the row
+  // that slid into that position takes focus.
+  useEffect(() => {
+    const index = pendingFocusRef.current;
+    if (index === null) return;
+    pendingFocusRef.current = null;
+    const target = Math.min(index, pickerRows.length - 1);
+    if (target < 0) {
+      searchRef.current?.focus();
+      return;
+    }
+    focusRow(pickerRows[target].address);
+  }, [pickerRows, focusRow]);
+
+  // Saving disables the search box and the submit button, and a browser blurs a control it
+  // disables. The dialog only traps Tab while focus is on one of its descendants, so focus left on
+  // the document body would let the next Tab walk the page behind the modal. [55]
+  useEffect(() => {
+    if (!saving) return;
+    const focused = document.activeElement;
+    if (focused !== null && focused !== document.body) return;
+    formRef.current?.focus();
+  }, [saving]);
+
+  const nextEnabledIndex = useCallback(
+    (from: number, step: number): number => enabledIndexIn(pickerRows, from, step),
+    [pickerRows]
+  );
+
+  const moveActive = useCallback(
+    (target: number): void => {
+      if (target < 0) return;
+      setActiveIndex(target);
+      focusRow(pickerRows[target].address);
+    },
+    [pickerRows, focusRow]
+  );
+
+  const applySearch = useCallback(
+    (value: string): void => {
+      setSearchInput(value);
+      scheduleSearch(() => setSearchQuery(value));
+    },
+    [scheduleSearch]
+  );
+
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>): void => {
+      applySearch(e.target.value);
+    },
+    [applySearch]
+  );
+
+  const handleClearSearch = useCallback((): void => {
+    applySearch('');
+    // Clearing is an explicit action, so the filter drops now instead of after the debounce.
+    setSearchQuery('');
+    setActiveIndex(-1);
+    setLastTouchedAddress(null);
+    searchRef.current?.focus();
+  }, [applySearch]);
+
+  const isPickable = useCallback(
+    (index: number): boolean => pickerRows[index]?.ownerNickname === null,
+    [pickerRows]
+  );
+
+  const chooseAddress = useCallback(
+    (address: string): void => {
+      toggleChosen(address);
+      setLastTouchedAddress(address);
+    },
+    [toggleChosen]
+  );
+
+  const handleToggleAddress = useCallback(
+    (index: number): void => {
+      if (!isPickable(index)) return;
+      chooseAddress(pickerRows[index].address);
+    },
+    [pickerRows, isPickable, chooseAddress]
+  );
+
+  /** Both ends are `matchingRows` positions. Rows already chosen stay in the span and re-taking
+   *  one changes nothing, so a range reads the same whether it is drawn up or down the list. */
+  const handleSelectRange = useCallback(
+    (fromIndex: number, toIndex: number): void => {
+      // A negative end would be read by slice as an offset from the tail of the list and quietly
+      // take rows nowhere near the ones the user drew across.
+      if (fromIndex < 0 || toIndex < 0) return;
+      const start = Math.min(fromIndex, toIndex);
+      const end = Math.max(fromIndex, toIndex);
+      const addresses = matchingRows
+        .slice(start, end + 1)
+        .filter((row) => row.ownerNickname === null)
+        .map((row) => row.address);
+      if (addresses.length > 0) {
+        setChosenMany(addresses, true);
+      }
+      setLastTouchedAddress(matchingRows[toIndex]?.address ?? null);
+    },
+    [matchingRows, setChosenMany]
+  );
+
+  const handleToggleRemoval = useCallback((ip: string): void => {
+    setRemovedIps((prev) =>
+      prev.includes(ip) ? prev.filter((item) => item !== ip) : [...prev, ip]
+    );
+  }, []);
+
+  const handleSelectAllToggle = useCallback((): void => {
+    setChosenMany(selectableAddresses, !allMatchingChosen);
+  }, [setChosenMany, selectableAddresses, allMatchingChosen]);
+
+  const handleRowClick = useCallback(
+    (index: number, e: React.MouseEvent<HTMLButtonElement>): void => {
+      // A row that changes nothing must not arm the pending focus, or the next
+      // unrelated list change would pull focus off whatever the user moved on to.
+      if (!isPickable(index)) return;
+      pendingFocusRef.current = index;
+      // An anchor the search text has since ruled out cannot name a span the user can see, so
+      // the click stays a plain toggle rather than reaching across rows that are not listed.
+      if (e.shiftKey && anchorIndex >= 0) {
+        handleSelectRange(anchorIndex, matchingIndexOf(pickerRows[index].address));
+        return;
+      }
+      handleToggleAddress(index);
+    },
+    [isPickable, anchorIndex, handleSelectRange, handleToggleAddress, matchingIndexOf, pickerRows]
+  );
+
+  const handleRowKeyDown = useCallback(
+    (index: number, e: React.KeyboardEvent<HTMLButtonElement>): void => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        const target = nextEnabledIndex(index + step, step);
+        if (target < 0) return;
+        if (e.shiftKey) {
+          pendingFocusRef.current = index;
+          const from = anchorIndex >= 0 ? anchorIndex : matchingIndexOf(pickerRows[index].address);
+          handleSelectRange(from, matchingIndexOf(pickerRows[target].address));
+          return;
+        }
+        moveActive(target);
+        return;
+      }
+      if (e.key === 'Enter') {
+        // Type, Enter, type, Enter: the address is taken and the caret is back in the search box.
+        e.preventDefault();
+        if (!isPickable(index)) return;
+        handleToggleAddress(index);
+        searchRef.current?.focus();
+        return;
+      }
+      if (e.key === ' ') {
+        e.preventDefault();
+        if (!isPickable(index)) return;
+        pendingFocusRef.current = index;
+        handleToggleAddress(index);
+        return;
+      }
+      if (e.key === 'Home' || e.key === 'End') {
+        e.preventDefault();
+        moveActive(
+          e.key === 'Home' ? nextEnabledIndex(0, 1) : nextEnabledIndex(pickerRows.length - 1, -1)
+        );
+        return;
+      }
+      if (e.key === 'Escape' && searchInput !== '') {
+        // Only a filled search box swallows Escape; an empty one lets the modal close.
+        e.stopPropagation();
+        handleClearSearch();
+      }
+    },
+    [
+      nextEnabledIndex,
+      handleSelectRange,
+      handleToggleAddress,
+      isPickable,
+      moveActive,
+      pickerRows,
+      matchingIndexOf,
+      anchorIndex,
+      searchInput,
+      handleClearSearch
+    ]
+  );
+
+  /**
+   * The debounce holds the filter back, so a key pressed inside that window would act on rows the
+   * search text has already ruled out: Enter would take an address the user is not looking at, and
+   * an arrow would focus a row that unmounts a moment later, dropping focus out of the dialog.
+   * Applying the typed text here settles the list first. Returns null when nothing was pending. [33]
+   */
+  const flushSearch = useCallback((): PickerRow[] | null => {
+    if (searchInput === searchQuery) return null;
+    setSearchQuery(searchInput);
+    // The keyboard cursor referred to a row the new text may not offer at all.
+    setActiveIndex(-1);
+    return matchAddresses(
+      knownIps,
+      currentMemberSet,
+      searchInput,
+      getGroupForIp,
+      savedGroupId
+    ).filter((row) => !chosen.selected.has(row.address));
+  }, [
+    searchInput,
+    searchQuery,
+    knownIps,
+    currentMemberSet,
+    getGroupForIp,
+    savedGroupId,
+    chosen.selected
+  ]);
+
+  const handleSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>): void => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        const flushed = flushSearch();
+        if (flushed !== null) {
+          // Those rows have not rendered yet, so focus is handed to the effect that runs once
+          // they have. [34]
+          pendingFocusRef.current = enabledIndexIn(
+            flushed,
+            step === 1 ? 0 : flushed.length - 1,
+            step
+          );
+          return;
+        }
+        moveActive(nextEnabledIndex(step === 1 ? 0 : pickerRows.length - 1, step));
+        return;
+      }
+      if (e.key === 'Enter') {
+        // A search box must never submit the form; it takes the active address instead.
+        e.preventDefault();
+        const flushed = flushSearch();
+        if (flushed !== null) {
+          const target = flushed.find((row) => row.ownerNickname === null);
+          if (target !== undefined) {
+            chooseAddress(target.address);
+          }
+          return;
+        }
+        if (rovingIndex >= 0) {
+          handleToggleAddress(rovingIndex);
+        }
+        return;
+      }
+      if (e.key === 'Escape' && searchInput !== '') {
+        e.stopPropagation();
+        handleClearSearch();
+      }
+    },
+    [
+      flushSearch,
+      chooseAddress,
+      moveActive,
+      nextEnabledIndex,
+      pickerRows.length,
+      rovingIndex,
+      handleToggleAddress,
+      searchInput,
+      handleClearSearch
+    ]
+  );
+
+  /**
+   * Adopts the nickname as the server now holds it after a save was turned down, and takes its
+   * stamp with it so the next attempt is checked against that copy rather than the refused one.
+   * The chosen and removed addresses are left alone: they are the editor's own work.
+   */
+  const reseedFromServerCopy = useCallback((current: ClientGroup): void => {
+    setNickname(current.nickname);
+    setDescription(current.description || '');
+    setSeparateMemberRows(current.separateMemberRows);
+    expectedUpdatedAtRef.current = current.updatedAtUtc ?? null;
+  }, []);
 
   const handleSubmit = useCallback(
-    async (e: React.FormEvent) => {
+    async (e: React.FormEvent): Promise<void> => {
       e.preventDefault();
       setError(null);
+      setRejectedIps([]);
 
-      if (!nickname.trim()) {
+      const trimmedNickname = nickname.trim();
+      if (!trimmedNickname) {
         setError(t('modals.clientGroup.errors.nicknameRequired'));
+        return;
+      }
+      // A nickname with no addresses renders a blank meta line in Management and drops off
+      // both stats surfaces, and the server does not refuse an empty list. [12]
+      if (pendingMemberIps.length === 0) {
+        setError(t('modals.clientGroup.errors.needsOneAddress'));
         return;
       }
 
       setSaving(true);
       try {
-        if (isEditing) {
-          // Update nickname/description
-          await updateClientGroup(group.id, {
-            nickname: nickname.trim(),
+        if (savedGroupId !== null) {
+          // The fields are written first and writing them moves the stamp, so this is the one
+          // place the copy the session started from can still be compared against what the
+          // server holds. A nickname someone else changed since is refused here, before this
+          // save can adopt their version of it. [41]
+          const saved = await updateClientGroup(savedGroupId, {
+            nickname: trimmedNickname,
             description: description.trim() || undefined,
-            separateMemberRows
+            separateMemberRows,
+            expectedUpdatedAtUtc: expectedUpdatedAtRef.current
           });
-          // Add any pending IPs
-          for (const ip of chosenIps) {
-            await addMember(group.id, ip);
+          if (saved.status === 'stale') {
+            reseedFromServerCopy(saved.currentGroup);
+            setError(t('modals.clientGroup.errors.changedElsewhere'));
+            return;
+          }
+          expectedUpdatedAtRef.current = saved.updatedAtUtc ?? null;
+          if (removedIps.length > 0 || chosenList.length > 0) {
+            // One request carries the whole desired membership, so a partial apply cannot
+            // leave earlier addresses committed with no way back. [3]
+            // Routed through the context so the saved membership reloads on its own instead of
+            // waiting for a socket echo that a disconnected tab never receives. [32]
+            const result = await setMembers(
+              savedGroupId,
+              pendingMemberIps,
+              expectedUpdatedAtRef.current
+            );
+            if (result.status === 'stale') {
+              // The list is the whole membership, so saving it over a copy that moved would drop
+              // whatever the other editor did with nothing to show for it. Take what the server
+              // now holds and let the editor look at their own pending changes again. [41]
+              reseedFromServerCopy(result.currentGroup);
+              setError(t('modals.clientGroup.errors.changedElsewhere'));
+              return;
+            }
+            expectedUpdatedAtRef.current = result.group.updatedAtUtc ?? null;
+            if (result.rejectedIps.length > 0) {
+              setRejectedIps(result.rejectedIps);
+              setChosenMany(result.rejectedIps, false);
+              return;
+            }
           }
           const ipsAdded =
-            chosenIps.length > 0
-              ? t('modals.clientGroup.messages.andAddedIps', { count: chosenIps.length })
+            chosenList.length > 0
+              ? t('modals.clientGroup.messages.andAddedIps', { count: chosenList.length })
               : '';
           onSuccess(
             t('modals.clientGroup.messages.updatedNickname', {
-              nickname: nickname.trim(),
+              nickname: trimmedNickname,
               ipsAdded
             })
           );
         } else {
-          await createClientGroup({
-            nickname: nickname.trim(),
+          const created = await createClientGroup({
+            nickname: trimmedNickname,
             description: description.trim() || undefined,
-            initialIps: chosenIps.length > 0 ? chosenIps : undefined,
+            initialIps: pendingMemberIps,
             separateMemberRows
           });
-          onSuccess(t('modals.clientGroup.messages.addedNickname', { nickname: nickname.trim() }));
+          const rejected = Array.isArray(created.rejectedIps) ? created.rejectedIps : [];
+          if (created.status === 'rejected') {
+            // Not one address could be taken, so the nickname was rolled back and there is
+            // nothing on the server to edit: no id is kept, or the next Save would write to a
+            // group that does not exist. [42]
+            setChosenMany(rejected, false);
+            setError(
+              t('modals.clientGroup.errors.noAddressesAccepted', { addresses: rejected.join(', ') })
+            );
+            return;
+          }
+          if (rejected.length > 0) {
+            setCreatedGroupId(created.id);
+            // The dialog stays open on this one, and the next Save edits the nickname that now
+            // exists, so the session carries on from the copy the create handed back. [41]
+            expectedUpdatedAtRef.current = created.updatedAtUtc ?? null;
+            setRejectedIps(rejected);
+            setChosenMany(rejected, false);
+            return;
+          }
+          onSuccess(t('modals.clientGroup.messages.addedNickname', { nickname: trimmedNickname }));
         }
         onClose();
       } catch (err) {
-        setError(getErrorMessage(err) || t('modals.clientGroup.errors.failedToSave'));
+        console.error('Failed to save client nickname:', getErrorMessage(err));
+        setError(t('modals.clientGroup.errors.failedToSave'));
       } finally {
         setSaving(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
+      t,
       nickname,
       description,
       separateMemberRows,
-      chosenIps,
-      isEditing,
-      group,
+      pendingMemberIps,
+      removedIps,
+      chosenList,
+      savedGroupId,
       createClientGroup,
       updateClientGroup,
-      addMember,
+      setMembers,
+      setChosenMany,
+      reseedFromServerCopy,
       onClose,
       onSuccess
     ]
@@ -172,7 +688,119 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
   if (!isOpen) return null;
 
-  const multiIpWarning = isEditing ? group.memberIps.length > 1 : chosenIps.length > 1;
+  const renderPickerBody = (): React.ReactNode => {
+    if (groupsError) {
+      return (
+        <div className="clientgroup-ip-picker__state">
+          <Alert color="red">
+            <span className="text-sm">{t('modals.clientGroup.errors.loadAddressesFailed')}</span>
+          </Alert>
+          <Button type="button" size="sm" variant="default" onClick={() => void refreshGroups()}>
+            {t('common.retry')}
+          </Button>
+        </div>
+      );
+    }
+    if (groupsLoading) {
+      return (
+        <div className="clientgroup-ip-picker__state">
+          <LoadingState rows={4} />
+        </div>
+      );
+    }
+    if (addressableCount === 0) {
+      return (
+        <EmptyState
+          variant="plain"
+          icon={Users}
+          title={
+            knownIps.length === 0
+              ? t('modals.clientGroup.emptyStates.noAddressesYet')
+              : t('modals.clientGroup.emptyStates.everyAddressNamed')
+          }
+          subtitle={t('modals.clientGroup.emptyStates.everyAddressNamedHint')}
+        />
+      );
+    }
+    if (matchingRows.length === 0) {
+      return (
+        <div className="clientgroup-ip-picker__state">
+          <p className="text-sm text-themed-muted">
+            {t('modals.clientGroup.emptyStates.noAddressMatches')}
+          </p>
+          <Button type="button" size="sm" variant="default" onClick={handleClearSearch}>
+            {t('modals.clientGroup.actions.clearSearch')}
+          </Button>
+        </div>
+      );
+    }
+    if (pickerRows.length === 0) {
+      return (
+        <div className="clientgroup-ip-picker__state">
+          <p className="text-sm text-themed-muted">
+            {t('modals.clientGroup.emptyStates.allMatchingChosen')}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <CustomScrollbar
+        variant="rail"
+        radius="none"
+        paddingMode="compact"
+        maxHeight={PICKER_MAX_HEIGHT}
+      >
+        <div
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label={t('modals.clientGroup.labels.addresses')}
+          aria-busy={saving}
+          className={`clientgroup-ip-rows divided-list${saving ? ' clientgroup-ip-rows--busy' : ''}`}
+        >
+          {pickerRows.map((row, index) => {
+            const owned = row.ownerNickname !== null;
+            return (
+              <button
+                key={row.address}
+                ref={(node) => {
+                  if (node) {
+                    rowRefs.current.set(row.address, node);
+                  } else {
+                    rowRefs.current.delete(row.address);
+                  }
+                }}
+                type="button"
+                role="option"
+                aria-selected={false}
+                aria-disabled={owned || undefined}
+                tabIndex={!owned && !saving && index === rovingIndex ? 0 : -1}
+                onClick={(e) => handleRowClick(index, e)}
+                onKeyDown={(e) => handleRowKeyDown(index, e)}
+                onFocus={() => {
+                  if (!owned) setActiveIndex(index);
+                }}
+                className={`mgmt-row mgmt-row--interactive focus-ring--inset clientgroup-ip-row w-full text-left${
+                  index === activeIndex ? ' clientgroup-ip-row--active' : ''
+                }${owned ? ' clientgroup-ip-row--owned' : ''}`}
+              >
+                <span className="mgmt-row__body">
+                  <span className="mgmt-row__title font-mono truncate">{row.address}</span>
+                  {owned && (
+                    <span className="mgmt-row__meta">
+                      {t('modals.clientGroup.messages.alreadyNamed', {
+                        nickname: row.ownerNickname
+                      })}
+                    </span>
+                  )}
+                </span>
+                {!owned && <Plus className="w-3.5 h-3.5 flex-shrink-0 text-themed-muted" />}
+              </button>
+            );
+          })}
+        </div>
+      </CustomScrollbar>
+    );
+  };
 
   return (
     <Modal
@@ -180,27 +808,25 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
       onClose={onClose}
       title={isEditing ? t('modals.clientGroup.editTitle') : t('modals.clientGroup.addTitle')}
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form
+        ref={formRef}
+        tabIndex={-1}
+        onSubmit={handleSubmit}
+        className="clientgroup-form space-y-4"
+      >
         {error && (
           <Alert color="red">
             <span className="text-sm">{error}</span>
           </Alert>
         )}
 
-        {multiIpWarning && (
-          <Alert color="yellow">
-            <p className="text-sm font-medium">
-              {isEditing
-                ? t('modals.clientGroup.warnings.sharedNicknameTitle')
-                : t('modals.clientGroup.warnings.multipleIpsTitle')}
-            </p>
-            <p className="text-xs mt-1">
-              {isEditing
-                ? t('modals.clientGroup.warnings.sharedNicknameDesc', {
-                    count: group.memberIps.length
-                  })
-                : t('modals.clientGroup.warnings.multipleIpsDesc', { count: chosenIps.length })}
-            </p>
+        {rejectedIps.length > 0 && (
+          <Alert color="red">
+            <span className="text-sm">
+              {t('modals.clientGroup.errors.addressesRejected', {
+                addresses: rejectedIps.join(', ')
+              })}
+            </span>
           </Alert>
         )}
 
@@ -214,7 +840,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             type="text"
             value={nickname}
             onChange={(e) => setNickname(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border text-themed-primary themed-input"
+            className="w-full px-3 py-2 border text-themed-primary text-sm themed-input control-h-md"
             placeholder={t('modals.clientGroup.placeholders.name')}
             required
             autoFocus
@@ -231,7 +857,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             id="description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border text-themed-primary resize-none themed-input"
+            className="w-full px-3 py-2 border text-themed-primary text-sm resize-none themed-input"
             placeholder={t('modals.clientGroup.placeholders.description')}
             rows={2}
           />
@@ -240,14 +866,16 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
         {/* How this nickname reports in the client stats. Shown for every group, including a
             one-IP one, so the choice is made once at creation rather than appearing later. */}
         <div>
-          <span id="clientgroup-row-mode-label" className="form-field-label">
-            {t('modals.clientGroup.labels.rowMode')}
-          </span>
-          <div
-            role="group"
-            aria-labelledby="clientgroup-row-mode-label"
-            aria-describedby="clientgroup-row-mode-help"
+          <Tooltip
+            content={t('modals.clientGroup.labels.rowModeHelp')}
+            position="top"
+            className="inline-block"
           >
+            <span id="clientgroup-row-mode-label" className="form-field-label">
+              {t('modals.clientGroup.labels.rowMode')}
+            </span>
+          </Tooltip>
+          <div role="group" aria-labelledby="clientgroup-row-mode-label">
             <SegmentedControl
               options={[
                 {
@@ -268,141 +896,121 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
               fullWidth
             />
           </div>
-          <p id="clientgroup-row-mode-help" className="text-xs text-themed-muted mt-2">
-            {t('modals.clientGroup.mode.help')}
-          </p>
         </div>
 
-        {/* Current members (edit mode) */}
-        {isEditing && (
-          <div>
-            <label className="form-field-label">
-              {t('modals.clientGroup.labels.currentIps')}{' '}
-              <Badge variant="neutral" className="badge-count">
-                {group.memberIps.length}
-              </Badge>
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {group.memberIps.map((ip) => (
-                <div
-                  key={ip}
-                  className="px-2 py-1 rounded text-sm font-mono bg-themed-tertiary text-themed-secondary"
-                >
-                  {ip}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* IP selection */}
+        {/* Addresses: what the nickname will hold after Save, then the picker that feeds it. */}
         <div>
           <label className="form-field-label">
-            {isEditing ? (
-              <>
-                {t('modals.clientGroup.labels.ipsToAdd')}{' '}
-                {chosenIps.length > 0 && (
-                  <Badge variant="neutral" className="badge-count">
-                    {chosenIps.length}
-                  </Badge>
-                )}
-              </>
-            ) : (
-              <>
-                {t('modals.clientGroup.labels.clientIps')}{' '}
-                <span className="text-themed-muted">
-                  ({t('modals.clientGroup.labels.selectAtLeastOne')})
-                </span>
-              </>
+            {t('modals.clientGroup.labels.addresses')}{' '}
+            <Badge variant="neutral" className="badge-count">
+              {pendingMemberIps.length}
+            </Badge>{' '}
+            <span className="text-themed-muted">
+              ({t('modals.clientGroup.labels.addressesHint')})
+            </span>
+            {searchQuery !== '' && (
+              <span className="clientgroup-match-count">
+                {t('modals.clientGroup.messages.matchCount', {
+                  shown: matchingRows.length,
+                  total: addressableCount
+                })}
+              </span>
             )}
           </label>
 
-          {chosenIps.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {chosenIps.map((ip) => (
-                <button
+          {pendingMemberIps.length + removedIps.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {currentMemberIps.map((ip) => {
+                const marked = removedSet.has(ip);
+                return (
+                  <IpChip
+                    key={ip}
+                    address={ip}
+                    state={marked ? 'removing' : 'current'}
+                    onRemove={() => handleToggleRemoval(ip)}
+                    removeLabel={
+                      marked ? t('modals.clientGroup.actions.undoRemove') : t('common.remove')
+                    }
+                    disabled={saving}
+                  />
+                );
+              })}
+              {chosenList.map((ip) => (
+                <IpChip
                   key={ip}
-                  type="button"
-                  onClick={() => handleUnchooseIp(ip)}
-                  className="clientgroup-chosen-ip flex items-center gap-1 px-2 py-1 rounded text-sm font-mono bg-primary text-themed-button"
-                  aria-label={t('modals.clientGroup.actions.removeChosenIp', { ip })}
-                >
-                  {ip}
-                  <span aria-hidden="true">×</span>
-                </button>
+                  address={ip}
+                  state="added"
+                  onRemove={() => toggleChosen(ip)}
+                  disabled={saving}
+                />
               ))}
             </div>
           )}
 
-          {ungroupedIps.length === 0 && !isEditing ? (
-            <p className="text-sm text-themed-muted">
-              {t('modals.clientGroup.emptyStates.noClientsAvailable')}
-            </p>
-          ) : (
-            availableIps.length + chosenIps.length > 0 && (
-              <>
-                <input
-                  type="text"
-                  value={ipSearchQuery}
-                  onChange={(e) => setIpSearchQuery(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border text-themed-primary text-sm themed-input mb-2"
-                  placeholder={
-                    isEditing
-                      ? t('modals.clientGroup.placeholders.searchUngrouped')
-                      : t('modals.clientGroup.placeholders.searchToAdd')
-                  }
-                />
-                <div className="mgmt-list divided-list clientgroup-ip-picker">
-                  {availableIps.length === 0 ? (
-                    <p className="text-sm text-themed-muted text-center py-3">
-                      {ipSearchQuery
-                        ? t('modals.clientGroup.emptyStates.noMatchingIps')
-                        : isEditing
-                          ? t('modals.clientGroup.emptyStates.noUngroupedIps')
-                          : t('modals.clientGroup.emptyStates.allSelected')}
-                    </p>
-                  ) : (
-                    <CustomScrollbar maxHeight="13.5rem" paddingMode="none" radius="none">
-                      <div className="clientgroup-ip-rows divided-list">
-                        {paginatedAvailableIps.map((ip) => (
-                          <button
-                            key={ip}
-                            type="button"
-                            onClick={() => handleChooseIp(ip)}
-                            className="mgmt-row mgmt-row--interactive focus-ring--inset clientgroup-ip-row w-full text-left"
-                          >
-                            <span className="mgmt-row__title font-mono truncate">{ip}</span>
-                            <Plus className="w-3.5 h-3.5 flex-shrink-0 text-themed-muted" />
-                          </button>
-                        ))}
-                      </div>
-                    </CustomScrollbar>
-                  )}
-                </div>
-                {totalPages > 1 && (
-                  <Pagination
-                    currentPage={ipPage}
-                    totalPages={totalPages}
-                    totalItems={availableIps.length}
-                    itemsPerPage={IPS_PER_PAGE}
-                    onPageChange={setIpPage}
-                    itemLabel={t('management.sections.clients.ipsLabel')}
-                    showCard={false}
-                    compact
-                    className="mt-2"
-                  />
-                )}
-              </>
-            )
+          {pendingMemberIps.length === 0 && (
+            <Alert color="red" className="mb-3">
+              <span className="text-sm">{t('modals.clientGroup.errors.needsOneAddress')}</span>
+            </Alert>
           )}
+
+          {selectableAddresses.length > 0 && (
+            <div className="clientgroup-picker-toolbar">
+              <Checkbox
+                checked={allMatchingChosen}
+                onChange={handleSelectAllToggle}
+                disabled={saving}
+                label={t('modals.clientGroup.actions.addAllMatching', {
+                  count: selectableAddresses.length
+                })}
+              />
+              {chosen.count > 0 && (
+                <Tooltip content={t('modals.clientGroup.actions.clearSelection')} position="top">
+                  <button
+                    type="button"
+                    onClick={clearChosen}
+                    disabled={saving}
+                    className="clientgroup-picker-clear themed-border-radius-sm focus-ring text-sm"
+                  >
+                    {t('common.clear')}
+                  </button>
+                </Tooltip>
+              )}
+            </div>
+          )}
+
+          <input
+            type="text"
+            value={searchInput}
+            onChange={handleSearchChange}
+            onKeyDown={handleSearchKeyDown}
+            ref={searchRef}
+            disabled={saving}
+            className="w-full px-3 py-2 border text-themed-primary text-sm themed-input control-h-md mb-2"
+            placeholder={t('modals.clientGroup.placeholders.searchAddresses')}
+            aria-label={t('modals.clientGroup.placeholders.searchAddresses')}
+          />
+
+          <div className="mgmt-list divided-list clientgroup-ip-picker">{renderPickerBody()}</div>
         </div>
 
         {/* Actions */}
-        <div className="flex justify-end gap-3 pt-4 border-t border-themed-primary">
-          <Button type="button" variant="filled" color="gray" onClick={onClose} disabled={saving}>
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 mt-4 pt-4 border-t border-themed-primary">
+          <Button
+            type="button"
+            variant="default"
+            onClick={onClose}
+            disabled={saving}
+            className="min-h-[44px] sm:min-h-10"
+          >
             {t('common.cancel')}
           </Button>
-          <Button type="submit" loading={saving} disabled={saving || !nickname.trim()}>
+          <Button
+            type="submit"
+            variant="filled"
+            loading={saving}
+            disabled={saving || !nickname.trim() || pendingMemberIps.length === 0}
+            className="min-h-[44px] sm:min-h-10"
+          >
             {isEditing
               ? t('modals.clientGroup.actions.saveChanges')
               : t('modals.clientGroup.actions.addNickname')}

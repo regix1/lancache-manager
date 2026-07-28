@@ -85,6 +85,7 @@
     "partiallyEvicted": "Partially Evicted",
     "on": "On",
     "off": "Off",
+    "moreActions": "More actions",
     "bytes": {
       "units": ["B", "KB", "MB", "GB", "TB"],
       "zero": "0 {{unit}}"
@@ -1080,9 +1081,7 @@
     "resultCount": "{{count}} session",
     "resultCount_other": "{{count}} sessions",
     "status": {
-      "active": "Active",
-      "away": "Away",
-      "inactive": "Inactive"
+      "revoked": "Revoked"
     },
     "history": {
       "title": "Session History",
@@ -1259,9 +1258,6 @@
         "revoke": "Revoke Access"
       }
     },
-    "status": {
-      "revoked": "Revoked"
-    },
     "info": {
       "revokedOwnSession": "You revoked your own session. Logging out...",
       "deletedOwnSession": "You deleted your own session. Logging out..."
@@ -1379,6 +1375,36 @@
           "search": "• Search: \"{{query}}\"",
           "service": "• Service: {{service}}",
           "client": "• Client: {{client}}"
+        }
+      },
+      "sessionFilters": {
+        "allIps": "All IPs",
+        "showingCount": "Showing {{shown}} of {{total}}",
+        "groups": {
+          "ip": "IP",
+          "cacheStatus": "Cache",
+          "timeRange": "Time",
+          "sort": "Sort",
+          "ipsPerPage": "IPs/page",
+          "itemsPerIp": "Items/IP"
+        },
+        "cacheStatus": {
+          "cached": "Cached",
+          "missed": "Missed",
+          "full": "Full"
+        },
+        "timeRange": {
+          "lastHour": "1h",
+          "lastDay": "24h",
+          "lastWeek": "7d"
+        },
+        "chips": {
+          "ip": "IP: {{value}}",
+          "cacheStatus": "Cache: {{value}}",
+          "timeRange": "Time: {{value}}",
+          "removeIp": "Remove IP filter {{value}}",
+          "removeCacheStatus": "Remove cache status filter",
+          "removeTimeRange": "Remove time range filter"
         }
       },
       "sort": {
@@ -2367,14 +2393,11 @@
         "noNicknamesYet": "No nicknames assigned yet",
         "noNicknamesDesc": "Add a nickname to give a friendly name to client IPs",
         "withoutNicknames": "Without Nicknames",
-        "withoutNicknamesDesc": "These clients don't have a nickname yet. Add one to recognize them at a glance.",
-        "nameIpAction": "Add nickname",
         "expandIps": "Show IPs for {{nickname}}",
         "collapseIps": "Hide IPs for {{nickname}}",
         "unsavedChanges": "Unsaved changes",
         "excludeFromStats": "Client Exclusions",
         "exclusionsSummary": "Keep specific clients out of stats, or hide them entirely",
-        "excludedIpsDesc": "Choose how each client is handled. \"Stats only\" keeps the client visible in downloads and live speeds but removes it from dashboard totals, hit rate, and leaderboards. \"Hidden\" removes the client from every view and from all stats.",
         "modeExclude": "Stats only",
         "modeHide": "Hidden",
         "modeExcludeTooltip": "Stays visible in downloads and live speeds, but is removed from dashboard totals, hit rate, and leaderboards.",
@@ -2393,7 +2416,6 @@
         "removeIp": "Remove IP",
         "saveChanges": "Save Changes",
         "deletedNickname": "Deleted nickname \"{{nickname}}\"",
-        "removedIpFromNickname": "Removed {{ip}} from nickname \"{{nickname}}\"",
         "excludedIpsUpdated": "Client exclusions updated",
         "deleteNickname": "Delete Nickname",
         "deleteNicknameConfirm": "Delete nickname {{nickname}}? The associated IPs will no longer have a nickname.",
@@ -2403,9 +2425,18 @@
         "ipsLabel": "IPs",
         "separateRowsLabel": "Separate rows",
         "separateRowsTooltip": "This nickname shows one row per IP in the client stats",
+        "nameSelected": "Name selected",
+        "selectedCount": "{{count}} selected",
+        "selectAllVisible": "Select all visible",
+        "unnamedHint": "These clients don't have a nickname yet. Add one to recognize them at a glance.",
+        "exclusionsHint": "Choose how each client is handled. \"Stats only\" keeps the client visible in downloads and live speeds but removes it from dashboard totals, hit rate, and leaderboards. \"Hidden\" removes the client from every view and from all stats.",
+        "noAddressesYet": "No addresses yet",
         "errors": {
           "failedToUpdateExcluded": "Failed to update excluded IPs",
-          "failedToLoadExcluded": "Failed to load excluded IPs"
+          "failedToLoadExcluded": "Failed to load excluded IPs",
+          "failedToLoadNicknames": "Could not load nicknames.",
+          "failedToLoadIps": "Failed to load client IPs",
+          "nicknameDeletedWhileEditing": "That nickname was deleted, so the editor closed without saving your changes."
         },
         "groupManagement": "Client Management",
         "hostnames": {
@@ -4849,56 +4880,55 @@
         "nickname": "Nickname",
         "description": "Description",
         "optional": "optional",
-        "currentIps": "Current IPs",
-        "ipsToAdd": "IPs to Add",
-        "addMoreIps": "Add More IPs",
-        "clientIps": "Client IPs",
-        "selectAtLeastOne": "select at least one",
-        "rowMode": "Stats rows"
+        "rowMode": "Stats rows",
+        "addresses": "Addresses",
+        "addressesHint": "Choose at least one address",
+        "rowModeHelp": "Combined totals every IP into one row. Separate keeps one row per machine, all sharing the nickname."
       },
       "mode": {
         "combined": "Combined",
         "separate": "Separate",
         "combinedTooltip": "Add every IP together and show one row for this nickname",
-        "separateTooltip": "Show one row per IP, each labelled with this nickname",
-        "help": "Combined totals every IP into one row. Separate keeps one row per machine, all sharing the nickname."
+        "separateTooltip": "Show one row per IP, each labelled with this nickname"
       },
       "placeholders": {
         "name": "e.g., Gaming PC, Living Room, Server",
         "description": "Optional description for this group",
-        "searchUngrouped": "Search ungrouped IPs...",
-        "searchToAdd": "Search ungrouped IPs to add..."
-      },
-      "warnings": {
-        "multipleIpsTitle": "Multiple IPs selected",
-        "multipleIpsDesc": "All {{count}} IPs will share the same nickname. This is typically used when the same device has multiple IP addresses.",
-        "sharedNicknameTitle": "Shared nickname",
-        "sharedNicknameDesc": "This nickname is shared by {{count}} IPs. Changes will apply to all of them."
+        "searchAddresses": "Search addresses"
       },
       "emptyStates": {
-        "noMatchingIps": "No matching IPs",
-        "noUngroupedIps": "No ungrouped IPs available",
-        "allSelected": "All available IPs selected",
-        "noClientsAvailable": "No ungrouped clients available. You can add IPs later."
+        "everyAddressNamed": "Every address already has a nickname",
+        "everyAddressNamedHint": "New addresses appear here once they show up in downloads.",
+        "noAddressMatches": "No address matches that search",
+        "allMatchingChosen": "Every matching address is already chosen",
+        "noAddressesYet": "No addresses yet"
       },
       "actions": {
         "saveChanges": "Save Changes",
         "addNickname": "Add Nickname",
-        "removeChosenIp": "Remove {{ip}}"
+        "addAllMatching": "Add all {{count}} matching",
+        "clearSelection": "Clear selection",
+        "clearSearch": "Clear search",
+        "undoRemove": "Undo removal"
       },
       "messages": {
         "andAddedIps": " and added {{count}} IP",
         "andAddedIps_other": " and added {{count}} IPs",
         "updatedNickname": "Updated nickname \"{{nickname}}\"{{ipsAdded}}",
-        "addedNickname": "Added nickname \"{{nickname}}\""
+        "addedNickname": "Added nickname \"{{nickname}}\"",
+        "matchCount": "{{shown}} of {{total}} match",
+        "alreadyNamed": "Already named {{nickname}}"
       },
       "errors": {
         "nicknameRequired": "Nickname is required",
         "failedToSave": "Failed to save nickname",
         "failedToDelete": "Failed to delete nickname",
-        "failedToRemoveIp": "Failed to remove IP"
-      },
-      "multiIpWarning": "This nickname is shared by multiple IPs"
+        "needsOneAddress": "A nickname needs at least one address.",
+        "addressesRejected": "These addresses could not be added: {{addresses}}",
+        "loadAddressesFailed": "Failed to load addresses",
+        "changedElsewhere": "Someone else changed this nickname while you had it open, so your addresses were not saved. The name and description above have been refreshed. Check your changes, then save again.",
+        "noAddressesAccepted": "The nickname was not created. Other nicknames already hold every address you picked: {{addresses}}"
+      }
     },
     "auth": {
       "labels": {
@@ -6648,7 +6678,8 @@
       "allSelected": "All selected",
       "selected": "selected",
       "minimumSelections": "Minimum {{count}} selection required",
-      "minimumSelections_other": "Minimum {{count}} selections required"
+      "minimumSelections_other": "Minimum {{count}} selections required",
+      "noMatches": "No matches"
     },
     "managerCard": {
       "logsReadOnly": "Logs are read-only",

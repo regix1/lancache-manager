@@ -1,6 +1,7 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { IpChip } from '@components/ui/IpChip';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { TogglePill } from '@components/ui/TogglePill';
 import { useClientGroups } from '@contexts/useClientGroups';
@@ -23,43 +24,42 @@ interface SessionFilterBarProps {
   hasActiveFilters: boolean;
 }
 
-const CACHE_STATUS_OPTIONS: { value: CacheStatusFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'cached', label: 'Cached' },
-  { value: 'missed', label: 'Missed' },
-  { value: 'full', label: 'Full' },
-  { value: 'evicted', label: 'Evicted' }
+// Keyed by the filter unions themselves so a new filter value cannot compile without a word for it,
+// and so the chip below can read a label without a search TypeScript must treat as possibly missing.
+const CACHE_STATUS_LABEL_KEYS: Record<CacheStatusFilter, string> = {
+  all: 'downloads.tab.filters.allItems',
+  cached: 'downloads.tab.sessionFilters.cacheStatus.cached',
+  missed: 'downloads.tab.sessionFilters.cacheStatus.missed',
+  full: 'downloads.tab.sessionFilters.cacheStatus.full',
+  evicted: 'common.evicted'
+};
+
+const TIME_RANGE_LABEL_KEYS: Record<TimeRangeFilter, string> = {
+  all: 'downloads.tab.filters.allItems',
+  '1h': 'downloads.tab.sessionFilters.timeRange.lastHour',
+  '24h': 'downloads.tab.sessionFilters.timeRange.lastDay',
+  '7d': 'downloads.tab.sessionFilters.timeRange.lastWeek'
+};
+
+const CACHE_STATUS_OPTIONS: CacheStatusFilter[] = ['all', 'cached', 'missed', 'full', 'evicted'];
+
+const TIME_RANGE_OPTIONS: TimeRangeFilter[] = ['all', '1h', '24h', '7d'];
+
+const SORT_OPTIONS: { value: SessionSortBy; labelKey: string }[] = [
+  { value: 'newest', labelKey: 'downloads.tab.sort.recent' },
+  { value: 'oldest', labelKey: 'downloads.tab.sort.oldest' },
+  { value: 'largest', labelKey: 'downloads.tab.sort.largest' },
+  { value: 'smallest', labelKey: 'downloads.tab.sort.smallest' },
+  { value: 'bestCache', labelKey: 'downloads.tab.sort.bestCache' },
+  { value: 'worstCache', labelKey: 'downloads.tab.sort.worstCache' }
 ];
 
-const TIME_RANGE_OPTIONS: { value: TimeRangeFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: '1h', label: '1h' },
-  { value: '24h', label: '24h' },
-  { value: '7d', label: '7d' }
-];
+// The page-size dropdowns show the number itself, so only the no-limit sentinel needs a word.
+const SHOW_ALL_VALUE = '99999';
 
-const SORT_OPTIONS: { value: SessionSortBy; label: string }[] = [
-  { value: 'newest', label: 'Newest' },
-  { value: 'oldest', label: 'Oldest' },
-  { value: 'largest', label: 'Largest' },
-  { value: 'smallest', label: 'Smallest' },
-  { value: 'bestCache', label: 'Best Cache' },
-  { value: 'worstCache', label: 'Worst Cache' }
-];
+const SESSIONS_PER_PAGE_OPTIONS: string[] = ['3', '5', '10', SHOW_ALL_VALUE];
 
-const SESSIONS_PER_PAGE_OPTIONS: { value: string; label: string }[] = [
-  { value: '3', label: '3' },
-  { value: '5', label: '5' },
-  { value: '10', label: '10' },
-  { value: '99999', label: 'All' }
-];
-
-const ITEMS_PER_SESSION_OPTIONS: { value: string; label: string }[] = [
-  { value: '10', label: '10' },
-  { value: '25', label: '25' },
-  { value: '50', label: '50' },
-  { value: '99999', label: 'All' }
-];
+const ITEMS_PER_SESSION_OPTIONS: string[] = ['10', '25', '50', SHOW_ALL_VALUE];
 
 const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
   filters,
@@ -70,6 +70,7 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
   filteredCount,
   hasActiveFilters
 }) => {
+  const { t } = useTranslation();
   // Nickname mapping loads for admins and guests; mutations stay AdminOnly server-side.
   const { getGroupForIp } = useClientGroups();
   const { getHostnameForIp } = useClientHostnames();
@@ -78,6 +79,9 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
   // read the same label as the rows it filters, so it shares their precedence rather than its own.
   const labelForIp = (ip: string): string =>
     resolveClientLabel(ip, getGroupForIp(ip)?.nickname, getHostnameForIp(ip)).text;
+
+  const pageSizeLabel = (value: string): string =>
+    value === SHOW_ALL_VALUE ? t('downloads.tab.filters.allItems') : value;
 
   const handleToggleIp = (ip: string): void => {
     const current = filters.clientIps;
@@ -107,70 +111,72 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
     };
   });
 
-  const sortDropdownOptions = SORT_OPTIONS.map((opt) => ({
-    value: opt.value,
-    label: opt.label
+  const sortDropdownOptions = SORT_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(option.labelKey)
   }));
 
-  const sessionsPerPageDropdownOptions = SESSIONS_PER_PAGE_OPTIONS.map((opt) => ({
-    value: opt.value,
-    label: opt.label
+  const sessionsPerPageDropdownOptions = SESSIONS_PER_PAGE_OPTIONS.map((value: string) => ({
+    value,
+    label: pageSizeLabel(value)
   }));
 
-  const itemsPerSessionDropdownOptions = ITEMS_PER_SESSION_OPTIONS.map((opt) => ({
-    value: opt.value,
-    label: opt.label
+  const itemsPerSessionDropdownOptions = ITEMS_PER_SESSION_OPTIONS.map((value: string) => ({
+    value,
+    label: pageSizeLabel(value)
   }));
 
   const activeChips: React.ReactNode[] = [];
 
+  // Every active filter reads as a chosen value, so they all carry the shared chip's chosen
+  // surface and its x removes exactly that one filter. Each x also names the filter it clears in
+  // full, because these labels are sentences and a verb put in front of one does not read as
+  // anything a screen reader can act on. Each visible phrase is one key with the value interpolated,
+  // since a prefix glued to a translated value puts the words in English order. [54]
   if (filters.clientIps.length > 0) {
     filters.clientIps.forEach((ip: string) => {
+      // The address is the user's own data, so it is interpolated verbatim and never looked up.
       const label = labelForIp(ip);
       activeChips.push(
-        <span key={`ip-${ip}`} className="session-filter-chip">
-          IP: {label}
-          <button
-            className="session-filter-chip-remove"
-            onClick={() => handleToggleIp(ip)}
-            aria-label={`Remove IP filter ${label}`}
-          >
-            <X size={10} />
-          </button>
-        </span>
+        <IpChip
+          key={`ip-${ip}`}
+          address={t('downloads.tab.sessionFilters.chips.ip', { value: label })}
+          state="added"
+          mono={false}
+          removeAriaLabel={t('downloads.tab.sessionFilters.chips.removeIp', { value: label })}
+          onRemove={() => handleToggleIp(ip)}
+        />
       );
     });
   }
 
   if (filters.cacheStatus !== 'all') {
-    const label = CACHE_STATUS_OPTIONS.find((o) => o.value === filters.cacheStatus)?.label;
     activeChips.push(
-      <span key="cache-status" className="session-filter-chip">
-        Cache: {label}
-        <button
-          className="session-filter-chip-remove"
-          onClick={handleClearCacheStatus}
-          aria-label="Remove cache status filter"
-        >
-          <X size={10} />
-        </button>
-      </span>
+      <IpChip
+        key="cache-status"
+        address={t('downloads.tab.sessionFilters.chips.cacheStatus', {
+          value: t(CACHE_STATUS_LABEL_KEYS[filters.cacheStatus])
+        })}
+        state="added"
+        mono={false}
+        removeAriaLabel={t('downloads.tab.sessionFilters.chips.removeCacheStatus')}
+        onRemove={handleClearCacheStatus}
+      />
     );
   }
 
   if (filters.timeRange !== 'all') {
-    const label = TIME_RANGE_OPTIONS.find((o) => o.value === filters.timeRange)?.label;
     activeChips.push(
-      <span key="time-range" className="session-filter-chip">
-        Time: {label}
-        <button
-          className="session-filter-chip-remove"
-          onClick={handleClearTimeRange}
-          aria-label="Remove time range filter"
-        >
-          <X size={10} />
-        </button>
-      </span>
+      <IpChip
+        key="time-range"
+        address={t('downloads.tab.sessionFilters.chips.timeRange', {
+          value: t(TIME_RANGE_LABEL_KEYS[filters.timeRange])
+        })}
+        state="added"
+        mono={false}
+        removeAriaLabel={t('downloads.tab.sessionFilters.chips.removeTimeRange')}
+        onRemove={handleClearTimeRange}
+      />
     );
   }
 
@@ -179,12 +185,14 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
       <div className="session-filter-bar well-surface">
         {uniqueIps.length > 1 && (
           <div className="session-filter-group">
-            <span className="session-filter-label caps-label">IP</span>
+            <span className="session-filter-label caps-label">
+              {t('downloads.tab.sessionFilters.groups.ip')}
+            </span>
             <MultiSelectDropdown
               options={ipOptions}
               values={filters.clientIps}
               onChange={(values: string[]) => updateFilter('clientIps', values)}
-              placeholder="All IPs"
+              placeholder={t('downloads.tab.sessionFilters.allIps')}
               minSelections={0}
               className="session-filter-ip-select"
               compactMode
@@ -193,39 +201,45 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
         )}
 
         <div className="session-filter-group">
-          <span className="session-filter-label caps-label">Cache</span>
+          <span className="session-filter-label caps-label">
+            {t('downloads.tab.sessionFilters.groups.cacheStatus')}
+          </span>
           <div className="session-filter-pills">
-            {CACHE_STATUS_OPTIONS.map((option) => (
+            {CACHE_STATUS_OPTIONS.map((option: CacheStatusFilter) => (
               <TogglePill
-                key={option.value}
-                active={filters.cacheStatus === option.value}
+                key={option}
+                active={filters.cacheStatus === option}
                 size="sm"
-                onClick={() => updateFilter('cacheStatus', option.value)}
+                onClick={() => updateFilter('cacheStatus', option)}
               >
-                {option.label}
+                {t(CACHE_STATUS_LABEL_KEYS[option])}
               </TogglePill>
             ))}
           </div>
         </div>
 
         <div className="session-filter-group">
-          <span className="session-filter-label caps-label">Time</span>
+          <span className="session-filter-label caps-label">
+            {t('downloads.tab.sessionFilters.groups.timeRange')}
+          </span>
           <div className="session-filter-pills">
-            {TIME_RANGE_OPTIONS.map((option) => (
+            {TIME_RANGE_OPTIONS.map((option: TimeRangeFilter) => (
               <TogglePill
-                key={option.value}
-                active={filters.timeRange === option.value}
+                key={option}
+                active={filters.timeRange === option}
                 size="sm"
-                onClick={() => updateFilter('timeRange', option.value)}
+                onClick={() => updateFilter('timeRange', option)}
               >
-                {option.label}
+                {t(TIME_RANGE_LABEL_KEYS[option])}
               </TogglePill>
             ))}
           </div>
         </div>
 
         <div className="session-filter-group">
-          <span className="session-filter-label caps-label">Sort</span>
+          <span className="session-filter-label caps-label">
+            {t('downloads.tab.sessionFilters.groups.sort')}
+          </span>
           <EnhancedDropdown
             options={sortDropdownOptions}
             value={filters.sortBy}
@@ -235,7 +249,9 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
         </div>
 
         <div className="session-filter-group">
-          <span className="session-filter-label caps-label">IPs/page</span>
+          <span className="session-filter-label caps-label">
+            {t('downloads.tab.sessionFilters.groups.ipsPerPage')}
+          </span>
           <EnhancedDropdown
             options={sessionsPerPageDropdownOptions}
             value={String(filters.sessionsPerPage)}
@@ -245,7 +261,9 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
         </div>
 
         <div className="session-filter-group">
-          <span className="session-filter-label caps-label">Items/IP</span>
+          <span className="session-filter-label caps-label">
+            {t('downloads.tab.sessionFilters.groups.itemsPerIp')}
+          </span>
           <EnhancedDropdown
             options={itemsPerSessionDropdownOptions}
             value={String(filters.itemsPerSession)}
@@ -256,18 +274,21 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
 
         {hasActiveFilters && (
           <span className="session-filter-count">
-            Showing {filteredCount} of {totalCount}
+            {t('downloads.tab.sessionFilters.showingCount', {
+              shown: filteredCount,
+              total: totalCount
+            })}
           </span>
         )}
 
         {hasActiveFilters && (
           <button className="session-filter-clear" onClick={resetFilters}>
-            Clear
+            {t('common.clear')}
           </button>
         )}
       </div>
 
-      {activeChips.length > 0 && <div className="session-filter-chips">{activeChips}</div>}
+      {activeChips.length > 0 && <div className="flex flex-wrap gap-2 mt-2">{activeChips}</div>}
     </div>
   );
 };

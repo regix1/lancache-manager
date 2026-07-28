@@ -1,28 +1,37 @@
-/* ClientsSection — exclude-IP control rows inside AccordionSection bodies.
+/* ClientsSection — the two client lists and the exclusion controls inside AccordionSection
+   bodies. Control heights come from the shared .control-h-md / .btn-icon-square--sm classes,
+   so nothing here restates one. */
 
-   Each "add IPs" / "known clients" row pairs a bordered control (the .themed-input
-   text field or the MultiSelectDropdown .msd-trigger) with a borderless md Button.
-   The bordered controls carry a 1px border the borderless button does not, so they
-   render ~2px taller and the centered row goes ragged.
-
-   Match them to ONE height (the 40px md-button height) by trimming each bordered
-   control's vertical padding by its border, mirroring the proven
-   .scheduled-prefill-number-cap .themed-input recipe, and pinning every control in
-   the row to the same min-height like .control-h-md. Scoped to these rows
-   so the shared .themed-input / MultiSelectDropdown stay unchanged everywhere else. */
-
-.clients-control-row .themed-input,
-.clients-control-row .msd-trigger,
-.clients-control-row .clients-row-button {
-  min-height: 2.5rem;
-}
-
-/* Unnamed-client rows carry only a mono IP and one action, so they run denser
-   than the default 3rem management row to keep 20 rows scannable per page. */
+/* Unnamed-client rows carry only a checkbox and a mono address, so they run denser
+   than the default 3rem management row to keep a full page scannable. */
 .clients-unnamed-row {
   min-height: 2.5rem;
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
+}
+
+/* The row is a label, so the pointer has to say that its whole width toggles the checkbox. */
+label.clients-unnamed-row {
+  cursor: pointer;
+}
+
+/* One naming action for the whole selection sits above the list; the button keeps its own
+   end of the bar so a growing count never pushes it out of reach. */
+.clients-unnamed-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.clients-unnamed-toolbar__action {
+  margin-left: auto;
+}
+
+/* The two row squares each carry a 44px pointer overlay, so they sit a full overlay width
+   apart and the overlays meet in the gap instead of reaching into each other. */
+.clients-nickname-row .mgmt-row__actions {
+  column-gap: 0.75rem;
 }
 
 /* The segmented mode toggle and the remove button sit in one action cluster;
@@ -32,16 +41,11 @@
   column-gap: 1rem;
 }
 
-/* The .themed-input (px-3 py-2 + 1px border) lands ~2px above the borderless md
-   Button; trim its vertical padding by that border to share the 40px height. */
-.clients-control-row .themed-input {
-  padding-top: calc(0.5rem - 1px);
-  padding-bottom: calc(0.5rem - 1px);
-}
-
-/* The MultiSelectDropdown trigger (px-3 py-2.5 + 1px border, text-sm) is ~2px taller
-   than the borderless md Button; trim by the border to land on the same height. */
-.clients-control-row .msd-trigger {
-  padding-top: calc(0.625rem - 1px);
-  padding-bottom: calc(0.625rem - 1px);
+/* The neutral square keeps destructive weight out of the list and only its hover reads red.
+   The shared .delete-hover rule and the button's own hover utility carry equal weight, and
+   the built bundle drops the layer that would break that tie, so the destructive hover is
+   restated here at a weight that always wins. */
+.clients-exclusion-row .delete-hover:hover:not(:disabled) {
+  background-color: var(--theme-icon-red-subtle);
+  color: var(--theme-icon-red);
 }

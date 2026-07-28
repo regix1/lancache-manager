@@ -1,10 +1,9 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
-import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { ActionMenuItem } from '@components/ui/ActionMenu';
+import { ActionMenu, ActionMenuItem, ActionMenuDangerItem } from '@components/ui/ActionMenu';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
@@ -13,8 +12,12 @@ import { Alert } from '@components/ui/Alert';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Pagination } from '@components/ui/Pagination';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Checkbox } from '@components/ui/Checkbox';
+import { IpChip } from '@components/ui/IpChip';
+import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import { usePaginatedList } from '@hooks/usePaginatedList';
+import { useSelectionSet } from '@hooks/useSelectionSet';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useClientHostnames } from '@contexts/useClientHostnames';
 import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
@@ -26,10 +29,9 @@ import {
   EyeOff,
   Trash2,
   Edit2,
-  X,
   ChevronDown,
   ChevronUp,
-  Plus,
+  MoreVertical,
   Network
 } from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -39,8 +41,8 @@ import type { ClientGroup, ClientExclusionRule, ClientExclusionMode } from '../.
 import '../managementSectionContent.css';
 import './ClientsSection.css';
 
-const UNGROUPED_IPS_PER_PAGE = 20;
-const PAGINATION_TOP_THRESHOLD = 100;
+// Eight rows keeps the raw address list from out-weighing the nicknames it feeds.
+const UNGROUPED_IPS_PER_PAGE = 8;
 
 interface ClientsSectionProps {
   isAdmin: boolean;
@@ -52,7 +54,7 @@ interface ClientsSectionProps {
 
 const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuccess }) => {
   const { t } = useTranslation();
-  const { clientGroups, loading, deleteClientGroup, removeMember } = useClientGroups();
+  const { clientGroups, loading, error, deleteClientGroup } = useClientGroups();
   const {
     enabled: hostnamesEnabled,
     loading: hostnamesLoading,
@@ -255,14 +257,20 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   }, [allClientIps, excludedIpSet, nicknameByIp]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingGroup, setEditingGroup] = useState<ClientGroup | null>(null);
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [quickNameIps, setQuickNameIps] = useState<string[]>([]);
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null);
-  const [removingMember, setRemovingMember] = useState<{ groupId: number; ip: string } | null>(
-    null
-  );
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ClientGroup | null>(null);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<number>>(new Set());
+  const [openMenuGroupId, setOpenMenuGroupId] = useState<number | null>(null);
+
+  // Read back out of the list on every render instead of copied when Edit was clicked, so the
+  // dialog works from what the last reload said and a save cannot be built on a nickname that has
+  // moved on since. No id matches while creating, which is the null the dialog wants anyway. [41]
+  const editingGroup = useMemo(
+    () => clientGroups.find((group) => group.id === editingGroupId) ?? null,
+    [clientGroups, editingGroupId]
+  );
 
   // The modal's member picker reads this same list, and the button that opens it for a new nickname
   // sits in the section header, which is there whether the section is open or shut - so opening the
@@ -298,6 +306,15 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     return allClientIps.filter((ip) => !groupedIps.has(ip));
   }, [allClientIps, groupedIps]);
 
+  // The stats endpoint reports a combined nickname under one of its addresses, so the rest of that
+  // nickname's members never appear in the known list. Folding the group members back in is what
+  // lets the picker offer - and move - an address that already belongs to another nickname.
+  const allKnownIps = useMemo(() => {
+    const ips = new Set(allClientIps);
+    clientGroups.forEach((group) => group.memberIps.forEach((ip) => ips.add(ip)));
+    return [...ips].sort((a, b) => a.localeCompare(b));
+  }, [allClientIps, clientGroups]);
+
   // Pagination for ungrouped clients
   const {
     page: ungroupedPage,
@@ -309,20 +326,37 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     pageSize: UNGROUPED_IPS_PER_PAGE
   });
 
+  // Keys are addresses rather than page indexes, so a selection survives paging.
+  const unnamedSelection = useSelectionSet<string>();
+
+  // An address that gains a nickname leaves this list; reading the selection back through the
+  // current list keeps a stale key out of the count and out of the modal.
+  const selectedUnnamedIps = useMemo(
+    () => ungroupedClients.filter((ip) => unnamedSelection.isSelected(ip)),
+    [ungroupedClients, unnamedSelection]
+  );
+
+  const allVisibleUnnamedSelected = unnamedSelection.allSelected(paginatedUngroupedClients);
+
+  const handleSelectAllVisible = (): void => {
+    unnamedSelection.setMany(paginatedUngroupedClients, !allVisibleUnnamedSelected);
+  };
+
   const handleCreateGroup = () => {
-    setEditingGroup(null);
+    setEditingGroupId(null);
     setQuickNameIps([]);
     setIsModalOpen(true);
   };
 
-  const handleQuickName = (ip: string) => {
-    setEditingGroup(null);
-    setQuickNameIps([ip]);
+  const handleNameSelected = () => {
+    if (selectedUnnamedIps.length === 0) return;
+    setEditingGroupId(null);
+    setQuickNameIps(selectedUnnamedIps);
     setIsModalOpen(true);
   };
 
   const handleEditGroup = (group: ClientGroup) => {
-    setEditingGroup(group);
+    setEditingGroupId(group.id);
     setQuickNameIps([]);
     setIsModalOpen(true);
   };
@@ -348,23 +382,22 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     }
   };
 
-  const handleRemoveMember = async (groupId: number, ip: string, nickname: string) => {
-    setRemovingMember({ groupId, ip });
-    try {
-      await removeMember(groupId, ip);
-      onSuccess(t('management.sections.clients.removedIpFromNickname', { ip, nickname }));
-    } catch (err) {
-      onError(getErrorMessage(err) || t('modals.clientGroup.errors.failedToRemoveIp'));
-    } finally {
-      setRemovingMember(null);
-    }
-  };
-
-  const handleModalClose = () => {
+  const handleModalClose = useCallback(() => {
     setIsModalOpen(false);
-    setEditingGroup(null);
+    setEditingGroupId(null);
     setQuickNameIps([]);
-  };
+  }, []);
+
+  // With the dialog fed by the live row, a nickname deleted from another tab leaves it holding
+  // nothing, and it would quietly turn into the create form under whoever is typing in it. Close it
+  // and say why, so the work that is about to be lost is not lost in silence. Before paint, or the
+  // create form is what the user sees for a frame. [41]
+  useLayoutEffect(() => {
+    if (!isModalOpen || editingGroupId === null) return;
+    if (clientGroups.some((group) => group.id === editingGroupId)) return;
+    handleModalClose();
+    onError(t('management.sections.clients.errors.nicknameDeletedWhileEditing'));
+  }, [isModalOpen, editingGroupId, clientGroups, handleModalClose, onError, t]);
 
   // The setting is global, so it is written through the API rather than the per-user preferences
   // service. Only the hostname map is reloaded afterwards, never the download or stats tables.
@@ -384,6 +417,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
   const handleModalSuccess = (message: string) => {
     onSuccess(message);
+    unnamedSelection.clear();
     handleModalClose();
   };
 
@@ -417,65 +451,56 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
             badge={
               isAdmin ? (
                 <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
-                  <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
-                    {(close) => (
-                      <ActionMenuItem
-                        icon={<Plus className="w-3.5 h-3.5" />}
-                        onClick={() => {
-                          handleCreateGroup();
-                          close();
-                        }}
-                      >
-                        {t('management.sections.clients.addNickname')}
-                      </ActionMenuItem>
-                    )}
-                  </SectionActionsMenu>
+                  {/* The section's only primary action, so it stays outside a menu. A second
+                      section action brings the kebab back and this button stays beside it. */}
+                  <Button variant="filled" color="blue" size="md" onClick={handleCreateGroup}>
+                    {t('management.sections.clients.addNickname')}
+                  </Button>
                 </div>
               ) : undefined
             }
           >
             <div className="space-y-4">
+              {/* The context carries the technical message for the console; the reader gets a
+                  translated one. */}
+              {error && (
+                <Alert color="red">
+                  <span className="text-sm">
+                    {t('management.sections.clients.errors.failedToLoadNicknames')}
+                  </span>
+                </Alert>
+              )}
               {loading ? (
-                <div className="flex items-center justify-center gap-2 py-6 text-themed-muted">
-                  <LoadingSpinner inline size="md" />
-                  <span>{t('management.sections.clients.loadingNicknames')}</span>
-                </div>
+                <LoadingState
+                  message={t('management.sections.clients.loadingNicknames')}
+                  rows={3}
+                />
               ) : clientGroups.length === 0 ? (
-                <div className="mgmt-panel items-center py-6 text-center">
-                  <p className="text-themed-secondary">
-                    {t('management.sections.clients.noNicknamesYet')}
-                  </p>
-                  <p className="text-sm text-themed-muted">
-                    {t('management.sections.clients.noNicknamesDesc')}
-                  </p>
-                </div>
+                <EmptyState
+                  title={t('management.sections.clients.noNicknamesYet')}
+                  subtitle={t('management.sections.clients.noNicknamesDesc')}
+                />
               ) : (
                 <div className="mgmt-list divided-list">
                   {clientGroups.map((group) => {
                     const isMultiIp = group.memberIps.length > 1;
                     const isExpanded = expandedGroupIds.has(group.id);
+                    // A nickname can be left holding no addresses at all, and the meta line is
+                    // the only place that would otherwise say so.
                     const ipSummary = isMultiIp
                       ? `${group.memberIps.length} ${t('management.sections.clients.ipsLabel')}`
-                      : group.memberIps[0];
+                      : (group.memberIps[0] ?? t('management.sections.clients.noAddressesYet'));
                     const metaText = group.description
                       ? `${group.description} · ${ipSummary}`
                       : ipSummary;
                     return (
                       <div key={group.id}>
-                        <div className="mgmt-row">
+                        <div className="mgmt-row clients-nickname-row">
                           <div className="mgmt-row__body">
                             <div className="flex items-center gap-2 min-w-0">
                               <Tooltip content={group.nickname} className="flex min-w-0">
                                 <p className="mgmt-row__title truncate">{group.nickname}</p>
                               </Tooltip>
-                              {isMultiIp && (
-                                <Tooltip content={t('modals.clientGroup.multiIpWarning')}>
-                                  <Badge variant="warning">
-                                    {group.memberIps.length}{' '}
-                                    {t('management.sections.clients.ipsLabel')}
-                                  </Badge>
-                                </Tooltip>
-                              )}
                               {/* Combined is the default, so only separated groups are labelled. */}
                               {group.separateMemberRows && (
                                 <Tooltip
@@ -494,43 +519,56 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                               </p>
                             </Tooltip>
                           </div>
+                          {/* Both controls share one square footprint and stay visible, so touch
+                              and keyboard reach them without a hover first. [23] */}
                           <div className="mgmt-row__actions">
                             {isAdmin && (
-                              <>
-                                <Tooltip content={t('common.edit')}>
-                                  <Button
-                                    variant="filled"
-                                    color="gray"
-                                    size="xs"
-                                    onClick={() => handleEditGroup(group)}
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                </Tooltip>
-                                <Tooltip content={t('common.delete')}>
-                                  <Button
-                                    variant="filled"
-                                    color="red"
-                                    size="xs"
-                                    onClick={() => handleDeleteGroup(group)}
-                                    disabled={deletingGroupId === group.id}
-                                  >
-                                    {deletingGroupId === group.id ? (
-                                      <LoadingSpinner inline size="xs" />
-                                    ) : (
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    )}
-                                  </Button>
-                                </Tooltip>
-                              </>
+                              <ActionMenu
+                                isOpen={openMenuGroupId === group.id}
+                                onClose={() => setOpenMenuGroupId(null)}
+                                align="right"
+                                trigger={
+                                  <Tooltip content={t('common.moreActions')}>
+                                    <Button
+                                      variant="filled"
+                                      color="gray"
+                                      size="sm"
+                                      className="btn-icon-square btn-icon-square--sm pointer-target-44"
+                                      onClick={() =>
+                                        setOpenMenuGroupId((prev) =>
+                                          prev === group.id ? null : group.id
+                                        )
+                                      }
+                                      aria-label={t('common.moreActions')}
+                                    >
+                                      <MoreVertical className="w-4 h-4" />
+                                    </Button>
+                                  </Tooltip>
+                                }
+                              >
+                                <ActionMenuItem
+                                  icon={<Edit2 className="w-4 h-4" />}
+                                  onClick={() => {
+                                    setOpenMenuGroupId(null);
+                                    handleEditGroup(group);
+                                  }}
+                                >
+                                  {t('common.edit')}
+                                </ActionMenuItem>
+                                <ActionMenuDangerItem
+                                  icon={<Trash2 className="w-4 h-4" />}
+                                  onClick={() => {
+                                    setOpenMenuGroupId(null);
+                                    handleDeleteGroup(group);
+                                  }}
+                                  disabled={deletingGroupId === group.id}
+                                >
+                                  {t('common.delete')}
+                                </ActionMenuDangerItem>
+                              </ActionMenu>
                             )}
-                            <Button
-                              variant="filled"
-                              color="gray"
-                              size="xs"
-                              onClick={() => toggleGroupExpanded(group.id)}
-                              aria-expanded={isExpanded}
-                              aria-label={
+                            <Tooltip
+                              content={
                                 isExpanded
                                   ? t('management.sections.clients.collapseIps', {
                                       nickname: group.nickname
@@ -540,47 +578,46 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                                     })
                               }
                             >
-                              {isExpanded ? (
-                                <ChevronUp className="w-4 h-4" />
-                              ) : (
-                                <ChevronDown className="w-4 h-4" />
-                              )}
-                            </Button>
+                              <Button
+                                variant="filled"
+                                color="gray"
+                                size="sm"
+                                className="btn-icon-square btn-icon-square--sm pointer-target-44"
+                                onClick={() => toggleGroupExpanded(group.id)}
+                                aria-expanded={isExpanded}
+                                aria-label={
+                                  isExpanded
+                                    ? t('management.sections.clients.collapseIps', {
+                                        nickname: group.nickname
+                                      })
+                                    : t('management.sections.clients.expandIps', {
+                                        nickname: group.nickname
+                                      })
+                                }
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="w-4 h-4" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4" />
+                                )}
+                              </Button>
+                            </Tooltip>
                           </div>
                         </div>
+                        {/* A glance at the membership. Editing it belongs in one place, and that
+                            place is the nickname modal. */}
                         <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">
-                          <div className="flex flex-wrap gap-2">
-                            {group.memberIps.map((ip) => (
-                              <div
-                                key={ip}
-                                className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono bg-themed-tertiary text-themed-secondary"
-                              >
-                                <span>{ip}</span>
-                                {isAdmin && (
-                                  <Tooltip content={t('management.sections.clients.removeIp')}>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleRemoveMember(group.id, ip, group.nickname);
-                                      }}
-                                      disabled={
-                                        removingMember?.groupId === group.id &&
-                                        removingMember?.ip === ip
-                                      }
-                                      className="ml-1 p-0.5 rounded text-themed-muted delete-hover"
-                                    >
-                                      {removingMember?.groupId === group.id &&
-                                      removingMember?.ip === ip ? (
-                                        <LoadingSpinner inline size="xs" />
-                                      ) : (
-                                        <X className="w-3 h-3" />
-                                      )}
-                                    </button>
-                                  </Tooltip>
-                                )}
-                              </div>
-                            ))}
-                          </div>
+                          {group.memberIps.length === 0 ? (
+                            <p className="text-sm text-themed-muted">
+                              {t('management.sections.clients.noAddressesYet')}
+                            </p>
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              {group.memberIps.map((ip) => (
+                                <IpChip key={ip} address={ip} state="readonly" />
+                              ))}
+                            </div>
+                          )}
                         </CollapsibleRegion>
                       </div>
                     );
@@ -588,13 +625,16 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                 </div>
               )}
 
-              {/* Clients without nicknames */}
-              {(loadingClients || ungroupedClients.length > 0) && (
+              {/* Clients without nicknames. Kept on screen once any nickname exists, so "everything
+                  is named" is stated rather than left as a section that quietly vanished. */}
+              {(loadingClients || ungroupedClients.length > 0 || clientGroups.length > 0) && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <h4 className="mgmt-subhead caps-label">
-                      {t('management.sections.clients.withoutNicknames')}
-                    </h4>
+                    <Tooltip content={t('management.sections.clients.unnamedHint')}>
+                      <h4 className="mgmt-subhead caps-label">
+                        {t('management.sections.clients.withoutNicknames')}
+                      </h4>
+                    </Tooltip>
                     {!loadingClients && ungroupedClients.length > 0 && (
                       <Badge variant="neutral" className="badge-count">
                         {ungroupedClients.length}
@@ -603,50 +643,70 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   </div>
 
                   {loadingClients ? (
-                    <div className="flex items-center justify-center gap-2 py-4 text-themed-muted">
-                      <LoadingSpinner inline size="md" />
-                      <span>{t('management.sections.clients.loadingClients')}</span>
-                    </div>
+                    <LoadingState
+                      message={t('management.sections.clients.loadingClients')}
+                      rows={4}
+                    />
+                  ) : ungroupedClients.length === 0 ? (
+                    <EmptyState
+                      title={t('modals.clientGroup.emptyStates.everyAddressNamed')}
+                      subtitle={t('modals.clientGroup.emptyStates.everyAddressNamedHint')}
+                    />
                   ) : (
                     <>
-                      <p className="text-sm text-themed-muted">
-                        {t('management.sections.clients.withoutNicknamesDesc')}
-                      </p>
-                      {ungroupedClients.length > PAGINATION_TOP_THRESHOLD &&
-                        totalUngroupedPages > 1 && (
-                          <Pagination
-                            currentPage={ungroupedPage}
-                            totalPages={totalUngroupedPages}
-                            totalItems={ungroupedClients.length}
-                            itemsPerPage={UNGROUPED_IPS_PER_PAGE}
-                            onPageChange={setUngroupedPage}
-                            itemLabel={t('management.sections.clients.ipsLabel')}
-                            showCard={false}
-                            compact
+                      {/* One naming action for the whole selection, instead of one button per
+                          address repeated down the page. */}
+                      {isAdmin && (
+                        <div className="clients-unnamed-toolbar">
+                          <Checkbox
+                            checked={allVisibleUnnamedSelected}
+                            onChange={handleSelectAllVisible}
+                            label={t('management.sections.clients.selectAllVisible')}
                           />
-                        )}
+                          <span className="text-sm text-themed-muted tabular-nums">
+                            {t('management.sections.clients.selectedCount', {
+                              count: selectedUnnamedIps.length
+                            })}
+                          </span>
+                          <Button
+                            variant="filled"
+                            color="blue"
+                            size="md"
+                            onClick={handleNameSelected}
+                            disabled={selectedUnnamedIps.length === 0}
+                            className="clients-unnamed-toolbar__action"
+                          >
+                            {t('management.sections.clients.nameSelected')}
+                          </Button>
+                        </div>
+                      )}
                       <div className="mgmt-list divided-list">
-                        {paginatedUngroupedClients.map((ip) => (
-                          <div key={ip} className="mgmt-row clients-unnamed-row">
-                            <div className="mgmt-row__body">
-                              <Tooltip content={ip} className="block min-w-0">
-                                <p className="mgmt-row__title font-mono truncate">{ip}</p>
-                              </Tooltip>
-                            </div>
-                            {isAdmin && (
-                              <div className="mgmt-row__actions">
-                                <Button
-                                  variant="filled"
-                                  color="gray"
-                                  size="xs"
-                                  onClick={() => handleQuickName(ip)}
-                                >
-                                  {t('management.sections.clients.nameIpAction')}
-                                </Button>
+                        {paginatedUngroupedClients.map((ip) =>
+                          isAdmin ? (
+                            // The label makes the whole row the checkbox's hit area and gives the
+                            // input its accessible name from the address it carries.
+                            <label key={ip} className="mgmt-row clients-unnamed-row">
+                              <Checkbox
+                                checked={unnamedSelection.isSelected(ip)}
+                                onChange={() => unnamedSelection.toggle(ip)}
+                                className="flex-shrink-0"
+                              />
+                              <div className="mgmt-row__body">
+                                <Tooltip content={ip} className="block min-w-0">
+                                  <p className="mgmt-row__title font-mono truncate">{ip}</p>
+                                </Tooltip>
                               </div>
-                            )}
-                          </div>
-                        ))}
+                            </label>
+                          ) : (
+                            <div key={ip} className="mgmt-row clients-unnamed-row">
+                              <div className="mgmt-row__body">
+                                <Tooltip content={ip} className="block min-w-0">
+                                  <p className="mgmt-row__title font-mono truncate">{ip}</p>
+                                </Tooltip>
+                              </div>
+                            </div>
+                          )
+                        )}
                       </div>
                       {totalUngroupedPages > 1 && (
                         <Pagination
@@ -684,21 +744,21 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
               </Alert>
             ) : (
               <div className="space-y-4">
-                <p className="text-sm text-themed-secondary">
-                  {t('management.sections.clients.excludedIpsDesc')}
-                </p>
-
                 <div className="space-y-3">
-                  <h4 className="mgmt-subhead caps-label">
-                    {t('management.sections.clients.pickFromKnownClients')}
-                  </h4>
-                  <div className="clients-control-row flex flex-col sm:flex-row sm:items-center gap-3">
+                  {/* What each mode does is the first thing anyone adding a client wants to know. */}
+                  <Tooltip content={t('management.sections.clients.exclusionsHint')}>
+                    <h4 className="mgmt-subhead caps-label">
+                      {t('management.sections.clients.pickFromKnownClients')}
+                    </h4>
+                  </Tooltip>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <MultiSelectDropdown
                       options={knownClientOptions}
                       values={selectedKnownIps}
                       onChange={setSelectedKnownIps}
                       placeholder={t('management.sections.clients.selectClients')}
                       minSelections={0}
+                      searchable
                       disabled={
                         loadingExcluded || savingExcluded || knownClientOptions.length === 0
                       }
@@ -706,9 +766,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                     />
                     <Button
                       onClick={handleAddKnownIps}
-                      variant="filled"
-                      color="blue"
-                      className="clients-row-button sm:w-40"
+                      className="sm:w-40"
                       disabled={selectedKnownIps.length === 0 || loadingExcluded || savingExcluded}
                     >
                       {t('management.sections.clients.addSelected')}
@@ -720,20 +778,18 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                     </div>
                   )}
 
-                  <div className="clients-control-row flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <input
                       type="text"
                       value={excludeInput}
                       onChange={(e) => setExcludeInput(e.target.value)}
                       placeholder={t('management.sections.clients.addIpsPlaceholder')}
-                      className="themed-input w-full px-3 transition-colors"
+                      className="themed-input control-h-md w-full px-3 text-sm transition-colors"
                       disabled={loadingExcluded || savingExcluded}
                     />
                     <Button
                       onClick={handleAddExcluded}
-                      variant="filled"
-                      color="blue"
-                      className="clients-row-button sm:w-40"
+                      className="sm:w-40"
                       disabled={
                         loadingExcluded ||
                         savingExcluded ||
@@ -779,43 +835,39 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                           </div>
                         </div>
                         <div className="mgmt-row__actions">
-                          <div className="exclusion-mode-toggle" role="group">
-                            <Tooltip
-                              className="exclusion-mode-cell"
-                              content={t('management.sections.clients.modeExcludeTooltip')}
-                            >
-                              <button
-                                type="button"
-                                className={`exclusion-mode-option focus-ring--inset ${rule.mode === 'exclude' ? 'is-active' : ''}`}
-                                onClick={() => handleChangeMode(rule.ip, 'exclude')}
-                                disabled={savingExcluded}
-                              >
-                                {t('management.sections.clients.modeExclude')}
-                              </button>
-                            </Tooltip>
-                            <Tooltip
-                              className="exclusion-mode-cell"
-                              content={t('management.sections.clients.modeHideTooltip')}
-                            >
-                              <button
-                                type="button"
-                                className={`exclusion-mode-option focus-ring--inset ${rule.mode === 'hide' ? 'is-active' : ''}`}
-                                onClick={() => handleChangeMode(rule.ip, 'hide')}
-                                disabled={savingExcluded}
-                              >
-                                {t('management.sections.clients.modeHide')}
-                              </button>
-                            </Tooltip>
-                          </div>
+                          <SegmentedControl
+                            size="sm"
+                            showLabels
+                            value={rule.mode}
+                            onChange={(mode: string) =>
+                              handleChangeMode(rule.ip, mode === 'hide' ? 'hide' : 'exclude')
+                            }
+                            options={[
+                              {
+                                value: 'exclude',
+                                label: t('management.sections.clients.modeExclude'),
+                                tooltip: t('management.sections.clients.modeExcludeTooltip'),
+                                disabled: savingExcluded
+                              },
+                              {
+                                value: 'hide',
+                                label: t('management.sections.clients.modeHide'),
+                                tooltip: t('management.sections.clients.modeHideTooltip'),
+                                disabled: savingExcluded
+                              }
+                            ]}
+                          />
                           <Tooltip content={t('management.sections.clients.removeIp')}>
                             <Button
                               variant="filled"
-                              size="xs"
-                              color="red"
+                              color="gray"
+                              size="sm"
+                              className="btn-icon-square btn-icon-square--sm delete-hover pointer-target-44"
                               onClick={() => handleRemoveExcluded(rule.ip)}
                               disabled={savingExcluded}
+                              aria-label={t('management.sections.clients.removeIp')}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-4 h-4" />
                             </Button>
                           </Tooltip>
                         </div>
@@ -828,8 +880,11 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   <span className="text-xs text-themed-muted">
                     {hasExcludedChanges ? t('management.sections.clients.unsavedChanges') : ''}
                   </span>
+                  {/* Adding a rule only stages it; this is the button that persists the card. */}
                   <Button
                     onClick={handleSaveExcluded}
+                    variant="filled"
+                    color="blue"
                     disabled={!hasExcludedChanges || savingExcluded || loadingExcluded}
                     loading={savingExcluded}
                     className="sm:w-40"
@@ -900,7 +955,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
         isOpen={isModalOpen}
         onClose={handleModalClose}
         group={editingGroup}
-        ungroupedIps={ungroupedClients}
+        knownIps={allKnownIps}
         initialIps={quickNameIps}
         onSuccess={handleModalSuccess}
         onError={onError}

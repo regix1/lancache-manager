@@ -1,10 +1,21 @@
-/* Nickname modal IP picker: the shared .mgmt-list surface around a
-   CustomScrollbar viewport (the house scrollbar), capped so the modal stays
-   compact even with hundreds of clients. The scrollbar wrapper becomes the
-   list's only direct child, so the row dividers live on .clientgroup-ip-rows. */
+/* A save disables the control the editor was on, and a browser blurs what it disables. The form
+   takes that focus so it stays inside the dialog, which is what keeps the Tab trap firing. The
+   form is never in the tab order, so a pointer-driven save draws no box around the whole dialog
+   body; a keyboard-driven one still gets its ring, because that is the case where someone needs
+   to be told where focus went. */
+.clientgroup-form:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Nickname modal address picker: the shared .mgmt-list surface around a
+   CustomScrollbar viewport (the house scrollbar). The viewport cap is set on the
+   component so 8 rows are visible, which is the only thing bounding the list -
+   scrolling is the picker's single navigation model. The scrollbar wrapper becomes
+   the list's only direct child, so the row dividers live on .clientgroup-ip-rows. */
 
 /* Pick-list rows are plain <button>s wearing .mgmt-row; strip the user-agent
-   button chrome and tighten the row so ~6 rows fit the capped picker. */
+   button chrome and tighten the row to the 36px pick height the picker is measured
+   against. */
 .clientgroup-ip-picker .clientgroup-ip-row {
   min-height: 2.25rem;
   padding-top: 0.25rem;
@@ -16,16 +27,91 @@
   cursor: pointer;
 }
 
-/* Chosen-IP tokens are whole-chip remove buttons; give press feedback without
-   inventing a new hover surface on the accent fill. */
-.clientgroup-chosen-ip {
+/* A finger needs more than the 36px the measured picker height is built on, so the
+   touch floor is met where there is no mouse rather than by inflating every row. */
+@media (pointer: coarse) {
+  .clientgroup-ip-picker .clientgroup-ip-row {
+    min-height: 2.75rem;
+  }
+}
+
+/* The arrow-key cursor. It has to read as "here" while focus may sit in the search
+   box, so it carries the selected surface rather than only the focus ring. */
+.clientgroup-ip-picker .clientgroup-ip-row--active {
+  background-color: var(--theme-selected-bg);
+}
+
+/* An address another nickname already holds. It stays listed so the picker is honest
+   about where the address went, but it offers nothing to press. */
+.clientgroup-ip-picker .clientgroup-ip-row--owned,
+.clientgroup-ip-picker .clientgroup-ip-row--owned:hover {
+  background: none;
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* While a save is in flight the list keeps its shape but takes no input, matching the
+   chip remove controls and the search box that are disabled beside it. */
+.clientgroup-ip-rows--busy {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* Loading, empty, failed and everything-chosen all render inside the picker box, so
+   they share its inset and keep the box from collapsing to a hairline. */
+.clientgroup-ip-picker__state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+/* Select-all and Clear sit on one 32px line above the search box. */
+.clientgroup-picker-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.clientgroup-picker-clear {
+  height: 2rem;
+  padding: 0 0.5rem;
   border: 0;
+  background: none;
+  color: var(--theme-text-muted);
   cursor: pointer;
-  transition: opacity 0.15s ease;
+  transition: color 0.15s ease;
 }
 
 @media (hover: hover) {
-  .clientgroup-chosen-ip:hover {
-    opacity: 0.85;
+  .clientgroup-picker-clear:hover:not(:disabled) {
+    color: var(--theme-text-primary);
   }
+}
+
+.clientgroup-picker-clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (pointer: coarse) {
+  .clientgroup-picker-clear {
+    min-height: 2.75rem;
+  }
+}
+
+/* The live filter result, sitting after the Addresses label without inheriting its
+   uppercase tracking. */
+.clientgroup-match-count {
+  margin-left: 0.5rem;
+  font-size: var(--font-size-2xs);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--theme-text-muted);
+  font-variant-numeric: tabular-nums;
 }

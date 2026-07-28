@@ -90,8 +90,7 @@ public class SignalRNotificationService : ISignalRNotificationService
             // not just live. The live-only generation bump leaves historical batch keys unchanged,
             // which would hand the forced frontend refetch the identical stale entry.
             else if (eventName is SignalREvents.ClientGroupCreated or SignalREvents.ClientGroupUpdated
-                     or SignalREvents.ClientGroupDeleted or SignalREvents.ClientGroupMemberAdded
-                     or SignalREvents.ClientGroupMemberRemoved or SignalREvents.ClientGroupsCleared)
+                     or SignalREvents.ClientGroupDeleted or SignalREvents.ClientGroupsCleared)
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
             }

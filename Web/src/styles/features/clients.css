@@ -4,20 +4,16 @@
    cluster still comes from managementSectionContent.css (imported by
    ClientsTab.tsx). */
 
-/* Sort cluster: both EnhancedDropdowns are full-width on the narrowest screens so
-   the toolbar wraps instead of overflowing, then take fixed widths from `sm` up. */
-.clients-sort-field,
-.clients-sort-direction {
+/* Sort cluster: the field dropdown is full-width on the narrowest screens so the
+   toolbar wraps instead of overflowing, then takes a fixed width from `sm` up. The
+   direction control sits beside it at its own intrinsic width, both 40px tall. */
+.clients-sort-field {
   width: 100%;
 }
 
 @media (min-width: 640px) {
   .clients-sort-field {
     width: 11rem;
-  }
-
-  .clients-sort-direction {
-    width: 9rem;
   }
 }
 

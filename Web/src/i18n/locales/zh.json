@@ -85,6 +85,7 @@
     "partiallyEvicted": "部分已淘汰",
     "on": "开",
     "off": "关",
+    "moreActions": "更多操作",
     "bytes": {
       "units": ["B", "KB", "MB", "GB", "TB"],
       "zero": "0 {{unit}}"
@@ -1080,9 +1081,7 @@
     "resultCount": "{{count}} 个会话",
     "resultCount_other": "{{count}} 个会话",
     "status": {
-      "active": "活跃",
-      "away": "离开",
-      "inactive": "不活跃"
+      "revoked": "已撤销"
     },
     "history": {
       "title": "会话历史",
@@ -1259,9 +1258,6 @@
         "revoke": "撤销权限"
       }
     },
-    "status": {
-      "revoked": "已撤销"
-    },
     "info": {
       "revokedOwnSession": "您撤销了自己的会话。正在登出...",
       "deletedOwnSession": "您删除了自己的会话。正在登出..."
@@ -1379,6 +1375,36 @@
           "search": "• 搜索：\"{{query}}\"",
           "service": "• 服务：{{service}}",
           "client": "• 客户端：{{client}}"
+        }
+      },
+      "sessionFilters": {
+        "allIps": "所有 IP",
+        "showingCount": "显示 {{total}} 项中的 {{shown}} 项",
+        "groups": {
+          "ip": "IP",
+          "cacheStatus": "缓存",
+          "timeRange": "时间",
+          "sort": "排序",
+          "ipsPerPage": "IP 数/页",
+          "itemsPerIp": "条目/IP"
+        },
+        "cacheStatus": {
+          "cached": "已缓存",
+          "missed": "未命中",
+          "full": "完全缓存"
+        },
+        "timeRange": {
+          "lastHour": "1小时",
+          "lastDay": "24小时",
+          "lastWeek": "7天"
+        },
+        "chips": {
+          "ip": "IP：{{value}}",
+          "cacheStatus": "缓存：{{value}}",
+          "timeRange": "时间：{{value}}",
+          "removeIp": "移除 {{value}} 的 IP 筛选器",
+          "removeCacheStatus": "移除缓存状态筛选器",
+          "removeTimeRange": "移除时间范围筛选器"
         }
       },
       "sort": {
@@ -2367,14 +2393,11 @@
         "noNicknamesYet": "尚未分配昵称",
         "noNicknamesDesc": "添加昵称以为客户端 IP 赋予友好名称",
         "withoutNicknames": "无昵称",
-        "withoutNicknamesDesc": "这些客户端还没有昵称。添加昵称以便一眼识别。",
-        "nameIpAction": "添加昵称",
         "expandIps": "显示 {{nickname}} 的 IP",
         "collapseIps": "隐藏 {{nickname}} 的 IP",
         "unsavedChanges": "有未保存的更改",
         "excludeFromStats": "客户端排除",
         "exclusionsSummary": "将特定客户端排除在统计之外，或完全隐藏",
-        "excludedIpsDesc": "选择每个客户端的处理方式。“仅统计”会让客户端仍显示在下载和实时速度中，但将其从仪表盘总计、命中率和排行榜中移除。“隐藏”会将客户端从所有视图和所有统计中移除。",
         "modeExclude": "仅统计",
         "modeHide": "隐藏",
         "modeExcludeTooltip": "仍显示在下载和实时速度中，但会从仪表盘总计、命中率和排行榜中移除。",
@@ -2393,7 +2416,6 @@
         "removeIp": "移除 IP",
         "saveChanges": "保存更改",
         "deletedNickname": "已删除昵称\"{{nickname}}\"",
-        "removedIpFromNickname": "已从昵称\"{{nickname}}\"移除 {{ip}}",
         "excludedIpsUpdated": "已更新客户端排除",
         "deleteNickname": "删除昵称",
         "deleteNicknameConfirm": "删除昵称 {{nickname}}？关联的 IP 将不再有昵称。",
@@ -2403,9 +2425,18 @@
         "ipsLabel": "IP",
         "separateRowsLabel": "分行显示",
         "separateRowsTooltip": "此昵称在客户端统计中每个 IP 显示一行",
+        "nameSelected": "命名所选",
+        "selectedCount": "已选择 {{count}} 个",
+        "selectAllVisible": "全选可见项",
+        "unnamedHint": "这些客户端还没有昵称。添加昵称以便一眼识别。",
+        "exclusionsHint": "选择每个客户端的处理方式。“仅统计”会让客户端仍显示在下载和实时速度中，但将其从仪表盘总计、命中率和排行榜中移除。“隐藏”会将客户端从所有视图和所有统计中移除。",
+        "noAddressesYet": "尚无地址",
         "errors": {
           "failedToUpdateExcluded": "更新排除的 IP 失败",
-          "failedToLoadExcluded": "加载排除的 IP 失败"
+          "failedToLoadExcluded": "加载排除的 IP 失败",
+          "failedToLoadNicknames": "无法加载昵称。",
+          "failedToLoadIps": "加载客户端 IP 失败",
+          "nicknameDeletedWhileEditing": "该昵称已被删除，编辑器已关闭，您的更改未保存。"
         },
         "groupManagement": "客户端管理",
         "hostnames": {
@@ -4848,56 +4879,55 @@
         "nickname": "昵称",
         "description": "描述",
         "optional": "可选",
-        "currentIps": "当前 IP",
-        "ipsToAdd": "待添加 IP",
-        "addMoreIps": "添加更多 IP",
-        "clientIps": "客户端 IP",
-        "selectAtLeastOne": "至少选择一个",
-        "rowMode": "统计行"
+        "rowMode": "统计行",
+        "addresses": "地址",
+        "addressesHint": "至少选择一个地址",
+        "rowModeHelp": "合并会将所有 IP 汇总为一行。分开则每台机器一行，共用同一昵称。"
       },
       "mode": {
         "combined": "合并",
         "separate": "分开",
         "combinedTooltip": "将所有 IP 相加，为此昵称显示一行",
-        "separateTooltip": "每个 IP 显示一行，均标注此昵称",
-        "help": "合并会将所有 IP 汇总为一行。分开则每台机器一行，共用同一昵称。"
+        "separateTooltip": "每个 IP 显示一行，均标注此昵称"
       },
       "placeholders": {
         "name": "例如：游戏电脑、客厅、服务器",
         "description": "此组的可选描述",
-        "searchUngrouped": "搜索未分组 IP...",
-        "searchToAdd": "搜索未分组 IP 以添加..."
-      },
-      "warnings": {
-        "multipleIpsTitle": "已选择多个 IP",
-        "multipleIpsDesc": "所有 {{count}} 个 IP 将共享同一昵称。这通常用于同一设备有多个 IP 地址的情况。",
-        "sharedNicknameTitle": "共享昵称",
-        "sharedNicknameDesc": "此昵称被 {{count}} 个 IP 共享。更改将应用于所有 IP。"
+        "searchAddresses": "搜索地址"
       },
       "emptyStates": {
-        "noMatchingIps": "没有匹配的 IP",
-        "noUngroupedIps": "没有可用的未分组 IP",
-        "allSelected": "已选择所有可用 IP",
-        "noClientsAvailable": "没有可用的未分组客户端。您可以稍后添加 IP。"
+        "everyAddressNamed": "每个地址都已有昵称",
+        "everyAddressNamedHint": "新地址出现在下载记录中后会显示在这里。",
+        "noAddressMatches": "没有符合该搜索的地址",
+        "allMatchingChosen": "所有符合条件的地址都已选择",
+        "noAddressesYet": "尚无地址"
       },
       "actions": {
         "saveChanges": "保存更改",
         "addNickname": "添加昵称",
-        "removeChosenIp": "移除 {{ip}}"
+        "addAllMatching": "添加全部 {{count}} 个匹配项",
+        "clearSelection": "清除选择",
+        "clearSearch": "清除搜索",
+        "undoRemove": "撤销移除"
       },
       "messages": {
         "andAddedIps": " 并添加了 {{count}} 个 IP",
         "andAddedIps_other": " 并添加了 {{count}} 个 IP",
         "updatedNickname": "已更新昵称 \"{{nickname}}\"{{ipsAdded}}",
-        "addedNickname": "已添加昵称 \"{{nickname}}\""
+        "addedNickname": "已添加昵称 \"{{nickname}}\"",
+        "matchCount": "{{total}} 个中有 {{shown}} 个匹配",
+        "alreadyNamed": "已命名为 {{nickname}}"
       },
       "errors": {
         "nicknameRequired": "昵称为必填项",
         "failedToSave": "保存昵称失败",
         "failedToDelete": "删除昵称失败",
-        "failedToRemoveIp": "移除 IP 失败"
-      },
-      "multiIpWarning": "此昵称被多个 IP 共享"
+        "needsOneAddress": "昵称至少需要一个地址。",
+        "addressesRejected": "以下地址无法添加：{{addresses}}",
+        "loadAddressesFailed": "加载地址失败",
+        "changedElsewhere": "在您打开此昵称期间，其他人对它做了更改，因此您的地址未能保存。上方的名称和描述已刷新。请检查您的更改，然后重新保存。",
+        "noAddressesAccepted": "昵称未创建。您选择的地址已全部属于其他昵称：{{addresses}}"
+      }
     },
     "auth": {
       "labels": {
@@ -6613,7 +6643,8 @@
       "allSelected": "全选",
       "selected": "已选择",
       "minimumSelections": "至少需要选择 {{count}} 项",
-      "minimumSelections_other": "至少需要选择 {{count}} 项"
+      "minimumSelections_other": "至少需要选择 {{count}} 项",
+      "noMatches": "没有匹配项"
     },
     "managerCard": {
       "logsReadOnly": "日志为只读",

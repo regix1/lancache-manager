@@ -545,20 +545,6 @@ public static class SignalRNotifications
 
     #endregion
 
-    #region Client Groups
-
-    /// <summary>
-    /// Notification when a member is added to a client group.
-    /// </summary>
-    public record ClientGroupMemberAdded(long GroupId, string ClientIp);
-
-    /// <summary>
-    /// Notification when a member is removed from a client group.
-    /// </summary>
-    public record ClientGroupMemberRemoved(long GroupId, string ClientIp);
-
-    #endregion
-
     #region Events
 
     /// <summary>

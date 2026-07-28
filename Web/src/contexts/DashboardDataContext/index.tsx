@@ -459,13 +459,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       // Group membership and row-mode writes restructure which client stats rows exist —
       // one summed row per nickname versus one row per member address, and an address with
       // no mapping always gets its own row — in every time range, not just 'live'. So these
-      // bypass handleRefreshEvent's live-only gate. The burst a multi-address edit produces
-      // is coalesced by handleForcedRefreshEvent's shared debounce.
+      // bypass handleRefreshEvent's live-only gate. Successive writes are coalesced by
+      // handleForcedRefreshEvent's shared debounce.
       ClientGroupCreated: () => handleForcedRefreshEvent('ClientGroupCreated'),
       ClientGroupUpdated: () => handleForcedRefreshEvent('ClientGroupUpdated'),
       ClientGroupDeleted: () => handleForcedRefreshEvent('ClientGroupDeleted'),
-      ClientGroupMemberAdded: () => handleForcedRefreshEvent('ClientGroupMemberAdded'),
-      ClientGroupMemberRemoved: () => handleForcedRefreshEvent('ClientGroupMemberRemoved'),
       ClientGroupsCleared: () => handleForcedRefreshEvent('ClientGroupsCleared')
     };
     const throttledEvents = SIGNALR_REFRESH_EVENTS.filter((event) => !(event in dedicatedHandlers));

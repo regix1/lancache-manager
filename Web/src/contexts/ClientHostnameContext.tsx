@@ -51,7 +51,10 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
     if (authMode === 'authenticated' || authMode === 'guest') {
       refreshHostnames();
     } else {
+      // Retiring the attempt in flight means its own finally will not clear the spinner, and
+      // nothing replaces it here, so this branch owns that.
       attemptRef.current++;
+      setLoading(false);
       setHostnameLookup({ enabled: false, hostnames: {} });
     }
   }, [authLoading, authMode, refreshHostnames]);
@@ -62,8 +65,10 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
       if (!result.enabled) {
         // Dropping the names locally is enough - the rows fall back to raw addresses on the next
         // render and no table has to be refetched. Retiring any fetch still in flight keeps an
-        // older response from putting the names straight back.
+        // older response from putting the names straight back, and because that retired fetch
+        // will no longer clear the spinner itself, this branch clears it.
         attemptRef.current++;
+        setLoading(false);
         setHostnameLookup({ enabled: false, hostnames: {} });
         return;
       }

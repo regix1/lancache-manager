@@ -1,0 +1,97 @@
+/* Removable address chip.
+   One height and one corner language across every consumer, so a wrapped row of chips
+   keeps a single baseline next to the control clusters it sits under. The radius comes
+   from .themed-border-radius-sm on the element itself, not from here. */
+
+.ip-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  box-sizing: border-box;
+  height: 28px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0 0.5rem;
+  border: 1px solid transparent;
+  font-weight: 500;
+  line-height: 1;
+  transition: background-color 0.15s ease;
+}
+
+.ip-chip__label {
+  min-width: 0;
+}
+
+/* An address the group already holds, and the glance-only variant. */
+.ip-chip--current,
+.ip-chip--readonly,
+.ip-chip--removing {
+  background: var(--theme-bg-tertiary);
+  border-color: var(--theme-border-secondary);
+  color: var(--theme-text-secondary);
+}
+
+/* Nothing about a glance-only chip should read as a control. */
+.ip-chip--readonly {
+  cursor: default;
+}
+
+/* Chosen in this editing session. The selected-state tokens keep the label readable on
+   the tinted fill; a primary-hued label on a primary-tinted fill collapses into it. */
+.ip-chip--added {
+  background: var(--theme-selected-bg);
+  border-color: var(--theme-primary-on-border);
+  color: var(--theme-selected-text);
+}
+
+@media (hover: hover) {
+  .ip-chip--added:hover {
+    background: var(--theme-selected-bg-hover);
+  }
+}
+
+/* Marked for removal but still counted, so the change stays undoable before a save. */
+.ip-chip--removing {
+  opacity: 0.55;
+}
+
+.ip-chip--removing .ip-chip__label {
+  text-decoration: line-through;
+}
+
+/* The visual box stays 20px so the chip holds its 28px height; the pointer target is grown to
+   the touch floor by .pointer-target-44 on the element itself. */
+.ip-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--theme-border-radius);
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+@media (hover: hover) {
+  .ip-chip__remove:hover:not(:disabled) {
+    background: var(--theme-bg-surface-hover);
+    opacity: 1;
+  }
+}
+
+.ip-chip__remove:active:not(:disabled) {
+  opacity: 0.85;
+}
+
+.ip-chip__remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

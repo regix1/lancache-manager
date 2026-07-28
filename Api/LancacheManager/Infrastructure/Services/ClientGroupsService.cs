@@ -45,9 +45,28 @@ public class ClientGroupsService : IClientGroupsService
             ?.WithUtcMarking();
     }
 
+    /// <summary>
+    /// The current instant at the resolution the timestamp column keeps. PostgreSQL stores a
+    /// timestamp to the microsecond, while <see cref="DateTime.UtcNow"/> carries ticks a hundred
+    /// times finer, so a stamp taken straight from the clock is handed back to the caller in a form
+    /// the database will never return. The version precondition compares exact instants, so a
+    /// caller sending that stamp back would be turned down against the very write that produced it.
+    /// </summary>
+    private static DateTime StoredNow()
+    {
+        var ticks = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMicrosecond * TimeSpan.TicksPerMicrosecond;
+        return new DateTime(ticks, DateTimeKind.Utc);
+    }
+
     public async Task<ClientGroup> CreateAsync(ClientGroup group, CancellationToken cancellationToken = default)
     {
-        group.CreatedAtUtc = DateTime.UtcNow;
+        group.CreatedAtUtc = StoredNow();
+
+        // Stamped from birth so every group a caller can hold a copy of carries one. A group whose
+        // stamp is missing cannot be saved against a precondition, which would leave exactly the
+        // newest groups unprotected. [41]
+        group.UpdatedAtUtc = group.CreatedAtUtc;
+
         _context.ClientGroups.Add(group);
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -69,7 +88,7 @@ public class ClientGroupsService : IClientGroupsService
         existing.Nickname = group.Nickname;
         existing.Description = group.Description;
         existing.SeparateMemberRows = group.SeparateMemberRows;
-        existing.UpdatedAtUtc = DateTime.UtcNow;
+        existing.UpdatedAtUtc = StoredNow();
 
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -88,48 +107,70 @@ public class ClientGroupsService : IClientGroupsService
         }
     }
 
-    public async Task<ClientGroupMember> AddMemberAsync(long groupId, string clientIp, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Makes <paramref name="clientIps"/> the group's complete membership: rows for addresses that are
+    /// no longer wanted are deleted, addresses that are new are inserted, and addresses already in the
+    /// group are left where they are so their AddedAtUtc survives.
+    /// </summary>
+    /// <returns>
+    /// The addresses that were skipped because a different group already owns them. They are returned
+    /// rather than thrown so one contested address cannot fail the rest of the save.
+    /// </returns>
+    public async Task<List<string>> SetMembersAsync(long groupId, IReadOnlyList<string> clientIps, CancellationToken cancellationToken = default)
     {
-        // Check if IP is already in a group
-        var existingMember = await _context.ClientGroupMembers
-            .FirstOrDefaultAsync(m => m.ClientIp == clientIp, cancellationToken);
+        var group = await _context.ClientGroups
+            .Include(g => g.Members)
+            .FirstOrDefaultAsync(g => g.Id == groupId, cancellationToken);
 
-        if (existingMember != null)
-        {
-            throw new InvalidOperationException($"IP {clientIp} is already a member of group ID {existingMember.ClientGroupId}");
-        }
-
-        var group = await _context.ClientGroups.FindAsync(new object[] { groupId }, cancellationToken);
         if (group == null)
         {
             throw new InvalidOperationException($"Client group with ID {groupId} not found");
         }
 
-        var member = new ClientGroupMember
+        var desiredIps = clientIps.Distinct(StringComparer.Ordinal).ToList();
+        var currentIps = group.Members.Select(m => m.ClientIp).ToHashSet(StringComparer.Ordinal);
+
+        var addedIps = desiredIps.Where(ip => !currentIps.Contains(ip)).ToList();
+
+        // The unique index on ClientIp means an address another group holds cannot simply be inserted.
+        // Reassigning it across groups is a separate decision with its own confirmation, so it is
+        // skipped and named back to the caller. [5]
+        var ownedElsewhere = addedIps.Count == 0
+            ? new List<string>()
+            : await _context.ClientGroupMembers
+                .Where(m => m.ClientGroupId != groupId && addedIps.Contains(m.ClientIp))
+                .Select(m => m.ClientIp)
+                .ToListAsync(cancellationToken);
+
+        var rejectedIps = addedIps.Where(ip => ownedElsewhere.Contains(ip, StringComparer.Ordinal)).ToList();
+        var insertedIps = addedIps.Where(ip => !rejectedIps.Contains(ip, StringComparer.Ordinal)).ToList();
+
+        var desiredLookup = desiredIps.ToHashSet(StringComparer.Ordinal);
+        var removedMembers = group.Members.Where(m => !desiredLookup.Contains(m.ClientIp)).ToList();
+
+        _context.ClientGroupMembers.RemoveRange(removedMembers);
+        _context.ClientGroupMembers.AddRange(insertedIps.Select(ip => new ClientGroupMember
         {
             ClientGroupId = groupId,
-            ClientIp = clientIp,
+            ClientIp = ip,
             AddedAtUtc = DateTime.UtcNow
-        };
+        }));
 
-        _context.ClientGroupMembers.Add(member);
+        // Membership is part of what a caller reads when it takes a copy of the group, so the stamp
+        // has to move here too - otherwise two editors both hold a stamp that still looks current and
+        // the second one silently replaces the first one's addresses. [41]
+        group.UpdatedAtUtc = StoredNow();
+
+        // One save, so the removals and the insertions land together: EF Core wraps a single
+        // SaveChanges in a transaction, and a half-applied membership would leave the group showing
+        // addresses the user removed alongside ones they never added. [4]
         await _context.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("Added IP {ClientIp} to client group {Nickname} (ID: {Id})", clientIp, group.Nickname, groupId);
-        return member.WithUtcMarking();
-    }
+        _logger.LogInformation(
+            "Set members on client group {Nickname} (ID: {Id}): {Added} added, {Removed} removed, {Rejected} already owned elsewhere",
+            group.Nickname, groupId, insertedIps.Count, removedMembers.Count, rejectedIps.Count);
 
-    public async Task RemoveMemberAsync(long groupId, string clientIp, CancellationToken cancellationToken = default)
-    {
-        var member = await _context.ClientGroupMembers
-            .FirstOrDefaultAsync(m => m.ClientGroupId == groupId && m.ClientIp == clientIp, cancellationToken);
-
-        if (member != null)
-        {
-            _context.ClientGroupMembers.Remove(member);
-            await _context.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Removed IP {ClientIp} from client group ID {GroupId}", clientIp, groupId);
-        }
+        return rejectedIps;
     }
 
     public async Task<Dictionary<string, ClientGroupAssignment>> GetIpMappingAsync(CancellationToken cancellationToken = default)

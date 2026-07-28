@@ -395,8 +395,9 @@ public sealed class ClientStatsAggregationTests
             searchFrom = idx + 1;
         }
 
-        // create, update, delete, member add, member remove
-        Assert.Equal(5, invalidations);
+        // create, update, delete. Membership is saved as a whole list now and broadcasts the group
+        // update instead, which expires every dashboard range rather than only the live one.
+        Assert.Equal(3, invalidations);
     }
 
     [Fact]

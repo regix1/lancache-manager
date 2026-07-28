@@ -189,7 +189,7 @@ public sealed class ClientHostnameService : IClientHostnameService
     /// attaches to the same in-flight query rather than starting another, and the one broadcast
     /// covers the whole batch, so a long client list cannot turn into a stream of events. [64]
     /// </summary>
-    private void AnnounceRemainingNames(IReadOnlyList<string> pendingIps)
+    private void AnnounceRemainingNames(List<string> pendingIps)
     {
         if (pendingIps.Count == 0)
         {

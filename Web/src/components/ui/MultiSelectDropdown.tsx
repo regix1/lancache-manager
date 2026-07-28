@@ -41,6 +41,8 @@ interface MultiSelectDropdownProps {
   minSelections?: number;
   maxSelections?: number;
   compactMode?: boolean;
+  /** Puts a filter box above the option list. Off by default so existing menus are unchanged. */
+  searchable?: boolean;
 }
 
 // Memoized option component
@@ -123,10 +125,12 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   title,
   minSelections = 1,
   maxSelections,
-  compactMode = false
+  compactMode = false,
+  searchable = false
 }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   // `top`/`left` are DOCUMENT coordinates: the menu is absolutely positioned in a
   // body portal so that a scroll carries it and its trigger together natively
   // rather than having JavaScript chase the trigger every frame (see useAnchorFollow).
@@ -137,9 +141,23 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   }>({ top: 0, left: 0, animation: '' });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const valuesSet = useMemo(() => new Set(values), [values]);
   const selectedCount = valuesSet.size;
+
+  // The trigger label and the "all selected" test read the full list; only the rendered
+  // rows narrow, so a filtered menu never misreports what is selected.
+  const filteredOptions = useMemo(() => {
+    const term = searchable ? searchTerm.trim().toLowerCase() : '';
+    if (!term) return options;
+    return options.filter(
+      (option) =>
+        option.label.toLowerCase().includes(term) ||
+        option.value.toLowerCase().includes(term) ||
+        (option.description?.toLowerCase().includes(term) ?? false)
+    );
+  }, [options, searchTerm, searchable]);
 
   const displayLabel = useMemo(() => {
     const defaultPlaceholder = placeholder || t('ui.multiSelect.selectOptions');
@@ -191,11 +209,25 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     });
   }, [alignRight]);
 
-  // Calculate position before paint and when opening
+  // Calculate position before paint and when opening. Filtering changes the menu's
+  // height, and a menu that opened upward is placed by subtracting that height from the
+  // trigger, so the row count has to re-place it or it drifts off the trigger as you type.
   useLayoutEffect(() => {
     if (!isOpen) return;
     updatePosition();
-  }, [isOpen, updatePosition]);
+  }, [isOpen, updatePosition, filteredOptions.length]);
+
+  // A search only ever describes the menu that is open, and the input is at the end of the
+  // document in a portal, so focusing it on open is the only way a keyboard reaches it.
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchTerm('');
+      return;
+    }
+    if (searchable) {
+      searchInputRef.current?.focus();
+    }
+  }, [isOpen, searchable]);
 
   // Combined event listeners
   useEffect(() => {
@@ -259,6 +291,10 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     [valuesSet, selectedCount, minSelections, maxSelections, onChange, values]
   );
 
+  const handleSearchChange = useCallback((event: React.ChangeEvent<HTMLInputElement>): void => {
+    setSearchTerm(event.target.value);
+  }, []);
+
   const canDeselect = selectedCount > minSelections;
   const canSelect = !maxSelections || selectedCount < maxSelections;
 
@@ -308,6 +344,20 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
               </div>
             )}
 
+            {searchable && (
+              <div className="px-2 py-2 border-b border-themed-secondary bg-themed-secondary">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchTerm}
+                  onChange={handleSearchChange}
+                  placeholder={t('common.search')}
+                  aria-label={t('common.search')}
+                  className="themed-input control-h-md w-full px-3 text-sm"
+                />
+              </div>
+            )}
+
             <CustomScrollbar maxHeight="280px" variant="float" radius="none">
               <div
                 className="bg-themed-secondary"
@@ -315,21 +365,29 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
                 onWheel={(event) => event.stopPropagation()}
                 onTouchMove={(event) => event.stopPropagation()}
               >
-                {options.map((option, i) => (
-                  <OptionItem
-                    key={option.value}
-                    option={option}
-                    isSelected={valuesSet.has(option.value)}
-                    isDisabled={
-                      option.disabled ||
-                      (valuesSet.has(option.value) && !canDeselect) ||
-                      (!valuesSet.has(option.value) && !canSelect)
-                    }
-                    isLast={i === options.length - 1}
-                    onToggle={handleToggle}
-                    compact={compactMode}
-                  />
-                ))}
+                {filteredOptions.length === 0
+                  ? // Only a search can empty the list on purpose, so only a searching menu
+                    // says so; without the box the panel stays exactly what it was.
+                    searchable && (
+                      <div className="px-4 py-3 text-sm text-themed-muted">
+                        {t('ui.multiSelect.noMatches')}
+                      </div>
+                    )
+                  : filteredOptions.map((option, i) => (
+                      <OptionItem
+                        key={option.value}
+                        option={option}
+                        isSelected={valuesSet.has(option.value)}
+                        isDisabled={
+                          option.disabled ||
+                          (valuesSet.has(option.value) && !canDeselect) ||
+                          (!valuesSet.has(option.value) && !canSelect)
+                        }
+                        isLast={i === filteredOptions.length - 1}
+                        onToggle={handleToggle}
+                        compact={compactMode}
+                      />
+                    ))}
               </div>
             </CustomScrollbar>
 

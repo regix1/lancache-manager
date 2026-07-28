@@ -994,8 +994,7 @@
 
 /* The themed-input (px-3 py-2 + 1px border) renders 2px taller than the adjacent md
    SegmentedControl (40px). Trim vertical padding by the border width so both controls
-   in the Connections row share one height, mirroring the proven .clients-control-row
-   .themed-input recipe. */
+   in the Connections row share one height, matching the .control-h-md 40px baseline. */
 .scheduled-prefill-number-cap .themed-input {
   padding-top: calc(0.5rem - 1px);
   padding-bottom: calc(0.5rem - 1px);

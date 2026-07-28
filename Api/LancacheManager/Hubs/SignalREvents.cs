@@ -10,8 +10,6 @@ public static class SignalREvents
     public const string ClientGroupCreated = "ClientGroupCreated";
     public const string ClientGroupUpdated = "ClientGroupUpdated";
     public const string ClientGroupDeleted = "ClientGroupDeleted";
-    public const string ClientGroupMemberAdded = "ClientGroupMemberAdded";
-    public const string ClientGroupMemberRemoved = "ClientGroupMemberRemoved";
     public const string ClientGroupsCleared = "ClientGroupsCleared";
 
     // Client Hostnames

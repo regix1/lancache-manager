@@ -7,9 +7,10 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { Card } from '@components/ui/Card';
 import Badge from '@components/ui/Badge';
 import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
-import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { EmptyState } from '@components/ui/ManagerCard';
-import { Users } from 'lucide-react';
+import { ArrowDown, ArrowUp, Users } from 'lucide-react';
 import type { ClientStat, SortOption, SortDirection } from './types';
 import '@components/features/management/managementSectionContent.css';
 import '@/styles/features/clients.css';
@@ -128,20 +129,39 @@ const ClientsTab: React.FC = () => {
   const { clientStats, loading } = useStats();
   const [sortBy, setSortBy] = useState<SortOption>('totalData');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const sortOptions = [
-    { value: 'totalData', label: t('clients.sort.totalData') },
-    { value: 'downloads', label: t('clients.sort.totalDownloads') },
-    { value: 'hits', label: t('clients.sort.cacheHits') },
-    { value: 'misses', label: t('clients.sort.cacheMisses') },
-    { value: 'hitRate', label: t('clients.sort.hitRate') },
-    { value: 'lastActivity', label: t('clients.sort.lastActivity') },
-    { value: 'ip', label: t('clients.sort.clientName') }
-  ];
+  const sortOptions = useMemo<DropdownOption[]>(
+    () => [
+      { value: 'totalData', label: t('clients.sort.totalData') },
+      { value: 'downloads', label: t('clients.sort.totalDownloads') },
+      { value: 'hits', label: t('clients.sort.cacheHits') },
+      { value: 'misses', label: t('clients.sort.cacheMisses') },
+      { value: 'hitRate', label: t('clients.sort.hitRate') },
+      { value: 'lastActivity', label: t('clients.sort.lastActivity') },
+      { value: 'ip', label: t('clients.sort.clientName') }
+    ],
+    [t]
+  );
 
-  const directionOptions = [
-    { value: 'desc', label: t('clients.sort.descending') },
-    { value: 'asc', label: t('clients.sort.ascending') }
-  ];
+  // Both directions stay visible as one 40px control, so switching is one click and the
+  // current direction reads off the toolbar without opening anything. The arrows are the
+  // control itself, and each segment carries its own tooltip for the name. [23]
+  const directionOptions = useMemo(
+    () => [
+      {
+        value: 'desc',
+        label: t('clients.sort.descending'),
+        icon: <ArrowDown size={14} />,
+        tooltip: t('clients.sort.descending')
+      },
+      {
+        value: 'asc',
+        label: t('clients.sort.ascending'),
+        icon: <ArrowUp size={14} />,
+        tooltip: t('clients.sort.ascending')
+      }
+    ],
+    [t]
+  );
 
   const sortedClients = useMemo(() => {
     const sorted = [...clientStats];
@@ -153,7 +173,10 @@ const ClientsTab: React.FC = () => {
           // Sort by display name (nickname if available, otherwise IP)
           const aName = a.displayName || a.clientIp;
           const bName = b.displayName || b.clientIp;
-          return multiplier * aName.localeCompare(bName);
+          const byName = aName.localeCompare(bName);
+          // Every member row of a separately-reported nickname carries that same nickname, so
+          // without the address as a tie-break their order is whatever the previous sort left.
+          return multiplier * (byName !== 0 ? byName : a.clientIp.localeCompare(b.clientIp));
         }
         case 'downloads':
           return multiplier * (a.totalDownloads - b.totalDownloads);
@@ -200,13 +223,12 @@ const ClientsTab: React.FC = () => {
               size="md"
               cleanStyle
             />
-            <EnhancedDropdown
+            <SegmentedControl
               options={directionOptions}
               value={sortDirection}
               onChange={(value) => setSortDirection(value as SortDirection)}
-              className="clients-sort-direction"
               size="md"
-              cleanStyle
+              showLabels={false}
             />
           </div>
         </div>

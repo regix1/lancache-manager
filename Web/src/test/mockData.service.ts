@@ -95,10 +95,30 @@ const CLIENT_IPS = [
   '10.0.0.52'
 ];
 
-// Mirrors /api/stats/clients group folding: nicknamed rows + multi-IP collapse.
-const MOCK_CLIENT_GROUPS: { id: number; nickname: string; memberIps: string[] }[] = [
-  { id: 1, nickname: 'Living Room', memberIps: ['192.168.1.100', '192.168.1.101'] },
-  { id: 2, nickname: 'Office PC', memberIps: ['10.0.0.50'] }
+// Mirrors /api/stats/clients group folding: nicknamed rows, multi-IP collapse, and the
+// per-IP rows a nickname reports when it is set to separate rows. Both row modes are
+// represented on multi-IP nicknames so either one can be seen without a live server.
+interface MockClientGroup {
+  id: number;
+  nickname: string;
+  memberIps: string[];
+  separateMemberRows: boolean;
+}
+
+const MOCK_CLIENT_GROUPS: MockClientGroup[] = [
+  {
+    id: 1,
+    nickname: 'Living Room',
+    memberIps: ['192.168.1.100', '192.168.1.101'],
+    separateMemberRows: false
+  },
+  { id: 2, nickname: 'Office PC', memberIps: ['10.0.0.50'], separateMemberRows: false },
+  {
+    id: 3,
+    nickname: 'Lab Bench',
+    memberIps: ['10.0.0.51', '10.0.0.52'],
+    separateMemberRows: true
+  }
 ];
 
 class MockDataService {
@@ -258,6 +278,7 @@ class MockDataService {
       MOCK_CLIENT_GROUPS.flatMap((g) => g.memberIps.map((ip) => [ip, g] as const))
     );
     const foldedGroups = new Map<number, ClientStat>();
+    const separatedMembers: ClientStat[] = [];
     const ungrouped: ClientStat[] = [];
 
     for (const ip of clients) {
@@ -275,6 +296,26 @@ class MockDataService {
           clientIp: ip,
           displayName: undefined,
           groupId: undefined,
+          isGrouped: false,
+          groupMemberIps: undefined,
+          totalCacheHitBytes: activity.totalCacheHitBytes,
+          totalCacheMissBytes: activity.totalCacheMissBytes,
+          totalBytes,
+          cacheHitPercent: (activity.totalCacheHitBytes / totalBytes) * 100,
+          totalDownloads: activity.totalDownloads,
+          lastActivityUtc: lastSeenIso
+        });
+        continue;
+      }
+
+      if (group.separateMemberRows) {
+        // The nickname labels the row, but the row speaks for one machine: it is not itself
+        // a group row and carries no member list, so member counts and IP lists stay
+        // truthful downstream. Totals are this address alone, never the nickname's sum.
+        separatedMembers.push({
+          clientIp: ip,
+          displayName: group.nickname,
+          groupId: group.id,
           isGrouped: false,
           groupMemberIps: undefined,
           totalCacheHitBytes: activity.totalCacheHitBytes,
@@ -317,9 +358,13 @@ class MockDataService {
       }
     }
 
-    const clientStats: ClientStat[] = [...foldedGroups.values(), ...ungrouped].sort(
-      (a, b) => b.totalBytes - a.totalBytes
-    );
+    // Combined rows fold before the ranking, so a nickname spread over several addresses
+    // ranks on its summed traffic while separated members rank one by one.
+    const clientStats: ClientStat[] = [
+      ...foldedGroups.values(),
+      ...separatedMembers,
+      ...ungrouped
+    ].sort((a, b) => b.totalBytes - a.totalBytes);
 
     // Generate service stats
     const serviceStats = SERVICES.map((service) => {

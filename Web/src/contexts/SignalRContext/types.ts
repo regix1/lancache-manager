@@ -100,8 +100,6 @@ export const SIGNALR_EVENTS = [
   'ClientGroupCreated',
   'ClientGroupUpdated',
   'ClientGroupDeleted',
-  'ClientGroupMemberAdded',
-  'ClientGroupMemberRemoved',
   'ClientGroupsCleared',
 
   // Client Hostnames
@@ -319,8 +317,6 @@ export const SIGNALR_REFRESH_EVENTS = [
   'ClientGroupCreated',
   'ClientGroupUpdated',
   'ClientGroupDeleted',
-  'ClientGroupMemberAdded',
-  'ClientGroupMemberRemoved',
   'ClientGroupsCleared'
 ] as const;
 

@@ -671,7 +671,65 @@ export interface UpdateClientGroupRequest {
    * arrives as `false` server-side and would silently reset a group back to one summed row.
    */
   separateMemberRows: boolean;
+  /**
+   * The copy the editor started from. This is the first write an edit session makes and it moves
+   * the group's stamp, so a nickname someone else changed since is refused here rather than
+   * overwritten. Null asks for no precondition.
+   */
+  expectedUpdatedAtUtc?: string | null;
 }
+
+/**
+ * Reply to a whole-membership save. `rejectedIps` names the addresses another nickname
+ * already owns; it is always present and empty when everything applied.
+ */
+export interface SetMembersResponse {
+  group: ClientGroup;
+  rejectedIps: string[];
+}
+
+/**
+ * The server refused a save because the nickname moved on after the editor loaded it. Nothing was
+ * written; `currentGroup` is the nickname as it now stands, so the editor can re-seed from it
+ * without a second round trip.
+ */
+export interface ClientGroupConflict {
+  error: string;
+  currentGroup: ClientGroup;
+}
+
+/**
+ * Outcome of a whole-membership save. `saved` carries the new membership plus any addresses
+ * another nickname already owns; `stale` means the save was refused and nothing changed.
+ */
+export type SetMembersResult =
+  | ({ status: 'saved' } & SetMembersResponse)
+  | ({ status: 'stale' } & ClientGroupConflict);
+
+/**
+ * Outcome of saving a nickname's fields. `saved` carries the group as written, including the stamp
+ * the write moved it to; `stale` means the save was refused and nothing changed.
+ */
+export type UpdateClientGroupResult =
+  | ({ status: 'saved' } & ClientGroup)
+  | ({ status: 'stale' } & ClientGroupConflict);
+
+/**
+ * Reply to creating a nickname: every group field at the top level plus the addresses
+ * from `initialIps` the new group does not hold.
+ */
+export interface CreateClientGroupResponse extends ClientGroup {
+  rejectedIps: string[];
+}
+
+/**
+ * Outcome of creating a nickname. `created` carries the new nickname plus any addresses it could
+ * not take; `rejected` means every requested address was already held elsewhere, so the server
+ * removed the half-made nickname and there is nothing to edit.
+ */
+export type CreateClientGroupResult =
+  | ({ status: 'created' } & CreateClientGroupResponse)
+  | { status: 'rejected'; error: string; rejectedIps: string[] };
 
 // Real-time download speed types
 export interface GameSpeedInfo {

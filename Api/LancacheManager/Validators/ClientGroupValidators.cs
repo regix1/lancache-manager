@@ -47,13 +47,22 @@ public class UpdateClientGroupRequestValidator : AbstractValidator<UpdateClientG
 }
 
 /// <summary>
-/// Validator for AddMemberRequest
+/// Validator for SetMembersRequest
 /// </summary>
-public class AddMemberRequestValidator : AbstractValidator<AddMemberRequest>
+/// <remarks>
+/// This layer fails the whole request on a malformed address. The controller normalizes the list a
+/// second time so it can name the offending entries, and so that an address another group owns is
+/// reported per item rather than failing the save.
+/// </remarks>
+public class SetMembersRequestValidator : AbstractValidator<SetMembersRequest>
 {
-    public AddMemberRequestValidator()
+    public SetMembersRequestValidator()
     {
-        RuleFor(x => x.ClientIp)
-            .RequiredValidIpAddress();
+        RuleFor(x => x.ClientIps)
+            .NotNull().WithMessage("Client IPs are required");
+
+        RuleForEach(x => x.ClientIps)
+            .ValidIpAddress()
+            .When(x => x.ClientIps != null && x.ClientIps.Count > 0);
     }
 }

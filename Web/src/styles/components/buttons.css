@@ -153,4 +153,21 @@
     width: 2rem;
     height: 2rem;
   }
+
+  /* Grows a small control's pointer target to the 44px touch floor while its visual box keeps
+     the size its row or chip was built around. The overlay is centred, so it takes up the gap
+     beside the control rather than reaching over a neighbour. Moving the floor happens here. */
+  .pointer-target-44 {
+    position: relative;
+  }
+
+  .pointer-target-44::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
 }

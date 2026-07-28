@@ -37,7 +37,12 @@ import type {
   SpeedHistorySnapshot,
   ClientGroup,
   CreateClientGroupRequest,
+  CreateClientGroupResponse,
+  CreateClientGroupResult,
   UpdateClientGroupRequest,
+  UpdateClientGroupResult,
+  SetMembersResponse,
+  SetMembersResult,
   StatsExclusionsResponse,
   ClientExclusionRule,
   EpicGameMappingDto,
@@ -1901,28 +1906,73 @@ class ApiService {
 
   // Get a single client group by ID
 
+  /**
+   * Reads a 409 body from a clone, so a conflict this caller does not recognise still reaches the
+   * shared throw site in `handleResponse` with its own stream unread.
+   */
+  private static async readConflictBody(
+    response: Response
+  ): Promise<Record<string, unknown> | null> {
+    const body: unknown = await response
+      .clone()
+      .json()
+      .catch(() => null);
+    return typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : null;
+  }
+
   // Create a new client group
-  static async createClientGroup(data: CreateClientGroupRequest): Promise<ClientGroup> {
+  static async createClientGroup(data: CreateClientGroupRequest): Promise<CreateClientGroupResult> {
     try {
       const res = await fetch(
         `${API_BASE}/client-groups`,
         this.getJsonFetchOptions(data, { method: 'POST' })
       );
-      return await this.handleResponse<ClientGroup>(res);
+      if (res.status === 409) {
+        // Every requested address was already held elsewhere, so the server removed the nickname
+        // it had just made: there is no group to return, only the rejection.
+        const body = await this.readConflictBody(res);
+        if (typeof body?.error === 'string' && Array.isArray(body.rejectedIps)) {
+          return {
+            status: 'rejected',
+            error: body.error,
+            rejectedIps: body.rejectedIps.filter((ip): ip is string => typeof ip === 'string')
+          };
+        }
+      }
+      const created = await this.handleResponse<CreateClientGroupResponse>(res);
+      return { status: 'created', ...created };
     } catch (error: unknown) {
       console.error('createClientGroup error:', error);
       throw error;
     }
   }
 
-  // Update an existing client group
-  static async updateClientGroup(id: number, data: UpdateClientGroupRequest): Promise<ClientGroup> {
+  // Update an existing client group. `data.expectedUpdatedAtUtc` is the copy the editor started
+  // from, and null or omitted asks for no precondition.
+  static async updateClientGroup(
+    id: number,
+    data: UpdateClientGroupRequest
+  ): Promise<UpdateClientGroupResult> {
     try {
       const res = await fetch(
         `${API_BASE}/client-groups/${id}`,
         this.getJsonFetchOptions(data, { method: 'PUT' })
       );
-      return await this.handleResponse<ClientGroup>(res);
+      if (res.status === 409) {
+        // The nickname moved on after the editor loaded it, so nothing was written and the
+        // server sent back its own copy to re-seed from.
+        const body = await this.readConflictBody(res);
+        const currentGroup = body?.currentGroup;
+        if (
+          typeof body?.error === 'string' &&
+          typeof currentGroup === 'object' &&
+          currentGroup !== null
+        ) {
+          return { status: 'stale', error: body.error, currentGroup: currentGroup as ClientGroup };
+        }
+      }
+      const saved = await this.handleResponse<ClientGroup>(res);
+      return { status: 'saved', ...saved };
     } catch (error: unknown) {
       console.error('updateClientGroup error:', error);
       throw error;
@@ -1945,32 +1995,36 @@ class ApiService {
     }
   }
 
-  // Add a member (IP) to a client group
-  static async addClientGroupMember(groupId: number, clientIp: string): Promise<ClientGroup> {
+  // Replace a client group's whole membership in one request: anything missing from
+  // clientIps is removed, so an edit session saves as a single atomic call.
+  // `expectedUpdatedAtUtc` is the copy the editor started from, and null asks for no precondition.
+  static async setClientGroupMembers(
+    groupId: number,
+    clientIps: string[],
+    expectedUpdatedAtUtc: string | null
+  ): Promise<SetMembersResult> {
     try {
       const res = await fetch(
         `${API_BASE}/client-groups/${groupId}/members`,
-        this.getJsonFetchOptions({ clientIp }, { method: 'POST' })
+        this.getJsonFetchOptions({ clientIps, expectedUpdatedAtUtc }, { method: 'PUT' })
       );
-      return await this.handleResponse<ClientGroup>(res);
+      if (res.status === 409) {
+        // The nickname moved on after the editor loaded it, so nothing was written and the
+        // server sent back its own copy to re-seed from.
+        const body = await this.readConflictBody(res);
+        const currentGroup = body?.currentGroup;
+        if (
+          typeof body?.error === 'string' &&
+          typeof currentGroup === 'object' &&
+          currentGroup !== null
+        ) {
+          return { status: 'stale', error: body.error, currentGroup: currentGroup as ClientGroup };
+        }
+      }
+      const saved = await this.handleResponse<SetMembersResponse>(res);
+      return { status: 'saved', group: saved.group, rejectedIps: saved.rejectedIps };
     } catch (error: unknown) {
-      console.error('addClientGroupMember error:', error);
-      throw error;
-    }
-  }
-
-  // Remove a member (IP) from a client group
-  static async removeClientGroupMember(groupId: number, clientIp: string): Promise<void> {
-    try {
-      const res = await fetch(
-        `${API_BASE}/client-groups/${groupId}/members/${encodeURIComponent(clientIp)}`,
-        this.getFetchOptions({
-          method: 'DELETE'
-        })
-      );
-      await assertOk(res);
-    } catch (error: unknown) {
-      console.error('removeClientGroupMember error:', error);
+      console.error('setClientGroupMembers error:', error);
       throw error;
     }
   }

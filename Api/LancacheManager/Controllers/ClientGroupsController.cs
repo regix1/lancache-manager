@@ -1,3 +1,4 @@
+using System.Net;
 using LancacheManager.Controllers.Base;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
@@ -6,7 +7,6 @@ using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Controllers;
 
@@ -123,17 +123,9 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         // Add initial IPs if provided
         if (request.InitialIps?.Count > 0)
         {
-            foreach (var ip in request.InitialIps)
-            {
-                try
-                {
-                    await _clientGroupsRepository.AddMemberAsync(entity.Id, ip.Trim(), ct);
-                }
-                catch (InvalidOperationException ex)
-                {
-                    _logger.LogWarning("Could not add IP {Ip} to group: {Message}", ip, ex.Message);
-                }
-            }
+            var desiredIps = NormalizeMemberIps(request.InitialIps, out _);
+            await _clientGroupsRepository.SetMembersAsync(entity.Id, desiredIps, ct);
+
             // Refresh to get updated members
             entity = await _clientGroupsRepository.GetByIdAsync(entity.Id, ct) ?? entity;
         }
@@ -153,56 +145,108 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         created = await PostCreateAsync(created, request, ct);
 
         var dto = ToDto(created);
+
+        // An address the caller asked for that is not on the group afterwards did not make it - it is
+        // already named by another group, or it was not an address. Naming it here is what stops a
+        // group being created with fewer addresses than the user chose while the response reads as a
+        // clean success. [6]
+        var rejectedIps = RejectedInitialIps(request.InitialIps, dto.MemberIps);
+
+        // Not one of the addresses the caller chose could be taken, so keeping the group would leave a
+        // nickname holding nothing they asked for behind a response that reads as a success. Removing
+        // it puts them back where they started, with the addresses that blocked it named. A create
+        // that asked for no addresses is a different thing and still succeeds. [42]
+        if (rejectedIps.Count > 0 && dto.MemberIps.Count == 0)
+        {
+            await _clientGroupsRepository.DeleteAsync(created.Id, ct);
+
+            _logger.LogWarning(
+                "Discarded {Resource} {Nickname}: none of the {Count} requested addresses could be taken",
+                ResourceName, created.Nickname, rejectedIps.Count);
+
+            return Conflict(new RejectedClientIpsResponse
+            {
+                Error = RejectedClientIpsResponse.ErrorCode,
+                RejectedIps = rejectedIps
+            });
+        }
+
         await OnCreatedAsync(created, dto);
 
         _logger.LogInformation("Created {Resource}: {Id}", ResourceName, created.Id);
-        return Created($"/api/client-groups/{created.Id}", dto);
+
+        var response = new CreateClientGroupResponse
+        {
+            Id = dto.Id,
+            Nickname = dto.Nickname,
+            Description = dto.Description,
+            SeparateMemberRows = dto.SeparateMemberRows,
+            CreatedAtUtc = dto.CreatedAtUtc,
+            UpdatedAtUtc = dto.UpdatedAtUtc,
+            MemberIps = dto.MemberIps,
+            RejectedIps = rejectedIps
+        };
+
+        return Created($"/api/client-groups/{created.Id}", response);
     }
 
     // ===== Custom Endpoints (not part of standard CRUD) =====
 
     /// <summary>
-    /// Add an IP to a client group
+    /// Replace every IP in a client group with the full list the caller supplies
     /// </summary>
     /// <remarks>
-    /// Validation is handled automatically by FluentValidation (see AddMemberRequestValidator)
+    /// Basic per-item format validation is handled automatically by FluentValidation (see
+    /// SetMembersRequestValidator). This method normalizes the list a second time so it can name the
+    /// entries it turned down instead of failing the whole save on one of them.
     /// </remarks>
-    [HttpPost("{id:long}/members")]
+    [HttpPut("{id:long}/members")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> AddMemberAsync(long id, [FromBody] AddMemberRequest request, CancellationToken ct = default)
+    public async Task<IActionResult> SetMembersAsync(long id, [FromBody] SetMembersRequest request, CancellationToken ct = default)
     {
-        // Validation is handled automatically by FluentValidation
-        var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, "Client group", ct);
+        var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, ResourceName, ct);
 
-        await _clientGroupsRepository.AddMemberAsync(id, request.ClientIp.Trim(), ct);
+        // The list is the whole membership, so saving one built from a copy someone else has since
+        // changed erases their change with nothing to show for it. Handing the group back as it now
+        // stands lets the caller start again from the current addresses without asking twice. A
+        // caller that sends no stamp is not tracking the version and saves as before. [41]
+        if (request.ExpectedUpdatedAtUtc is { } expectedUpdatedAt && !IsUnchangedSince(group, expectedUpdatedAt))
+        {
+            return Conflict(new ClientGroupChangedResponse
+            {
+                Error = ClientGroupChangedResponse.ErrorCode,
+                CurrentGroup = ToDto(group)
+            });
+        }
 
-        // Get updated group
+        var desiredIps = NormalizeMemberIps(request.ClientIps, out var invalidIps);
+        if (invalidIps.Count > 0)
+        {
+            return BadRequest(new InvalidClientIpsResponse
+            {
+                Error = "One or more addresses are not valid. Please correct them and try again.",
+                InvalidIps = invalidIps
+            });
+        }
+
+        var rejectedIps = await _clientGroupsRepository.SetMembersAsync(id, desiredIps, ct);
+
         var updated = await _clientGroupsRepository.GetByIdAsync(id, ct);
-        var dto = ToDto(updated!);
+        if (updated is null)
+        {
+            // A delete that landed between the save and this re-read leaves nothing to report,
+            // and a 500 would hide an outcome the caller can act on. [38]
+            return NotFound();
+        }
 
-        // Notify clients via SignalR
-        _dashboardBatchService.InvalidateLiveCache();
-        await _notifications.NotifyAllAsync(SignalREvents.ClientGroupMemberAdded, new ClientGroupMemberAdded(id, request.ClientIp.Trim()));
+        var dto = ToDto(updated);
 
-        return Ok(dto);
-    }
+        // Membership decides how client stats rows are built in every time range, not just the live
+        // one, so this goes out as a group update: the notification dispatch expires the whole
+        // dashboard batch before the event reaches any client, which a live-only expiry cannot do. [9]
+        await _notifications.NotifyAllAsync(SignalREvents.ClientGroupUpdated, dto);
 
-    /// <summary>
-    /// Remove an IP from a client group
-    /// </summary>
-    [HttpDelete("{id:long}/members/{ip}")]
-    [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> RemoveMemberAsync(long id, string ip, CancellationToken ct = default)
-    {
-        var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, "Client group", ct);
-
-        await _clientGroupsRepository.RemoveMemberAsync(id, ip, ct);
-
-        // Notify clients via SignalR
-        _dashboardBatchService.InvalidateLiveCache();
-        await _notifications.NotifyAllAsync(SignalREvents.ClientGroupMemberRemoved, new ClientGroupMemberRemoved(id, ip));
-
-        return NoContent();
+        return Ok(new SetMembersResponse { Group = dto, RejectedIps = rejectedIps });
     }
 
     /// <summary>
@@ -229,8 +273,27 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// </summary>
     [HttpPut("{id}")]
     [Authorize(Policy = "AdminOnly")]
-    public override Task<IActionResult> UpdateAsync(long id, [FromBody] UpdateClientGroupRequest request, CancellationToken ct = default)
-        => base.UpdateAsync(id, request, ct);
+    public override async Task<IActionResult> UpdateAsync(long id, [FromBody] UpdateClientGroupRequest request, CancellationToken ct = default)
+    {
+        var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, ResourceName, ct);
+
+        // An edit session writes the fields before it writes the addresses, and this write moves the
+        // stamp, so a stamp checked only on the address save can never see anything but what this
+        // write just produced. Checking it here, at the first write, is what lets it be compared
+        // against the copy the editor started from. Handing the group back as it now stands lets the
+        // caller start again from it without asking twice, and a caller that sends no stamp is not
+        // tracking the version and writes as before. [41]
+        if (request.ExpectedUpdatedAtUtc is { } expectedUpdatedAt && !IsUnchangedSince(group, expectedUpdatedAt))
+        {
+            return Conflict(new ClientGroupChangedResponse
+            {
+                Error = ClientGroupChangedResponse.ErrorCode,
+                CurrentGroup = ToDto(group)
+            });
+        }
+
+        return await base.UpdateAsync(id, request, ct);
+    }
 
     /// <summary>
     /// Delete a client group (admin only)
@@ -239,4 +302,87 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     [Authorize(Policy = "AdminOnly")]
     public override Task<IActionResult> DeleteAsync(long id, CancellationToken ct = default)
         => base.DeleteAsync(id, ct);
+
+    // ===== Address list handling =====
+
+    /// <summary>
+    /// Whether the group still carries the stamp the caller read it at. A group that has never been
+    /// stamped has nothing to compare against, so an expectation against one never matches - the
+    /// caller is working from something this server did not hand out.
+    /// </summary>
+    private static bool IsUnchangedSince(ClientGroup group, DateTime expectedUpdatedAt)
+    {
+        if (group.UpdatedAtUtc is not { } currentUpdatedAt)
+        {
+            return false;
+        }
+
+        // A stamp sent back with a zone offset rather than the Z it was handed out with still names
+        // the same instant, so it is compared as one.
+        var expectedUtc = expectedUpdatedAt.Kind == DateTimeKind.Local
+            ? expectedUpdatedAt.ToUniversalTime()
+            : expectedUpdatedAt;
+
+        return currentUpdatedAt.Ticks == expectedUtc.Ticks;
+    }
+
+    /// <summary>
+    /// Trims, parses and de-duplicates a requested address list, collecting the entries that are not
+    /// addresses into <paramref name="invalidIps"/> rather than discarding them. Blank entries are
+    /// dropped silently - an empty row in the payload is not something to report back.
+    /// </summary>
+    private static List<string> NormalizeMemberIps(IEnumerable<string>? clientIps, out List<string> invalidIps)
+    {
+        invalidIps = new List<string>();
+        var normalized = new List<string>();
+
+        if (clientIps == null)
+        {
+            return normalized;
+        }
+
+        foreach (var rawIp in clientIps)
+        {
+            var trimmed = rawIp?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                continue;
+            }
+
+            if (!IPAddress.TryParse(trimmed, out var parsed))
+            {
+                invalidIps.Add(trimmed);
+                continue;
+            }
+
+            var normalizedIp = parsed.ToString();
+            if (!normalized.Contains(normalizedIp, StringComparer.Ordinal))
+            {
+                normalized.Add(normalizedIp);
+            }
+        }
+
+        return normalized;
+    }
+
+    /// <summary>
+    /// The addresses a create request asked for that the new group does not hold, whatever the reason.
+    /// </summary>
+    private static List<string> RejectedInitialIps(IEnumerable<string>? initialIps, List<string> memberIps)
+    {
+        if (initialIps == null)
+        {
+            return new List<string>();
+        }
+
+        var applied = memberIps.ToHashSet(StringComparer.Ordinal);
+
+        return initialIps
+            .Select(ip => ip?.Trim())
+            .Where(ip => !string.IsNullOrWhiteSpace(ip))
+            .Select(ip => IPAddress.TryParse(ip, out var parsed) ? parsed.ToString() : ip!)
+            .Distinct(StringComparer.Ordinal)
+            .Where(ip => !applied.Contains(ip))
+            .ToList();
+    }
 }

@@ -1289,47 +1289,6 @@
     color: var(--theme-text-primary);
   }
 
-  .session-filter-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-    margin-top: 0.35rem;
-    padding: 0 0.1rem;
-  }
-
-  .session-filter-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.2rem 0.45rem;
-    font-size: var(--font-size-xs);
-    font-weight: 500;
-    border-radius: 9999px;
-    background: var(--theme-primary-on-bg-hover);
-    border: 1px solid var(--theme-primary-on-border);
-    color: var(--theme-primary);
-    white-space: nowrap;
-  }
-
-  .session-filter-chip-remove {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: var(--theme-border-radius);
-    color: inherit;
-    cursor: pointer;
-    opacity: 0.65;
-    transition: opacity 0.1s ease;
-    line-height: 1;
-  }
-
-  .session-filter-chip-remove:hover {
-    opacity: 1;
-  }
-
   /* ===== SECTION DIVIDERS ===== */
 
   .section-divider {
