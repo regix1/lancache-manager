@@ -3650,7 +3650,8 @@ export type ClientHostnamesReason =
   | 'noRecords'
   | 'resolverTimeout'
   | 'someUnnamed'
-  | 'stillLooking';
+  | 'stillLooking'
+  | 'tooManyClients';
 
 /** Reverse-DNS names for the client addresses currently known to the server. An address missing
  *  from the map has no name; the lookup is a global admin setting and is off by default. */

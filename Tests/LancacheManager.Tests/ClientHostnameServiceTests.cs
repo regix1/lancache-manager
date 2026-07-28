@@ -441,6 +441,64 @@ public sealed class ClientHostnameServiceTests
     }
 
     [Fact]
+    public async Task MorePrivateAddressesThanTheCapReportsTooManyClientsAsync()
+    {
+        // A network with more clients than one lookup will ask about. Every address that was asked
+        // about came back named, so from inside the batch nothing looks wrong at all, while the
+        // addresses past the cap still render as bare numbers with nothing to account for them.
+        var locator = CreateDetectedResolverLocator("10.0.0.53");
+        var service = CreateService(
+            enabled: true,
+            (address, _) => Task.FromResult<string?>($"client-{address}.lan."),
+            locator);
+
+        var outcome = await service.ResolveAsync(
+            PrivateAddresses(LookupCap + 44), CancellationToken.None);
+
+        Assert.Equal(LookupCap, outcome.Hostnames.Count);
+        Assert.Equal(ClientHostnamesReason.TooManyClients, outcome.Reason);
+    }
+
+    [Fact]
+    public async Task AddressesDroppedByTheCapOutrankAddressesWithNoNameAsync()
+    {
+        // Both are true at once: the list was cut, and some of the addresses that were asked about
+        // have no reverse record. The cut is the one worth saying, because adding reverse records
+        // would not bring back the addresses that were never asked about.
+        var locator = CreateDetectedResolverLocator("10.0.0.53");
+        var service = CreateService(
+            enabled: true,
+            (address, _) => Task.FromResult<string?>(
+                address.GetAddressBytes()[3] % 2 == 0 ? $"client-{address}.lan." : null),
+            locator);
+
+        var outcome = await service.ResolveAsync(
+            PrivateAddresses(LookupCap + 44), CancellationToken.None);
+
+        Assert.NotEmpty(outcome.Hostnames);
+        Assert.True(outcome.Hostnames.Count < LookupCap);
+        Assert.Equal(ClientHostnamesReason.TooManyClients, outcome.Reason);
+    }
+
+    [Fact]
+    public async Task ExactlyTheCapManyAddressesLeavesNothingToReportAsync()
+    {
+        // Sitting exactly on the cap, nothing was dropped and there is nothing to warn about, which
+        // holds the boundary at more-than rather than at-least.
+        var locator = CreateDetectedResolverLocator("10.0.0.53");
+        var service = CreateService(
+            enabled: true,
+            (address, _) => Task.FromResult<string?>($"client-{address}.lan."),
+            locator);
+
+        var outcome = await service.ResolveAsync(PrivateAddresses(LookupCap), CancellationToken.None);
+
+        Assert.Equal(LookupCap, outcome.Hostnames.Count);
+        Assert.NotEqual(ClientHostnamesReason.TooManyClients, outcome.Reason);
+        Assert.Equal(ClientHostnamesReason.None, outcome.Reason);
+    }
+
+    [Fact]
     public void ClientHostnamesResponse_Reason_UsesCamelCaseAndRejectsIntegers()
     {
         var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -757,6 +815,18 @@ public sealed class ClientHostnameServiceTests
         Assert.True(resolverReady > 0, "the resolver is obtained before the query runs");
         Assert.True(queryClockStarts > resolverReady, "the query clock starts only once the resolver is ready");
     }
+
+    /// <summary>
+    /// How many addresses one lookup asks about, mirroring the service's own cap so the tests can
+    /// sit on either side of it.
+    /// </summary>
+    private const int LookupCap = 256;
+
+    /// <summary>As many distinct private addresses as asked for.</summary>
+    private static string[] PrivateAddresses(int count)
+        => Enumerable.Range(0, count)
+            .Select(index => $"10.1.{index / 256}.{index % 256}")
+            .ToArray();
 
     private static ClientHostnameService CreateService(bool enabled, Func<IPAddress, string?> reverseLookup)
         => CreateService(enabled, (address, _) => Task.FromResult(reverseLookup(address)));

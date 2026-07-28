@@ -2450,7 +2450,8 @@
           "reasonNoRecords": "Your DNS server answered, but it has no reverse record for any of these addresses. A rewrite that points a name at an address is not enough - the server also needs a separate reverse record, sometimes called a PTR record, that points the address back to a name.",
           "reasonResolverTimeout": "Your DNS server did not give a usable answer, so client names could not be looked up right now.",
           "reasonSomeUnnamed": "Some clients could not be named, so they still show as numbers. Their addresses have no reverse record on your DNS server, sometimes called a PTR record.",
-          "reasonStillLooking": "Still looking up names for some clients. This will update on its own shortly."
+          "reasonStillLooking": "Still looking up names for some clients. This will update on its own shortly.",
+          "reasonTooManyClients": "There are more clients on your network than can be looked up at one time, so the rest still show as numbers. The most recently active clients are the ones that get names."
         }
       },
       "theme": {

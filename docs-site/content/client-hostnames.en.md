@@ -10,6 +10,8 @@ When the setting is on, the app asks your network's DNS server one question for 
 
 A saved nickname always wins over a DNS-supplied name, and a DNS-supplied name always wins over the raw address.
 
+On a very large network, only the most recently active clients are looked up at one time, so that a single page load can't turn into a flood of questions for your DNS server. When that limit is reached, the Clients page says so, and the clients past it keep showing their addresses until a later refresh.
+
 ## Why a DNS rewrite alone isn't enough
 
 Say you added a rewrite in your DNS server that points `test.lan` at `172.16.2.111`. That rewrite answers the question "what address does `test.lan` point to?" It's a **forward** record.

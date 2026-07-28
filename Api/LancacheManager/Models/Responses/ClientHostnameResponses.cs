@@ -36,7 +36,14 @@ public enum ClientHostnamesReason
     SomeUnnamed,
 
     /// <summary>The batch budget elapsed with lookups still running; the remaining names arrive with the next refresh.</summary>
-    StillLooking
+    StillLooking,
+
+    /// <summary>
+    /// There were more private addresses than one lookup will ask about, so the ones past the cap
+    /// were never queried. Without this they would sit bare beside named rows with the outcome
+    /// claiming everything asked for was answered.
+    /// </summary>
+    TooManyClients
 }
 
 internal sealed class ClientHostnamesReasonJsonConverter : JsonStringEnumConverter<ClientHostnamesReason>

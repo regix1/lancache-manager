@@ -73,7 +73,10 @@ public class ClientHostnamesController : ControllerBase
                 LastActivityUtc = g.Max(d => d.StartTimeUtc)
             })
             .OrderByDescending(c => c.LastActivityUtc)
-            .Take(MaxClientsResolved)
+            // One row past the cap on purpose: the lookup applies the same cap itself, and handing
+            // it the extra address is what lets it tell the caller the list was cut instead of
+            // answering as though every client on the network had been asked about.
+            .Take(MaxClientsResolved + 1)
             .Select(c => c.ClientIp)
             .ToListAsync(ct);
 

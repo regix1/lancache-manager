@@ -10,7 +10,8 @@ const reasonTranslationKeys: Readonly<Record<ClientHostnamesReason, string | nul
   noRecords: 'management.sections.clients.hostnames.reasonNoRecords',
   resolverTimeout: 'management.sections.clients.hostnames.reasonResolverTimeout',
   someUnnamed: 'management.sections.clients.hostnames.reasonSomeUnnamed',
-  stillLooking: 'management.sections.clients.hostnames.reasonStillLooking'
+  stillLooking: 'management.sections.clients.hostnames.reasonStillLooking',
+  tooManyClients: 'management.sections.clients.hostnames.reasonTooManyClients'
 };
 
 export function getClientHostnameReasonKey(reason: ClientHostnamesReason): string | null {

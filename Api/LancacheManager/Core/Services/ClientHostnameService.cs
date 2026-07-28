@@ -138,11 +138,16 @@ public sealed class ClientHostnameService : IClientHostnameService
 
         // Public addresses are never reverse-resolved: their reverse zone belongs to someone else,
         // and this also keeps admin session addresses out of the feature without a special case.
-        var candidates = clientIps
+        var privateIps = clientIps
             .Where(LancacheServerLocator.IsPrivateIp)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(MaxLookupsPerRequest)
             .ToList();
+
+        // Counted before the cap is applied, because an address the cap dropped never becomes a
+        // candidate and so cannot show up as a missing name later. Only comparing the two counts
+        // tells the caller its list was cut instead of reporting a complete-looking answer.
+        var truncated = privateIps.Count > MaxLookupsPerRequest;
+        var candidates = privateIps.Take(MaxLookupsPerRequest).ToList();
 
         if (candidates.Count == 0)
         {
@@ -241,6 +246,18 @@ public sealed class ClientHostnameService : IClientHostnameService
             AnnounceRemainingNames(candidates.Where(clientIp => !resolved.ContainsKey(clientIp)).ToList());
 
             return new ClientHostnameLookupOutcome(resolved, ClientHostnamesReason.StillLooking);
+        }
+
+        if (truncated)
+        {
+            // Ranked above a partial answer because it is the more actionable message: the addresses
+            // past the cap were never asked about, so no reverse record on the network would have
+            // named them and telling someone to go add one would send them after the wrong thing.
+            _logger.LogDebug(
+                "Reverse DNS looked up {Requested} of {Total} private client addresses; the rest were left for a later request",
+                candidates.Count, privateIps.Count);
+
+            return new ClientHostnameLookupOutcome(resolved, ClientHostnamesReason.TooManyClients);
         }
 
         if (resolved.Count == candidates.Count)
