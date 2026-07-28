@@ -1,3 +1,5 @@
+using LancacheManager.Models.Responses;
+
 namespace LancacheManager.Core.Interfaces;
 
 /// <summary>
@@ -14,12 +16,13 @@ public interface IClientHostnameService
     void SetEnabled(bool enabled);
 
     /// <summary>
-    /// Maps each address that has a reverse-DNS name to that name, without its trailing dot.
-    /// Returns an empty map and issues zero queries when the lookup is off. Addresses outside the
-    /// private ranges are never resolved, and an address the network has no name for is simply
-    /// absent from the result rather than an error.
+    /// Maps each address that has a reverse-DNS name to that name, without its trailing dot, and
+    /// says why any address (or all of them) has none.
+    /// Returns an empty map with reason <see cref="ClientHostnamesReason.None"/> and issues zero
+    /// queries when the lookup is off. Addresses outside the private ranges are never resolved, and
+    /// an address the network has no name for is simply absent from the map rather than an error.
     /// </summary>
-    Task<IReadOnlyDictionary<string, string>> ResolveAsync(
+    Task<ClientHostnameLookupOutcome> ResolveAsync(
         IReadOnlyCollection<string> clientIps,
         CancellationToken cancellationToken);
 }

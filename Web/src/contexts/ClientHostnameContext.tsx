@@ -14,7 +14,8 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   const { on, off } = useSignalR();
   const [hostnameLookup, setHostnameLookup] = useState<ClientHostnamesResponse>({
     enabled: false,
-    hostnames: {}
+    hostnames: {},
+    reason: 'none'
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +33,12 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
     try {
       const result = await ApiService.getClientHostnames();
       if (attempt !== attemptRef.current) return;
-      setHostnameLookup(result);
+      // Fall back to the no-op default if an older server has not started sending the reason yet,
+      // rather than letting `undefined` reach the render or the reason util.
+      setHostnameLookup({
+        ...result,
+        reason: result.reason ?? 'none'
+      });
     } catch (err: unknown) {
       if (attempt !== attemptRef.current) return;
       setError(getErrorMessage(err));
@@ -55,7 +61,7 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
       // nothing replaces it here, so this branch owns that.
       attemptRef.current++;
       setLoading(false);
-      setHostnameLookup({ enabled: false, hostnames: {} });
+      setHostnameLookup({ enabled: false, hostnames: {}, reason: 'none' });
     }
   }, [authLoading, authMode, refreshHostnames]);
 
@@ -69,7 +75,7 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
         // will no longer clear the spinner itself, this branch clears it.
         attemptRef.current++;
         setLoading(false);
-        setHostnameLookup({ enabled: false, hostnames: {} });
+        setHostnameLookup({ enabled: false, hostnames: {}, reason: 'none' });
         return;
       }
       setHostnameLookup((previous) => ({ ...previous, enabled: true }));
@@ -111,6 +117,7 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
     <ClientHostnameContext.Provider
       value={{
         enabled: hostnameLookup.enabled,
+        reason: hostnameLookup.reason,
         loading,
         error,
         getHostnameForIp,

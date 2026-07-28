@@ -3640,11 +3640,24 @@ interface StatusCheckResolverModeResponse {
   resolverMode: StatusCheckResolverMode;
 }
 
+/** Why the hostname map came back empty or partial. 'none' means there is nothing to explain
+ *  (names were found, or the lookup is off); the other members each describe a specific reason
+ *  no name could be found and are shown to the user instead of a silent empty result. */
+export type ClientHostnamesReason =
+  | 'none'
+  | 'noClients'
+  | 'noResolver'
+  | 'noRecords'
+  | 'resolverTimeout'
+  | 'someUnnamed'
+  | 'stillLooking';
+
 /** Reverse-DNS names for the client addresses currently known to the server. An address missing
  *  from the map has no name; the lookup is a global admin setting and is off by default. */
 export interface ClientHostnamesResponse {
   enabled: boolean;
   hostnames: Record<string, string>;
+  reason: ClientHostnamesReason;
 }
 
 interface ClientHostnameLookupResponse {

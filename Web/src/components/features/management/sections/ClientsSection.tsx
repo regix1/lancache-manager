@@ -23,6 +23,8 @@ import { useClientHostnames } from '@contexts/useClientHostnames';
 import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
+import { resolveClientLabel } from '@utils/clientLabel';
+import { getClientHostnameReasonKey } from '@utils/clientHostnameReason';
 import { useKnownClientIps } from '@/hooks/useKnownClientIps';
 import {
   Users,
@@ -59,8 +61,11 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     enabled: hostnamesEnabled,
     loading: hostnamesLoading,
     error: hostnamesError,
-    setEnabled: setHostnamesEnabled
+    setEnabled: setHostnamesEnabled,
+    getHostnameForIp,
+    reason: hostnamesReason
   } = useClientHostnames();
+  const hostnamesReasonKey = getClientHostnameReasonKey(hostnamesReason);
   const { refreshStats } = useStats();
   const { refreshDownloads } = useDownloads();
 
@@ -249,12 +254,13 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       .sort((a, b) => a.localeCompare(b))
       .map((ip) => {
         const nickname = nicknameByIp.get(ip);
+        const { text, substitutesAddress } = resolveClientLabel(ip, nickname, getHostnameForIp(ip));
         return {
           value: ip,
-          label: nickname ? `${nickname} (${ip})` : ip
+          label: substitutesAddress ? `${text} (${ip})` : ip
         };
       });
-  }, [allClientIps, excludedIpSet, nicknameByIp]);
+  }, [allClientIps, excludedIpSet, nicknameByIp, getHostnameForIp]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
@@ -613,9 +619,24 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                             </p>
                           ) : (
                             <div className="flex flex-wrap gap-2">
-                              {group.memberIps.map((ip) => (
-                                <IpChip key={ip} address={ip} state="readonly" />
-                              ))}
+                              {group.memberIps.map((ip) => {
+                                // The nickname is already the section heading, so the chip
+                                // surfaces the machine's own hostname instead of repeating it.
+                                const label = resolveClientLabel(
+                                  ip,
+                                  null,
+                                  getHostnameForIp(ip)
+                                ).text;
+                                return (
+                                  <IpChip
+                                    key={ip}
+                                    address={label}
+                                    state="readonly"
+                                    mono={false}
+                                    tooltip={ip}
+                                  />
+                                );
+                              })}
                             </div>
                           )}
                         </CollapsibleRegion>
@@ -692,17 +713,19 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                                 className="flex-shrink-0"
                               />
                               <div className="mgmt-row__body">
-                                <Tooltip content={ip} className="block min-w-0">
-                                  <p className="mgmt-row__title font-mono truncate">{ip}</p>
-                                </Tooltip>
+                                <ClientIpDisplay
+                                  clientIp={ip}
+                                  className="mgmt-row__title truncate"
+                                />
                               </div>
                             </label>
                           ) : (
                             <div key={ip} className="mgmt-row clients-unnamed-row">
                               <div className="mgmt-row__body">
-                                <Tooltip content={ip} className="block min-w-0">
-                                  <p className="mgmt-row__title font-mono truncate">{ip}</p>
-                                </Tooltip>
+                                <ClientIpDisplay
+                                  clientIp={ip}
+                                  className="mgmt-row__title truncate"
+                                />
                               </div>
                             </div>
                           )
@@ -921,7 +944,11 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
               </Alert>
             ) : (
               <div className="space-y-3">
-                {hostnamesError && <Alert color="red">{hostnamesError}</Alert>}
+                {hostnamesError ? (
+                  <Alert color="red">{hostnamesError}</Alert>
+                ) : hostnamesReasonKey ? (
+                  <Alert color="yellow">{t(hostnamesReasonKey)}</Alert>
+                ) : null}
                 <div className="flex items-start gap-3 py-2">
                   <div className="pt-0.5">
                     <Checkbox

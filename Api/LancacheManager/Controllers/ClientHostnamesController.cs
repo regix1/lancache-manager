@@ -77,12 +77,13 @@ public class ClientHostnamesController : ControllerBase
             .Select(c => c.ClientIp)
             .ToListAsync(ct);
 
-        var hostnames = await _hostnameService.ResolveAsync(clientIps, ct);
+        var outcome = await _hostnameService.ResolveAsync(clientIps, ct);
 
         return Ok(new ClientHostnamesResponse
         {
             Enabled = true,
-            Hostnames = new Dictionary<string, string>(hostnames, StringComparer.OrdinalIgnoreCase)
+            Hostnames = new Dictionary<string, string>(outcome.Hostnames, StringComparer.OrdinalIgnoreCase),
+            Reason = outcome.Reason
         });
     }
 

@@ -11,10 +11,12 @@ import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
 import { useClientGroups } from '@contexts/useClientGroups';
+import { useClientHostnames } from '@contexts/useClientHostnames';
 import { useSelectionSet } from '@hooks/useSelectionSet';
 import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import { useTranslation } from 'react-i18next';
 import { getErrorMessage } from '@utils/error';
+import { resolveClientLabel } from '@utils/clientLabel';
 import type { ClientGroup } from '../../types';
 import '@components/features/management/managementSectionContent.css';
 import './ClientGroupModal.css';
@@ -101,6 +103,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     loading: groupsLoading,
     error: groupsError
   } = useClientGroups();
+  const { getHostnameForIp } = useClientHostnames();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rejectedIps, setRejectedIps] = useState<string[]>([]);
@@ -922,28 +925,38 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             <div className="flex flex-wrap gap-2 mb-3">
               {currentMemberIps.map((ip) => {
                 const marked = removedSet.has(ip);
+                // The nickname this member belongs to is already the dialog's own title, so the
+                // chip surfaces the machine's own hostname instead of repeating it.
+                const label = resolveClientLabel(ip, null, getHostnameForIp(ip)).text;
                 return (
                   <IpChip
                     key={ip}
-                    address={ip}
+                    address={label}
                     state={marked ? 'removing' : 'current'}
                     onRemove={() => handleToggleRemoval(ip)}
                     removeLabel={
                       marked ? t('modals.clientGroup.actions.undoRemove') : t('common.remove')
                     }
                     disabled={saving}
+                    mono={false}
+                    tooltip={ip}
                   />
                 );
               })}
-              {chosenList.map((ip) => (
-                <IpChip
-                  key={ip}
-                  address={ip}
-                  state="added"
-                  onRemove={() => toggleChosen(ip)}
-                  disabled={saving}
-                />
-              ))}
+              {chosenList.map((ip) => {
+                const label = resolveClientLabel(ip, null, getHostnameForIp(ip)).text;
+                return (
+                  <IpChip
+                    key={ip}
+                    address={label}
+                    state="added"
+                    onRemove={() => toggleChosen(ip)}
+                    disabled={saving}
+                    mono={false}
+                    tooltip={ip}
+                  />
+                );
+              })}
             </div>
           )}
 

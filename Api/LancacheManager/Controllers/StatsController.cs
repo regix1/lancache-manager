@@ -260,8 +260,8 @@ public class StatsController : ControllerBase
         // Empty unless the hostname lookup is on, in which case a row with no nickname is labelled
         // with the machine's own name instead of its address. Only the addresses that will be
         // displayed are resolved, so the busiest clients are the ones that get names. [33]
-        var ipToHostname = await _clientHostnameService.ResolveAsync(
-            ClientStatsAggregationHelper.TopClientIpsByTraffic(ipAggregates, effectiveLimit), ct);
+        var ipToHostname = (await _clientHostnameService.ResolveAsync(
+            ClientStatsAggregationHelper.TopClientIpsByTraffic(ipAggregates, effectiveLimit), ct)).Hostnames;
 
         // Group members are folded before the limit is applied, so a nickname spread over
         // several IPs ranks on its combined traffic. IMPROVEMENT #4: configurable limit.

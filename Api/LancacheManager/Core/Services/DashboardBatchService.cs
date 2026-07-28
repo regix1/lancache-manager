@@ -350,8 +350,8 @@ public class DashboardBatchService : IDashboardBatchService
         // Empty unless the hostname lookup is on, in which case a row with no nickname is labelled
         // with the machine's own name instead of its address. Only the addresses that will be
         // displayed are resolved, so the busiest clients are the ones that get names. [33]
-        var ipToHostname = await _clientHostnameService.ResolveAsync(
-            ClientStatsAggregationHelper.TopClientIpsByTraffic(ipAggregates, effectiveLimit), ct);
+        var ipToHostname = (await _clientHostnameService.ResolveAsync(
+            ClientStatsAggregationHelper.TopClientIpsByTraffic(ipAggregates, effectiveLimit), ct)).Hostnames;
 
         // Same shared fold as GET /api/stats/clients: groups are summed before the top-N cut and
         // the rows carry the nickname, so both surfaces rank and label clients identically.

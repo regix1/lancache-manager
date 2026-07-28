@@ -54,6 +54,10 @@
   en: Prometheus Metrics
   zh: Prometheus 指标
 
+- file: client-hostnames
+  en: Client Hostnames
+  zh: 客户端主机名
+
 - file: troubleshooting
   en: Troubleshooting
   zh: 故障排除
