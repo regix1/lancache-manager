@@ -118,6 +118,21 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
                     continue;
                 }
 
+                // The daemon sends raw catalog artwork, not a picked URL - portrait art picked
+                // daemon-side is exactly what got Epic image support removed in the first place.
+                // Pick the landscape banner here, before it gets persisted.
+                foreach (var game in games)
+                {
+                    if (string.IsNullOrEmpty(game.ImageUrl) && game.KeyImages is { Count: > 0 })
+                    {
+                        game.ImageUrl = EpicApiDirectClient.GetBestImageUrl(game.KeyImages, game.Name);
+                    }
+
+                    // The picked URL is the only part anything downstream reads, so the raw entries stop
+                    // here instead of riding along into the merge. [14]
+                    game.KeyImages = null;
+                }
+
                 var sessionHash = CryptoUtils.ComputeAnonymousHash(session.UserId.ToString());
                 var result = await _mappingService.MergeOwnedGamesAsync(games, sessionHash, "prefill-login");
 

@@ -363,7 +363,7 @@ public class EpicApiDirectClient
     /// Only selects wide/landscape images - never portrait/tall.
     /// Appends CDN resize parameters so we fetch a compact 640x360 image.
     /// </summary>
-    private static string? GetBestImageUrl(List<EpicKeyImage>? keyImages, string appName = "")
+    internal static string? GetBestImageUrl(List<EpicKeyImage>? keyImages, string appName = "")
     {
         if (keyImages == null || keyImages.Count == 0) return null;
 
@@ -592,9 +592,10 @@ internal class EpicCatalogItem
 }
 
 /// <summary>
-/// Key image entry from Epic's catalog metadata.
+/// Key image entry from Epic's catalog metadata. Public because it also backs
+/// <see cref="LancacheManager.Models.OwnedGame.KeyImages"/>, which crosses the socket boundary.
 /// </summary>
-internal class EpicKeyImage
+public class EpicKeyImage
 {
     [JsonPropertyName("type")]
     public string? Type { get; set; }

@@ -1100,7 +1100,12 @@ public abstract class DaemonClientBase : IDaemonClient
     /// </summary>
     public async Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
     {
-        var response = await SendCommandAsync("get-owned-games", cancellationToken: cancellationToken);
+        // 10 minutes, same as get-cdn-info below: a session whose metadata cache is missing or predates
+        // artwork support refetches the whole library one HTTPS call at a time, which on a few hundred
+        // owned titles runs well past the 5 minute default. [13]
+        var response = await SendCommandAsync("get-owned-games",
+            timeout: TimeSpan.FromMinutes(10),
+            cancellationToken: cancellationToken);
 
         if (!response.Success)
             throw new InvalidOperationException(response.Error ?? "Failed to get owned games");

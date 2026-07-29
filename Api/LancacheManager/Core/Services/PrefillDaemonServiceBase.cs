@@ -3516,7 +3516,17 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
-        return await session.Client.GetOwnedGamesAsync(cancellationToken);
+        var games = await session.Client.GetOwnedGamesAsync(cancellationToken);
+
+        // Epic's raw artwork entries only exist so the banner can be picked on this side; nothing in the
+        // browser reads them, and a few hundred titles of them is hundreds of KB the page parses and
+        // throws away. Dropping them here rather than on the model keeps the socket read working. [14]
+        foreach (var game in games)
+        {
+            game.KeyImages = null;
+        }
+
+        return games;
     }
 
     /// <summary>

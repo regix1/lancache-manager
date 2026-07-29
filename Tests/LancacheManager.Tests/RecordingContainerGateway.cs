@@ -312,6 +312,7 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     public int LogoutCount { get; private set; }
     public int CancelPrefillCount { get; private set; }
     public Func<CancellationToken, Task>? CancelPrefillHandler { get; set; }
+    public Func<CancellationToken, Task<List<OwnedGame>>>? OwnedGamesHandler { get; set; }
 
     public Task ConnectAsync(CancellationToken cancellationToken = default)
     {
@@ -360,7 +361,7 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
         await CancelPrefillHandler(cancellationToken);
     }
     public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
+        => OwnedGamesHandler is null ? throw new NotSupportedException() : OwnedGamesHandler(cancellationToken);
     public Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)

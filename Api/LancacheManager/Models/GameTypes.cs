@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LancacheManager.Core.Services;
 
 namespace LancacheManager.Models;
 
@@ -42,6 +43,14 @@ public class OwnedGame
 
     [JsonPropertyName("imageUrl")]
     public string? ImageUrl { get; set; }
+
+    /// <summary>
+    /// Raw Epic catalog artwork entries, sent so the landscape picker runs on the
+    /// lancache-manager side instead of the daemon (the daemon's own picker produced
+    /// portrait art and was removed). Null for every daemon except Epic.
+    /// </summary>
+    [JsonPropertyName("keyImages")]
+    public List<EpicKeyImage>? KeyImages { get; set; }
 }
 
 public class CdnInfo
