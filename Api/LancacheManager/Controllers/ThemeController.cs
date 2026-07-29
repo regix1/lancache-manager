@@ -22,7 +22,7 @@ public class ThemeController : ControllerBase
     private readonly ISignalRNotificationService _notifications;
 
     // System theme IDs that cannot be deleted
-    private static readonly string[] _systemThemes = { "dark-default", "light-default" };
+    private static readonly string[] _systemThemes = { "dark-default", "light-default", "graphite" };
 
     public ThemeController(
         IConfiguration configuration,
@@ -85,6 +85,25 @@ public class ThemeController : ControllerBase
         return System.IO.File.Exists(tomlPath) || System.IO.File.Exists(jsonPath);
     }
 
+    /// <summary>
+    /// Returns an error result when a theme ID belongs to a system theme, or null when it is free.
+    /// System themes are supplied by the frontend and resolved before it asks the server, so a
+    /// custom file claiming one of their IDs would be stored but never applied.
+    /// </summary>
+    private BadRequestObjectResult? RejectSystemThemeId(string themeId)
+    {
+        if (!_systemThemes.Contains(themeId))
+        {
+            return null;
+        }
+
+        _logger.LogWarning($"Rejected theme upload claiming system theme ID: {themeId}");
+
+        return BadRequest(ApiResponse.Error(
+            "Cannot use a system theme ID",
+            $"'{themeId}' is a built-in theme. Rename the theme so it produces a different ID."));
+    }
+
     [HttpGet]
     [AllowAnonymous]
     public async Task<IActionResult> GetThemesAsync()
@@ -104,9 +123,6 @@ public class ThemeController : ControllerBase
         var tomlFiles = Directory.GetFiles(_themesPath, "*.toml");
         var themeFiles = jsonFiles.Concat(tomlFiles).ToArray();
 
-        // System themes are provided by frontend but marked as protected
-        var systemThemes = _systemThemes;
-
         foreach (var file in themeFiles)
         {
             try
@@ -118,6 +134,17 @@ public class ThemeController : ControllerBase
                 {
                     // Delete the file if it exists
                     System.IO.File.Delete(file);
+                    continue;
+                }
+
+                // A file claiming a system theme ID can never be applied, because the frontend
+                // resolves system themes before it asks the server for one. Listing it would
+                // replace the working built-in with an entry that does nothing. Uploads are
+                // rejected now; this covers files written before that check existed. The file is
+                // left on disk - deleting it is the operator's call, via delete or cleanup.
+                if (_systemThemes.Contains(themeId))
+                {
+                    _logger.LogDebug($"Skipping theme file that claims a system theme ID: {file}");
                     continue;
                 }
 
@@ -152,7 +179,6 @@ public class ThemeController : ControllerBase
                     Description = description,
                     Author = author,
                     Version = version,
-                    IsDefault = systemThemes.Contains(themeId),
                     Format = file.EndsWith(".toml") ? "toml" : "json"
                 });
             }
@@ -244,6 +270,9 @@ public class ThemeController : ControllerBase
                 themeId = Regex.Replace(baseName, @"[^a-zA-Z0-9-_]", "-").ToLower();
                 themeId = themeId.Substring(0, Math.Min(themeId.Length, 50));
 
+                var systemIdError = RejectSystemThemeId(themeId);
+                if (systemIdError != null) return systemIdError;
+
                 // Simply use the theme ID from the filename - overwrite if exists
                 filePath = Path.Combine(_themesPath, $"{themeId}.toml");
 
@@ -271,6 +300,9 @@ public class ThemeController : ControllerBase
                 var themeName = root.GetProperty("name").GetString() ?? "custom-theme";
                 themeId = Regex.Replace(themeName, @"[^a-zA-Z0-9-_]", "-").ToLower();
                 themeId = themeId.Substring(0, Math.Min(themeId.Length, 50));
+
+                var systemIdError = RejectSystemThemeId(themeId);
+                if (systemIdError != null) return systemIdError;
 
                 // Ensure unique ID
                 var counter = 0;
@@ -317,8 +349,17 @@ public class ThemeController : ControllerBase
             _logger.LogWarning($"Theme ID was sanitized from '{originalId}' to '{id}'");
         }
 
-        // Prevent deletion of system themes
-        if (_systemThemes.Contains(id))
+        // Check for both TOML and JSON files
+        var tomlPath = Path.Combine(_themesPath, $"{id}.toml");
+        var jsonPath = Path.Combine(_themesPath, $"{id}.json");
+
+        // Prevent deletion of system themes. They are supplied by the frontend and have no file
+        // here, so there is nothing to remove. A file carrying a system theme ID is a custom file
+        // and removing it cannot take the built-in with it, so that case falls through to the
+        // delete below - it is how an operator clears a file left by an older upload.
+        if (_systemThemes.Contains(id)
+            && !System.IO.File.Exists(tomlPath)
+            && !System.IO.File.Exists(jsonPath))
         {
             _logger.LogWarning($"Attempted to delete system theme: {id}");
             return BadRequest(ApiResponse.Error(
@@ -329,10 +370,6 @@ public class ThemeController : ControllerBase
 
         try
         {
-            // Check for both TOML and JSON files
-            var tomlPath = Path.Combine(_themesPath, $"{id}.toml");
-            var jsonPath = Path.Combine(_themesPath, $"{id}.json");
-
             _logger.LogInformation($"Looking for theme files:");
             _logger.LogInformation($"  TOML path: {tomlPath} - Exists: {System.IO.File.Exists(tomlPath)}");
             _logger.LogInformation($"  JSON path: {jsonPath} - Exists: {System.IO.File.Exists(jsonPath)}");
@@ -457,14 +494,11 @@ public class ThemeController : ControllerBase
 
         foreach (var file in themeFiles)
         {
+            // Every file here is a custom theme, including one whose name matches a system theme
+            // ID - system themes come from the frontend and never have a file - so cleanup removes
+            // it like any other. That is the operator's route to clearing a stale file, since it
+            // no longer appears in the theme list.
             var fileName = Path.GetFileNameWithoutExtension(file);
-
-            // Skip system themes
-            if (_systemThemes.Contains(fileName))
-            {
-                _logger.LogInformation($"Skipping system theme: {fileName}");
-                continue;
-            }
 
             try
             {
