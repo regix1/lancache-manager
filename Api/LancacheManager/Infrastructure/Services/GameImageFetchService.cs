@@ -594,6 +594,17 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     internal static string GetSteamHeaderImageUrl(long appId)
         => GetSteamCdnImageUrl(_steamCdnEndpoints[0].Domain, _steamCdnEndpoints[0].BasePath, appId, "header.jpg");
 
+    /// <summary>
+    /// Picks the image URL for an Epic game: Steam's header.jpg when a curated Steam appId exists
+    /// for this game's name (Steam-first, wins over Epic's own art), otherwise Epic's own
+    /// <paramref name="epicImageUrl"/>. A pure branch so it is testable without a live HTTP call or
+    /// the embedded Steam appId map.
+    /// </summary>
+    internal static string GetEpicImageUrl(long? steamAppId, string epicImageUrl)
+        => steamAppId != null
+            ? GetSteamHeaderImageUrl(steamAppId.Value)
+            : EpicApiDirectClient.EnsureResizeParams(epicImageUrl);
+
     private async Task FetchSteamImageAsync(
         AppDbContext db,
         HttpClient client,
@@ -920,7 +931,13 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     {
         if (string.IsNullOrEmpty(mapping.ImageUrl)) return;
 
-        var url = EpicApiDirectClient.EnsureResizeParams(mapping.ImageUrl);
+        // Steam-first: a curated Steam appId for this Epic game's name wins over Epic's own art.
+        // The GameImage row below still keys off the Epic appId/service - only the fetched bytes'
+        // source changes. Epic is appId-keyed rather than name-keyed, so it looks up the "epic"
+        // section directly instead of going through NameKeyedBannerSource.NormalizeService.
+        var steamAppId = NameKeyedSteamAppIds.TryGetSteamAppIdForSection("epic", mapping.Name);
+        var url = GetEpicImageUrl(steamAppId, mapping.ImageUrl);
+
         try
         {
             await _httpThrottle.WaitAsync(ct);

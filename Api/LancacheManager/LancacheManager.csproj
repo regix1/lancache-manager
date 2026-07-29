@@ -35,15 +35,15 @@
   </ItemGroup>
 
   <!--
-    Single-source GameName -> Steam appId map for name-keyed Blizzard games that ALSO exist on
-    Steam. Consulted by NameKeyedSteamAppIds before the curated embedded banner so those games
-    render Steam's header.jpg ("Steam-first, embedded fallback"). Read at runtime via
+    Single-source GameName -> Steam appId map for name-keyed games (Blizzard, Epic, Xbox, Riot)
+    that ALSO exist on Steam. Consulted by NameKeyedSteamAppIds before each service's own art so
+    those games render Steam's header.jpg ("Steam-first, service fallback"). Read at runtime via
     Assembly.GetManifestResourceStream with the LogicalName below. Do NOT copy the data into a
     second file.
   -->
   <ItemGroup>
-    <EmbeddedResource Include="..\..\rust-processor\blizzard_appids.json">
-      <LogicalName>LancacheManager.blizzard_appids.json</LogicalName>
+    <EmbeddedResource Include="..\..\rust-processor\steam_fallback_appids.json">
+      <LogicalName>LancacheManager.steam_fallback_appids.json</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 

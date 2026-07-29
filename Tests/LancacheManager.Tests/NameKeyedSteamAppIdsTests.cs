@@ -3,7 +3,7 @@ using LancacheManager.Infrastructure.Data;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Guards the single-source GameName -> Steam appId map (blizzard_appids.json) that makes
+/// Guards the single-source GameName -> Steam appId map (steam_fallback_appids.json) that makes
 /// name-keyed Blizzard games render Steam's header.jpg when they also exist on Steam.
 /// Exercises the generic parse (service -> { gameName -> appId }, skipping the "_comment" key),
 /// the slug/gameName lookup agreement, service aliasing, and the Riot/unknown null fallbacks - all
@@ -14,9 +14,9 @@ public class NameKeyedSteamAppIdsTests
     [Fact]
     public void TryGetSteamAppId_LoadsTheRenamedEmbeddedResource()
     {
-        // Proves the embedded resource wiring survived the blizzard_steam_appids.json ->
-        // blizzard_appids.json rename: a wrong LogicalName or a missing EmbeddedResource entry in
-        // the csproj surfaces here as a thrown InvalidOperationException on the first lookup, not
+        // Proves the embedded resource wiring survived the blizzard_appids.json ->
+        // steam_fallback_appids.json rename: a wrong LogicalName or a missing EmbeddedResource entry
+        // in the csproj surfaces here as a thrown InvalidOperationException on the first lookup, not
         // a silent empty result.
         Assert.Equal(2357570L, NameKeyedSteamAppIds.TryGetSteamAppId("blizzard", "Overwatch"));
     }
