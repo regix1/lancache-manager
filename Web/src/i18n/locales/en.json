@@ -49,6 +49,7 @@
     "edit": "Edit",
     "close": "Close",
     "dismiss": "Dismiss",
+    "help": "Help",
     "apply": "Apply",
     "reset": "Reset",
     "search": "Search",
@@ -455,7 +456,6 @@
     "version": "LANCache Manager v{{version}}"
   },
   "dashboard": {
-    "title": "Dashboard",
     "done": "Done",
     "edit": "Edit",
     "hidden": "Hidden",
@@ -669,12 +669,17 @@
       "hideList": "Hide breakdown",
       "itemCount_one": "{{count}} item",
       "itemCount_other": "{{count}} items",
+      "help": {
+        "aboutTitle": "About This Panel",
+        "about": "Each button switches the chart to a different view of the same cache traffic.",
+        "viewsTitle": "Chart Views"
+      },
       "descriptions": {
-        "service": "Compare total cache traffic across every tracked service.",
-        "hitRatio": "Compare cache hits against origin traffic by service.",
-        "bandwidth": "Bandwidth your cache saved per service. Larger slices = services most often served from cache instead of the internet.",
-        "misses": "Data each service downloaded fresh from the internet. Larger slices = services with more new content. First-time downloads are normal.",
-        "games": "Review detected game installs and their on-disk footprint."
+        "service": "Total cache traffic for every service being tracked.",
+        "hitRatio": "Cache hits next to internet downloads, service by service.",
+        "bandwidth": "Data served from your cache instead of the internet. A bigger slice means that service was served from cache more often.",
+        "misses": "Data downloaded fresh from the internet. A bigger slice means more new content. First-time downloads are normal.",
+        "games": "Detected game installs and how much disk each one uses."
       },
       "footer": {
         "totalData": "Total Data",
@@ -819,7 +824,6 @@
     }
   },
   "clients": {
-    "title": "Clients",
     "subtitle": "Client Statistics",
     "empty": "No client data available",
     "groupCount": "({{count}} IPs)",
@@ -870,7 +874,6 @@
     }
   },
   "user": {
-    "title": "User Management",
     "subtitle": "Sessions & guest controls",
     "tabs": {
       "sessions": "Sessions",

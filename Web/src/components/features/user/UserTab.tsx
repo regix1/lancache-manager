@@ -218,18 +218,6 @@ const UserTab: React.FC = () => {
 
   return (
     <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-5 sm:space-y-6 animate-fadeIn">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-themed-accent-subtle shadow-md">
-          <Users className="w-6 h-6 text-themed-accent" />
-        </div>
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-themed-primary">
-            {t('user.title')}
-          </h1>
-        </div>
-      </div>
-
       {/* Tab Bar */}
       <SegmentedControl
         options={[

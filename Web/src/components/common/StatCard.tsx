@@ -105,9 +105,7 @@ const StatCard: React.FC<StatCardProps> = ({
               whether or not THIS card has a tooltip, so cards with and without one still line
               their value/sparkline up in shared grids like .stat-cards-3col. */}
           <div className="flex items-center gap-1 min-h-6">
-            <p className="text-sm font-medium inline-block transition-colors text-[var(--theme-text-muted)]">
-              {title}
-            </p>
+            <p className="dash-card-title inline-block transition-colors">{title}</p>
             {tooltip && <HelpPopover width={260}>{tooltip}</HelpPopover>}
           </div>
 

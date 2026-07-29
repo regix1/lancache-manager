@@ -121,15 +121,10 @@
 }
 
 .service-analytics-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   min-width: 0;
-}
-
-.service-analytics-heading p {
-  max-width: 32rem;
-  margin: 0.25rem 0 0;
-  font-size: var(--font-size-sm);
-  line-height: 1.4;
-  color: var(--theme-text-muted);
 }
 
 .service-analytics-controls {
@@ -158,17 +153,16 @@
     gap: 0.75rem;
   }
 
+  /* flex-start is what keeps the view picker anchored to the panel's left edge, so the trailing
+     toggle can appear and disappear between views without moving it. [27]
+     overflow-x costs nothing while the tab strip fits, but the panel is clipped above 1180px and
+     the strip is one unshrinkable flex item, so without it a strip that outgrows the panel would
+     lose its trailing tabs with no way to reach them. [35] */
   .service-analytics-controls {
     width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     justify-content: flex-start;
-  }
-
-  .service-analytics-controls > * {
-    flex-shrink: 0;
+    overflow-x: auto;
   }
 }
 
@@ -856,11 +850,6 @@
     gap: 1rem;
   }
 
-  /* Allow heading description to use full width when the panel is full-width */
-  .service-analytics-heading p {
-    max-width: none;
-  }
-
   .analytics-chart-container,
   .analytics-list-container {
     flex: 1 1 auto;
@@ -920,7 +909,12 @@
 }
 
 @media (max-width: 639.98px) {
-  .service-chart-panel {
+  /* Tailwind's p-6 sits on the same element at equal specificity, so this has to be
+     compounded to win without depending on bundle order. Card swaps its base class rather than
+     adding one (Card.tsx), so the glass form has to be listed too or the padding is lost on the
+     glassmorphism themes. [22] */
+  .service-chart-panel.themed-card,
+  .service-chart-panel.glass-card {
     padding: 1rem;
   }
 
@@ -931,5 +925,28 @@
   .compare-line-chart {
     min-height: 16rem;
     max-height: 24rem;
+  }
+
+  /* Below this width the five labelled tabs are replaced by a dropdown (ServiceAnalyticsChart),
+     so the rules that sized the tab strip for a phone live on in the picker instead. [31] */
+
+  /* The view picker takes the rest of the row and the toggle keeps its square beside it. [31] */
+  .service-analytics-controls .service-analytics-view-select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* The picker and the toggle are one cluster, so they share one height. The picker gets its 44px
+     from dropdowns.css, which is where the trigger's height is released; the toggle needs it
+     spelled out because it ships a 2rem utility class. [36] */
+  .service-analytics-controls .service-analytics-toggle {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* dropdowns.css hides the chevron below 400px to save room. This picker keeps it: it is the
+     only thing marking the current view name as something you can change. [31] */
+  .service-analytics-controls .ed-trigger > svg:last-child {
+    display: block;
   }
 }

@@ -620,11 +620,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
   return (
     <Card glassmorphism={glassmorphism} className="recent-downloads-panel">
-      {/* Header */}
+      {/* Header: the title owns the first row and every control shares the second one, so this panel
+          keeps the same two-row rhythm as the chart panel beside it and the two sets of rows land on
+          the same baselines. [37] */}
       <div className="rdl-header">
         <h3 className="dash-panel-title">{t('dashboard.downloadsPanel.title')}</h3>
 
-        <div className="flex items-center gap-2">
+        <div className="rdl-view-switch">
           {viewMode === 'recent' && (
             <Tooltip content={t('dashboard.downloadsPanel.showDetails')}>
               <Button
@@ -669,43 +671,43 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             showLabels={true}
           />
         </div>
-      </div>
 
-      {/* Filters (only for recent view) */}
-      {viewMode === 'recent' && latestDownloads.length > 0 && (
-        <div className="rdl-filters">
-          <EnhancedDropdown
-            options={[
-              { value: 'all', label: t('dashboard.downloadsPanel.allServices') },
-              ...serviceFilterOptions.map(({ key, service }) => {
-                const displayService = getServiceDisplayName(service);
-                return {
-                  value: key,
-                  label: displayService.charAt(0).toUpperCase() + displayService.slice(1)
-                };
-              })
-            ]}
-            value={selectedService}
-            onChange={setSelectedService}
-          />
-          <EnhancedDropdown
-            options={clientOptions}
-            value={selectedClient}
-            onChange={setSelectedClient}
-          />
-          {(selectedService !== 'all' || selectedClient !== 'all') && (
-            <button
-              className="rdl-clear-btn"
-              onClick={() => {
-                setSelectedService('all');
-                setSelectedClient('all');
-              }}
-            >
-              {t('dashboard.downloadsPanel.clear')}
-            </button>
-          )}
-        </div>
-      )}
+        {/* Filters (only for recent view) */}
+        {viewMode === 'recent' && latestDownloads.length > 0 && (
+          <div className="rdl-filters">
+            <EnhancedDropdown
+              options={[
+                { value: 'all', label: t('dashboard.downloadsPanel.allServices') },
+                ...serviceFilterOptions.map(({ key, service }) => {
+                  const displayService = getServiceDisplayName(service);
+                  return {
+                    value: key,
+                    label: displayService.charAt(0).toUpperCase() + displayService.slice(1)
+                  };
+                })
+              ]}
+              value={selectedService}
+              onChange={setSelectedService}
+            />
+            <EnhancedDropdown
+              options={clientOptions}
+              value={selectedClient}
+              onChange={setSelectedClient}
+            />
+            {(selectedService !== 'all' || selectedClient !== 'all') && (
+              <button
+                className="rdl-clear-btn"
+                onClick={() => {
+                  setSelectedService('all');
+                  setSelectedClient('all');
+                }}
+              >
+                {t('dashboard.downloadsPanel.clear')}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Downloads list */}
       <div className="rdl-well well-surface">

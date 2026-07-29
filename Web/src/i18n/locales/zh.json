@@ -49,6 +49,7 @@
     "edit": "编辑",
     "close": "关闭",
     "dismiss": "忽略",
+    "help": "帮助",
     "apply": "应用",
     "reset": "重置",
     "search": "搜索",
@@ -455,7 +456,6 @@
     "version": "LANCache 管理器 v{{version}}"
   },
   "dashboard": {
-    "title": "仪表板",
     "done": "完成",
     "edit": "编辑",
     "hidden": "已隐藏",
@@ -669,12 +669,17 @@
       "hideList": "隐藏详情",
       "itemCount_one": "{{count}} 项",
       "itemCount_other": "{{count}} 项",
+      "help": {
+        "aboutTitle": "关于此面板",
+        "about": "每个按钮将图表切换为同一批缓存流量的不同视图。",
+        "viewsTitle": "图表视图"
+      },
       "descriptions": {
-        "service": "比较每个被追踪服务的总缓存流量。",
-        "hitRatio": "按服务比较缓存命中与源站流量。",
-        "bandwidth": "每个服务节省的带宽。较大的份额 = 更多从缓存而非互联网提供服务的服务。",
-        "misses": "每个服务从互联网新下载的数据。较大的份额 = 有更多新内容的服务。首次下载是正常的。",
-        "games": "查看检测到的游戏安装及其磁盘占用。"
+        "service": "每个被追踪服务的总缓存流量。",
+        "hitRatio": "按服务对比缓存命中与互联网下载量。",
+        "bandwidth": "从缓存而非互联网提供的数据量。份额越大，表示该服务越常从缓存提供。",
+        "misses": "从互联网新下载的数据量。份额越大，表示该服务的新内容越多。首次下载属于正常情况。",
+        "games": "检测到的游戏安装及其占用的磁盘空间。"
       },
       "footer": {
         "totalData": "总数据量",
@@ -819,7 +824,6 @@
     }
   },
   "clients": {
-    "title": "客户端",
     "subtitle": "客户端统计",
     "empty": "无客户端数据",
     "groupCount": "（{{count}} 个 IP）",
@@ -870,7 +874,6 @@
     }
   },
   "user": {
-    "title": "用户管理",
     "subtitle": "会话与访客控制",
     "tabs": {
       "sessions": "会话",

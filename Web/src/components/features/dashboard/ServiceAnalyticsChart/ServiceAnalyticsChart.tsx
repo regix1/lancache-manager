@@ -7,7 +7,10 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
+import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { useMediaQuery } from '@hooks/useMediaQuery';
 import { Tooltip } from '@components/ui/Tooltip';
+import { HelpPopover, HelpSection, HelpDefinition } from '@components/ui/HelpPopover';
 import { EmptyState } from '@components/ui/ManagerCard';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import DoughnutChart from './DoughnutChart';
@@ -17,6 +20,7 @@ import { useChartData } from './useChartData';
 import { getInsightCards, getLegendColorClass, type FooterStats } from './serviceLegendClasses';
 import { formatBytes } from '@utils/formatters';
 import type { ServiceAnalyticsChartProps, TabId, LegendItem } from './types';
+import { TAB_DESCRIPTION_KEYS } from './constants';
 import { APP_EVENTS } from '@utils/constants';
 
 interface TabOption {
@@ -33,6 +37,10 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     const { gameDetectionData } = useGameDetection();
     const isCompareTab = activeTab === 'hit-ratio';
     const hasBreakdownList = !isCompareTab;
+    // Five labelled tabs do not fit a phone-width panel, so the view picker becomes a dropdown
+    // below the same breakpoint the stylesheet uses. Swapped in JS rather than rendered twice
+    // and hidden, so only one picker exists in the accessibility tree. [31]
+    const isPhone = useMediaQuery('(max-width: 639.98px)');
 
     // Call onExpandedChange initially and when showList changes
     React.useEffect(() => {
@@ -90,36 +98,6 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       () => tabs.find((tab) => tab.value === activeTab) ?? tabs[0],
       [tabs, activeTab]
     );
-
-    const activeDescription = useMemo(() => {
-      switch (activeTab) {
-        case 'hit-ratio':
-          return t(
-            'dashboard.serviceAnalytics.descriptions.hitRatio',
-            'Compare cache hits against origin traffic by service.'
-          );
-        case 'bandwidth':
-          return t(
-            'dashboard.serviceAnalytics.descriptions.bandwidth',
-            'Rank services by bandwidth saved from cache hits.'
-          );
-        case 'misses':
-          return t(
-            'dashboard.serviceAnalytics.descriptions.misses',
-            'Bytes the cache server fetched from origin (not served from cache). Lower is better.'
-          );
-        case 'games':
-          return t(
-            'dashboard.serviceAnalytics.descriptions.games',
-            'Review detected game installs and their on-disk footprint.'
-          );
-        default:
-          return t(
-            'dashboard.serviceAnalytics.descriptions.service',
-            'Compare total cache traffic across every tracked service.'
-          );
-      }
-    }, [activeTab, t]);
 
     // Get chart data from hook
     const chartData = useChartData(serviceStats, activeTab, games);
@@ -213,10 +191,45 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         <div className="service-analytics-header">
           <div className="service-analytics-heading">
             <h3 className="dash-panel-title">{t('dashboard.serviceAnalytics.title')}</h3>
-            <p>{activeDescription}</p>
+            <HelpPopover width={320}>
+              <HelpSection title={t('dashboard.serviceAnalytics.help.aboutTitle')}>
+                {t('dashboard.serviceAnalytics.help.about')}
+              </HelpSection>
+              <HelpSection title={t('dashboard.serviceAnalytics.help.viewsTitle')} variant="subtle">
+                <HelpDefinition
+                  items={tabs.map((tab) => ({
+                    term: tab.label,
+                    description: t(
+                      `dashboard.serviceAnalytics.descriptions.${TAB_DESCRIPTION_KEYS[tab.value]}`
+                    )
+                  }))}
+                />
+              </HelpSection>
+            </HelpPopover>
           </div>
 
+          {/* The toggle renders last: the Compare view has no breakdown list, so its button is not
+              rendered at all, and a trailing button in a flex-start row leaves the tab strip's left
+              edge in the same place on all five views. [27] */}
           <div className="service-analytics-controls">
+            {isPhone ? (
+              <EnhancedDropdown
+                options={tabs}
+                value={activeTab}
+                onChange={(next: string) => setActiveTab(next as TabId)}
+                size="sm"
+                variant="button"
+                className="service-analytics-view-select"
+              />
+            ) : (
+              <SegmentedControl
+                options={tabs}
+                value={activeTab}
+                onChange={(next) => setActiveTab(next as TabId)}
+                size="sm"
+                showLabels
+              />
+            )}
             {hasBreakdownList && (
               <Tooltip content={toggleAriaLabel}>
                 <Button
@@ -236,13 +249,6 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                 </Button>
               </Tooltip>
             )}
-            <SegmentedControl
-              options={tabs}
-              value={activeTab}
-              onChange={(next) => setActiveTab(next as TabId)}
-              size="sm"
-              showLabels
-            />
           </div>
         </div>
 

@@ -700,10 +700,7 @@ const Dashboard: React.FC = () => {
   return (
     <div className={`space-y-4 animate-fadeIn ${isEditMode ? 'edit-mode-active' : ''}`}>
       {/* Dashboard Header */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-        <h2 className="text-2xl font-bold text-themed-primary tracking-tight hidden md:block">
-          {t('dashboard.title')}
-        </h2>
+      <div className="flex flex-col sm:flex-row sm:justify-end sm:items-center gap-4">
         <div className="flex flex-row items-center gap-2">
           {/* Mobile Edit Mode Toggle */}
           <div className="md:hidden">

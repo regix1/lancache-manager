@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { CalendarDays, Plus, List, LayoutGrid, Sparkles } from 'lucide-react';
+import { Plus, List, LayoutGrid, Sparkles } from 'lucide-react';
 import { useEvents } from '@contexts/useEvents';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -53,16 +53,7 @@ const EventsTab: React.FC = () => {
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Header Section */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
-            <CalendarDays className="w-5 h-5 icon-cyan" />
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold text-[var(--theme-text-primary)]">Events</h2>
-          </div>
-        </div>
-
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4">
         <div className="flex items-center gap-3">
           {/* View Toggle */}
           <SegmentedControl

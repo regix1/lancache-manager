@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { HelpCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
@@ -21,6 +22,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   width = 320,
   maxHeight
 }) => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -144,6 +146,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     <>
       <button
         ref={triggerRef}
+        aria-label={t('common.help')}
         onClick={() => {
           if (!isOpen) {
             setInitialPopoverPosition();
