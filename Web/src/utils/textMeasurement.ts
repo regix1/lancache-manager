@@ -5,6 +5,8 @@
  * Reference: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/measureText
  */
 
+import { APP_EVENTS } from '@utils/constants';
+
 // Cache the canvas context for performance
 let cachedCanvas: HTMLCanvasElement | null = null;
 let cachedContext: CanvasRenderingContext2D | null = null;
@@ -91,15 +93,35 @@ function resolveCssFontFamily(varName: string, fallback: string): string {
 }
 
 let cachedRetroFonts: RetroViewFonts | null = null;
+let listeningForThemeChange = false;
+
+/**
+ * Drop the resolved fonts whenever the theme changes. Switching themes no
+ * longer reloads the document, so this module now outlives a swap, and a
+ * theme's custom CSS block can redefine `--font-sans`. Measuring against a
+ * family the browser has stopped rendering with is what produces short or
+ * truncated columns. The listener is registered on first use and kept for the
+ * page's lifetime, matching the cache it guards; the flag keeps a second
+ * module evaluation from stacking another one.
+ */
+function watchThemeChange(): void {
+  if (listeningForThemeChange || typeof window === 'undefined') return;
+  listeningForThemeChange = true;
+  window.addEventListener(APP_EVENTS.THEME_CHANGE, () => {
+    cachedRetroFonts = null;
+  });
+}
 
 /**
  * Font definitions matching the RetroView cell styles. Canvas measurement must
  * use the fonts the browser actually renders with - the app body renders
- * `--font-sans` (Inter), not `system-ui`, and measuring with the wrong family
- * is what made auto-fit widths land short. Resolved once and cached.
+ * `--font-sans`, not `system-ui`, and measuring with the wrong family is what
+ * made auto-fit widths land short. Resolved once and cached until the theme
+ * changes.
  */
 export function getRetroViewFonts(): RetroViewFonts {
   if (cachedRetroFonts) return cachedRetroFonts;
+  watchThemeChange();
 
   const sans = resolveCssFontFamily('--font-sans', SANS_FALLBACK);
   const mono = MONO_FALLBACK;

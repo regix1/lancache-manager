@@ -32,6 +32,7 @@ import { useClientHostnames } from '@contexts/useClientHostnames';
 import { resolveClientLabel } from '@utils/clientLabel';
 import { resolveGameDetection } from '@utils/gameDetection';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
+import { useThemeRevision } from '@components/features/dashboard/ServiceAnalyticsChart/chartTheme';
 import RetroRow from './RetroRow';
 import { useRetroDownloads } from './useRetroDownloads';
 import {
@@ -598,6 +599,12 @@ const RetroView = memo(
         fadeContainerRef.current?.classList.toggle('page-fading', fading);
       }, []);
 
+      // Column widths come from canvas text measurement, so they depend on the
+      // font the browser is rendering with. A theme's custom CSS can redefine
+      // --font-sans, and switching themes no longer reloads the page, so the
+      // fit has to re-run on a swap or the widths stay sized for the old font.
+      const themeRevision = useThemeRevision();
+
       // Auto-fit columns to the current rows and available width before paint.
       // Reruns on every page/filter/data change and on container resizes until
       // the user takes manual control; useLayoutEffect keeps the fit in the
@@ -611,7 +618,7 @@ const RetroView = memo(
         const measured = measureAllRetroColumns(measureRows, headerLabels, visibility);
         const next = fitMeasuredWidthsToContainer(measured, containerWidth, visibility);
         setColumnWidths((prev) => (widthsEqual(prev, next) ? prev : next));
-      }, [isManualWidths, containerWidth, measureRows, headerLabels, visibility]);
+      }, [isManualWidths, containerWidth, measureRows, headerLabels, visibility, themeRevision]);
 
       // Expose imperative helpers to parent via ref
       useImperativeHandle(
