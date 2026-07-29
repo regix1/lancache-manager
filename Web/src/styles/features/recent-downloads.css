@@ -108,7 +108,7 @@
     justify-content: flex-start;
     column-gap: 0.75rem;
     row-gap: 0.75rem;
-    margin-bottom: 0.5rem;
+    margin-bottom: 1rem;
   }
 
   /* This is the one dashboard title with no help trigger beside it, so it carries the row height the
@@ -166,6 +166,13 @@
    Service Analytics .dash-well:not(:last-child) pattern so the two panels align. */
 .rdl-well:not(:last-child) {
   margin-bottom: 1rem;
+}
+
+/* This well is padding-free so its rows can run edge to edge against the dividers. The chart panel
+   beside it insets its empty state by its own well padding, so the empty state carries the matching
+   inset here instead, and the two placeholders end up the same size. [37] */
+.rdl-list > .empty-state {
+  margin: 0.75rem;
 }
 
 .rdl-row {

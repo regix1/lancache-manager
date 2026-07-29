@@ -111,13 +111,21 @@
   }
 }
 
+/* The gap below the header mirrors the Downloads panel beside it at both tiers, so the two content
+   wells start and end on the same pixel. [37] */
 .service-analytics-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
   flex-shrink: 0;
+}
+
+@container (min-width: 560px) {
+  .service-analytics-header {
+    margin-bottom: 1rem;
+  }
 }
 
 .service-analytics-heading {
@@ -163,6 +171,26 @@
     flex-wrap: wrap;
     justify-content: flex-start;
     overflow-x: auto;
+  }
+}
+
+/* The five view labels at the taller control height need about 485px beside the toggle, which a
+   half-width dashboard column does not have below roughly 1180px of viewport. Trimming the segment
+   padding buys back the width so the toggle stays on the strip's line, instead of dropping the whole
+   control back to the shorter height it shares with nothing else on this row. */
+@container (max-width: 560px) {
+  .service-analytics-controls .segmented-control-button {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+}
+
+/* A 1024px viewport (tablet landscape) leaves this panel about 433px, which is still ~12px short
+   of holding the trimmed strip and the toggle on one line. */
+@container (max-width: 460px) {
+  .service-analytics-controls .segmented-control-button {
+    padding-left: 0.375rem;
+    padding-right: 0.375rem;
   }
 }
 

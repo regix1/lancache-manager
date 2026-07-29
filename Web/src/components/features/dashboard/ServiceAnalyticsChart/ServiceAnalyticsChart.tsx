@@ -217,7 +217,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                 options={tabs}
                 value={activeTab}
                 onChange={(next: string) => setActiveTab(next as TabId)}
-                size="sm"
+                size="md"
                 variant="button"
                 className="service-analytics-view-select"
               />
@@ -226,7 +226,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                 options={tabs}
                 value={activeTab}
                 onChange={(next) => setActiveTab(next as TabId)}
-                size="sm"
+                size="md"
                 showLabels
               />
             )}
@@ -235,17 +235,13 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                 <Button
                   variant="filled"
                   color="gray"
-                  size="sm"
+                  size="md"
                   onClick={handleToggleList}
                   aria-pressed={!showList}
                   aria-label={toggleAriaLabel}
-                  className="service-analytics-toggle btn-icon-square btn-icon-square--sm"
+                  className="service-analytics-toggle btn-icon-square"
                 >
-                  {showList ? (
-                    <Minimize2 className="w-3.5 h-3.5" />
-                  ) : (
-                    <Maximize2 className="w-3.5 h-3.5" />
-                  )}
+                  {showList ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                 </Button>
               </Tooltip>
             )}
