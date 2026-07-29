@@ -308,11 +308,18 @@
 
 /* Compounds the element selector so the taller pointer target beats the shared
    input[type='range'] height in forms.css regardless of bundle order. The 6px track and
-   18px thumb still come from forms.css - nothing about them is redefined here. */
+   18px thumb still come from forms.css - nothing about them is redefined here.
+
+   The radius is what the focus outline follows. A range input has no radius of its own, so
+   the shared .focus-ring drew a hard square around the 44px pointer target - a stray box
+   rather than a ring belonging to this control. The theme's own radius makes it read as
+   deliberate and keeps it in step with every other surface. It sits far outside the 6px
+   track band, so the progress fill is untouched. */
 .theme-slider input[type='range'].theme-slider-input {
   width: 100%;
   height: 2.75rem;
   margin: 0;
+  border-radius: var(--theme-border-radius);
 }
 
 .theme-slider input[type='range'].theme-slider-input:disabled {
@@ -327,9 +334,17 @@
 
 /* Equal columns, so a middle stop's label centres on the notch it belongs to. Sizing each label
    to its own text instead would push the middle one off its notch whenever the outer two names
-   differ in length. */
+   differ in length.
+
+   flex: 1 sets the basis to zero but leaves min-width at auto, so a column still refuses to
+   shrink under its longest word. One theme name wider than its share of a phone-width row
+   therefore pushed the whole row past the card, and the container's overflow clip cut the last
+   label off. Zero min-width lets the columns stay equal and wrap the name instead; break-word
+   catches the single name too long to wrap at a space. */
 .theme-slider-stop {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
   font-size: var(--font-size-xs);
   color: var(--theme-text-muted);
   text-align: center;

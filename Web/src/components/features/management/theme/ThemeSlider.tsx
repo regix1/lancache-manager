@@ -250,9 +250,11 @@ export const ThemeSlider: React.FC<ThemeSliderProps> = ({
 
       {/* aria-valuenow is the stop the thumb has reached, not the fraction the input holds: a
           fractional value would be read out as a number that means nothing */}
+      {/* focus-ring names where the keyboard outline comes from; the stylesheet only gives the
+          control the radius the outline follows */}
       <input
         type="range"
-        className="theme-slider-input"
+        className="theme-slider-input focus-ring"
         min={0}
         max={maxIndex}
         step={VALUE_STEP}
