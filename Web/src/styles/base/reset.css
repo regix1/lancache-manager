@@ -12,7 +12,12 @@
   }
 
   body {
-    @apply bg-gray-900 text-gray-100;
+    /* The body shows through the scrollbar gutter reserved above and during overscroll,
+       so it has to track the active theme instead of a fixed palette color. The fallbacks
+       cover the boot path where the head script cannot read localStorage and therefore
+       never defines these properties. */
+    background-color: var(--theme-bg-primary, #111827);
+    color: var(--theme-text-primary, #ffffff);
     font-family: var(--font-sans);
     /* Use clip so sticky descendants still track the viewport when html owns vertical scrolling. */
     overflow-x: hidden;

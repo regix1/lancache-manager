@@ -28,6 +28,17 @@ interface Theme {
   css?: { content?: string };
 }
 
+interface ApplyThemeOptions {
+  // Whether this apply is also a choice. It governs the three localStorage keys and nothing else:
+  // the style element, the data attributes, the html background and the change event all happen
+  // either way, because the page still has to look right and every live consumer still has to
+  // repaint. The theme slider repaints on every stop the thumb passes, and those passes are not
+  // choices - with the keys written, a drag abandoned by a reload or a tab close comes back as the
+  // saved theme, because loadSavedTheme prefers lancache_selected_theme over the server
+  // preference. Defaults to true so every existing caller keeps writing. [15]
+  persist?: boolean;
+}
+
 class ThemeService {
   // Get the best text color for a given background using theme colors
 
@@ -270,7 +281,11 @@ class ThemeService {
           disableFocusOutlines: true,
           disableTooltips: false
         },
-        colors: complete({})
+        colors: complete({
+          // The derived hover comes off buttonBg and lands more saturated than the blue this
+          // theme has always shipped, so it states its own pair.
+          buttonHover: '#2563eb'
+        })
       },
       // Modern, clean light theme (GitHub Primer / Radix pattern):
       // clearly-grey page canvas, crisp white cards with subtle borders + shadows.
@@ -376,9 +391,6 @@ class ThemeService {
           epicStrong: 'rgba(124, 58, 237, 0.3)',
           originColor: '#ea580c',
           blizzardColor: '#2563eb',
-          blizzardFaint: 'rgba(37, 99, 235, 0.1)',
-          blizzardOnBorder: 'rgba(37, 99, 235, 0.5)',
-          blizzardStrong: 'rgba(37, 99, 235, 0.3)',
           wsusColor: '#0891b2',
           riotColor: '#d13639',
           xboxColor: '#107C10', // Xbox Green
@@ -538,6 +550,157 @@ class ThemeService {
           fireworkColor8: '#1e40af', // Deep blue (white is invisible on light backgrounds)
           fireworkRocketColor: '#2563eb', // Blue (uses primaryColor)
           fireworkGlowColor: '#3b82f6' // Blue glow
+        })
+      },
+      // Neutral charcoal dark theme, the counterpart to the blue-slate default:
+      // red and green are held equal and blue three points lower, so the ramp reads
+      // as flat warm grey instead of as a second blue theme.
+      {
+        meta: {
+          id: 'graphite',
+          name: 'Graphite',
+          description: 'Neutral charcoal dark theme with a soft blue accent',
+          author: 'System',
+          version: '1.0.0',
+          isDark: true,
+          sharpCorners: false,
+          disableFocusOutlines: true,
+          disableTooltips: false
+        },
+        colors: complete({
+          // Core colors - Softer blue, legible against a warm grey ground
+          primaryColor: '#5b9df5',
+
+          // Backgrounds - Charcoal ramp, page darkest and controls lightest
+          // Key: the recessed well sits BETWEEN page and card, because wells render
+          // both nested inside cards and directly on the bare page canvas.
+          bgPrimary: '#181815', // Page canvas
+          bgSecondary: '#32322f', // List rows, dropdown panels
+          bgTertiary: '#1f1f1c', // Recessed well - must stay darker than cardBg or wells invert [10]
+          bgHover: '#4e4e4b', // Row hover
+          bgElevated: '#282825', // Drawer/modal/floating panel
+          bgSurface: '#3a3a37', // Control fill - kept well clear of bgTertiary so controls pop out of the well [11]
+          bgSurfaceHover: '#464643', // Hover on surface elements
+          bgSurfaceActive: '#565653', // Active/pressed surface elements
+
+          // Text - Warm off-white; pure white glares against charcoal
+          textPrimary: '#eaeae4',
+          textSecondary: '#acaca6',
+          textMuted: '#94948e', // Also feeds --theme-icon-gray; 4.98:1 on cardBg, the lightest ground it sits on [14]
+          textAccent: '#7db3f7', // Links - one step lighter than the accent so they read as links
+          textPlaceholder: '#74746e',
+
+          // Drag handle
+          dragHandleColor: '#74746e',
+          dragHandleHover: '#5b9df5',
+
+          // Borders - Neutral hairlines; the ramp step does most of the separating
+          borderPrimary: '#3c3c39',
+          borderSecondary: '#4a4a47',
+          borderElevated: '#454542',
+          borderHover: '#5a5a57',
+
+          // Navigation - Bar sits above the page but below the cards
+          navBg: '#232320',
+          navBorder: '#3c3c39',
+          navTabActive: '#5b9df5',
+          navTabInactive: '#94948e',
+          navTabActiveBorder: '#5b9df5',
+          navTabHover: '#eaeae4', // Tracks textPrimary; the shared default here is pure white
+          navMobileMenuBg: '#232320',
+          navMobileItemHover: '#3c3c39',
+
+          // Components - Cards a step above the page, controls a step above the cards
+          cardBg: '#262623',
+          cardBorder: '#4a4a47',
+          buttonBg: '#3576e0', // Deeper than primaryColor - white button text is only 2.77:1 on the accent itself
+          buttonHover: '#2f6ed6',
+          inputBg: '#3c3c39',
+          inputBorder: '#4a4a47',
+          checkboxAccent: '#5b9df5',
+          checkboxBorder: '#4a4a47',
+          checkboxBg: '#232320',
+          checkboxHoverBg: '#3c3c39',
+          sliderAccent: '#5b9df5',
+          sliderThumb: '#5b9df5',
+          sliderTrack: '#3c3c39',
+          progressBg: '#3c3c39',
+
+          // Icon backgrounds - Lifted from the dark defaults so every tile clears 4.5:1 on the card
+          iconBgBlue: '#5b9df5',
+          iconBgGreen: '#4ade80',
+          iconBgEmerald: '#34d399',
+          iconBgPurple: '#b18cf7',
+          iconBgIndigo: '#818cf8',
+          iconBgOrange: '#ff9d57',
+          iconBgYellow: '#e8c14d',
+          iconBgCyan: '#4dd0e1',
+          iconBgTeal: '#2dd4bf',
+          iconBgRed: '#f4636a',
+
+          // Status and series blues - the shared defaults for these keys are the deep blue
+          // slate theme's accent, so without an override the page would show two blues at once
+          info: '#5b9df5',
+          infoBg: '#1a3f70', // Deep ground, same step down from the card as the slate theme's badge
+          infoText: '#a9cdf9', // 6.43:1 on that ground
+          hitRateMediumBg: '#1a3f70',
+          hitRateMediumText: '#a9cdf9',
+
+          // Warning grounds - the shared default #44403c is a near-neutral warm grey, which reads
+          // as a distinct chip on the slate theme's blue card but nearly merges into this theme's
+          // own warm charcoal card: only lightness separates them, so CIE76 dE falls from 17.5 to
+          // 12.4. Carrying the amber into the ground instead of lifting it restores the gap
+          // (dE 18.2 on #262623) and lifts the amber text at the same time - #fcd34d goes 7.12:1
+          // to 7.23:1, #fbbf24 6.15:1 to 6.24:1.
+          warningBg: '#4d3d29',
+          hitRateLowBg: '#4d3d29',
+          hitRateWarningBg: '#4d3d29',
+          checkboxHoverShadow: '0 0 0 3px rgba(91, 157, 245, 0.1)',
+          userSessionColor: '#5b9df5',
+          userSessionBg: 'rgba(91, 157, 245, 0.15)',
+          chartColor1: '#5b9df5',
+          gameColor1: '#5b9df5',
+          eventColor1: '#5b9df5',
+          fireworkColor1: '#3576e0', // Rocket and first burst use the deeper accent, glow the lighter one
+          fireworkColor2: '#5b9df5',
+          fireworkRocketColor: '#3576e0',
+          fireworkGlowColor: '#5b9df5',
+
+          // Chart chrome
+          chartBorderColor: '#262623', // Matches card bg for segment separation
+          chartGridColor: '#41413e', // Visible but quiet gridlines on charcoal
+          chartTextColor: '#94948e', // Tracks textMuted, as the dark default does
+
+          // Service colors - the real brand hue for each service, lightened where the
+          // brand's own value cannot be read against charcoal, or where two services
+          // share a hue and need a visible step between them.
+          steamColor: '#66c0f4', // Valve's accent blue; the green it replaces is not in Steam's palette
+          epicColor: '#8b5cf6', // Epic's brand is black and white only, so this is a stand-in hue
+          originColor: '#ff4747', // EA's wordmark red; the orange belonged to the retired Origin launcher
+          blizzardColor: '#3b6eea', // Royal blue; Battle.net's own cyan-blue lands 4 degrees of hue off Steam
+          wsusColor: '#06b6d4',
+          riotColor: '#d13639',
+          xboxColor: '#16c60c', // Xbox green lifted off its #107C10 brand value, which reads 2.83:1 here [17]
+          ubisoftColor: '#bdb4fd', // Blue Ribbon pushed further along the violet axis, leaving the royal blue to Battle.net
+          gogColor: '#a05fb4', // GOG's true violet is far too dark to read on charcoal
+          rockstarColor: '#fcaf17',
+          arenanetColor: '#6ca551', // Same green lifted 14 L*; it and bsgColor were one shade apart [2]
+          bsgColor: '#6e7b3a',
+          cityofheroesColor: '#4fd98a', // Moved out of the blues; it has no brand color and sat 6 degrees off Steam [18]
+          codColor: '#dd6f3a', // Ember orange lifted off 2.93:1, then shifted red of Nexus Mods' brand orange
+          daybreakColor: '#f2777a',
+          frontierColor: '#d9a566',
+          neverwinterColor: '#b98ee0', // Same violet, lightened from 1.67:1 and clear of GOG's violet
+          nexusmodsColor: '#f97316',
+          nintendoColor: '#e4000f',
+          pathofexileColor: '#b8860b',
+          renegadexColor: '#6b7a8c',
+          sonyColor: '#3d8bd9', // PlayStation navy lightened from 1.41:1 [17]
+          squareColor: '#c84455', // Deep red, lightened from 1.24:1 and moved off Riot's brand red
+          tesoColor: '#b5567a', // Same wine, lightened from 1.23:1 [17]
+          testColor: '#a1a1aa', // One step lighter on the same grey ramp, clear of renegadexColor [1]
+          warframeColor: '#1dd3d3',
+          wargamingColor: '#9d9a66' // Olive lifted from 2.01:1 and shifted clear of Path of Exile's gold [17]
         })
       }
     ];
@@ -898,8 +1061,10 @@ class ThemeService {
     this.applyTheme(defaultTheme);
   }
 
-  applyTheme(theme: Theme): void {
+  applyTheme(theme: Theme, options?: ApplyThemeOptions): void {
     if (!theme || !theme.colors) return;
+
+    const persist = options?.persist ?? true;
 
     // Remove any existing theme styles
     if (this.styleElement) {
@@ -1243,15 +1408,36 @@ class ThemeService {
     const root = document.documentElement;
     root.setAttribute('data-theme', theme.meta.isDark ? 'dark' : 'light');
     root.setAttribute('data-theme-id', theme.meta.id);
+
+    // The html element paints the forced scrollbar gutter (overflow-y: scroll) and the overscroll area.
+    // Its background is an inline style written once by the preload script in index.html and nothing
+    // else rewrites it, so a theme change has to, or the previous page color stays for the session.
+    // Written as the property rather than the resolved hex so that a theme whose own CSS redefines
+    // the property keeps the gutter in step with the page instead of freezing one boot's value
+    if (colors.bgPrimary) {
+      root.style.backgroundColor = 'var(--theme-bg-primary)';
+    }
+
+    // What is painted, which is not the same thing as what is saved. Every reader of this field
+    // asks "is this theme in force right now" - the preference listener uses it to decide whether
+    // a requested theme still needs applying, and the corner/outline toggles use it to repaint the
+    // theme already on screen - so it follows the paint even during a scrub. It lives in memory
+    // and dies with the page, so it cannot survive a reload and cannot cause the bug below. [15]
     this.currentTheme = theme;
 
-    // Save theme preferences for all users (authenticated and guests)
-    // Save the theme ID and CSS for instant loading on next page load (localStorage for caching)
-    storage.setItem('lancache_selected_theme', theme.meta.id);
-    storage.setItem('lancache_theme_css', themeStyles);
-    storage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
+    // Everything above is what the page looks like right now; everything below is what it will
+    // look like after the next reload. A non-persisting apply keeps the first and skips the
+    // second. [15]
+    if (persist) {
+      // Save theme preferences for all users (authenticated and guests)
+      // Save the theme ID and CSS for instant loading on next page load (localStorage for caching)
+      storage.setItem('lancache_selected_theme', theme.meta.id);
+      storage.setItem('lancache_theme_css', themeStyles);
+      storage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
+    }
 
-    // Force re-render
+    // Force re-render. Always: a scrub still has to reach every live consumer, and the event
+    // carries no id, so nothing downstream can tell a scrub from a commit.
     window.dispatchEvent(new Event(APP_EVENTS.THEME_CHANGE));
   }
 
