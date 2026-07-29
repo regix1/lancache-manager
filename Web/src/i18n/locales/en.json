@@ -2440,7 +2440,7 @@
         },
         "groupManagement": "Client Management",
         "hostnames": {
-          "title": "Client hostnames",
+          "title": "Client Hostnames",
           "description": "Look up a name for each client address on your network's DNS server",
           "toggleLabel": "Show client hostnames",
           "toggleDescription": "Ask the network's DNS server for the name behind each client address and show that name in place of the address. This needs your DNS server to have a reverse record for each address (sometimes labeled PTR in DNS server settings) - pointing a name at an address, a forward record, is not enough on its own. Off by default, because a network without reverse records can be slow to answer. Nicknames always win over hostnames.",
