@@ -575,6 +575,25 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         ("cdn.akamai.steamstatic.com", "/steam/apps")
     ];
 
+    /// <summary>
+    /// Builds a Steam CDN image URL from a specific (domain, basePath) endpoint, appId, and file
+    /// name. The one place that knows this URL shape - every Steam CDN URL built below routes
+    /// through it instead of interpolating the string separately.
+    /// </summary>
+    private static string GetSteamCdnImageUrl(string domain, string basePath, long appId, string fileName)
+        => $"https://{domain}{basePath}/{appId}/{fileName}";
+
+    /// <summary>
+    /// Steam header banner URL for an appId, using the first (preferred) Steam CDN endpoint and the
+    /// header.jpg file name. Used to record the SourceUrl once a multi-CDN fetch has already
+    /// succeeded. That fetch reports neither which of the three endpoints answered nor which file name
+    /// it answered with, so BOTH halves of this URL are the preferred guess rather than the truth: an
+    /// image that came from the capsule_616x353.jpg pass is still recorded as header.jpg. Whatever
+    /// re-reads the stored URL has to be able to fall through when it 404s. [18]
+    /// </summary>
+    internal static string GetSteamHeaderImageUrl(long appId)
+        => GetSteamCdnImageUrl(_steamCdnEndpoints[0].Domain, _steamCdnEndpoints[0].BasePath, appId, "header.jpg");
+
     private async Task FetchSteamImageAsync(
         AppDbContext db,
         HttpClient client,
@@ -654,7 +673,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         // First pass: try header.jpg across all CDN endpoints
         foreach (var (domain, basePath) in _steamCdnEndpoints)
         {
-            var url = $"https://{domain}{basePath}/{appId}/header.jpg";
+            var url = GetSteamCdnImageUrl(domain, basePath, appId, "header.jpg");
             try
             {
                 await _httpThrottle.WaitAsync(ct);
@@ -684,7 +703,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         // Second pass: try capsule_616x353.jpg across all CDN endpoints
         foreach (var (domain, basePath) in _steamCdnEndpoints)
         {
-            var url = $"https://{domain}{basePath}/{appId}/capsule_616x353.jpg";
+            var url = GetSteamCdnImageUrl(domain, basePath, appId, "capsule_616x353.jpg");
             try
             {
                 await _httpThrottle.WaitAsync(ct);
@@ -757,7 +776,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             var cdnBytes = await TryFetchFromSteamCdnAsync(client, appIdForCdn, ct);
             if (cdnBytes != null)
             {
-                var sourceUrl = $"https://{_steamCdnEndpoints[0].Domain}{_steamCdnEndpoints[0].BasePath}/{appId}/header.jpg";
+                var sourceUrl = GetSteamHeaderImageUrl(appIdForCdn);
                 return (cdnBytes, "image/jpeg", sourceUrl);
             }
         }
@@ -992,7 +1011,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     var cdnBytes = await TryFetchFromSteamCdnAsync(client, appIdLong, ct);
                     if (cdnBytes != null)
                     {
-                        var cdnUrl = $"https://{_steamCdnEndpoints[0].Domain}{_steamCdnEndpoints[0].BasePath}/{image.AppId}/header.jpg";
+                        var cdnUrl = GetSteamHeaderImageUrl(appIdLong);
                         image.SourceUrl = cdnUrl;
                         image.ImageData = cdnBytes;
                         image.ContentType = "image/jpeg";
