@@ -3410,6 +3410,11 @@
       "basedOn": "Based on:",
       "by": "by",
       "previewActive": "Preview mode active. Select a theme to apply it permanently.",
+      "slider": {
+        "title": "Built-in Themes",
+        "label": "Built-in theme",
+        "hint": "Slide from the darkest built-in theme to the lightest."
+      },
       "dropzone": {
         "title": "Drop a theme file here, or click to browse",
         "format": "TOML format, max 1MB"

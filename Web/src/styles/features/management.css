@@ -259,3 +259,101 @@
   background: var(--theme-border-secondary);
   border-radius: 2px;
 }
+
+/* ===== THEME SLIDER ===== */
+
+/* Surface (bg/border/radius) comes from the shared .well-surface; only the internal
+   rhythm lives here. */
+.theme-slider {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.theme-slider-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* The current stop's name is a readout, not a control - no fill, no hover, no pointer. */
+.theme-slider-value {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--theme-text-primary);
+}
+
+/* None of the built-in themes is applied, so the readout is a placeholder rather than a name.
+   Muted weight and colour say "nothing selected" without borrowing the disabled treatment - the
+   control still works. */
+.theme-slider-value.theme-slider-value-none {
+  font-weight: 500;
+  color: var(--theme-text-muted);
+}
+
+.theme-slider-swatches {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.theme-slider-swatch {
+  flex: 1;
+  height: 1.5rem;
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius-inner);
+  background: var(--swatch-color);
+}
+
+/* Compounds the element selector so the taller pointer target beats the shared
+   input[type='range'] height in forms.css regardless of bundle order. The 6px track and
+   18px thumb still come from forms.css - nothing about them is redefined here. */
+.theme-slider input[type='range'].theme-slider-input {
+  width: 100%;
+  height: 2.75rem;
+  margin: 0;
+}
+
+.theme-slider input[type='range'].theme-slider-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.theme-slider-stops {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Equal columns, so a middle stop's label centres on the notch it belongs to. Sizing each label
+   to its own text instead would push the middle one off its notch whenever the outer two names
+   differ in length. */
+.theme-slider-stop {
+  flex: 1;
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+  text-align: center;
+  /* Named transition - never transition: all */
+  transition: color 0.15s ease-out;
+}
+
+/* The end stops sit under the track ends rather than under their column centres. */
+.theme-slider-stop:first-child {
+  text-align: left;
+}
+
+.theme-slider-stop:last-child {
+  text-align: right;
+}
+
+/* Weight carries the current stop as well as colour, so it reads without colour vision. */
+.theme-slider-stop.theme-slider-stop-current {
+  color: var(--theme-text-primary);
+  font-weight: 600;
+}
+
+.theme-slider-hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+}

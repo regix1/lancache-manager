@@ -3410,6 +3410,11 @@
       "basedOn": "基于：",
       "by": "由",
       "previewActive": "预览模式已激活。选择主题以永久应用。",
+      "slider": {
+        "title": "内置主题",
+        "label": "内置主题",
+        "hint": "滑动即可从最深的内置主题切换到最浅的。"
+      },
       "dropzone": {
         "title": "将主题文件拖放到此处，或点击浏览",
         "format": "TOML 格式，最大 1MB"

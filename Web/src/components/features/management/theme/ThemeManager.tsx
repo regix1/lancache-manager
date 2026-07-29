@@ -32,6 +32,7 @@ import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import Badge from '@components/ui/Badge';
 import { ThemeCard } from './ThemeCard';
+import { ThemeSlider } from './ThemeSlider';
 import CreateThemeModal from '@components/modals/theme/CreateThemeModal';
 import EditThemeModal from '@components/modals/theme/EditThemeModal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
@@ -40,6 +41,24 @@ import { CommunityThemeImporter } from './CommunityThemeImporter';
 import { colorGroups } from './constants';
 import { type Theme, type ThemeManagerProps, type EditableTheme, type ThemeColors } from './types';
 import { useNotifications } from '@contexts/notifications';
+
+// How light a theme's page canvas actually is, used to order the slider's stops. Relative
+// luminance is the sRGB weighting every contrast check already uses, and it ranks identically to
+// CIE L* without the cube root, so sorting by it puts the stops in the order an eye would.
+const themeLightness = (theme: Theme): number => {
+  const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((theme.colors.bgPrimary ?? '').trim());
+  // A canvas that is not a plain hex still has to land on a side, and isDark is the only other
+  // signal the theme carries
+  if (!match) return theme.meta.isDark === false ? 1 : 0;
+  const digits = match[1];
+  const width = digits.length / 3;
+  const channel = (index: number): number => {
+    const pair = digits.slice(index * width, index * width + width);
+    const value = parseInt(width === 1 ? pair + pair : pair, 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
+};
 
 const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   const { t } = useTranslation();
@@ -131,7 +150,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
     }
   }, [setLoading]);
 
-  const handleThemeChange = async (themeId: string) => {
+  // Reports whether the choice actually stuck. The slider needs the answer: it has to stay on the
+  // stop it was on when a save fails, or the next release of that same stop is read as a repeat
+  // and silently dropped [17]
+  const handleThemeChange = async (themeId: string): Promise<boolean> => {
     if (authService.authMode === 'guest') {
       addNotification({
         type: 'generic',
@@ -139,7 +161,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         message: t('management.themes.notifications.guestCannotChange'),
         details: { notificationType: 'error' }
       });
-      return;
+      return false;
     }
     try {
       if (isAdmin) {
@@ -151,18 +173,37 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
             message: t('management.themes.notifications.failedToSave'),
             details: { notificationType: 'error' }
           });
+          // Applying it anyway would leave the running app and the stored preference disagreeing,
+          // and the disagreement would only surface on the next reload
+          return false;
         }
       }
+      const wasPreviewing = previewTheme !== null;
       await themeService.setTheme(themeId);
       setCurrentTheme(themeId);
       setPreviewTheme(null);
       themeService.clearPreviewTheme();
       themeService.clearOriginalThemeBeforePreview();
-      window.location.reload();
+      // Applying a theme swaps CSS variables in place and every consumer re-reads them on the
+      // theme-change event, so switching needs no remount. Leaving preview does: the header's
+      // stop-preview button reads the stored preview id once when it mounts and never again, so
+      // without this it would keep offering to exit a preview that is already over [12]
+      if (wasPreviewing) {
+        window.location.reload();
+      }
+      return true;
     } catch (error) {
       console.error('Failed to change theme:', error);
+      return false;
     }
   };
+
+  // The slider repaints on every stop it passes. Those passes are not choices, so this repaints
+  // the page and notifies every live consumer without touching localStorage or the service's
+  // current theme - a drag interrupted by a reload has to come back on the saved theme [15]
+  const handleThemeScrub = useCallback((theme: Theme) => {
+    themeService.applyTheme(theme, { persist: false });
+  }, []);
 
   const handlePreview = async (themeId: string) => {
     if (authService.authMode === 'guest') {
@@ -538,7 +579,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   };
 
   // Utility Functions
-  const isSystemTheme = (themeId: string) => ['dark-default', 'light-default'].includes(themeId);
+  const isSystemTheme = (themeId: string) =>
+    ['dark-default', 'light-default', 'graphite'].includes(themeId);
 
   // Open Create Modal with current theme colors as defaults
   const openCreateModal = () => {
@@ -563,6 +605,26 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   // Separate themes by type
   const systemThemes = themes.filter((t) => isSystemTheme(t.meta.id));
   const customThemes = themes.filter((t) => !isSystemTheme(t.meta.id));
+
+  // Every built-in theme is a stop on one slider, darkest first, so the control reads as a single
+  // axis of how dark you want the app. Imported and custom themes keep their own cards. Nothing
+  // is listed by id here, so a fourth built-in slots in at its own lightness. Below two stops
+  // there is nothing to slide across, so a lone built-in stays a card.
+  const sliderStops =
+    systemThemes.length > 1
+      ? [...systemThemes].sort((a: Theme, b: Theme) => themeLightness(a) - themeLightness(b))
+      : [];
+  const sliderThemeIds = new Set<string>(sliderStops.map((theme: Theme) => theme.meta.id));
+  const cardThemes = themes.filter((theme: Theme) => !sliderThemeIds.has(theme.meta.id));
+
+  // Shared by the active-theme readout and the picker below it so a theme is named the same way in
+  // both places
+  const themeLabel = (theme: Theme): string => {
+    const system = isSystemTheme(theme.meta.id) ? ` (${t('management.themes.systemBadge')})` : '';
+    const preview =
+      previewTheme === theme.meta.id ? ` (${t('management.themes.previewBadge')})` : '';
+    return `${theme.meta.name}${system}${preview}`;
+  };
 
   const helpContent = (
     <HelpPopover position="left" width={320}>
@@ -684,19 +746,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                 </div>
 
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                  <div className="flex-1 min-w-0">
-                    <EnhancedDropdown
-                      options={themes.map((theme) => ({
-                        value: theme.meta.id,
-                        label: `${theme.meta.name}${isSystemTheme(theme.meta.id) ? ` (${t('management.themes.systemBadge')})` : ''}${previewTheme === theme.meta.id ? ` (${t('management.themes.previewBadge')})` : ''}`
-                      }))}
-                      value={previewTheme || currentTheme}
-                      onChange={handleThemeChange}
-                      placeholder={t('management.themes.selectTheme')}
-                      className="w-full"
-                      disabled={authService.authMode === 'guest'}
-                    />
-                  </div>
+                  {/* The name is stated outright rather than read off the picker below, because the
+                      picker no longer carries the built-in themes and so cannot show one as its
+                      value */}
+                  <p className="flex-1 min-w-0 truncate text-sm font-medium text-themed-primary">
+                    {currentThemeData
+                      ? themeLabel(currentThemeData)
+                      : t('management.themes.selectTheme')}
+                  </p>
                   {currentThemeData && (
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {currentThemeData.meta.isDark ? (
@@ -723,6 +780,26 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                   )}
                 </div>
 
+                {/* The slider holds every built-in, so listing them here as well would give the
+                    same choice two controls. What is left is the community and custom themes, and
+                    on an install with none of those there is nothing to choose between, so the
+                    picker is not rendered at all rather than opening onto an empty list [6] */}
+                {cardThemes.length > 0 && (
+                  <div className="mt-3">
+                    <EnhancedDropdown
+                      options={cardThemes.map((theme: Theme) => ({
+                        value: theme.meta.id,
+                        label: themeLabel(theme)
+                      }))}
+                      value={previewTheme || currentTheme}
+                      onChange={handleThemeChange}
+                      placeholder={t('management.themes.selectTheme')}
+                      className="w-full"
+                      disabled={authService.authMode === 'guest'}
+                    />
+                  </div>
+                )}
+
                 {previewTheme && authService.authMode !== 'guest' && (
                   <p className="text-xs mt-2 text-themed-warning">
                     {t('management.themes.previewActive')}
@@ -743,26 +820,42 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                 {!hasInitiallyLoaded ? (
                   <LoadingState message={t('management.themes.loadingThemes')} rows={2} />
                 ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    {themes.map((theme) => (
-                      <ThemeCard
-                        key={theme.meta.id}
-                        theme={theme}
-                        isActive={currentTheme === theme.meta.id && !previewTheme}
-                        isPreviewing={previewTheme === theme.meta.id}
-                        isSystem={isSystemTheme(theme.meta.id)}
-                        isAdmin={isAdmin}
-                        isGuest={authService.authMode === 'guest'}
-                        themeActionMenu={themeActionMenu}
-                        currentMenuId={theme.meta.id}
-                        onApplyTheme={handleThemeChange}
-                        onPreview={handlePreview}
-                        onEdit={handleEditTheme}
-                        onExport={handleExportTheme}
-                        onDelete={handleDelete}
-                        onMenuToggle={setThemeActionMenu}
+                  <div className="space-y-3">
+                    {sliderStops.length > 0 && (
+                      <ThemeSlider
+                        stops={sliderStops}
+                        activeThemeId={previewTheme || currentTheme}
+                        activeTheme={currentThemeData ?? null}
+                        disabled={authService.authMode === 'guest'}
+                        onScrub={handleThemeScrub}
+                        onCommit={handleThemeChange}
                       />
-                    ))}
+                    )}
+                    {/* With every built-in behind the slider a fresh install has no cards at all,
+                        and an empty grid would still take a row gap under the slider */}
+                    {cardThemes.length > 0 && (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        {cardThemes.map((theme) => (
+                          <ThemeCard
+                            key={theme.meta.id}
+                            theme={theme}
+                            isActive={currentTheme === theme.meta.id && !previewTheme}
+                            isPreviewing={previewTheme === theme.meta.id}
+                            isSystem={isSystemTheme(theme.meta.id)}
+                            isAdmin={isAdmin}
+                            isGuest={authService.authMode === 'guest'}
+                            themeActionMenu={themeActionMenu}
+                            currentMenuId={theme.meta.id}
+                            onApplyTheme={handleThemeChange}
+                            onPreview={handlePreview}
+                            onEdit={handleEditTheme}
+                            onExport={handleExportTheme}
+                            onDelete={handleDelete}
+                            onMenuToggle={setThemeActionMenu}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
