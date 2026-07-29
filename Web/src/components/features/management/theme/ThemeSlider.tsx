@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { SunMoon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Slider } from '@components/ui/Slider';
 import { type Theme } from './types';
 
 interface ThemeSliderProps {
@@ -57,7 +58,6 @@ export const ThemeSlider: React.FC<ThemeSliderProps> = ({
   // an abandoned scrub stayed on screen. The active theme itself is the snapshot to restore; the
   // stop is the fallback for the case where the parent cannot resolve it. [16]
   const committedTheme = activeTheme ?? (activeIndex >= 0 ? stops[activeIndex] : null);
-  const progress = maxIndex > 0 ? (shown / maxIndex) * 100 : 0;
 
   // A community or custom theme leaves activeIndex at -1, and the control must not claim a
   // built-in it has not been asked for; once it has been moved, the scrub has genuinely applied
@@ -153,9 +153,7 @@ export const ThemeSlider: React.FC<ThemeSliderProps> = ({
     onScrub(next);
   };
 
-  const handleChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
-    const next = Number(event.target.value);
-    if (!Number.isFinite(next)) return;
+  const handleChange = (next: number): void => {
     stopSettle();
     const bounded = Math.min(Math.max(next, 0), maxIndex);
     moveTo(bounded);
@@ -252,8 +250,7 @@ export const ThemeSlider: React.FC<ThemeSliderProps> = ({
           fractional value would be read out as a number that means nothing */}
       {/* focus-ring names where the keyboard outline comes from; the stylesheet only gives the
           control the radius the outline follows */}
-      <input
-        type="range"
+      <Slider
         className="theme-slider-input focus-ring"
         min={0}
         max={maxIndex}
@@ -262,10 +259,7 @@ export const ThemeSlider: React.FC<ThemeSliderProps> = ({
         disabled={disabled}
         aria-label={t('management.themes.slider.label')}
         aria-valuenow={nearestIndex}
-        aria-valuemin={0}
-        aria-valuemax={maxIndex}
         aria-valuetext={stop.meta.name}
-        style={{ '--range-progress': `${progress}%` } as React.CSSProperties}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onPointerDown={stopSettle}

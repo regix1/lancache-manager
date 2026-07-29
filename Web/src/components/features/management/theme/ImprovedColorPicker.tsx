@@ -4,6 +4,7 @@ import { HexColorPicker, HexColorInput } from 'react-colorful';
 import { Percent, Copy, Check, RotateCcw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@components/ui/Tooltip';
+import { Slider } from '@components/ui/Slider';
 import Badge from '@components/ui/Badge';
 
 interface ImprovedColorPickerProps {
@@ -242,13 +243,13 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
                         position="top"
                         className="flex flex-1"
                       >
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
+                        <Slider
+                          min={0}
+                          max={100}
                           value={Math.round(alpha * 100)}
-                          onChange={(e) => handleAlphaChange(parseInt(e.target.value) / 100)}
+                          onChange={(percent: number) => handleAlphaChange(percent / 100)}
                           className="flex-1"
+                          aria-label={t('modals.theme.colorPicker.opacity')}
                         />
                       </Tooltip>
                       <span className="text-xs text-themed-muted w-10 text-right">
