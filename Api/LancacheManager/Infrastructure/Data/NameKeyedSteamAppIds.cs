@@ -4,9 +4,9 @@ using System.Text.Json;
 namespace LancacheManager.Infrastructure.Data;
 
 /// <summary>
-/// Single-source <c>GameName -&gt; Steam appId</c> lookup for name-keyed services (Blizzard/Riot)
-/// whose games ALSO exist on Steam. Backed by the embedded <c>blizzard_steam_appids.json</c>
-/// resource. Consulted before the curated embedded banner so a Steam-mapped Blizzard/Riot game
+/// Single-source <c>GameName -&gt; Steam appId</c> lookup for the name-keyed Blizzard service
+/// whose games ALSO exist on Steam. Backed by the embedded <c>blizzard_appids.json</c>
+/// resource. Consulted before the curated embedded banner so a Steam-mapped Blizzard game
 /// renders Steam's <c>header.jpg</c> ("Steam-first, embedded fallback").
 /// Keys are produced by <see cref="NameKeyedBannerSource.Slug"/> and the service is normalized via
 /// <see cref="NameKeyedBannerSource.NormalizeService"/> so this map, the curated banner map, the
@@ -14,7 +14,7 @@ namespace LancacheManager.Infrastructure.Data;
 /// </summary>
 public static class NameKeyedSteamAppIds
 {
-    private const string ResourceName = "LancacheManager.blizzard_steam_appids.json";
+    private const string ResourceName = "LancacheManager.blizzard_appids.json";
 
     // (normalized service, slug) -> Steam appId. Slug is the normalized GameName.
     private static readonly Lazy<Dictionary<(string Service, string Slug), long>> _bySlug =
@@ -65,7 +65,7 @@ public static class NameKeyedSteamAppIds
         var raw = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(stream, new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true
-        }) ?? throw new InvalidOperationException("Embedded blizzard_steam_appids.json is malformed");
+        }) ?? throw new InvalidOperationException("Embedded blizzard_appids.json is malformed");
 
         var result = new Dictionary<(string, string), long>();
 

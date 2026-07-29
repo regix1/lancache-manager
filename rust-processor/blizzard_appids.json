@@ -1,5 +1,5 @@
 {
-  "_comment": "GameName -> Steam appId for name-keyed (Blizzard/Riot) games that exist on Steam; consulted before the curated embedded banner. Verified via Steam store API.",
+  "_comment": "GameName -> Steam appId for name-keyed Blizzard games that exist on Steam; consulted before the curated embedded banner. Verified via Steam store API.",
   "blizzard": {
     "Overwatch": 2357570,
     "Diablo IV": 2344520,
@@ -11,6 +11,5 @@
     "Crash Bandicoot 4": 1378990,
     "Avowed": 2457220,
     "Sea of Thieves": 1172620
-  },
-  "riot": {}
+  }
 }
