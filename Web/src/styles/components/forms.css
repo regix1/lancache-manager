@@ -158,9 +158,22 @@
     height: 20px;
   }
 
-  /* Track styling - Webkit */
+  /* Track styling - Webkit.
+     The filled portion is a background-image on the track itself, not on the input, so the
+     track's own border-radius clips it. Painted on the input it kept its square ends and
+     showed as a sliver in the corner the rounded cap leaves uncovered.
+     WebKit and Gecko need separate rules: a browser drops the whole rule if it does not
+     recognise one selector in the list. */
   input[type='range']::-webkit-slider-runnable-track {
-    background: var(--theme-slider-track);
+    background-color: var(--theme-slider-track);
+    background-image: linear-gradient(
+      to right,
+      var(--theme-slider-accent) 0%,
+      var(--theme-slider-accent) var(--range-progress, 0%),
+      transparent var(--range-progress, 0%),
+      transparent 100%
+    );
+    background-repeat: no-repeat;
     height: 6px;
     border-radius: 3px;
     border: 1px solid var(--theme-border-primary);
@@ -169,7 +182,15 @@
 
   /* Track styling - Firefox */
   input[type='range']::-moz-range-track {
-    background: var(--theme-slider-track);
+    background-color: var(--theme-slider-track);
+    background-image: linear-gradient(
+      to right,
+      var(--theme-slider-accent) 0%,
+      var(--theme-slider-accent) var(--range-progress, 0%),
+      transparent var(--range-progress, 0%),
+      transparent 100%
+    );
+    background-repeat: no-repeat;
     height: 6px;
     border-radius: 3px;
     border: 1px solid var(--theme-border-primary);
@@ -228,20 +249,6 @@
 
   input[type='range']:focus::-moz-range-thumb {
     box-shadow: var(--shadow-range-thumb-focus);
-  }
-
-  /* Progress fill effect (for Webkit - shows filled portion) */
-  input[type='range'] {
-    background-image: linear-gradient(
-      to right,
-      var(--theme-slider-accent) 0%,
-      var(--theme-slider-accent) var(--range-progress, 50%),
-      transparent var(--range-progress, 50%),
-      transparent 100%
-    );
-    background-size: 100% 6px;
-    background-position: 0 center;
-    background-repeat: no-repeat;
   }
 
   /* Number input - Hide native spinner and create custom themed buttons */
