@@ -203,6 +203,21 @@
   gap: 0.75rem;
 }
 
+/* Search box and page-size dropdown in the filter cluster. Both widths live here
+   rather than as Tailwind utilities on the elements so the phone rules below have a
+   single place to override and never race the utility layer for the same property.
+   These three declarations are what `flex-1 min-w-[19rem] max-w-md` produced, kept
+   identical so only the phone override below changes anything. */
+.session-filter-search {
+  flex: 1 1 0%;
+  min-width: 19rem;
+  max-width: 28rem;
+}
+
+.session-filter-pagesize {
+  min-width: 6.5rem;
+}
+
 /* ==============================================
  * ANIMATIONS
  * ============================================== */
@@ -234,8 +249,73 @@
     order: 1;
   }
 
+  /* 8px between the two row buttons, matching the toolbar clusters. The shared 4px
+     put two 44px targets close enough to mis-tap. .mgmt-row__actions sets the 4px at
+     the same 0,1,0 weight, so both classes are named here to win by specificity
+     rather than by which chunk the bundler emits last. */
+  .mgmt-row__actions.session-row__actions {
+    gap: 0.5rem;
+  }
+
   .session-row__actions > button {
     flex: 1 1 auto;
+    min-height: 2.75rem;
+  }
+
+  /* The toolbar gets the same treatment the row actions above already had: each
+     cluster takes the whole line and its controls share it, instead of every group
+     bunching at the left edge with a third of the row used. */
+  .session-filter-cluster {
+    flex: 1 1 100%;
+  }
+
+  /* Equal thirds. At their natural widths the three filters need 292px, so on a
+     360px phone (261px of column) Guest wrapped alone onto a line of its own and
+     stretched across it. A zero basis lets all three share one line at 82px each.
+     `min-content` is the floor: it is the label plus its count badge with nothing to
+     spare, so they stop shrinking there and wrap instead. Without it a 320px screen
+     squeezed them to 68px and cut "Admin" off inside its own button. */
+  .session-filter-cluster > button {
+    flex: 1 1 0;
+    min-width: min-content;
+    min-height: 2.75rem;
+  }
+
+  /* 19rem is 304px - wider than the 291px content column of a 390px phone, which
+     pushed the box past every other row's right edge and into the card padding. */
+  .session-filter-search {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .session-filter-pagesize {
+    flex: 1 1 100%;
+  }
+
+  .session-toolbar__right {
+    flex: 1 1 100%;
+  }
+
+  /* The lock switch is wrapped in a Tooltip, so the direct child here is that
+     wrapper, not the button. Stretch both, then the two halves inside the pill, so
+     Unlocked and Locked end up equal and the pill spans the row. */
+  .session-toolbar__right > *,
+  .session-toolbar__right button {
+    width: 100%;
+  }
+
+  .session-toolbar__right button > span {
+    flex: 1 1 0;
+  }
+
+  /* 2.75rem is the touch minimum used elsewhere in the app (managementSectionContent
+     .css, StatusCheckSection.css). These three set a fixed height rather than a
+     min-height, so they need the compound selector to beat it. */
+  .session-filter-search .themed-input.input-search-sm,
+  .session-filter-pagesize .ed-trigger,
+  .session-toolbar__right button {
+    height: 2.75rem;
   }
 }
 

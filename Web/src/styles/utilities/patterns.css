@@ -194,6 +194,35 @@
   border-radius: var(--theme-border-radius);
 }
 
+/* Phones: AccordionSection drops the action row to its own full-width line under the
+   title, and the cluster is only ever a chip or two plus one trailing control. Left
+   alignment then leaves most of the row empty - on the Users page the chip and kebab
+   ended at 158px in a 336px row, 178px of nothing. Pushing the last child to the far
+   edge fills the line and lands the trailing control directly under the chevron above
+   it. The chips keep their normal gap and their label look; only the trailing control
+   moves, so the stretch-to-fill that would make a chip read as a button is avoided. */
+@media (max-width: 639.98px) {
+  .section-header-actions > :last-child {
+    margin-inline-start: auto;
+  }
+}
+
+/* Phones: the count badge and the help icon share the title's line and can shrink it
+   below the width of its own text, which split "Active Sessions" across two lines at
+   360px. `min()` keeps the title at its one-line width whenever that fits the column
+   and lets the badges wrap under it instead; a title too long for one line still
+   falls back to the full column width and wraps inside it, so nothing overflows the
+   card. Above the breakpoint there is room for all three and nothing changes. */
+@media (max-width: 639.98px) {
+  .accordion-title-line {
+    flex-wrap: wrap;
+  }
+
+  .accordion-title-line > .line-clamp-2 {
+    min-width: min(100%, max-content);
+  }
+}
+
 @keyframes pulse-dot-ring {
   0%,
   100% {

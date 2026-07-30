@@ -145,7 +145,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
           )}
 
           <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="accordion-title-line flex items-center gap-2 min-w-0">
               {/* Title — wraps to two lines before ellipsizing so narrow screens
                   keep the meaningful trailing words instead of cutting them off */}
               <span

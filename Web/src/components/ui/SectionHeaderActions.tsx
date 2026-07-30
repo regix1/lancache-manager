@@ -15,10 +15,14 @@ interface SectionHeaderActionsProps {
  * inherit: when the two values drifted apart, the chip-to-kebab gap was 8px while the
  * kebab-to-chevron gap beside it was 12px on every screen above the sm breakpoint.
  * Declaring it once here is what keeps them from drifting again.
+ *
+ * `.section-header-actions` carries the phone behaviour (patterns.css): the row is
+ * full width there, so the trailing control moves to the right edge instead of the
+ * whole cluster huddling in the left third.
  */
 export function SectionHeaderActions({ children }: SectionHeaderActionsProps) {
   return (
-    <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full justify-start sm:w-auto sm:justify-end">
+    <div className="section-header-actions flex flex-wrap items-center gap-2 sm:gap-3 w-full justify-start sm:w-auto sm:justify-end">
       {children}
     </div>
   );
