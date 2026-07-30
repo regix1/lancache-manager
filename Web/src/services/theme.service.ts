@@ -577,8 +577,15 @@ class ThemeService {
           disableTooltips: false
         },
         colors: complete({
-          // Core colors - Softer blue, legible against a warm grey ground
+          // Core colors - Softer blue, legible against a warm grey ground.
+          // Secondary and accent are set here rather than inherited: the shared defaults are the
+          // dark slate theme's own violet and cyan, so without these the two dark themes showed an
+          // identical pair in the theme slider's swatch strip. Both sit at the same hue offsets from
+          // the primary that light-default uses (+43 and -28) and carry the primary's lightness and
+          // colorfulness, so the three read as one family.
           primaryColor: '#5b9df5',
+          secondaryColor: '#a48be4',
+          accentColor: '#34a5b2',
 
           // Backgrounds - Charcoal ramp, page darkest and controls lightest
           // Key: the recessed well sits BETWEEN page and card, because wells render
@@ -689,7 +696,7 @@ class ThemeService {
           blizzardColor: '#3b6eea', // Royal blue; Battle.net's own cyan-blue lands 4 degrees of hue off Steam
           wsusColor: '#06b6d4',
           riotColor: '#d13639',
-          xboxColor: '#16c60c', // Xbox green lifted off its #107C10 brand value, which reads 2.83:1 here [17]
+          xboxColor: '#1a8c1a', // Xbox's #107c10 lifted six points of lightness at the same hue; the brand value itself reads 2.83:1 here [17]
           ubisoftColor: '#bdb4fd', // Blue Ribbon pushed further along the violet axis, leaving the royal blue to Battle.net
           gogColor: '#a05fb4', // GOG's true violet is far too dark to read on charcoal
           rockstarColor: '#fcaf17',
