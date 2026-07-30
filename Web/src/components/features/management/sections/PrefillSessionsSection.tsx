@@ -1595,17 +1595,19 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             isExpanded={bansExpanded}
             onToggle={() => setBansExpanded(!bansExpanded)}
             badge={
-              // h-10 matches the accordion's own chevron/badge-slot height (see Session
-              // History's EnhancedDropdown pair above) - Checkbox has no explicit height of
-              // its own, so without this it renders far shorter than the 40px chevron next
-              // to it in the same header row.
-              <div className="flex items-center h-10">
-                <Checkbox
-                  label={t('management.prefillSessions.bannedUsers.showLifted')}
-                  checked={includeLifted}
-                  onChange={(e) => setIncludeLifted(e.target.checked)}
-                />
-              </div>
+              <SectionHeaderActions>
+                {/* h-10 matches the accordion's own chevron/badge-slot height (see Session
+                    History's EnhancedDropdown pair above) - Checkbox has no explicit height of
+                    its own, so without this it renders far shorter than the 40px chevron next
+                    to it in the same header row. */}
+                <div className="flex items-center h-10">
+                  <Checkbox
+                    label={t('management.prefillSessions.bannedUsers.showLifted')}
+                    checked={includeLifted}
+                    onChange={(e) => setIncludeLifted(e.target.checked)}
+                  />
+                </div>
+              </SectionHeaderActions>
             }
           >
             {loadingBans && !hasVisibleBans ? (

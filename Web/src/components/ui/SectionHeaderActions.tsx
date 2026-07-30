@@ -10,7 +10,7 @@ interface SectionHeaderActionsProps {
  * The row of status chips and action buttons a section header hands to
  * AccordionSection's `badge` slot.
  *
- * The gap is `gap-2 sm:gap-3`, the same pair AccordionSection's own header row uses.
+ * The gap is `gap-2 sm:gap-3`, the same column-gap pair AccordionSection's own header row uses.
  * It has to be repeated because this is a nested flex container and gap does not
  * inherit: when the two values drifted apart, the chip-to-kebab gap was 8px while the
  * kebab-to-chevron gap beside it was 12px on every screen above the sm breakpoint.

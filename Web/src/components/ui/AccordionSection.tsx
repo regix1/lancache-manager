@@ -121,7 +121,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         onClick={handleHeaderClick}
         onKeyDown={handleKeyDown}
         onTouchEnd={handleTouchEnd}
-        className="w-full px-4 py-3 flex flex-wrap items-center gap-2 sm:gap-3 text-left transition duration-200 group/header bg-transparent cursor-pointer"
+        className="w-full px-4 py-3 flex flex-wrap items-center gap-x-2 gap-y-3 sm:gap-x-3 text-left transition duration-200 group/header bg-transparent cursor-pointer"
       >
         <div className="flex items-center gap-3 min-w-0 flex-1 order-1">
           {/* Icon with animated background */}
@@ -196,10 +196,12 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
             against the flex-1 title (the section wrapper is overflow-hidden). Consumers
             that pass a plain badge fill this row left-aligned; those that want a
             right-aligned inline cluster already wrap it in `w-full … sm:w-auto
-            sm:justify-end`. The gap is `gap-2 sm:gap-3` to match the header row above
-            it: this is a nested flex container, so gap does not inherit, and a slot
-            holding two children at a plain `gap-2` puts 8px between them while the row
-            around them uses 12px. */}
+            sm:justify-end`. The gap is `gap-2 sm:gap-3` to match the column gap of the
+            header row above it: this is a nested flex container, so gap does not
+            inherit, and a slot holding two children at a plain `gap-2` puts 8px between
+            them while the row around them uses 12px. The header's row gap is wider
+            (`gap-y-3`) on purpose, so this slot clears the chevron by a fixed 12px once
+            it wraps onto its own line. */}
         {badge && (
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full order-3 sm:w-auto sm:order-2 sm:flex-shrink-0">
             {badge}
@@ -207,8 +209,14 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         )}
 
         {/* Chevron — pinned to the title row at every width (order keeps it right of
-            the title on mobile and far-right of the badge on desktop). */}
-        <span className="flex flex-shrink-0 order-2 sm:order-3">{chevronButton}</span>
+            the title on mobile and far-right of the badge on desktop). Bottom-aligned
+            only when a badge slot exists: that is the only case where a row wraps below
+            it, and leaving it centred adds half the title height to the gap. */}
+        <span
+          className={`flex flex-shrink-0 order-2 sm:order-3 ${badge ? 'self-end sm:self-auto' : ''}`}
+        >
+          {chevronButton}
+        </span>
       </div>
 
       {/* Content with real height animation; children unmount once collapsed */}

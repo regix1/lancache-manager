@@ -5,6 +5,7 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import ApiService from '@services/api.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
@@ -531,28 +532,30 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
           onToggle={() => setPrefillSectionExpanded((prev) => !prev)}
           count={enabledPrefillCount}
           badge={
-            <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
-              {(close) => (
-                <ActionMenuItem
-                  icon={
-                    allPrefillServicesExpanded ? (
-                      <ChevronsDownUp className="w-3.5 h-3.5" />
-                    ) : (
-                      <ChevronsUpDown className="w-3.5 h-3.5" />
-                    )
-                  }
-                  disabled={!prefillSectionExpanded}
-                  onClick={() => {
-                    handlePrefillExpandCollapseAll();
-                    close();
-                  }}
-                >
-                  {allPrefillServicesExpanded
-                    ? t('management.gameDetection.collapseAll')
-                    : t('management.gameDetection.expandAll')}
-                </ActionMenuItem>
-              )}
-            </SectionActionsMenu>
+            <SectionHeaderActions>
+              <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+                {(close) => (
+                  <ActionMenuItem
+                    icon={
+                      allPrefillServicesExpanded ? (
+                        <ChevronsDownUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronsUpDown className="w-3.5 h-3.5" />
+                      )
+                    }
+                    disabled={!prefillSectionExpanded}
+                    onClick={() => {
+                      handlePrefillExpandCollapseAll();
+                      close();
+                    }}
+                  >
+                    {allPrefillServicesExpanded
+                      ? t('management.gameDetection.collapseAll')
+                      : t('management.gameDetection.expandAll')}
+                  </ActionMenuItem>
+                )}
+              </SectionActionsMenu>
+            </SectionHeaderActions>
           }
         >
           <div className="space-y-4">
