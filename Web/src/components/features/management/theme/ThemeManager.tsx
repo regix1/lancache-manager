@@ -24,7 +24,7 @@ import { Button } from '@components/ui/Button';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
-import { API_BASE } from '@utils/constants';
+import { API_BASE, APP_EVENTS } from '@utils/constants';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -137,6 +137,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A preview can also be stopped from the header button, which this page never hears about
+  // otherwise - the cards would go on offering to stop a preview that already ended
+  useEffect(() => {
+    const readPreviewTheme = () => setPreviewTheme(themeService.getPreviewTheme());
+    window.addEventListener(APP_EVENTS.THEME_PREVIEW_CHANGE, readPreviewTheme);
+    return () => window.removeEventListener(APP_EVENTS.THEME_PREVIEW_CHANGE, readPreviewTheme);
+  }, []);
+
   // Handler Functions
   const loadThemes = useCallback(async () => {
     setLoading(true);
@@ -178,19 +186,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
           return false;
         }
       }
-      const wasPreviewing = previewTheme !== null;
       await themeService.setTheme(themeId);
       setCurrentTheme(themeId);
       setPreviewTheme(null);
+      // Committing a theme ends any preview that was running. Clearing it raises the
+      // preview-change event, which is how the header's stop-preview button knows to disappear
       themeService.clearPreviewTheme();
       themeService.clearOriginalThemeBeforePreview();
-      // Applying a theme swaps CSS variables in place and every consumer re-reads them on the
-      // theme-change event, so switching needs no remount. Leaving preview does: the header's
-      // stop-preview button reads the stored preview id once when it mounts and never again, so
-      // without this it would keep offering to exit a preview that is already over [12]
-      if (wasPreviewing) {
-        window.location.reload();
-      }
       return true;
     } catch (error) {
       console.error('Failed to change theme:', error);
@@ -215,6 +217,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       });
       return;
     }
+    // Entering and leaving a preview both repaint in place: setTheme rebuilds the theme style
+    // element, and the preview-state change raises the event the header's button listens on
     if (previewTheme === themeId) {
       // Toggle off preview - restore original theme from before preview started
       const originalTheme = themeService.getOriginalThemeBeforePreview() || 'dark-default';
@@ -222,14 +226,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       setPreviewTheme(null);
       themeService.clearPreviewTheme();
       themeService.clearOriginalThemeBeforePreview();
-      window.location.reload();
     } else {
       // Toggle on preview - save current theme and apply preview theme
       themeService.setOriginalThemeBeforePreview(currentTheme);
       await themeService.setTheme(themeId);
       setPreviewTheme(themeId);
       themeService.setPreviewTheme(themeId);
-      window.location.reload();
     }
   };
 

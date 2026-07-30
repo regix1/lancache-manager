@@ -39,6 +39,8 @@ export const APP_EVENTS = {
   NOTIFICATION_REMOVING: 'notification-removing',
   /** Theme swapped or edited: charts, sparklines and the favicon re-read their colors. */
   THEME_CHANGE: 'themechange',
+  /** A theme preview started or ended: the header's stop-preview control re-reads the preview id. */
+  THEME_PREVIEW_CHANGE: 'themepreviewchange',
   /** A user preference changed and dependent contexts should re-read it. */
   PREFERENCE_CHANGED: 'preference-changed',
   /** All preferences were reset to defaults. */
