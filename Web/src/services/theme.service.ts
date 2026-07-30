@@ -693,27 +693,27 @@ class ThemeService {
           steamColor: '#66c0f4', // Valve's accent blue; the green it replaces is not in Steam's palette
           epicColor: '#8b5cf6', // Epic's brand is black and white only, so this is a stand-in hue
           originColor: '#ff4747', // EA's wordmark red; the orange belonged to the retired Origin launcher
-          blizzardColor: '#3b6eea', // Royal blue; Battle.net's own cyan-blue lands 4 degrees of hue off Steam
-          wsusColor: '#06b6d4',
+          blizzardColor: '#5d6bdc', // Royal blue rotated toward indigo; at Sony's hue it was only 7 L* away
+          wsusColor: '#09a2be', // Same cyan a step down, so Steam's blue and Warframe's teal both clear it on lightness
           riotColor: '#d13639',
           xboxColor: '#1a8c1a', // Xbox's #107c10 lifted six points of lightness at the same hue; the brand value itself reads 2.83:1 here [17]
-          ubisoftColor: '#bdb4fd', // Blue Ribbon pushed further along the violet axis, leaving the royal blue to Battle.net
+          ubisoftColor: '#c6bdff', // Blue Ribbon pushed along the violet axis, then lifted clear of the grey placeholder
           gogColor: '#a05fb4', // GOG's true violet is far too dark to read on charcoal
           rockstarColor: '#fcaf17',
-          arenanetColor: '#6ca551', // Same green lifted 14 L*; it and bsgColor were one shade apart [2]
+          arenanetColor: '#6fa754', // Same green lifted 14 L*, then one more step so Xbox's green clears it [2]
           bsgColor: '#6e7b3a',
           cityofheroesColor: '#4fd98a', // Moved out of the blues; it has no brand color and sat 6 degrees off Steam [18]
           codColor: '#dd6f3a', // Ember orange lifted off 2.93:1, then shifted red of Nexus Mods' brand orange
-          daybreakColor: '#f2777a',
-          frontierColor: '#d9a566',
+          daybreakColor: '#fb8d90', // Same salmon lightened until it separates from EA's red on lightness
+          frontierColor: '#ffdba7', // Pale sand at the same hue; Rockstar's gold and Nexus Mods' orange box it in on both sides
           neverwinterColor: '#b98ee0', // Same violet, lightened from 1.67:1 and clear of GOG's violet
           nexusmodsColor: '#f97316',
           nintendoColor: '#e4000f',
-          pathofexileColor: '#b8860b',
-          renegadexColor: '#6b7a8c',
+          pathofexileColor: '#9c7000', // Darker goldenrod, stepped down clear of Nexus Mods' orange and Wargaming's olive
+          renegadexColor: '#4e7b82', // Slate turned cool; at its old blue-grey hue it tracked PlayStation's blue
           sonyColor: '#3d8bd9', // PlayStation navy lightened from 1.41:1 [17]
           squareColor: '#c84455', // Deep red, lightened from 1.24:1 and moved off Riot's brand red
-          tesoColor: '#b5567a', // Same wine, lightened from 1.23:1 [17]
+          tesoColor: '#b95685', // Same wine, lightened from 1.23:1 and turned pink of Square Enix's red [17]
           testColor: '#a1a1aa', // One step lighter on the same grey ramp, clear of renegadexColor [1]
           warframeColor: '#1dd3d3',
           wargamingColor: '#9d9a66' // Olive lifted from 2.01:1 and shifted clear of Path of Exile's gold [17]
