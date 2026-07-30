@@ -32,20 +32,16 @@ export function SectionHeaderActions({ children }: SectionHeaderActionsProps) {
  * A status chip in a section header, either on its own in AccordionSection's `badge`
  * slot or alongside buttons inside SectionHeaderActions.
  *
- * The same Badge, pinned to the 40px height (`control-h-md`) and the corner radius
- * (`themed-border-radius-sm`) the kebab and the accordion chevron beside it already
- * use, so the row reads as one line of equal boxes instead of a short pill next to
- * two tall buttons. It keeps the badge's own tinted fill and gains no hover state, no
- * pointer cursor and no button border, so it still reads as a label, not a control.
+ * Keeps the badge's own compact box: about 16px tall on a 3px corner. It was previously
+ * pinned to the 40px height and 8px corner of the kebab and chevron beside it so the row
+ * read as one line of equal boxes, but that made a read-only label look like a button you
+ * could press, and it was worst on phones where the row drops to its own full-width line.
+ * A status chip is meant to read as a label, so it stays badge-sized and squarer than the
+ * controls around it.
  *
- * Use this, not a bare Badge, for anything that lands in a section header. A plain
- * Badge stays small on purpose for inline text, table cells and list rows.
+ * Named separately from Badge so section-header chips stay findable as a group and can take
+ * a shared treatment later without touching every call site.
  */
 export function SectionHeaderChip({ className, ...badge }: BadgeProps) {
-  return (
-    <Badge
-      {...badge}
-      className={`control-h-md themed-border-radius-sm${className ? ` ${className}` : ''}`}
-    />
-  );
+  return <Badge {...badge} className={className} />;
 }
