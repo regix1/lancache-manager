@@ -2,6 +2,28 @@
  * HEADER - Icon animations and connection indicators
  * ============================================== */
 
+/* The phone header packs six icon-only controls into one row. Each holds a single glyph and is
+   square by intent, so they opt out of the taller touch minimum the shared dropdown rules apply to
+   labelled triggers, which would otherwise stretch them into tall rectangles around a 14px icon.
+   min/max-height rather than height, because the shared mobile rule sets height with !important.
+   This block also carries the type and padding the markup used to set inline. */
+.header-mobile-controls .ed-trigger {
+  width: 2.25rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  max-height: 2.25rem;
+  padding: 0;
+  justify-content: center;
+  font-size: var(--font-size-xs);
+}
+
+/* The shared mobile rules drop dropdown glyphs to 14px, which reads undersized once the control is
+   a 36px square with nothing else in it. */
+.header-mobile-controls .ed-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+
 @keyframes header-float-bounce {
   0%,
   100% {

@@ -111,22 +111,29 @@
      being pinned to the (taller) desktop value - !important matches this selector's own
      convention above for reliably beating a Tailwind utility class. */
   @media (max-width: 639.98px) {
-    /* The touch minimum lives here, next to the line that releases the height, so every
-       dropdown gets it instead of each feature stylesheet adding it back one at a time.
-       min-height is a separate property from the height above, so it raises the box without
-       having to beat that !important. The menu rows need it too: their whole box comes from
-       padding utilities, which leaves them under the minimum on their own. [36] */
     .ed-trigger {
       flex-shrink: 1;
       min-width: 0;
       max-width: 100%;
       height: auto !important;
-      min-height: 44px;
       padding: 0.375rem 0.5rem;
       font-size: var(--font-size-sm);
       line-height: 1.25;
     }
 
+    /* The touch minimum lives here, next to the line that releases the height, so every dropdown
+       gets it instead of each feature stylesheet adding it back one at a time. min-height is a
+       separate property from the height above, so it raises the box without having to beat that
+       !important. [36]
+       Scoped to the button, because a couple of read-only status indicators borrow .ed-trigger
+       purely for its box model so they line up with the controls beside them. Growing those to a
+       finger-sized target makes a thing you cannot press look like a button. */
+    button.ed-trigger {
+      min-height: 44px;
+    }
+
+    /* The menu rows need it too: their whole box comes from padding utilities, which leaves them
+       under the minimum on their own. [36] */
     .ed-option {
       min-height: 44px;
     }
