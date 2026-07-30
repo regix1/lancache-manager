@@ -6,6 +6,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { EmptyState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
@@ -482,10 +483,18 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     </SectionHeaderActions>
   );
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.themes.community.help.aboutTitle')}>
+        {t('management.themes.community.summary')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <AccordionSection
       title={t('management.themes.community.title')}
-      description={t('management.themes.community.summary')}
+      titleAccessory={helpAccessory}
       icon={Globe}
       iconColor="var(--theme-icon-blue)"
       count={communityThemes.length > 0 ? communityThemes.length : undefined}

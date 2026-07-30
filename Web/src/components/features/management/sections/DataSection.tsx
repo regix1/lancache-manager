@@ -269,6 +269,10 @@ const DataSection: React.FC<DataSectionProps> = ({
 
   const databaseHelp = (
     <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.database.help.aboutTitle')}>
+        {t('management.database.description')}
+      </HelpSection>
+
       <HelpSection title={t('management.database.help.whatGetsCleared.title')} variant="subtle">
         <HelpDefinition
           items={[
@@ -334,7 +338,6 @@ const DataSection: React.FC<DataSectionProps> = ({
         <div className="space-y-4">
           <AccordionSection
             title={t('management.sections.data.databaseManagement')}
-            description={t('management.database.description')}
             titleAccessory={databaseHelp}
             icon={Database}
             iconColor="var(--theme-icon-cyan)"

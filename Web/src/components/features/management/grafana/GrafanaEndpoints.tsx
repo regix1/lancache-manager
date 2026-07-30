@@ -312,6 +312,10 @@ const GrafanaEndpoints: React.FC = () => {
 
   const helpAccessory = (
     <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.grafana.help.aboutTitle')}>
+        {t('management.grafana.summary')}
+      </HelpSection>
+
       <HelpSection title={t('management.grafana.help.metrics.title')} variant="subtle">
         <HelpDefinition
           items={[
@@ -338,7 +342,7 @@ const GrafanaEndpoints: React.FC = () => {
   return (
     <AccordionSection
       title={t('management.grafana.title')}
-      description={t('management.grafana.summary')}
+      shortTitle={t('management.grafana.titleShort')}
       titleAccessory={helpAccessory}
       icon={Link}
       iconColor="var(--theme-icon-indigo)"

@@ -20,6 +20,7 @@ import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectory
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
@@ -369,11 +370,20 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     </SectionHeaderActions>
   );
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.cache.help.aboutTitle')}>
+        {t('management.cache.summary')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <>
       <AccordionSection
         title={t('management.cache.title')}
-        description={t('management.cache.summary')}
+        shortTitle={t('management.cache.titleShort')}
+        titleAccessory={helpAccessory}
         icon={Server}
         iconColor="var(--theme-icon-green)"
         isExpanded={sectionExpanded}

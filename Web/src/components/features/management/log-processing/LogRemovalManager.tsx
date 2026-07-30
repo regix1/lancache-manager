@@ -26,6 +26,7 @@ import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { useReconnectRefetch } from '@/hooks/useReconnectRefetch';
 import { finalizeBulkRemovalNotification } from '@components/features/management/game-detection/cacheRemovalHelpers';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
@@ -683,11 +684,19 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     </SectionHeaderActions>
   );
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.logRemoval.help.aboutTitle')}>
+        {t('management.logRemoval.summary')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <>
       <AccordionSection
         title={t('management.logRemoval.title')}
-        description={t('management.logRemoval.summary')}
+        titleAccessory={helpAccessory}
         icon={FileText}
         iconColor="var(--theme-icon-red)"
         isExpanded={sectionExpanded}

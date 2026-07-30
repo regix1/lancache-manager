@@ -6,6 +6,7 @@ import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
@@ -66,6 +67,38 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
     [addNotification]
   );
 
+  const apiAuthHelpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.sections.settings.help.apiAuthTitle')}>
+        {t('management.sections.settings.apiAuthDesc')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
+  const demoModeHelpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.sections.settings.help.demoModeTitle')}>
+        {t('management.sections.settings.demoModeDesc')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
+  const displayPreferencesHelpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.sections.settings.help.displayPreferencesTitle')}>
+        {t('management.sections.settings.displayPreferencesDesc')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
+  const performanceOptimizationsHelpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.sections.settings.help.performanceOptimizationsTitle')}>
+        {t('management.sections.settings.performanceOptimizationsDesc')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <div
       className="management-section animate-fade-in"
@@ -88,7 +121,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
         <div className="space-y-4">
           <AccordionSection
             title={t('management.sections.settings.apiAuth')}
-            description={t('management.sections.settings.apiAuthDesc')}
+            titleAccessory={apiAuthHelpAccessory}
             icon={Shield}
             iconColor="var(--theme-icon-green)"
             isExpanded={apiAuthExpanded}
@@ -106,7 +139,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
 
           <AccordionSection
             title={t('management.sections.settings.demoMode')}
-            description={t('management.sections.settings.demoModeDesc')}
+            titleAccessory={demoModeHelpAccessory}
             icon={Sparkles}
             iconColor="var(--theme-icon-purple)"
             isExpanded={demoModeExpanded}
@@ -163,7 +196,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
         <div className="space-y-4">
           <AccordionSection
             title={t('management.sections.settings.displayPreferences')}
-            description={t('management.sections.settings.displayPreferencesDesc')}
+            titleAccessory={displayPreferencesHelpAccessory}
             icon={Settings}
             iconColor="var(--theme-icon-blue)"
             isExpanded={displayPrefsExpanded}
@@ -186,7 +219,8 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
         <div className="space-y-4">
           <AccordionSection
             title={t('management.sections.settings.performanceOptimizations')}
-            description={t('management.sections.settings.performanceOptimizationsDesc')}
+            shortTitle={t('management.sections.settings.performanceOptimizationsShort')}
+            titleAccessory={performanceOptimizationsHelpAccessory}
             icon={Gauge}
             iconColor="var(--theme-icon-orange)"
             isExpanded={performanceExpanded}

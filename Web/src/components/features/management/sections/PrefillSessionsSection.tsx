@@ -33,6 +33,7 @@ import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Checkbox } from '@components/ui/Checkbox';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
@@ -1231,6 +1232,38 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
   const isRefreshing = loadingSessions || loadingBans || loadingPersistent;
 
+  const liveSessionsHelpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.prefillSessions.help.liveSessionsTitle')}>
+        {t('management.prefillSessions.liveSessionsSummary')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
+  const persistentSessionsHelpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.prefillSessions.persistentSessions.help.aboutTitle')}>
+        {t('management.prefillSessions.persistentSessions.summary')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
+  const historyHelpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.prefillSessions.help.historyTitle')}>
+        {t('management.prefillSessions.historySummary')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
+  const bannedUsersHelpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.prefillSessions.bannedUsers.help.aboutTitle')}>
+        {t('management.prefillSessions.bannedUsers.summary')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <div
       className="management-section prefill-sessions-section animate-fade-in"
@@ -1289,7 +1322,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         <div className="space-y-4">
           <AccordionSection
             title={t('management.prefillSessions.liveSessions')}
-            description={t('management.prefillSessions.liveSessionsSummary')}
+            titleAccessory={liveSessionsHelpAccessory}
             count={guestActiveSessions.length}
             icon={Play}
             iconColor="var(--theme-icon-green)"
@@ -1387,7 +1420,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
           <AccordionSection
             title={t('management.prefillSessions.persistentSessions.title')}
-            description={t('management.prefillSessions.persistentSessions.summary')}
+            titleAccessory={persistentSessionsHelpAccessory}
             count={persistentContainers.length}
             icon={Server}
             iconColor="var(--theme-icon-blue)"
@@ -1439,7 +1472,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         <div className="space-y-4">
           <AccordionSection
             title={t('management.prefillSessions.sessionHistory')}
-            description={t('management.prefillSessions.historySummary')}
+            titleAccessory={historyHelpAccessory}
             count={totalCount}
             icon={Clock}
             iconColor="var(--theme-icon-blue)"
@@ -1588,7 +1621,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
           <AccordionSection
             title={t('management.prefillSessions.bannedUsers.title')}
-            description={t('management.prefillSessions.bannedUsers.summary')}
+            titleAccessory={bannedUsersHelpAccessory}
             count={activeBansCount}
             icon={Ban}
             iconColor="var(--theme-icon-red)"

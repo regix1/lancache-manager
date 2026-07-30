@@ -8,7 +8,7 @@ import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { HelpPopover, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 
 type PrefillServiceIcon = React.ComponentType<{
   size?: number;
@@ -84,10 +84,18 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
     onMaxThreadsChange(newValue);
   };
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('user.guest.prefill.enableByDefault.help.aboutTitle')}>
+        {enableDescription}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <AccordionSection
       title={serviceName}
-      description={enableDescription}
+      titleAccessory={helpAccessory}
       icon={ServiceIcon}
       iconColor={iconColor}
       surface="well"

@@ -10,6 +10,7 @@ import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { formatCount } from '@utils/formatters';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Alert } from '@components/ui/Alert';
@@ -360,11 +361,19 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
     </div>
   );
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.corruption.history.help.aboutTitle')}>
+        {t('management.corruption.history.description')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <>
       <AccordionSection
         title={t('management.corruption.history.title')}
-        description={t('management.corruption.history.description')}
+        titleAccessory={helpAccessory}
         icon={History}
         count={entries?.length}
         isExpanded={expanded}

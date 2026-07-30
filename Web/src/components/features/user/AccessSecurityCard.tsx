@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shield } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -122,10 +123,18 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
       : (durationOptions.find((option) => option.value === state.durationHours.toString())?.label ??
         t(`user.guest.durationOptions.${state.durationHours}`));
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('user.guest.sections.help.accessSecurityTitle')}>
+        {t('user.guest.sections.accessSecuritySubtitle')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <AccordionSection
       title={t('user.guest.sections.accessSecurity')}
-      description={t('user.guest.sections.accessSecuritySubtitle')}
+      titleAccessory={helpAccessory}
       icon={Shield}
       iconColor="var(--theme-icon-green)"
       isExpanded={expanded}

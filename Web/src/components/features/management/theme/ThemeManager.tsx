@@ -630,6 +630,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
   const helpContent = (
     <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.themes.help.aboutTitle')}>
+        {t('management.themes.summary')}
+      </HelpSection>
+
       <HelpSection title={t('management.themes.help.themeTypes.title')} variant="subtle">
         <HelpDefinition
           items={[
@@ -650,6 +654,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       </HelpSection>
 
       <HelpNote type="info">{t('management.themes.help.note')}</HelpNote>
+    </HelpPopover>
+  );
+
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.themes.help.customizeTitle')}>
+        {t('management.themes.customizeSummary')}
+      </HelpSection>
     </HelpPopover>
   );
 
@@ -720,7 +732,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         <div className="space-y-4">
           <AccordionSection
             title={t('management.themes.title')}
-            description={t('management.themes.summary')}
             titleAccessory={helpContent}
             icon={Palette}
             iconColor="var(--theme-icon-purple)"
@@ -934,7 +945,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
           <AccordionSection
             title={t('management.themes.tabs.customize')}
-            description={t('management.themes.customizeSummary')}
+            titleAccessory={helpAccessory}
             icon={Brush}
             iconColor="var(--theme-icon-orange)"
             isExpanded={customizeExpanded}

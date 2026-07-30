@@ -37,6 +37,7 @@ import { resolveCardNotice } from '@utils/cardDirectoryNotice';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { formatCount } from '@utils/formatters';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -1151,11 +1152,20 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     </SectionHeaderActions>
   );
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.corruption.help.aboutTitle')}>
+        {t('management.corruption.summary')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <>
       <AccordionSection
         title={t('management.corruption.title')}
-        description={t('management.corruption.summary')}
+        shortTitle={t('management.corruption.titleShort')}
+        titleAccessory={helpAccessory}
         icon={AlertTriangle}
         iconColor="var(--theme-icon-yellow)"
         isExpanded={sectionExpanded}

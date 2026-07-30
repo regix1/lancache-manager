@@ -18,6 +18,7 @@ import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/notifications';
@@ -957,11 +958,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     </SectionHeaderActions>
   );
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.gameDetection.help.aboutTitle')}>
+        {t('management.gameDetection.subtitle')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <>
       <AccordionSection
         title={t('management.gameDetection.title')}
-        description={t('management.gameDetection.subtitle')}
+        shortTitle={t('management.gameDetection.titleShort')}
+        titleAccessory={helpAccessory}
         icon={HardDrive}
         iconColor="var(--theme-icon-blue)"
         isExpanded={sectionExpanded}

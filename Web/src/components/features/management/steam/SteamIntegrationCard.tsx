@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
@@ -40,10 +41,18 @@ const SteamIntegrationCard: React.FC<SteamIntegrationCardProps> = ({
     <SectionHeaderChip variant="neutral">{t('management.steamAuth.anonymous')}</SectionHeaderChip>
   );
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.sections.integrations.steamCard.help.aboutTitle')}>
+        {t('management.sections.integrations.steamCard.summary')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <AccordionSection
       title={t('management.sections.integrations.steamCard.title')}
-      description={t('management.sections.integrations.steamCard.summary')}
+      titleAccessory={helpAccessory}
       icon={SteamIcon}
       iconColor="var(--theme-steam)"
       isExpanded={expanded}

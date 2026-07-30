@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Button } from '@components/ui/Button';
@@ -31,6 +32,7 @@ interface DaemonStatusAuth {
 interface DaemonStatusCardProps {
   accordionId: string;
   title: string;
+  /** Opening block of the header help popover, above the per-service definitions. */
   description: string;
   icon: DaemonStatusIcon;
   iconColor: string;
@@ -82,6 +84,7 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
   auth,
   children
 }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const toggleExpanded = useCallback(() => setExpanded((prev) => !prev), []);
   useAccordionGroupItem(accordionId, expanded, toggleExpanded);
@@ -96,6 +99,9 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
 
   const helpAccessory = (
     <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.sections.integrations.daemon.help.aboutTitle')}>
+        {description}
+      </HelpSection>
       <HelpSection title={help.title} variant="subtle">
         <HelpDefinition items={help.definitions} />
       </HelpSection>
@@ -106,7 +112,6 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
   return (
     <AccordionSection
       title={title}
-      description={description}
       titleAccessory={helpAccessory}
       icon={icon}
       iconColor={iconColor}

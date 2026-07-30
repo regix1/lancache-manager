@@ -348,6 +348,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   // Help content
   const helpContent = (
     <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.datasources.help.aboutTitle')}>
+        {t('management.datasources.summary')}
+      </HelpSection>
+
       <HelpSection title={t('management.datasources.help.title')} variant="subtle">
         <HelpDefinition
           items={[
@@ -424,7 +428,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     <>
       <AccordionSection
         title={t('management.datasources.title')}
-        description={t('management.datasources.summary')}
         titleAccessory={helpContent}
         icon={Logs}
         iconColor="var(--theme-icon-purple)"

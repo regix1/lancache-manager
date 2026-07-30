@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Palette, Lock, Unlock, Globe, MapPin, Monitor } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
@@ -124,10 +125,19 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
     setDisplayTogglesExpanded((prev: boolean) => !prev);
   };
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('user.guest.sections.help.appearanceDisplayTitle')}>
+        {t('user.guest.sections.appearanceDisplaySubtitle')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <AccordionSection
       title={t('user.guest.sections.appearanceDisplay')}
-      description={t('user.guest.sections.appearanceDisplaySubtitle')}
+      shortTitle={t('user.guest.sections.appearanceDisplayShort')}
+      titleAccessory={helpAccessory}
       icon={Palette}
       iconColor="var(--theme-icon-purple)"
       isExpanded={expanded}

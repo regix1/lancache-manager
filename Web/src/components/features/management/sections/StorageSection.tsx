@@ -15,6 +15,7 @@ import { Alert } from '@components/ui/Alert';
 import { Checkbox } from '@components/ui/Checkbox';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
@@ -766,6 +767,14 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // Only show the recheck button when at least one directory is read-only
   const hasPermissionIssues = logsReadOnly || cacheReadOnly;
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.sections.data.help.evictedCacheTitle')}>
+        {t('management.sections.data.evictedCacheSummary')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <div
       className="management-section animate-fade-in"
@@ -862,7 +871,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
           <HighlightGlow enabled={highlightEviction} scrollIntoView>
             <AccordionSection
               title={t('management.sections.data.evictedCacheData')}
-              description={t('management.sections.data.evictedCacheSummary')}
+              shortTitle={t('management.sections.data.evictedCacheDataShort')}
+              titleAccessory={helpAccessory}
               icon={Archive}
               iconColor="var(--theme-icon-orange)"
               isExpanded={evictedDataExpanded}

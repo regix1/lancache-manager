@@ -903,9 +903,14 @@
       "title": "访客配置",
       "subtitle": "配置访客会话的默认设置",
       "sections": {
+        "help": {
+          "accessSecurityTitle": "关于",
+          "appearanceDisplayTitle": "关于"
+        },
         "accessSecurity": "访问与安全",
         "accessSecuritySubtitle": "控制访客会话访问的关键设置",
         "appearanceDisplay": "外观与显示",
+        "appearanceDisplayShort": "外观与显示",
         "appearanceDisplaySubtitle": "新访客会话的默认视觉设置",
         "sessionDuration": "会话时长",
         "defaultTheme": "默认主题",
@@ -992,6 +997,9 @@
         "3": "3 小时"
       },
       "prefill": {
+        "help": {
+          "aboutTitle": "关于"
+        },
         "title": "预填充权限",
         "subtitle": "控制访客对预填充标签的访问。权限有时间限制，可按会话授予。",
         "sectionTitle": "预填充服务",
@@ -1001,7 +1009,10 @@
         "warning": "安全风险：所有新访客都将能够触发预填充。建议保持关闭，改为按会话授予访问权限。",
         "enableByDefault": {
           "label": "默认启用",
-          "description": "新访客自动获得预填充权限"
+          "description": "新访客自动获得预填充权限",
+          "help": {
+            "aboutTitle": "关于"
+          }
         },
         "duration": {
           "label": "权限时长",
@@ -1088,7 +1099,10 @@
     },
     "history": {
       "title": "会话历史",
-      "summary": "已退出或过期的会话。"
+      "summary": "已退出或过期的会话。",
+      "help": {
+        "aboutTitle": "关于"
+      }
     },
     "unknownDevice": "未知设备",
     "labels": {
@@ -1909,6 +1923,9 @@
       "guestModeDesc": "管理功能在访客模式下已禁用。请先认证以访问完整功能。",
       "migratedOperations": "已将 {{count}} 个操作从本地存储迁移到服务器",
       "data": {
+        "help": {
+          "evictedCacheTitle": "关于"
+        },
         "title": "数据配置",
         "subtitle": "管理仓库映射、导入数据和控制数据库表",
         "depotMapping": "仓库映射",
@@ -1920,6 +1937,7 @@
         },
         "dataImport": "数据导入",
         "evictedCacheData": "淘汰检测与移除",
+        "evictedCacheDataShort": "淘汰检测与移除",
         "evictedCacheSummary": "查找并清理已被 nginx 从缓存中逐出的游戏。",
         "evictedCacheDescription": "控制如何处理已从 nginx 缓存淘汰的游戏。当缓存磁盘满时会自动发生驱逐。",
         "evictionSettingsHeading": "淘汰扫描与设置",
@@ -2144,6 +2162,12 @@
         "recheckingPermissions": "检查中..."
       },
       "settings": {
+        "help": {
+          "apiAuthTitle": "关于",
+          "demoModeTitle": "关于",
+          "displayPreferencesTitle": "关于",
+          "performanceOptimizationsTitle": "关于"
+        },
         "title": "设置",
         "subtitle": "管理认证、演示模式和显示首选项",
         "apiAuth": "API 认证",
@@ -2158,6 +2182,7 @@
         "displayPreferences": "显示首选项",
         "displayPreferencesDesc": "自定义体验",
         "performanceOptimizations": "性能优化",
+        "performanceOptimizationsShort": "性能优化",
         "performanceOptimizationsDesc": "垃圾回收与内存管理",
         "performanceOptimizationsDisabled": "性能优化已禁用",
         "performanceOptimizationsEnvVar": "将以下环境变量添加到您的 docker-compose.yml：",
@@ -2189,11 +2214,19 @@
         "alwaysShowYearDesc": "即使在当前年份也在日期中包含年份"
       },
       "integrations": {
+        "daemon": {
+          "help": {
+            "aboutTitle": "关于"
+          }
+        },
         "title": "集成与服务",
         "subtitle": "连接到 Steam、配置 Grafana 端点和管理外部服务集成",
         "steamCard": {
           "title": "Steam",
-          "summary": "Steam 登录与 Web API 访问，用于识别游戏名称。"
+          "summary": "Steam 登录与 Web API 访问，用于识别游戏名称。",
+          "help": {
+            "aboutTitle": "关于"
+          }
         },
         "steamIntegration": "Steam 集成",
         "monitoringMetrics": "监控与指标",
@@ -2389,6 +2422,10 @@
         }
       },
       "clients": {
+        "help": {
+          "aboutTitle": "关于",
+          "exclusionsTitle": "关于"
+        },
         "title": "客户端昵称",
         "subtitle": "为客户端 IP 分配友好名称以便于识别",
         "addNickname": "添加昵称",
@@ -2444,6 +2481,9 @@
         },
         "groupManagement": "客户端管理",
         "hostnames": {
+          "help": {
+            "aboutTitle": "关于"
+          },
           "title": "客户端主机名",
           "description": "在网络 DNS 服务器上查询每个客户端地址对应的名称",
           "toggleLabel": "显示客户端主机名",
@@ -2468,6 +2508,7 @@
     },
     "cache": {
       "title": "磁盘缓存管理",
+      "titleShort": "磁盘缓存管理",
       "summary": "查看并清除磁盘上缓存的游戏文件。",
       "subtitle": "从磁盘清除缓存的游戏文件",
       "refreshCacheSize": "扫描缓存大小",
@@ -2510,7 +2551,8 @@
           "term": "Rsync（网络）",
           "description": "使用 rsync 安全地删除文件。如果缓存位于网络驱动器（NFS/SMB）上，这是最佳选择。"
         },
-        "warning": "这将删除所有缓存的游戏文件。您的客户端将需要重新下载所有内容。"
+        "warning": "这将删除所有缓存的游戏文件。您的客户端将需要重新下载所有内容。",
+        "aboutTitle": "关于"
       },
       "alerts": {
         "readOnly": {
@@ -2554,7 +2596,11 @@
       "batchCancelledWithFailures": "已在移除 {{count}} 个服务日志后取消，其中有 {{failed}} 个失败"
     },
     "corruption": {
+      "help": {
+        "aboutTitle": "关于"
+      },
       "title": "损坏检测与移除",
+      "titleShort": "损坏检测与移除",
       "summary": "查找结构无效的缓存文件或重复 MISS 嫌疑项，并仅移除已保存扫描验证过的精确路径。",
       "directoryMissing": "无法移除：未找到所需目录",
       "scanningMessage": "正在扫描日志，查找仍在磁盘上却反复缓存未命中的文件…对于大型日志文件，可能需要几分钟。",
@@ -2784,6 +2830,9 @@
         "removeSelectedRepeatedMissConfirm": "移除嫌疑项（{{count}} 个服务）"
       },
       "history": {
+        "help": {
+          "aboutTitle": "关于"
+        },
         "title": "扫描历史",
         "description": "为每种方法保留最近三次已完成的扫描。历史仅供查看，无法移除缓存文件。",
         "loading": "正在加载扫描历史…",
@@ -2813,6 +2862,7 @@
     },
     "gameDetection": {
       "title": "游戏缓存检测与移除",
+      "titleShort": "游戏缓存",
       "subtitle": "扫描缓存以查找存在存储文件的游戏和服务",
       "loadPreviousResults": "从数据库加载之前的检测结果",
       "processLogsFirst": "先处理访问日志",
@@ -2890,7 +2940,8 @@
           "title": "未知和已下架游戏",
           "description": "不再出现在 Steam 应用列表中的游戏（已下架游戏）仍显示为\"未知游戏（仓库 XXXXXX）\"。您可以像任何其他游戏一样移除它们 - 运行扫描并点击移除。",
           "tip": "移除未知游戏是修复损坏或异常游戏下载的推荐方法。"
-        }
+        },
+        "aboutTitle": "关于"
       },
       "emptyState": {
         "noGamesServices": "未检测到具有缓存文件的游戏或服务",
@@ -3002,7 +3053,8 @@
           "term": "数据源",
           "description": "单独的缓存 + 日志对。如果运行多个 LANCache 实例，则很有用。"
         },
-        "note": "已处理的条目会自动跳过，因此重新处理是安全的。"
+        "note": "已处理的条目会自动跳过，因此重新处理是安全的。",
+        "aboutTitle": "关于"
       }
     },
     "dataImporter": {
@@ -3071,7 +3123,8 @@
           "title": "重要提示",
           "description": "请确保为您的数据库选择了正确的导入类型。如果文件在 Docker 容器外部，请先将其挂载为卷。"
         },
-        "warning": "在导入前停止其他应用程序，以免数据库被锁定。"
+        "warning": "在导入前停止其他应用程序，以免数据库被锁定。",
+        "aboutTitle": "关于"
       },
       "alerts": {
         "mockMode": "模拟模式已启用 - 导入功能已禁用",
@@ -3141,7 +3194,8 @@
           "logFiles": "该服务的日志条目将从 access.log 文件中删除",
           "databaseRecords": "相关下载记录将从数据库中移除"
         },
-        "note": "您的缓存游戏文件不会受到影响 -- 仅移除日志数据。"
+        "note": "您的缓存游戏文件不会受到影响 -- 仅移除日志数据。",
+        "aboutTitle": "关于"
       },
       "alerts": {
         "logsReadOnly": {
@@ -3377,7 +3431,8 @@
             "description": "Steam 仓库 ID 与游戏名称之间的链接。清除后需要重新扫描。"
           }
         },
-        "note": "仅清除数据库。磁盘上的缓存游戏文件不会被删除。"
+        "note": "仅清除数据库。磁盘上的缓存游戏文件不会被删除。",
+        "aboutTitle": "关于"
       },
       "errors": {
         "authRequired": "管理操作需要完全身份验证",
@@ -3463,6 +3518,9 @@
         "text": "文本"
       },
       "community": {
+        "help": {
+          "aboutTitle": "关于"
+        },
         "title": "社区主题",
         "available": "可用",
         "installed": "已安装",
@@ -3503,7 +3561,9 @@
           "title": "预览模式",
           "description": "临时尝试主题。点击应用使其成为您的活跃主题。"
         },
-        "note": "主题文件使用 TOML 或 JSON 格式。下载示例文件以了解其工作原理。"
+        "note": "主题文件使用 TOML 或 JSON 格式。下载示例文件以了解其工作原理。",
+        "aboutTitle": "关于",
+        "customizeTitle": "关于"
       },
       "notifications": {
         "guestCannotChange": "访客用户无法更改主题",
@@ -3521,6 +3581,7 @@
     },
     "grafana": {
       "title": "Grafana 实时 API 端点",
+      "titleShort": "Grafana API",
       "publicOption": "公开",
       "securedOption": "安全",
       "securedTooltip": "端点需要 API 密钥身份验证",
@@ -3595,7 +3656,8 @@
           "title": "如何连接",
           "description": "将这些端点与 Prometheus 或 Grafana 的 JSON 数据源插件一起使用。推荐抓取间隔：10-30 秒。"
         },
-        "note": "您可以在下方或 docker-compose 环境变量中切换身份验证的开启/关闭。"
+        "note": "您可以在下方或 docker-compose 环境变量中切换身份验证的开启/关闭。",
+        "aboutTitle": "关于"
       },
       "placeholders": {
         "selectRate": "选择速率",
@@ -4108,6 +4170,10 @@
       "liftBan": "解除此封禁"
     },
     "prefillSessions": {
+      "help": {
+        "liveSessionsTitle": "关于",
+        "historyTitle": "关于"
+      },
       "allStatuses": "所有状态",
       "banReason": "输入封禁原因...",
       "title": "预填充会话",
@@ -4198,6 +4264,9 @@
         "sessions": "个会话"
       },
       "persistentSessions": {
+        "help": {
+          "aboutTitle": "关于"
+        },
         "title": "持久化会话",
         "loading": "正在加载持久化容器...",
         "noContainers": "没有持久化容器",
@@ -4227,6 +4296,9 @@
         "liftBan": "解除此封禁"
       },
       "bannedUsers": {
+        "help": {
+          "aboutTitle": "关于"
+        },
         "title": "被封禁的用户",
         "showLifted": "显示已解除的封禁",
         "loadingBans": "正在加载封禁...",

@@ -1609,7 +1609,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           {!loading && historySessions.length > 0 && (
             <AccordionSection
               title={t('activeSessions.history.title')}
-              description={t('activeSessions.history.summary')}
+              titleAccessory={
+                <HelpPopover position="left" width={320}>
+                  <HelpSection title={t('activeSessions.history.help.aboutTitle')}>
+                    {t('activeSessions.history.summary')}
+                  </HelpSection>
+                </HelpPopover>
+              }
               icon={History}
               iconColor="var(--theme-icon-purple)"
               count={historySessions.length}

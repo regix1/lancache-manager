@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Download, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
@@ -503,6 +504,14 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     handlePrefillConfigChanged
   ]);
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('user.guest.prefill.help.aboutTitle')}>
+        {t('user.guest.prefill.sectionSubtitle')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <div>
       <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
@@ -525,7 +534,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
 
         <AccordionSection
           title={t('user.guest.prefill.sectionTitle')}
-          description={t('user.guest.prefill.sectionSubtitle')}
+          titleAccessory={helpAccessory}
           icon={Download}
           iconColor="var(--theme-icon-blue)"
           isExpanded={prefillSectionExpanded}

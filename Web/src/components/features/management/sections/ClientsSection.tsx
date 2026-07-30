@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { ActionMenu, ActionMenuItem, ActionMenuDangerItem } from '@components/ui/ActionMenu';
@@ -402,6 +403,30 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     handleModalClose();
   };
 
+  const nicknamesHelpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.sections.clients.help.aboutTitle')}>
+        {t('management.sections.clients.subtitle')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
+  const exclusionsHelpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.sections.clients.help.exclusionsTitle')}>
+        {t('management.sections.clients.exclusionsSummary')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
+  const hostnamesHelpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.sections.clients.hostnames.help.aboutTitle')}>
+        {t('management.sections.clients.hostnames.description')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <div
       className="management-section animate-fade-in"
@@ -423,7 +448,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
         <div className="space-y-4">
           <AccordionSection
             title={t('management.sections.clients.title')}
-            description={t('management.sections.clients.subtitle')}
+            titleAccessory={nicknamesHelpAccessory}
             icon={Users}
             iconColor="var(--theme-icon-blue)"
             count={clientGroups.length}
@@ -727,7 +752,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
           <AccordionSection
             title={t('management.sections.clients.excludeFromStats')}
-            description={t('management.sections.clients.exclusionsSummary')}
+            titleAccessory={exclusionsHelpAccessory}
             icon={EyeOff}
             iconColor="var(--theme-icon-red)"
             count={excludedRules.length}
@@ -896,7 +921,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
           <AccordionSection
             title={t('management.sections.clients.hostnames.title')}
-            description={t('management.sections.clients.hostnames.description')}
+            titleAccessory={hostnamesHelpAccessory}
             icon={Network}
             iconColor="var(--theme-icon-teal)"
             isExpanded={hostnamesExpanded}

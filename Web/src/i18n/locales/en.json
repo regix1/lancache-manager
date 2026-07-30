@@ -903,9 +903,14 @@
       "title": "Guest Configuration",
       "subtitle": "Configure default settings for guest sessions",
       "sections": {
+        "help": {
+          "accessSecurityTitle": "About",
+          "appearanceDisplayTitle": "About"
+        },
         "accessSecurity": "Access & Security",
         "accessSecuritySubtitle": "Critical settings that control guest session access",
         "appearanceDisplay": "Appearance & Display",
+        "appearanceDisplayShort": "Appearance",
         "appearanceDisplaySubtitle": "Default visual settings for new guest sessions",
         "sessionDuration": "Session Duration",
         "defaultTheme": "Default Theme",
@@ -992,6 +997,9 @@
         "3": "3 hours"
       },
       "prefill": {
+        "help": {
+          "aboutTitle": "About"
+        },
         "title": "Prefill Permissions",
         "subtitle": "Control guest access to the Prefill tab. Permissions are time-limited and can be granted per-session.",
         "sectionTitle": "Prefill Services",
@@ -1001,7 +1009,10 @@
         "warning": "Security risk: All new guests will be able to trigger prefills. Consider keeping this off and granting access per-session instead.",
         "enableByDefault": {
           "label": "Enable by Default",
-          "description": "New guests automatically get prefill access"
+          "description": "New guests automatically get prefill access",
+          "help": {
+            "aboutTitle": "About"
+          }
         },
         "duration": {
           "label": "Permission Duration",
@@ -1088,7 +1099,10 @@
     },
     "history": {
       "title": "Session History",
-      "summary": "Sessions that signed out or expired."
+      "summary": "Sessions that signed out or expired.",
+      "help": {
+        "aboutTitle": "About"
+      }
     },
     "unknownDevice": "Unknown Device",
     "labels": {
@@ -1909,6 +1923,9 @@
       "guestModeDesc": "Management features are disabled in guest mode. Please authenticate to access full functionality.",
       "migratedOperations": "Migrated {{count}} operations from local storage to server",
       "data": {
+        "help": {
+          "evictedCacheTitle": "About"
+        },
         "title": "Data Configuration",
         "subtitle": "Manage depot mappings, import data, and control database tables",
         "depotMapping": "Depot Mapping",
@@ -1920,6 +1937,7 @@
         },
         "dataImport": "Data Import",
         "evictedCacheData": "Eviction Detection and Removal",
+        "evictedCacheDataShort": "Cache Eviction",
         "evictedCacheSummary": "Find and clean up games nginx evicted from the cache.",
         "evictedCacheDescription": "Controls how games that have been evicted from the nginx cache are handled. Eviction happens automatically when the cache disk fills up.",
         "evictionSettingsHeading": "Eviction Scan & Settings",
@@ -2144,6 +2162,12 @@
         "recheckingPermissions": "Checking..."
       },
       "settings": {
+        "help": {
+          "apiAuthTitle": "About",
+          "demoModeTitle": "About",
+          "displayPreferencesTitle": "About",
+          "performanceOptimizationsTitle": "About"
+        },
         "title": "Settings",
         "subtitle": "Manage authentication, demo mode, and display preferences",
         "apiAuth": "API Authentication",
@@ -2158,6 +2182,7 @@
         "displayPreferences": "Display Preferences",
         "displayPreferencesDesc": "Customize your experience",
         "performanceOptimizations": "Performance Optimizations",
+        "performanceOptimizationsShort": "Performance",
         "performanceOptimizationsDesc": "Garbage collection and memory management",
         "performanceOptimizationsDisabled": "Performance optimizations are disabled",
         "performanceOptimizationsEnvVar": "Add the following environment variable to your docker-compose.yml:",
@@ -2189,11 +2214,19 @@
         "alwaysShowYearDesc": "Include year in dates even for current year"
       },
       "integrations": {
+        "daemon": {
+          "help": {
+            "aboutTitle": "About"
+          }
+        },
         "title": "Integration & Services",
         "subtitle": "Connect to Steam, configure Grafana endpoints, and manage external service integrations",
         "steamCard": {
           "title": "Steam",
-          "summary": "Steam sign-in and Web API access for naming games."
+          "summary": "Steam sign-in and Web API access for naming games.",
+          "help": {
+            "aboutTitle": "About"
+          }
         },
         "steamIntegration": "Steam Integration",
         "monitoringMetrics": "Monitoring & Metrics",
@@ -2389,6 +2422,10 @@
         }
       },
       "clients": {
+        "help": {
+          "aboutTitle": "About",
+          "exclusionsTitle": "About"
+        },
         "title": "Client Nicknames",
         "subtitle": "Assign friendly names to client IPs for easier identification",
         "addNickname": "Add Nickname",
@@ -2444,6 +2481,9 @@
         },
         "groupManagement": "Client Management",
         "hostnames": {
+          "help": {
+            "aboutTitle": "About"
+          },
           "title": "Client Hostnames",
           "description": "Look up a name for each client address on your network's DNS server",
           "toggleLabel": "Show client hostnames",
@@ -2468,6 +2508,7 @@
     },
     "cache": {
       "title": "Disk Cache Management",
+      "titleShort": "Disk Cache",
       "summary": "Inspect and clear the cached game files stored on disk.",
       "subtitle": "Clear cached game files from disk",
       "refreshCacheSize": "Scan cache size",
@@ -2510,7 +2551,8 @@
           "term": "Rsync (Network)",
           "description": "Uses rsync to safely delete files. Best choice if your cache is on a network drive (NFS/SMB)."
         },
-        "warning": "This deletes all cached game files. Your clients will need to re-download everything."
+        "warning": "This deletes all cached game files. Your clients will need to re-download everything.",
+        "aboutTitle": "About"
       },
       "alerts": {
         "readOnly": {
@@ -2554,7 +2596,11 @@
       "batchCancelledWithFailures": "Log removal cancelled after {{count}} service logs, with {{failed}} failures"
     },
     "corruption": {
+      "help": {
+        "aboutTitle": "About"
+      },
       "title": "Corruption Detection and Removal",
+      "titleShort": "Corruption",
       "summary": "Find structurally invalid cache files or repeated-MISS suspects, then remove only exact paths verified by the saved scan.",
       "directoryMissing": "Removal unavailable: required directories not found",
       "scanningMessage": "Scanning logs for repeated cache misses on files still present on disk… This may take several minutes for large log files.",
@@ -2784,6 +2830,9 @@
         "removeSelectedRepeatedMissConfirm": "Remove suspects ({{count}} services)"
       },
       "history": {
+        "help": {
+          "aboutTitle": "About"
+        },
         "title": "Scan history",
         "description": "Keeps the last three completed scans for each method. History is view-only and cannot remove cache files.",
         "loading": "Loading scan history…",
@@ -2813,6 +2862,7 @@
     },
     "gameDetection": {
       "title": "Game Cache Detection and Removal",
+      "titleShort": "Game Cache",
       "subtitle": "Scan cache to find games and services with stored files",
       "loadPreviousResults": "Load previous detection results from database",
       "processLogsFirst": "Process access logs first",
@@ -2890,7 +2940,8 @@
           "title": "Unknown & Delisted Games",
           "description": "Games that no longer appear in Steam's app list (delisted titles) still show up as \"Unknown Game (Depot XXXXXX)\". You can remove them the same way as any other game - run a scan and click Remove.",
           "tip": "Removing an unknown game is the recommended way to fix corrupted or broken game downloads."
-        }
+        },
+        "aboutTitle": "About"
       },
       "emptyState": {
         "noGamesServices": "No games or services with cache files detected",
@@ -3002,7 +3053,8 @@
           "term": "Datasource",
           "description": "A separate cache + logs pair. Useful if you run multiple LANCache instances."
         },
-        "note": "Already-processed entries are automatically skipped, so reprocessing is safe."
+        "note": "Already-processed entries are automatically skipped, so reprocessing is safe.",
+        "aboutTitle": "About"
       }
     },
     "dataImporter": {
@@ -3071,7 +3123,8 @@
           "title": "Important",
           "description": "Make sure you pick the right import type for your database. If the file is outside the Docker container, mount it as a volume first."
         },
-        "warning": "Stop the other application before importing so the database isn't locked."
+        "warning": "Stop the other application before importing so the database isn't locked.",
+        "aboutTitle": "About"
       },
       "alerts": {
         "mockMode": "Mock mode is enabled - import functionality is disabled",
@@ -3141,7 +3194,8 @@
           "logFiles": "Log entries for that service are deleted from the access.log file",
           "databaseRecords": "Related download records are removed from the database"
         },
-        "note": "Your cached game files are not touched -- only log data is removed."
+        "note": "Your cached game files are not touched -- only log data is removed.",
+        "aboutTitle": "About"
       },
       "alerts": {
         "logsReadOnly": {
@@ -3377,7 +3431,8 @@
             "description": "Links between Steam depot IDs and game names. You'll need to re-scan after clearing."
           }
         },
-        "note": "Only the database is cleared. Your cached game files on disk are not deleted."
+        "note": "Only the database is cleared. Your cached game files on disk are not deleted.",
+        "aboutTitle": "About"
       },
       "errors": {
         "authRequired": "Full authentication required for management operations",
@@ -3463,6 +3518,9 @@
         "text": "Text"
       },
       "community": {
+        "help": {
+          "aboutTitle": "About"
+        },
         "title": "Community Themes",
         "available": "available",
         "installed": "installed",
@@ -3503,7 +3561,9 @@
           "title": "Preview Mode",
           "description": "Try a theme temporarily. Click Apply to make it your active theme."
         },
-        "note": "Theme files use TOML or JSON format. Download the sample file to see how they work."
+        "note": "Theme files use TOML or JSON format. Download the sample file to see how they work.",
+        "aboutTitle": "About",
+        "customizeTitle": "About"
       },
       "notifications": {
         "guestCannotChange": "Guest users cannot change themes",
@@ -3521,6 +3581,7 @@
     },
     "grafana": {
       "title": "Live API Endpoints for Grafana",
+      "titleShort": "Grafana API",
       "publicOption": "Public",
       "securedOption": "Secured",
       "securedTooltip": "Endpoints require API key authentication",
@@ -3595,7 +3656,8 @@
           "title": "How to Connect",
           "description": "Use these endpoints with Prometheus or Grafana's JSON datasource plugin. Recommended scrape interval: 10-30 seconds."
         },
-        "note": "You can toggle authentication on/off below or in your docker-compose environment variables."
+        "note": "You can toggle authentication on/off below or in your docker-compose environment variables.",
+        "aboutTitle": "About"
       },
       "placeholders": {
         "selectRate": "Select rate",
@@ -4109,6 +4171,10 @@
       "liftBan": "Lift this ban"
     },
     "prefillSessions": {
+      "help": {
+        "liveSessionsTitle": "About",
+        "historyTitle": "About"
+      },
       "allStatuses": "All Statuses",
       "banReason": "Enter ban reason...",
       "title": "Prefill Sessions",
@@ -4199,6 +4265,9 @@
         "sessions": "sessions"
       },
       "persistentSessions": {
+        "help": {
+          "aboutTitle": "About"
+        },
         "title": "Persistent Sessions",
         "loading": "Loading persistent containers...",
         "noContainers": "No persistent containers",
@@ -4228,6 +4297,9 @@
         "liftBan": "Lift this ban"
       },
       "bannedUsers": {
+        "help": {
+          "aboutTitle": "About"
+        },
         "title": "Banned Users",
         "showLifted": "Show lifted bans",
         "loadingBans": "Loading bans...",

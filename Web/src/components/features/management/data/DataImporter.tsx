@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Upload } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { DatabaseImportForm } from './DatabaseImportForm';
 import type { ImportResult } from '@/types/migration';
@@ -36,10 +37,18 @@ const DataImporter: React.FC<DataImporterProps> = ({
     onDataRefresh?.();
   };
 
+  const helpAccessory = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.dataImporter.help.aboutTitle')}>
+        {t('management.dataImporter.subtitle')}
+      </HelpSection>
+    </HelpPopover>
+  );
+
   return (
     <AccordionSection
       title={t('management.dataImporter.title')}
-      description={t('management.dataImporter.subtitle')}
+      titleAccessory={helpAccessory}
       icon={Upload}
       iconColor="var(--theme-icon-blue)"
       isExpanded={isExpanded}

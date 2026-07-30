@@ -10,9 +10,14 @@ type AccordionIcon =
 
 interface AccordionSectionProps {
   title: string;
+  /**
+   * Shown instead of `title` below 640px, where the title line only has room for
+   * roughly fifteen characters before the accessory drops onto a line of its own
+   * and pushes the actions row away from the collapse arrow. Omit it and the full
+   * title renders at every width.
+   */
+  shortTitle?: string;
   titleAccessory?: React.ReactNode;
-  /** One-line summary under the title so a collapsed section still says what it does. */
-  description?: string;
   count?: number;
   icon?: AccordionIcon;
   iconColor?: string;
@@ -30,8 +35,8 @@ interface AccordionSectionProps {
 
 export const AccordionSection: React.FC<AccordionSectionProps> = ({
   title,
+  shortTitle,
   titleAccessory,
-  description,
   count,
   icon: Icon,
   iconColor = 'var(--theme-accent)',
@@ -153,7 +158,17 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
                   isExpanded ? 'text-themed-primary' : 'text-themed-secondary'
                 }`}
               >
-                {title}
+                {shortTitle ? (
+                  <>
+                    {/* Only one of the two is ever laid out, and `hidden` is
+                        display:none, which also drops the other from the
+                        accessibility tree — so the title is announced once. */}
+                    <span className="sm:hidden">{shortTitle}</span>
+                    <span className="hidden sm:inline">{title}</span>
+                  </>
+                ) : (
+                  title
+                )}
               </span>
 
               {titleAccessory && (
@@ -179,11 +194,6 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
                 </span>
               )}
             </div>
-
-            {/* Kept visible while expanded too - a stable header beats one that reflows. */}
-            {description && (
-              <span className="text-xs text-themed-muted line-clamp-2">{description}</span>
-            )}
           </div>
         </div>
 
@@ -211,8 +221,8 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         {/* Chevron — pinned to the title row at every width (order keeps it right of
             the title on mobile and far-right of the badge on desktop). Top-aligned on
             phones so it always sits level with the title's first line: its position then
-            cannot shift with the title's height, the description's length, or whether an
-            actions row wraps below it, and every card puts the arrow in the same spot. */}
+            cannot shift with the title's height or whether an actions row wraps below
+            it, and every card puts the arrow in the same spot. */}
         <span className="flex flex-shrink-0 order-2 sm:order-3 self-start sm:self-auto">
           {chevronButton}
         </span>
