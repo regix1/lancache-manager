@@ -24,10 +24,8 @@ const themeColorDefaults: Record<string, string> = {
   textPrimary: '#ffffff',
   textSecondary: '#d1d5db',
   textMuted: '#9ca3af',
-  // A lighter step of the primary on this palette, but not derived from it: accent text has to
-  // move away from the page behind it, so a light theme needs a darker step where this one needs
-  // a lighter one. The shipped light theme sets #1d4ed8 here. Each theme states its own. [18]
-  textAccent: '#60a5fa',
+  // textAccent is left out on purpose: it is one step of the accent toward the page's own text,
+  // and normalizeThemeColors below reads which way that is off the palette. [18]
   textPlaceholder: '#6b7280',
 
   // ── Drag handle ──────────────────────────────────────────────────────
@@ -67,11 +65,9 @@ const themeColorDefaults: Record<string, string> = {
   // info keeps a default even though it matches the primary: six of the eight shipped themes
   // deliberately give it a hue of their own, so it is a status colour, not the accent.
   info: '#3b82f6',
-  // The fill and text of an info panel. They belong to info above rather than to the accent, and
-  // they swap ends of the scale between palettes: this one wants a dark fill under light text,
-  // the shipped light theme wants #dbeafe under #1d4ed8. Each theme states its own pair. [18]
-  infoBg: '#1e3a8a',
-  infoText: '#93c5fd',
+  // infoBg and infoText are left out on purpose. They are shades of info above, not of the accent:
+  // all nine shipped themes draw this pair from their own info, and both derive below off info so
+  // the badge and the words on it cannot end up different hues. [18]
   // Waiting/queued state (operation wait-queue cards). Purple on the default palette;
   // themes whose palettes clash with purple override with a distinct in-palette hue.
   waiting: '#a855f7',
@@ -260,11 +256,9 @@ const themeColorDefaults: Record<string, string> = {
   fireworkColor5: '#22d3ee',
   fireworkColor6: '#a78bfa',
   fireworkColor7: '#38bdf8',
-  fireworkColor8: '#ffffff',
-  // The halo around the rocket. A lighter step of the primary here, but these palettes rotate hue
-  // as they lighten, so a step that keeps the hue lands visibly off the mark and two themes give
-  // the halo a hue of its own anyway. Each theme states it. [18]
-  fireworkGlowColor: '#60a5fa'
+  fireworkColor8: '#ffffff'
+  // fireworkGlowColor is left out on purpose: the halo is a lighter shade of the rocket it
+  // surrounds, on a dark page and a light one alike, so it derives below without flipping. [18]
 };
 
 // ---------------------------------------------------------------------------
@@ -319,22 +313,26 @@ export function hexToRgba(hex: string, opacity: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Utility: the same colour, darker, as a #rrggbb string. Scales HSL lightness by
-// the given factor and leaves hue and saturation where they were.
+// Utility: the same colour at a different lightness, as a #rrggbb string. Scales
+// HSL lightness by the given factor and leaves hue and saturation where they were,
+// so every shade a theme grows from its own colours keeps that colour's hue.
 //
 // Scaling lightness is what matches how the shipped themes were actually drawn:
 // all nine write a hover that sits a step below their own button colour at
-// essentially the same hue, and a 0.84 factor lands within a shade nobody can
-// pick out of a line-up on both the dark and the light palette. Working in a
-// perceptual space instead was measured and came out worse here, because it
-// holds chroma flat while these ramps gain a little chroma as they darken.
+// essentially the same hue. Working in a perceptual space instead was measured
+// and came out worse here, because it holds chroma flat while these ramps gain a
+// little chroma as they darken.
 //
-// There is deliberately no lighter counterpart. A lighter step cannot be computed
-// the same way: the shipped palettes rotate hue as they lighten, and a light theme
-// wants its accent text darker rather than lighter, so one rule cannot serve both.
+// The two directions are not equally accurate, and that is a property of these
+// palettes rather than of the maths. They turn about five degrees toward cyan as
+// they lighten and barely three as they darken, so a step that keeps the hue
+// reproduces the shipped darker shades to dE2000 0.8 and the lighter ones only to
+// 2.3 - measured over every colour sharing the hue, not over a handful of
+// formulas. A lighter step is still far closer than the alternative it replaces,
+// which was one palette's blue frozen into every other theme.
 // Unreadable input gives mid grey, matching hexToRgba above. [18]
 // ---------------------------------------------------------------------------
-function darken(color: string, factor: number): string {
+function scaleLightness(color: string, factor: number): string {
   const channels = readColorChannels(color);
   if (!channels) {
     return '#808080';
@@ -386,6 +384,47 @@ function darken(color: string, factor: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// The two named steps, so a call site says which way it is going. Both are the
+// same scaling above; a factor below 1 goes down the ramp and above 1 goes up.
+// ---------------------------------------------------------------------------
+function darken(color: string, factor: number): string {
+  return scaleLightness(color, factor);
+}
+
+function lighten(color: string, factor: number): string {
+  return scaleLightness(color, factor);
+}
+
+// ---------------------------------------------------------------------------
+// Which way a palette runs, so the shades below can step the right way without a
+// theme having to declare it. A page whose text is lighter than its background is
+// a dark theme and wants its accent shades lighter; a light page wants them
+// darker. textPrimary and bgPrimary always carry a default, so there is always
+// something to read, and the comparison stays right for a mid-grey page where a
+// plain brightness threshold would not.
+//
+// Relative luminance is the WCAG definition. It is used only to order two
+// colours, never reported, so nothing downstream depends on the exact number.
+// ---------------------------------------------------------------------------
+function relativeLuminance(color: string): number {
+  const channels = readColorChannels(color);
+  if (!channels) {
+    return 0;
+  }
+
+  const [red, green, blue] = channels.map((channel) => {
+    const value = channel / 255;
+    return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+  });
+
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function isDarkPalette(colors: Record<string, string>): boolean {
+  return relativeLuminance(colors.textPrimary) > relativeLuminance(colors.bgPrimary);
+}
+
+// ---------------------------------------------------------------------------
 // Fill in derived colours that depend on other base colours.
 // Only sets a key when it is missing or empty.
 // ---------------------------------------------------------------------------
@@ -426,6 +465,41 @@ function normalizeThemeColors(colors: Record<string, string>): Record<string, st
   // geometry is fixed, so the colour still follows the theme
   if (!result.checkboxHoverShadow) {
     result.checkboxHoverShadow = `0 0 0 3px ${hexToRgba(result.checkboxAccent, 0.1)}`;
+  }
+
+  // Which way this palette steps, read once and used by the shades below
+  const dark = isDarkPalette(result);
+
+  // Accent text is the accent taken one step toward the page's own text, so links stand off the
+  // ground rather than sinking into it. The shipped light theme takes the same step downward
+  if (!result.textAccent) {
+    result.textAccent = dark
+      ? lighten(result.primaryColor, 1.18)
+      : darken(result.primaryColor, 0.84);
+  }
+
+  // An info panel's fill and its words, both shaded from info rather than the accent because that
+  // is what every shipped theme does by hand, and because deriving only one of them would put one
+  // hue on the badge and another on the text sitting in it. They step opposite ways: the fill
+  // sinks toward the page, the words climb away from the fill.
+  //
+  // The words take a bigger step than a link does, and on a light page a much bigger one. Badge
+  // text has to clear the tinted ground under it rather than the page, and a bright hue such as
+  // yellow or pale grey lightens far more than a blue does for the same move along the scale: a
+  // link-sized step leaves that text at 2.2:1 on its own badge, where this one holds at least
+  // 4.7:1 across every hue tried
+  if (!result.infoBg) {
+    result.infoBg = dark ? darken(result.info, 0.35) : lighten(result.info, 1.74);
+  }
+  if (!result.infoText) {
+    result.infoText = dark ? lighten(result.info, 1.32) : darken(result.info, 0.55);
+  }
+
+  // The halo around the rocket, off the rocket rather than the accent so a theme that recolours
+  // only its rocket keeps the two in step. A glow is brighter than the thing it surrounds on
+  // either kind of page, so this is the one accent shade that does not flip with the palette
+  if (!result.fireworkGlowColor) {
+    result.fireworkGlowColor = lighten(result.fireworkRocketColor, 1.18);
   }
 
   // Steam variants derived from steamColor

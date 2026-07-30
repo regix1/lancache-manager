@@ -284,7 +284,16 @@ class ThemeService {
         colors: complete({
           // The derived hover comes off buttonBg and lands more saturated than the blue this
           // theme has always shipped, so it states its own pair.
-          buttonHover: '#2563eb'
+          buttonHover: '#2563eb',
+          // These four are shades the schema can now grow from a theme's own colours, and the
+          // shades it grows land a little off the Tailwind steps this palette was cut from: the
+          // ramp turns toward cyan as it lightens, and this theme's badge ground is brighter than
+          // most. Stating them keeps the shipped blues exactly where they have always been while
+          // the derivation serves themes that set an accent and nothing else.
+          textAccent: '#60a5fa',
+          infoBg: '#1e3a8a',
+          infoText: '#93c5fd',
+          fireworkGlowColor: '#60a5fa'
         })
       },
       // Modern, clean light theme (GitHub Primer / Radix pattern):
@@ -1735,6 +1744,7 @@ class ThemeService {
     } else {
       storage.removeItem('lancache_preview_theme');
     }
+    window.dispatchEvent(new Event(APP_EVENTS.THEME_PREVIEW_CHANGE));
   }
 
   getPreviewTheme(): string | null {
@@ -1743,6 +1753,7 @@ class ThemeService {
 
   clearPreviewTheme(): void {
     storage.removeItem('lancache_preview_theme');
+    window.dispatchEvent(new Event(APP_EVENTS.THEME_PREVIEW_CHANGE));
   }
 
   // Save the original theme before starting preview
