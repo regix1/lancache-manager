@@ -1152,6 +1152,7 @@
       "guestDevice": "访客设备"
     },
     "help": {
+      "aboutTitle": "关于",
       "sessionTypes": {
         "title": "会话类型",
         "authenticated": {

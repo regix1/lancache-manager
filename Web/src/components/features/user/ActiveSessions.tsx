@@ -1385,9 +1385,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         <div className="space-y-4">
           <AccordionSection
             title={t('activeSessions.title')}
-            description={t('activeSessions.summary')}
             titleAccessory={
               <HelpPopover width={320}>
+                <HelpSection title={t('activeSessions.help.aboutTitle')}>
+                  {t('activeSessions.summary')}
+                </HelpSection>
                 <HelpSection title={t('activeSessions.help.sessionTypes.title')} variant="subtle">
                   <HelpDefinition
                     items={[
@@ -1493,7 +1495,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       );
                     })}
 
-                    <div className="relative min-w-[19rem] max-w-md flex-1">
+                    <div className="session-filter-search relative">
                       <Search className="input-icon absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
                       <input
                         type="text"
@@ -1521,7 +1523,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       value={String(pageSize)}
                       onChange={handlePageSizeChange}
                       prefix={t('downloads.tab.filters.showPrefix')}
-                      className="min-w-[6.5rem]"
+                      className="session-filter-pagesize"
                       dropdownWidth="100px"
                     />
                   </div>

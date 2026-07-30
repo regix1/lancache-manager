@@ -1152,6 +1152,7 @@
       "guestDevice": "guest device"
     },
     "help": {
+      "aboutTitle": "About",
       "sessionTypes": {
         "title": "Session Types",
         "authenticated": {
