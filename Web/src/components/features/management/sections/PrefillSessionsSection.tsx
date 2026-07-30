@@ -36,6 +36,7 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import Badge from '@components/ui/Badge';
 import ApiService, {
   type PrefillSessionDto,
@@ -1295,7 +1296,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             isExpanded={liveSessionsExpanded}
             onToggle={() => setLiveSessionsExpanded(!liveSessionsExpanded)}
             badge={
-              <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+              <SectionHeaderActions>
                 <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
                   {(close) => (
                     <>
@@ -1329,7 +1330,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                     </>
                   )}
                 </SectionActionsMenu>
-              </div>
+              </SectionHeaderActions>
             }
           >
             {loadingSessions ? (

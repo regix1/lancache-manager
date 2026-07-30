@@ -6,7 +6,7 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Tooltip } from '@components/ui/Tooltip';
-import Badge from '@components/ui/Badge';
+import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
@@ -130,7 +130,11 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
       iconColor="var(--theme-icon-green)"
       isExpanded={expanded}
       onToggle={() => setExpanded((prev) => !prev)}
-      badge={durationBadgeLabel ? <Badge variant="neutral">{durationBadgeLabel}</Badge> : undefined}
+      badge={
+        durationBadgeLabel ? (
+          <SectionHeaderChip variant="neutral">{durationBadgeLabel}</SectionHeaderChip>
+        ) : undefined
+      }
     >
       <div className="mgmt-list divided-list user-settings-list">
         <div className="mgmt-row">

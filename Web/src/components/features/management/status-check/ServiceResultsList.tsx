@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Globe } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
-import Badge from '@components/ui/Badge';
+import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Tooltip } from '@components/ui/Tooltip';
 import { getServiceColorClass } from '@utils/serviceColors';
 import type { StatusCheckContentReport, StatusCheckServiceResult } from '@services/api.service';
@@ -65,25 +65,25 @@ const ServiceResultItem: React.FC<ServiceResultItemProps> = ({
   const wrongCount = activeTotal - service.resolvedCount;
   const badge =
     service.status === 'resolved' ? (
-      <Badge variant="success" className="tabular-nums">
+      <SectionHeaderChip variant="success" className="tabular-nums">
         {t(`${keys}.badgeResolved`, {
           resolved: service.resolvedCount,
           total: activeTotal
         })}
-      </Badge>
+      </SectionHeaderChip>
     ) : service.status === 'partial' ? (
-      <Badge variant="warning" className="tabular-nums">
+      <SectionHeaderChip variant="warning" className="tabular-nums">
         {t(`${keys}.badgePartial`, { wrong: wrongCount, total: activeTotal })}
-      </Badge>
+      </SectionHeaderChip>
     ) : service.status === 'disabled' ? (
-      <Badge variant="neutral">{t(`${keys}.badgeDisabled`)}</Badge>
+      <SectionHeaderChip variant="neutral">{t(`${keys}.badgeDisabled`)}</SectionHeaderChip>
     ) : service.status === 'unverified' ? (
-      <Badge variant="info">{t(`${keys}.badgeUnverified`)}</Badge>
+      <SectionHeaderChip variant="info">{t(`${keys}.badgeUnverified`)}</SectionHeaderChip>
     ) : service.domains.some((domain) => domain.status === 'mismatched') ? (
       // DNS answers but with the wrong IPs - a different failure than "not resolving".
-      <Badge variant="warning">{t(`${keys}.badgeMismatched`)}</Badge>
+      <SectionHeaderChip variant="warning">{t(`${keys}.badgeMismatched`)}</SectionHeaderChip>
     ) : (
-      <Badge variant="error">{t(`${keys}.badgeNone`)}</Badge>
+      <SectionHeaderChip variant="error">{t(`${keys}.badgeNone`)}</SectionHeaderChip>
     );
 
   const sortedDomains = [...service.domains].sort(

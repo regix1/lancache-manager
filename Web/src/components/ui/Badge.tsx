@@ -1,21 +1,4 @@
-import type { ReactNode } from 'react';
-
-type BadgeVariant =
-  | 'error'
-  | 'warning'
-  | 'success'
-  | 'info'
-  | 'neutral'
-  | 'waiting'
-  | 'waiting-outline';
-
-interface BadgeProps {
-  variant: BadgeVariant;
-  children: ReactNode;
-  className?: string;
-  /** Accessible name for badges whose text alone is not self-describing (a bare count). */
-  ariaLabel?: string;
-}
+import type { BadgeProps, BadgeVariant } from './Badge.types';
 
 // Literal class names (never `status-badge-${variant}`) so Tailwind's content
 // scanner keeps these @layer components rules. A templated class string is not

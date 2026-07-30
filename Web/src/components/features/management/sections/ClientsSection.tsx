@@ -7,6 +7,7 @@ import { ActionMenu, ActionMenuItem, ActionMenuDangerItem } from '@components/ui
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
+import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Alert } from '@components/ui/Alert';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
@@ -430,13 +431,13 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
             onToggle={() => setNicknamesExpanded((prev) => !prev)}
             badge={
               isAdmin ? (
-                <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+                <SectionHeaderActions>
                   {/* The section's only primary action, so it stays outside a menu. A second
                       section action brings the kebab back and this button stays beside it. */}
                   <Button variant="filled" color="blue" size="md" onClick={handleCreateGroup}>
                     {t('management.sections.clients.addNickname')}
                   </Button>
-                </div>
+                </SectionHeaderActions>
               ) : undefined
             }
           >
@@ -901,13 +902,13 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
             isExpanded={hostnamesExpanded}
             onToggle={() => setHostnamesExpanded((prev) => !prev)}
             badge={
-              <Badge variant={hostnamesEnabled ? 'success' : 'neutral'}>
+              <SectionHeaderChip variant={hostnamesEnabled ? 'success' : 'neutral'}>
                 {t(
                   hostnamesEnabled
                     ? 'management.sections.clients.hostnames.enabled'
                     : 'management.sections.clients.hostnames.disabled'
                 )}
-              </Badge>
+              </SectionHeaderChip>
             }
           >
             {!isAdmin ? (

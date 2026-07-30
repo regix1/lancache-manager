@@ -22,6 +22,7 @@ import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatCount } from '@utils/formatters';
@@ -325,7 +326,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   // Header actions
   const headerActions = (
-    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+    <SectionHeaderActions>
       <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
         {(close) => (
           <>
@@ -365,7 +366,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           </>
         )}
       </SectionActionsMenu>
-    </div>
+    </SectionHeaderActions>
   );
 
   return (

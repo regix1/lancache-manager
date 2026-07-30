@@ -196,9 +196,12 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
             against the flex-1 title (the section wrapper is overflow-hidden). Consumers
             that pass a plain badge fill this row left-aligned; those that want a
             right-aligned inline cluster already wrap it in `w-full … sm:w-auto
-            sm:justify-end`. */}
+            sm:justify-end`. The gap is `gap-2 sm:gap-3` to match the header row above
+            it: this is a nested flex container, so gap does not inherit, and a slot
+            holding two children at a plain `gap-2` puts 8px between them while the row
+            around them uses 12px. */}
         {badge && (
-          <div className="flex flex-wrap items-center gap-2 w-full order-3 sm:w-auto sm:order-2 sm:flex-shrink-0">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full order-3 sm:w-auto sm:order-2 sm:flex-shrink-0">
             {badge}
           </div>
         )}

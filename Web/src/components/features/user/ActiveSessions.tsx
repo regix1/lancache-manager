@@ -32,6 +32,7 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import StatusDot from '@components/common/StatusDot';
@@ -1427,12 +1428,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             isExpanded={sessionsExpanded}
             onToggle={() => setSessionsExpanded((prev: boolean) => !prev)}
             badge={
-              <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
-                <Badge variant={guestModeLocked ? 'error' : 'success'}>
+              <SectionHeaderActions>
+                <SectionHeaderChip variant={guestModeLocked ? 'error' : 'success'}>
                   {guestModeLocked
                     ? t('activeSessions.toggle.locked')
                     : t('activeSessions.toggle.unlocked')}
-                </Badge>
+                </SectionHeaderChip>
                 <SectionActionsMenu
                   label={t('management.actions.menuLabel', 'Actions')}
                   width="w-56"
@@ -1461,7 +1462,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     </>
                   )}
                 </SectionActionsMenu>
-              </div>
+              </SectionHeaderActions>
             }
           >
             <div className="space-y-4">

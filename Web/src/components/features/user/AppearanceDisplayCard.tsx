@@ -6,7 +6,7 @@ import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
-import Badge from '@components/ui/Badge';
+import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 
 interface AppearanceDisplayCardProps {
@@ -133,11 +133,11 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
       isExpanded={expanded}
       onToggle={() => setExpanded((prev) => !prev)}
       badge={
-        <Badge variant={guestRefreshRateLocked ? 'warning' : 'neutral'}>
+        <SectionHeaderChip variant={guestRefreshRateLocked ? 'warning' : 'neutral'}>
           {guestRefreshRateLocked
             ? t('activeSessions.toggle.locked')
             : t('activeSessions.toggle.unlocked')}
-        </Badge>
+        </SectionHeaderChip>
       }
     >
       <div className="space-y-4">

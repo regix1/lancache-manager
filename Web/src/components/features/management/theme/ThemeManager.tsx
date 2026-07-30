@@ -29,8 +29,8 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
-import Badge from '@components/ui/Badge';
 import { ThemeCard } from './ThemeCard';
 import { ThemeSlider } from './ThemeSlider';
 import CreateThemeModal from '@components/modals/theme/CreateThemeModal';
@@ -654,9 +654,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   );
 
   const themeManagementActions = (
-    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+    <SectionHeaderActions>
       {previewTheme && authService.authMode !== 'guest' && (
-        <Badge variant="warning">{t('management.themes.previewBadge')}</Badge>
+        <SectionHeaderChip variant="warning">
+          {t('management.themes.previewBadge')}
+        </SectionHeaderChip>
       )}
       <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
         {(close) => (
@@ -699,7 +701,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
           </>
         )}
       </SectionActionsMenu>
-    </div>
+    </SectionHeaderActions>
   );
 
   return (

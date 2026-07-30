@@ -17,8 +17,8 @@ import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
-import Badge from '@components/ui/Badge';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import HighlightGlow from '@components/ui/HighlightGlow';
 import { type AuthMode } from '@services/auth.service';
@@ -868,11 +868,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
               isExpanded={evictedDataExpanded}
               onToggle={() => setEvictedDataExpanded((prev) => !prev)}
               badge={
-                <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+                <SectionHeaderActions>
                   {selectedEvictedCount > 0 && (
-                    <Badge variant="neutral" className="badge-count">
+                    <SectionHeaderChip variant="neutral" className="badge-count">
                       {selectedEvictedCount}
-                    </Badge>
+                    </SectionHeaderChip>
                   )}
                   <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
                     {(close) => (
@@ -1007,7 +1007,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                       </>
                     )}
                   </SectionActionsMenu>
-                </div>
+                </SectionHeaderActions>
               }
             >
               <div className="space-y-4">

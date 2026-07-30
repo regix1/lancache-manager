@@ -15,6 +15,7 @@ import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -41,7 +42,6 @@ import CardDirectoryNotice from '@components/features/management/CardDirectoryNo
 import { MANAGEMENT_STORAGE_KEYS } from '../sections/managementStorageKeys';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import '../managementSectionContent.css';
-import Badge from '@components/ui/Badge';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
@@ -803,11 +803,19 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Help content
   // Header actions - scan buttons + expand/collapse all
   const headerActions = (
-    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+    <SectionHeaderActions>
+      {/* The results count used to sit outside this cluster as a second child of the
+          accordion's badge slot, which put the slot's own gap between it and the
+          actions instead of the cluster's. One cluster, one gap. */}
+      {hasResults && (
+        <SectionHeaderChip variant="info" className="badge-count">
+          {filteredGames.length + filteredServices.length}
+        </SectionHeaderChip>
+      )}
       {selectedCombinedCount > 0 && (
-        <Badge variant="neutral" className="badge-count">
+        <SectionHeaderChip variant="neutral" className="badge-count">
           {selectedCombinedCount}
-        </Badge>
+        </SectionHeaderChip>
       )}
       <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
         {(close) => (
@@ -946,7 +954,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           </>
         )}
       </SectionActionsMenu>
-    </div>
+    </SectionHeaderActions>
   );
 
   return (
@@ -958,16 +966,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         iconColor="var(--theme-icon-blue)"
         isExpanded={sectionExpanded}
         onToggle={() => setSectionExpanded((prev) => !prev)}
-        badge={
-          <>
-            {hasResults && (
-              <Badge variant="info" className="badge-count">
-                {filteredGames.length + filteredServices.length}
-              </Badge>
-            )}
-            {headerActions}
-          </>
-        }
+        badge={headerActions}
       >
         <div className="space-y-3">
           <CardDirectoryNotice notice={directoryNotice} />

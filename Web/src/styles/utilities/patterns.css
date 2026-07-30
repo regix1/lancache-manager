@@ -176,6 +176,24 @@
   }
 }
 
+/* A status chip standing in a section header's action row, next to the kebab and the
+   accordion chevron. Both classes already exist - .control-h-md (forms.css) pins a
+   control to the 40px row height, .themed-border-radius-sm (cards.css) is the corner
+   the chevron and .btn-icon-square already use - but .themed-badge declares its own
+   3px radius and 6px side padding at the same 0,1,0 specificity, so the badge class is
+   compounded in here to win by specificity instead of by chunk order. The wider side
+   padding comes with the height: a 40px-tall chip on 6px of padding reads as a narrow
+   slab. Fill, text colour and cursor are left alone so the chip still reads as a label
+   rather than a button. */
+.themed-badge.control-h-md {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.themed-badge.themed-border-radius-sm {
+  border-radius: var(--theme-border-radius);
+}
+
 @keyframes pulse-dot-ring {
   0%,
   100% {

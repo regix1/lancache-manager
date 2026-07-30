@@ -11,6 +11,7 @@ import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
@@ -375,7 +376,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   );
 
   const headerActions = (
-    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+    <SectionHeaderActions>
       <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
         {(close) => (
           <>
@@ -416,7 +417,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           </>
         )}
       </SectionActionsMenu>
-    </div>
+    </SectionHeaderActions>
   );
 
   return (

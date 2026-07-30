@@ -8,6 +8,7 @@ import { EmptyState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import themeService from '@services/theme.service';
@@ -433,7 +434,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   const allImported = communityThemes.length > 0 && visibleThemesCount === 0 && !showImported;
 
   const headerActions = (
-    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+    <SectionHeaderActions>
       <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
         {(close) => (
           <>
@@ -478,7 +479,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
           </>
         )}
       </SectionActionsMenu>
-    </div>
+    </SectionHeaderActions>
   );
 
   return (

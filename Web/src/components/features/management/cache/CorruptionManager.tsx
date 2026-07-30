@@ -45,6 +45,7 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { ActionMenuDangerItem, ActionMenuDivider, ActionMenuItem } from '@components/ui/ActionMenu';
 import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
 import Badge from '@components/ui/Badge';
@@ -1014,19 +1015,19 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   );
 
   const headerActions = (
-    <div className="mgmt-corruption-header-actions flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+    <SectionHeaderActions>
       {projection.total > 0 && (
-        <Badge variant="neutral" className="badge-count badge-count-warning">
+        <SectionHeaderChip variant="neutral" className="badge-count badge-count-warning">
           {t('management.corruption.flaggedCount', {
             count: projection.total,
             formattedCount: formatCount(projection.total)
           })}
-        </Badge>
+        </SectionHeaderChip>
       )}
       {selectedServices.length > 0 && (
-        <Badge variant="neutral" className="badge-count">
+        <SectionHeaderChip variant="neutral" className="badge-count">
           {selectedServices.length}
-        </Badge>
+        </SectionHeaderChip>
       )}
       <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
         {(close) => (
@@ -1147,7 +1148,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           </>
         )}
       </SectionActionsMenu>
-    </div>
+    </SectionHeaderActions>
   );
 
   return (

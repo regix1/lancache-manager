@@ -28,13 +28,13 @@ import { finalizeBulkRemovalNotification } from '@components/features/management
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
-import Badge from '@components/ui/Badge';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { SectionHeaderActions, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { formatCount } from '@utils/formatters';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
@@ -632,11 +632,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   // still shows on the "Remove Selected" item's own label). flex-wrap keeps the
   // trigger from overflowing at 390px.
   const headerBadge = (
-    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+    <SectionHeaderActions>
       {selection.count > 0 && (
-        <Badge variant="neutral" className="badge-count">
+        <SectionHeaderChip variant="neutral" className="badge-count">
           {selection.count}
-        </Badge>
+        </SectionHeaderChip>
       )}
       <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
         {(close) => (
@@ -680,7 +680,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           </>
         )}
       </SectionActionsMenu>
-    </div>
+    </SectionHeaderActions>
   );
 
   return (

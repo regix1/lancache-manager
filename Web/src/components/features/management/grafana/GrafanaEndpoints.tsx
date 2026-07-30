@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, Lock, Unlock, Lightbulb, RefreshCw, Clock, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import Badge from '@components/ui/Badge';
+import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -303,11 +303,11 @@ const GrafanaEndpoints: React.FC = () => {
 
   const accessBadge =
     metricsSecurity != null ? (
-      <Badge variant={metricsSecurity.requiresAuthentication ? 'success' : 'neutral'}>
+      <SectionHeaderChip variant={metricsSecurity.requiresAuthentication ? 'success' : 'neutral'}>
         {metricsSecurity.requiresAuthentication
           ? t('management.grafana.securedOption')
           : t('management.grafana.publicOption')}
-      </Badge>
+      </SectionHeaderChip>
     ) : undefined;
 
   const helpAccessory = (

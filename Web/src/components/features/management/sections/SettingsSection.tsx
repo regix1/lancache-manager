@@ -6,7 +6,7 @@ import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import Badge from '@components/ui/Badge';
+import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
 import { useNotifications } from '@contexts/notifications';
@@ -94,11 +94,11 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
             isExpanded={apiAuthExpanded}
             onToggle={() => setApiAuthExpanded((prev) => !prev)}
             badge={
-              <Badge variant={authenticationEnabled ? 'success' : 'neutral'}>
+              <SectionHeaderChip variant={authenticationEnabled ? 'success' : 'neutral'}>
                 {authenticationEnabled
                   ? t('management.sections.settings.enabled')
                   : t('management.sections.settings.disabled')}
-              </Badge>
+              </SectionHeaderChip>
             }
           >
             <AuthenticationManager onError={handleError} onSuccess={handleSuccess} />
@@ -112,11 +112,11 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
             isExpanded={demoModeExpanded}
             onToggle={() => setDemoModeExpanded((prev) => !prev)}
             badge={
-              <Badge variant={mockMode ? 'success' : 'neutral'}>
+              <SectionHeaderChip variant={mockMode ? 'success' : 'neutral'}>
                 {mockMode
                   ? t('management.sections.settings.enabled')
                   : t('management.sections.settings.disabled')}
-              </Badge>
+              </SectionHeaderChip>
             }
           >
             <div className="p-4 rounded-lg bg-themed-tertiary">

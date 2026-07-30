@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { AccordionSection } from '@components/ui/AccordionSection';
-import Badge from '@components/ui/Badge';
+import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { LoadingState } from '@components/ui/ManagerCard';
@@ -88,9 +88,9 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
 
   const statusBadge = !loading ? (
     connected ? (
-      <Badge variant="success">{connectedLabel}</Badge>
+      <SectionHeaderChip variant="success">{connectedLabel}</SectionHeaderChip>
     ) : (
-      <Badge variant="neutral">{notConnectedLabel}</Badge>
+      <SectionHeaderChip variant="neutral">{notConnectedLabel}</SectionHeaderChip>
     )
   ) : undefined;
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
-import Badge from '@components/ui/Badge';
+import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { useSteamAuth } from '@contexts/useSteamAuth';
@@ -35,9 +35,9 @@ const SteamIntegrationCard: React.FC<SteamIntegrationCardProps> = ({
     activity.isActive('integration', 'steam', 'authenticated') || steamAuthMode === 'authenticated';
 
   const statusBadge = isConnected ? (
-    <Badge variant="success">{t('management.steamAuth.connected')}</Badge>
+    <SectionHeaderChip variant="success">{t('management.steamAuth.connected')}</SectionHeaderChip>
   ) : (
-    <Badge variant="neutral">{t('management.steamAuth.anonymous')}</Badge>
+    <SectionHeaderChip variant="neutral">{t('management.steamAuth.anonymous')}</SectionHeaderChip>
   );
 
   return (
