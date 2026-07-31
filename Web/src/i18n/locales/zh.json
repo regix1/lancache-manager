@@ -1007,6 +1007,16 @@
         "updated": "预填充配置已更新",
         "existingGuestsNote": "这些默认设置仅适用于新的访客会话。对于已登录的访客，请使用“活动会话”修改预填充权限。",
         "warning": "安全风险：所有新访客都将能够触发预填充。建议保持关闭，改为按会话授予访问权限。",
+        "services": {
+          "help": {
+            "aboutTitle": "关于"
+          },
+          "steamDescription": "使用 Steam 账户中的所选游戏、最近游戏、热门游戏或所有游戏预填充 LAN 缓存。",
+          "epicDescription": "使用 Epic Games 账户中的所选游戏、热门游戏或所有游戏预填充 LAN 缓存。",
+          "battlenetDescription": "使用所选游戏或完整的 Battle.net 公开目录预填充 LAN 缓存。",
+          "riotDescription": "使用所选游戏或所有公开的 Riot CDN 内容预填充 LAN 缓存。",
+          "xboxDescription": "使用账户中的所选游戏、最近游戏、热门游戏或所有 Xbox 和 Microsoft Store 游戏预填充 LAN 缓存。"
+        },
         "enableByDefault": {
           "label": "默认启用",
           "description": "新访客自动获得预填充权限",

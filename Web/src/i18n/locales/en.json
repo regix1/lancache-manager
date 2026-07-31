@@ -1007,6 +1007,16 @@
         "updated": "Prefill configuration updated",
         "existingGuestsNote": "These defaults apply to new guest sessions only. Use Active Sessions to change prefill permissions for guests who are already logged in.",
         "warning": "Security risk: All new guests will be able to trigger prefills. Consider keeping this off and granting access per-session instead.",
+        "services": {
+          "help": {
+            "aboutTitle": "About"
+          },
+          "steamDescription": "Prefills the LAN cache with selected, recent, top, or all games from a Steam account.",
+          "epicDescription": "Prefills the LAN cache with selected, top, or all games from an Epic Games account.",
+          "battlenetDescription": "Prefills the LAN cache with selected games or the full public Battle.net catalog.",
+          "riotDescription": "Prefills the LAN cache with selected titles or all public Riot CDN content.",
+          "xboxDescription": "Prefills the LAN cache with selected, recent, top, or all Xbox and Microsoft Store games from an account."
+        },
         "enableByDefault": {
           "label": "Enable by Default",
           "description": "New guests automatically get prefill access",

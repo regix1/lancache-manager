@@ -35,6 +35,7 @@ interface PrefillServicePanelProps {
   durationHelpText: string;
   enableLabel: string;
   enableDescription: string;
+  serviceDescription: string;
   prefillDurationOptions: { value: string; label: string }[];
   /** When false, the max download threads control is hidden (e.g. anonymous Battle.net). Defaults to true. */
   showMaxThreads?: boolean;
@@ -65,6 +66,7 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
   durationHelpText,
   enableLabel,
   enableDescription,
+  serviceDescription,
   prefillDurationOptions,
   showMaxThreads = true,
   maxThreadsLabel,
@@ -86,8 +88,8 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
 
   const helpAccessory = (
     <HelpPopover position="left" width={320}>
-      <HelpSection title={t('user.guest.prefill.enableByDefault.help.aboutTitle')}>
-        {enableDescription}
+      <HelpSection title={t('user.guest.prefill.services.help.aboutTitle')}>
+        {serviceDescription}
       </HelpSection>
     </HelpPopover>
   );

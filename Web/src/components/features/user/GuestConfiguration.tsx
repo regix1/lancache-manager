@@ -512,6 +512,14 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     </HelpPopover>
   );
 
+  const serviceDescriptions: Record<GameServiceId, string> = {
+    steam: t('user.guest.prefill.services.steamDescription'),
+    epic: t('user.guest.prefill.services.epicDescription'),
+    battlenet: t('user.guest.prefill.services.battlenetDescription'),
+    riot: t('user.guest.prefill.services.riotDescription'),
+    xbox: t('user.guest.prefill.services.xboxDescription')
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
@@ -596,6 +604,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                   }
                   enableLabel={t('user.guest.prefill.enableByDefault.label')}
                   enableDescription={t('user.guest.prefill.enableByDefault.description')}
+                  serviceDescription={serviceDescriptions[service.id]}
                   prefillDurationOptions={prefillDurationOptions}
                   maxThreadOptions={service.supportsMaxThreads ? maxThreadOptions : undefined}
                   showMaxThreads={service.supportsMaxThreads}
