@@ -43,12 +43,17 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   const [availableHeight, setAvailableHeight] = useState<number | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [effectiveWidth, setEffectiveWidth] = useState(width);
+  const [viewportSize, setViewportSize] = useState(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight
+  }));
   const { present, closing } = useExitPresence(isOpen, DROPDOWN_EXIT_MS);
 
   // Calculate effective width based on viewport
   useEffect(() => {
     const calculateWidth = () => {
       const viewportWidth = window.innerWidth;
+      setViewportSize({ width: viewportWidth, height: window.innerHeight });
       if (viewportWidth < 640) {
         setEffectiveWidth(Math.min(width, viewportWidth - 32));
       } else {
@@ -64,12 +69,12 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   const horizontalPosition = useCallback(
     (triggerRect: DOMRect) => {
       let x = position === 'left' ? triggerRect.left : triggerRect.right - effectiveWidth;
-      if (x + effectiveWidth > window.innerWidth - VIEWPORT_PADDING) {
-        x = window.innerWidth - effectiveWidth - VIEWPORT_PADDING;
+      if (x + effectiveWidth > viewportSize.width - VIEWPORT_PADDING) {
+        x = viewportSize.width - effectiveWidth - VIEWPORT_PADDING;
       }
       return Math.max(VIEWPORT_PADDING, x);
     },
-    [effectiveWidth, position]
+    [effectiveWidth, position, viewportSize.width]
   );
 
   // Mount the popover next to its trigger so it measures at its real width. It
@@ -158,8 +163,11 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     // padding is only taken off once the popover has to be clamped, so help
     // text that already fitted, even by a couple of pixels, stays where it was
     // instead of flipping or growing a scrollbar it never needed.
-    const spaceBelow = window.innerHeight - triggerRect.bottom - TRIGGER_GAP;
-    const spaceAbove = triggerRect.top - TRIGGER_GAP;
+    // Shrinking the window while the popover is open can leave the trigger below
+    // the new bottom edge. Capping the space above at the viewport keeps those
+    // already-hidden rows out of the measurement.
+    const spaceBelow = viewportSize.height - triggerRect.bottom - TRIGGER_GAP;
+    const spaceAbove = Math.min(triggerRect.top, viewportSize.height) - TRIGGER_GAP;
 
     let opensBelow = true;
     let room = spaceBelow;
@@ -177,14 +185,20 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     }
 
     const renderedHeight = Math.min(naturalHeight, room);
+    // Opening upwards normally ends at the trigger, which is on screen. When the
+    // trigger itself has dropped past the bottom edge, sitting against it would
+    // hang the last lines of help text off the screen with nothing to scroll.
     const y = opensBelow
       ? triggerRect.bottom + TRIGGER_GAP
-      : triggerRect.top - renderedHeight - TRIGGER_GAP;
+      : Math.min(
+          triggerRect.top - renderedHeight - TRIGGER_GAP,
+          viewportSize.height - renderedHeight - VIEWPORT_PADDING
+        );
 
     setPopoverPos({ x: horizontalPosition(triggerRect), y: Math.max(0, y) });
     setAvailableHeight(Math.max(0, Math.floor(room) - POPOVER_BORDER));
     setIsReady(true);
-  }, [isOpen, present, horizontalPosition]);
+  }, [isOpen, present, horizontalPosition, viewportSize.height]);
 
   // The measured room on the open side, narrowed further by a caller's own limit.
   const heightLimit =
