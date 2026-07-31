@@ -657,7 +657,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
     </HelpPopover>
   );
 
-  const helpAccessory = (
+  const customizeHelpContent = (
     <HelpPopover position="left" width={320}>
       <HelpSection title={t('management.themes.help.customizeTitle')}>
         {t('management.themes.customizeSummary')}
@@ -945,7 +945,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
           <AccordionSection
             title={t('management.themes.tabs.customize')}
-            titleAccessory={helpAccessory}
+            titleAccessory={customizeHelpContent}
             icon={Brush}
             iconColor="var(--theme-icon-orange)"
             isExpanded={customizeExpanded}
