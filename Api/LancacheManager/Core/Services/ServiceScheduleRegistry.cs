@@ -121,6 +121,24 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         ScheduledBackgroundService.ServiceExecutionStateChanged += OnServiceExecutionStateChangedAsync;
         ConfigurableScheduledService.ServiceExecutionStateChanged += OnServiceExecutionStateChangedAsync;
+
+        // Work-state ticks only fire around the scheduling LOOPS. A background run (a
+        // fire-and-forget scan, or a wait-queued run promoted after its blocker finished)
+        // starts and ends with no tick at all, so without this hook the running dot would
+        // miss those runs entirely or stay lit after they finish. Terminal fires exactly
+        // once per operation; the broadcast itself dedupes via the activity registry.
+        if (_tracker is not null)
+        {
+            _tracker.OperationTerminal += OnTrackedOperationTerminal;
+        }
+    }
+
+    private void OnTrackedOperationTerminal(OperationInfo operation)
+    {
+        if (_runStatusOperationTypes.ContainsValue(operation.Type))
+        {
+            NotifySchedulesChanged();
+        }
     }
 
     private async void OnServiceExecutionStateChangedAsync(string serviceKey)
@@ -481,6 +499,19 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
     private ServiceScheduleInfo MapScheduledService(ScheduledBackgroundService service)
     {
+        // Services whose loop only FIRES the work (e.g. the cache size scan starts a background
+        // scan and returns) drop IsCurrentlyExecuting back to false while the real work runs for
+        // minutes as a tracked operation - leaving the running dot dark for the whole run, and a
+        // notification-silent run completely invisible. Same tracker fallback the configurable
+        // branch below already uses: the loop flag OR a live tracked operation of the mapped type.
+        var scheduledIsRunning = service.IsCurrentlyExecuting;
+        if (!scheduledIsRunning
+            && _tracker is not null
+            && _runStatusOperationTypes.TryGetValue(service.ServiceKey, out var scheduledOpType))
+        {
+            scheduledIsRunning = _tracker.GetActiveOperations(scheduledOpType).Any();
+        }
+
         return new ServiceScheduleInfo
         {
             Key = service.ServiceKey,
@@ -489,7 +520,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             NotificationMode = service.EffectiveNotificationMode,
             NotificationDisplayMode = _stateService.GetServiceNotificationDisplayMode(service.ServiceKey) ?? service.DefaultNotificationDisplayMode,
             SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
-            IsRunning = service.IsCurrentlyExecuting,
+            IsRunning = scheduledIsRunning,
             LastRunUtc = service.LastRunUtc,
             NextRunUtc = service.NextRunUtc,
         };
