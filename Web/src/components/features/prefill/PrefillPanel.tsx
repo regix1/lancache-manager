@@ -729,8 +729,9 @@ function ServicePrefillPanel({
         setSelectedAppIds(normalizedAppIds);
         setShowGameSelection(false);
         addLog('success', t('prefill.log.selectedGames', { count: normalizedAppIds.length }));
-      } catch {
-        addLog('error', t('prefill.log.failedSaveSelection'));
+      } catch (err) {
+        addLog('error', getErrorMessage(err) || t('prefill.log.failedSaveSelection'));
+        throw err;
       }
     },
     [signalR.session, addLog, serviceBasePath, t]

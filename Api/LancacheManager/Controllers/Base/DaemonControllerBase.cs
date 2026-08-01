@@ -268,7 +268,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
             return ownershipResult;
         }
 
-        if (request.AppIds == null || request.AppIds.Count == 0)
+        if (request.AppIds == null)
         {
             return BadRequest(ApiResponse.Required("AppIds"));
         }
