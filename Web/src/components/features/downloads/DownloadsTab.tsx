@@ -2177,7 +2177,10 @@ const DownloadsTab: React.FC = () => {
             {/* Retro stays mounted behind display:none like the other views, so
                 switching back is instant (previous rows + background refetch)
                 instead of a full remount that refetches from scratch. */}
-            <div style={{ display: settings.viewMode === 'retro' ? 'block' : 'none' }}>
+            <div
+              className="space-y-4"
+              style={{ display: settings.viewMode === 'retro' ? 'block' : 'none' }}
+            >
               {retroEverMounted.current && (
                 <Suspense
                   fallback={
