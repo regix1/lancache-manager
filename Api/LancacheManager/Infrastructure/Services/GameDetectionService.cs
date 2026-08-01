@@ -54,22 +54,14 @@ public class GameDetectionService : ScheduledBackgroundService
         // run; the detection service carries it verbatim through every lifecycle event.
         var showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
 
-        async Task<Guid?> StartDetectionAsync()
-        {
-            try
-            {
-                return await _detectionService.StartDetectionAsync(incremental: true, showNotification: showNotification);
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "[GameDetection] {RunKind} detection start was refused: {Reason}",
-                    runKind,
-                    ex.Message);
-                return null;
-            }
-        }
+        // Exceptions must PROPAGATE to the queue: a thrown start (capability denial) is a
+        // permanent refusal for this run, and the queue fails the waiting card immediately with
+        // the real reason. Mapping it to null instead re-labels it as the transient
+        // gate-still-unwinding signal, which the queue retries for 30 seconds while the card
+        // shows a stale blocker, before failing with an unrelated "start gate" error. A null
+        // return stays reserved for the genuinely transient case (a detection already active).
+        Task<Guid?> StartDetectionAsync() =>
+            _detectionService.StartDetectionAsync(incremental: true, showNotification: showNotification);
 
         var outcome = await _operationQueue.EnqueueAsync(
             OperationType.GameDetection,
