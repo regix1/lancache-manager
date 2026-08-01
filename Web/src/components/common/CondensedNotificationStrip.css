@@ -1,10 +1,11 @@
 /* Condensed notification strip: a full-bleed thin line under the navigation, one status-coloured
-   segment per compacted service, with an overlay dropdown panel revealing the real cards.
+   segment per compacted service, with an in-flow panel revealing the real cards.
 
-   The panel is position: absolute. The strip's layout height therefore equals the line's height
-   at ALL times - opening does not push the page, and no interrupted animation can ever leave
-   residual height painting the bar's background as a band under the line. The only animation is
-   the panel's entrance keyframe; closing is an unmount and has nothing to animate or freeze.
+   The panel opens in normal flow inside the same bar surface as the full-size cards below it,
+   so compacted and full cards share one stack and never overlap. Closing is an instant unmount
+   with nothing to animate, so an interrupted close can never leave residual height painting the
+   bar's background as a band under the line; the only animation is the panel's entrance
+   keyframe, which transforms within space that is already reserved.
 
    Every class here is self-contained (no shared progress-track classes): same-specificity rules
    in different bundles resolve by chunk order, which differs between dev and prod. */
@@ -214,39 +215,32 @@
   }
 }
 
+/* The open panel sits in flow directly under the line, so the glow band would land on the
+   first revealed card. The open state suppresses it: the glow's job is hinting that the line
+   expands, and that is answered once the panel is open. */
+.condensed-strip-line[aria-expanded='true'] .condensed-strip-glow {
+  opacity: 0;
+}
+
 .condensed-strip-line:focus-visible .condensed-strip-glow {
   opacity: 1;
 }
 
-/* The overlay panel: anchored under the line, spanning the strip's full width, painted the
-   bar's own colour so the revealed cards keep their familiar backdrop. It floats above the
-   page (and above any full-size cards below the line) instead of pushing them down. */
+/* The revealed cards live in normal flow under the line, inside the same bar surface as the
+   full-size cards further down, so opening pushes those cards (and the page) down and closing
+   hands the space straight back. The bar behind provides the backdrop and owns the bottom
+   border and shadow, so the panel carries no surface styling of its own. */
 .condensed-strip-panel {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  z-index: 10;
   padding-top: 0.375rem;
-  background: var(--theme-nav-bg);
-  border-bottom: 1px solid var(--theme-nav-border);
-  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.25);
   /* House motion at dropdown speed, unfolding DOWNWARD: scaleY from the pinned top edge, so
      no frame of the animation can place any part of the panel above the line it hangs from
      (a translate-from-above entrance poked over the line into the navigation as it landed).
+     A transform animates within space the layout has already reserved, so the full cards
+     below take their final position immediately and only the revealed content eases in.
      Keyframes rather than transitions: churn rewrites styles every tick and a retargeted
      transition restarts from its interpolated state, but keyframes hold. */
   transform-origin: top center;
   animation: condensedStripPanelIn 0.22s cubic-bezier(0.33, 1, 0.68, 1);
-}
-
-/* The exit mirrors the entrance. `forwards` holds the faded-out end state until the unmount
-   timeout runs, so a lagging frame can never flash the panel back at full opacity, and a
-   leaving panel stops taking pointer events so it cannot eat clicks aimed at the page (or
-   re-arm hover) while fading. */
-.condensed-strip-panel.is-leaving {
-  animation: condensedStripPanelOut 0.2s cubic-bezier(0.33, 1, 0.68, 1) forwards;
-  pointer-events: none;
 }
 
 @keyframes condensedStripPanelIn {
@@ -260,22 +254,10 @@
   }
 }
 
-@keyframes condensedStripPanelOut {
-  from {
-    opacity: 1;
-    transform: scaleY(1);
-  }
-  to {
-    opacity: 0;
-    transform: scaleY(0.96);
-  }
-}
-
-/* Reduced motion: no entrance or exit motion, no sweep, no pulse; the glow still appears on
-   hover/focus, just without the fade. The leaving panel simply unmounts at the timeout. */
+/* Reduced motion: no entrance motion, no sweep, no pulse; the glow still appears on
+   hover/focus, just without the fade. Closing is already an instant unmount. */
 @media (prefers-reduced-motion: reduce) {
   .condensed-strip-panel,
-  .condensed-strip-panel.is-leaving,
   .condensed-strip.is-vanishing .condensed-strip-line,
   .condensed-strip-seg.is-exiting,
   .condensed-strip-glow-seg.is-exiting,

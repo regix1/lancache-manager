@@ -625,6 +625,10 @@ const UniversalNotificationBar: React.FC = () => {
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set());
+  // Whether the condensed strip's revealed cards are currently in the bar's flow. They share
+  // this bar's surface with the full cards, so the bar's bottom border and shadow must hold
+  // under them even when no full card renders below the strip.
+  const [stripOpen, setStripOpen] = useState(false);
 
   // Per-service display preference (full | condensed), live from the Schedules page. Empty until
   // seeded; an absent key resolves to full, so this drives display only and never the transport.
@@ -831,7 +835,9 @@ const UniversalNotificationBar: React.FC = () => {
     <div className={`w-full ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}>
       <div
         className={`w-full bg-[var(--theme-nav-bg)] transition duration-300 ease-out motion-reduce:transition-none ${
-          fullItems.length > 0 ? 'border-b shadow-sm border-[var(--theme-nav-border)]' : ''
+          fullItems.length > 0 || stripOpen
+            ? 'border-b shadow-sm border-[var(--theme-nav-border)]'
+            : ''
         }`}
         style={{
           transform: isAnimatingOut ? 'translateY(-100%)' : 'translateY(0)',
@@ -858,6 +864,7 @@ const UniversalNotificationBar: React.FC = () => {
               };
             })}
             canHover={canHover}
+            onOpenChange={setStripOpen}
           >
             <div className="container mx-auto px-4 pb-2">
               {/* On a phone the opened panel caps at roughly two cards and scrolls for the rest,

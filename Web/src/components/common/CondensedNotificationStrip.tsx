@@ -25,30 +25,24 @@ const GLOW_COLOR_BY_STATUS_COLOR: Record<string, string> = {
 };
 
 /**
- * While the panel is open on a hover device, how often the browser's hover state is re-asked.
- * A run finishing mid-hover re-renders the strip and can swallow the wrapper's mouseleave, so
- * enter/leave alone could leave the panel open after the pointer had gone. Nothing about the
- * strip's geometry changes under the pointer here (the line's height is constant and the panel
- * is an overlay, not an in-flow expansion), so the browser's own :hover answer is reliable and
- * only needs re-asking while the panel is open. The timer exists only while open.
+ * While the panel is open on a hover device, how often the pointer's whereabouts are re-asked.
+ * The panel opens in flow, so a revealed card finishing can shrink the panel UNDER a parked
+ * pointer, and the browser neither fires a mouseleave nor re-evaluates :hover until the pointer
+ * physically moves - enter/leave alone would leave the panel latched open. The recheck decides
+ * with two signals whose blind spots are disjoint: `matches(':hover')` goes stale-true exactly
+ * in that layout-changed-under-a-parked-pointer case, while hit-testing the last known pointer
+ * coordinates goes stale-true only when the pointer left the window in one hardware step (no
+ * final pointermove ever landed). Either signal saying "gone" closes the panel. The timer
+ * exists only while open.
  */
 const OPEN_HOVER_RECHECK_MS = 250;
 
 /**
- * How long the closing panel stays mounted while its exit animation plays. Slightly longer
- * than the CSS exit animation so the faded-out end state (held by `forwards`) is what
- * unmounts, never a mid-fade frame. The unmount rides this plain timeout, NOT an
- * animationend/transitionend event: completion events can be lost when notification churn
- * re-renders mid-animation, and a timeout always fires. Even if the exit animation itself
- * were to freeze, the panel is an overlay, so the worst case is cards lingering for these
- * milliseconds - never residual layout height under the line.
- */
-const PANEL_EXIT_MS = 260;
-
-/**
  * How long the strip keeps rendering its final segments after the last compacted notification
  * goes away, while the line's fade-out plays. Slightly longer than the CSS exit animation so
- * the faded end state is what unmounts. A plain timeout for the same reason as PANEL_EXIT_MS.
+ * the faded end state is what unmounts. The unmount rides this plain timeout, NOT an
+ * animationend event: completion events can be lost when notification churn re-renders
+ * mid-animation, and a timeout always fires.
  */
 const LINE_EXIT_MS = 450;
 
@@ -74,7 +68,12 @@ interface CondensedNotificationStripProps {
   segments: CondensedStripSegment[];
   /** Fine hover-capable pointers reveal on hover; touch and keyboard reveal via the tap toggle. */
   canHover: boolean;
-  /** Every compacted UnifiedNotificationItem, revealed together in the overlay panel. */
+  /**
+   * Reports whether the revealed cards are currently in the bar's flow, so the bar can keep its
+   * bottom border and shadow under them even when no full-size cards render below the strip.
+   */
+  onOpenChange?: (open: boolean) => void;
+  /** Every compacted UnifiedNotificationItem, revealed together in the in-flow panel. */
   children: React.ReactNode;
 }
 
@@ -130,16 +129,18 @@ const StripSegment: React.FC<{ segment: CondensedStripSegment; leaving?: boolean
 /**
  * A single thin line standing in for every compacted notification at once. Hover (fine
  * pointers) or tap/Enter (touch and keyboard) reveals all the real UnifiedNotificationItems in
- * an overlay panel anchored under the line, so cancel, dismiss, and progress keep working -
- * the revealed elements ARE the same cards.
+ * an in-flow panel directly under the line, so cancel, dismiss, and progress keep working -
+ * the revealed elements ARE the same cards, sharing one stack with any full-size cards the bar
+ * renders below instead of overlaying them.
  *
- * The panel is an absolutely positioned dropdown, never an in-flow expansion: the strip's
- * layout height equals the line's height at all times, so no animation, churn, or interrupted
- * close can ever leave residual height under the line. Closing is a plain unmount.
+ * Closing is an INSTANT unmount, never an exit animation: an in-flow panel that animated shut
+ * could be interrupted mid-collapse and strand residual height under the line, and an unmount
+ * has nothing to freeze. Keep it that way.
  */
 export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProps> = ({
   segments,
   canHover,
+  onOpenChange,
   children
 }) => {
   const { t } = useTranslation();
@@ -268,22 +269,18 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
         });
       });
   }
-  // The panel outlives `open` by PANEL_EXIT_MS so its exit animation can play. Whenever
-  // (closed, still mounted) holds after a commit, this effect has re-armed the unmount timer -
-  // both pieces of that pair are dependencies - so the panel can never be left mounted with no
-  // teardown pending, no matter how fast hover flickers toggle `open`.
-  const [panelMounted, setPanelMounted] = useState(false);
+  // The panel renders in the bar's flow, so the bar needs to know when it is visible to keep
+  // its bottom edge under the revealed cards. Reported through a latest-callback ref so the
+  // unmount report cannot re-fire on prop identity churn.
+  const panelVisible = open && hasSegments;
+  const onOpenChangeRef = useRef(onOpenChange);
   useEffect(() => {
-    if (open) {
-      setPanelMounted(true);
-      return;
-    }
-    if (!panelMounted) {
-      return;
-    }
-    const timer = window.setTimeout(() => setPanelMounted(false), PANEL_EXIT_MS);
-    return () => window.clearTimeout(timer);
-  }, [open, panelMounted]);
+    onOpenChangeRef.current = onOpenChange;
+  });
+  useEffect(() => {
+    onOpenChangeRef.current?.(panelVisible);
+  }, [panelVisible]);
+  useEffect(() => () => onOpenChangeRef.current?.(false), []);
 
   const handleMouseEnter = (): void => {
     if (canHover) {
@@ -296,18 +293,72 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
     }
   };
 
-  // The swallowed-mouseleave healer (see OPEN_HOVER_RECHECK_MS).
+  // Last known pointer position for the open-state recheck's hit-test. A capture-phase passive
+  // listener storing two numbers costs nothing and cannot be swallowed by anything the strip
+  // renders, so the coordinates are always current when the recheck needs them.
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!canHover) {
+      return;
+    }
+    const handlePointerMove = (event: PointerEvent): void => {
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
+    };
+    document.addEventListener('pointermove', handlePointerMove, { capture: true, passive: true });
+    return () => document.removeEventListener('pointermove', handlePointerMove, { capture: true });
+  }, [canHover]);
+
+  // The open-state recheck (see OPEN_HOVER_RECHECK_MS): both signals must still place the
+  // pointer on the strip, because each one's stale-true case is the other's reliable case.
   useEffect(() => {
     if (!canHover || !open) {
       return;
     }
     const timer = window.setInterval(() => {
       const el = wrapperRef.current;
-      if (el && !el.matches(':hover')) {
+      if (!el) {
+        return;
+      }
+      if (!el.matches(':hover')) {
         setOpen(false);
+        return;
+      }
+      const coords = lastPointerRef.current;
+      if (coords) {
+        const under = document.elementFromPoint(coords.x, coords.y);
+        if (!under || !el.contains(under)) {
+          setOpen(false);
+        }
       }
     }, OPEN_HOVER_RECHECK_MS);
     return () => window.clearInterval(timer);
+  }, [canHover, open]);
+
+  // Ways the pointer can be gone without a final event ever landing where the strip could see
+  // it: the window loses focus, the tab hides, or the pointer exits the document in one
+  // hardware step. Each closes the panel outright instead of waiting on a recheck tick whose
+  // inputs may be stale.
+  useEffect(() => {
+    if (!canHover || !open) {
+      return;
+    }
+    const close = (): void => {
+      lastPointerRef.current = null;
+      setOpen(false);
+    };
+    const handleVisibility = (): void => {
+      if (document.visibilityState === 'hidden') {
+        close();
+      }
+    };
+    document.documentElement.addEventListener('mouseleave', close);
+    window.addEventListener('blur', close);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.documentElement.removeEventListener('mouseleave', close);
+      window.removeEventListener('blur', close);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [canHover, open]);
 
   // Tap-opened panels (no hover to end them) close on a press outside the strip, and any open
@@ -419,12 +470,10 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
           ))}
         </span>
       </button>
-      {/* Hard-gated on live segments: during the line's fade-out the children the bar passes
-          are already empty, and letting the panel play its own exit then would fade an empty
-          background slab. It unmounts instantly instead. */}
-      {panelMounted && hasSegments && (
-        <div className={`condensed-strip-panel${open ? '' : ' is-leaving'}`}>{children}</div>
-      )}
+      {/* Mounted only while open AND segments are live: closing unmounts instantly (an in-flow
+          exit animation could be interrupted and strand height under the line), and during the
+          line's fade-out the children the bar passes are already empty, so nothing renders. */}
+      {panelVisible && <div className="condensed-strip-panel">{children}</div>}
     </div>
   );
 };
