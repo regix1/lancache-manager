@@ -227,16 +227,33 @@ export function useNotificationHandlers(
       if (!entry) return;
       cancelAutoDismissTimer(entry.id);
       setNotifications((prev: UnifiedNotification[]) => {
+        // A re-emit for the SAME queued op announces a new blocker; keep the original
+        // startedAt so the card's age does not reset every time the blocker changes.
+        const existing = prev.find(
+          (n) =>
+            n.id === entry.id &&
+            n.status === 'waiting' &&
+            n.details?.operationId === event.operationId
+        );
         const filtered = prev.filter((n) => n.id !== entry.id);
+        // Prefix the op's display name so several FIFO-queued cards stay distinguishable,
+        // and name the blocking operation whenever the queue knows it.
+        const message = event.name
+          ? event.blockedByName
+            ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED_BLOCKED, {
+                name: event.name,
+                blocker: event.blockedByName
+              })
+            : i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: event.name })
+          : event.blockedByName
+            ? i18n.t(OPERATION_WAITING_I18N_KEYS.BLOCKED, { blocker: event.blockedByName })
+            : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT);
         const waitingNotification: UnifiedNotification = {
           id: entry.id,
           type: entry.type,
           status: 'waiting',
-          // Prefix the op's display name so several FIFO-queued cards stay distinguishable.
-          message: event.name
-            ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: event.name })
-            : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT),
-          startedAt: new Date(),
+          message,
+          startedAt: existing?.startedAt ?? new Date(),
           details: { operationId: event.operationId }
         };
         return [...filtered, waitingNotification];

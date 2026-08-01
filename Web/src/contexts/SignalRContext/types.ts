@@ -1223,6 +1223,12 @@ export interface OperationWaitingEvent {
   operationId: string;
   operationType: string;
   name: string;
+  /**
+   * Display name of the operation currently holding the conflict; null/absent when the
+   * blocker is unknown (local start-gate refusal). The backend re-emits this event with a
+   * new value when the waiter ends up parked behind a different operation.
+   */
+  blockedByName?: string | null;
 }
 
 /**

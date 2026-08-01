@@ -69,5 +69,7 @@ public sealed class CacheSizeQueueTests
             Start = start;
             return Task.FromResult(response);
         }
+
+        public string? GetWaitingBlockerName(Guid waitingOperationId) => null;
     }
 }

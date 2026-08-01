@@ -17,13 +17,16 @@ public class OperationsController : ControllerBase
 {
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly OperationCancellationService _cancellationService;
+    private readonly IOperationQueue _operationQueue;
 
     public OperationsController(
         IUnifiedOperationTracker operationTracker,
-        OperationCancellationService cancellationService)
+        OperationCancellationService cancellationService,
+        IOperationQueue operationQueue)
     {
         _operationTracker = operationTracker;
         _cancellationService = cancellationService;
+        _operationQueue = operationQueue;
     }
 
     /// <summary>
@@ -63,7 +66,8 @@ public class OperationsController : ControllerBase
             {
                 operationId = op.Id,
                 operationType = op.Type.ToWireString(),
-                name = op.Name
+                name = op.Name,
+                blockedByName = _operationQueue.GetWaitingBlockerName(op.Id)
             })
             .ToList();
 

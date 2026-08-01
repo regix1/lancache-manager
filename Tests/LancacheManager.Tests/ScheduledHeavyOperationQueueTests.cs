@@ -424,6 +424,8 @@ public sealed class ScheduledHeavyOperationQueueTests
             Start = start;
             return Task.FromResult(_response);
         }
+
+        public string? GetWaitingBlockerName(Guid waitingOperationId) => null;
     }
 
     private sealed class TestCacheSizeScanScheduledService : CacheSizeScanScheduledService

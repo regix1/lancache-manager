@@ -216,6 +216,8 @@
       "cancelling": "Cancelling...",
       "operationWaiting": "Waiting for another process to complete...",
       "operationWaitingNamed": "{{name}}: waiting for another process to complete...",
+      "operationWaitingOn": "Waiting for {{blocker}} to finish...",
+      "operationWaitingOnNamed": "{{name}}: waiting for {{blocker}} to finish...",
       "operationWaitingCancelled": "Cancelled while waiting in queue",
       "willQueueBehindCurrent": "Will start after the current operation finishes",
       "corruptedChunksRemoved": "Suspect cache files successfully removed",

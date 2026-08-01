@@ -35,4 +35,11 @@ public interface IOperationQueue
         string displayName,
         Func<Task<Guid?>> start,
         CancellationToken ct);
+
+    /// <summary>
+    /// Display name of the operation the given parked waiter is currently blocked behind, or
+    /// null when the operation is not parked here or its blocker is unknown. Lets the waiting
+    /// recovery endpoint restore cards that name their blocker after a page refresh.
+    /// </summary>
+    string? GetWaitingBlockerName(Guid waitingOperationId);
 }

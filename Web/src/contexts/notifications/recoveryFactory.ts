@@ -117,6 +117,8 @@ interface WaitingOperationRow {
   operationId: string;
   operationType: string;
   name: string;
+  /** Display name of the operation this one is parked behind; null when unknown. */
+  blockedByName?: string | null;
 }
 
 /**
@@ -155,8 +157,15 @@ function createWaitingOperationsRecoveryFunction(
             type: entry.type,
             status: 'waiting' as NotificationStatus,
             message: row.name
-              ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: row.name })
-              : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT),
+              ? row.blockedByName
+                ? i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED_BLOCKED, {
+                    name: row.name,
+                    blocker: row.blockedByName
+                  })
+                : i18n.t(OPERATION_WAITING_I18N_KEYS.NAMED, { name: row.name })
+              : row.blockedByName
+                ? i18n.t(OPERATION_WAITING_I18N_KEYS.BLOCKED, { blocker: row.blockedByName })
+                : i18n.t(OPERATION_WAITING_I18N_KEYS.DEFAULT),
             startedAt: new Date(),
             details: { operationId: row.operationId }
           });

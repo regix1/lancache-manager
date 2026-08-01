@@ -216,6 +216,8 @@
       "cancelling": "取消中...",
       "operationWaiting": "正在等待其他进程完成...",
       "operationWaitingNamed": "{{name}}：正在等待其他进程完成...",
+      "operationWaitingOn": "正在等待 {{blocker}} 完成...",
+      "operationWaitingOnNamed": "{{name}}：正在等待 {{blocker}} 完成...",
       "operationWaitingCancelled": "已在等待队列中取消",
       "willQueueBehindCurrent": "将在当前操作完成后开始",
       "corruptedChunksRemoved": "可疑缓存文件已成功移除",

@@ -108,7 +108,9 @@ export const GENERIC_FAILURE_I18N_KEY = 'signalr.generic.failed';
 /** Waiting-card message keys shared by live SignalR creation and REST recovery. */
 export const OPERATION_WAITING_I18N_KEYS = {
   DEFAULT: 'common.notifications.operationWaiting',
-  NAMED: 'common.notifications.operationWaitingNamed'
+  NAMED: 'common.notifications.operationWaitingNamed',
+  BLOCKED: 'common.notifications.operationWaitingOn',
+  NAMED_BLOCKED: 'common.notifications.operationWaitingOnNamed'
 } as const;
 
 /** Game-removal progress key shared by direct, bulk, and recovered removal cards. */

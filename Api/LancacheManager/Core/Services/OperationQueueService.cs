@@ -34,6 +34,13 @@ public sealed class OperationQueueService : IOperationQueue
         public required Func<Task<Guid?>> Start { get; init; }
         public required long Sequence { get; init; }
         public int PromotionRefusals { get; set; }
+        /// <summary>
+        /// The blocker last announced to the frontend for this waiter (id + display name).
+        /// Both mutate only under <see cref="_gate"/>; the name is additionally read under
+        /// <see cref="_sync"/> by the recovery-endpoint accessor.
+        /// </summary>
+        public Guid? LastBlockerId { get; set; }
+        public string? LastBlockerName { get; set; }
     }
 
     private const int MaxPromotionRefusals = 300;
@@ -165,6 +172,7 @@ public sealed class OperationQueueService : IOperationQueue
             cts.Token.Register(() => _ = Task.Run(() =>
                 _tracker.CompleteOperation(capturedWaitingId, success: false, error: "Cancelled by user")));
 
+            var blockerName = ResolveBlockerName(conflict);
             lock (_sync)
             {
                 _waiters.Add(new Waiter
@@ -174,7 +182,9 @@ public sealed class OperationQueueService : IOperationQueue
                     Scope = scope,
                     Name = displayName,
                     Start = start,
-                    Sequence = Interlocked.Increment(ref _nextSequence)
+                    Sequence = Interlocked.Increment(ref _nextSequence),
+                    LastBlockerId = conflict?.ActiveOperationId,
+                    LastBlockerName = blockerName
                 });
             }
 
@@ -195,7 +205,7 @@ public sealed class OperationQueueService : IOperationQueue
 
             await _notifications.NotifyAllAsync(
                 SignalREvents.OperationWaiting,
-                new OperationWaitingNotification(waitingId, typeWire, displayName));
+                new OperationWaitingNotification(waitingId, typeWire, displayName, blockerName));
 
             if (retryAfterParking)
             {
@@ -213,6 +223,50 @@ public sealed class OperationQueueService : IOperationQueue
         {
             _gate.Release();
         }
+    }
+
+    public string? GetWaitingBlockerName(Guid waitingOperationId)
+    {
+        lock (_sync)
+        {
+            return _waiters.FirstOrDefault(w => w.WaitingId == waitingOperationId)?.LastBlockerName;
+        }
+    }
+
+    /// <summary>
+    /// The blocker's display name comes from the live tracker rather than the conflict response:
+    /// the response only carries the enum name, and a raw enum token is not something to show a
+    /// person. A blocker that already left the tracker resolves to null (generic waiting text) -
+    /// its terminal event is about to trigger a promotion pass anyway.
+    /// </summary>
+    private string? ResolveBlockerName(OperationConflictResponse? conflict)
+    {
+        if (conflict?.ActiveOperationId is not { } blockerId || blockerId == Guid.Empty)
+        {
+            return null;
+        }
+        return _tracker.GetOperation(blockerId)?.Name;
+    }
+
+    private async Task AnnounceBlockerChangeAsync(Waiter waiter, OperationConflictResponse conflict)
+    {
+        if (conflict.ActiveOperationId == waiter.LastBlockerId)
+        {
+            return;
+        }
+        var blockerName = ResolveBlockerName(conflict);
+        lock (_sync)
+        {
+            waiter.LastBlockerId = conflict.ActiveOperationId;
+            waiter.LastBlockerName = blockerName;
+        }
+        await _notifications.NotifyAllAsync(
+            SignalREvents.OperationWaiting,
+            new OperationWaitingNotification(
+                waiter.WaitingId,
+                waiter.Type.ToWireString(),
+                waiter.Name,
+                blockerName));
     }
 
     private bool RemoveWaiter(Guid waitingId)
@@ -270,7 +324,12 @@ public sealed class OperationQueueService : IOperationQueue
                     var conflict = await _conflictChecker.CheckAsync(waiter.Type, waiter.Scope, CancellationToken.None);
                     if (conflict != null)
                     {
-                        continue; // still blocked; independent-scope waiters behind it may still promote
+                        // Still blocked; independent-scope waiters behind it may still promote.
+                        // The blocker may be a DIFFERENT operation than last announced (the one
+                        // this waiter parked behind finished, and the next conflicting op took
+                        // over) - re-announce so the waiting card names the current blocker.
+                        await AnnounceBlockerChangeAsync(waiter, conflict);
+                        continue;
                     }
 
                     // Claim the entry before starting so a concurrent cancel cannot double-drive it.
