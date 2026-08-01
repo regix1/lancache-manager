@@ -419,6 +419,57 @@
     width: 100%;
     justify-content: flex-start;
   }
+
+  /* Scan history View/Delete buttons render at 24px (size="xs") and stay that way at
+     desktop widths on purpose (Jul 14 decision); phones grow them to match the
+     Deletion Method Preserve/Remove All buttons (Button size="sm", measured 32px). */
+  .mgmt-corruption-actions > button {
+    flex: 1 1 auto;
+    min-height: 2rem;
+  }
+
+  /* The per-service expand chevron is icon-only; the flex-grow above stretches it
+     into a wide bar because it is the row's only growing sibling next to a
+     non-button Badge. Keep it a square touch target instead of a wide button. */
+  .mgmt-corruption-actions > button.mgmt-row__toggle {
+    flex: 0 0 2rem;
+    width: 2rem;
+    min-width: 2rem;
+  }
+
+  /* Datasource rows: the two 7rem action buttons form a 228px cluster; the row body's
+     flex-basis is 0, so the flex line never breaks and the label column collapses to
+     ~22px between 368-600px. Full-width cluster forces the line break. */
+  .datasource-list .mgmt-row__actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  /* One shared control height in the stacked cluster: .themed-input carries a 1px
+     border (34px emergent) while the borderless sm buttons already render at their
+     natural 32px (size="sm", matching the Deletion Method Preserve/Remove All
+     buttons); pin both to that 32px instead of growing the buttons past it. */
+  .datasource-list .mgmt-row__actions .themed-input,
+  .datasource-list .mgmt-row__actions > button {
+    height: 2rem;
+  }
+
+  /* The cache-size cluster grows a third control (input + Save + Reset) once a manual
+     override is set; three 7rem-floor controls need 344px, which overflows the 262px
+     content width at 390px. Relax the floor to an equal share only when a third
+     sibling is present - the common two-control clusters keep their natural width.
+     The input's own min-content is its UA default text-box size (~200px), not its
+     shrink-to-fit box, so it needs min-width: 0 rather than min-content or it still
+     overflows past the buttons next to it. */
+  .datasource-list .mgmt-row__actions:has(> :nth-child(3)) > .themed-input {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .datasource-list .mgmt-row__actions:has(> :nth-child(3)) > button {
+    flex: 1 1 0;
+    min-width: min-content;
+  }
 }
 
 /* ===== Data section - database table picker ===== */
