@@ -627,20 +627,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         <h3 className="dash-panel-title">{t('dashboard.downloadsPanel.title')}</h3>
 
         <div className="rdl-view-switch">
-          {viewMode === 'recent' && (
-            <Tooltip content={t('dashboard.downloadsPanel.showDetails')}>
-              <Button
-                variant="filled"
-                color={showDetails ? 'blue' : 'gray'}
-                size="md"
-                onClick={toggleDetails}
-                aria-label={t('dashboard.downloadsPanel.showDetails')}
-                aria-pressed={showDetails}
-                leftSection={<Rows3 className="w-4 h-4" />}
-                className="min-h-10 rounded-[var(--theme-border-radius)]"
-              />
-            </Tooltip>
-          )}
           <SegmentedControl
             options={[
               {
@@ -670,6 +656,20 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             size="md"
             showLabels={true}
           />
+          {viewMode === 'recent' && (
+            <Tooltip content={t('dashboard.downloadsPanel.showDetails')}>
+              <Button
+                variant="filled"
+                color={showDetails ? 'blue' : 'gray'}
+                size="md"
+                onClick={toggleDetails}
+                aria-label={t('dashboard.downloadsPanel.showDetails')}
+                aria-pressed={showDetails}
+                leftSection={<Rows3 className="w-4 h-4" />}
+                className="min-h-10 rounded-[var(--theme-border-radius)]"
+              />
+            </Tooltip>
+          )}
         </div>
 
         {/* Filters (only for recent view) */}
