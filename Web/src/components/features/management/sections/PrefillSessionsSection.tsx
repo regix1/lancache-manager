@@ -496,10 +496,10 @@ const SessionCard: React.FC<{
                     <Button
                       variant="filled"
                       color="gray"
-                      size="md"
+                      size="sm"
                       onClick={() => setMenuOpen((prev) => !prev)}
                       aria-label={t('common.moreActions', 'More actions')}
-                      className="btn-icon-square"
+                      className="btn-icon-square btn-icon-square--sm pointer-target-44"
                     >
                       <MoreVertical className="w-4 h-4" />
                     </Button>
@@ -535,9 +535,9 @@ const SessionCard: React.FC<{
               <Button
                 variant="filled"
                 color="gray"
-                size="md"
+                size="sm"
                 onClick={onToggleHistory}
-                className="prefill-expand-btn btn-icon-square"
+                className="prefill-expand-btn btn-icon-square btn-icon-square--sm pointer-target-44"
               >
                 {isLoadingHistory ? (
                   <LoadingSpinner inline size="sm" />
