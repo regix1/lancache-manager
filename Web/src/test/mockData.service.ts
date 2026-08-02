@@ -28,6 +28,24 @@ interface GameInfo {
   size: number;
 }
 
+// Services the demo library is spread across, cycled by index so the split is stable between
+// renders instead of reshuffling. Steam repeats because a real cache is mostly Steam, and because
+// anything that groups or filters by service needs one clearly dominant group to look right.
+// Every entry is a key from SERVICES, so display names resolve the same way as live data.
+const MOCK_DETECTION_SERVICES = [
+  'steam',
+  'steam',
+  'epicgames',
+  'steam',
+  'xbox',
+  'blizzard',
+  'steam',
+  'riot',
+  'origin',
+  'steam',
+  'wsus'
+];
+
 // Type for tracking client activity during mock data generation
 interface ClientActivityTracker {
   totalCacheHitBytes: number;
@@ -629,7 +647,7 @@ class MockDataService {
    * can resolve "on disk" sizes for mock downloads.
    */
   static generateMockGameDetection(): CachedDetectionResponse {
-    const games: GameDetectionSummary[] = STEAM_GAMES.map((game) => {
+    const games: GameDetectionSummary[] = STEAM_GAMES.map((game, index) => {
       const appId = parseInt(game.appId, 10);
       // Simulate on-disk size as 70-100% of full game size (some updates not fully cached)
       const totalSizeBytes = Math.floor(game.size * (0.7 + Math.random() * 0.3));
@@ -640,20 +658,31 @@ class MockDataService {
         game_name: game.name,
         cache_files_found: filesCount,
         total_size_bytes: totalSizeBytes,
-        service: 'steam',
+        service: MOCK_DETECTION_SERVICES[index % MOCK_DETECTION_SERVICES.length],
         image_url: undefined
       };
     });
 
-    const services: ServiceDetectionSummary[] = [
-      {
-        service_name: 'steam',
-        cache_files_found: games.reduce((s, g) => s + g.cache_files_found, 0),
-        total_size_bytes: games.reduce((s, g) => s + g.total_size_bytes, 0),
+    // Built from the games rather than hardcoded, so the per-service totals always agree with the
+    // rows they summarise.
+    const totalsByService = new Map<string, { files: number; bytes: number }>();
+    for (const game of games) {
+      const service = game.service ?? 'steam';
+      const running = totalsByService.get(service) ?? { files: 0, bytes: 0 };
+      running.files += game.cache_files_found;
+      running.bytes += game.total_size_bytes;
+      totalsByService.set(service, running);
+    }
+
+    const services: ServiceDetectionSummary[] = [...totalsByService.entries()].map(
+      ([serviceName, totals]) => ({
+        service_name: serviceName,
+        cache_files_found: totals.files,
+        total_size_bytes: totals.bytes,
         is_evicted: false,
         evicted_downloads_count: 0
-      }
-    ];
+      })
+    );
 
     const totalSizeBytes = games.reduce((s, g) => s + g.total_size_bytes, 0);
 
@@ -662,7 +691,7 @@ class MockDataService {
       games,
       services,
       totalGamesDetected: games.length,
-      totalServicesDetected: 1,
+      totalServicesDetected: services.length,
       lastDetectionTime: new Date().toISOString(),
       games_on_disk_bytes: totalSizeBytes,
       games_on_disk_count: games.length

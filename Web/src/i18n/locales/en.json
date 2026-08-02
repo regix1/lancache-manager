@@ -667,6 +667,10 @@
         "total": "Total Served",
         "onDisk": "On Disk"
       },
+      "gameService": {
+        "prefix": "Service:",
+        "all": "All services"
+      },
       "tabsLabel": "Service analytics views",
       "hideList": "Hide breakdown",
       "itemCount_one": "{{count}} item",

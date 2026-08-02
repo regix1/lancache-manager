@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { PieChart, Maximize2, Minimize2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { isActiveGame, buildGamesOnDiskDisplayStats, getChartGames } from '@utils/gameDetection';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -20,7 +21,7 @@ import { useChartData } from './useChartData';
 import { getInsightCards, getLegendColorClass, type FooterStats } from './serviceLegendClasses';
 import { formatBytes } from '@utils/formatters';
 import type { ServiceAnalyticsChartProps, TabId, LegendItem } from './types';
-import { TAB_DESCRIPTION_KEYS } from './constants';
+import { TAB_DESCRIPTION_KEYS, ALL_GAME_SERVICES, DEFAULT_GAME_SERVICE } from './constants';
 import { APP_EVENTS } from '@utils/constants';
 
 interface TabOption {
@@ -34,6 +35,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     const { t } = useTranslation();
     const [activeTab, setActiveTab] = useState<TabId>('service');
     const [showList, setShowList] = useState<boolean>(true);
+    const [gameService, setGameService] = useState<string>(ALL_GAME_SERVICES);
     const { gameDetectionData } = useGameDetection();
     const isCompareTab = activeTab === 'hit-ratio';
     const hasBreakdownList = !isCompareTab;
@@ -57,6 +59,44 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       () => buildGamesOnDiskDisplayStats(gameDetectionData),
       [gameDetectionData]
     );
+
+    // Only services that actually have games on disk are offered, ordered by how much disk they
+    // hold, so the picker never lists a service that would render an empty chart.
+    const gameServiceOptions = useMemo(() => {
+      const bytesByService = new Map<string, number>();
+      for (const game of games) {
+        if (!isActiveGame(game)) continue;
+        const service = game.service ?? DEFAULT_GAME_SERVICE;
+        bytesByService.set(service, (bytesByService.get(service) ?? 0) + game.total_size_bytes);
+      }
+
+      return [
+        {
+          value: ALL_GAME_SERVICES,
+          label: t('dashboard.serviceAnalytics.gameService.all', 'All services')
+        },
+        ...[...bytesByService.entries()]
+          .sort(([, aBytes], [, bBytes]) => bBytes - aBytes)
+          .map(([service]) => ({ value: service, label: getServiceDisplayName(service) }))
+      ];
+    }, [games, t]);
+
+    const filteredGames = useMemo(
+      () =>
+        gameService === ALL_GAME_SERVICES
+          ? games
+          : games.filter((game) => (game.service ?? DEFAULT_GAME_SERVICE) === gameService),
+      [games, gameService]
+    );
+
+    // A rescan can drop the selected service entirely (its last game evicted). Falling back keeps
+    // the view from showing an empty chart for a service the picker no longer offers.
+    React.useEffect(() => {
+      if (gameService === ALL_GAME_SERVICES) return;
+      if (!gameServiceOptions.some((option) => option.value === gameService)) {
+        setGameService(ALL_GAME_SERVICES);
+      }
+    }, [gameService, gameServiceOptions]);
 
     const activeServiceCount = useMemo(
       () => serviceStats.filter((service) => service.totalBytes > 0).length,
@@ -100,7 +140,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     );
 
     // Get chart data from hook
-    const chartData = useChartData(serviceStats, activeTab, games);
+    const chartData = useChartData(serviceStats, activeTab, filteredGames);
 
     // Transform to legend items
     const legendItems: LegendItem[] = useMemo(() => {
@@ -137,8 +177,14 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     // Stats for footer
     const footerStats: FooterStats = useMemo(() => {
       if (activeTab === 'games') {
-        const activeGames = games.filter(isActiveGame);
-        const totalDisk = gamesOnDisk?.totalSize ?? gameDetectionData?.games_on_disk_bytes ?? 0;
+        const activeGames = filteredGames.filter(isActiveGame);
+        // The cached totals cover every service, so they only answer the unfiltered question.
+        // Once a service is picked the totals have to come from the games actually shown, or the
+        // readout would report the whole disk against one service's slices.
+        const isServiceFiltered = gameService !== ALL_GAME_SERVICES;
+        const totalDisk = isServiceFiltered
+          ? activeGames.reduce((sum, game) => sum + game.total_size_bytes, 0)
+          : (gamesOnDisk?.totalSize ?? gameDetectionData?.games_on_disk_bytes ?? 0);
         const sorted = [...activeGames].sort((a, b) => b.total_size_bytes - a.total_size_bytes);
         const largest = sorted[0];
         return {
@@ -146,8 +192,11 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
           hitRatio: 0,
           missBytes: 0,
           serviceCount: 0,
-          gameCount:
-            gamesOnDisk?.gameCount ?? gameDetectionData?.games_on_disk_count ?? activeGames.length,
+          gameCount: isServiceFiltered
+            ? activeGames.length
+            : (gamesOnDisk?.gameCount ??
+              gameDetectionData?.games_on_disk_count ??
+              activeGames.length),
           largestGame: largest?.game_name ?? '',
           largestGameBytes: largest?.total_size_bytes ?? 0,
           topServiceName: '',
@@ -174,7 +223,15 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         topServiceBytes: top?.totalBytes ?? 0,
         totalHitBytes: totalHits
       };
-    }, [serviceStats, activeTab, games, gameDetectionData, gamesOnDisk, activeServiceCount]);
+    }, [
+      serviceStats,
+      activeTab,
+      filteredGames,
+      gameService,
+      gameDetectionData,
+      gamesOnDisk,
+      activeServiceCount
+    ]);
 
     const insightCards = useMemo(
       () => getInsightCards(activeTab, footerStats, chartData, t),
@@ -208,9 +265,10 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             </HelpPopover>
           </div>
 
-          {/* The toggle renders last: the Compare view has no breakdown list, so its button is not
-              rendered at all, and a trailing button in a flex-start row leaves the tab strip's left
-              edge in the same place on all five views. [27] */}
+          {/* View picker first, then the actions. The Compare view has no breakdown list, so its
+              toggle is not rendered at all, and the tab strip keeps the same left edge on all five
+              views. [27] The toggle carries the auto margin, so it and the service picker sit
+              against the right edge once the header stacks and the row has room to spare. */}
           <div className="service-analytics-controls">
             {isPhone ? (
               <EnhancedDropdown
@@ -230,21 +288,47 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                 showLabels
               />
             )}
-            {hasBreakdownList && (
-              <Tooltip content={toggleAriaLabel}>
-                <Button
-                  variant="filled"
-                  color="gray"
+            {/* Toggle and service picker travel together as one right-aligned group, so when the
+                row runs out of width they wrap as a pair and stay against the right edge instead
+                of the picker dropping to its own left-aligned line. */}
+            <div className="service-analytics-actions">
+              {hasBreakdownList && (
+                <Tooltip content={toggleAriaLabel}>
+                  <Button
+                    variant="filled"
+                    color="gray"
+                    size="md"
+                    onClick={handleToggleList}
+                    aria-pressed={!showList}
+                    aria-label={toggleAriaLabel}
+                    className="service-analytics-toggle btn-icon-square"
+                  >
+                    {showList ? (
+                      <Minimize2 className="w-4 h-4" />
+                    ) : (
+                      <Maximize2 className="w-4 h-4" />
+                    )}
+                  </Button>
+                </Tooltip>
+              )}
+              {/* Sits after the toggle so the trigger's width can only ever grow rightwards into
+                  empty space. With it before the toggle, a longer service label shoved the button
+                  sideways every time the selection changed.
+                  Shown whenever the view has any service at all: an earlier version required two
+                  before appearing, which just made the control vanish on setups where detection
+                  put every game under one service. */}
+              {activeTab === 'games' && gameServiceOptions.length > 1 && (
+                <EnhancedDropdown
+                  options={gameServiceOptions}
+                  value={gameService}
+                  onChange={setGameService}
                   size="md"
-                  onClick={handleToggleList}
-                  aria-pressed={!showList}
-                  aria-label={toggleAriaLabel}
-                  className="service-analytics-toggle btn-icon-square"
-                >
-                  {showList ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </Button>
-              </Tooltip>
-            )}
+                  variant="button"
+                  prefix={t('dashboard.serviceAnalytics.gameService.prefix', 'Service:')}
+                  className="service-analytics-game-service-select"
+                />
+              )}
+            </div>
           </div>
         </div>
 

@@ -148,6 +148,31 @@
   flex-shrink: 0;
 }
 
+/* Toggle + service picker as one group, pinned to the right edge. The auto margin has to sit on
+   this element rather than on the toggle itself: the toggle is wrapped in a Tooltip, so the button
+   is not the flex child of the row and a margin there computes to 0 and moves nothing. That is
+   invisible in a stylesheet read and only shows up in a measurement.
+   Grouping also fixes the wrap case: when the row runs out of width the pair moves to the next
+   line together and the auto margin keeps it right-aligned there, instead of the picker dropping
+   to a line of its own against the left edge. */
+.service-analytics-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Games view only. A FIXED width, not a floor: the actions group is pinned to the right edge, so
+   any growth extends leftwards and drags the toggle with it. Measured at 102px of travel when the
+   trigger was free to size to its label. Fixed here and truncating instead, so selecting a
+   different service never moves the button beside it. 12rem fits the longest label,
+   "Service: All services". */
+.service-analytics-game-service-select {
+  width: 12rem;
+  flex-shrink: 0;
+}
+
 /* Container-relative (not viewport-relative): this panel sits in a 50%-width dashboard
    column on desktop, so it can be narrow (cramped header) even at a wide browser
    viewport. @container reacts to the panel's own rendered width via the
@@ -962,6 +987,13 @@
   .service-analytics-controls .service-analytics-view-select {
     flex: 1 1 auto;
     min-width: 0;
+  }
+
+  /* The fixed width becomes a ceiling once the panel is this narrow: the picker may shrink with
+     the panel rather than push its group off the row. It stays beside the toggle either way. */
+  .service-analytics-controls .service-analytics-game-service-select {
+    min-width: 0;
+    flex-shrink: 1;
   }
 
   /* The picker and the toggle are one cluster, so they share one height. The picker gets its 44px

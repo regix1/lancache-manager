@@ -667,6 +667,10 @@
         "total": "已服务总量",
         "onDisk": "磁盘上"
       },
+      "gameService": {
+        "prefix": "服务：",
+        "all": "所有服务"
+      },
       "tabsLabel": "服务分析视图",
       "hideList": "隐藏详情",
       "itemCount_one": "{{count}} 项",
