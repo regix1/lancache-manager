@@ -656,8 +656,17 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             size="md"
             showLabels={true}
           />
-          {viewMode === 'recent' && (
-            <Tooltip content={t('dashboard.downloadsPanel.showDetails')}>
+        </div>
+
+        {/* Filters (only for recent view). The detail toggle leads the row, immediately left of the
+            service filter. The row itself renders for the whole recent view, not only when there are
+            downloads to filter, so the toggle keeps the visibility it had in the header. */}
+        {viewMode === 'recent' && (
+          <div className="rdl-filters">
+            <Tooltip
+              content={t('dashboard.downloadsPanel.showDetails')}
+              className="rdl-detail-toggle-slot"
+            >
               <Button
                 variant="filled"
                 color={showDetails ? 'blue' : 'gray'}
@@ -669,41 +678,39 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 className="min-h-10 rounded-[var(--theme-border-radius)]"
               />
             </Tooltip>
-          )}
-        </div>
-
-        {/* Filters (only for recent view) */}
-        {viewMode === 'recent' && latestDownloads.length > 0 && (
-          <div className="rdl-filters">
-            <EnhancedDropdown
-              options={[
-                { value: 'all', label: t('dashboard.downloadsPanel.allServices') },
-                ...serviceFilterOptions.map(({ key, service }) => {
-                  const displayService = getServiceDisplayName(service);
-                  return {
-                    value: key,
-                    label: displayService.charAt(0).toUpperCase() + displayService.slice(1)
-                  };
-                })
-              ]}
-              value={selectedService}
-              onChange={setSelectedService}
-            />
-            <EnhancedDropdown
-              options={clientOptions}
-              value={selectedClient}
-              onChange={setSelectedClient}
-            />
-            {(selectedService !== 'all' || selectedClient !== 'all') && (
-              <button
-                className="rdl-clear-btn"
-                onClick={() => {
-                  setSelectedService('all');
-                  setSelectedClient('all');
-                }}
-              >
-                {t('dashboard.downloadsPanel.clear')}
-              </button>
+            {latestDownloads.length > 0 && (
+              <>
+                <EnhancedDropdown
+                  options={[
+                    { value: 'all', label: t('dashboard.downloadsPanel.allServices') },
+                    ...serviceFilterOptions.map(({ key, service }) => {
+                      const displayService = getServiceDisplayName(service);
+                      return {
+                        value: key,
+                        label: displayService.charAt(0).toUpperCase() + displayService.slice(1)
+                      };
+                    })
+                  ]}
+                  value={selectedService}
+                  onChange={setSelectedService}
+                />
+                <EnhancedDropdown
+                  options={clientOptions}
+                  value={selectedClient}
+                  onChange={setSelectedClient}
+                />
+                {(selectedService !== 'all' || selectedClient !== 'all') && (
+                  <button
+                    className="rdl-clear-btn"
+                    onClick={() => {
+                      setSelectedService('all');
+                      setSelectedClient('all');
+                    }}
+                  >
+                    {t('dashboard.downloadsPanel.clear')}
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}

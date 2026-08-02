@@ -37,6 +37,15 @@
   flex-shrink: 0;
 }
 
+/* The detail toggle leads the filter row. Its siblings there are `flex: 1` with a 120px floor so
+   the dropdowns share the width evenly; an icon button must opt out of both or it stretches to a
+   quarter of the row. The class sits on the Tooltip wrapper because that, not the button, is the
+   flex child of the row. */
+.rdl-filters > .rdl-detail-toggle-slot {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 /* Live count bubble inside the Active segmented tab. Sits on a saturated green
    fill, so the count-badge border uses the white-subtle edge, not the grey one. */
 .rdl-tab-badge {
