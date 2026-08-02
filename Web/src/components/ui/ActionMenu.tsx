@@ -87,11 +87,21 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         left = VIEWPORT_PADDING_PX;
       }
 
+      // Open upward when the menu would not fit between the trigger and the viewport
+      // bottom and there is more room above. Without this the body-portalled absolute
+      // box overflows past the document's end, which grows the page's scroll height
+      // and reads as the menu shoving the footer down instead of overlaying content.
+      const menuHeight = dropdownRef.current?.offsetHeight ?? 0;
+      const spaceBelow = window.innerHeight - anchor.bottom;
+      const fitsBelow = spaceBelow >= menuHeight + MENU_GAP_PX + VIEWPORT_PADDING_PX;
+      const opensUp = menuHeight > 0 && !fitsBelow && anchor.top > spaceBelow;
+      const top = opensUp ? anchor.top - menuHeight - MENU_GAP_PX : anchor.bottom + MENU_GAP_PX;
+
       // Clamped against the viewport, returned in document coordinates: the menu is
       // absolutely positioned in a body portal so that scrolling carries it and its
       // trigger together (see useAnchorFollow).
       return {
-        top: anchor.bottom + MENU_GAP_PX + window.scrollY,
+        top: top + window.scrollY,
         left: left + window.scrollX
       };
     },
@@ -112,10 +122,13 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
     [calculatePosition]
   );
 
+  // Also keyed on `present`: the dropdown mounts one tick after isOpen flips, and
+  // the open-upward decision needs its measured height, so re-place it in the same
+  // commit it appears in (before paint) rather than a frame later.
   useLayoutEffect(() => {
     if (!isOpen || !triggerRef.current) return;
     handleAnchorMove(readAnchorRect(triggerRef.current));
-  }, [isOpen, handleAnchorMove]);
+  }, [isOpen, present, handleAnchorMove]);
 
   useAnchorFollow({
     enabled: present,
