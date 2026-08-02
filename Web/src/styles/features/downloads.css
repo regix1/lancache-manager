@@ -1186,6 +1186,15 @@
     min-width: 0;
   }
 
+  /* Sort dropdown trigger (desktop toolbar): wide enough for the longest label,
+     "Sort: Worst Cache" (the English set is the widest - CJK translations are
+     shorter), so switching sort options never truncates the text or resizes
+     the button. The row this sits in is hidden below the `sm` breakpoint
+     (see DownloadsTab.tsx), where a separate flex-1 trigger is used instead. */
+  .downloads-sort-trigger {
+    min-width: 12rem;
+  }
+
   /* ===== SESSION FILTER BAR ===== */
 
   .session-filter-bar-wrapper {

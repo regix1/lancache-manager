@@ -1752,7 +1752,7 @@ const DownloadsTab: React.FC = () => {
                       setSettings({ ...settings, sortOrder: value as SortOrder })
                     }
                     prefix={t('downloads.tab.sort.prefix')}
-                    className="w-28 md:w-32 lg:w-36"
+                    className="downloads-sort-trigger"
                   />
                 </div>
 
