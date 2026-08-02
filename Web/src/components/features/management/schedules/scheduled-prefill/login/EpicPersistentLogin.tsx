@@ -1,6 +1,7 @@
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import { usePersistentEpicAuth } from '@hooks/usePersistentEpicAuth';
 import { usePersistentLoginHost, type PersistentLoginHostProps } from './usePersistentLoginHost';
+import { usePersistentLoginStoreState } from '../persistentLoginStore';
 
 export function EpicPersistentLogin({
   isRunning,
@@ -10,6 +11,7 @@ export function EpicPersistentLogin({
   onDismiss
 }: PersistentLoginHostProps) {
   const { state, actions, startLogin, dismissModal, resumeModal } = usePersistentEpicAuth();
+  const { loginDeadline } = usePersistentLoginStoreState('Epic');
   const authModalOpened = usePersistentLoginHost({
     service: 'Epic',
     state,
@@ -32,6 +34,7 @@ export function EpicPersistentLogin({
       actions={actions}
       dismissBehavior="keep-pending"
       onCancelLogin={onDismiss}
+      loginDeadline={loginDeadline}
     />
   );
 }

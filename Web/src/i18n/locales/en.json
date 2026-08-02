@@ -4542,6 +4542,8 @@
       "sessionErrored": "This container's session encountered an error (connection lost). Press Start to restart it.",
       "sessionReplaced": "This login session was replaced by a newer one. Please try logging in again.",
       "credentialRejected": "The daemon rejected this credential. Please try logging in again.",
+      "loginTimedOut": "Login timed out. Please try again.",
+      "cancelLoginFailed": "Could not cancel the login already in progress. The container may still be waiting for a code. Please try logging out again.",
       "services": {
         "steam": "Steam",
         "epic": "Epic Games",
@@ -4565,6 +4567,7 @@
       "tokenExpires": "Login token expires",
       "reloginRequiredBy": "Re-login required by",
       "timeRemaining": "{{time}} remaining",
+      "loginTimeRemaining": "Login attempt expires in {{time}}",
       "notRunning": "Persistent container is stopped",
       "needsRelogin": "Login expired. Please log in again.",
       "actions": {

@@ -4541,6 +4541,8 @@
       "sessionErrored": "此容器的会话发生错误（连接已断开）。请点击启动以重新启动。",
       "sessionReplaced": "此登录会话已被新的会话替换。请重新登录。",
       "credentialRejected": "守护进程拒绝了此凭据。请重新登录。",
+      "loginTimedOut": "登录超时，请重试。",
+      "cancelLoginFailed": "无法取消正在进行的登录。容器可能仍在等待验证码，请重新退出登录。",
       "services": {
         "steam": "Steam",
         "epic": "Epic Games",
@@ -4564,6 +4566,7 @@
       "tokenExpires": "登录令牌过期时间",
       "reloginRequiredBy": "需要重新登录的截止时间",
       "timeRemaining": "剩余 {{time}}",
+      "loginTimeRemaining": "登录尝试将在 {{time}} 后过期",
       "notRunning": "持久容器已停止",
       "needsRelogin": "登录已过期，请重新登录。",
       "actions": {

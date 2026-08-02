@@ -14,6 +14,7 @@ import {
   armPersistentLoginTimeout,
   consumePersistentLoginStartRequest,
   derivePersistentChallengeFlags,
+  endPersistentLogin,
   extractPersistentSessionId,
   getPersistentLoginEpoch,
   getPersistentLoginEditAction,
@@ -228,6 +229,10 @@ export function usePersistentPrefillAuth(
   );
 
   const pollForResult = useCallback(async (): Promise<PollResult> => {
+    // Captured before the long-poll opens. A 409 that arrives after the store has moved on belongs
+    // to an attempt that already ended, and handleSessionConflict resets unconditionally - so
+    // without this snapshot a late conflict wipes whatever attempt is live now. [19]
+    const attemptEpoch = getPersistentLoginEpoch(service);
     // Read the session id LIVE (not the `stored` snapshot closed over when this callback was
     // created) - Xbox's device-code flow calls this from a poll loop that starts synchronously
     // right after start() resolves, in the same render pass that just wrote the real sessionId
@@ -255,9 +260,14 @@ export function usePersistentPrefillAuth(
       // for the user to confirm a device code). Keep polling instead of erroring.
       return { status: 'pending' };
     } catch (err) {
-      if (isPersistentSessionConflictError(err)) {
+      if (
+        isPersistentSessionConflictError(err) &&
+        getPersistentLoginEpoch(service) === attemptEpoch
+      ) {
         handleSessionConflict(err);
       }
+      // The rethrow is unconditional: the caller's loop still has to end, whether or not this
+      // attempt was the one that owned the store.
       throw err;
     }
   }, [handleSessionConflict, service, timeoutSeconds]);
@@ -266,6 +276,12 @@ export function usePersistentPrefillAuth(
     async (challenge: CredentialChallenge, credential: string): Promise<PollResult> => {
       setLoading(true);
       setError(null);
+      // Captured before the first await and re-checked after the long-poll settles. An ending that
+      // lands while that poll is open (the modal's X/Cancel, Logout, the overall timeout) resets
+      // the store, and that reset CLEARS the cancel flag - so the flag alone stops being a usable
+      // "this attempt is over" signal by the time the response arrives. The epoch survives it, the
+      // same way start() fences its own settlement.
+      const attemptEpoch = getPersistentLoginEpoch(service);
       try {
         const editAction = getPersistentLoginEditAction(service);
         await ApiService.providePersistentCredential(
@@ -277,15 +293,34 @@ export function usePersistentPrefillAuth(
           editAction?.editActionId
         );
       } catch (err) {
-        if (isPersistentSessionConflictError(err)) {
+        if (
+          isPersistentSessionConflictError(err) &&
+          getPersistentLoginEpoch(service) === attemptEpoch
+        ) {
           handleSessionConflict(err);
         }
+        // Rethrown either way so this submit still ends where it always did. [19]
         throw err;
       }
 
       let result = await pollForResult();
-      while (result.status === 'pending' && !isPersistentLoginCancelled(service)) {
+      while (
+        result.status === 'pending' &&
+        !isPersistentLoginCancelled(service) &&
+        getPersistentLoginEpoch(service) === attemptEpoch
+      ) {
         result = await pollForResult();
+      }
+      if (getPersistentLoginEpoch(service) !== attemptEpoch) {
+        // The store no longer belongs to this attempt. Write NOTHING - not the result, not even
+        // the spinner - or a challenge that arrives after the user ended the login reopens the
+        // modal and puts the card back into "Authenticating..." for a daemon session that has
+        // already been cancelled. Same reasoning as start()'s stale-epoch branch.
+        //
+        // The neutral 'pending' matters as much as the missing write: reporting 'authenticated'
+        // here makes submit() return true, and the caller answers a true by closing its modal -
+        // which dismisses whatever attempt is live now, not this dead one. [20]
+        return { status: 'pending' };
       }
       if (isPersistentLoginCancelled(service)) {
         setLoading(false);
@@ -341,10 +376,19 @@ export function usePersistentPrefillAuth(
   );
 
   const poll = useCallback(async (): Promise<PollResult> => {
+    // See submitChallenge's matching capture: an ending that lands while this long-poll is open
+    // resets the store and clears the cancel flag with it, so the epoch is the only signal left
+    // that still says "this attempt is over" once the response arrives.
+    const attemptEpoch = getPersistentLoginEpoch(service);
     try {
       setLoading(true);
       setError(null);
       const result = await pollForResult();
+      if (getPersistentLoginEpoch(service) !== attemptEpoch) {
+        // Store belongs to whatever came after the reset - discard this result rather than
+        // resurrecting a login the user already ended. See start()'s stale-epoch branch.
+        return result;
+      }
       if (isPersistentLoginCancelled(service)) {
         setLoading(false);
         return result;
@@ -365,6 +409,11 @@ export function usePersistentPrefillAuth(
         // Not a real failure - see PersistentLoginNoPinnedSessionError's doc comment. Just let the
         // exception propagate so the caller's poll loop (usePersistentXboxAuth's
         // pollUntilAuthenticated) stops, without ever writing an error into the store.
+        throw err;
+      }
+      if (getPersistentLoginEpoch(service) !== attemptEpoch) {
+        // Same rule as the success path above: this attempt's failure is not the current store's
+        // failure. Still rethrow so the caller's loop ends, but write nothing.
         throw err;
       }
       if (isPersistentChallengeNotFoundError(err)) {
@@ -395,7 +444,7 @@ export function usePersistentPrefillAuth(
 
     const startPromise = (async (): Promise<CredentialChallenge | null> => {
       setPersistentLoginCancelled(service, false);
-      armPersistentLoginTimeout(service);
+      armPersistentLoginTimeout(service, t('prefill.persistent.loginTimedOut'));
       setLoading(true);
       setError(null);
       // Captured AFTER the synchronous writes above: every reset path (container stop/start, the
@@ -477,7 +526,7 @@ export function usePersistentPrefillAuth(
         setPersistentLoginStartPromise(service, null);
       }
     }
-  }, [applyChallenge, fail, finishAuthenticated, service, setError, setLoading]);
+  }, [applyChallenge, fail, finishAuthenticated, service, setError, setLoading, t]);
 
   const resetAuthForm = useCallback(() => {
     setUsername('');
@@ -492,22 +541,18 @@ export function usePersistentPrefillAuth(
   const cancel = useCallback(async (): Promise<void> => {
     setPersistentLoginCancelled(service, true);
     setLoading(false);
-    try {
-      // Read live (see pollForResult's comment) rather than the `stored` snapshot - a cancel fired
-      // from the same synchronous flow that just started a login (e.g. an auto-cancel path) must
-      // still see the sessionId written moments ago, not a pre-login closure value.
-      // No sessionId is pinned yet only when cancel is clicked in the brief window before start()'s
-      // very first response ever lands (RC3) - there is no
-      // known daemon session id to send, and the cancel flag set above already makes start() bail
-      // out locally the moment it resolves, so skipping the round-trip here is safe rather than a
-      // silent no-op: nothing server-side has been told about this login attempt yet either.
-      const sessionId = getPersistentLoginSessionId(service);
-      if (sessionId) {
-        await ApiService.cancelPersistentLogin(service, sessionId);
-      }
-    } finally {
-      resetAuthForm();
-    }
+    // One shared ending for every way a login stops (see endPersistentLogin): it reads the pinned
+    // sessionId live rather than from the `stored` snapshot closed over here - a cancel fired from
+    // the same synchronous flow that just started a login must still see the id written moments
+    // ago - and it skips the round trip when nothing was ever pinned, which is only the brief
+    // window before start()'s very first response lands (RC3). Skipping it there is safe rather
+    // than a silent no-op: nothing server-side has been told about this attempt yet either, and
+    // the store reset inside bumps the login epoch, so a still-hanging start() recognizes its own
+    // settlement as stale and discards it.
+    await endPersistentLogin(service);
+    // The store half is already at rest; this clears the credentials typed into the form, which is
+    // this hook's own state and not the store's.
+    resetAuthForm();
   }, [resetAuthForm, service, setLoading]);
 
   const cancelPendingRequest = useCallback(() => {

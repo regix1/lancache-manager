@@ -1,6 +1,7 @@
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { usePersistentSteamAuth } from '@hooks/usePersistentSteamAuth';
 import { usePersistentLoginHost, type PersistentLoginHostProps } from './usePersistentLoginHost';
+import { usePersistentLoginStoreState } from '../persistentLoginStore';
 
 export function SteamPersistentLogin({
   isRunning,
@@ -10,6 +11,7 @@ export function SteamPersistentLogin({
   onDismiss
 }: PersistentLoginHostProps) {
   const { state, actions, dismissModal, resumeModal } = usePersistentSteamAuth();
+  const { loginDeadline } = usePersistentLoginStoreState('Steam');
   const authModalOpened = usePersistentLoginHost({
     service: 'Steam',
     state,
@@ -35,6 +37,7 @@ export function SteamPersistentLogin({
       disableAutoLogoutClose
       awaitingChallenge={state.loading && !state.hasChallenge}
       onCancelLogin={onDismiss}
+      loginDeadline={loginDeadline}
     />
   );
 }

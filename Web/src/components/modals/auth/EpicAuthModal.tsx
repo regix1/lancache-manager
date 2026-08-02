@@ -5,6 +5,8 @@ import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { StepDot } from './StepDot';
+import { cancelAuthModalLogin } from './authModalCancel';
+import { PersistentLoginCountdown } from './PersistentLoginCountdown';
 import { type EpicAuthState, type EpicAuthActions } from '@hooks/useEpicMappingAuth';
 import { useTranslation } from 'react-i18next';
 
@@ -21,6 +23,9 @@ interface EpicAuthModalProps {
    * footer button actually cancels.
    */
   dismissBehavior?: 'cancel' | 'keep-pending';
+  /** Persistent-container flow only: epoch ms this login attempt expires at
+   *  (`PersistentLoginStoreState.loginDeadline`). `null`/unset renders no countdown. */
+  loginDeadline?: number | null;
 }
 
 export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
@@ -29,7 +34,8 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
   state,
   actions,
   onCancelLogin,
-  dismissBehavior = 'cancel'
+  dismissBehavior = 'cancel',
+  loginDeadline = null
 }) => {
   const { t } = useTranslation();
   const isKeepPending = dismissBehavior === 'keep-pending';
@@ -59,18 +65,19 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
     onClose();
   };
 
-  // keep-pending (persistent-container flow): X/backdrop/Escape only hide the modal - the daemon
-  // login keeps running and stays resumable. Only the explicit Cancel button below actually cancels.
-  const handleSoftClose = () => {
-    onClose();
+  const handleExplicitCancel = () => {
+    cancelAuthModalLogin({
+      cancelPendingRequest,
+      resetAuthForm: actions.resetAuthForm,
+      onCancelLogin,
+      onClose
+    });
   };
 
-  const handleExplicitCancel = () => {
-    cancelPendingRequest();
-    actions.resetAuthForm();
-    onCancelLogin?.();
-    onClose();
-  };
+  // keep-pending (persistent-container flow): X/backdrop/Escape now do the same login-ending work
+  // as the explicit Cancel button - a soft, cancel-nothing close used to leave the daemon login
+  // (and the Configure card's "Authenticating..." badge) stuck forever.
+  const handleSoftClose = handleExplicitCancel;
 
   const handleSubmit = async () => {
     if (isSubmitting || loading) return;
@@ -109,9 +116,12 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
     >
       <div className="space-y-5">
         {isKeepPending && (
-          <p className="text-xs text-themed-muted text-center">
-            {t('modals.epicAuth.containerAccountNotice')}
-          </p>
+          <>
+            <p className="text-xs text-themed-muted text-center">
+              {t('modals.epicAuth.containerAccountNotice')}
+            </p>
+            <PersistentLoginCountdown deadline={loginDeadline} />
+          </>
         )}
 
         {/* Step Indicator */}

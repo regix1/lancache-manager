@@ -48,6 +48,14 @@ interface PersistentLoginStoreState {
    * silently substituting it (the pre-fix cross-session leak). `null` when no login is pinned yet.
    */
   sessionId: string | null;
+  /**
+   * Epoch milliseconds at which THIS attempt expires - the same instant the `setTimeout` armed by
+   * `armPersistentLoginTimeout` fires, written from the same constant, so the countdown the auth
+   * modal renders and the timer that actually ends the login can never disagree. `null` whenever no
+   * attempt is running, which includes the moments after a page reload where a challenge was
+   * restored from the backend cache but no clock has been armed for it yet.
+   */
+  loginDeadline: number | null;
 }
 
 interface PersistentChallengeFlags {
@@ -79,7 +87,8 @@ const INITIAL_PERSISTENT_LOGIN_STATE: PersistentLoginStoreState = {
   pendingChallenge: null,
   dismissed: false,
   sessionUnavailableState: null,
-  sessionId: null
+  sessionId: null,
+  loginDeadline: null
 };
 
 /**
@@ -257,8 +266,35 @@ function invalidateInFlightLogin(service: PersistentPrefillServiceId): void {
   }
 }
 
+// Counter bumped by every store write, whichever service it belonged to, plus the listener set that
+// watches it. `listeners` above is keyed by service, which is right for a card that renders one
+// service, but a value derived across SEVERAL services at once cannot subscribe that way - a hook
+// cannot be called inside a loop over the service ids. Such a caller reads the store through the
+// plain non-hook getters and takes this counter as its re-render trigger instead.
+let storeVersion = 0;
+const storeVersionListeners = new Set<Listener>();
+
 function notify(service: PersistentPrefillServiceId): void {
   listeners.get(service)?.forEach((listener) => listener());
+  storeVersion += 1;
+  storeVersionListeners.forEach((listener) => listener());
+}
+
+function subscribePersistentLoginStoreVersion(listener: Listener): () => void {
+  storeVersionListeners.add(listener);
+  return () => {
+    storeVersionListeners.delete(listener);
+  };
+}
+
+/**
+ * Subscribes a component to EVERY login-store write, not just one service's. The returned number
+ * carries no meaning beyond "something changed" - only the change matters, so it belongs in a
+ * dependency array, never in rendered output. Every reset path already writes `states` and then
+ * calls `notify`, so bumping the counter inside `notify` covers them all with no extra call.
+ */
+export function usePersistentLoginStoreVersion(): number {
+  return useSyncExternalStore(subscribePersistentLoginStoreVersion, () => storeVersion);
 }
 
 function getPersistentLoginState(service: PersistentPrefillServiceId): PersistentLoginStoreState {
@@ -296,22 +332,98 @@ function clearPersistentLoginTimeout(service: PersistentPrefillServiceId): void 
  * across a PersistentLoginHost remount (Configure modal closed/reopened, container-list churn).
  * Call once per fresh attempt (from `start()`); resuming an already-pending challenge via
  * resumeModal() must NOT re-arm it - the original attempt's clock keeps ticking correctly on its
- * own, tracked here independent of any component's mount state.
+ * own, tracked here independent of any component's mount state. Use
+ * `ensurePersistentLoginTimeout` for the resume paths, which is exactly that rule in code.
+ *
+ * `timedOutMessage` is resolved by the caller: this module is not a component and cannot call
+ * `t()`, the same reason `resetPersistentLoginSessionReplaced` takes its message as an argument.
  */
-export function armPersistentLoginTimeout(service: PersistentPrefillServiceId): void {
+export function armPersistentLoginTimeout(
+  service: PersistentPrefillServiceId,
+  timedOutMessage: string
+): void {
   clearPersistentLoginTimeout(service);
+  const deadline = Date.now() + OVERALL_LOGIN_TIMEOUT_MS;
   const handle = setTimeout(() => {
     loginTimeoutHandles.delete(service);
     // Epoch bump (not the cancel flag, which would leak `true` into a later resumed challenge):
     // the still-hanging start() recognizes its settlement as stale, discards it, and best-effort
-    // cancels a late daemon challenge itself - the same teardown the flag used to buy here.
+    // cancels a late daemon challenge itself - the same teardown the flag used to buy here. Kept
+    // explicit rather than relying on the reset inside endPersistentLogin, whose at-rest early
+    // return would skip it.
     invalidateInFlightLogin(service);
+    // An expired attempt has to end the DAEMON's login too, not just the browser's copy of it -
+    // otherwise the container sits mid-login with a challenge nobody is watching. Safe to fire
+    // before the error write below: endPersistentLogin reads the pinned session id and resets the
+    // store synchronously, and only then awaits the round trip, so nothing lands after this.
+    void endPersistentLogin(service);
     updatePersistentLoginState(service, () => ({
       ...INITIAL_PERSISTENT_LOGIN_STATE,
-      error: 'Timed out waiting for a response. Please try again.'
+      error: timedOutMessage
     }));
   }, OVERALL_LOGIN_TIMEOUT_MS);
   loginTimeoutHandles.set(service, handle);
+  // Updater form, not a spread of the initial state: start() has already written `loading: true`
+  // by the time it arms the clock, and this write must not undo that.
+  updatePersistentLoginState(service, (current) => ({ ...current, loginDeadline: deadline }));
+}
+
+/**
+ * Arms the overall timeout for an attempt that is being RESUMED rather than started - a challenge
+ * revealed again after the modal was hidden, or one restored from the backend's pending-challenge
+ * cache after a full page reload, which `start()` never ran for and which had no ceiling at all
+ * before this. One attempt keeps one clock: when a timer is already running for this service this
+ * does nothing, so re-showing the modal can never buy the attempt another ten minutes.
+ *
+ * The clock does not survive a page reload: the handle map is module state, so a reload empties it
+ * and the restored challenge gets a fresh ten minutes here. The daemons keep their own expiry.
+ */
+export function ensurePersistentLoginTimeout(
+  service: PersistentPrefillServiceId,
+  timedOutMessage: string
+): void {
+  if (loginTimeoutHandles.has(service)) {
+    return;
+  }
+  armPersistentLoginTimeout(service, timedOutMessage);
+}
+
+/**
+ * Ends one service's login attempt completely: tells the daemon to abandon it, then leaves the
+ * store at rest. The single implementation every user-initiated ending goes through - the modal's
+ * Cancel, the modal's X/Escape/backdrop, Logout while a login is in flight, and the overall
+ * timeout - so the four of them cannot drift apart again.
+ *
+ * The store reset runs FIRST and synchronously, before the round trip is awaited. That is what
+ * lets the card leave "Authenticating..." on the click rather than a second later, and it is also
+ * what keeps a slow cancel from writing over an attempt the user started while it was in flight.
+ * The pinned session id is read before the reset clears it; `fallbackSessionId` covers the window
+ * where a login was dispatched against a known container session but never pinned one of its own.
+ *
+ * Never throws: a cancel for a session the server already superseded is a deliberate idempotent
+ * no-op there, and a cancel that fails on the wire must still leave the browser at rest, so the
+ * transport failure is a documented best-effort swallow rather than a surfaced error.
+ *
+ * Returns false when that round trip failed, true otherwise (including when there was no session to
+ * cancel). The browser is at rest either way, but the daemon is not: the backend restores its cached
+ * challenge and rethrows when its own daemon call fails, so a failed cancel leaves a live login
+ * nobody is watching. Callers that a person is waiting on - Logout in particular - use the false to
+ * say so instead of reporting a clean logout. The others ignore it, which is why this returns rather
+ * than throws.
+ */
+export async function endPersistentLogin(
+  service: PersistentPrefillServiceId,
+  fallbackSessionId?: string | null
+): Promise<boolean> {
+  const sessionId = getPersistentLoginSessionId(service) ?? fallbackSessionId;
+  resetPersistentLoginState(service);
+  if (!sessionId) {
+    return true;
+  }
+  return await ApiService.cancelPersistentLogin(service, sessionId).then(
+    () => true,
+    () => false
+  );
 }
 
 export function resetPersistentLoginState(service: PersistentPrefillServiceId): void {

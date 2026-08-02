@@ -4,6 +4,8 @@ import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { StepDot } from './StepDot';
+import { cancelAuthModalLogin } from './authModalCancel';
+import { PersistentLoginCountdown } from './PersistentLoginCountdown';
 import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTranslation } from 'react-i18next';
@@ -30,6 +32,9 @@ interface SteamAuthModalProps {
   /** Persistent-container flow only: show a "contacting daemon" state before any challenge has
    *  arrived, instead of the (empty) credentials form. */
   awaitingChallenge?: boolean;
+  /** Persistent-container flow only: epoch ms this login attempt expires at
+   *  (`PersistentLoginStoreState.loginDeadline`). `null`/unset renders no countdown. */
+  loginDeadline?: number | null;
 }
 
 export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
@@ -41,7 +46,8 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   onCancelLogin,
   dismissBehavior = 'cancel',
   disableAutoLogoutClose = false,
-  awaitingChallenge = false
+  awaitingChallenge = false,
+  loginDeadline = null
 }) => {
   const { t } = useTranslation();
   const { on, off } = useSignalR();
@@ -114,20 +120,19 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     }
   };
 
-  // keep-pending (persistent-container flow): X/backdrop/Escape only hide the modal - the daemon
-  // login keeps running and stays resumable. Only the explicit Cancel button below actually cancels.
-  const handleSoftClose = () => {
-    if (!isSubmitting) {
-      onClose();
-    }
+  const handleExplicitCancel = () => {
+    cancelAuthModalLogin({
+      cancelPendingRequest,
+      resetAuthForm: actions.resetAuthForm,
+      onCancelLogin,
+      onClose
+    });
   };
 
-  const handleExplicitCancel = () => {
-    cancelPendingRequest();
-    actions.resetAuthForm();
-    onCancelLogin?.();
-    onClose();
-  };
+  // keep-pending (persistent-container flow): X/backdrop/Escape now do the same login-ending work
+  // as the explicit Cancel button - a soft, cancel-nothing close used to leave the daemon login
+  // (and the Configure card's "Authenticating..." badge) stuck forever.
+  const handleSoftClose = handleExplicitCancel;
 
   const handleSubmit = async () => {
     // Prevent multiple clicks - check immediately before any async work
@@ -153,13 +158,9 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     actions.setTwoFactorCode('');
   };
 
-  // For prefill mode: cancel and close (daemon may be stuck, needs session restart)
-  const handleCancelDeviceConfirmation = () => {
-    cancelPendingRequest();
-    actions.resetAuthForm();
-    onCancelLogin?.(); // This should end the session
-    onClose();
-  };
+  // For prefill mode: cancel and close (daemon may be stuck, needs session restart). Same work as
+  // the explicit Cancel button - this is just its device-confirmation-step entry point.
+  const handleCancelDeviceConfirmation = handleExplicitCancel;
 
   // Determine current step for visual indicator
   const getCurrentStep = () => {
@@ -189,9 +190,12 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     >
       <div className="space-y-5">
         {isKeepPending && (
-          <p className="text-xs text-themed-muted text-center">
-            {t('modals.steamAuth.containerAccountNotice')}
-          </p>
+          <>
+            <p className="text-xs text-themed-muted text-center">
+              {t('modals.steamAuth.containerAccountNotice')}
+            </p>
+            <PersistentLoginCountdown deadline={loginDeadline} />
+          </>
         )}
 
         {/* Step Indicator */}

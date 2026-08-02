@@ -38,14 +38,15 @@ import { PersistentLoginHost } from './PersistentLoginHost';
 import { normalizePersistentLoginClearResults } from './persistentLoginClearResult';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import {
-  getPersistentLoginSessionId,
+  endPersistentLogin,
   hasActivePersistentLogin,
   isPersistentLoginDismissed,
   reconcilePersistentLoginFromServer,
   requestPersistentLoginAttempt,
   resetPersistentLoginState,
   retirePersistentLoginState,
-  setPersistentLoginStartSessionId
+  setPersistentLoginStartSessionId,
+  usePersistentLoginStoreVersion
 } from './persistentLoginStore';
 import {
   beginEditSessionCleanup,
@@ -689,6 +690,16 @@ export function ScheduledPrefillConfigModal({
           continue;
         }
 
+        // Checked before the probe as well as after it. Closing the modal nulls
+        // persistentLoginTarget, which re-runs this effect while the cancel POST is still in
+        // flight; if the probe's GET is served the challenge the daemon has not dropped yet,
+        // applyPersistentLoginChallenge reads it as a brand new challenge and clears `dismissed`,
+        // so the post-check below can no longer stop the modal from reopening on a login the user
+        // just cancelled. The close writes `dismissed` synchronously, so it is already true here. [21]
+        if (isPersistentLoginDismissed(serviceId)) {
+          continue;
+        }
+
         const result = await reconcilePersistentLoginFromServer(serviceId, container.sessionId);
         if (controller.signal.aborted) {
           return;
@@ -872,15 +883,16 @@ export function ScheduledPrefillConfigModal({
   // Reflects the REAL login-flow state (store loading/pendingChallenge) instead of click-time
   // bookkeeping, so a settled flow (success, failure, or an empty response) can never leave a
   // service stuck showing "Authenticating..." with its Log in button disabled (diagnostic §6/§7
-  // issue 3). Recomputed on every container-list refresh, which keeps running continuously while
-  // any account service sits running-but-unauthenticated (see shouldWatchPersistentAuth above) -
-  // bounding staleness to "within one refresh" per the acceptance criteria.
+  // issue 3). `hasActivePersistentLogin` and `isPersistentLoginDismissed` are plain Map reads, not
+  // themselves reactive, so this also needs to recompute on the store-wide version bump below -
+  // otherwise closing the auth modal, which writes the login store without producing any
+  // container-list change, leaves this memo and everything it disables stuck on its last value
+  // forever, which is the "Authenticating..." badge that never cleared.
   //
-  // A dismissed-but-still-pending challenge (the user closed the auth modal via X/backdrop/Escape,
-  // which keeps the daemon login and its challenge alive - see persistentLoginStore's `dismissed`
-  // flag) does NOT count as "authenticating" here: `hasActivePersistentLogin` stays true for it
-  // (pendingChallenge is intentionally untouched by a soft dismiss), so without this exclusion the
-  // card's Log in button would stay disabled forever with no way back into the modal.
+  // The `dismissed` exclusion stays because closing the modal writes that flag last, after the
+  // login has already been ended and the store reset (see the auth modals' close handler): a
+  // service the user has closed must never read as "authenticating" from either signal.
+  const persistentLoginStoreVersion = usePersistentLoginStoreVersion();
   const authenticatingServiceKeys = useMemo(
     () =>
       SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.filter((serviceKey) => {
@@ -893,7 +905,8 @@ export function ScheduledPrefillConfigModal({
           !isPersistentLoginDismissed(serviceId)
         );
       }),
-    [persistentContainerByService]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [persistentContainerByService, persistentLoginStoreVersion]
   );
 
   const isLoading = loadingConfig;
@@ -1206,13 +1219,17 @@ export function ScheduledPrefillConfigModal({
         // container has since started - falling back to the container's id only covers the edge
         // where cancel is clicked before the login ever pinned one (see usePersistentPrefillAuth's
         // cancel() for the matching case); cancel-login is idempotent on a mismatch either way.
-        await ApiService.cancelPersistentLogin(
-          serviceId,
-          getPersistentLoginSessionId(serviceId) ?? container.sessionId
-        );
-        resetPersistentLoginState(serviceId);
+        // endPersistentLogin resolves the same fallback and resets the store, so this no longer
+        // needs its own copy of that sequence.
+        const cancelled = await endPersistentLogin(serviceId, container.sessionId);
         setPersistentLoginTarget((current) => (current === serviceKey ? null : current));
         await loadPersistentContainers();
+        if (!cancelled) {
+          // Set AFTER the refresh, which clears this same field on success. Without it the logout
+          // looks clean while the daemon is still holding a login challenge with no client
+          // watching it and no armed timeout. [22]
+          setPersistentError(t('prefill.persistent.cancelLoginFailed'));
+        }
         return;
       }
 

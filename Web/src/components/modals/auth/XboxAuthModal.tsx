@@ -5,6 +5,8 @@ import { Button } from '@components/ui/Button';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { StepDot } from './StepDot';
+import { cancelAuthModalLogin } from './authModalCancel';
+import { PersistentLoginCountdown } from './PersistentLoginCountdown';
 import { useTranslation } from 'react-i18next';
 
 // The Xbox modal only consumes the device-code slice of an auth flow. Both the prefill-daemon
@@ -36,6 +38,9 @@ interface XboxAuthModalProps {
    * login resumable; only the footer button actually cancels.
    */
   dismissBehavior?: 'cancel' | 'keep-pending';
+  /** Persistent-container flow only: epoch ms this login attempt expires at
+   *  (`PersistentLoginStoreState.loginDeadline`). `null`/unset renders no countdown. */
+  loginDeadline?: number | null;
 }
 
 /**
@@ -52,7 +57,8 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
   state,
   actions,
   onCancelLogin,
-  dismissBehavior = 'cancel'
+  dismissBehavior = 'cancel',
+  loginDeadline = null
 }) => {
   const { t } = useTranslation();
   const isKeepPending = dismissBehavior === 'keep-pending';
@@ -74,19 +80,19 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
     onClose();
   };
 
-  // keep-pending (persistent-container flow): X/backdrop/Escape only hide the modal, even mid
-  // device-code - the daemon login keeps running and stays resumable (diagnostic §5: Xbox close
-  // used to auto-cancel here). Only the explicit Cancel button below actually cancels.
-  const handleSoftClose = () => {
-    onClose();
+  const handleExplicitCancel = () => {
+    cancelAuthModalLogin({
+      cancelPendingRequest,
+      resetAuthForm: actions.resetAuthForm,
+      onCancelLogin,
+      onClose
+    });
   };
 
-  const handleExplicitCancel = () => {
-    cancelPendingRequest();
-    actions.resetAuthForm();
-    onCancelLogin?.();
-    onClose();
-  };
+  // keep-pending (persistent-container flow): X/backdrop/Escape now do the same login-ending work
+  // as the explicit Cancel button, even mid device-code - a soft, cancel-nothing close used to
+  // leave the daemon login (and the Configure card's "Authenticating..." badge) stuck forever.
+  const handleSoftClose = handleExplicitCancel;
 
   const handleSubmit = async () => {
     if (isSubmitting || loading) return;
@@ -125,9 +131,12 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
     >
       <div className="space-y-5">
         {isKeepPending && (
-          <p className="text-xs text-themed-muted text-center">
-            {t('modals.xboxAuth.containerAccountNotice')}
-          </p>
+          <>
+            <p className="text-xs text-themed-muted text-center">
+              {t('modals.xboxAuth.containerAccountNotice')}
+            </p>
+            <PersistentLoginCountdown deadline={loginDeadline} />
+          </>
         )}
 
         {/* Step Indicator */}

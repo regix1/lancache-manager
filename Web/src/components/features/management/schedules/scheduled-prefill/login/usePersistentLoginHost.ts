@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { PersistentPrefillServiceId } from '@components/features/prefill/persistentPrefillTypes';
-import { consumeLoginAttemptNonce, usePersistentLoginRequestNonce } from '../persistentLoginStore';
+import {
+  consumeLoginAttemptNonce,
+  ensurePersistentLoginTimeout,
+  usePersistentLoginRequestNonce
+} from '../persistentLoginStore';
 
 export interface PersistentLoginHostProps {
   isRunning: boolean;
@@ -39,6 +44,7 @@ export function usePersistentLoginHost({
   onAuthenticated,
   autoStart = false
 }: PersistentLoginHostOptions): boolean {
+  const { t } = useTranslation();
   const loginRequestNonce = usePersistentLoginRequestNonce(service);
   const handledAuthenticatedRef = useRef(false);
   const startInFlightRef = useRef(false);
@@ -64,6 +70,12 @@ export function usePersistentLoginHost({
 
     if (state.hasChallenge) {
       // A challenge is already pending for this service: reveal it instead of starting over.
+      // Only start() arms the overall ceiling, so a challenge that reached the store any other way
+      // has none - most importantly one restored from the backend's pending-challenge cache after
+      // a page reload, which PersistentLoginHost auto-resumes through here. Arming it on the
+      // resume keeps that attempt bounded; a challenge whose clock is already running is left on
+      // its original deadline, so re-showing the modal cannot extend it.
+      ensurePersistentLoginTimeout(service, t('prefill.persistent.loginTimedOut'));
       resumeModal();
       return;
     }
@@ -75,7 +87,7 @@ export function usePersistentLoginHost({
     } finally {
       startInFlightRef.current = false;
     }
-  }, [resumeModal, startLogin, state.hasChallenge]);
+  }, [resumeModal, service, startLogin, state.hasChallenge, t]);
 
   // Nonce consumption lives in the store, so remounting cannot restart an attempt already handled.
   useEffect(() => {
