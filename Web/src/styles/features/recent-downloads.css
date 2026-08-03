@@ -40,8 +40,13 @@
 /* The detail toggle leads the filter row. Its siblings there are `flex: 1` with a 120px floor so
    the dropdowns share the width evenly; an icon button must opt out of both or it stretches to a
    quarter of the row. The class sits on the Tooltip wrapper because that, not the button, is the
-   flex child of the row. */
+   flex child of the row.
+   `display: flex` is what keeps the button the same height as the pickers beside it: the slot
+   stretches to the row, and the button stretches inside the slot. Its own floor is 40px, the
+   desktop trigger height, so without this it renders 4px short and sits high once dropdowns.css
+   raises the triggers to the 44px touch minimum below 640px. */
 .rdl-filters > .rdl-detail-toggle-slot {
+  display: flex;
   flex: 0 0 auto;
   min-width: 0;
 }
@@ -100,10 +105,28 @@
   min-width: 120px;
 }
 
+/* Phone width: the toggle plus two pickers on one line leaves each picker about 150px, and
+   "Service: All services" needs closer to 180px, so both labels truncate mid-word. The client
+   picker takes a line of its own and the service picker keeps the rest of the toggle's line, which
+   is the same treatment the chart panel beside this one gives its picker at this width. */
+@container (max-width: 399.98px) {
+  .rdl-filters > .rdl-client-filter {
+    flex: 1 0 100%;
+  }
+}
+
 @container (min-width: 400px) {
   .rdl-filters > * {
     flex: 0 1 auto;
     min-width: 140px;
+  }
+
+  /* Fixed rather than content-sized, matching the Games picker on the chart panel beside this one.
+     The row is right-aligned, so a trigger that resized with its label would shift its neighbours
+     every time the selection changed. 12rem fits the longest label with its prefix. */
+  .rdl-filters > .rdl-filter-select {
+    width: 12rem;
+    flex: 0 0 auto;
   }
 }
 
@@ -133,36 +156,6 @@
     flex: 1 1 auto;
     justify-content: flex-end;
   }
-}
-
-.rdl-clear-btn {
-  flex: 0 0 auto;
-  padding: 0.5rem 0.75rem;
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  color: var(--theme-text-muted);
-  background: var(--theme-bg-surface);
-  border: 1px solid var(--theme-border-secondary);
-  border-radius: var(--theme-border-radius);
-  cursor: pointer;
-  transition:
-    color 0.15s ease,
-    border-color 0.15s ease;
-  white-space: nowrap;
-}
-
-.rdl-clear-btn:hover {
-  color: var(--theme-text-primary);
-  border-color: var(--theme-border-primary);
-}
-
-.rdl-clear-btn:focus-visible {
-  outline: 2px solid var(--theme-border-focus);
-  outline-offset: 2px;
-}
-
-.rdl-clear-btn:active {
-  background: var(--theme-bg-surface-active);
 }
 
 /* ----- The list well: one bordered surface, hairline dividers ----- */

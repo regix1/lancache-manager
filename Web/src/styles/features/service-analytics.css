@@ -989,11 +989,21 @@
     min-width: 0;
   }
 
-  /* The fixed width becomes a ceiling once the panel is this narrow: the picker may shrink with
-     the panel rather than push its group off the row. It stays beside the toggle either way. */
+  /* At phone width the view picker fills the first line on its own, so the toggle and the service
+     picker wrap to a line of their own. Left to the desktop rules that pair is content-sized and
+     the auto margin shunts it right, leaving dead space down the left of the row. Here the group
+     takes the whole line and the picker absorbs whatever the toggle does not use, so the row reads
+     edge to edge like every other control on the panel. */
+  .service-analytics-controls .service-analytics-actions {
+    flex: 1 1 100%;
+  }
+
+  /* The desktop fixed width is dropped here: on its own line there is nothing beside the picker
+     for a changing label to shove, so it can take the space instead of holding a 12rem box. */
   .service-analytics-controls .service-analytics-game-service-select {
+    width: auto;
+    flex: 1 1 auto;
     min-width: 0;
-    flex-shrink: 1;
   }
 
   /* The picker and the toggle are one cluster, so they share one height. The picker gets its 44px

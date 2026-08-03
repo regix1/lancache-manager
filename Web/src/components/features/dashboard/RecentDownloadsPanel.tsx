@@ -27,7 +27,11 @@ import { useLiveDownloadPreviews } from '../downloads/useLiveDownloadPreviews';
 import { buildTrafficKey, filterLivePreviews } from '../downloads/liveDownloadPreviews';
 import { storage } from '@utils/storage';
 import { APP_EVENTS, STORAGE_KEYS } from '@utils/constants';
-import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
+import {
+  formatServiceLabel,
+  getServiceDisplayName,
+  getServiceFilterKey
+} from '@utils/serviceDisplayName';
 import { buildClientFilterOptions } from '@utils/clientFilterOptions';
 import type {
   Download,
@@ -683,33 +687,27 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 <EnhancedDropdown
                   options={[
                     { value: 'all', label: t('dashboard.downloadsPanel.allServices') },
-                    ...serviceFilterOptions.map(({ key, service }) => {
-                      const displayService = getServiceDisplayName(service);
-                      return {
-                        value: key,
-                        label: displayService.charAt(0).toUpperCase() + displayService.slice(1)
-                      };
-                    })
+                    ...serviceFilterOptions.map(({ key, service }) => ({
+                      value: key,
+                      label: formatServiceLabel(service)
+                    }))
                   ]}
                   value={selectedService}
                   onChange={setSelectedService}
+                  size="md"
+                  variant="button"
+                  prefix={t('dashboard.downloadsPanel.servicePrefix')}
+                  className="rdl-filter-select"
                 />
                 <EnhancedDropdown
                   options={clientOptions}
                   value={selectedClient}
                   onChange={setSelectedClient}
+                  size="md"
+                  variant="button"
+                  prefix={t('dashboard.downloadsPanel.clientPrefix')}
+                  className="rdl-filter-select rdl-client-filter"
                 />
-                {(selectedService !== 'all' || selectedClient !== 'all') && (
-                  <button
-                    className="rdl-clear-btn"
-                    onClick={() => {
-                      setSelectedService('all');
-                      setSelectedClient('all');
-                    }}
-                  >
-                    {t('dashboard.downloadsPanel.clear')}
-                  </button>
-                )}
               </>
             )}
           </div>

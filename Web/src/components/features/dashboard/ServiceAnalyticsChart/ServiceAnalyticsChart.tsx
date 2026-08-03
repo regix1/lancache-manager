@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { PieChart, Maximize2, Minimize2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { isActiveGame, buildGamesOnDiskDisplayStats, getChartGames } from '@utils/gameDetection';
-import { getServiceDisplayName } from '@utils/serviceDisplayName';
+import { formatServiceLabel } from '@utils/serviceDisplayName';
 import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -77,7 +77,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         },
         ...[...bytesByService.entries()]
           .sort(([, aBytes], [, bBytes]) => bBytes - aBytes)
-          .map(([service]) => ({ value: service, label: getServiceDisplayName(service) }))
+          .map(([service]) => ({ value: service, label: formatServiceLabel(service) }))
       ];
     }, [games, t]);
 
