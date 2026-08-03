@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { CustomScrollbar } from './CustomScrollbar';
 import { Tooltip } from './Tooltip';
 import { getEventColorVar } from '@utils/eventColors';
+import { clampToViewport } from '@utils/viewportClamp';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 import { useAnchorFollow, readAnchorRect, type AnchorRect } from '@hooks/useAnchorFollow';
 
@@ -341,16 +342,18 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       const upward = chooseUpward(upwardRef.current, spaceAbove, spaceBelow, menuHeight);
 
       const desiredLeft = alignRight ? anchor.right - menuWidth : anchor.left;
-      const maxLeft = Math.max(
-        VIEWPORT_PADDING_PX,
-        viewportWidth - menuWidth - VIEWPORT_PADDING_PX
-      );
-      const left = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
+      const left = clampToViewport(desiredLeft, menuWidth, viewportWidth, VIEWPORT_PADDING_PX);
 
       // A single top edge for both directions: an upward menu hangs its bottom edge
       // off the trigger's top. Anchoring by `bottom` instead would be measured from
       // the bottom of the *document* once the menu is absolutely positioned.
-      const top = upward ? anchor.top - MENU_GAP_PX - menuHeight : anchor.bottom + MENU_GAP_PX;
+      const desiredTop = upward
+        ? anchor.top - MENU_GAP_PX - menuHeight
+        : anchor.bottom + MENU_GAP_PX;
+      // The side is already chosen above, so this only pulls a menu that is taller
+      // than the room on that side back onto the screen. It cannot change the side,
+      // which is what keeps chooseUpward's hysteresis intact. [9]
+      const top = clampToViewport(desiredTop, menuHeight, viewportHeight, VIEWPORT_PADDING_PX);
 
       return {
         top: top + window.scrollY,

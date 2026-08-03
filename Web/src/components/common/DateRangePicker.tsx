@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Calendar, ChevronDown } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
-import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { useEvents } from '@contexts/useEvents';
@@ -45,54 +46,10 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     // Navigate calendar to show the event's start month
     setCurrentMonth(new Date(start.getFullYear(), start.getMonth(), 1));
   };
-  const [showYearDropdown, setShowYearDropdown] = useState(false);
-  const [showMonthDropdown, setShowMonthDropdown] = useState(false);
   const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
   const [lastClickTime, setLastClickTime] = useState<number>(0);
   const [lastClickedDate, setLastClickedDate] = useState<Date | null>(null);
   const [clickCount, setClickCount] = useState<number>(0);
-
-  const monthDropdownRef = useRef<HTMLDivElement>(null);
-  const yearDropdownRef = useRef<HTMLDivElement>(null);
-  const monthButtonRef = useRef<HTMLButtonElement>(null);
-  const yearButtonRef = useRef<HTMLButtonElement>(null);
-
-  // Click outside handler for dropdowns
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-
-      // Check month dropdown
-      if (
-        showMonthDropdown &&
-        monthDropdownRef.current &&
-        !monthDropdownRef.current.contains(target) &&
-        monthButtonRef.current &&
-        !monthButtonRef.current.contains(target)
-      ) {
-        setShowMonthDropdown(false);
-      }
-
-      // Check year dropdown
-      if (
-        showYearDropdown &&
-        yearDropdownRef.current &&
-        !yearDropdownRef.current.contains(target) &&
-        yearButtonRef.current &&
-        !yearButtonRef.current.contains(target)
-      ) {
-        setShowYearDropdown(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showMonthDropdown, showYearDropdown]);
-
-  const closeDropdowns = () => {
-    setShowYearDropdown(false);
-    setShowMonthDropdown(false);
-  };
 
   const getDaysInMonth = (date: Date): number => {
     return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
@@ -103,8 +60,6 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   };
 
   const handleDateClick = (day: number) => {
-    closeDropdowns();
-
     const selectedDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
     selectedDate.setHours(0, 0, 0, 0);
 
@@ -159,26 +114,35 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   };
 
   const changeMonth = (increment: number) => {
-    closeDropdowns();
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + increment, 1));
   };
 
   const changeYear = (year: number) => {
     setCurrentMonth(new Date(year, currentMonth.getMonth(), 1));
-    setShowYearDropdown(false);
   };
 
   const changeToMonth = (month: number) => {
     setCurrentMonth(new Date(currentMonth.getFullYear(), month, 1));
-    setShowMonthDropdown(false);
   };
+
+  // The dropdowns speak strings; these keep the numeric handlers above typed instead
+  // of widening them to accept a raw option value.
+  const handleMonthSelect = (option: string): void => changeToMonth(Number(option));
+  const handleYearSelect = (option: string): void => changeYear(Number(option));
 
   const currentYear = new Date().getFullYear();
   const startYear = 1999;
   const endYear = currentYear + 2;
-  const yearOptions = Array.from({ length: endYear - startYear + 1 }, (_, i) => startYear + i);
+  const yearOptions: DropdownOption[] = Array.from({ length: endYear - startYear + 1 }, (_, i) => {
+    const year = startYear + i;
+    return { value: String(year), label: String(year) };
+  });
 
   const monthNames = t('common.dateRangePicker.months', { returnObjects: true }) as string[];
+  const monthOptions: DropdownOption[] = monthNames.map((month, index) => ({
+    value: String(index),
+    label: month
+  }));
 
   const isDateInRange = (day: number): boolean => {
     const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
@@ -265,179 +229,122 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     >
       <div>
         <div className="mb-4 flex items-center justify-between">
-          <button
+          {/* md is the only size where Button and EnhancedDropdown are both 40px: the
+              dropdown trigger's sm is 34px against Button's 32px. Below the phone breakpoint
+              the trigger takes a 44px touch floor, so the buttons follow it up with min-h-11.
+              Same row and same values as DateTimePicker. */}
+          <Button
+            variant="filled"
+            color="gray"
+            size="md"
+            className="max-sm:min-h-11"
             onClick={() => changeMonth(-1)}
-            className="p-2 hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors"
           >
-            <ChevronLeft className="w-5 h-5 text-[var(--theme-text-primary)]" />
-          </button>
+            <ChevronLeft className="w-5 h-5" />
+          </Button>
 
           <div className="flex items-center gap-2">
-            {/* Month Dropdown */}
-            <div className="relative">
-              <button
-                ref={monthButtonRef}
-                onClick={() => {
-                  setShowMonthDropdown(!showMonthDropdown);
-                  setShowYearDropdown(false);
-                }}
-                className="flex items-center gap-1 px-3 py-1.5 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors border border-transparent hover:border-[var(--theme-border-primary)]"
-              >
-                {monthNames[currentMonth.getMonth()]}
-                <ChevronDown
-                  className={`w-4 h-4 transition-transform ${showMonthDropdown ? 'rotate-180' : ''}`}
-                />
-              </button>
+            <EnhancedDropdown
+              options={monthOptions}
+              value={String(currentMonth.getMonth())}
+              onChange={handleMonthSelect}
+              variant="button"
+              size="md"
+              maxHeight="200px"
+              dropdownWidth="w-40"
+              className="w-[104px] sm:w-[128px]"
+            />
 
-              {showMonthDropdown && (
-                <div
-                  ref={monthDropdownRef}
-                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[85]"
-                >
-                  <CustomScrollbar maxHeight="200px" paddingMode="none">
-                    <div className="py-1">
-                      {monthNames.map((month, index) => (
-                        <button
-                          key={month}
-                          onClick={() => changeToMonth(index)}
-                          className={`w-full text-left px-3 py-2 text-sm transition-colors whitespace-nowrap ${
-                            index === currentMonth.getMonth()
-                              ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
-                              : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
-                          }`}
-                        >
-                          {month}
-                        </button>
-                      ))}
-                    </div>
-                  </CustomScrollbar>
-                </div>
-              )}
-            </div>
-
-            {/* Year Dropdown */}
-            <div className="relative">
-              <button
-                ref={yearButtonRef}
-                onClick={() => {
-                  setShowYearDropdown(!showYearDropdown);
-                  setShowMonthDropdown(false);
-                }}
-                className="flex items-center gap-1 px-3 py-1.5 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors border border-transparent hover:border-[var(--theme-border-primary)]"
-              >
-                {currentMonth.getFullYear()}
-                <ChevronDown
-                  className={`w-4 h-4 transition-transform ${showYearDropdown ? 'rotate-180' : ''}`}
-                />
-              </button>
-
-              {showYearDropdown && (
-                <div
-                  ref={yearDropdownRef}
-                  className="absolute top-full right-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[85]"
-                >
-                  <CustomScrollbar maxHeight="200px" paddingMode="none">
-                    <div className="py-1">
-                      {yearOptions.map((year) => (
-                        <button
-                          key={year}
-                          onClick={() => changeYear(year)}
-                          className={`w-full text-left px-3 py-2 text-sm transition-colors whitespace-nowrap ${
-                            year === currentMonth.getFullYear()
-                              ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
-                              : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
-                          }`}
-                        >
-                          {year}
-                        </button>
-                      ))}
-                    </div>
-                  </CustomScrollbar>
-                </div>
-              )}
-            </div>
+            <EnhancedDropdown
+              options={yearOptions}
+              value={String(currentMonth.getFullYear())}
+              onChange={handleYearSelect}
+              variant="button"
+              size="md"
+              alignRight
+              maxHeight="200px"
+              dropdownWidth="w-28"
+              className="w-[76px] sm:w-[92px]"
+            />
           </div>
 
-          <button
+          <Button
+            variant="filled"
+            color="gray"
+            size="md"
+            className="max-sm:min-h-11"
             onClick={() => changeMonth(1)}
-            className="p-2 hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors"
           >
-            <ChevronRight className="w-5 h-5 text-[var(--theme-text-primary)]" />
-          </button>
+            <ChevronRight className="w-5 h-5" />
+          </Button>
         </div>
 
-        {/* Hidden (not unmounted, so layout/refs stay stable) while a dropdown is open —
-            the day grid's "today" dot and selected-range cells use their own stacking
-            contexts (z-10) that can otherwise show through the narrow month/year popup. */}
-        <div className={showMonthDropdown || showYearDropdown ? 'invisible' : ''}>
-          <div className="grid grid-cols-7 gap-1 mb-2">
-            {weekDays.map((day) => (
-              <div
+        <div className="grid grid-cols-7 gap-1 mb-2">
+          {weekDays.map((day) => (
+            <div
+              key={day}
+              className="text-center text-xs font-medium text-[var(--theme-text-secondary)] py-2"
+            >
+              {day}
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-1" onMouseLeave={handleMouseLeave}>
+          {Array.from({ length: firstDayOfMonth }).map((_, index) => (
+            <div key={`empty-${index}`} />
+          ))}
+          {Array.from({ length: daysInMonth }).map((_, index) => {
+            const day = index + 1;
+            const inRange = isDateInRange(day);
+            const isStart = isStartDate(day);
+            const isEnd = isEndDate(day);
+            const isHovered = isHoveredDate(day);
+            const today = isToday(day);
+
+            let className = 'relative p-2 text-sm transition cursor-pointer ';
+
+            if (isStart && isEnd) {
+              className += 'rounded-lg ';
+            } else if (isStart) {
+              className += 'rounded-l-lg ';
+            } else if (isEnd) {
+              className += 'rounded-r-lg ';
+            } else if (inRange) {
+              className += '';
+            } else {
+              className += 'rounded-lg ';
+            }
+
+            if (isStart || isEnd) {
+              className +=
+                'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold z-10 ';
+            } else if (inRange) {
+              className += 'bg-[var(--theme-primary)]/20 text-[var(--theme-text-primary)] ';
+            } else if (isHovered && startDate && !endDate) {
+              className += 'bg-[var(--theme-bg-tertiary)]/50 text-[var(--theme-text-primary)] ';
+            } else {
+              className += 'hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] ';
+            }
+
+            if (today && !isStart && !isEnd) {
+              className += 'ring-2 ring-[var(--theme-primary)]/50 ';
+            }
+
+            return (
+              <button
                 key={day}
-                className="text-center text-xs font-medium text-[var(--theme-text-secondary)] py-2"
+                onClick={() => handleDateClick(day)}
+                onMouseEnter={() => handleDateHover(day)}
+                className={className}
               >
                 {day}
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-7 gap-1" onMouseLeave={handleMouseLeave}>
-            {Array.from({ length: firstDayOfMonth }).map((_, index) => (
-              <div key={`empty-${index}`} />
-            ))}
-            {Array.from({ length: daysInMonth }).map((_, index) => {
-              const day = index + 1;
-              const inRange = isDateInRange(day);
-              const isStart = isStartDate(day);
-              const isEnd = isEndDate(day);
-              const isHovered = isHoveredDate(day);
-              const today = isToday(day);
-
-              let className = 'relative p-2 text-sm transition cursor-pointer ';
-
-              if (isStart && isEnd) {
-                className += 'rounded-lg ';
-              } else if (isStart) {
-                className += 'rounded-l-lg ';
-              } else if (isEnd) {
-                className += 'rounded-r-lg ';
-              } else if (inRange) {
-                className += '';
-              } else {
-                className += 'rounded-lg ';
-              }
-
-              if (isStart || isEnd) {
-                className +=
-                  'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold z-10 ';
-              } else if (inRange) {
-                className += 'bg-[var(--theme-primary)]/20 text-[var(--theme-text-primary)] ';
-              } else if (isHovered && startDate && !endDate) {
-                className += 'bg-[var(--theme-bg-tertiary)]/50 text-[var(--theme-text-primary)] ';
-              } else {
-                className +=
-                  'hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] ';
-              }
-
-              if (today && !isStart && !isEnd) {
-                className += 'ring-2 ring-[var(--theme-primary)]/50 ';
-              }
-
-              return (
-                <button
-                  key={day}
-                  onClick={() => handleDateClick(day)}
-                  onMouseEnter={() => handleDateHover(day)}
-                  className={className}
-                >
-                  {day}
-                  {today && (
-                    <div className="absolute bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-[var(--theme-primary)] rounded-full" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
+                {today && (
+                  <div className="absolute bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-[var(--theme-primary)] rounded-full" />
+                )}
+              </button>
+            );
+          })}
         </div>
 
         <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
@@ -611,7 +518,6 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               setHoveredDate(null);
               setClickCount(0);
               setLastClickedDate(null);
-              closeDropdowns();
               setCurrentMonth(new Date());
             }}
             className="flex-1 px-3 py-2 text-sm bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Slider } from '@components/ui/Slider';
 import Badge from '@components/ui/Badge';
+import { clampToViewport } from '@utils/viewportClamp';
 
 interface ImprovedColorPickerProps {
   value: string;
@@ -139,17 +140,17 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
     const viewportWidth = window.innerWidth;
     const spaceOnRight = viewportWidth - rect.right;
 
-    // If there's enough space on the right, position to the right
-    if (spaceOnRight > pickerWidth + 20) {
-      return {
-        left: rect.right + 8, // 8px gap to the right
-        top: rect.top // fixed positioning uses viewport coords, no scroll offset needed
-      };
-    }
+    // Prefer the right of the swatch, fall back to its left. Neither side is
+    // guaranteed to fit on a narrow screen, where a swatch close to the left edge
+    // leaves less than the picker's width beside it, so the chosen edge is then
+    // pulled back onto the screen. [7]
+    const desiredLeft =
+      spaceOnRight > pickerWidth + 20
+        ? rect.right + 8 // 8px gap to the right
+        : rect.left - pickerWidth - 8; // 8px gap to the left
 
-    // Otherwise, position to the left
     return {
-      left: rect.left - pickerWidth - 8, // 8px gap to the left
+      left: clampToViewport(desiredLeft, pickerWidth, viewportWidth, 8),
       top: rect.top // fixed positioning uses viewport coords, no scroll offset needed
     };
   };

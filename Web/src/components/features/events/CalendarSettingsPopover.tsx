@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useCalendarSettings } from '@contexts/useCalendarSettings';
 import { Tooltip } from '@components/ui/Tooltip';
+import { clampToViewport } from '@utils/viewportClamp';
 import type {
   WeekStartDay,
   EventOpacity,
@@ -171,24 +172,20 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
       const popoverHeight = popoverRef.current?.offsetHeight || POPOVER_MAX_HEIGHT;
 
       // Calculate horizontal position - align right edge with trigger right edge
-      let x = position === 'left' ? triggerRect.left : triggerRect.right - popoverWidth;
+      const desiredX = position === 'left' ? triggerRect.left : triggerRect.right - popoverWidth;
 
       // Clamp X within viewport
-      const maxX = viewportWidth - popoverWidth - VIEWPORT_PADDING;
-      x = Math.min(Math.max(x, VIEWPORT_PADDING), Math.max(VIEWPORT_PADDING, maxX));
+      const x = clampToViewport(desiredX, popoverWidth, viewportWidth, VIEWPORT_PADDING);
 
       // Calculate vertical position - prefer below trigger
       const spaceBelow = viewportHeight - triggerRect.bottom - VIEWPORT_PADDING;
       const spaceAbove = triggerRect.top - VIEWPORT_PADDING;
       const openUpward = spaceBelow < popoverHeight && spaceAbove > spaceBelow;
 
-      let y = openUpward ? triggerRect.top - popoverHeight - 8 : triggerRect.bottom + 8;
+      const desiredY = openUpward ? triggerRect.top - popoverHeight - 8 : triggerRect.bottom + 8;
 
       // Clamp Y within viewport
-      y = Math.max(
-        VIEWPORT_PADDING,
-        Math.min(y, viewportHeight - popoverHeight - VIEWPORT_PADDING)
-      );
+      const y = clampToViewport(desiredY, popoverHeight, viewportHeight, VIEWPORT_PADDING);
 
       return { x, y, openUpward };
     };
@@ -209,22 +206,18 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
     const viewportHeight = window.innerHeight;
 
     // Recalculate X with actual width
-    let newX = position === 'left' ? triggerRect.left : triggerRect.right - popoverRect.width;
+    const desiredX = position === 'left' ? triggerRect.left : triggerRect.right - popoverRect.width;
 
-    const maxX = viewportWidth - popoverRect.width - VIEWPORT_PADDING;
-    newX = Math.min(Math.max(newX, VIEWPORT_PADDING), Math.max(VIEWPORT_PADDING, maxX));
+    const newX = clampToViewport(desiredX, popoverRect.width, viewportWidth, VIEWPORT_PADDING);
 
     // Recalculate Y with actual height
     const spaceBelow = viewportHeight - triggerRect.bottom - VIEWPORT_PADDING;
     const spaceAbove = triggerRect.top - VIEWPORT_PADDING;
     const openUpward = spaceBelow < popoverRect.height && spaceAbove > spaceBelow;
 
-    let newY = openUpward ? triggerRect.top - popoverRect.height - 8 : triggerRect.bottom + 8;
+    const desiredY = openUpward ? triggerRect.top - popoverRect.height - 8 : triggerRect.bottom + 8;
 
-    newY = Math.max(
-      VIEWPORT_PADDING,
-      Math.min(newY, viewportHeight - popoverRect.height - VIEWPORT_PADDING)
-    );
+    const newY = clampToViewport(desiredY, popoverRect.height, viewportHeight, VIEWPORT_PADDING);
 
     // Only update if position changed significantly
     if (Math.abs(newX - popoverPos.x) > 0.5 || Math.abs(newY - popoverPos.y) > 0.5) {
@@ -255,16 +248,14 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
         createPortal(
           <div
             ref={popoverRef}
-            className="fixed rounded-xl border shadow-2xl overflow-hidden z-[90] flex flex-col"
+            className={`fixed rounded-xl border overflow-hidden z-[90] flex flex-col calendar-settings-popover ${
+              popoverPos.openUpward
+                ? 'calendar-settings-popover--upward'
+                : 'calendar-settings-popover--downward'
+            }`}
             style={{
               left: popoverPos.x,
-              top: popoverPos.y,
-              width: 'min(280px, calc(100vw - 24px))',
-              maxHeight: 'min(520px, calc(100vh - 24px))',
-              backgroundColor: 'var(--theme-card-bg)',
-              borderColor: 'var(--theme-card-border)',
-              boxShadow: '0 20px 50px -12px rgba(0, 0, 0, 0.5)',
-              animation: `${popoverPos.openUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
+              top: popoverPos.y
             }}
           >
             {/* Header */}

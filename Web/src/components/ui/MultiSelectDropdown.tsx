@@ -13,6 +13,7 @@ import { CustomScrollbar } from './CustomScrollbar';
 import { Tooltip } from './Tooltip';
 import { useTranslation } from 'react-i18next';
 import { useAnchorFollow, type AnchorMoveHandler } from '@hooks/useAnchorFollow';
+import { clampToViewport } from '@utils/viewportClamp';
 
 interface IconComponentProps {
   size?: number;
@@ -198,7 +199,10 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
 
     // Both directions anchor by `top`: `bottom` would be measured from the bottom of
     // the document once the menu is absolutely positioned, not the viewport.
-    const top = openUpward ? rect.top - 4 - dropdownHeight : rect.bottom + 4;
+    const desiredTop = openUpward ? rect.top - 4 - dropdownHeight : rect.bottom + 4;
+    // Flipping alone only buys the trigger's distance from the edge, so a menu taller
+    // than the room on the side it picked still hangs off the viewport. [8]
+    const top = clampToViewport(desiredTop, dropdownHeight, window.innerHeight, 8);
 
     setDropdownStyle({
       top: top + window.scrollY,

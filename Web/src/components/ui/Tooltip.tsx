@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { APP_EVENTS } from '@utils/constants';
+import { clampToViewport } from '@utils/viewportClamp';
 
 type TooltipPosition = 'top' | 'bottom' | 'left' | 'right';
 type TooltipStrategy = 'edge' | 'overlay';
@@ -248,14 +249,8 @@ const OverlayTooltip: React.FC<{
     }
 
     // Final clamp in case flipping still doesn't fit (e.g. near a corner)
-    left = Math.max(
-      viewportPadding,
-      Math.min(left, window.innerWidth - rect.width - viewportPadding)
-    );
-    top = Math.max(
-      viewportPadding,
-      Math.min(top, window.innerHeight - rect.height - viewportPadding)
-    );
+    left = clampToViewport(left, rect.width, window.innerWidth, viewportPadding);
+    top = clampToViewport(top, rect.height, window.innerHeight, viewportPadding);
 
     setPos({ x: left, y: top });
     setIsReady(true);
@@ -336,14 +331,8 @@ const EdgeTooltip: React.FC<{
     }
 
     // Clamp to viewport bounds
-    x = Math.max(
-      viewportPadding,
-      Math.min(x, window.innerWidth - tooltipRect.width - viewportPadding)
-    );
-    y = Math.max(
-      viewportPadding,
-      Math.min(y, window.innerHeight - tooltipRect.height - viewportPadding)
-    );
+    x = clampToViewport(x, tooltipRect.width, window.innerWidth, viewportPadding);
+    y = clampToViewport(y, tooltipRect.height, window.innerHeight, viewportPadding);
 
     // Update position and mark as ready - this happens synchronously before paint
     setPos({ x, y });

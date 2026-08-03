@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { HelpCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
+import { clampToViewport } from '@utils/viewportClamp';
 
 interface HelpPopoverProps {
   /** Rich content as children */
@@ -68,11 +69,8 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
 
   const horizontalPosition = useCallback(
     (triggerRect: DOMRect) => {
-      let x = position === 'left' ? triggerRect.left : triggerRect.right - effectiveWidth;
-      if (x + effectiveWidth > viewportSize.width - VIEWPORT_PADDING) {
-        x = viewportSize.width - effectiveWidth - VIEWPORT_PADDING;
-      }
-      return Math.max(VIEWPORT_PADDING, x);
+      const x = position === 'left' ? triggerRect.left : triggerRect.right - effectiveWidth;
+      return clampToViewport(x, effectiveWidth, viewportSize.width, VIEWPORT_PADDING);
     },
     [effectiveWidth, position, viewportSize.width]
   );
@@ -188,11 +186,16 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     // Opening upwards normally ends at the trigger, which is on screen. When the
     // trigger itself has dropped past the bottom edge, sitting against it would
     // hang the last lines of help text off the screen with nothing to scroll.
+    // The bottom edge has to clear the viewport padding, but the top edge is only
+    // floored at 0 below, so a popover that just fits above its trigger keeps the
+    // position it had. Clamping inside the padded region expresses both ends. [2]
     const y = opensBelow
       ? triggerRect.bottom + TRIGGER_GAP
-      : Math.min(
+      : clampToViewport(
           triggerRect.top - renderedHeight - TRIGGER_GAP,
-          viewportSize.height - renderedHeight - VIEWPORT_PADDING
+          renderedHeight,
+          viewportSize.height - VIEWPORT_PADDING,
+          0
         );
 
     setPopoverPos({ x: horizontalPosition(triggerRect), y: Math.max(0, y) });

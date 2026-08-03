@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@components/ui/Button';
@@ -7,12 +7,53 @@ import { useTimezone } from '@contexts/useTimezone';
 import { useCalendarSettings } from '@contexts/useCalendarSettings';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';
+import { clampToViewport } from '@utils/viewportClamp';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import CalendarSettingsPopover from './CalendarSettingsPopover';
 import type { Event } from '../../../types';
+
+// Gap between the anchor day column and the popover's near edge, preserved from
+// the original percentage-based offset.
+const EXPANDED_DAY_POPOVER_GAP_PX = 8;
+// Minimum distance from the viewport edge, matching the other popovers in this app. [18]
+const EXPANDED_DAY_POPOVER_GUTTER_PX = 12;
+// Pre-measurement guess, matching the className's max-w-[260px] below; the real
+// width is measured off the rendered node once it exists. [18]
+const EXPANDED_DAY_POPOVER_MAX_WIDTH_PX = 260;
+
+// Anchors the expanded-day popover near its day column, then clamps the result to
+// the viewport. `rowRect` and `viewportWidth` are viewport-space measurements; the
+// return value is converted back to the row-local `left` the absolutely positioned
+// popover needs, since it stays inside the week row rather than being portalled. [18]
+function computeExpandedDayPopoverLeft(
+  isRightSide: boolean,
+  adjustedIndex: number,
+  totalCols: number,
+  rowRect: DOMRect,
+  popoverWidth: number,
+  viewportWidth: number
+): number {
+  const maxIndex = totalCols - 1;
+
+  const desiredViewportLeft = isRightSide
+    ? rowRect.right -
+      ((maxIndex - adjustedIndex) / totalCols) * rowRect.width -
+      EXPANDED_DAY_POPOVER_GAP_PX -
+      popoverWidth
+    : rowRect.left + (adjustedIndex / totalCols) * rowRect.width + EXPANDED_DAY_POPOVER_GAP_PX;
+
+  const clampedViewportLeft = clampToViewport(
+    desiredViewportLeft,
+    popoverWidth,
+    viewportWidth,
+    EXPANDED_DAY_POPOVER_GUTTER_PX
+  );
+
+  return clampedViewportLeft - rowRect.left;
+}
 
 interface EventCalendarProps {
   events: Event[];
@@ -42,6 +83,8 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [expandedDay, setExpandedDay] = useState<{ day: number; weekIndex: number } | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const weekRowRef = useRef<HTMLDivElement>(null);
+  const [popoverLeft, setPopoverLeft] = useState<number | null>(null);
 
   // Check if an event has ended
   const hasEventEnded = (event: Event): boolean => {
@@ -325,6 +368,74 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
     return rows;
   }, [filteredEvents, currentMonth, firstDayOfMonth, daysInMonth, useLocalTimezone]);
 
+  // Reset the measured position when the popover closes, matching CalendarSettingsPopover. [18]
+  useEffect(() => {
+    if (expandedDay === null) {
+      setPopoverLeft(null);
+    }
+  }, [expandedDay]);
+
+  // Position the expanded-day popover before paint, anchored near its day column and
+  // clamped to the viewport. Runs before the popover's actual width is known, so it
+  // uses the max-width guess; the effect below corrects it once the node is measured. [18]
+  useLayoutEffect(() => {
+    if (!expandedDay || !weekRowRef.current) return;
+
+    const week = weekRows.find((w) => w.weekIndex === expandedDay.weekIndex);
+    if (!week) return;
+
+    const dayIndex = week.days.indexOf(expandedDay.day);
+    const isRightSide = dayIndex >= 4;
+    const totalCols = settings.showWeekNumbers ? 8 : 7;
+    const adjustedIndex = settings.showWeekNumbers ? dayIndex + 1 : dayIndex;
+
+    const rowRect = weekRowRef.current.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const popoverWidth = popoverRef.current?.offsetWidth || EXPANDED_DAY_POPOVER_MAX_WIDTH_PX;
+
+    setPopoverLeft(
+      computeExpandedDayPopoverLeft(
+        isRightSide,
+        adjustedIndex,
+        totalCols,
+        rowRect,
+        popoverWidth,
+        viewportWidth
+      )
+    );
+  }, [expandedDay, weekRows, settings.showWeekNumbers]);
+
+  // Re-measure once the popover has actually rendered, correcting the initial
+  // max-width guess for content that renders narrower than 260px. [18]
+  useLayoutEffect(() => {
+    if (!expandedDay || popoverLeft === null || !weekRowRef.current || !popoverRef.current) return;
+
+    const week = weekRows.find((w) => w.weekIndex === expandedDay.weekIndex);
+    if (!week) return;
+
+    const dayIndex = week.days.indexOf(expandedDay.day);
+    const isRightSide = dayIndex >= 4;
+    const totalCols = settings.showWeekNumbers ? 8 : 7;
+    const adjustedIndex = settings.showWeekNumbers ? dayIndex + 1 : dayIndex;
+
+    const rowRect = weekRowRef.current.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const popoverWidth = popoverRef.current.offsetWidth;
+
+    const newLeft = computeExpandedDayPopoverLeft(
+      isRightSide,
+      adjustedIndex,
+      totalCols,
+      rowRect,
+      popoverWidth,
+      viewportWidth
+    );
+
+    if (Math.abs(newLeft - popoverLeft) > 0.5) {
+      setPopoverLeft(newLeft);
+    }
+  }, [expandedDay, popoverLeft, weekRows, settings.showWeekNumbers]);
+
   // Check if current view includes today
   const now = new Date();
   const isCurrentMonth =
@@ -375,11 +486,15 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         {/* Left: Month/Year Selection */}
         <div className="calendar-nav flex items-center gap-2">
+          {/* md puts the arrows on 40px, the height the dropdowns beside them already take.
+              Below the phone breakpoint the dropdown trigger picks up a 44px touch floor, so
+              the arrows grow to meet it and the row stays one height. min-h/min-w are what
+              reach it, because btn-icon-square pins a 40px width and height. */}
           <Button
             variant="default"
             size="md"
             onClick={() => changeMonth(-1)}
-            className="btn-icon-square"
+            className="btn-icon-square max-sm:min-h-11 max-sm:min-w-11"
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
@@ -405,7 +520,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
             variant="default"
             size="md"
             onClick={() => changeMonth(1)}
-            className="btn-icon-square"
+            className="btn-icon-square max-sm:min-h-11 max-sm:min-w-11"
           >
             <ChevronRight className="w-4 h-4" />
           </Button>
@@ -455,7 +570,11 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
             : null;
 
           return (
-            <div key={week.weekIndex} className="relative">
+            <div
+              key={week.weekIndex}
+              ref={expandedDay?.weekIndex === week.weekIndex ? weekRowRef : undefined}
+              className="relative"
+            >
               {/* Day cells grid */}
               <div
                 className={`grid gap-1 ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
@@ -896,33 +1015,15 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
 
               {/* Expanded day events popover */}
               {expandedDay?.weekIndex === week.weekIndex &&
+                popoverLeft !== null &&
                 (() => {
                   const dayEvents = getEventsForDay(expandedDay.day);
-                  const dayIndex = week.days.indexOf(expandedDay.day);
-                  // Position popover to avoid going off-screen
-                  const isRightSide = dayIndex >= 4;
-                  // Account for week numbers column in positioning
-                  const totalCols = settings.showWeekNumbers ? 8 : 7;
-                  const adjustedIndex = settings.showWeekNumbers ? dayIndex + 1 : dayIndex;
-                  const maxIndex = settings.showWeekNumbers ? 7 : 6;
 
                   return (
                     <div
                       ref={popoverRef}
-                      className="absolute z-50 min-w-[200px] max-w-[260px] overflow-hidden animate-fadeIn"
-                      style={{
-                        top: '4px',
-                        ...(isRightSide
-                          ? {
-                              right: `calc(${((maxIndex - adjustedIndex) / totalCols) * 100}% + 8px)`
-                            }
-                          : { left: `calc(${(adjustedIndex / totalCols) * 100}% + 8px)` }),
-                        backgroundColor: 'var(--theme-card-bg)',
-                        border: '1px solid var(--theme-card-border)',
-                        borderRadius: '12px',
-                        boxShadow:
-                          '0 20px 50px -12px rgba(0, 0, 0, 0.5), 0 8px 20px -8px rgba(0, 0, 0, 0.3)'
-                      }}
+                      className="calendar-day-popover absolute z-50 min-w-[200px] max-w-[260px] overflow-hidden animate-fadeIn"
+                      style={{ left: popoverLeft }}
                     >
                       {/* Header */}
                       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]">

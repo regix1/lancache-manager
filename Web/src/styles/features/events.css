@@ -1,4 +1,40 @@
 /* ==============================================
+ * COMPONENTS - Calendar settings popover
+ * Only its measured left/top stay on the element; everything here is static
+ * ============================================== */
+
+.calendar-settings-popover {
+  width: min(280px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 24px));
+  background-color: var(--theme-card-bg);
+  border-color: var(--theme-card-border);
+  box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.calendar-settings-popover--upward {
+  animation: dropdownSlideUp 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.calendar-settings-popover--downward {
+  animation: dropdownSlideDown 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ==============================================
+ * COMPONENTS - Calendar day popover (expanded day events)
+ * Only its measured left stays on the element; everything here is static [18]
+ * ============================================== */
+
+.calendar-day-popover {
+  top: 4px;
+  background-color: var(--theme-card-bg);
+  border: 1px solid var(--theme-card-border);
+  border-radius: 12px;
+  box-shadow:
+    0 20px 50px -12px rgba(0, 0, 0, 0.5),
+    0 8px 20px -8px rgba(0, 0, 0, 0.3);
+}
+
+/* ==============================================
  * COMPONENTS - Event frame (active event border)
  * Solid border with pulsing glow + live badge
  * ============================================== */

@@ -14,6 +14,7 @@ import {
   type Plugin
 } from 'chart.js';
 import { formatBytes, formatPercent } from '@utils/formatters';
+import { clampToViewport } from '@utils/viewportClamp';
 import type { ServiceStat } from '@/types';
 import { useServiceColors } from './useServiceColors';
 import { getThemeColor, useThemeRevision } from './chartTheme';
@@ -205,28 +206,25 @@ function positionTooltip(el: HTMLDivElement, anchor: TooltipAnchor): void {
     placeOnRight = spaceRight > spaceLeft;
   }
 
-  // Vertical clamp so the tooltip never spills above or below the viewport.
+  // Vertical clamp so the tooltip never spills above or below the viewport. The
+  // transform centres the box on this coordinate, so the clamp runs on the top
+  // edge and the half height goes back on afterwards. [3]
   const halfHeight = tooltipHeight / 2;
-  const clampedY = Math.max(
-    SAFE_MARGIN + halfHeight,
-    Math.min(anchorY, viewportHeight - SAFE_MARGIN - halfHeight)
-  );
+  const clampedY =
+    clampToViewport(anchorY - halfHeight, tooltipHeight, viewportHeight, SAFE_MARGIN) + halfHeight;
 
   // Horizontal clamp, mirroring clampedY above. Right placement sets the
-  // box's left edge directly, so it clamps between SAFE_MARGIN and the
-  // point where the right edge meets viewportWidth - SAFE_MARGIN. Left
-  // placement below adds translate(-100%), so this same coordinate is the
-  // box's right edge instead, and clamps between SAFE_MARGIN + tooltipWidth
-  // and viewportWidth - SAFE_MARGIN. [7]
+  // box's left edge directly. Left placement below adds translate(-100%), so
+  // this same coordinate is the box's right edge instead, and the clamp runs
+  // on the left edge with the width put back on afterwards. [7]
   const clampedX = placeOnRight
-    ? Math.max(
-        SAFE_MARGIN,
-        Math.min(anchorX + TOOLTIP_GAP, viewportWidth - SAFE_MARGIN - tooltipWidth)
-      )
-    : Math.min(
-        viewportWidth - SAFE_MARGIN,
-        Math.max(anchorX - TOOLTIP_GAP, SAFE_MARGIN + tooltipWidth)
-      );
+    ? clampToViewport(anchorX + TOOLTIP_GAP, tooltipWidth, viewportWidth, SAFE_MARGIN)
+    : clampToViewport(
+        anchorX - TOOLTIP_GAP - tooltipWidth,
+        tooltipWidth,
+        viewportWidth,
+        SAFE_MARGIN
+      ) + tooltipWidth;
 
   el.style.transform = placeOnRight
     ? `translate3d(${clampedX}px, ${clampedY}px, 0) translateY(-50%)`

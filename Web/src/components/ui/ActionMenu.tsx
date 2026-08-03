@@ -9,6 +9,7 @@ import React, {
 import { createPortal } from 'react-dom';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 import { useAnchorFollow, readAnchorRect, type AnchorRect } from '@hooks/useAnchorFollow';
+import { clampToViewport } from '@utils/viewportClamp';
 
 interface MenuPosition {
   top: number;
@@ -78,24 +79,25 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
       const menuWidth = parseMenuWidthPx(width);
 
       // Align the menu's matching edge with the trigger's, then keep it on screen.
-      let left = align === 'right' ? anchor.right - menuWidth : anchor.left;
+      const desiredLeft = align === 'right' ? anchor.right - menuWidth : anchor.left;
       const viewportWidth = window.innerWidth;
-      if (left + menuWidth > viewportWidth - VIEWPORT_PADDING_PX) {
-        left = viewportWidth - menuWidth - VIEWPORT_PADDING_PX;
-      }
-      if (left < VIEWPORT_PADDING_PX) {
-        left = VIEWPORT_PADDING_PX;
-      }
+      const left = clampToViewport(desiredLeft, menuWidth, viewportWidth, VIEWPORT_PADDING_PX);
 
       // Open upward when the menu would not fit between the trigger and the viewport
       // bottom and there is more room above. Without this the body-portalled absolute
       // box overflows past the document's end, which grows the page's scroll height
       // and reads as the menu shoving the footer down instead of overlaying content.
       const menuHeight = dropdownRef.current?.offsetHeight ?? 0;
-      const spaceBelow = window.innerHeight - anchor.bottom;
+      const viewportHeight = window.innerHeight;
+      const spaceBelow = viewportHeight - anchor.bottom;
       const fitsBelow = spaceBelow >= menuHeight + MENU_GAP_PX + VIEWPORT_PADDING_PX;
       const opensUp = menuHeight > 0 && !fitsBelow && anchor.top > spaceBelow;
-      const top = opensUp ? anchor.top - menuHeight - MENU_GAP_PX : anchor.bottom + MENU_GAP_PX;
+      const desiredTop = opensUp
+        ? anchor.top - menuHeight - MENU_GAP_PX
+        : anchor.bottom + MENU_GAP_PX;
+      // Flipping alone only buys the trigger's distance from the edge, so a menu
+      // taller than the room on the side it picked still hangs off the viewport. [8]
+      const top = clampToViewport(desiredTop, menuHeight, viewportHeight, VIEWPORT_PADDING_PX);
 
       // Clamped against the viewport, returned in document coordinates: the menu is
       // absolutely positioned in a body portal so that scrolling carries it and its
