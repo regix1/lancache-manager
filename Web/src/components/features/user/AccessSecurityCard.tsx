@@ -186,7 +186,12 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
                     variant="filled"
                     color="gray"
                     size="md"
-                    className="control-h-md"
+                    /* Matches the duration dropdown beside it: same w-40, and the same height at
+                       both tiers. The dropdown's trigger takes a 44px touch floor below the phone
+                       breakpoint, so the button follows it there or the stacked pair reads as two
+                       different controls. Utilities rather than control-h-md, whose !important
+                       40px cannot be lifted for the phone case. */
+                    className="w-40 min-h-10 max-sm:min-h-11"
                     disabled={state.source !== 'ui' || isSaving}
                     onClick={handleResetToDefault}
                   >

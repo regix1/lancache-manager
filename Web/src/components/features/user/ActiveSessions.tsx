@@ -1065,10 +1065,19 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             className="mgmt-row__actions session-row__actions"
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
+            {/* One width for every button in the row, so the cluster does not step in and out as
+                labels change length or as a label swaps to its in-progress text. 5rem clears the
+                longest of those, "Revoking...", measured at 59px plus 16px of padding.
+                The box differs between the two views, so the type follows it. On a pointer view
+                these are xs at a 28px box with the recipe's 12px label. Below the breakpoint the
+                row rule grows them to the 44px touch floor, where a 12px label reads as a mis-set
+                control, so the type steps up. The height bump is scoped to the pointer view on
+                purpose: as `!important` it would outrank that rule and cost the touch target. */}
             <Button
               variant="default"
               color="blue"
-              size="sm"
+              size="xs"
+              className="w-20 sm:!min-h-7 max-sm:!text-sm"
               onClick={() => handleEditSession(session)}
             >
               {t('actions.edit')}
@@ -1077,7 +1086,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <Button
                 variant="default"
                 color="orange"
-                size="sm"
+                size="xs"
+                className="w-20 sm:!min-h-7 max-sm:!text-sm"
                 onClick={handleLogout}
                 disabled={loggingOut}
                 loading={loggingOut}
@@ -1089,7 +1099,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <Button
                 variant="default"
                 color="orange"
-                size="sm"
+                size="xs"
+                className="w-20 sm:!min-h-7 max-sm:!text-sm"
                 onClick={() => handleRevokeSession(session)}
                 disabled={revokingSession === session.id}
               >
@@ -1102,7 +1113,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <Button
                 variant="filled"
                 color="red"
-                size="sm"
+                size="xs"
+                className="w-20 sm:!min-h-7 max-sm:!text-sm"
                 onClick={() => handleDeleteSession(session)}
                 disabled={deletingSession === session.id}
               >
