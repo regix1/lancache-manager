@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bar } from 'react-chartjs-2';
 import {
@@ -53,6 +53,13 @@ interface TooltipRow {
 interface TooltipContent {
   title: string;
   rows: TooltipRow[];
+}
+
+/** Viewport-space point the tooltip opens from, plus the bar direction it belongs to. */
+interface TooltipAnchor {
+  anchorX: number;
+  anchorY: number;
+  isPositive: boolean;
 }
 
 /**
@@ -168,12 +175,86 @@ function createValueLabelPlugin(getTheme: () => DivergingBarTheme): Plugin<'bar'
   };
 }
 
+/**
+ * Places the tooltip against its anchor and keeps it inside the viewport. The
+ * box is measured in here rather than by the caller because its width and
+ * height only settle once the hovered row's content is in the DOM, and the
+ * chart's own handler runs before that content has been committed. [17]
+ */
+function positionTooltip(el: HTMLDivElement, anchor: TooltipAnchor): void {
+  const { anchorX, anchorY, isPositive } = anchor;
+
+  // Measure the tooltip so we can keep it inside the viewport on every edge.
+  // Bars near the right edge would otherwise push the tooltip off-screen on
+  // the right; the same applies on the left for cache-miss bars.
+  const tooltipWidth = el.offsetWidth || 0;
+  const tooltipHeight = el.offsetHeight || 0;
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const SAFE_MARGIN = 12;
+
+  // Prefer the side that matches the bar direction, but flip if it would
+  // overflow the viewport. If both sides overflow (very narrow viewport),
+  // keep whichever leaves more room.
+  const spaceRight = viewportWidth - anchorX - TOOLTIP_GAP - SAFE_MARGIN;
+  const spaceLeft = anchorX - TOOLTIP_GAP - SAFE_MARGIN;
+  let placeOnRight = isPositive;
+  if (placeOnRight && spaceRight < tooltipWidth) {
+    placeOnRight = !(spaceLeft >= tooltipWidth || spaceLeft > spaceRight);
+  } else if (!placeOnRight && spaceLeft < tooltipWidth) {
+    placeOnRight = spaceRight > spaceLeft;
+  }
+
+  // Vertical clamp so the tooltip never spills above or below the viewport.
+  const halfHeight = tooltipHeight / 2;
+  const clampedY = Math.max(
+    SAFE_MARGIN + halfHeight,
+    Math.min(anchorY, viewportHeight - SAFE_MARGIN - halfHeight)
+  );
+
+  // Horizontal clamp, mirroring clampedY above. Right placement sets the
+  // box's left edge directly, so it clamps between SAFE_MARGIN and the
+  // point where the right edge meets viewportWidth - SAFE_MARGIN. Left
+  // placement below adds translate(-100%), so this same coordinate is the
+  // box's right edge instead, and clamps between SAFE_MARGIN + tooltipWidth
+  // and viewportWidth - SAFE_MARGIN. [7]
+  const clampedX = placeOnRight
+    ? Math.max(
+        SAFE_MARGIN,
+        Math.min(anchorX + TOOLTIP_GAP, viewportWidth - SAFE_MARGIN - tooltipWidth)
+      )
+    : Math.min(
+        viewportWidth - SAFE_MARGIN,
+        Math.max(anchorX - TOOLTIP_GAP, SAFE_MARGIN + tooltipWidth)
+      );
+
+  el.style.transform = placeOnRight
+    ? `translate3d(${clampedX}px, ${clampedY}px, 0) translateY(-50%)`
+    : `translate3d(${clampedX}px, ${clampedY}px, 0) translate(-100%, -50%)`;
+  el.classList.toggle('compare-chart-tooltip--arrow-left', placeOnRight);
+  el.classList.toggle('compare-chart-tooltip--arrow-right', !placeOnRight);
+}
+
 const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceStats }) => {
   const themeRevision = useThemeRevision();
   const { getCacheHitColor, getCacheMissColor, getBorderColor } = useServiceColors();
   const tooltipElRef = useRef<HTMLDivElement | null>(null);
   const lastDataKeyRef = useRef<string>('');
+  const anchorRef = useRef<TooltipAnchor | null>(null);
   const [tooltipContent, setTooltipContent] = useState<TooltipContent>({ title: '', rows: [] });
+
+  // The chart hands us a new row and we position the box in the same breath, but
+  // the row's markup is React state and only reaches the DOM on the next commit,
+  // so the width measured in the handler still belongs to the row before it.
+  // Re-placing here runs after that commit and before the browser paints, which
+  // is the first moment the box can be measured at the size it will be drawn. [17]
+  useLayoutEffect(() => {
+    const el = tooltipElRef.current;
+    const anchor = anchorRef.current;
+    if (!el || !anchor || !el.classList.contains('is-visible')) return;
+    if (!tooltipContent.title && tooltipContent.rows.length === 0) return;
+    positionTooltip(el, anchor);
+  }, [tooltipContent]);
 
   // Live theme snapshot the canvas plugins read at paint time. A ref keeps the
   // plugin identity stable across renders while still resolving fresh colors.
@@ -360,43 +441,17 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             }
 
             const canvasRect = chart.canvas.getBoundingClientRect();
-            const anchorX = canvasRect.left + tooltip.caretX;
-            const anchorY = canvasRect.top + tooltip.caretY;
-            const isPositive = (tooltip.dataPoints?.[0]?.parsed?.x ?? 0) >= 0;
+            const anchor: TooltipAnchor = {
+              anchorX: canvasRect.left + tooltip.caretX,
+              anchorY: canvasRect.top + tooltip.caretY,
+              isPositive: (tooltip.dataPoints?.[0]?.parsed?.x ?? 0) >= 0
+            };
+            anchorRef.current = anchor;
 
-            // Measure the tooltip so we can keep it inside the viewport on every edge.
-            // Bars near the right edge would otherwise push the tooltip off-screen on
-            // the right; the same applies on the left for cache-miss bars.
-            const tooltipWidth = el.offsetWidth || 0;
-            const tooltipHeight = el.offsetHeight || 0;
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-            const SAFE_MARGIN = 12;
-
-            // Prefer the side that matches the bar direction, but flip if it would
-            // overflow the viewport. If both sides overflow (very narrow viewport),
-            // keep whichever leaves more room.
-            const spaceRight = viewportWidth - anchorX - TOOLTIP_GAP - SAFE_MARGIN;
-            const spaceLeft = anchorX - TOOLTIP_GAP - SAFE_MARGIN;
-            let placeOnRight = isPositive;
-            if (placeOnRight && spaceRight < tooltipWidth) {
-              placeOnRight = spaceLeft >= tooltipWidth || spaceLeft > spaceRight;
-            } else if (!placeOnRight && spaceLeft < tooltipWidth) {
-              placeOnRight = spaceRight > spaceLeft;
-            }
-
-            // Vertical clamp so the tooltip never spills above or below the viewport.
-            const halfHeight = tooltipHeight / 2;
-            const clampedY = Math.max(
-              SAFE_MARGIN + halfHeight,
-              Math.min(anchorY, viewportHeight - SAFE_MARGIN - halfHeight)
-            );
-
-            el.style.transform = placeOnRight
-              ? `translate3d(${anchorX + TOOLTIP_GAP}px, ${clampedY}px, 0) translateY(-50%)`
-              : `translate3d(${anchorX - TOOLTIP_GAP}px, ${clampedY}px, 0) translate(-100%, -50%)`;
-            el.classList.toggle('compare-chart-tooltip--arrow-left', placeOnRight);
-            el.classList.toggle('compare-chart-tooltip--arrow-right', !placeOnRight);
+            // Correct for whatever is on screen right now. When the row below
+            // turns out to be a different one, the layout effect re-places the
+            // box once its markup has committed.
+            positionTooltip(el, anchor);
             el.classList.add('is-visible');
 
             const dp = tooltip.dataPoints?.[0];

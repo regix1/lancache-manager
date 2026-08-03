@@ -350,10 +350,13 @@ const EdgeTooltip: React.FC<{
     setIsReady(true);
   }, [trigger, position, offset]);
 
+  // A long value like a filesystem path is a single unbreakable word, so the max-width caps the
+  // box while the text paints straight through it and off the screen. break-words splits a word
+  // only when it cannot fit on its own line, so ordinary prose is left exactly as it was. [21]
   return (
     <div
       ref={ref}
-      className={`fixed z-[90] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md tooltip-edge ${contentClassName}`}
+      className={`fixed z-[90] max-w-[min(448px,calc(100vw-24px))] break-words px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md tooltip-edge ${contentClassName}`}
       style={{
         left: pos?.x ?? 0,
         top: pos?.y ?? 0,
@@ -407,7 +410,7 @@ const CacheInfoTooltipInner: React.FC<{ tooltipsDisabled: boolean }> = ({ toolti
   return (
     <Tooltip
       content={
-        <div className="whitespace-nowrap">
+        <div className="whitespace-normal sm:whitespace-nowrap">
           <span className="cache-hit font-medium">{t('cacheInfo.cacheHits')}</span>
           <span className="text-themed-secondary"> {t('cacheInfo.cacheHitsDesc')}</span>
           <span className="text-themed-muted mx-2">|</span>
@@ -415,7 +418,7 @@ const CacheInfoTooltipInner: React.FC<{ tooltipsDisabled: boolean }> = ({ toolti
           <span className="text-themed-secondary"> {t('cacheInfo.cacheMissesDesc')}</span>
         </div>
       }
-      contentClassName="!max-w-none"
+      contentClassName="sm:!max-w-none"
     >
       <Info className={`w-5 h-5 text-themed-muted ${tooltipsDisabled ? '' : 'cursor-help'}`} />
     </Tooltip>
