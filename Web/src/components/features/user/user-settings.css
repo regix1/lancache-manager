@@ -90,4 +90,27 @@
     flex-wrap: wrap;
     justify-content: flex-start;
   }
+
+  /* Keep the duration dropdown and its reset button on ONE line here. Both carry a 10rem width for
+     the wider views, which needs 320px, and this row has 264px, so they were wrapping onto separate
+     lines. They fit side by side at their own widths: the button needs 144px for "Reset to default"
+     and the dropdown only ever shows a short duration.
+     An even split is what does not fit. Half the row is 130px, under the button's 144px, so the
+     button keeps its width and the dropdown takes the remainder rather than both taking halves. */
+  .user-settings-list .mgmt-row__actions > button {
+    width: auto;
+  }
+
+  /* Matched on "not a button" because the dropdown is wrapped in a span, and in a Tooltip on top of
+     that when it has a title, so the flex child here is not always the same element. */
+  .user-settings-list .mgmt-row__actions > *:not(button) {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  /* The wrapper stretching does nothing on its own: the trigger inside still carries the 10rem. */
+  .user-settings-list .mgmt-row__actions .user-settings-dropdown,
+  .user-settings-list .mgmt-row__actions .user-settings-dropdown > .control-h-md {
+    width: 100%;
+  }
 }
