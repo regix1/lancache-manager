@@ -71,6 +71,25 @@ public class SetupOnlyHostedServiceGateTests
     }
 
     /// <summary>
+    /// The control for the two tests above: this is what the 24 call sites did before they were
+    /// gated, and it is why they churned against an absent database. The ungated helper registers
+    /// the <see cref="IHostedService"/> unconditionally, so there is no argument it could have been
+    /// passed that would have kept the service from starting on a setup-only boot. Without this,
+    /// the pair above would still pass if the gate were quietly a no-op.
+    /// </summary>
+    [Fact]
+    public void TheUngatedHelperStartsTheServiceWithNoWayToPreventIt()
+    {
+        var services = new ServiceCollection();
+
+        services.AddSingletonHostedService<IdleHostedService>();
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Single(provider.GetServices<IHostedService>());
+    }
+
+    /// <summary>
     /// Stands in for any of the gated services. It is deliberately inert: the helper decides whether
     /// a loop is ever started, and no assertion here should depend on what the loop would do.
     /// </summary>
