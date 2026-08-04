@@ -1,9 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Buffers;
 using System.Text.Json;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Security;
 using System.Text.RegularExpressions;
 
 namespace LancacheManager.Controllers;
@@ -17,18 +20,50 @@ public class SetupController : ControllerBase
     private readonly ILogger<SetupController> _logger;
     private readonly IConfiguration _configuration;
     private readonly IPathResolver _pathResolver;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly AuthenticationHelper _authenticationHelper;
 
-    public SetupController(ILogger<SetupController> logger, IConfiguration configuration, IPathResolver pathResolver)
+    public SetupController(
+        ILogger<SetupController> logger,
+        IConfiguration configuration,
+        IPathResolver pathResolver,
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        AuthenticationHelper authenticationHelper)
     {
         _logger = logger;
         _configuration = configuration;
         _pathResolver = pathResolver;
+        _dbContextFactory = dbContextFactory;
+        _authenticationHelper = authenticationHelper;
     }
 
-    [Authorize]
+    /// <summary>
+    /// POST /api/setup/credentials - Set the embedded PostgreSQL password.
+    ///
+    /// Anonymous at the routing layer but never open: a session is accepted when the caller has
+    /// one, and the API key otherwise. A session cannot be created while the database is
+    /// unreachable, because logging in writes a row to UserSessions, so requiring one made this
+    /// endpoint unusable in exactly the broken-install case it exists to repair. The API key lives
+    /// in a file and is validated without touching the database, which makes it the only proof of
+    /// possession left during an outage. It stays gated because the statement below runs
+    /// ALTER USER against a role that was created WITH SUPERUSER. [36]
+    /// </summary>
+    [AllowAnonymous]
     [HttpPost("credentials")]
     public async Task<IActionResult> SetCredentialsAsync([FromBody] SetupCredentialsRequest request)
     {
+        if (_configuration.GetValue<bool>("Security:EnableAuthentication", true)
+            && User.Identity?.IsAuthenticated != true)
+        {
+            var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
+            if (!apiKeyResult.IsAuthenticated)
+            {
+                return StatusCode(
+                    apiKeyResult.StatusCode,
+                    ApiResponse.Error(apiKeyResult.ErrorMessage ?? "API key required"));
+            }
+        }
+
         // In external mode the user-managed Postgres isn't ours to ALTER. Route them
         // to the external endpoint, which validates and persists a connection-only config.
         var mode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";
@@ -55,7 +90,23 @@ public class SetupController : ControllerBase
         if (blockedPasswords.Contains(request.Password.ToLowerInvariant()))
             return BadRequest(ApiResponse.Error("This password is too common. Please choose a more secure password."));
 
-        var username = string.IsNullOrWhiteSpace(request.Username) ? "lancache" : request.Username.Trim();
+        // Connect with the settings the app resolved at startup, not the raw appsettings string.
+        // Program.cs layers POSTGRES_USER and POSTGRES_DB over that base, so reading it back here
+        // is what makes a custom role or database name reach the ALTER USER below instead of
+        // connecting as the appsettings default and failing with a role that does not exist. [35]
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+        var connectionSettings = new Npgsql.NpgsqlConnectionStringBuilder(
+            dbContext.Database.GetConnectionString());
+
+        // No username submitted means "the role this installation already runs as", which is the
+        // one the entrypoint created from POSTGRES_USER.
+        var username = string.IsNullOrWhiteSpace(request.Username)
+            ? connectionSettings.Username
+            : request.Username.Trim();
+
+        if (string.IsNullOrWhiteSpace(username))
+            return BadRequest(ApiResponse.Error("Username is required"));
+
         if (!Regex.IsMatch(username, "^[A-Za-z0-9_]+$"))
         {
             return BadRequest(ApiResponse.Error("Username may only contain letters, numbers, and underscores"));
@@ -70,8 +121,7 @@ public class SetupController : ControllerBase
         // can leave the system in a broken partial state if ALTER USER fails.
         try
         {
-            var connStr = _configuration.GetConnectionString("DefaultConnection");
-            using var conn = new Npgsql.NpgsqlConnection(connStr);
+            using var conn = new Npgsql.NpgsqlConnection(connectionSettings.ConnectionString);
             await conn.OpenAsync();
 
             string alterUserSql;
@@ -190,6 +240,13 @@ public class SetupController : ControllerBase
 
         if (string.IsNullOrWhiteSpace(request.Password))
             return BadRequest(ApiResponse.Error("Password is required"));
+
+        // The embedded path's character rule applies here too. This password is persisted to the
+        // credentials file and every other process rebuilds its own connection settings from that
+        // file, and a backslash or a control character does not survive that round trip intact.
+        // Reject before a connection is attempted or anything is written. [38]
+        if (request.Password.AsSpan().IndexOfAny(_disallowedPasswordChars) >= 0)
+            return BadRequest(ApiResponse.Error("Password contains disallowed characters."));
 
         // Validate the supplied credentials by attempting a real connection with a short timeout.
         // We intentionally don't run ALTER USER - the external Postgres isn't ours to manage.
