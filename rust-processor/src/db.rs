@@ -110,13 +110,17 @@ struct PostgresSettings {
 fn resolve_postgres_settings() -> PostgresSettings {
     let creds = read_credentials_file();
 
-    // entrypoint.sh exports these unconditionally, so an empty value is the normal shape for
-    // "not set". The API reads them the same way, and disagreeing would point the two halves of
-    // the app at different credentials.
+    // Every field is filtered on both sources, and separately. entrypoint.sh exports these
+    // unconditionally, so an empty env var is the normal shape for "not set" and has to fall
+    // through to the file rather than shadow it; a hand-edited file can carry `"username": ""`
+    // just as easily, and taking that would authenticate as a role that does not exist instead
+    // of as the default the entrypoint actually created. The API reads them the same way, and
+    // disagreeing would point the two halves of the app at different credentials. [21]
     let username = env::var("POSTGRES_USER")
         .ok()
         .filter(|s| !s.is_empty())
         .or_else(|| creds.as_ref().and_then(|c| c.username.clone()))
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "lancache".to_string());
 
     let password = env::var("POSTGRES_PASSWORD")
@@ -129,10 +133,9 @@ fn resolve_postgres_settings() -> PostgresSettings {
         .ok()
         .filter(|s| !s.is_empty())
         .or_else(|| creds.as_ref().and_then(|c| c.database.clone()))
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "lancache".to_string());
 
-    // Both sources are filtered, and separately: an empty env var has to fall through to the
-    // file rather than shadow it, while a hand-edited file can carry `"host": ""`. [21]
     let host = env::var("POSTGRES_HOST")
         .ok()
         .filter(|s| !s.is_empty())
@@ -350,6 +353,20 @@ mod tests {
             build_connect_options().is_err(),
             "an empty host was treated as a real host"
         );
+    }
+
+    #[test]
+    fn an_empty_username_or_database_in_the_credentials_file_counts_as_absent() {
+        let _guard = lock_env();
+        write_credentials(
+            "lancache-db-empty-user.json",
+            r#"{"username":"","password":"p","database":""}"#,
+        );
+
+        let settings = resolve_postgres_settings();
+
+        assert_eq!(settings.username, "lancache");
+        assert_eq!(settings.database, "lancache");
     }
 
     #[test]
