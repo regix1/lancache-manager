@@ -214,7 +214,8 @@ RUN if [ "$INSTALL_POSTGRES" = "true" ]; then \
 # Copy published application
 COPY --from=backend-builder /app/publish ./
 
-# Copy entrypoint and migration scripts
+# Copy entrypoint and the scripts it calls. postgres-setup.sh is sourced by the entrypoint
+# rather than executed, so /scripts must be present for the container to start at all.
 COPY entrypoint.sh /entrypoint.sh
 COPY scripts/ /scripts/
 RUN chmod +x /entrypoint.sh /scripts/*.sh
@@ -230,9 +231,9 @@ ENV DOTNET_RUNNING_IN_CONTAINER=true
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
 # PostgreSQL 17 binaries install to /usr/lib/postgresql/17/bin, but Debian/PGDG do not add that
-# directory to PATH. Without it, entrypoint.sh's slim-detection (command -v pg_ctl) false-negatives
-# on the full image and forces external mode (GitHub issue #25); it also breaks the bare-name
-# pg_isready/psql calls later in the script. Mirrors the official postgres image.
+# directory to PATH. Without it, the slim-detection in scripts/postgres-setup.sh (command -v
+# pg_ctl) false-negatives on the full image and forces external mode (GitHub issue #25); it also
+# breaks the bare-name pg_isready/psql calls later in that script. Mirrors the official postgres image.
 ENV PATH="${PATH}:/usr/lib/postgresql/17/bin"
 
 # Enable server GC for better throughput (auto-detects CPU count)
