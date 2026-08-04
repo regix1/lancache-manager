@@ -191,7 +191,19 @@ MIGRATION_MARKER="/data/postgres-migration.complete"
 # Slim image variant has no embedded PostgreSQL - detect that and force external
 # mode so we fail loudly instead of trying to exec a missing pg_ctl binary.
 # ---------------------------------------------------------------------------
-POSTGRES_MODE="${POSTGRES_MODE:-embedded}"
+POSTGRES_MODE_AS_GIVEN="${POSTGRES_MODE:-embedded}"
+
+# The .NET app and all ten Rust binaries compare this value against "external" verbatim, so a
+# compose file saved with CRLF line endings, or a stray space, silently puts one half of the app
+# on the embedded socket and the other on a TCP server. Normalise here, before the export below,
+# so every reader downstream sees the same token.
+POSTGRES_MODE=$(printf '%s' "$POSTGRES_MODE_AS_GIVEN" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+
+if [ "$POSTGRES_MODE" != "embedded" ] && [ "$POSTGRES_MODE" != "external" ]; then
+    echo "WARNING: POSTGRES_MODE is '$POSTGRES_MODE_AS_GIVEN', which is neither 'embedded' nor 'external'."
+    echo "  Using the embedded server. Set POSTGRES_MODE=external to connect to a server you run yourself."
+    POSTGRES_MODE="embedded"
+fi
 
 if [ "$POSTGRES_MODE" = "embedded" ] && ! ls /usr/lib/postgresql/*/bin/pg_ctl >/dev/null 2>&1; then
     echo "[postgres] Slim image detected: no embedded PostgreSQL binary in this image."
@@ -258,7 +270,10 @@ if [ -f "$PG_CONFIG" ]; then
         echo "  Delete the file and restart to enter them again on the setup page."
     fi
     [ -z "$PGPASSWORD" ] && PGPASSWORD="$PGPASSWORD_FROM_CONFIG"
-    PGUSER="${PGUSER_FROM_CONFIG:-$PGUSER}"
+    # Same order as the password above, and as the .NET and Rust readers: the env var wins.
+    # Letting the file's username through anyway pairs it with an env password that was issued
+    # for a different role, and exports a username the operator did not ask for.
+    [ -z "$POSTGRES_USER" ] && PGUSER="${PGUSER_FROM_CONFIG:-$PGUSER}"
     [ -n "$PGPORT_FROM_CONFIG" ] && [ -z "$POSTGRES_PORT" ] && PGPORT="$PGPORT_FROM_CONFIG"
     [ -n "$PGDB_FROM_CONFIG" ] && [ -z "$POSTGRES_DB" ] && PGDATABASE="$PGDB_FROM_CONFIG"
 fi
