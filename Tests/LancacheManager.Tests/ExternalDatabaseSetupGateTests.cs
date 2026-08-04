@@ -24,6 +24,11 @@ namespace LancacheManager.Tests;
 /// proves the gate did not close that door: with a valid key the request reaches the endpoint's own
 /// connection check instead of being turned away at the front.
 ///
+/// The last three cover what a caller who is past the credential check is still not allowed to
+/// write, since the username and password in that file are read back by entrypoint.sh and by every
+/// Rust binary. Those rules live in one place now and both setup endpoints call them, so these also
+/// stand as the check that the shared copy still says what the embedded endpoint used to say alone.
+///
 /// The controller is exercised directly rather than through the pipeline, so the returned
 /// <see cref="ObjectResult"/> carries the same status and body in every hosting environment.
 /// </summary>
@@ -96,18 +101,78 @@ public class ExternalDatabaseSetupGateTests : IDisposable
     {
         _controller.HttpContext.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
 
+        var result = await PostInExternalModeAsync(ConnectionRequest());
+
+        // Port 1 on loopback refuses the connection, so this is the endpoint's own reply about the
+        // server it was asked to reach, which it can only produce once the caller is past the
+        // credential check.
+        var response = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.StartsWith("Could not connect to 127.0.0.1:1/lancache", ErrorOf(response));
+    }
+
+    /// <summary>
+    /// entrypoint.sh reads this username back out of postgres-credentials.json on the next start and
+    /// interpolates it into a shell command and an ALTER ROLE statement that runs with superuser
+    /// rights, so a name carrying shell or SQL syntax must never reach the file.
+    /// </summary>
+    [Fact]
+    public async Task AUsernameCarryingShellSyntax_IsRejectedBeforeAnythingIsWritten()
+    {
+        _controller.HttpContext.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
+        var request = ConnectionRequest();
+        request.Username = "lancache\"; $(id); \"";
+
+        var result = await PostInExternalModeAsync(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(
+            "Username may only contain letters, numbers, and underscores",
+            ErrorOf(response));
+        Assert.False(File.Exists(Path.Combine(_root, "postgres-credentials.json")));
+    }
+
+    [Fact]
+    public async Task APasswordShorterThanTheEmbeddedMinimum_IsRejected()
+    {
+        _controller.HttpContext.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
+        var request = ConnectionRequest();
+        request.Password = "short";
+
+        var result = await PostInExternalModeAsync(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Password must be at least 8 characters", ErrorOf(response));
+        Assert.False(File.Exists(Path.Combine(_root, "postgres-credentials.json")));
+    }
+
+    [Fact]
+    public async Task APasswordOnTheEmbeddedBlockedList_IsRejected()
+    {
+        _controller.HttpContext.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
+        var request = ConnectionRequest();
+        request.Password = "PassWord";
+
+        var result = await PostInExternalModeAsync(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(
+            "This password is too common. Please choose a more secure password.",
+            ErrorOf(response));
+        Assert.False(File.Exists(Path.Combine(_root, "postgres-credentials.json")));
+    }
+
+    /// <summary>
+    /// The endpoint refuses outright unless POSTGRES_MODE says external, so every test that needs to
+    /// get past that line runs inside this, which puts the variable back afterwards.
+    /// </summary>
+    private async Task<IActionResult> PostInExternalModeAsync(SetExternalDbCredentialsRequest request)
+    {
         var previousMode = Environment.GetEnvironmentVariable("POSTGRES_MODE");
         Environment.SetEnvironmentVariable("POSTGRES_MODE", "external");
         try
         {
-            var result = await _controller.SetExternalCredentialsAsync(ConnectionRequest());
-
-            // Port 1 on loopback refuses the connection, so this is the endpoint's own reply about
-            // the server it was asked to reach, which it can only produce once the caller is past
-            // the credential check.
-            var response = Assert.IsType<BadRequestObjectResult>(result);
-            Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
-            Assert.StartsWith("Could not connect to 127.0.0.1:1/lancache", ErrorOf(response));
+            return await _controller.SetExternalCredentialsAsync(request);
         }
         finally
         {

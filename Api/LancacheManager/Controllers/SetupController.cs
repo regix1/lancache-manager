@@ -17,6 +17,9 @@ public class SetupController : ControllerBase
 {
     private static readonly SearchValues<char> _disallowedPasswordChars = SearchValues.Create("\\\r\n\0");
 
+    private static readonly string[] _blockedPasswords =
+        { "lancache", "password", "12345678", "admin123", "qwerty123", "lancache1", "lancache123" };
+
     private readonly ILogger<SetupController> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
@@ -73,22 +76,9 @@ public class SetupController : ControllerBase
                 "POSTGRES_MODE=external is set. Use POST /api/setup/external to configure the external database connection."));
         }
 
-        if (string.IsNullOrWhiteSpace(request.Password))
-            return BadRequest(ApiResponse.Error("Password is required"));
-
-        if (request.Password.Length < 8)
-            return BadRequest(ApiResponse.Error("Password must be at least 8 characters"));
-
-        // Reject passwords containing characters that cannot be safely serialized into an
-        // ALTER USER ... PASSWORD '...' SQL literal (backslash is not standard-conforming in
-        // Postgres string literals without E'', and control characters terminate the literal
-        // on some drivers). Reject before any SQL is built.
-        if (request.Password.AsSpan().IndexOfAny(_disallowedPasswordChars) >= 0)
-            return BadRequest(ApiResponse.Error("Password contains disallowed characters."));
-
-        var blockedPasswords = new[] { "lancache", "password", "12345678", "admin123", "qwerty123", "lancache1", "lancache123" };
-        if (blockedPasswords.Contains(request.Password.ToLowerInvariant()))
-            return BadRequest(ApiResponse.Error("This password is too common. Please choose a more secure password."));
+        var passwordProblem = CheckPassword(request.Password);
+        if (passwordProblem != null)
+            return BadRequest(ApiResponse.Error(passwordProblem));
 
         // Connect with the settings the app resolved at startup, not the raw appsettings string.
         // Program.cs layers POSTGRES_USER and POSTGRES_DB over that base, so reading it back here
@@ -101,16 +91,12 @@ public class SetupController : ControllerBase
         // No username submitted means "the role this installation already runs as", which is the
         // one the entrypoint created from POSTGRES_USER.
         var username = string.IsNullOrWhiteSpace(request.Username)
-            ? connectionSettings.Username
+            ? connectionSettings.Username ?? string.Empty
             : request.Username.Trim();
 
-        if (string.IsNullOrWhiteSpace(username))
-            return BadRequest(ApiResponse.Error("Username is required"));
-
-        if (!Regex.IsMatch(username, "^[A-Za-z0-9_]+$"))
-        {
-            return BadRequest(ApiResponse.Error("Username may only contain letters, numbers, and underscores"));
-        }
+        var usernameProblem = CheckUsername(username);
+        if (usernameProblem != null)
+            return BadRequest(ApiResponse.Error(usernameProblem));
 
         if (string.Equals(request.Password, username, StringComparison.OrdinalIgnoreCase))
             return BadRequest(ApiResponse.Error("Password cannot be the same as the username"));
@@ -254,18 +240,19 @@ public class SetupController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Database))
             return BadRequest(ApiResponse.Error("Database name is required"));
 
-        if (string.IsNullOrWhiteSpace(request.Username))
-            return BadRequest(ApiResponse.Error("Username is required"));
+        // The same username rule as the embedded path, and for a sharper reason than tidiness: this
+        // name is persisted to the credentials file, and entrypoint.sh reads it back and interpolates
+        // it into a shell command and an ALTER ROLE statement on the next start. Anything outside
+        // letters, numbers and underscores would be running as the postgres superuser by then, so it
+        // must never reach the file. [38]
+        var username = (request.Username ?? string.Empty).Trim();
+        var usernameProblem = CheckUsername(username);
+        if (usernameProblem != null)
+            return BadRequest(ApiResponse.Error(usernameProblem));
 
-        if (string.IsNullOrWhiteSpace(request.Password))
-            return BadRequest(ApiResponse.Error("Password is required"));
-
-        // The embedded path's character rule applies here too. This password is persisted to the
-        // credentials file and every other process rebuilds its own connection settings from that
-        // file, and a backslash or a control character does not survive that round trip intact.
-        // Reject before a connection is attempted or anything is written. [38]
-        if (request.Password.AsSpan().IndexOfAny(_disallowedPasswordChars) >= 0)
-            return BadRequest(ApiResponse.Error("Password contains disallowed characters."));
+        var passwordProblem = CheckPassword(request.Password);
+        if (passwordProblem != null)
+            return BadRequest(ApiResponse.Error(passwordProblem));
 
         // Validate the supplied credentials by attempting a real connection with a short timeout.
         // We intentionally don't run ALTER USER - the external Postgres isn't ours to manage.
@@ -274,7 +261,7 @@ public class SetupController : ControllerBase
             Host = request.Host.Trim(),
             Port = request.Port,
             Database = request.Database.Trim(),
-            Username = request.Username.Trim(),
+            Username = username,
             Password = request.Password,
             Timeout = 10,
             CommandTimeout = 10
@@ -301,7 +288,7 @@ public class SetupController : ControllerBase
         var configPath = _pathResolver.GetPostgresCredentialsPath();
         var config = new Dictionary<string, object>
         {
-            ["username"] = request.Username.Trim(),
+            ["username"] = username,
             ["password"] = request.Password,
             ["host"] = request.Host.Trim(),
             ["port"] = request.Port,
@@ -338,7 +325,7 @@ public class SetupController : ControllerBase
 
             _logger.LogInformation(
                 "External PostgreSQL credentials saved to {ConfigPath} (target {Host}:{Port}/{Database} as {Username})",
-                configPath, request.Host, request.Port, request.Database, request.Username);
+                configPath, request.Host, request.Port, request.Database, username);
         }
         catch (Exception ex)
         {
@@ -352,6 +339,56 @@ public class SetupController : ControllerBase
             Message = "External database credentials saved. Restart the container to apply.",
             RestartRequired = true
         });
+    }
+
+    /// <summary>
+    /// The password rules both setup endpoints apply, in one place because two copies of them had
+    /// already drifted apart. Returns the sentence to send back, or null when the password passes.
+    ///
+    /// The character rule is the one with teeth: the value is written to postgres-credentials.json,
+    /// and the .NET app, the Rust binaries and entrypoint.sh all rebuild their connection settings by
+    /// reading that file back, which a backslash or a control character does not survive intact. On
+    /// the embedded path it additionally has to be serialized into an ALTER USER ... PASSWORD '...'
+    /// literal, where a backslash is not standard-conforming without E'' and a control character
+    /// terminates the literal on some drivers. Both endpoints reject before anything is built or
+    /// written. [38]
+    /// </summary>
+    private static string? CheckPassword(string password)
+    {
+        if (string.IsNullOrWhiteSpace(password))
+            return "Password is required";
+
+        if (password.Length < 8)
+            return "Password must be at least 8 characters";
+
+        if (password.AsSpan().IndexOfAny(_disallowedPasswordChars) >= 0)
+            return "Password contains disallowed characters.";
+
+        if (_blockedPasswords.Contains(password, StringComparer.OrdinalIgnoreCase))
+            return "This password is too common. Please choose a more secure password.";
+
+        return null;
+    }
+
+    /// <summary>
+    /// The username rule both setup endpoints apply. Returns the sentence to send back, or null when
+    /// the name passes.
+    ///
+    /// The character set is narrow because this name outlives the request: it is persisted to
+    /// postgres-credentials.json, and entrypoint.sh reads it back on the next start and interpolates
+    /// it into a shell command and an ALTER ROLE statement that runs with superuser rights. The
+    /// embedded path also puts it through format('%I'), which is safe on its own but is not the only
+    /// place the value ends up. [38]
+    /// </summary>
+    private static string? CheckUsername(string username)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+            return "Username is required";
+
+        if (!Regex.IsMatch(username, "^[A-Za-z0-9_]+$"))
+            return "Username may only contain letters, numbers, and underscores";
+
+        return null;
     }
 
     /// <summary>
