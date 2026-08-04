@@ -18,20 +18,17 @@ public class SetupController : ControllerBase
     private static readonly SearchValues<char> _disallowedPasswordChars = SearchValues.Create("\\\r\n\0");
 
     private readonly ILogger<SetupController> _logger;
-    private readonly IConfiguration _configuration;
     private readonly IPathResolver _pathResolver;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly AuthenticationHelper _authenticationHelper;
 
     public SetupController(
         ILogger<SetupController> logger,
-        IConfiguration configuration,
         IPathResolver pathResolver,
         IDbContextFactory<AppDbContext> dbContextFactory,
         AuthenticationHelper authenticationHelper)
     {
         _logger = logger;
-        _configuration = configuration;
         _pathResolver = pathResolver;
         _dbContextFactory = dbContextFactory;
         _authenticationHelper = authenticationHelper;
@@ -46,14 +43,17 @@ public class SetupController : ControllerBase
     /// endpoint unusable in exactly the broken-install case it exists to repair. The API key lives
     /// in a file and is validated without touching the database, which makes it the only proof of
     /// possession left during an outage. It stays gated because the statement below runs
-    /// ALTER USER against a role that was created WITH SUPERUSER. [36]
+    /// ALTER USER against a role that was created WITH SUPERUSER.
+    ///
+    /// The gate deliberately ignores Security:EnableAuthentication. Turning that flag off opens
+    /// the fallback, default and named authorization policies alike, so reading it here would
+    /// hand the ALTER USER below to anyone who can reach the API. [36]
     /// </summary>
     [AllowAnonymous]
     [HttpPost("credentials")]
     public async Task<IActionResult> SetCredentialsAsync([FromBody] SetupCredentialsRequest request)
     {
-        if (_configuration.GetValue<bool>("Security:EnableAuthentication", true)
-            && User.Identity?.IsAuthenticated != true)
+        if (User.Identity?.IsAuthenticated != true)
         {
             var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
             if (!apiKeyResult.IsAuthenticated)
@@ -129,14 +129,14 @@ public class SetupController : ControllerBase
             {
                 // ALTER USER is a PostgreSQL utility statement, so bind parameters can't be
                 // used directly for PASSWORD. Build the statement server-side with format()
-                // so both the identifier and literal are escaped safely. We also escape
-                // single quotes defensively (''), even though the %L specifier handles it,
-                // so any fallback path producing a raw literal remains safe.
-                var safePassword = request.Password.Replace("'", "''");
+                // so both the identifier and literal are escaped safely. The raw value goes in:
+                // %L quotes whatever it is handed, so doubling the quotes here as well would
+                // store a password containing ' with two of them and leave the role's password
+                // different from the one written to the credentials file below.
                 buildSql.CommandText =
                     "SELECT format('ALTER USER %I WITH PASSWORD %L', @username, @password)";
                 buildSql.Parameters.AddWithValue("username", username);
-                buildSql.Parameters.AddWithValue("password", safePassword);
+                buildSql.Parameters.AddWithValue("password", request.Password);
                 alterUserSql = (string?)await buildSql.ExecuteScalarAsync()
                     ?? throw new InvalidOperationException("Failed to build ALTER USER statement.");
             }
