@@ -3843,7 +3843,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     {
         if (!_containerGateway.IsAvailable)
         {
-            throw new InvalidOperationException(
+            // This method is only ever called over HTTP, so the sentence below survives to the client
+            // as a 503 instead of being swallowed by the generic 500 message. The sibling throw in
+            // CreateSessionAsync stays an InvalidOperationException because the hub catches that type
+            // by name to forward the message on the SignalR path.
+            throw new ServiceUnavailableException(
                 "Docker is not running or not accessible. Please start Docker Desktop and try again.");
         }
 

@@ -4,6 +4,7 @@ using LancacheManager.Core.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
+using LancacheManager.Middleware;
 
 
 namespace LancacheManager.Controllers;
@@ -203,7 +204,10 @@ public class DepotsController : ControllerBase
             }
             else
             {
-                throw new InvalidOperationException("Failed to download and import pre-created depot data from GitHub");
+                // The request was fine; the GitHub download or the import of what it returned failed.
+                // 503 keeps the reason visible in production, where a 500 would replace it with the
+                // generic safe message and leave the admin with nothing to act on.
+                throw new ServiceUnavailableException("Failed to download and import pre-created depot data from GitHub");
             }
         }
         else if (source == "local")

@@ -39,6 +39,17 @@ public class ForbiddenException : Exception
 }
 
 /// <summary>
+/// Custom exception for 503 Service Unavailable responses (something we depend on is down or not
+/// reachable, such as Docker or a remote download host). Nothing the caller sent is wrong, so a 4xx
+/// would be a lie and a 500 would hide the one thing that helps: which dependency to bring back up.
+/// The message is developer-authored and safe to surface to the client.
+/// </summary>
+public class ServiceUnavailableException : Exception
+{
+    public ServiceUnavailableException(string message) : base(message) { }
+}
+
+/// <summary>
 /// Global exception handling middleware to eliminate duplicate try-catch blocks across controllers
 /// Sanitizes error messages in production to prevent information disclosure
 /// </summary>
@@ -77,6 +88,11 @@ public class GlobalExceptionMiddleware
         {
             _logger.LogWarning(ex, "Forbidden operation attempt");
             await WriteErrorAsync(context, ex, HttpStatusCode.Forbidden, ex.Message);
+        }
+        catch (ServiceUnavailableException ex)
+        {
+            _logger.LogWarning(ex, "A dependency is unavailable");
+            await WriteErrorAsync(context, ex, HttpStatusCode.ServiceUnavailable, ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {
