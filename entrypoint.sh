@@ -184,45 +184,9 @@ PG_CONFIG="/data/config/postgres-credentials.json"
 MIGRATION_MARKER="/data/postgres-migration.complete"
 
 # ---------------------------------------------------------------------------
-# Credential sourcing (env var > config file > defaults)
-# Reads username/password for both modes; host/port/database for external mode.
-# ---------------------------------------------------------------------------
-PGUSER="${POSTGRES_USER:-lancache}"
-PGPASSWORD="${POSTGRES_PASSWORD:-}"
-PGHOST="${POSTGRES_HOST:-}"
-PGPORT="${POSTGRES_PORT:-5432}"
-
-if [ -f "$PG_CONFIG" ]; then
-    if command -v jq &>/dev/null; then
-        # Preferred: use jq for reliable JSON parsing
-        [ -z "$PGPASSWORD" ] && PGPASSWORD=$(jq -r '.password // empty' "$PG_CONFIG" 2>/dev/null)
-        PGUSER_FROM_CONFIG=$(jq -r '.username // empty' "$PG_CONFIG" 2>/dev/null)
-        [ -z "$PGHOST" ]     && PGHOST=$(jq -r '.host // empty' "$PG_CONFIG" 2>/dev/null)
-        PGPORT_FROM_CONFIG=$(jq -r '.port // empty' "$PG_CONFIG" 2>/dev/null)
-        PGDB_FROM_CONFIG=$(jq -r '.database // empty' "$PG_CONFIG" 2>/dev/null)
-    else
-        # Fallback: regex extraction
-        [ -z "$PGPASSWORD" ] && PGPASSWORD=$(sed -n 's/.*"password"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PG_CONFIG" | head -n1)
-        PGUSER_FROM_CONFIG=$(sed -n 's/.*"username"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PG_CONFIG" | head -n1)
-        [ -z "$PGHOST" ]     && PGHOST=$(sed -n 's/.*"host"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PG_CONFIG" | head -n1)
-        PGPORT_FROM_CONFIG=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$PG_CONFIG" | head -n1)
-        PGDB_FROM_CONFIG=$(sed -n 's/.*"database"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PG_CONFIG" | head -n1)
-    fi
-    PGUSER="${PGUSER_FROM_CONFIG:-$PGUSER}"
-    [ -n "$PGPORT_FROM_CONFIG" ] && [ -z "$POSTGRES_PORT" ] && PGPORT="$PGPORT_FROM_CONFIG"
-    [ -n "$PGDB_FROM_CONFIG" ] && [ -z "$POSTGRES_DB" ] && PGDATABASE="$PGDB_FROM_CONFIG"
-fi
-
-# Export for the .NET app and child processes
-export POSTGRES_USER="$PGUSER"
-export POSTGRES_PASSWORD="$PGPASSWORD"
-export POSTGRES_HOST="$PGHOST"
-export POSTGRES_PORT="$PGPORT"
-export POSTGRES_DB="$PGDATABASE"
-
-# ---------------------------------------------------------------------------
-# Mode dispatch: embedded (default) starts the in-container Postgres;
-# external skips it and connects to a user-managed Postgres.
+# Mode selection: embedded (default) starts the in-container Postgres;
+# external skips it and connects to a user-managed Postgres. Resolved before the
+# credentials are read, because host/port/database only apply to external mode.
 #
 # Slim image variant has no embedded PostgreSQL - detect that and force external
 # mode so we fail loudly instead of trying to exec a missing pg_ctl binary.
@@ -238,6 +202,82 @@ fi
 
 export POSTGRES_MODE
 
+# ---------------------------------------------------------------------------
+# Credential sourcing (env var > config file > defaults)
+# Reads username/password for both modes; host/port/database for external mode.
+#
+# Forgotten or wrong embedded password: delete $PG_CONFIG and restart. The setup page
+# comes back, and submitting a password rewrites the file and runs ALTER USER without
+# touching a single row. The embedded server never checks that password anyway - initdb
+# runs with --auth-local=trust and the pg_hba.conf written below is 'local all all trust'
+# on a socket-only server - so nothing here can put stored data out of reach.
+# In external mode the same file is the only record of the host, port, database and
+# username, so read it before deleting it.
+# ---------------------------------------------------------------------------
+PGUSER="${POSTGRES_USER:-lancache}"
+PGPASSWORD="${POSTGRES_PASSWORD:-}"
+PGHOST="${POSTGRES_HOST:-}"
+PGPORT="${POSTGRES_PORT:-5432}"
+
+# The embedded server listens on a Unix socket only, so a host is an external-mode setting.
+# Carrying one into embedded mode is what lets the .NET app use the socket while the Rust
+# binaries read and write somebody else's server over TCP.
+if [ "$POSTGRES_MODE" != "external" ] && [ -n "$PGHOST" ]; then
+    echo "WARNING: POSTGRES_HOST=$PGHOST is set but POSTGRES_MODE is embedded, so it is ignored."
+    echo "  Set POSTGRES_MODE=external to use that server instead."
+    PGHOST=""
+fi
+
+if [ -f "$PG_CONFIG" ]; then
+    PG_CONFIG_PARSED=1
+    if command -v jq &>/dev/null; then
+        # Preferred: use jq for reliable JSON parsing
+        if ! jq -e . "$PG_CONFIG" >/dev/null 2>&1; then
+            echo "WARNING: $PG_CONFIG is not valid JSON, so the credentials in it are being ignored."
+            echo "  Delete the file and restart to enter them again on the setup page."
+            PG_CONFIG_PARSED=0
+        fi
+        PGPASSWORD_FROM_CONFIG=$(jq -r '.password // empty' "$PG_CONFIG" 2>/dev/null)
+        PGUSER_FROM_CONFIG=$(jq -r '.username // empty' "$PG_CONFIG" 2>/dev/null)
+        [ "$POSTGRES_MODE" = "external" ] && [ -z "$PGHOST" ] && PGHOST=$(jq -r '.host // empty' "$PG_CONFIG" 2>/dev/null)
+        PGPORT_FROM_CONFIG=$(jq -r '.port // empty' "$PG_CONFIG" 2>/dev/null)
+        PGDB_FROM_CONFIG=$(jq -r '.database // empty' "$PG_CONFIG" 2>/dev/null)
+    else
+        # Fallback: regex extraction
+        PGPASSWORD_FROM_CONFIG=$(sed -n 's/.*"password"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PG_CONFIG" | head -n1)
+        PGUSER_FROM_CONFIG=$(sed -n 's/.*"username"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PG_CONFIG" | head -n1)
+        [ "$POSTGRES_MODE" = "external" ] && [ -z "$PGHOST" ] && PGHOST=$(sed -n 's/.*"host"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PG_CONFIG" | head -n1)
+        PGPORT_FROM_CONFIG=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$PG_CONFIG" | head -n1)
+        PGDB_FROM_CONFIG=$(sed -n 's/.*"database"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PG_CONFIG" | head -n1)
+    fi
+    # Every writer of this file stores a username and a password together, so either one
+    # missing means the file is truncated or was hand-edited. Line matching cannot report
+    # that on its own, and the jq check above only covers JSON that does not parse at all.
+    if [ "$PG_CONFIG_PARSED" -eq 1 ] && { [ -z "$PGUSER_FROM_CONFIG" ] || [ -z "$PGPASSWORD_FROM_CONFIG" ]; }; then
+        echo "WARNING: $PG_CONFIG has no readable username or password, so it is incomplete."
+        echo "  Delete the file and restart to enter them again on the setup page."
+    fi
+    [ -z "$PGPASSWORD" ] && PGPASSWORD="$PGPASSWORD_FROM_CONFIG"
+    PGUSER="${PGUSER_FROM_CONFIG:-$PGUSER}"
+    [ -n "$PGPORT_FROM_CONFIG" ] && [ -z "$POSTGRES_PORT" ] && PGPORT="$PGPORT_FROM_CONFIG"
+    [ -n "$PGDB_FROM_CONFIG" ] && [ -z "$POSTGRES_DB" ] && PGDATABASE="$PGDB_FROM_CONFIG"
+fi
+
+# Export for the .NET app and child processes
+export POSTGRES_USER="$PGUSER"
+export POSTGRES_PASSWORD="$PGPASSWORD"
+export POSTGRES_PORT="$PGPORT"
+export POSTGRES_DB="$PGDATABASE"
+
+# An empty POSTGRES_HOST is not the same as an unset one: a child that reads it sees a
+# configured value and tries to connect to it.
+if [ -n "$PGHOST" ]; then
+    export POSTGRES_HOST="$PGHOST"
+else
+    unset POSTGRES_HOST
+fi
+
+# Mode dispatch
 if [ "$POSTGRES_MODE" = "external" ]; then
     echo "[postgres] External mode - skipping embedded PostgreSQL startup."
     if [ -n "$PGHOST" ] && [ -n "$PGPASSWORD" ]; then
@@ -252,9 +292,18 @@ else
     # -----------------------------------------------------------------------
     # Determine PostgreSQL data directory
     # Primary: /data/postgresql (inside the user's /data volume - backed up alongside app data)
-    # Fallback: /var/lib/postgresql/data (Docker-managed volume - survives container removal)
+    # Fallback: /var/lib/postgresql/data. The image does not declare this path a VOLUME, so
+    # unless the user mounted something there themselves it is the container's writable layer
+    # and 'docker compose down' or any recreate takes the database with it.
     PGDATA_PRIMARY="/data/postgresql"
     PGDATA_FALLBACK="/var/lib/postgresql/data"
+
+    # A mount of its own is the only thing that makes the fallback path outlive the container.
+    PGDATA_FALLBACK_MOUNTED=0
+    if [ -d "$PGDATA_FALLBACK" ] && command -v findmnt >/dev/null 2>&1 &&
+        [ "$(findmnt -n -o TARGET --target "$PGDATA_FALLBACK" 2>/dev/null | head -n1)" = "$PGDATA_FALLBACK" ]; then
+        PGDATA_FALLBACK_MOUNTED=1
+    fi
 
     if [ -f "$PGDATA_PRIMARY/PG_VERSION" ]; then
         # Already initialized at primary location
@@ -262,7 +311,7 @@ else
     elif [ -f "$PGDATA_FALLBACK/PG_VERSION" ]; then
         # Existing install with data at fallback location - don't break it
         PGDATA="$PGDATA_FALLBACK"
-        echo "[postgres] Using existing data at $PGDATA (mount postgres_data volume to persist)"
+        echo "[postgres] Using existing data at $PGDATA"
     elif [ -d "/data" ] && touch "/data/.pgcheck" 2>/dev/null; then
         # Fresh install - /data is writable, use primary location
         rm -f "/data/.pgcheck"
@@ -271,16 +320,51 @@ else
         # /data not writable - use fallback
         PGDATA="$PGDATA_FALLBACK"
         echo "[postgres] /data not writable, using fallback: $PGDATA"
+        if [ -d "/data" ]; then
+            diagnose_write_denial "/data"
+        else
+            echo "WARNING: /data does not exist in the container, so nothing is mounted there."
+        fi
+    fi
+
+    # Covers both routes onto the fallback path, the pre-existing cluster and the fresh one.
+    if [ "$PGDATA" = "$PGDATA_FALLBACK" ] && [ "$PGDATA_FALLBACK_MOUNTED" -eq 0 ]; then
+        echo "WARNING: The database at $PGDATA is not on a mounted volume."
+        echo "  It lives in the container's writable layer, so 'docker compose down', 'docker rm'"
+        echo "  or any recreate of this container DELETES it permanently."
+        echo "  Fix the /data mount so the database lands in $PGDATA_PRIMARY, or mount a volume"
+        echo "  at $PGDATA to keep what is already there."
     fi
 
     PG_LOG="/var/log/postgresql.log"
 
     # Initialize PostgreSQL data directory on first run
     if [ ! -f "$PGDATA/PG_VERSION" ]; then
+        # A brand new empty cluster and a database the container can no longer see produce the
+        # same empty dashboard, so name every place a cluster could still be before creating one.
+        if [ "$PGDATA" = "$PGDATA_PRIMARY" ]; then
+            PGDATA_OTHER="$PGDATA_FALLBACK"
+        else
+            PGDATA_OTHER="$PGDATA_PRIMARY"
+        fi
+        if [ -f "$PGDATA_OTHER/PG_VERSION" ]; then
+            echo "WARNING: A PostgreSQL cluster already exists at $PGDATA_OTHER."
+            echo "  A new empty one is about to be created at $PGDATA and the app will look like a"
+            echo "  clean install. Stop the container now if that other cluster holds your data."
+        elif [ -d "$PGDATA_OTHER" ] && [ -n "$(ls -A "$PGDATA_OTHER" 2>/dev/null)" ]; then
+            echo "WARNING: $PGDATA_OTHER holds files but no PG_VERSION, so it is not a usable cluster."
+            echo "  A new empty database is being created at $PGDATA instead."
+        fi
+        echo "[postgres] No database found at $PGDATA. Creating an empty one."
+        echo "[postgres] If this container had data before, it is probably still on the host: check"
+        echo "[postgres] that the path behind /data is the one you used previously. A renamed volume,"
+        echo "[postgres] an edited bind path or a compose file run from another directory all make an"
+        echo "[postgres] intact database look like a fresh install."
         echo "[postgres] Initializing data directory..."
         mkdir -p "$PGDATA"
         chown -R postgres:postgres "$PGDATA"
-        su - postgres -c "/usr/lib/postgresql/17/bin/initdb -D $PGDATA --auth-local=trust --auth-host=trust" > /dev/null
+        su - postgres -c "/usr/lib/postgresql/17/bin/initdb -D $PGDATA --auth-local=trust --auth-host=trust" \
+            || { echo "[postgres] ERROR: initdb could not create the data directory at $PGDATA."; cat "$PG_LOG" 2>/dev/null; exit 1; }
 
         # Apply our tuned config
         cp /etc/postgresql/17/main/postgresql.conf "$PGDATA/postgresql.conf"
@@ -304,12 +388,13 @@ else
 
     # Start PostgreSQL as the postgres OS user
     echo "[postgres] Starting PostgreSQL 17..."
-    su - postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D $PGDATA -l $PG_LOG start" > /dev/null
+    su - postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D $PGDATA -l $PG_LOG start" \
+        || { echo "[postgres] ERROR: pg_ctl could not start the server."; cat "$PG_LOG" 2>/dev/null; exit 1; }
 
     # Wait until PostgreSQL is ready (pg_isready, max 30 s)
     echo "[postgres] Waiting for PostgreSQL to be ready..."
     timeout 30 bash -c "until su - postgres -c 'pg_isready -q' 2>/dev/null; do sleep 1; done" \
-        || { echo "[postgres] ERROR: PostgreSQL did not become ready in time"; exit 1; }
+        || { echo "[postgres] ERROR: PostgreSQL did not become ready in time"; cat "$PG_LOG" 2>/dev/null; exit 1; }
     echo "[postgres] PostgreSQL is ready."
 
     # Create/update PostgreSQL role with credentials
@@ -327,9 +412,29 @@ else
         echo "WARNING: No POSTGRES_PASSWORD set. The app will prompt for credentials on first access."
     fi
 
+    # WITH SUPERUSER only appears on the CREATE branches above, so a role that already existed
+    # without it fails the first schema update with "must be owner of table" and the container
+    # exits. Put the grant back rather than leaving that to be guessed from the error.
+    PGUSER_IS_SUPERUSER=$(su - postgres -c "psql -qtAc \"SELECT rolsuper FROM pg_roles WHERE rolname='$PGUSER'\"" 2>/dev/null)
+    if [ "$PGUSER_IS_SUPERUSER" = "f" ]; then
+        echo "[postgres] Role '$PGUSER' exists without SUPERUSER. Granting it back."
+        su - postgres -c "psql -qc \"ALTER ROLE $PGUSER WITH SUPERUSER;\"" \
+            || echo "WARNING: Could not grant SUPERUSER to role '$PGUSER'. Schema updates will fail with 'must be owner of table'."
+    fi
+
     # Create database if it doesn't exist
-    su - postgres -c "psql -qtc \"SELECT 1 FROM pg_database WHERE datname='$PGDATABASE'\" | grep -q 1 \
-        || psql -qc \"CREATE DATABASE $PGDATABASE OWNER $PGUSER;\""
+    if ! su - postgres -c "psql -qtAc \"SELECT 1 FROM pg_database WHERE datname='$PGDATABASE'\"" 2>/dev/null | grep -q 1; then
+        # A changed POSTGRES_DB leaves the old database full of rows with nothing pointing at it,
+        # and the fresh schema in the new one reads as a clean install. Name both.
+        OTHER_DATABASES=$(su - postgres -c "psql -qtAc \"SELECT datname FROM pg_database WHERE datistemplate = false AND datname <> 'postgres'\"" 2>/dev/null \
+            | grep -v "^${PGDATABASE}$" | tr '\n' ' ')
+        if [ -n "$OTHER_DATABASES" ]; then
+            echo "WARNING: Creating a new empty database '$PGDATABASE' while this server already holds: $OTHER_DATABASES"
+            echo "  Those keep every row, and nothing points at them once '$PGDATABASE' is in use."
+            echo "  Set POSTGRES_DB back to the earlier name to reach that data again."
+        fi
+        su - postgres -c "psql -qc \"CREATE DATABASE $PGDATABASE OWNER $PGUSER;\""
+    fi
 fi
 
 # ---------------------------------------------------------------------------
