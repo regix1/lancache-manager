@@ -16,6 +16,7 @@
     "test:nginx-reopen": "node --test scripts/test-nginx-reopen-availability.mjs",
     "test:live-previews": "node --test scripts/test-live-download-previews.mjs",
     "test:apply-dashboard-batch": "node --test scripts/test-apply-dashboard-batch.mjs",
+    "test:prune-event-ids": "node --test scripts/test-prune-missing-event-ids.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "knip": "knip",
     "knip:fix": "knip --fix --fix-type exports,types --format",

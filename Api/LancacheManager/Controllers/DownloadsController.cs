@@ -2,6 +2,7 @@ using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Core.Constants;
@@ -23,15 +24,18 @@ public class DownloadsController : ControllerBase
 
     private readonly AppDbContext _context;
     private readonly IStateService _stateRepository;
+    private readonly IEventsService _eventsService;
     private readonly ILogger<DownloadsController> _logger;
 
     public DownloadsController(
         AppDbContext context,
         IStateService stateRepository,
+        IEventsService eventsService,
         ILogger<DownloadsController> logger)
     {
         _context = context;
         _stateRepository = stateRepository;
+        _eventsService = eventsService;
         _logger = logger;
     }
 
@@ -221,6 +225,15 @@ public class DownloadsController : ControllerBase
         // Clamp page size
         query.PageSize = Math.Clamp(query.PageSize, 1, maxPageSize);
         if (query.Page < 1) query.Page = 1;
+
+        // A cascade delete removes the event's EventDownloads rows, so an unknown id would
+        // otherwise flow through BuildRetroBaseQuery as an empty (but 200 OK) result instead of
+        // a clear signal that the id is gone. Checked outside the try below so the throw reaches
+        // GlobalExceptionMiddleware instead of being swallowed into an empty response.
+        if (query.EventId.HasValue)
+        {
+            await _eventsService.GetByIdOrThrowAsync(query.EventId.Value, "Event");
+        }
 
         try
         {

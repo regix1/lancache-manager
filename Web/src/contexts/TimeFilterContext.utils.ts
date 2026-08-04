@@ -1,4 +1,5 @@
 import type { TimeRange } from './TimeFilterContext.types';
+import type { Event } from '../types';
 
 /** Maps a TimeRange value to its duration in hours. Used by computeTimeRangeParams. */
 export function getTimeRangeHours(range: TimeRange): number {
@@ -57,4 +58,18 @@ export function computeTimeRangeParams(
   const startTime = Math.floor((now - hoursMs) / 1000);
   const endTime = Math.floor(now / 1000);
   return { startTime, endTime };
+}
+
+/**
+ * Drops ids from a selected-event-id list that no longer have a matching event.
+ * Returns the SAME array reference when nothing is removed, so an effect that calls this on every
+ * `events` change can write the result back into state without looping.
+ */
+export function pruneMissingEventIds(selectedIds: number[], events: Event[]): number[] {
+  if (selectedIds.length === 0) {
+    return selectedIds;
+  }
+  const existingIds = new Set<number>(events.map((event: Event) => event.id));
+  const kept = selectedIds.filter((id: number) => existingIds.has(id));
+  return kept.length === selectedIds.length ? selectedIds : kept;
 }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ApiService from '@services/api.service';
+import { ApiError } from '@services/apiError';
 import { isAbortError } from '@utils/error';
 import { EMPTY_CACHED_DETECTION, buildDetectionLookupMaps } from '@utils/gameDetection';
 import MockDataService from '../../test/mockData.service';
@@ -20,6 +21,7 @@ import type {
   ServiceStat,
   DashboardStats,
   Download,
+  Event,
   GameDetectionSummary,
   SparklineDataResponse,
   HourlyActivityResponse,
@@ -43,8 +45,15 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   children,
   mockMode = false
 }) => {
-  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } =
-    useTimeFilter();
+  const {
+    getTimeRangeParams,
+    timeRange,
+    customStartDate,
+    customEndDate,
+    selectedEventIds,
+    setSelectedEventIds,
+    setTimeRange
+  } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
   const { hasSession, isLoading: authLoading } = useAuth();
@@ -123,6 +132,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
   const selectedEventIdsRef = useRef<number[]>(selectedEventIds);
+  const setSelectedEventIdsRef = useRef(setSelectedEventIds);
+  const setTimeRangeRef = useRef(setTimeRange);
   const authLoadingRef = useRef(authLoading);
   const hasAccessRef = useRef(hasAccess);
   const slicesRef = useRef<DashboardSlices>({
@@ -143,6 +154,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
   selectedEventIdsRef.current = selectedEventIds;
+  setSelectedEventIdsRef.current = setSelectedEventIds;
+  setTimeRangeRef.current = setTimeRange;
   authLoadingRef.current = authLoading;
   hasAccessRef.current = hasAccess;
   slicesRef.current = {
@@ -258,7 +271,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
         // Resolve each slice under the wire contract (null = failed sub-query,
         // empty = successful empty): keep previous data on failure within the
-        // same range, clear on a range change, apply successful results. [13]
+        // same range, clear on a range change, apply successful results.
         const rangeKey = buildRangeKey(startTime, endTime, eventId);
         const { next, hadPartialFailure, failedSectionKeys } = applyDashboardBatchResponse(
           slicesRef.current,
@@ -286,7 +299,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
         setConnectionStatus('connected');
         // A partial apply clears any prior hard error; the stale flag is now the
-        // degradation signal, so stale data never appears silently healthy. [35]
+        // degradation signal, so stale data never appears silently healthy.
         setError(null);
         if (hadPartialFailure) {
           console.warn('Dashboard batch returned failed sections:', failedSectionKeys);
@@ -299,6 +312,55 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // Check if we're still the current request before setting error state
         if (currentRequestIdRef.current !== thisRequestId) {
           return; // A newer request has started, don't touch state
+        }
+        // A 404 with an event selected is ambiguous: it is what the server returns when that
+        // event was deleted mid-flight, but it is also what a misrouted proxy or an API predating
+        // this endpoint returns for every request. The error body carries nothing that tells the
+        // two apart - NotFoundException collapses to plain "{resource} not found" text, and the
+        // house error-handling standard forbids branching on message text - so confirm the id is
+        // actually gone before touching the selection, instead of assuming from the status alone.
+        if (err instanceof ApiError && err.status === 404 && currentEventIds.length > 0) {
+          const missingEventId = currentEventIds[0];
+          let missingEventConfirmed = false;
+          try {
+            const allEvents = await ApiService.getEvents(signal);
+            if (currentRequestIdRef.current !== thisRequestId) {
+              return; // A newer request has started, don't touch state
+            }
+            missingEventConfirmed = !allEvents.some((event: Event) => event.id === missingEventId);
+          } catch {
+            if (currentRequestIdRef.current !== thisRequestId) {
+              return; // A newer request has started, don't touch state
+            }
+            // Could not confirm either way, an abort included. Supersession is already handled by
+            // the request id check directly above, so an abort reaching this point was not a newer
+            // request taking over: it was this request's own 10s timeout, which stays armed until
+            // the finally below; a caller that aborted the controller and then bailed on the
+            // concurrent-fetch guard without claiming a new id; or the initial-load effect's cleanup
+            // aborting on unmount or on a mock-mode/auth-loading/access change, which likewise never
+            // claims a new id. Nobody owns the outcome in any of these cases, so leaving
+            // missingEventConfirmed false routes the original 404 into the normal error path below
+            // instead of dropping it with no user-visible trace. A persistent problem is then
+            // reported once instead of being read as one deleted event after another across repeated
+            // refetches.
+          }
+          if (missingEventConfirmed) {
+            // Confirmed gone: drop only the id the request carried. Events still selected
+            // alongside it exist, so their filter and the chosen time range stay as they are;
+            // only an emptied selection returns the dashboard to the live view, which is the
+            // same rule the prune effect applies so both recoveries end in the same state.
+            // The [selectedEventIds] effect refetches from here.
+            const remainingEventIds = selectedEventIdsRef.current.filter(
+              (id: number) => id !== missingEventId
+            );
+            if (remainingEventIds.length !== selectedEventIdsRef.current.length) {
+              setSelectedEventIdsRef.current(remainingEventIds);
+            }
+            if (remainingEventIds.length === 0 && currentTimeRangeRef.current !== 'live') {
+              setTimeRangeRef.current('live');
+            }
+            return;
+          }
         }
         if (!isAbortError(err)) {
           setConnectionStatus('disconnected');
@@ -395,7 +457,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           stageKey === 'signalr.dbReset.clearedServiceStats' ||
           stageKey === 'signalr.dbReset.clearedClientStats'
         ) {
-          // The dataset is being wiped from under the current range key; the next apply must treat every section as fresh, not "keep previous" filler from the pre-reset session. [32]
+          // The dataset is being wiped from under the current range key; the next apply must treat every section as fresh, not "keep previous" filler from the pre-reset session.
           appliedRangeKeyRef.current = null;
           setDataStale(false);
           setServiceStats([]);
@@ -526,7 +588,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     }
   }, [mockMode]);
 
-  // Mock and real sessions must not let a partial response after the switch reuse the other session's slices for a matching range key. [32]
+  // Mock and real sessions must not let a partial response after the switch reuse the other session's slices for a matching range key.
   const prevMockModeRef = useRef(mockMode);
   useEffect(() => {
     if (prevMockModeRef.current !== mockMode) {
@@ -544,7 +606,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       // Access lost - reset to initial state so the next login starts clean
       isInitialLoad.current = true;
       hasData.current = false;
-      // A stale range key or stale flag from the ended session must not survive into the next login. [32]
+      // A stale range key or stale flag from the ended session must not survive into the next login.
       appliedRangeKeyRef.current = null;
       setDataStale(false);
     }

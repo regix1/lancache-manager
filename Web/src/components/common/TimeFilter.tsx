@@ -426,8 +426,11 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                     })}
                   </div>
 
-                  {/* Events Section - Only show if there are events */}
-                  {sortedEvents.length > 0 && (
+                  {/* Events Section - shown whenever there are events to pick from, or a
+                      previously-selected event still needs to be cleared. The row list below
+                      stays gated on there being actual events; the Clear button is gated only
+                      on its own selection state so it never gets trapped behind an empty list. */}
+                  {(sortedEvents.length > 0 || selectedEventIds.length > 0) && (
                     <>
                       <div className="px-3 py-2 text-xs font-medium border-t mt-1 mb-1 flex items-center justify-between text-[var(--theme-text-muted)] border-[var(--theme-border-primary)] bg-[var(--theme-bg-tertiary)]">
                         <div className="flex items-center gap-2">
@@ -474,70 +477,72 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                           </button>
                         )}
                       </div>
-                      <div
-                        className="py-1"
-                        onTouchStart={handleTouchStart}
-                        onTouchEnd={handleTouchEnd}
-                      >
-                        {pagedEvents.map((event) => {
-                          const isSelected = selectedEventIds.includes(event.id);
-                          const status = getEventStatus(event.startTimeUtc, event.endTimeUtc);
-                          const colorVar = event.colorIndex
-                            ? getEventColorVar(event.colorIndex)
-                            : 'var(--theme-primary)';
+                      {sortedEvents.length > 0 && (
+                        <div
+                          className="py-1"
+                          onTouchStart={handleTouchStart}
+                          onTouchEnd={handleTouchEnd}
+                        >
+                          {pagedEvents.map((event) => {
+                            const isSelected = selectedEventIds.includes(event.id);
+                            const status = getEventStatus(event.startTimeUtc, event.endTimeUtc);
+                            const colorVar = event.colorIndex
+                              ? getEventColorVar(event.colorIndex)
+                              : 'var(--theme-primary)';
 
-                          return (
-                            <button
-                              key={event.id}
-                              type="button"
-                              onClick={(e) => handleEventToggle(e, event.id)}
-                              className={`ed-option w-full px-3 py-2.5 text-left text-sm cursor-pointer ${isSelected ? 'ed-option-selected' : ''}`}
-                            >
-                              <div className="flex items-center gap-3">
-                                {/* Checkbox */}
-                                <div
-                                  className="flex-shrink-0 w-4 h-4 rounded flex items-center justify-center"
-                                  style={{
-                                    backgroundColor: isSelected ? colorVar : 'transparent',
-                                    border: isSelected
-                                      ? 'none'
-                                      : '2px solid var(--theme-border-primary)'
-                                  }}
-                                >
-                                  {isSelected && (
-                                    <Check size={12} className="text-white" strokeWidth={3} />
-                                  )}
-                                </div>
-
-                                {/* Color dot */}
-                                <div
-                                  className="w-2 h-2 rounded-full flex-shrink-0"
-                                  style={{ backgroundColor: colorVar }}
-                                />
-
-                                {/* Content */}
-                                <div className="flex flex-col flex-1 min-w-0">
-                                  <div className="flex items-center gap-1.5">
-                                    <span
-                                      className={`font-medium truncate ${isSelected ? 'text-[var(--theme-selected-text)]' : 'text-[var(--theme-text-primary)]'}`}
-                                    >
-                                      {event.name}
-                                    </span>
-                                    {status === 'active' && (
-                                      <Badge variant="success" className="live-badge">
-                                        {t('common.timeFilter.liveBadge')}
-                                      </Badge>
+                            return (
+                              <button
+                                key={event.id}
+                                type="button"
+                                onClick={(e) => handleEventToggle(e, event.id)}
+                                className={`ed-option w-full px-3 py-2.5 text-left text-sm cursor-pointer ${isSelected ? 'ed-option-selected' : ''}`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  {/* Checkbox */}
+                                  <div
+                                    className="flex-shrink-0 w-4 h-4 rounded flex items-center justify-center"
+                                    style={{
+                                      backgroundColor: isSelected ? colorVar : 'transparent',
+                                      border: isSelected
+                                        ? 'none'
+                                        : '2px solid var(--theme-border-primary)'
+                                    }}
+                                  >
+                                    {isSelected && (
+                                      <Check size={12} className="text-white" strokeWidth={3} />
                                     )}
                                   </div>
-                                  <span className="text-xs mt-0.5 text-[var(--theme-text-secondary)]">
-                                    {formatEventDateRange(event.startTimeUtc, event.endTimeUtc)}
-                                  </span>
+
+                                  {/* Color dot */}
+                                  <div
+                                    className="w-2 h-2 rounded-full flex-shrink-0"
+                                    style={{ backgroundColor: colorVar }}
+                                  />
+
+                                  {/* Content */}
+                                  <div className="flex flex-col flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                      <span
+                                        className={`font-medium truncate ${isSelected ? 'text-[var(--theme-selected-text)]' : 'text-[var(--theme-text-primary)]'}`}
+                                      >
+                                        {event.name}
+                                      </span>
+                                      {status === 'active' && (
+                                        <Badge variant="success" className="live-badge">
+                                          {t('common.timeFilter.liveBadge')}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <span className="text-xs mt-0.5 text-[var(--theme-text-secondary)]">
+                                      {formatEventDateRange(event.startTimeUtc, event.endTimeUtc)}
+                                    </span>
+                                  </div>
                                 </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </>
                   )}
                 </CustomScrollbar>

@@ -5,6 +5,7 @@ import ApiService, {
   type RetroDownloadResponse,
   type RetroDownloadQueryParams
 } from '@services/api.service';
+import { ApiError } from '@services/apiError';
 import type { HitMissFilter } from './RetroView.types';
 
 interface RetroDownloadsHookOptions {
@@ -136,6 +137,15 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
           return;
         }
         if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
+        if (err instanceof ApiError && err.status === 404) {
+          // The tagged event was deleted between selection and this request. The shared
+          // selection is pruned elsewhere, so an empty result is the correct state here,
+          // not an error banner.
+          setData(EMPTY_RESPONSE);
+          hasInitialDataRef.current = true;
+          setError(null);
           return;
         }
         const normalized = err instanceof Error ? err : new Error(String(err));

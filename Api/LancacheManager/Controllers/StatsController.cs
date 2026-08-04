@@ -4,6 +4,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -35,6 +36,7 @@ public class StatsController : ControllerBase
     private readonly IServiceScheduleRegistry _scheduleRegistry;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IClientHostnameService _clientHostnameService;
+    private readonly IEventsService _eventsService;
 
     public StatsController(
         AppDbContext context,
@@ -49,7 +51,8 @@ public class StatsController : ControllerBase
         IOperationQueue operationQueue,
         IServiceScheduleRegistry scheduleRegistry,
         DatasourceCapabilityService capabilityService,
-        IClientHostnameService clientHostnameService)
+        IClientHostnameService clientHostnameService,
+        IEventsService eventsService)
     {
         _clientHostnameService = clientHostnameService;
         _capabilityService = capabilityService;
@@ -64,6 +67,7 @@ public class StatsController : ControllerBase
         _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
         _scheduleRegistry = scheduleRegistry;
+        _eventsService = eventsService;
     }
 
     /// <summary>
@@ -222,6 +226,14 @@ public class StatsController : ControllerBase
         // Parse event IDs
         var eventIdList = ParseEventId(eventId);
 
+        // A cascade delete removes the event's EventDownloads rows, so an unknown id would
+        // otherwise flow through ApplyEventFilter as an empty (but 200 OK) result instead of
+        // a clear signal that the id is gone.
+        if (eventId.HasValue)
+        {
+            await _eventsService.GetByIdOrThrowAsync(eventId.Value, "Event", ct);
+        }
+
         // Build base query with time filtering
         var query = _context.Downloads.AsNoTracking();
 
@@ -259,7 +271,7 @@ public class StatsController : ControllerBase
 
         // Empty unless the hostname lookup is on, in which case a row with no nickname is labelled
         // with the machine's own name instead of its address. Only the addresses that will be
-        // displayed are resolved, so the busiest clients are the ones that get names. [33]
+        // displayed are resolved, so the busiest clients are the ones that get names.
         var ipToHostname = (await _clientHostnameService.ResolveAsync(
             ClientStatsAggregationHelper.TopClientIpsByTraffic(ipAggregates, effectiveLimit), ct)).Hostnames;
 
@@ -527,10 +539,18 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("services")]
-    public async Task<IActionResult> GetServicesAsync([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] long? eventId = null)
+    public async Task<IActionResult> GetServicesAsync([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] long? eventId = null, CancellationToken ct = default)
     {
         // Parse event IDs
         var eventIdList = ParseEventId(eventId);
+
+        // A cascade delete removes the event's EventDownloads rows, so an unknown id would
+        // otherwise flow through ApplyEventFilter as an empty (but 200 OK) result instead of
+        // a clear signal that the id is gone.
+        if (eventId.HasValue)
+        {
+            await _eventsService.GetByIdOrThrowAsync(eventId.Value, "Event", ct);
+        }
 
         // ALWAYS query Downloads table directly to ensure consistency with dashboard stats
         // Previously used cached ServiceStats table which caused fluctuating values
@@ -591,10 +611,20 @@ public class StatsController : ControllerBase
     public async Task<IActionResult> DashboardStatsAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
-        [FromQuery] long? eventId = null)
+        [FromQuery] long? eventId = null,
+        CancellationToken ct = default)
     {
         // Parse event IDs
         var eventIdList = ParseEventId(eventId);
+
+        // A cascade delete removes the event's EventDownloads rows, so an unknown id would
+        // otherwise flow through ApplyEventFilter as an empty (but 200 OK) result instead of
+        // a clear signal that the id is gone.
+        if (eventId.HasValue)
+        {
+            await _eventsService.GetByIdOrThrowAsync(eventId.Value, "Event", ct);
+        }
+
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();

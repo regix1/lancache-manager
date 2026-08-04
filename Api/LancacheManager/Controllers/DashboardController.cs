@@ -1,4 +1,5 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,10 +16,12 @@ namespace LancacheManager.Controllers;
 public class DashboardController : ControllerBase
 {
     private readonly IDashboardBatchService _dashboardBatchService;
+    private readonly IEventsService _eventsService;
 
-    public DashboardController(IDashboardBatchService dashboardBatchService)
+    public DashboardController(IDashboardBatchService dashboardBatchService, IEventsService eventsService)
     {
         _dashboardBatchService = dashboardBatchService;
+        _eventsService = eventsService;
     }
 
     /// <summary>
@@ -33,6 +36,14 @@ public class DashboardController : ControllerBase
         [FromQuery] long? eventId = null,
         CancellationToken ct = default)
     {
+        // A cascade delete removes the event's EventDownloads rows, so an unknown id would
+        // otherwise flow through as an empty (but 200 OK) result instead of a clear signal
+        // that the id is gone.
+        if (eventId.HasValue)
+        {
+            await _eventsService.GetByIdOrThrowAsync(eventId.Value, "Event", ct);
+        }
+
         Response.Headers["Cache-Control"] = "no-store, private";
         var response = await _dashboardBatchService.GetBatchAsync(startTime, endTime, eventId, ct);
         return Ok(response);
