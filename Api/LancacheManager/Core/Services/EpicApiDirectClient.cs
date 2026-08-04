@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -66,7 +67,10 @@ public class EpicApiDirectClient
         if (!response.IsSuccessStatusCode)
         {
             _logger.LogError("Epic OAuth token exchange failed with status {StatusCode}", response.StatusCode);
-            throw new InvalidOperationException($"Epic OAuth failed: {response.StatusCode}. Check your authorization code.");
+            // The authorization code is pasted in by the user and expires quickly, so a rejected
+            // exchange is a client-fixable input error rather than a server fault. Keep it a 400
+            // carrying the real reason instead of the generic 500 message.
+            throw new ValidationException($"Epic OAuth failed: {response.StatusCode}. Check your authorization code.");
         }
 
         var tokenResponse = JsonSerializer.Deserialize<EpicTokenResponse>(json);
