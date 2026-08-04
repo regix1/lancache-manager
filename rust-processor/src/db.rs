@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use sqlx::PgPool;
 use std::env;
 use std::fs;
@@ -8,6 +8,10 @@ use std::str::FromStr;
 /// The in-container server has no TCP listener, so it is only reachable through a socket in this
 /// directory.
 const EMBEDDED_SOCKET_DIR: &str = "/var/run/postgresql";
+
+/// The socket file name ends in the port number, so the in-container server is only reachable at
+/// the port entrypoint.sh starts it on.
+const EMBEDDED_SOCKET_PORT: u16 = 5432;
 
 pub async fn create_pool() -> Result<PgPool> {
     let options = build_connect_options()?;
@@ -92,7 +96,16 @@ fn build_connect_options() -> Result<PgConnectOptions> {
 
         Ok(options.host(host).port(settings.port))
     } else {
-        Ok(options.host(EMBEDDED_SOCKET_DIR))
+        // Port and SSL mode are pinned rather than left at whatever `PgConnectOptions::new()`
+        // picked up from the ambient libpq variables. An operator who exports PGPORT=5433 so
+        // their own psql reaches a different server would otherwise send every Rust binary to
+        // /var/run/postgresql/.s.PGSQL.5433, a socket nobody serves, while the API keeps working
+        // and the dashboard just stops ingesting. PostgreSQL never speaks TLS over a Unix
+        // socket, so PGSSLMODE=require has nothing to negotiate here either.
+        Ok(options
+            .host(EMBEDDED_SOCKET_DIR)
+            .port(EMBEDDED_SOCKET_PORT)
+            .ssl_mode(PgSslMode::Disable))
     }
 }
 
@@ -148,9 +161,13 @@ fn resolve_postgres_settings() -> PostgresSettings {
         .or_else(|| creds.as_ref().and_then(|c| c.port))
         .unwrap_or(5432);
 
+    // entrypoint.sh lowercases and trims this before exporting it, but that only covers the
+    // processes it launches. A binary started by hand, on bare metal or in a dev shell sees the
+    // raw value, and `External` resolving to embedded would send it to the container socket while
+    // its failure message named a path the operator never configured.
     PostgresSettings {
         external: env::var("POSTGRES_MODE")
-            .map(|mode| mode == "external")
+            .map(|mode| mode.trim().eq_ignore_ascii_case("external"))
             .unwrap_or(false),
         host,
         port,
@@ -228,7 +245,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    const CONNECTION_VARS: [&str; 7] = [
+    const CONNECTION_VARS: [&str; 12] = [
         "DATABASE_URL",
         "POSTGRES_MODE",
         "POSTGRES_HOST",
@@ -236,6 +253,13 @@ mod tests {
         "POSTGRES_USER",
         "POSTGRES_PASSWORD",
         "POSTGRES_DB",
+        // libpq's own variables reach `PgConnectOptions::new()` as defaults, so a test that does
+        // not set them still has to start from a known-empty environment.
+        "PGHOST",
+        "PGPORT",
+        "PGSSLMODE",
+        "PGUSER",
+        "PGDATABASE",
     ];
 
     /// Connection settings come from process-wide environment variables, so these tests take a
@@ -475,6 +499,88 @@ mod tests {
         assert_eq!(options.get_host(), "db.example.invalid");
         assert_eq!(options.get_port(), 6543);
         assert_eq!(options.get_database(), Some("lancache_prod"));
+    }
+
+    #[test]
+    fn an_ambient_pgport_cannot_move_the_embedded_socket() {
+        let _guard = lock_env();
+        env::set_var("POSTGRES_MODE", "embedded");
+        env::set_var("PGPORT", "5433");
+
+        let options = build_connect_options().expect("embedded mode always has a target");
+
+        assert_eq!(socket_dir(&options).as_deref(), Some(EMBEDDED_SOCKET_DIR));
+        assert_eq!(options.get_port(), EMBEDDED_SOCKET_PORT);
+    }
+
+    #[test]
+    fn a_postgres_port_meant_for_an_external_server_cannot_move_the_embedded_socket() {
+        let _guard = lock_env();
+        env::set_var("POSTGRES_MODE", "embedded");
+        env::set_var("POSTGRES_PORT", "6543");
+
+        let options = build_connect_options().expect("embedded mode always has a target");
+
+        assert_eq!(options.get_port(), EMBEDDED_SOCKET_PORT);
+    }
+
+    #[test]
+    fn an_ambient_pghost_cannot_move_the_embedded_socket() {
+        let _guard = lock_env();
+        env::set_var("POSTGRES_MODE", "embedded");
+        env::set_var("PGHOST", "db.example.invalid");
+
+        let options = build_connect_options().expect("embedded mode always has a target");
+
+        assert_eq!(socket_dir(&options).as_deref(), Some(EMBEDDED_SOCKET_DIR));
+    }
+
+    #[test]
+    fn an_ambient_pgsslmode_cannot_demand_tls_on_the_embedded_socket() {
+        let _guard = lock_env();
+        env::set_var("POSTGRES_MODE", "embedded");
+        env::set_var("PGSSLMODE", "require");
+
+        let options = build_connect_options().expect("embedded mode always has a target");
+
+        assert!(
+            matches!(options.get_ssl_mode(), PgSslMode::Disable),
+            "TLS was demanded on a Unix socket, which PostgreSQL cannot serve"
+        );
+    }
+
+    #[test]
+    fn a_differently_cased_external_mode_still_means_external() {
+        let _guard = lock_env();
+        env::set_var("POSTGRES_MODE", "External");
+        env::set_var("POSTGRES_HOST", "db.example.invalid");
+
+        let options = build_connect_options().expect("a host is configured");
+
+        assert_eq!(options.get_host(), "db.example.invalid");
+        assert_eq!(socket_dir(&options), None);
+    }
+
+    #[test]
+    fn a_padded_external_mode_still_means_external() {
+        let _guard = lock_env();
+        env::set_var("POSTGRES_MODE", "  EXTERNAL \n");
+        env::set_var("POSTGRES_HOST", "db.example.invalid");
+
+        let options = build_connect_options().expect("a host is configured");
+
+        assert_eq!(options.get_host(), "db.example.invalid");
+    }
+
+    #[test]
+    fn a_mode_that_merely_contains_external_is_not_external() {
+        let _guard = lock_env();
+        env::set_var("POSTGRES_MODE", "external-preview");
+        env::set_var("POSTGRES_HOST", "db.example.invalid");
+
+        let options = build_connect_options().expect("embedded mode always has a target");
+
+        assert_eq!(socket_dir(&options).as_deref(), Some(EMBEDDED_SOCKET_DIR));
     }
 
     #[test]
