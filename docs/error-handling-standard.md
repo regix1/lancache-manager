@@ -5,15 +5,14 @@ Applies to: C# backend, Rust processor, React/TS frontend
 This is the binding house standard for how each layer classifies, propagates, logs, and surfaces
 errors — grounded in patterns that already exist in this repo, not new architecture.
 
-Authored from an 8-agent read-only audit (session 20260709-061432-179718070). Every rule is
-grounded in a pattern that ALREADY EXISTS in this repo; the goal is uniform adoption, not new
-architecture. File references are the canonical examples to copy.
+Every rule is grounded in a pattern that ALREADY EXISTS in this repo; the goal is uniform
+adoption, not new architecture. File references are the canonical examples to copy.
 
 ---
 
 ## 0. Why this exists
 
-Eight audits found the same thing in all three stacks: the correct pattern already exists and is
+Auditing all three stacks found the same thing: the correct pattern already exists and is
 used in the best files, but a long tail of sites each reinvented error handling. Result: 9 backend
 error-response shapes, 3 frontend message-precedences, ~57% of frontend catches invisible to the
 user, and Rust failures that reach C# as an exit code with no reason attached. This document is the
@@ -192,8 +191,8 @@ ONE way each layer handles errors from now on.
   reviewable decision, not an accidental `console.error`.
 
 ## 5. Enforcement / rollout
-- This doc ships to the repo (proposed: `docs/error-handling-standard.md`) with a one-line pointer in
-  `Web`/backend `CLAUDE.md` so future agents follow it.
+- This doc lives at `docs/error-handling-standard.md` and the repo's root instruction file points at
+  it, so anyone touching error handling reads it first.
 - Optional lint gates (proposed, not blocking): Rust `clippy::unwrap_used`/`expect_used` deny on
   non-test code; an ESLint guard against `catch (e: any)` (already clean — a ratchet); a controller
   analyzer/test forbidding anonymous error-object returns.
