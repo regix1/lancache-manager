@@ -172,6 +172,25 @@ RUN apt-get update && \
 RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
+# Fail the build on a malformed variant selection instead of silently producing an image that
+# claims to be "full" without PostgreSQL. A build argument that arrives mangled, for example with a
+# carriage return glued to it, matches neither "true" nor "false" and would otherwise just skip the
+# install below.
+RUN case "$INSTALL_POSTGRES" in \
+        true|false) ;; \
+        *) echo "INSTALL_POSTGRES must be true or false, got [$INSTALL_POSTGRES]" >&2; exit 1 ;; \
+    esac; \
+    case "$IMAGE_VARIANT" in \
+        full|slim) ;; \
+        *) echo "IMAGE_VARIANT must be full or slim, got [$IMAGE_VARIANT]" >&2; exit 1 ;; \
+    esac; \
+    if [ "$IMAGE_VARIANT" = "full" ] && [ "$INSTALL_POSTGRES" != "true" ]; then \
+        echo "IMAGE_VARIANT=full requires INSTALL_POSTGRES=true, got [$INSTALL_POSTGRES]" >&2; exit 1; \
+    fi; \
+    if [ "$IMAGE_VARIANT" = "slim" ] && [ "$INSTALL_POSTGRES" != "false" ]; then \
+        echo "IMAGE_VARIANT=slim requires INSTALL_POSTGRES=false, got [$INSTALL_POSTGRES]" >&2; exit 1; \
+    fi
+
 # Install embedded PostgreSQL 17 only for the "full" variant.
 # Slim builds skip this and require POSTGRES_MODE=external at runtime.
 RUN if [ "$INSTALL_POSTGRES" = "true" ]; then \

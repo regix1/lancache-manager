@@ -19,8 +19,11 @@ jobs:
   check-trigger:
     needs: lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       should-run: ${{ steps.check.outputs.should-run }}
+      release-tag: ${{ steps.release.outputs.tag }}
     steps:
       - name: Check if workflow should run
         id: check
@@ -35,6 +38,22 @@ jobs:
             echo "should-run=false" >> $GITHUB_OUTPUT
             echo "Conditions not met. Event: ${{ github.event_name }}, Conclusion: ${{ github.event.workflow_run.conclusion }}"
           fi
+
+      # The release tags point at whatever this workflow builds, so it must build the released
+      # commit. Building the branch head republishes :latest, :release and :X.Y.Z from unreleased work.
+      - name: Resolve the release tag to build
+        id: release
+        if: ${{ steps.check.outputs.should-run == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh release view --repo "${{ github.repository }}" --json tagName --jq .tagName 2>/dev/null || true)
+          if [ -z "$TAG" ]; then
+            echo "No published release found, so there is no tag to build from. Run Create Release first."
+            exit 1
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Building from release tag $TAG"
 
   build-and-push:
     needs: check-trigger
@@ -76,7 +95,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ needs.check-trigger.outputs.release-tag }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -97,7 +116,8 @@ jobs:
 
       - name: Read VERSION file
         id: version
-        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+        # A stray carriage return would end the first build-arg line early and swallow the rest
+        run: echo "VERSION=$(tr -d '\r\n' < VERSION)" >> $GITHUB_OUTPUT
 
       - name: Prepare image name
         id: image
@@ -145,6 +165,27 @@ jobs:
             type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.variant }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }},mode=max
           provenance: false
 
+      # The build step pushes without loading, so the image has to come back from the registry.
+      # Each matrix leg runs on a native runner for its own platform, so this pulls its own arch.
+      # The pg_ctl probe is the same one entrypoint.sh uses to decide whether embedded mode can run.
+      - name: Verify the image matches its variant
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          TAG=$(echo "$TAGS" | head -n 1)
+          echo "Checking $TAG"
+          docker pull "$TAG"
+          if docker run --rm --entrypoint sh "$TAG" -c 'ls /usr/lib/postgresql/*/bin/pg_ctl' > /dev/null 2>&1; then
+            FOUND=true
+          else
+            FOUND=false
+          fi
+          echo "variant=${{ matrix.variant }} expected pg_ctl present=${{ matrix.install_postgres }}, found=$FOUND"
+          if [ "$FOUND" != "${{ matrix.install_postgres }}" ]; then
+            echo "The ${{ matrix.variant }} image is wrong: pg_ctl present=$FOUND but INSTALL_POSTGRES=${{ matrix.install_postgres }}."
+            exit 1
+          fi
+
   create-manifest:
     needs: [check-trigger, build-and-push]
     # Only run if check passed and build succeeded
@@ -162,7 +203,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ needs.check-trigger.outputs.release-tag }}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
@@ -174,7 +215,8 @@ jobs:
 
       - name: Read VERSION file
         id: version
-        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+        # A stray carriage return would end the first build-arg line early and swallow the rest
+        run: echo "VERSION=$(tr -d '\r\n' < VERSION)" >> $GITHUB_OUTPUT
 
       - name: Prepare image name
         id: image

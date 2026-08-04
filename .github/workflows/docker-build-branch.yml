@@ -87,7 +87,8 @@ jobs:
 
       - name: Read VERSION file
         id: version
-        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+        # A stray carriage return would end the first build-arg line early and swallow the rest
+        run: echo "VERSION=$(tr -d '\r\n' < VERSION)" >> $GITHUB_OUTPUT
 
       - name: Prepare image name
         id: image
