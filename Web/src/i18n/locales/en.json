@@ -4548,6 +4548,7 @@
       "sessionReplaced": "This login session was replaced by a newer one. Please try logging in again.",
       "credentialRejected": "The daemon rejected this credential. Please try logging in again.",
       "loginTimedOut": "Login timed out. Please try again.",
+      "loginBusy": "Another login for this service is already in progress. Wait for it to finish, or try again shortly.",
       "cancelLoginFailed": "Could not cancel the login already in progress. The container may still be waiting for a code. Please try logging out again.",
       "services": {
         "steam": "Steam",

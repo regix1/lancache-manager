@@ -1,5 +1,6 @@
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Authorization;
@@ -123,6 +124,12 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
             _daemonService.AddSubscriber(session.Id, Context.ConnectionId);
 
             return DaemonSessionDto.FromSession(session);
+        }
+        catch (ForbiddenException ex)
+        {
+            _logger.LogWarning("Refused to create {Hub} session for auth session {SessionId}: {Message}",
+                HubDisplayName, authSessionId, ex.Message);
+            throw new HubException(ex.Message);
         }
         catch (InvalidOperationException ex)
         {

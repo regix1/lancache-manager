@@ -1,6 +1,7 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -73,7 +74,7 @@ public class EventsService : IEventsService
         var existing = await _context.Events.FindAsync(new object[] { evt.Id }, cancellationToken);
         if (existing == null)
         {
-            throw new InvalidOperationException($"Event with ID {evt.Id} not found");
+            throw new NotFoundException($"Event with ID {evt.Id}");
         }
 
         existing.Name = evt.Name;

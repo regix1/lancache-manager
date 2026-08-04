@@ -1,4 +1,5 @@
 using LancacheManager.Core.Services.EpicMapping;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -124,12 +125,7 @@ public class EpicGameMappingController : ControllerBase
                 gamesDiscovered = status.GamesDiscovered
             });
         }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogWarning(ex, "Epic auth code exchange failed");
-            return Conflict(ApiResponse.Error(ex.Message));
-        }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Failed to complete Epic mapping auth");
             throw; // -> GlobalExceptionMiddleware -> 500 safe { error, details?, statusCode, traceId }

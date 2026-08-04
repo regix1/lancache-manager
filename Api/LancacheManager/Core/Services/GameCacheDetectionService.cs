@@ -3,6 +3,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -133,10 +134,12 @@ public partial class GameCacheDetectionService : IDisposable
     {
         // Game detection derives logical objects from cache keys, so ambiguous datasource
         // evidence must be rejected even when this service is called without a controller.
+        // The caller awaits this before any background work starts, so the refusal is answered
+        // as the same 400 the controller's own gate returns for this condition.
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
         if (capabilityDenial != null)
         {
-            throw new InvalidOperationException(capabilityDenial);
+            throw new ValidationException(capabilityDenial);
         }
 
         await _startLock.WaitAsync();

@@ -4,6 +4,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -75,10 +76,15 @@ public class PersistentLoginFailFastTests
     }
 
     /// <summary>
-    /// A second <c>StartLoginAsync</c> call on
-    /// the same session while the first is still mid-flight must be rejected outright (try-acquire on
-    /// <see cref="DaemonSession.LoginLock"/>), not silently queued behind it - overlapping calls would
-    /// otherwise race the daemon's single challenge/status stream.
+    /// A second <c>StartLoginAsync</c> call on the same session while the first is still mid-flight
+    /// must be rejected rather than silently queued behind it - overlapping calls would otherwise race
+    /// the daemon's single challenge/status stream. The rejection waits out the bounded
+    /// <see cref="DaemonSession.LoginLock"/> wait first (the first call here never releases until the
+    /// test says so), and it must arrive as a <see cref="ConflictException"/> carrying the real
+    /// sentence: that type is what <c>GlobalExceptionMiddleware</c> renders as 409 with the message
+    /// passed through, whereas a plain <see cref="InvalidOperationException"/> becomes a 500 whose body
+    /// says only "An unexpected error occurred", telling the user nothing about why the login was
+    /// refused.
     /// </summary>
     [Fact]
     public async Task StartLoginAsync_ConcurrentCallOnSameSession_RejectedWhileFirstInFlight()
@@ -89,11 +95,56 @@ public class PersistentLoginFailFastTests
         var firstCall = daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
         await blockingClient.EnteredStartLogin.Task;
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var conflict = await Assert.ThrowsAsync<ConflictException>(
             () => daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None));
+        stopwatch.Stop();
+
+        Assert.Contains("A login attempt is already in progress", conflict.Message, StringComparison.Ordinal);
+        Assert.Contains(session.Id, conflict.Message, StringComparison.Ordinal);
+
+        // The wait is bounded, not instant: a lock that is never released still has to be waited on
+        // before the caller is turned away, so an attempt that overlaps a short hold is not refused
+        // out of hand. Anything under a second here would mean the wait had been dropped.
+        Assert.True(stopwatch.Elapsed >= TimeSpan.FromSeconds(1),
+            $"Expected the rejection to wait out the login lock, took only {stopwatch.Elapsed}.");
 
         blockingClient.ReleaseGate.TrySetResult(null);
         await firstCall;
+    }
+
+    /// <summary>
+    /// The other half of the bounded wait: a second <c>StartLoginAsync</c> that arrives while the lock
+    /// is held only briefly must ACQUIRE it once the first call releases and run its own daemon login,
+    /// instead of being turned away. Without the wait this call is refused the instant it finds the
+    /// lock taken, which is what made a user who clicked during the automatic startup login see a
+    /// failure they could do nothing about.
+    /// </summary>
+    [Fact]
+    public async Task StartLoginAsync_LockReleasedDuringWait_SecondCallAcquiresAndRunsItsOwnLogin()
+    {
+        var blockingClient = new BlockingLoginDaemonClient();
+        var (daemon, session) = CreateSessionWithClient(blockingClient);
+
+        var firstCall = daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+        await blockingClient.EnteredStartLogin.Task;
+
+        var secondCall = daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        // Give the second call time to reach the lock and park on it, then confirm it is still parked
+        // rather than already finished. A call that had been refused on sight would be faulted here.
+        await Task.Delay(TimeSpan.FromMilliseconds(250));
+        Assert.False(secondCall.IsCompleted,
+            "The second login should still be waiting on the login lock, not already finished.");
+
+        blockingClient.ReleaseGate.TrySetResult(null);
+        await firstCall;
+
+        var challenge = await secondCall;
+
+        Assert.Null(challenge);
+        // Two daemon login commands: the second call got the lock and ran a real attempt of its own.
+        Assert.Equal(2, blockingClient.StartLoginCallCount);
     }
 
     private static (PrefillDaemonServiceBase Daemon, DaemonSession Session) CreateSessionWithClient(IDaemonClient client)
@@ -354,9 +405,14 @@ public class PersistentLoginFailFastTests
     {
         public readonly TaskCompletionSource<object?> EnteredStartLogin = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public readonly TaskCompletionSource<CredentialChallenge?> ReleaseGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _startLoginCallCount;
+
+        /// <summary>How many daemon login commands this fake was asked to run.</summary>
+        public int StartLoginCallCount => Volatile.Read(ref _startLoginCallCount);
 
         public override async Task<CredentialChallenge?> StartLoginAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
         {
+            Interlocked.Increment(ref _startLoginCallCount);
             EnteredStartLogin.TrySetResult(null);
             return await ReleaseGate.Task;
         }

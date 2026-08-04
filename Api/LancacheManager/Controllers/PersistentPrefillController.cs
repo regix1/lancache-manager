@@ -1027,7 +1027,7 @@ public class PersistentPrefillController : ControllerBase
 
             if (daemon.PersistentEditSessionGate.HasPendingLaterStart(editSessionId, start))
             {
-                throw new InvalidOperationException(
+                throw new ConflictException(
                     $"Edit-session cleanup is waiting for a later persistent start before releasing session {start.SessionId}.");
             }
 
@@ -1059,7 +1059,7 @@ public class PersistentPrefillController : ControllerBase
 
             if (daemon.PersistentEditSessionGate.HasPendingStart())
             {
-                throw new InvalidOperationException(
+                throw new ConflictException(
                     $"Edit-session cleanup is waiting for a persistent start before releasing session {sessionId}.");
             }
 

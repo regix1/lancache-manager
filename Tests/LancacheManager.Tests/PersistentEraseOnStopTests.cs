@@ -4,6 +4,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -758,7 +759,7 @@ public class PersistentEraseOnStopTests
         await SeedSessionRowAsync(sessionService, session);
         SetStopping(daemon, true); // host shutdown in progress: StopAsync detach may already own this session
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<ConflictException>(
             () => daemon.StopPersistentSessionAsync(session.Id, terminatedBy: "admin"));
 
         // Loud failure, not a silent no-op success: the login is untouched (row still Active, no logout) so

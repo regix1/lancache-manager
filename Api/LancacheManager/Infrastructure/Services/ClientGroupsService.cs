@@ -1,6 +1,7 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -82,7 +83,7 @@ public class ClientGroupsService : IClientGroupsService
 
         if (existing == null)
         {
-            throw new InvalidOperationException($"Client group with ID {group.Id} not found");
+            throw new NotFoundException($"Client group with ID {group.Id}");
         }
 
         existing.Nickname = group.Nickname;
@@ -124,7 +125,7 @@ public class ClientGroupsService : IClientGroupsService
 
         if (group == null)
         {
-            throw new InvalidOperationException($"Client group with ID {groupId} not found");
+            throw new NotFoundException($"Client group with ID {groupId}");
         }
 
         var desiredIps = clientIps.Distinct(StringComparer.Ordinal).ToList();

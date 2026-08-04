@@ -1,6 +1,7 @@
 using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services.EpicMapping;
@@ -22,7 +23,7 @@ public partial class EpicMappingService
     {
         if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0)
         {
-            throw new InvalidOperationException("Epic auth is already in progress");
+            throw new ConflictException("Epic auth is already in progress");
         }
 
         await _sessionLock.WaitAsync();

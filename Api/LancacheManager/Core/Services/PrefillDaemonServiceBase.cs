@@ -10,6 +10,7 @@ using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using Microsoft.Extensions.Options;
 
 
@@ -106,6 +107,16 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     // Bounded wait for a container removal on a shutdown/rejected-create path, so an unresponsive Docker
     // call can never block shutdown (never CancellationToken.None on those paths).
     private static readonly TimeSpan _containerTeardownTimeout = TimeSpan.FromSeconds(10);
+
+    // How long an interactive login waits for a session's login lock before giving up. The automatic
+    // startup login holds that lock for its whole attempt, so failing the instant it is held rejects a
+    // user who clicked inside a window they cannot see. The wait is BOUNDED because the caller is an HTTP
+    // request that still has a full login round-trip ahead of it once the lock is acquired: waiting
+    // longer would trade a fast, actionable "already in progress" answer for a request that looks hung.
+    // Kept short deliberately. It exists to absorb a brief overlap, not to outlast a full login: those
+    // run to their own 30s command timeout, so a longer wait would only delay the same refusal behind a
+    // spinner.
+    private static readonly TimeSpan _loginLockWaitTimeout = TimeSpan.FromSeconds(3);
 
     // Docker labels stamped onto PERSISTENT daemon containers so they can survive a manager restart
     // and be re-adopted (reconnected) instead of being force-removed by the orphan cleanup sweep.
@@ -1388,7 +1399,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         if (await _sessionService.IsUserIdBannedAsync(userId))
         {
             _logger.LogWarning("Refusing to create {ServiceName} session for banned user {UserId}", ServiceName, userId);
-            throw new InvalidOperationException("You are banned from using the prefill feature.");
+            throw new ForbiddenException("You are banned from using the prefill feature.");
         }
 
         // Always pull latest image before creating session
@@ -1475,8 +1486,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 // name (a 409 that CreatePersistentContainerWithConflictRetryAsync would then have to
                 // force through) or force-remove a container that might still recover from a restart
                 // loop. Fail the start explicitly instead - the name will be free (or the container
-                // will have stabilized) by the time the admin/scheduler retries.
-                throw new InvalidOperationException(
+                // will have stabilized) by the time the admin/scheduler retries. Persistent starts are
+                // only ever requested over HTTP, so a conflict carries the retry-shortly sentence to the
+                // caller instead of collapsing into the middleware's generic 500 body.
+                throw new ConflictException(
                     $"An existing persistent {ServiceName} container is still being removed or restarting. Please try again shortly.");
             }
         }
@@ -2659,12 +2672,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         // Serializes login attempts on this session: overlapping calls would race the
         // daemon's single challenge/status stream and clobber each other's failure text/auth state.
-        // A second concurrent attempt is rejected outright (try-acquire, never queued) so the caller
-        // gets an immediate, unambiguous error instead of silently waiting behind one it doesn't know
+        // A short bounded wait absorbs the common case where another attempt holds the lock only
+        // briefly. An attempt still blocked after that is rejected rather than queued, so the caller
+        // gets a bounded, unambiguous error instead of silently waiting behind one it doesn't know
         // about.
-        if (!await session.LoginLock.WaitAsync(0, cancellationToken))
+        if (!await session.LoginLock.WaitAsync(_loginLockWaitTimeout, cancellationToken))
         {
-            throw new InvalidOperationException($"A login attempt is already in progress for session {sessionId}.");
+            throw new ConflictException($"A login attempt is already in progress for session {sessionId}.");
         }
 
         var abandonedLoginCleanup = new AbandonedLoginCleanupHolder();
@@ -3970,9 +3984,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // survives the restart, violating the explicit-stop-always-erases invariant. During shutdown an
         // explicit stop cannot guarantee that erase (the detach owns the container), so fail loudly rather
         // than silently no-op: the login is preserved for re-adoption and can be stopped again after restart.
+        // The only caller is the admin stop endpoint, so this refusal is client-visible: a conflict keeps
+        // the "stop it again after the restart" instruction in the response body, which the generic 500
+        // body would drop.
         if (_stopping)
         {
-            throw new InvalidOperationException(
+            throw new ConflictException(
                 $"{ServiceName} daemon is shutting down; the persistent session {sessionId} cannot be stopped right now. " +
                 "Its login is preserved for re-adoption on the next start; stop it again after the manager restarts.");
         }

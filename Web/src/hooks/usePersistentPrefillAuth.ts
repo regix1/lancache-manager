@@ -75,6 +75,22 @@ function isPersistentSessionConflictError(
   );
 }
 
+// A login POST refused because something else already holds this session's login. The daemon throws
+// ConflictException, which the global exception middleware renders as a 409 whose body is a plain
+// { error, statusCode, traceId } - none of the structured conflict fields buildApiError looks for
+// (apiError.ts), so `.cause` stays unset and isPersistentSessionConflictError above can never see
+// it. Hence a second guard rather than widening that one: the two are different endings, and only
+// that one resets the store as a replaced session. The two session-pinning reasons are excluded by
+// their code so a replaced session keeps its own message. Matched on status and code, never on the
+// message text (the rule is written at the top of apiError.ts).
+function isPersistentLoginBusyError(error: unknown): error is ApiError {
+  if (!(error instanceof ApiError) || error.status !== 409) {
+    return false;
+  }
+  const reason = error.body?.error;
+  return reason !== 'session_replaced' && reason !== 'credential_rejected';
+}
+
 /**
  * Thrown by pollForResult instead of ever calling the challenge-GET REST endpoint when the store
  * has no pinned sessionId for this service anymore. This is a normal, already-ended flow, not a
@@ -231,7 +247,7 @@ export function usePersistentPrefillAuth(
   const pollForResult = useCallback(async (): Promise<PollResult> => {
     // Captured before the long-poll opens. A 409 that arrives after the store has moved on belongs
     // to an attempt that already ended, and handleSessionConflict resets unconditionally - so
-    // without this snapshot a late conflict wipes whatever attempt is live now. [19]
+    // without this snapshot a late conflict wipes whatever attempt is live now.
     const attemptEpoch = getPersistentLoginEpoch(service);
     // Read the session id LIVE (not the `stored` snapshot closed over when this callback was
     // created) - Xbox's device-code flow calls this from a poll loop that starts synchronously
@@ -299,7 +315,7 @@ export function usePersistentPrefillAuth(
         ) {
           handleSessionConflict(err);
         }
-        // Rethrown either way so this submit still ends where it always did. [19]
+        // Rethrown either way so this submit still ends where it always did.
         throw err;
       }
 
@@ -319,7 +335,7 @@ export function usePersistentPrefillAuth(
         //
         // The neutral 'pending' matters as much as the missing write: reporting 'authenticated'
         // here makes submit() return true, and the caller answers a true by closing its modal -
-        // which dismisses whatever attempt is live now, not this dead one. [20]
+        // which dismisses whatever attempt is live now, not this dead one.
         return { status: 'pending' };
       }
       if (isPersistentLoginCancelled(service)) {
@@ -510,6 +526,17 @@ export function usePersistentPrefillAuth(
           // the backend's "Login timeout" 400 for a container that has since been stopped) is not
           // the current attempt's failure. Discard it instead of writing a stale error over live
           // state.
+          return null;
+        }
+        if (isPersistentLoginBusyError(err)) {
+          // A retryable ending, not a broken login: another attempt already holds this session's
+          // login. The persistent session is shared per service rather than per user, so the other
+          // attempt is either the automatic one made at startup or a different admin who is
+          // mid-login and may be sitting on a device code for some time. The server sentence names
+          // the internal session id, so show a translated one instead. Deliberately no automatic
+          // retry - the server already waits before refusing, so a click that gets here has
+          // genuinely lost the race and the wait could be a long one.
+          fail(t('prefill.persistent.loginBusy'));
           return null;
         }
         const message = getErrorMessage(err);

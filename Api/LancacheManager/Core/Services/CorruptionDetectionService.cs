@@ -78,10 +78,12 @@ public class CorruptionDetectionService
 
         // Corruption scanning requires one unambiguous key scheme across every datasource;
         // fail closed here too because the controller gate is only the presentation check.
+        // The caller awaits this before any background work starts, so the refusal is answered
+        // as the same 400 that gate returns for this condition.
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
         if (capabilityDenial != null)
         {
-            throw new InvalidOperationException(capabilityDenial);
+            throw new ValidationException(capabilityDenial);
         }
 
         await _startLock.WaitAsync(cancellationToken);

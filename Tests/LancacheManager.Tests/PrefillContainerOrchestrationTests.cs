@@ -7,6 +7,7 @@ using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -465,8 +466,10 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
     }
 
     // The status-poll -> login -> cancel transaction owns LoginLock for its WHOLE duration: a
-    // concurrent manual login either wins before the attempt begins (try-acquire) or starts only
-    // after its cleanup completed - it can never observe or inherit the headless challenge.
+    // concurrent manual login either wins before the attempt begins or starts only after its cleanup
+    // completed - it can never observe or inherit the headless challenge. A manual login that arrives
+    // mid-transaction waits out its bounded lock wait and is then refused with ConflictException, the
+    // type the middleware renders as 409 with the message intact.
     [Fact]
     public async Task AttemptHeadlessSelfAuth_OwnsLoginLockForWholeTransaction_ManualLoginNeverSeesItsChallenge()
     {
@@ -494,14 +497,14 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
 
         // Barrier 1: the attempt is inside the daemon login command and owns LoginLock.
         await client.StartLoginEntered.Task;
-        await Assert.ThrowsAsync<InvalidOperationException>(() => daemon.StartLoginAsync(session.Id));
+        await Assert.ThrowsAsync<ConflictException>(() => daemon.StartLoginAsync(session.Id));
 
         // Barrier 2: the login returned a challenge and the attempt is now inside the daemon cancel
         // round-trip. The lock must STILL be held - this is exactly the window where a manual login
         // could previously resume a challenge that was being cancelled out from under it.
         client.ReleaseStartLogin.SetResult();
         await client.CancelLoginEntered.Task;
-        await Assert.ThrowsAsync<InvalidOperationException>(() => daemon.StartLoginAsync(session.Id));
+        await Assert.ThrowsAsync<ConflictException>(() => daemon.StartLoginAsync(session.Id));
         Assert.Null(session.PendingLoginChallenge); // the headless challenge was never cached for a resume
 
         client.ReleaseCancelLogin.SetResult();
