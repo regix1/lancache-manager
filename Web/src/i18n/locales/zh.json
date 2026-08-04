@@ -7,6 +7,25 @@
       "checkingSetup": "检查设置状态...",
       "checkingDepot": "检查仓库状态..."
     },
+    "configError": {
+      "failedTitle": "加载配置失败",
+      "timedOutTitle": "配置请求超时",
+      "failedMessage": "加载配置失败。请检查网络连接后重试。",
+      "timedOutMessage": "配置请求在 {{seconds}} 秒后超时。请检查网络连接后重试。",
+      "recovery": {
+        "toggle": "重试后仍然无法进入？",
+        "heading": "重新设置 PostgreSQL 密码",
+        "description": "仅当 LANCache Manager 因保存的密码不再匹配而无法连接其内置 PostgreSQL 时使用。此操作会修改并保存密码，不会删除任何内容。您需要 /data/security/api_key.txt 中的 API Key，它也会打印在容器日志中。",
+        "apiKeyPlaceholder": "lm_xxxxxxxxxxxxxxxxxxxxx",
+        "usernameLabel": "PostgreSQL 用户",
+        "usernamePlaceholder": "lancache",
+        "passwordLabel": "新密码",
+        "passwordPlaceholder": "至少 8 个字符",
+        "submit": "保存密码",
+        "saved": "密码已保存。请重启容器以完全生效。",
+        "failed": "无法保存密码。请检查 API Key 后重试。"
+      }
+    },
     "auth": {
       "apiKeyRegenerated": {
         "title": "重新生成API Key",

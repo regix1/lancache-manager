@@ -7,6 +7,25 @@
       "checkingSetup": "Checking setup status...",
       "checkingDepot": "Checking depot status..."
     },
+    "configError": {
+      "failedTitle": "Failed to Load Configuration",
+      "timedOutTitle": "Configuration Request Timed Out",
+      "failedMessage": "Failed to load configuration. Please check your connection and try again.",
+      "timedOutMessage": "Configuration request timed out after {{seconds}} seconds. Please check your connection and try again.",
+      "recovery": {
+        "toggle": "Still stuck after retrying?",
+        "heading": "Set the PostgreSQL password again",
+        "description": "Use this only when LANCache Manager cannot reach its own embedded PostgreSQL because the stored password no longer matches. It changes the password and saves it, and nothing is erased. You need your API key from /data/security/api_key.txt, which is also printed in the container logs.",
+        "apiKeyPlaceholder": "lm_xxxxxxxxxxxxxxxxxxxxx",
+        "usernameLabel": "PostgreSQL user",
+        "usernamePlaceholder": "lancache",
+        "passwordLabel": "New password",
+        "passwordPlaceholder": "At least 8 characters",
+        "submit": "Save password",
+        "saved": "Password saved. Restart the container to apply it everywhere.",
+        "failed": "Could not save the password. Check your API key and try again."
+      }
+    },
     "auth": {
       "apiKeyRegenerated": {
         "title": "API Key Regenerated",

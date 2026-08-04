@@ -10,6 +10,39 @@ interface SetupStatusProviderProps {
   children: ReactNode;
 }
 
+// Used only when the status call fails and nothing has ever been read successfully, so the
+// wizard gate stays closed for a genuine first run. It must not claim credentials are needed:
+// a failed call is an absence of information, not evidence that setup is incomplete. [41]
+const UNREAD_SETUP_STATUS: SetupStatus = {
+  isCompleted: false,
+  hasProcessedLogs: false,
+  needsPostgresCredentials: false,
+  currentSetupStep: null,
+  dataSourceChoice: null,
+  completedPlatforms: null,
+  mode: 'embedded',
+  postgresHost: null,
+  postgresPort: null,
+  postgresDatabase: null,
+  postgresUser: null
+};
+
+// SetupStatusProvider is an ancestor of NotificationsProvider in AppProviders.tsx, so
+// useErrorHandler is not reachable here; use the existing show-toast bridge instead
+// (mirrors NotificationsContext.tsx:332-356). Module scope keeps fetchSetupStatus free of
+// component-scope references, which is what lets its effect keep its own dependency list.
+const announceStatusFetchFailure = () => {
+  window.dispatchEvent(
+    new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
+      detail: {
+        type: 'error',
+        message: 'Failed to check setup status. Please refresh the page.',
+        duration: 5000
+      }
+    })
+  );
+};
+
 export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ children }) => {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -46,21 +79,12 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
           postgresUser: data.postgresUser ?? null
         });
       } else {
-        // Non-OK response: default to showing the database-setup step so the
-        // wizard doesn't silently skip it when credentials are actually needed.
-        setSetupStatus({
-          isCompleted: false,
-          hasProcessedLogs: false,
-          needsPostgresCredentials: true,
-          currentSetupStep: null,
-          dataSourceChoice: null,
-          completedPlatforms: null,
-          mode: 'embedded',
-          postgresHost: null,
-          postgresPort: null,
-          postgresDatabase: null,
-          postgresUser: null
-        });
+        // A failed call carries no information about setup, so the last successful status is
+        // kept and only a never-read status falls back. Overwriting it here is what re-showed
+        // the password wizard on a healthy install after any transient failure. [41][42]
+        console.error(`[SetupStatus] /system/setup responded ${response.status}`);
+        setSetupStatus((prev) => prev ?? UNREAD_SETUP_STATUS);
+        announceStatusFetchFailure();
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
@@ -69,37 +93,12 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         console.warn('[SetupStatus] fetchSetupStatus timed out after 10000ms');
       } else {
         console.error('[SetupStatus] Failed to fetch setup status:', error);
-        // Falling back to "needs setup" below can incorrectly re-show the setup wizard for an
-        // already-configured instance on a transient network failure - surface it so the user
-        // knows to retry rather than assuming setup was reset. SetupStatusProvider is an
-        // ancestor of NotificationsProvider in AppProviders.tsx, so useErrorHandler is not
-        // reachable here; use the existing show-toast bridge instead (mirrors
-        // NotificationsContext.tsx:332-356).
-        window.dispatchEvent(
-          new CustomEvent<ShowToastEvent>(APP_EVENTS.SHOW_TOAST, {
-            detail: {
-              type: 'error',
-              message: 'Failed to check setup status. Please refresh the page.',
-              duration: 5000
-            }
-          })
-        );
+        // Surface it so the user knows to retry rather than assuming setup was reset.
+        announceStatusFetchFailure();
       }
-      // On error/timeout: default to showing the database-setup step so the
-      // wizard doesn't silently skip it when credentials are actually needed.
-      setSetupStatus({
-        isCompleted: false,
-        hasProcessedLogs: false,
-        needsPostgresCredentials: true,
-        currentSetupStep: null,
-        dataSourceChoice: null,
-        completedPlatforms: null,
-        mode: 'embedded',
-        postgresHost: null,
-        postgresPort: null,
-        postgresDatabase: null,
-        postgresUser: null
-      });
+      // Same reasoning as the non-OK branch: a timeout or a network error is an absence of
+      // information, not a reason to send a configured instance back to the wizard. [41][42]
+      setSetupStatus((prev) => prev ?? UNREAD_SETUP_STATUS);
     } finally {
       clearTimeout(timeoutId);
       setIsLoading(false);
