@@ -252,9 +252,11 @@ public class SystemController : ControllerBase
                     if (string.IsNullOrEmpty(postgresUser) && root.TryGetProperty("username", out var userElement))
                         postgresUser = userElement.GetString();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Best-effort; missing info just means the info screen shows less detail.
+                    _logger.LogWarning(ex,
+                        "Postgres credentials file {Path} is unreadable or malformed, so the setup screen falls back to the environment variables and shows less detail",
+                        credentialsFilePath);
                 }
             }
         }
@@ -280,9 +282,11 @@ public class SystemController : ControllerBase
                     if (string.IsNullOrEmpty(postgresUser) && root.TryGetProperty("username", out var userElement))
                         postgresUser = userElement.GetString();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Best-effort only.
+                    _logger.LogWarning(ex,
+                        "Postgres credentials file {Path} is unreadable or malformed, so the setup screen falls back to the embedded defaults and shows less detail",
+                        credentialsFilePath);
                 }
             }
         }

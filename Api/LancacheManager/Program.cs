@@ -337,9 +337,13 @@ if (string.IsNullOrEmpty(pgPassword) || (postgresMode == "external" && string.Is
                     pgDatabase = dbElement.GetString();
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Config file corrupt or unreadable - will show setup page
+            // No logger exists this early in startup (the host is not built yet), so this uses the
+            // same console warning as the proxy-network parse above. Staying silent here is what
+            // made an unreadable credentials file look identical to a first run. [34]
+            Console.Error.WriteLine(
+                $"WARNING: Postgres credentials file '{configPath}' could not be read ({ex.Message}). Continuing without the stored credentials, so the setup page will ask for them again.");
         }
     }
 }
@@ -663,7 +667,17 @@ builder.Services.AddSingletonHostedService<GameImageFetchService>();
 builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 
 // Register RustSpeedTrackerService for real-time per-game download speed monitoring (uses Rust for faster parsing)
-builder.Services.AddSingletonHostedService<RustSpeedTrackerService>();
+if (externalCredsMissing)
+{
+    // Setup-only boot: the tracker's child process connects to the same database this process
+    // just decided it does not have, so it can only fail and be respawned. Keep the singleton
+    // so SpeedsController still resolves; just never start it. [31]
+    builder.Services.AddSingleton<RustSpeedTrackerService>();
+}
+else
+{
+    builder.Services.AddSingletonHostedService<RustSpeedTrackerService>();
+}
 
 // Register GameDetectionService - runs scheduled game cache detection. Whether it
 // also runs at startup is user-controlled via the Schedules UI (DefaultRunOnStartup = false).
@@ -1042,14 +1056,24 @@ app.MapControllerRoute(
     defaults: new { controller = "OperationState", action = "UpdateState" },
     constraints: new { httpMethod = new HttpMethodRouteConstraint("PATCH") });
 
-// Health check endpoint
-app.MapGet("/health", () => Results.Ok(new
+// Health check endpoint. A setup-only boot has no database at all, so answering 200 there tells
+// Docker, orchestrators and monitoring the container is fine while the app can serve nothing but
+// the setup wizard. The flag is fixed for the life of the process, which matches the setup flow:
+// credentials submitted through the wizard only take effect on restart. [32]
+app.MapGet("/health", () =>
 {
-    status = "healthy",
-    timestamp = DateTime.UtcNow,
-    service = "LancacheManager",
-    version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev"
-})).AllowAnonymous();
+    var health = new
+    {
+        status = externalCredsMissing ? "setup-required" : "healthy",
+        timestamp = DateTime.UtcNow,
+        service = "LancacheManager",
+        version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev"
+    };
+
+    return externalCredsMissing
+        ? Results.Json(health, statusCode: StatusCodes.Status503ServiceUnavailable)
+        : Results.Ok(health);
+}).AllowAnonymous();
 
 // Version endpoint
 app.MapGet("/api/version", () =>

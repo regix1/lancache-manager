@@ -36,6 +36,15 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private readonly object _snapshotLock = new();
     private bool _previousHadActivity = false;
 
+    // Ceiling for the restart backoff. A dependency the tracker can never satisfy (an unreachable
+    // database, a missing log source) stops costing a spawn every few seconds once the delay
+    // reaches this, while a dependency that comes back is still picked up within five minutes.
+    private static readonly TimeSpan _maxRestartDelay = TimeSpan.FromMinutes(5);
+
+    // A tracker that stayed up this long did real work, so the next exit starts the backoff over
+    // rather than inheriting a streak from an unrelated failure hours earlier.
+    private static readonly TimeSpan _healthyRunDuration = TimeSpan.FromMinutes(1);
+
     protected override string ServiceName => "RustSpeedTrackerService";
     protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(5);
     protected override TimeSpan Interval => TimeSpan.Zero;
@@ -309,16 +318,71 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         return true;
     }
 
+    /// <summary>
+    /// How long to wait before spawning the tracker again after it stopped. Starts at
+    /// ErrorRetryDelay and doubles per consecutive failure up to the ceiling, the same
+    /// exponential shape LiveLogMonitorService applies to its permission backoff.
+    /// </summary>
+    private TimeSpan RestartDelay(int consecutiveFailures)
+    {
+        var seconds = ErrorRetryDelay.TotalSeconds * Math.Pow(2, Math.Max(consecutiveFailures - 1, 0));
+        return TimeSpan.FromSeconds(Math.Min(seconds, _maxRestartDelay.TotalSeconds));
+    }
+
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
         var datasources = _datasourceService.GetDatasources();
         var rustExecutablePath = _rustExecutablePath ?? _pathResolver.GetRustSpeedTrackerPath();
+        var consecutiveFailures = 0;
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await RunTrackerAsync(rustExecutablePath, datasources, stoppingToken);
+                // Build log directory arguments. The tracker discovers and tails every log source in
+                // each directory (the monolithic cachelog access.log AND per-service bare-metal
+                // *-access.log files), so any datasource whose scheme supports live speed is passed its
+                // directory. Datasources with no single trustworthy layout (Unknown/Mixed) are skipped.
+                var logDirs = datasources
+                    .Where(d => d.Enabled && _capabilityService.GetCapabilities(d).CanTrackLiveSpeed)
+                    .Select(d => $"\"{d.LogPath}\"")
+                    .ToList();
+
+                if (logDirs.Count == 0)
+                {
+                    if (!_loggedNoTrackableDatasources)
+                    {
+                        _loggedNoTrackableDatasources = true;
+                        _logger.LogInformation(
+                            "No datasource with trackable log sources; live speed tracking is idle");
+                    }
+                    // Idle without error spam; re-check periodically in case a source appears.
+                    consecutiveFailures = 0;
+                    await SafeDelayAsync(TimeSpan.FromSeconds(60), stoppingToken);
+                    continue;
+                }
+
+                var startedAt = DateTime.UtcNow;
+                await RunTrackerAsync(rustExecutablePath, logDirs, stoppingToken);
+
+                if (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                // The only other way out of RunTrackerAsync is the child process exiting on its
+                // own, and nothing about that throws. Without a wait on this path the loop
+                // respawns the tracker as fast as a process can be started, so a child that dies
+                // immediately (an unreachable database, for example) burns a core and floods the
+                // log instead of backing off. [30]
+                consecutiveFailures = DateTime.UtcNow - startedAt >= _healthyRunDuration
+                    ? 1
+                    : consecutiveFailures + 1;
+                var exitRestartDelay = RestartDelay(consecutiveFailures);
+                _logger.LogWarning(
+                    "Rust speed tracker exited on its own ({Count} in a row), restarting in {Delay}",
+                    consecutiveFailures, exitRestartDelay);
+                await SafeDelayAsync(exitRestartDelay, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -326,39 +390,19 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in RustSpeedTrackerService, restarting in 5 seconds");
-                await Task.Delay(5000, stoppingToken);
+                consecutiveFailures++;
+                var errorRestartDelay = RestartDelay(consecutiveFailures);
+                _logger.LogError(ex, "Error in RustSpeedTrackerService, restarting in {Delay}", errorRestartDelay);
+                await SafeDelayAsync(errorRestartDelay, stoppingToken);
             }
         }
     }
 
     private async Task RunTrackerAsync(
         string rustExecutablePath,
-        IReadOnlyList<ResolvedDatasource> datasources,
+        IReadOnlyList<string> logDirs,
         CancellationToken stoppingToken)
     {
-        // Build log directory arguments. The tracker discovers and tails every log source in
-        // each directory (the monolithic cachelog access.log AND per-service bare-metal
-        // *-access.log files), so any datasource whose scheme supports live speed is passed its
-        // directory. Datasources with no single trustworthy layout (Unknown/Mixed) are skipped.
-        var logDirs = datasources
-            .Where(d => d.Enabled && _capabilityService.GetCapabilities(d).CanTrackLiveSpeed)
-            .Select(d => $"\"{d.LogPath}\"")
-            .ToList();
-
-        if (logDirs.Count == 0)
-        {
-            if (!_loggedNoTrackableDatasources)
-            {
-                _loggedNoTrackableDatasources = true;
-                _logger.LogInformation(
-                    "No datasource with trackable log sources; live speed tracking is idle");
-            }
-            // Idle without error spam; re-check periodically in case a source appears.
-            await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
-            return;
-        }
-
         var arguments = string.Join(" ", logDirs);
 
         _logger.LogInformation("Starting Rust speed tracker: {Path} {Args}", rustExecutablePath, arguments);
