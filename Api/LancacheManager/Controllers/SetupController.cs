@@ -212,13 +212,32 @@ public class SetupController : ControllerBase
     /// where POSTGRES_MODE=external is set but no env-var connection details were
     /// provided - the user supplies them via the wizard and then restarts the container.
     ///
-    /// Anonymous because in this scenario the DB is unreachable, so no admin session can
-    /// exist yet. Same trust model as the first-run setup wizard.
+    /// Gated the same way as SetCredentialsAsync: a session when the caller has one, the API key
+    /// otherwise. What this writes is the connection every process in the container rebuilds its
+    /// database settings from on the next start, so leaving it open would let anyone who can reach
+    /// the port repoint the whole installation at a database of their choosing.
+    ///
+    /// The API key is what keeps this reachable at all. External mode without credentials boots
+    /// with no database (see Program.cs), so no session can be created or validated in the state
+    /// this screen appears in, while the key is a file that is read without touching the database.
+    /// Security:EnableAuthentication is deliberately not consulted: turning that flag off opens the
+    /// authorization policies, and reading it here would hand this endpoint to anyone with it off.
     /// </summary>
     [AllowAnonymous]
     [HttpPost("external")]
     public async Task<IActionResult> SetExternalCredentialsAsync([FromBody] SetExternalDbCredentialsRequest request)
     {
+        if (User.Identity?.IsAuthenticated != true)
+        {
+            var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
+            if (!apiKeyResult.IsAuthenticated)
+            {
+                return StatusCode(
+                    apiKeyResult.StatusCode,
+                    ApiResponse.Error(apiKeyResult.ErrorMessage ?? "API key required"));
+            }
+        }
+
         var mode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";
         if (mode != "external")
         {

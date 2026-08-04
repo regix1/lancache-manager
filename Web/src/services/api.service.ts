@@ -2593,16 +2593,27 @@ class ApiService {
     await ApiService.handleResponse(response);
   }
 
-  static async setExternalDbCredentials(payload: {
-    host: string;
-    port: number;
-    database: string;
-    username: string;
-    password: string;
-  }): Promise<{ success: boolean; message: string; restartRequired: boolean; error?: string }> {
+  /**
+   * The API key is sent explicitly because this runs while the database is unreachable: no
+   * session cookie can be minted or validated in that state, so the key is the only credential
+   * the endpoint can accept.
+   */
+  static async setExternalDbCredentials(
+    payload: {
+      host: string;
+      port: number;
+      database: string;
+      username: string;
+      password: string;
+    },
+    apiKey: string
+  ): Promise<{ success: boolean; message: string; restartRequired: boolean; error?: string }> {
     const response = await fetch(
       `${API_BASE}/setup/external`,
-      ApiService.getJsonFetchOptions(payload, { method: 'POST' })
+      ApiService.getJsonFetchOptions(payload, {
+        method: 'POST',
+        headers: { 'X-Api-Key': apiKey }
+      })
     );
     return response.json();
   }

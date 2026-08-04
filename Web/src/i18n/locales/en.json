@@ -6387,6 +6387,9 @@
         "required": "API key is required"
       }
     },
+    "externalDb": {
+      "apiKeyHelp": "The database is not reachable yet, so there is no session to authorize this. Paste the API key printed in the container log at startup, or read it from /data/security/api_key.txt."
+    },
     "dbInfo": {
       "externalTitle": "External PostgreSQL Connected",
       "embeddedTitle": "Embedded PostgreSQL Ready",

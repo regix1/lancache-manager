@@ -6351,6 +6351,9 @@
         "required": "API 密钥是必需的"
       }
     },
+    "externalDb": {
+      "apiKeyHelp": "数据库尚无法连接，因此没有会话可用于授权此操作。请粘贴启动时打印在容器日志中的 API 密钥，或从 /data/security/api_key.txt 中读取。"
+    },
     "dbInfo": {
       "externalTitle": "外部 PostgreSQL 已连接",
       "embeddedTitle": "内置 PostgreSQL 已就绪",

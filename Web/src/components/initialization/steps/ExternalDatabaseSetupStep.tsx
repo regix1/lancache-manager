@@ -15,6 +15,7 @@ interface FormState {
   database: string;
   username: string;
   password: string;
+  apiKey: string;
 }
 
 interface FormErrors {
@@ -23,6 +24,7 @@ interface FormErrors {
   database: string | null;
   username: string | null;
   password: string | null;
+  apiKey: string | null;
 }
 
 export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps> = ({
@@ -34,14 +36,16 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
     port: '5432',
     database: 'lancache',
     username: 'lancache',
-    password: ''
+    password: '',
+    apiKey: ''
   });
   const [errors, setErrors] = useState<FormErrors>({
     host: null,
     port: null,
     database: null,
     username: null,
-    password: null
+    password: null,
+    apiKey: null
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -63,7 +67,8 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
       port: null,
       database: null,
       username: null,
-      password: null
+      password: null,
+      apiKey: null
     };
 
     if (!form.host.trim()) next.host = 'Host is required';
@@ -74,10 +79,11 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
     if (!form.database.trim()) next.database = 'Database name is required';
     if (!form.username.trim()) next.username = 'Username is required';
     if (!form.password) next.password = 'Password is required';
+    if (!form.apiKey.trim()) next.apiKey = t('initialization.apiKey.errors.required');
 
     setErrors(next);
     return Object.values(next).every((v) => v === null);
-  }, [form]);
+  }, [form, t]);
 
   const handleSubmit = useCallback(async () => {
     if (!validateForm()) return;
@@ -85,13 +91,16 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
     setSubmitError(null);
 
     try {
-      const result = await ApiService.setExternalDbCredentials({
-        host: form.host.trim(),
-        port: Number.parseInt(form.port, 10),
-        database: form.database.trim(),
-        username: form.username.trim(),
-        password: form.password
-      });
+      const result = await ApiService.setExternalDbCredentials(
+        {
+          host: form.host.trim(),
+          port: Number.parseInt(form.port, 10),
+          database: form.database.trim(),
+          username: form.username.trim(),
+          password: form.password
+        },
+        form.apiKey.trim()
+      );
 
       if (result.success) {
         setSetupSuccess(true);
@@ -238,6 +247,23 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
           </button>
         </div>
         {errors.password && <p className="text-xs text-themed-error mt-1">{errors.password}</p>}
+      </div>
+
+      <div>
+        <label className="form-field-label">{t('initialization.apiKey.label')}</label>
+        <input
+          type="password"
+          value={form.apiKey}
+          onChange={handleFieldChange('apiKey')}
+          placeholder={t('initialization.apiKey.placeholder')}
+          disabled={isSubmitting}
+          autoComplete="off"
+          className="w-full px-3 py-2 rounded-md border border-themed-secondary bg-themed-tertiary text-themed-primary text-sm"
+        />
+        {errors.apiKey && <p className="text-xs text-themed-error mt-1">{errors.apiKey}</p>}
+        <p className="text-xs text-themed-muted mt-1">
+          {t('initialization.externalDb.apiKeyHelp')}
+        </p>
       </div>
 
       {submitError && (
