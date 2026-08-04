@@ -69,9 +69,8 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
       setCacheSize(size);
     } catch (err) {
       // Cancels and transient client-side disconnects are expected outcomes, not failures, so
-      // they must never surface a "Cache Size Error" notification. Both are swallowed silently;
-      // this comment is the explicit "why" the error-handling standard requires for a deliberate
-      // swallow (docs/error-handling-standard.md):
+      // they must never surface a "Cache Size Error" notification. Both are swallowed silently,
+      // and this comment is the explicit "why" for that deliberate swallow:
       //   - a real cancel (superseded request / unmount) rejects with an AbortError.
       //   - a mobile browser dropping the long-lived GET /cache/size request on navigation or
       //     backgrounding rejects the fetch with a network TypeError ("Failed to fetch" /
