@@ -377,6 +377,12 @@ var externalCredsMissing = postgresMode == "external"
         || connBuilder.Host == "/var/run/postgresql"
         || string.IsNullOrEmpty(pgPassword));
 
+// One rule for everything below that reads or writes the database: do not start database work when
+// there is no database. Migration is skipped in this mode, so the schema is absent as well as the
+// server. Applied at the hosted-service registrations and at the startup session clear, which are
+// the two places this process kicks off database work before a request ever arrives. [31]
+var databaseAvailable = !externalCredsMissing;
+
 var dbConnectionString = connBuilder.ConnectionString
     + ";Minimum Pool Size=3;Maximum Pool Size=30;Max Auto Prepare=20";
 
@@ -516,7 +522,7 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddSingleton<LancacheManager.Core.Services.ConnectionTrackingService>();
 
 // Register SteamKit2Service for real-time Steam depot mapping
-builder.Services.AddSingletonHostedService<SteamKit2Service>();
+builder.Services.AddDatabaseBackedHostedService<SteamKit2Service>(databaseAvailable);
 
 // Register SteamService as singleton (on-demand game info / depot owner lookups; not scheduled)
 builder.Services.AddSingleton<SteamService>();
@@ -540,10 +546,10 @@ builder.Services.AddSingleton<IOperationQueue, OperationQueueService>();
 builder.Services.AddSingleton<PicsDataService>();
 
 // Register cache snapshot service for historical cache size tracking
-builder.Services.AddSingletonHostedService<CacheSnapshotService>();
+builder.Services.AddDatabaseBackedHostedService<CacheSnapshotService>(databaseAvailable);
 
 // Register metrics service for Prometheus/Grafana as both singleton and hosted service
-builder.Services.AddSingletonHostedService<LancacheMetricsService>();
+builder.Services.AddDatabaseBackedHostedService<LancacheMetricsService>(databaseAvailable);
 
 // Register Rust log processor service (replaces old C# LogProcessingService and LogWatcherService)
 builder.Services.AddSingleton<RustLogProcessorService>();
@@ -561,7 +567,7 @@ builder.Services.AddSingleton<NginxLogRotationService>();
 builder.Services.AddSingletonHostedService<NginxLogRotationHostedService>();
 
 // Register CacheClearingService
-builder.Services.AddSingletonHostedService<CacheClearingService>();
+builder.Services.AddDatabaseBackedHostedService<CacheClearingService>(databaseAvailable);
 
 // Register OperationHistoryCleanupService (cleans up expired cache clear operation records)
 builder.Services.AddSingletonHostedService<OperationHistoryCleanupService>();
@@ -583,23 +589,23 @@ builder.Services.AddSingleton<PrefillCacheService>();
 builder.Services.AddSingleton<LancacheManager.Core.Interfaces.IPrefillContainerGatewayFactory, LancacheManager.Infrastructure.Services.DockerPrefillContainerGatewayFactory>();
 
 // Register SteamDaemonService for secure daemon-based prefill management
-builder.Services.AddSingletonHostedService<SteamDaemonService>();
+builder.Services.AddDatabaseBackedHostedService<SteamDaemonService>(databaseAvailable);
 
 // Register EpicPrefillDaemonService for Epic Games daemon-based prefill management
-builder.Services.AddSingletonHostedService<EpicPrefillDaemonService>();
+builder.Services.AddDatabaseBackedHostedService<EpicPrefillDaemonService>(databaseAvailable);
 
 // Register BattleNetDaemonService for anonymous Battle.net daemon-based prefill management
-builder.Services.AddSingletonHostedService<BattleNetDaemonService>();
+builder.Services.AddDatabaseBackedHostedService<BattleNetDaemonService>(databaseAvailable);
 
 // Register RiotDaemonService for anonymous Riot daemon-based prefill management
-builder.Services.AddSingletonHostedService<RiotDaemonService>();
+builder.Services.AddDatabaseBackedHostedService<RiotDaemonService>(databaseAvailable);
 
 // Periodically re-checks Battle.net/Riot Docker connectivity into the activity registry, independent of
 // daemon session activity (see DaemonConnectivityReconciler doc comment).
-builder.Services.AddHostedService<DaemonConnectivityReconciler>();
+builder.Services.AddDatabaseBackedHostedService<DaemonConnectivityReconciler>(databaseAvailable);
 
 // Register XboxPrefillDaemonService for login-required Xbox / Microsoft Store daemon-based prefill management
-builder.Services.AddSingletonHostedService<XboxPrefillDaemonService>();
+builder.Services.AddDatabaseBackedHostedService<XboxPrefillDaemonService>(databaseAvailable);
 
 // Register EpicApiDirectClient for direct HTTP calls to Epic APIs (no Docker needed)
 builder.Services.AddHttpClient<EpicApiDirectClient>();
@@ -608,14 +614,14 @@ builder.Services.AddHttpClient<EpicApiDirectClient>();
 builder.Services.AddSingleton<EpicAuthStorageService>();
 
 // Register unified EpicMappingService for game discovery, mapping, and scheduling
-builder.Services.AddSingletonHostedService<EpicMappingService>();
+builder.Services.AddDatabaseBackedHostedService<EpicMappingService>(databaseAvailable);
 
 // Register BattleNetMappingService for re-mapping existing Blizzard downloads to game
 // names from the single-sourced TACT catalog (anonymous/static - no login, no schedule).
 builder.Services.AddSingleton<LancacheManager.Core.Services.BattleNet.BattleNetMappingService>();
 // One-shot startup resolve so a TACT catalog shipped in a new build renames existing
 // unnamed Blizzard downloads immediately instead of waiting for the next ingest batch.
-builder.Services.AddHostedService<LancacheManager.Infrastructure.Services.BattleNetMappingStartupResolveService>();
+builder.Services.AddDatabaseBackedHostedService<LancacheManager.Infrastructure.Services.BattleNetMappingStartupResolveService>(databaseAvailable);
 
 // Register XboxApiDirectClient for direct HTTP calls to the public Microsoft Store DisplayCatalog
 // (no auth, no Docker) - used to fetch Xbox game banner art by ProductId at mapping time.
@@ -638,7 +644,7 @@ builder.Services.AddSingleton<LancacheManager.Infrastructure.Services.XboxAuthSt
 // runtime-configurable schedule + manual trigger + on-authentication nudge, decoupled from prefill,
 // by re-reading the daemon's already-authenticated session. Surfaces on the Schedules page as
 // "xboxMapping" (auto-discovered by ServiceScheduleRegistry as a ConfigurableScheduledService).
-builder.Services.AddSingletonHostedService<LancacheManager.Services.Xbox.XboxCatalogMappingService>();
+builder.Services.AddDatabaseBackedHostedService<LancacheManager.Services.Xbox.XboxCatalogMappingService>(databaseAvailable);
 
 // Register GcScheduledService - runs on a user-configurable interval (managed through the
 // unified Schedules page) and performs aggressive GC when the working set exceeds the
@@ -648,40 +654,32 @@ builder.Services.AddSingletonHostedService<GcScheduledService>();
 
 // Register Scheduled Prefill - orchestrates prefill runs across all enabled services on a
 // user-configurable interval (managed through the unified Schedules page) as "scheduledPrefill".
-builder.Services.AddSingletonHostedService<ScheduledPrefillService>();
+builder.Services.AddDatabaseBackedHostedService<ScheduledPrefillService>(databaseAvailable);
 
 // Register PersistentSessionExpiryService - consolidated per-minute expiry/stall reaper across all 5
 // prefill daemon platforms, replacing 5 independent per-daemon Timers. Hardcoded 1-minute cadence
 // (infra polling, not user-facing), not on the Schedules page (matches the prior mechanism).
-builder.Services.AddSingletonHostedService<PersistentSessionExpiryService>();
+builder.Services.AddDatabaseBackedHostedService<PersistentSessionExpiryService>(databaseAvailable);
 
 // Register OperationStateService
 builder.Services.AddSingletonHostedService<OperationStateService>();
 
 // Register background services
-builder.Services.AddHostedService<LiveLogMonitorService>();
-builder.Services.AddHostedService<DownloadCleanupService>();
-builder.Services.AddSingletonHostedService<CacheReconciliationService>();
-builder.Services.AddSingletonHostedService<CacheSizeScanScheduledService>();
-builder.Services.AddSingletonHostedService<GameImageFetchService>();
+builder.Services.AddDatabaseBackedHostedService<LiveLogMonitorService>(databaseAvailable);
+builder.Services.AddDatabaseBackedHostedService<DownloadCleanupService>(databaseAvailable);
+builder.Services.AddDatabaseBackedHostedService<CacheReconciliationService>(databaseAvailable);
+builder.Services.AddDatabaseBackedHostedService<CacheSizeScanScheduledService>(databaseAvailable);
+builder.Services.AddDatabaseBackedHostedService<GameImageFetchService>(databaseAvailable);
 builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 
 // Register RustSpeedTrackerService for real-time per-game download speed monitoring (uses Rust for faster parsing)
-if (externalCredsMissing)
-{
-    // Setup-only boot: the tracker's child process connects to the same database this process
-    // just decided it does not have, so it can only fail and be respawned. Keep the singleton
-    // so SpeedsController still resolves; just never start it. [31]
-    builder.Services.AddSingleton<RustSpeedTrackerService>();
-}
-else
-{
-    builder.Services.AddSingletonHostedService<RustSpeedTrackerService>();
-}
+// Database-backed through its child process rather than its own constructor: the Rust tracker
+// connects to the same database this process may have just decided it does not have.
+builder.Services.AddDatabaseBackedHostedService<RustSpeedTrackerService>(databaseAvailable);
 
 // Register GameDetectionService - runs scheduled game cache detection. Whether it
 // also runs at startup is user-controlled via the Schedules UI (DefaultRunOnStartup = false).
-builder.Services.AddSingletonHostedService<GameDetectionService>();
+builder.Services.AddDatabaseBackedHostedService<GameDetectionService>(databaseAvailable);
 
 // Register dashboard batch service - shared compute behind /api/dashboard/batch. Lives as a
 // singleton so the controller is a thin pass-through AND the warmer below can pre-populate
@@ -691,7 +689,7 @@ builder.Services.AddSingleton<IDashboardBatchService, DashboardBatchService>();
 // Register dashboard cache warmer - calls GetBatchAsync(null,null,null) once at startup and
 // once per interval (RunOnStartup=true) so the first /api/dashboard/batch user request does
 // NOT pay the cold DB connection pool + 9 parallel queries penalty.
-builder.Services.AddSingletonHostedService<DashboardCacheWarmerService>();
+builder.Services.AddDatabaseBackedHostedService<DashboardCacheWarmerService>(databaseAvailable);
 
 // Register service schedule registry - collects all ScheduledBackgroundService / ConfigurableScheduledService instances
 builder.Services.AddSingleton<IServiceScheduleRegistry, ServiceScheduleRegistry>();
@@ -703,7 +701,7 @@ builder.Services.AddSingleton<IActivityRegistry, ActivityRegistry>();
 // Periodically reconciles the UserSession/Present activity set against the database, so a session that
 // predates this process (e.g. survived a restart) still gets tracked instead of being permanently absent
 // from the registry (see UserSessionActivityReconciler doc comment).
-builder.Services.AddHostedService<UserSessionActivityReconciler>();
+builder.Services.AddDatabaseBackedHostedService<UserSessionActivityReconciler>(databaseAvailable);
 
 // Register Status Check (DNS/cache reachability and empirical content-path diagnostics) services -
 // ILancacheEnvFileReader is also consumed by
@@ -929,8 +927,11 @@ var apiKeyService = app.Services.GetRequiredService<ApiKeyService>();
 apiKeyService.DisplayApiKey(app.Configuration);
 
 // If a new API key was generated (data folder was deleted), invalidate all old sessions
-// so existing browser cookies cannot authenticate against the new key.
-if (apiKeyService.WasNewKeyGenerated)
+// so existing browser cookies cannot authenticate against the new key. The sessions being
+// cleared live in the database, and this call sits outside every try, so on a setup-only boot
+// an unguarded delete takes the process down before the user can reach the setup screen. No
+// database means there are no sessions to clear, which is the outcome rather than an error. [31]
+if (apiKeyService.WasNewKeyGenerated && databaseAvailable)
 {
     using var startupScope = app.Services.CreateScope();
     var sessionService = startupScope.ServiceProvider.GetRequiredService<SessionService>();
