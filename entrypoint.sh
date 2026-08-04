@@ -425,43 +425,77 @@ else
         || { echo "[postgres] ERROR: PostgreSQL did not become ready in time"; cat "$PG_LOG" 2>/dev/null; exit 1; }
     echo "[postgres] PostgreSQL is ready."
 
+    # The SQL travels on stdin and never inside the command string su executes, so a role name,
+    # database name or password holding $(...), a backtick or a quote cannot be re-parsed as a
+    # command by the shell su starts. These names come from postgres-credentials.json, which the
+    # setup endpoint writes, so they are not all under the operator's control.
+    run_postgres_sql() {
+        printf '%s\n' "$1" | su - postgres -c 'psql -v ON_ERROR_STOP=1 -qtA -f -'
+    }
+
+    # A SQL identifier is double-quoted with any embedded double quote doubled. Without this a
+    # role named with a hyphen is a syntax error and the statement silently does not run.
+    sql_identifier() {
+        printf '"%s"' "$(printf '%s' "$1" | sed 's/"/""/g')"
+    }
+
+    # A SQL string literal is single-quoted with any embedded single quote doubled.
+    # standard_conforming_strings is on, so a backslash is an ordinary character here.
+    sql_literal() {
+        printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
+    }
+
+    PGUSER_IDENTIFIER=$(sql_identifier "$PGUSER")
+    PGUSER_LITERAL=$(sql_literal "$PGUSER")
+    PGDATABASE_IDENTIFIER=$(sql_identifier "$PGDATABASE")
+    PGDATABASE_LITERAL=$(sql_literal "$PGDATABASE")
+
     # Create/update PostgreSQL role with credentials
+    if [ "$(run_postgres_sql "SELECT 1 FROM pg_roles WHERE rolname = $PGUSER_LITERAL;")" = "1" ]; then
+        PGUSER_EXISTS=1
+    else
+        PGUSER_EXISTS=0
+    fi
+
     if [ -n "$PGPASSWORD" ]; then
-        # Credentials available - create user with password
-        su - postgres -c "psql -qtc \"SELECT 1 FROM pg_roles WHERE rolname='$PGUSER'\" | grep -q 1 \
-            || psql -qc \"CREATE USER $PGUSER WITH SUPERUSER PASSWORD '$PGPASSWORD';\""
-        # Update password if user already exists (in case password changed)
-        su - postgres -c "psql -qc \"ALTER USER $PGUSER WITH PASSWORD '$PGPASSWORD';\""
+        PGPASSWORD_LITERAL=$(sql_literal "$PGPASSWORD")
+        if [ "$PGUSER_EXISTS" -eq 1 ]; then
+            # Update password if user already exists (in case password changed)
+            run_postgres_sql "ALTER USER $PGUSER_IDENTIFIER WITH PASSWORD $PGPASSWORD_LITERAL;"
+        else
+            run_postgres_sql "CREATE USER $PGUSER_IDENTIFIER WITH SUPERUSER PASSWORD $PGPASSWORD_LITERAL;"
+        fi
     else
         # No password yet - create user without password (local trust auth)
         # App will show first-run setup page to collect credentials
-        su - postgres -c "psql -qtc \"SELECT 1 FROM pg_roles WHERE rolname='$PGUSER'\" | grep -q 1 \
-            || psql -qc \"CREATE USER $PGUSER WITH SUPERUSER;\""
+        if [ "$PGUSER_EXISTS" -eq 0 ]; then
+            run_postgres_sql "CREATE USER $PGUSER_IDENTIFIER WITH SUPERUSER;"
+        fi
         echo "WARNING: No POSTGRES_PASSWORD set. The app will prompt for credentials on first access."
     fi
 
     # WITH SUPERUSER only appears on the CREATE branches above, so a role that already existed
     # without it fails the first schema update with "must be owner of table" and the container
     # exits. Put the grant back rather than leaving that to be guessed from the error.
-    PGUSER_IS_SUPERUSER=$(su - postgres -c "psql -qtAc \"SELECT rolsuper FROM pg_roles WHERE rolname='$PGUSER'\"" 2>/dev/null)
+    PGUSER_IS_SUPERUSER=$(run_postgres_sql "SELECT rolsuper FROM pg_roles WHERE rolname = $PGUSER_LITERAL;" 2>/dev/null)
     if [ "$PGUSER_IS_SUPERUSER" = "f" ]; then
         echo "[postgres] Role '$PGUSER' exists without SUPERUSER. Granting it back."
-        su - postgres -c "psql -qc \"ALTER ROLE $PGUSER WITH SUPERUSER;\"" \
+        run_postgres_sql "ALTER ROLE $PGUSER_IDENTIFIER WITH SUPERUSER;" \
             || echo "WARNING: Could not grant SUPERUSER to role '$PGUSER'. Schema updates will fail with 'must be owner of table'."
     fi
 
     # Create database if it doesn't exist
-    if ! su - postgres -c "psql -qtAc \"SELECT 1 FROM pg_database WHERE datname='$PGDATABASE'\"" 2>/dev/null | grep -q 1; then
+    if [ "$(run_postgres_sql "SELECT 1 FROM pg_database WHERE datname = $PGDATABASE_LITERAL;" 2>/dev/null)" != "1" ]; then
         # A changed POSTGRES_DB leaves the old database full of rows with nothing pointing at it,
         # and the fresh schema in the new one reads as a clean install. Name both.
-        OTHER_DATABASES=$(su - postgres -c "psql -qtAc \"SELECT datname FROM pg_database WHERE datistemplate = false AND datname <> 'postgres'\"" 2>/dev/null \
-            | grep -v "^${PGDATABASE}$" | tr '\n' ' ')
+        OTHER_DATABASES=$(run_postgres_sql "SELECT datname FROM pg_database WHERE datistemplate = false AND datname <> 'postgres';" 2>/dev/null \
+            | grep -vFx -- "$PGDATABASE" | tr '\n' ' ')
         if [ -n "$OTHER_DATABASES" ]; then
             echo "WARNING: Creating a new empty database '$PGDATABASE' while this server already holds: $OTHER_DATABASES"
             echo "  Those keep every row, and nothing points at them once '$PGDATABASE' is in use."
             echo "  Set POSTGRES_DB back to the earlier name to reach that data again."
         fi
-        su - postgres -c "psql -qc \"CREATE DATABASE $PGDATABASE OWNER $PGUSER;\""
+        run_postgres_sql "CREATE DATABASE $PGDATABASE_IDENTIFIER OWNER $PGUSER_IDENTIFIER;"
     fi
 fi
 
