@@ -12,6 +12,19 @@ public class VersionResponse
 }
 
 /// <summary>
+/// Response for the liveness and readiness endpoints. SetupRequired is true when the app booted
+/// without database credentials and can serve nothing but the setup wizard.
+/// </summary>
+public class HealthResponse
+{
+    public string Status { get; set; } = string.Empty;
+    public bool SetupRequired { get; set; }
+    public DateTime Timestamp { get; set; }
+    public string Service { get; set; } = string.Empty;
+    public string Version { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// Response for system configuration
 /// </summary>
 public class SystemConfigResponse

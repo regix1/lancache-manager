@@ -1056,18 +1056,32 @@ app.MapControllerRoute(
     defaults: new { controller = "OperationState", action = "UpdateState" },
     constraints: new { httpMethod = new HttpMethodRouteConstraint("PATCH") });
 
-// Health check endpoint. A setup-only boot has no database at all, so answering 200 there tells
-// Docker, orchestrators and monitoring the container is fine while the app can serve nothing but
-// the setup wizard. The flag is fixed for the life of the process, which matches the setup flow:
-// credentials submitted through the wizard only take effect on restart. [32]
-app.MapGet("/health", () =>
+// Liveness. This is what the image's HEALTHCHECK probes, so it always answers 200 while the
+// process is up: a setup-only boot is a container that needs a human, not a container to kill,
+// and a non-2xx here gets it restarted by Swarm, a Kubernetes liveness probe or an autoheal
+// sidecar before anyone can finish the wizard. The setup state is reported in the body instead.
+// The flag is fixed for the life of the process, which matches the setup flow: credentials
+// submitted through the wizard only take effect on restart. [32]
+app.MapGet("/health", () => Results.Ok(new HealthResponse
 {
-    var health = new
+    Status = externalCredsMissing ? "setup-required" : "healthy",
+    SetupRequired = externalCredsMissing,
+    Timestamp = DateTime.UtcNow,
+    Service = "LancacheManager",
+    Version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev"
+})).AllowAnonymous();
+
+// Readiness. Answers 503 while the app has no database, for load balancers and for a compose
+// file that wants to wait on a usable install. Nothing restarts a container over this. [32]
+app.MapGet("/health/ready", () =>
+{
+    var health = new HealthResponse
     {
-        status = externalCredsMissing ? "setup-required" : "healthy",
-        timestamp = DateTime.UtcNow,
-        service = "LancacheManager",
-        version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev"
+        Status = externalCredsMissing ? "setup-required" : "healthy",
+        SetupRequired = externalCredsMissing,
+        Timestamp = DateTime.UtcNow,
+        Service = "LancacheManager",
+        Version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev"
     };
 
     return externalCredsMissing
