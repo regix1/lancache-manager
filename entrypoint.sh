@@ -313,11 +313,24 @@ else
     PGDATA_PRIMARY="/data/postgresql"
     PGDATA_FALLBACK="/var/lib/postgresql/data"
 
-    # A mount of its own is the only thing that makes the fallback path outlive the container.
+    # What keeps the fallback path alive is sitting on any mount other than the container's own
+    # root filesystem, not being a mount point itself: 'postgres_data:/var/lib/postgresql' keeps
+    # the database exactly as well as a mount on /var/lib/postgresql/data. Comparing device
+    # numbers answers that question; an equality test against the mount point called the first
+    # layout unmounted and told the user their database was about to be deleted when it was not.
+    # The path may not exist yet on a fresh container, so probe the nearest parent that does.
     PGDATA_FALLBACK_MOUNTED=0
-    if [ -d "$PGDATA_FALLBACK" ] && command -v findmnt >/dev/null 2>&1 &&
-        [ "$(findmnt -n -o TARGET --target "$PGDATA_FALLBACK" 2>/dev/null | head -n1)" = "$PGDATA_FALLBACK" ]; then
-        PGDATA_FALLBACK_MOUNTED=1
+    if command -v stat >/dev/null 2>&1; then
+        PGDATA_FALLBACK_PROBE="$PGDATA_FALLBACK"
+        while [ ! -d "$PGDATA_FALLBACK_PROBE" ] && [ "$PGDATA_FALLBACK_PROBE" != "/" ]; do
+            PGDATA_FALLBACK_PROBE=$(dirname "$PGDATA_FALLBACK_PROBE")
+        done
+        PGDATA_FALLBACK_DEVICE=$(stat -c %d "$PGDATA_FALLBACK_PROBE" 2>/dev/null || echo "")
+        ROOT_DEVICE=$(stat -c %d / 2>/dev/null || echo "")
+        if [ -n "$PGDATA_FALLBACK_DEVICE" ] && [ -n "$ROOT_DEVICE" ] &&
+            [ "$PGDATA_FALLBACK_DEVICE" != "$ROOT_DEVICE" ]; then
+            PGDATA_FALLBACK_MOUNTED=1
+        fi
     fi
 
     if [ -f "$PGDATA_PRIMARY/PG_VERSION" ]; then
