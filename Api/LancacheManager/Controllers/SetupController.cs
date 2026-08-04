@@ -88,6 +88,13 @@ public class SetupController : ControllerBase
         var connectionSettings = new Npgsql.NpgsqlConnectionStringBuilder(
             dbContext.Database.GetConnectionString());
 
+        // A database that cannot be reached is the normal case on this endpoint, not the exception,
+        // so the caller must not sit through Npgsql's 15 second default before being told. The
+        // connection string resolved at startup carries no timeout of its own, and the external
+        // endpoint already uses these values for the same reason.
+        connectionSettings.Timeout = 10;
+        connectionSettings.CommandTimeout = 10;
+
         // No username submitted means "the role this installation already runs as", which is the
         // one the entrypoint created from POSTGRES_USER.
         var username = string.IsNullOrWhiteSpace(request.Username)
