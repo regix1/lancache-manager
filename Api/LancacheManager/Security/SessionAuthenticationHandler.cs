@@ -25,7 +25,31 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
 
         // 2. Validate session
         var sessionService = Context.RequestServices.GetRequiredService<SessionService>();
-        var session = await sessionService.ValidateSessionAsync(rawToken);
+        UserSession? session;
+        try
+        {
+            session = await sessionService.ValidateSessionAsync(rawToken);
+        }
+        catch (Exception ex)
+        {
+            // Authentication runs before authorization, so a database that cannot be reached would
+            // otherwise fail every request carrying a session cookie, including the ones to endpoints
+            // that ask for no authorization at all. Those are the endpoints the setup and error
+            // screens are built from, so losing them is what turns a database outage into an
+            // installation with no way back in. The request continues unauthenticated instead: no
+            // session is published to Items and no principal is built, so nothing here can stand in
+            // for the session the database could not confirm.
+            //
+            // Deliberately no retry. The connection is configured with EnableRetryOnFailure(3, 5s),
+            // so a transient fault has already been retried by the time it surfaces here and trying
+            // again would only hold the request open longer. Deliberately catching everything, too:
+            // nothing in the stack distinguishes "server unreachable" from any other provider fault,
+            // and ValidateSessionAsync takes no cancellation token, so nothing that arrives here is a
+            // cancelled request being misreported as a failure. [26]
+            Logger.LogError(ex, "Could not reach the database to validate a session cookie; the request continues unauthenticated");
+            return AuthenticateResult.NoResult();
+        }
+
         if (session == null)
             return AuthenticateResult.Fail("Invalid session");
 
@@ -51,7 +75,17 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             Context.Request.Headers["X-User-Active"].ToString(), "false", StringComparison.OrdinalIgnoreCase);
         if (userActive)
         {
-            _ = sessionService.UpdateLastSeenAsync(session);
+            // Nothing awaits this, so the failure has to be reported from the task itself. The write
+            // is the other database call on this path: an outage that begins after the validation
+            // above lands here instead, and a last-seen write that has quietly stopped working shows
+            // up only as stale times in the sessions list, with nothing in the log to explain them.
+            var sessionId = session.Id;
+            _ = sessionService.UpdateLastSeenAsync(session).ContinueWith(
+                finished => Logger.LogWarning(
+                    finished.Exception, "Could not record last-seen time for session {SessionId}", sessionId),
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         }
 
         // 5. Build ClaimsPrincipal
