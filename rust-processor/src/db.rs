@@ -245,7 +245,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    const CONNECTION_VARS: [&str; 12] = [
+    const CONNECTION_VARS: [&str; 10] = [
         "DATABASE_URL",
         "POSTGRES_MODE",
         "POSTGRES_HOST",
@@ -253,13 +253,15 @@ mod tests {
         "POSTGRES_USER",
         "POSTGRES_PASSWORD",
         "POSTGRES_DB",
-        // libpq's own variables reach `PgConnectOptions::new()` as defaults, so a test that does
-        // not set them still has to start from a known-empty environment.
+        // These three reach `PgConnectOptions::new()` as defaults, and the tests below set them on
+        // purpose to prove an ambient libpq variable cannot move the embedded connection. Clearing
+        // happens at the start of each test, so leaving one out lets the value a test sets leak
+        // into every test that runs after it. PGUSER and PGDATABASE are deliberately absent:
+        // `build_connect_options` sets username and database on every path, so neither can reach
+        // an assertion.
         "PGHOST",
         "PGPORT",
         "PGSSLMODE",
-        "PGUSER",
-        "PGDATABASE",
     ];
 
     /// Connection settings come from process-wide environment variables, so these tests take a
