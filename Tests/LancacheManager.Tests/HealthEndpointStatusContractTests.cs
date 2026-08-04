@@ -12,13 +12,10 @@ namespace LancacheManager.Tests;
 /// container unhealthy after three tries, and Swarm, a Kubernetes liveness probe or an autoheal
 /// sidecar restarts it before anyone can finish the wizard; a compose file using
 /// <c>depends_on: condition: service_healthy</c> waits forever. So the probed path reports the
-/// setup state in its body and keeps its status at 200, and the readiness path that does answer
-/// 503 is deliberately not the one the image probes. [32]
+/// setup state in its body and keeps its status at 200. [32]
 /// </summary>
 public class HealthEndpointStatusContractTests
 {
-    private const string ReadinessPath = "/health/ready";
-
     [Fact]
     public void TheProbedPathIsMappedInProgram()
     {
@@ -45,22 +42,6 @@ public class HealthEndpointStatusContractTests
 
         Assert.Contains("externalCredsMissing", handler, StringComparison.Ordinal);
         Assert.Contains("setup-required", handler, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void TheReadinessPathIsWhereTheFailureStatusLives()
-    {
-        var handler = EndpointBody(ReadinessPath);
-
-        Assert.Contains("StatusCodes.Status503ServiceUnavailable", handler, StringComparison.Ordinal);
-        Assert.Contains("externalCredsMissing", handler, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void TheImageDoesNotProbeTheReadinessPath()
-    {
-        Assert.NotEqual(ReadinessPath, ProbedPath());
-        Assert.DoesNotContain(ReadinessPath, HealthCheckCommand(), StringComparison.Ordinal);
     }
 
     /// <summary>

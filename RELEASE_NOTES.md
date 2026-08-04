@@ -36,7 +36,7 @@
 
 Pull and recreate as usual. No settings were added, renamed, or removed, so existing Compose files keep working, and two database migrations run on their own at first start.
 
-Two things matter if you script against the API. `/health` now always answers 200 while the process is up, which is what the container's own health check relies on; use `/health/ready` for the old behaviour, which returns 503 until the database works. And `POST /api/setup/external` and `POST /api/setup/credentials` both need your admin API key in an `X-Api-Key` header now. Any bookmark pointing at a README anchor needs to move to the matching page on [the docs site](https://regix1.github.io/lancache-manager/).
+Two things matter if you script against the API. `/health` now always answers 200 while the process is up, rather than failing during first-time setup, so a container waiting on the wizard no longer gets killed and restarted before anyone can finish it. Read `setupRequired` in the response body to tell the two states apart. And `POST /api/setup/external` and `POST /api/setup/credentials` both need your admin API key in an `X-Api-Key` header now. Any bookmark pointing at a README anchor needs to move to the matching page on [the docs site](https://regix1.github.io/lancache-manager/).
 
 ## Housekeeping
 

@@ -1072,24 +1072,6 @@ app.MapGet("/health", () => Results.Ok(new HealthResponse
     Version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev"
 })).AllowAnonymous();
 
-// Readiness. Answers 503 while the app has no database, for load balancers and for a compose
-// file that wants to wait on a usable install. Nothing restarts a container over this. [32]
-app.MapGet("/health/ready", () =>
-{
-    var health = new HealthResponse
-    {
-        Status = externalCredsMissing ? "setup-required" : "healthy",
-        SetupRequired = externalCredsMissing,
-        Timestamp = DateTime.UtcNow,
-        Service = "LancacheManager",
-        Version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev"
-    };
-
-    return externalCredsMissing
-        ? Results.Json(health, statusCode: StatusCodes.Status503ServiceUnavailable)
-        : Results.Ok(health);
-}).AllowAnonymous();
-
 // Version endpoint
 app.MapGet("/api/version", () =>
 {
