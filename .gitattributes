@@ -4,3 +4,6 @@
 *.load      text eol=lf
 Dockerfile  text eol=lf
 docker-compose.yml text eol=lf
+
+# A carriage return here is copied into workflow outputs and Docker build arguments
+VERSION     text eol=lf
