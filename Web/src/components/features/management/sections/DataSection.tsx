@@ -248,10 +248,18 @@ const DataSection: React.FC<DataSectionProps> = ({
     try {
       const result = await ApiService.resetSelectedTables(selectedTables);
       if (result) {
-        onSuccess(
-          result.message ||
-            t('management.database.success.resetStarted', { count: selectedTables.length })
-        );
+        // Wait-queue model: a queued/deduplicated response means this click didn't start a new
+        // reset - say so instead of the generic "reset started" message.
+        if (result.alreadyRunning) {
+          onSuccess(t('management.database.success.resetAlreadyRunning'));
+        } else if (result.queued) {
+          onSuccess(t('common.notifications.willQueueBehindCurrent'));
+        } else {
+          onSuccess(
+            result.message ||
+              t('management.database.success.resetStarted', { count: selectedTables.length })
+          );
+        }
         setSelectedTables([]);
         if (!selectedTables.includes('UserSessions')) {
           onDataRefresh();

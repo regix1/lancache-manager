@@ -3476,7 +3476,8 @@
         "failedToClear": "清除选定表失败"
       },
       "success": {
-        "resetStarted": "{{count}} 个表的数据库重置已启动"
+        "resetStarted": "{{count}} 个表的数据库重置已启动",
+        "resetAlreadyRunning": "数据库重置已在进行中"
       }
     },
     "themes": {
@@ -3745,8 +3746,11 @@
       "resetToDefaults": "重置为默认值",
       "runAll": "全部运行",
       "runAllTriggered": "已触发 {{count}} 个服务",
+      "runAllTriggeredWithQueued": "已启动 {{count}} 个服务，另有 {{queued}} 个正在运行中，将在结束后再次运行",
       "runAllFailed": "运行所有计划失败",
       "runNowTriggered": "{{service}} 已手动触发",
+      "runNowAlreadyRunning": "{{service}} 已在运行中",
+      "runNowQueuedNext": "{{service}} 已在运行中，您触发的运行将在当前运行结束后开始",
       "runNowFailed": "触发 {{service}} 失败",
       "resetComplete": "所有计划已重置为默认值",
       "resetFailed": "重置计划失败",

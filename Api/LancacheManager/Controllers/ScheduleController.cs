@@ -140,10 +140,12 @@ public class ScheduleController : ControllerBase
     }
 
     /// <summary>
-    /// Triggers an immediate run of the service, bypassing the scheduled interval.
+    /// Triggers an immediate run of the service, bypassing the scheduled interval. Reports whether
+    /// this call actually armed a new run or collided with one already in progress, so a repeated
+    /// click can be told apart from a real start.
     /// </summary>
     [HttpPost("{serviceKey}/run")]
-    public async Task<ActionResult> TriggerRunAsync(string serviceKey)
+    public async Task<ActionResult<QueuedOperationResponse>> TriggerRunAsync(string serviceKey)
     {
         var info = _registry.Get(serviceKey);
         if (info == null)
@@ -151,12 +153,29 @@ public class ScheduleController : ControllerBase
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        await _registry.TriggerRunAsync(serviceKey);
+        var status = await _registry.TriggerRunAsync(serviceKey);
         // Don't broadcast a schedule snapshot here. The run's status dot is driven by the service
         // loop's own ServiceExecutionStateChanged broadcasts - a START fires the moment the woken loop
         // begins the run. A snapshot at this point would capture IsRunning=false (the loop hasn't
         // started yet) and could be delivered AFTER that START, leaving the dot grey for the whole run.
-        return Accepted();
+        if (status.IsRunning)
+        {
+            // OperationId defaults to Guid.Empty when it can't be parsed (e.g. a running service the
+            // tracker hasn't attached an id to yet) - the caller reads AlreadyRunning/Status, not this
+            // field alone, so that default is an acceptable fallback rather than an error to surface.
+            _ = Guid.TryParse(status.OperationId, out var activeOperationId);
+            return Accepted(new QueuedOperationResponse
+            {
+                Status = "alreadyRunning",
+                AlreadyRunning = true,
+                OperationId = activeOperationId
+            });
+        }
+
+        return Accepted(new QueuedOperationResponse
+        {
+            Status = "started"
+        });
     }
 
     /// <summary>
@@ -176,17 +195,23 @@ public class ScheduleController : ControllerBase
     [HttpPost("run-all")]
     public async Task<ActionResult<TriggerAllResponse>> TriggerAllAsync()
     {
-        var triggered = await _registry.TriggerAllAsync();
+        var (triggeredCount, alreadyRunningCount) = await _registry.TriggerAllAsync();
         // As with the single-service run above, each woken service loop broadcasts its own run
         // start/end. A snapshot here would capture every service as not-yet-running and could race
         // those STARTs, so don't broadcast it.
-        return Accepted(new TriggerAllResponse { TriggeredCount = triggered });
+        return Accepted(new TriggerAllResponse { TriggeredCount = triggeredCount, AlreadyRunningCount = alreadyRunningCount });
     }
 }
 
 public class TriggerAllResponse
 {
+    /// <summary>Services that were idle when this call reached them, so it started a new run.</summary>
     public int TriggeredCount { get; set; }
+
+    /// <summary>Services that were already running when this call reached them. They were NOT
+    /// skipped - each had one follow-up run armed via its own single pending-run flag, so it runs
+    /// again once the current run finishes.</summary>
+    public int AlreadyRunningCount { get; set; }
 }
 
 public class UpdateScheduleIntervalRequest

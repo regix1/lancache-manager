@@ -20,6 +20,7 @@ import ScheduleIntervalPicker from './ScheduleIntervalPicker';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useManagerLoading } from '@hooks/useManagerLoading';
+import { useOptimisticPending } from '@hooks/useOptimisticPending';
 import {
   isNotificationMode,
   isNotificationDisplayMode,
@@ -171,7 +172,9 @@ interface ScheduleRowProps {
   isSteamWebApiAvailable: boolean;
   onDepotScanModeChange: (mode: DepotScheduledScanMode) => Promise<void>;
   onRunNow: (key: string) => Promise<void>;
-  runningKey: string | null;
+  /** True while this row's own click is covering the gap between the POST resolving and the
+   * SignalR SchedulesUpdated push that flips service.isRunning - see isRunningDot below. */
+  isPendingRun: boolean;
   justCompleted: boolean;
   completedVariant: HighlightGlowVariant;
   onNavigateToEvictionSettings?: () => void;
@@ -192,7 +195,7 @@ const ScheduleRow = memo(function ScheduleRow({
   isSteamWebApiAvailable,
   onDepotScanModeChange,
   onRunNow,
-  runningKey,
+  isPendingRun,
   justCompleted,
   completedVariant,
   onNavigateToEvictionSettings,
@@ -211,7 +214,11 @@ const ScheduleRow = memo(function ScheduleRow({
 
   const isDepotMapping = service.key === 'depotMapping';
   const isCacheReconciliation = service.key === 'cacheReconciliation';
-  const isRunningThis = runningKey === service.key;
+  // Server truth (isRunningDot) catches a run started by the scheduler itself, another browser
+  // tab, or already in progress before this page loaded; isPendingRun covers the ~1.5s gap
+  // between this click's POST resolving and that flag arriving over SignalR. Run Now gates on
+  // both so a duplicate click can never slip through either window.
+  const isRunningOrPending = isRunningDot || isPendingRun;
   // Zero interval means the schedule effectively won't run; the informational cells dim
   // but the interval picker stays fully legible - it is the way back out of the state.
   const isDimmed = service.intervalHours === 0;
@@ -311,8 +318,15 @@ const ScheduleRow = memo(function ScheduleRow({
   // ~50ms an API save is in flight causes every control on the row to briefly flash to
   // disabled styling and back - that was the source of the flicker previously reported
   // on the interval dropdown and Run Now button. Optimistic updates already make the UI
-  // feel instant; there's no UX benefit to disabling siblings mid-save.
-  const isDisabled = !isAdmin || isRunningThis;
+  // feel instant; there's no UX benefit to disabling siblings mid-save. This gates the
+  // interval picker, toggles and dropdowns below - it stays scoped to this row's own
+  // pending click, not the broader isRunningOrPending, since changing this service's own
+  // settings while it happens to be running doesn't conflict with the run in progress.
+  const isDisabled = !isAdmin || isPendingRun;
+  // Run Now additionally gates on isRunningOrPending (see above) - re-clicking it while the
+  // same service is already running would trigger the identical run a second time for no
+  // reason, which is the one control on this row where that distinction matters.
+  const isRunNowDisabled = !isAdmin || isRunningOrPending;
 
   // Settings-at-a-glance under the task name; the detail well below stays the place
   // where they are edited.
@@ -472,15 +486,24 @@ const ScheduleRow = memo(function ScheduleRow({
           </div>
 
           <div className="schedule-cell-actions" onClick={stopRowToggle}>
-            <Tooltip content={t('management.schedules.runNow')} className="schedule-action-slot">
+            <Tooltip
+              content={
+                isRunningOrPending
+                  ? t('management.schedules.runNowAlreadyRunning', {
+                      service: t(`management.schedules.services.${service.key}.displayName`)
+                    })
+                  : t('management.schedules.runNow')
+              }
+              className="schedule-action-slot"
+            >
               <button
                 type="button"
                 className="schedule-icon-btn schedule-run-now themed-border-radius-sm"
                 onClick={handleRunNow}
-                disabled={isDisabled || isDimmed}
+                disabled={isRunNowDisabled || isDimmed}
                 aria-label={t('management.schedules.runNow')}
               >
-                {isRunningThis ? (
+                {isRunningOrPending ? (
                   <LoadingSpinner size="xs" inline />
                 ) : (
                   <>
@@ -639,7 +662,7 @@ interface ScheduledPrefillCardProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
   onRunNow: (key: string) => Promise<void>;
-  runningKey: string | null;
+  isPendingRun: boolean;
   justCompleted: boolean;
   completedVariant: HighlightGlowVariant;
 }
@@ -651,22 +674,28 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
   service,
   isAdmin,
   onRunNow,
-  runningKey,
+  isPendingRun,
   justCompleted,
   completedVariant
 }: ScheduledPrefillCardProps) {
   const { t } = useTranslation();
-  const isRunningThis = runningKey === service.key;
   // Running state flows through the unified activity registry, which holds a finished run visible long
   // enough to be seen; service.isRunning is the pre-seed fallback.
   const activity = useActivityStatus();
   const isRunningDot = activity.isActive('schedule', service.key, 'running') || service.isRunning;
+  // Server truth (isRunningDot) catches a run started by the scheduler itself, another browser
+  // tab, or already in progress before this page loaded; isPendingRun covers the ~1.5s gap
+  // before that flag arrives over SignalR.
+  const isRunningOrPending = isRunningDot || isPendingRun;
   // The HasAnyEnabledService gate reports "no services enabled" as interval 0. The dim
   // only wraps the header, not the detail, so its Configure button and warning text (the
   // way out of the disabled state) stay at full opacity - opacity on an ancestor cannot
   // be undone by a descendant's own opacity.
   const isDimmed = service.intervalHours === 0;
-  const isDisabled = !isAdmin || isRunningThis;
+  // Scoped to this card's own pending click, same as the table rows - Configure and the
+  // per-service interval pickers don't need to block on a genuine run in progress.
+  const isDisabled = !isAdmin || isPendingRun;
+  const isRunNowDisabled = !isAdmin || isRunningOrPending;
 
   const handleRunNow = useCallback(() => {
     onRunNow(service.key);
@@ -713,8 +742,8 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
           disabled={isDisabled}
           dimmed={isDimmed}
           onRunNow={handleRunNow}
-          runNowLoading={isRunningThis}
-          runNowDisabled={isDisabled || isDimmed}
+          runNowLoading={isRunningOrPending}
+          runNowDisabled={isRunNowDisabled || isDimmed}
         />
       </Card>
     </HighlightGlow>
@@ -730,7 +759,10 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const [schedules, setSchedules] = useState<ServiceScheduleInfo[]>([]);
   const { isLoading, setLoading, markLoaded } = useManagerLoading(true);
   const [error, setError] = useState<string | null>(null);
-  const [runningKey, setRunningKey] = useState<string | null>(null);
+  // Per-key optimistic pending, not a single shared flag: covers the ~1.5s gap between a Run
+  // Now POST resolving and the SignalR SchedulesUpdated push that confirms it server-side, for
+  // however many of the 12 rows get clicked, not just the most recent one.
+  const { isPending, markStarting, clearPending } = useOptimisticPending<string>();
   const [resetting, setResetting] = useState(false);
   const [runningAll, setRunningAll] = useState(false);
   // Map of schedule key -> glow variant. `navigate` is the default (2-pulse attention
@@ -1003,13 +1035,23 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
     try {
-      const { triggeredCount } = await ApiService.runAllSchedules();
+      const { triggeredCount, alreadyRunningCount } = await ApiService.runAllSchedules();
       await fetchSchedules();
 
+      // Services that were mid-run are not left out: each had a follow-up run armed and runs
+      // again when its current one ends. Report that second number instead of only the started
+      // count, which on its own reads as if the rest were ignored.
+      const queuedNext = alreadyRunningCount ?? 0;
       addNotification({
         type: 'generic',
         status: 'completed',
-        message: t('management.schedules.runAllTriggered', { count: triggeredCount }),
+        message:
+          queuedNext > 0
+            ? t('management.schedules.runAllTriggeredWithQueued', {
+                count: triggeredCount,
+                queued: queuedNext
+              })
+            : t('management.schedules.runAllTriggered', { count: triggeredCount }),
         details: { notificationType: 'success' }
       });
 
@@ -1033,7 +1075,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const handleRunNow = useCallback(
     async (key: string) => {
       const displayName = t(`management.schedules.services.${key}.displayName`);
-      setRunningKey(key);
+      markStarting(key);
 
       // Flash the row border immediately on click
       setCompletedKeys((prev) => ({ ...prev, [key]: 'navigate' }));
@@ -1048,25 +1090,38 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       );
 
       try {
-        await ApiService.triggerSchedule(key);
-        addNotification({
-          type: 'generic',
-          status: 'completed',
-          message: t('management.schedules.runNowTriggered', { service: displayName }),
-          details: { notificationType: 'success', serviceKey: key }
-        });
+        const result = await ApiService.triggerSchedule(key);
+        if (result.alreadyRunning) {
+          // The click still armed the service's pending-run flag, so one more run follows the
+          // one in progress - say that rather than only "already running", which reads as a
+          // no-op. Keep the pending flag until the safety timeout: server truth arrives over
+          // SignalR, and clearing it here would re-enable the button the moment that push is
+          // missed or the connection has dropped.
+          addNotification({
+            type: 'generic',
+            status: 'completed',
+            message: t('management.schedules.runNowQueuedNext', { service: displayName }),
+            details: { notificationType: 'info', serviceKey: key }
+          });
+        } else {
+          addNotification({
+            type: 'generic',
+            status: 'completed',
+            message: t('management.schedules.runNowTriggered', { service: displayName }),
+            details: { notificationType: 'success', serviceKey: key }
+          });
+        }
       } catch {
+        clearPending(key);
         addNotification({
           type: 'generic',
           status: 'failed',
           message: t('management.schedules.runNowFailed', { service: displayName }),
           details: { notificationType: 'error', serviceKey: key }
         });
-      } finally {
-        setRunningKey(null);
       }
     },
-    [addNotification, t]
+    [addNotification, t, markStarting, clearPending]
   );
 
   if (isLoading) {
@@ -1137,7 +1192,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
               isSteamWebApiAvailable={service.key === 'depotMapping' && isSteamWebApiAvailable}
               onDepotScanModeChange={handleDepotScanModeChange}
               onRunNow={handleRunNow}
-              runningKey={runningKey}
+              isPendingRun={isPending(service.key)}
               justCompleted={!!completedKeys[service.key]}
               completedVariant={completedKeys[service.key] ?? 'navigate'}
               onNavigateToEvictionSettings={
@@ -1158,7 +1213,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           service={prefillSchedule}
           isAdmin={isAdmin}
           onRunNow={handleRunNow}
-          runningKey={runningKey}
+          isPendingRun={isPending(prefillSchedule.key)}
           justCompleted={!!completedKeys[prefillSchedule.key]}
           completedVariant={completedKeys[prefillSchedule.key] ?? 'navigate'}
         />

@@ -17,7 +17,14 @@ public interface IServiceScheduleRegistry
     /// </summary>
     void SetNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode);
 
-    Task TriggerRunAsync(string serviceKey);
+    /// <summary>
+    /// Triggers an immediate run of the service, bypassing the scheduled interval, and reports the
+    /// run state observed immediately before the trigger was armed. When that state already reports
+    /// <see cref="ScheduleRunStatus.IsRunning"/> = <c>true</c>, this call could not start a second run
+    /// (see <c>ScheduledServiceBase.TriggerImmediateRun</c>'s single pending-run flag) - the caller is
+    /// colliding with the run described by the returned status, not starting a new one.
+    /// </summary>
+    Task<ScheduleRunStatus> TriggerRunAsync(string serviceKey);
 
     /// <summary>
     /// Returns the live run status for a service by its key, or <c>null</c> when the key maps to no
@@ -27,11 +34,15 @@ public interface IServiceScheduleRegistry
     ScheduleRunStatus? GetRunStatus(string serviceKey);
 
     /// <summary>
-    /// Triggers an immediate run of every registered service (both scheduled and configurable),
-    /// regardless of their interval or current running state. Fire-and-forget per service -
-    /// individual services own their concurrency. Returns the count of services triggered.
+    /// Triggers an immediate run of every VISIBLE service (both scheduled and configurable),
+    /// regardless of their interval or current running state, using the same visibility gate as
+    /// <see cref="GetAll"/> so the counts never exceed the rows the user can see. Fire-and-forget
+    /// per service - individual services own their concurrency. Returns how many were not-yet-running
+    /// when triggered (a genuine new run) versus already running (which get one follow-up run armed
+    /// rather than a second concurrent one, for the same single-pending-run reason as
+    /// <see cref="TriggerRunAsync"/>).
     /// </summary>
-    Task<int> TriggerAllAsync();
+    Task<(int TriggeredCount, int AlreadyRunningCount)> TriggerAllAsync();
 
     void ResetToDefaults();
 

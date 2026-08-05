@@ -314,8 +314,8 @@ public class ScheduleControllerNotificationModeTests
             LastDisplayModeSet = mode;
         }
 
-        public Task TriggerRunAsync(string serviceKey) => Task.CompletedTask;
-        public Task<int> TriggerAllAsync() => Task.FromResult(0);
+        public Task<ScheduleRunStatus> TriggerRunAsync(string serviceKey) => Task.FromResult(new ScheduleRunStatus());
+        public Task<(int TriggeredCount, int AlreadyRunningCount)> TriggerAllAsync() => Task.FromResult((0, 0));
         public void ResetToDefaults() { }
         public void NotifySchedulesChanged() { }
         public Task BroadcastSchedulesAsync() => Task.CompletedTask;

@@ -87,14 +87,31 @@ public class DatabaseController : ControllerBase
     /// Request body: { "tables": ["Downloads", "ClientStats", ...] }
     /// </summary>
     [HttpDelete("tables")]
-    public IActionResult ResetSelectedTables([FromBody] ResetTablesRequest request)
+    public async Task<IActionResult> ResetSelectedTablesAsync([FromBody] ResetTablesRequest request, CancellationToken cancellationToken)
     {
         if (request.Tables == null || request.Tables.Count == 0)
         {
             return BadRequest(ApiResponse.Error("No tables specified for reset"));
         }
 
-        var operationId = _dbService.StartResetAsync(request.Tables);
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        // _dbService.StartResetAsync has no internal single-flight guard of its own (unlike the
+        // full-reset path above), so without this check a second selected-tables reset - or one
+        // overlapping a full reset - would just register a second tracked operation unchecked.
+        Task<Guid?> StartSelectedTablesResetAsync() => Task.FromResult<Guid?>(_dbService.StartResetAsync(request.Tables));
+
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.DatabaseReset,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.DatabaseReset, ConflictScope.Bulk(), "Database Reset",
+                StartSelectedTablesResetAsync, cancellationToken));
+        }
+
+        var operationId = (await StartSelectedTablesResetAsync())!.Value;
         _logger.LogInformation("Started selective database reset operation: {OperationId}, Tables: {Tables}",
             operationId, string.Join(", ", request.Tables));
 

@@ -168,6 +168,18 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         setSelectedMethod(null);
         return;
       }
+      if (!response.started) {
+        // The conflict check ahead of this call already covers the common case; this is the
+        // narrower race where a rebuild claimed the lock between that check and this request.
+        setError(
+          response.rebuildInProgress
+            ? t('initialization.depotInit.operationInProgress')
+            : t('initialization.depotInit.failedToGenerate')
+        );
+        setInitializing(false);
+        setSelectedMethod(null);
+        return;
+      }
       onGenerateOwn();
     } catch (err: unknown) {
       setError(getErrorMessage(err) || t('initialization.depotInit.failedToGenerate'));
@@ -197,6 +209,29 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
           setDownloadStatus(null);
           return;
         }
+        if (!fullScanResponse.started) {
+          setError(
+            fullScanResponse.rebuildInProgress
+              ? t('initialization.depotInit.operationInProgress')
+              : t('initialization.depotInit.unableToStartScan')
+          );
+          setInitializing(false);
+          setSelectedMethod(null);
+          setDownloadStatus(null);
+          return;
+        }
+      } else if (!response.started) {
+        // Same race as the full-scan branch above: something else claimed the rebuild lock
+        // between the conflict check and this request.
+        setError(
+          response.rebuildInProgress
+            ? t('initialization.depotInit.operationInProgress')
+            : t('initialization.depotInit.unableToStartScan')
+        );
+        setInitializing(false);
+        setSelectedMethod(null);
+        setDownloadStatus(null);
+        return;
       }
       onContinue();
     } catch (err: unknown) {

@@ -14,6 +14,7 @@ import type {
   CacheSizeScanningInfo,
   CacheSizeUnavailableInfo,
   CacheSizeScanStartInfo,
+  QueuedOperationResponse,
   ClientStat,
   ServiceStat,
   ProcessingStatus,
@@ -2861,13 +2862,13 @@ class ApiService {
     }
   }
 
-  static async triggerSchedule(serviceKey: string): Promise<void> {
+  static async triggerSchedule(serviceKey: string): Promise<QueuedOperationResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/system/schedules/${serviceKey}/run`,
         this.getFetchOptions({ method: 'POST' })
       );
-      await this.handleResponse<void>(res);
+      return await this.handleResponse<QueuedOperationResponse>(res);
     } catch (error: unknown) {
       console.error('triggerSchedule error:', error);
       throw error;
@@ -3359,13 +3360,19 @@ class ApiService {
     }
   }
 
-  static async runAllSchedules(): Promise<{ triggeredCount: number }> {
+  static async runAllSchedules(): Promise<{
+    triggeredCount: number;
+    alreadyRunningCount?: number;
+  }> {
     try {
       const res = await fetch(
         `${API_BASE}/system/schedules/run-all`,
         this.getFetchOptions({ method: 'POST' })
       );
-      return await this.handleResponse<{ triggeredCount: number }>(res);
+      return await this.handleResponse<{
+        triggeredCount: number;
+        alreadyRunningCount?: number;
+      }>(res);
     } catch (error: unknown) {
       console.error('runAllSchedules error:', error);
       throw error;

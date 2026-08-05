@@ -3476,7 +3476,8 @@
         "failedToClear": "Failed to clear selected tables"
       },
       "success": {
-        "resetStarted": "Database reset started for {{count}} table(s)"
+        "resetStarted": "Database reset started for {{count}} table(s)",
+        "resetAlreadyRunning": "A database reset is already in progress"
       }
     },
     "themes": {
@@ -3745,8 +3746,11 @@
       "resetToDefaults": "Reset to Defaults",
       "runAll": "Run All",
       "runAllTriggered": "Triggered {{count}} services",
+      "runAllTriggeredWithQueued": "Started {{count}} services, {{queued}} already running will run again next",
       "runAllFailed": "Failed to run all schedules",
       "runNowTriggered": "{{service}} triggered manually",
+      "runNowAlreadyRunning": "{{service}} is already running",
+      "runNowQueuedNext": "{{service}} is already running - your run will start when it finishes",
       "runNowFailed": "Failed to trigger {{service}}",
       "resetComplete": "All schedules reset to defaults",
       "resetFailed": "Failed to reset schedules",

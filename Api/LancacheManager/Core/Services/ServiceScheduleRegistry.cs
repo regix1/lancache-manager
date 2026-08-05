@@ -403,20 +403,24 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         _stateService.SetScheduledPrefillConfig(ScheduledPrefillConfigFactory.ResetNotificationModes(prefillConfig));
     }
 
-    public Task TriggerRunAsync(string serviceKey)
+    public Task<ScheduleRunStatus> TriggerRunAsync(string serviceKey)
     {
+        // Read the run state BEFORE arming the trigger. TriggerImmediateRun on a service that is
+        // already running only sets ScheduledServiceBase's single pending-run flag for one follow-up
+        // run - it cannot start a second one - so the state observed here is exactly the run this
+        // call collides with, not a state the trigger call itself could have changed.
+        var statusBeforeTrigger = GetRunStatus(serviceKey) ?? new ScheduleRunStatus { IsRunning = false, ShowNotification = true };
+
         if (_scheduledServices.TryGetValue(serviceKey, out var scheduled))
         {
             scheduled.TriggerImmediateRun();
-            return Task.CompletedTask;
         }
-
-        if (_configurableServices.TryGetValue(serviceKey, out var configurable))
+        else if (_configurableServices.TryGetValue(serviceKey, out var configurable))
         {
             configurable.TriggerImmediateRun();
         }
 
-        return Task.CompletedTask;
+        return Task.FromResult(statusBeforeTrigger);
     }
 
     public ScheduleRunStatus? GetRunStatus(string serviceKey)
@@ -478,23 +482,59 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         return value as IReadOnlyDictionary<string, object?>;
     }
 
-    public Task<int> TriggerAllAsync()
+    public Task<(int TriggeredCount, int AlreadyRunningCount)> TriggerAllAsync()
     {
-        var count = 0;
+        var triggeredCount = 0;
+        var alreadyRunningCount = 0;
 
-        foreach (var (_, service) in _scheduledServices)
+        foreach (var (key, service) in _scheduledServices)
         {
+            // Apply the same visibility gate GetAll and Get use. A hidden service has no row in the
+            // list the user pressed this button on, its work method returns immediately while its
+            // prerequisite toggle is off, and Get already 404s its single-service run route - so
+            // counting it here would report more services than the user can see or run themselves.
+            if (service is IConditionallyVisibleSchedule scheduledVisibility && !scheduledVisibility.IsScheduleVisible())
+            {
+                continue;
+            }
+
+            // Same before-trigger read as the single-service TriggerRunAsync, and the trigger call
+            // below still runs unconditionally: a service that is mid-run keeps its own single
+            // pending-run flag, so this arms one follow-up run instead of starting a second
+            // concurrent one. Nothing is dropped, so the second count reports what was already
+            // running when this fan-out reached it, not what was ignored.
+            var alreadyRunning = GetRunStatus(key)?.IsRunning == true;
             service.TriggerImmediateRun();
-            count++;
+            if (alreadyRunning)
+            {
+                alreadyRunningCount++;
+            }
+            else
+            {
+                triggeredCount++;
+            }
         }
 
-        foreach (var (_, service) in _configurableServices)
+        foreach (var (key, service) in _configurableServices)
         {
+            if (service is IConditionallyVisibleSchedule configurableVisibility && !configurableVisibility.IsScheduleVisible())
+            {
+                continue;
+            }
+
+            var alreadyRunning = GetRunStatus(key)?.IsRunning == true;
             service.TriggerImmediateRun();
-            count++;
+            if (alreadyRunning)
+            {
+                alreadyRunningCount++;
+            }
+            else
+            {
+                triggeredCount++;
+            }
         }
 
-        return Task.FromResult(count);
+        return Task.FromResult((triggeredCount, alreadyRunningCount));
     }
 
     private ServiceScheduleInfo MapScheduledService(ScheduledBackgroundService service)

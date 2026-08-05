@@ -20,6 +20,7 @@ import ApiService from '@services/api.service';
 import { useConfig } from '@contexts/useConfig';
 import { setServerTimezone } from '@utils/timezone';
 import { isAbortError } from '@utils/error';
+import { ApiError } from '@services/apiError';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import { ScheduledPrefillEditSessionCleanupRecovery } from '@components/features/management/schedules/scheduled-prefill/ScheduledPrefillEditSessionCleanupRecovery';
@@ -384,6 +385,13 @@ const AppContent: React.FC = () => {
     try {
       await ApiService.triggerSteamKitRebuild(false); // false = full scan
     } catch (error) {
+      // A rebuild was already under way. That is the state the user wanted, so leave the
+      // modal closed rather than asking them to start something that is already going.
+      if (error instanceof ApiError && error.kind === 'conflict') {
+        console.warn('Depot rebuild already in progress:', error.message);
+        return;
+      }
+
       console.error('Failed to trigger full scan:', error);
       fullScanActionRunningRef.current = false;
       setShowFullScanRequiredModal(true);
@@ -400,6 +408,13 @@ const AppContent: React.FC = () => {
     try {
       await ApiService.downloadPrecreatedDepotData();
     } catch (error) {
+      // A run was already under way. That is the state the user wanted, so leave the
+      // modal closed rather than asking them to start something that is already going.
+      if (error instanceof ApiError && error.kind === 'conflict') {
+        console.warn('Depot download already in progress:', error.message);
+        return;
+      }
+
       fullScanActionRunningRef.current = false;
       // Don't log abort errors (user cancelled)
       if (!isAbortError(error)) {

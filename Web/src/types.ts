@@ -69,6 +69,18 @@ export interface CacheSizeScanStartInfo {
   status: 'waiting' | 'started' | 'alreadyRunning';
 }
 
+/**
+ * Mirrors the backend `QueuedOperationResponse` contract shared by every conflict-guarded
+ * endpoint: whether the request started the work, found the identical operation already
+ * running, or was parked behind a different one in the wait queue.
+ */
+export interface QueuedOperationResponse {
+  operationId: string;
+  queued: boolean;
+  alreadyRunning: boolean;
+  status: 'waiting' | 'started' | 'alreadyRunning';
+}
+
 export interface Download {
   id: number;
   service: string;

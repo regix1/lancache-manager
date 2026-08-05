@@ -23,15 +23,18 @@ public class DepotsController : ControllerBase
     private readonly SteamKit2Service _steamKit2Service;
     private readonly PicsDataService _picsDataService;
     private readonly ILogger<DepotsController> _logger;
+    private readonly IOperationConflictChecker _conflictChecker;
 
     public DepotsController(
         SteamKit2Service steamKit2Service,
         PicsDataService picsDataService,
-        ILogger<DepotsController> logger)
+        ILogger<DepotsController> logger,
+        IOperationConflictChecker conflictChecker)
     {
         _steamKit2Service = steamKit2Service;
         _picsDataService = picsDataService;
         _logger = logger;
+        _conflictChecker = conflictChecker;
     }
 
     /// <summary>
@@ -83,6 +86,18 @@ public class DepotsController : ControllerBase
     [HttpPost("rebuild")]
     public async Task<IActionResult> StartDepotRebuildAsync(CancellationToken cancellationToken, [FromQuery] bool incremental = false)
     {
+        // Without this a rebuild already running answers every repeat click with another 202, so a
+        // caller that isn't reading RebuildInProgress off the body can't tell a duplicate click from
+        // a real new one.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.DepotMapping,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
         // PRE-FLIGHT CHECK: Only check viability if user requested incremental scan
         if (incremental)
         {
@@ -184,6 +199,30 @@ public class DepotsController : ControllerBase
     {
         if (source == "github")
         {
+            // Without this the request is dropped inside the service and still answered with a
+            // successful import, so repeat clicks all look like they worked while nothing ran.
+            var conflict = await _conflictChecker.CheckAsync(
+                OperationType.DepotMapping,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (conflict != null)
+            {
+                return Conflict(conflict);
+            }
+
+            // The tracker only learns about a run once it registers, which happens after the
+            // service takes its single-run lock. This covers that window.
+            if (_steamKit2Service.IsRebuildRunning)
+            {
+                _logger.LogInformation("Depot download requested while a depot run is already starting");
+
+                return Conflict(new OperationConflictResponse
+                {
+                    StageKey = "errors.conflict.duplicate",
+                    Error = "A DepotMapping operation for the same target is already in progress."
+                });
+            }
+
             _logger.LogInformation("Starting download of pre-created depot data from GitHub");
 
             var success = await _steamKit2Service.ImportFromGitHubAsync(cancellationToken);
