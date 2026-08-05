@@ -40,6 +40,9 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
     private bool _refreshShowNotification = true;
     private MappingOperationReporter? _currentMappingReporter;
 
+    /// <summary>Terminal stage key for a run that collected nothing because Xbox is signed out.</summary>
+    private const string XboxSignInSkipStageKey = "signalr.xboxMapping.skippedNotSignedIn";
+
     // Serializes every Xbox catalog-mapping producer: the scheduled tick, manual refresh, and
     // post-authentication harvest. Besides avoiding duplicate catalog work, this preserves the
     // frontend's one-card/one-operation recovery contract for OperationType.XboxMapping.
@@ -156,20 +159,26 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
     /// </summary>
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        await RefreshNowAsync(stoppingToken);
+        await RefreshNowAsync(stoppingToken, CurrentRunTrigger);
     }
 
     /// <summary>
-    /// Runs one catalog collection + download-resolution pass. Shared by the scheduled tick, the manual
-    /// refresh endpoint, and the on-authentication nudge. Serialized via <c>_refreshGate</c>. Best-effort:
-    /// with no authenticated daemon session it simply collects nothing and returns zeroes.
+    /// Runs one catalog collection + download-resolution pass. Shared by the scheduled tick and the
+    /// on-authentication nudge. Serialized via <c>_refreshGate</c>. When neither the manager-side MSA
+    /// session nor any prefill daemon session is signed in there is no catalog to read, so the run
+    /// reports itself skipped instead of walking the pipeline and claiming a completed refresh.
     /// </summary>
-    public async Task<XboxCatalogRefreshResult> RefreshNowAsync(CancellationToken ct = default)
+    /// <param name="trigger">Why this pass is running. The caller supplies it because a nudge from a
+    /// fresh daemon login is a user action, while the loop's own tick is not, and the notification
+    /// mode the user set gates the two differently.</param>
+    public async Task<XboxCatalogRefreshResult> RefreshNowAsync(
+        CancellationToken ct = default,
+        RunTrigger trigger = RunTrigger.Manual)
     {
         await _refreshGate.WaitAsync(ct);
         try
         {
-            _refreshShowNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+            _refreshShowNotification = EffectiveNotificationMode.AllowsTrigger(trigger);
             await using var reporter = new MappingOperationReporter(
                 _notifications,
                 _operationTracker,
@@ -183,6 +192,23 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
             try
             {
                 await reporter.StartAsync(CreateXboxMappingContext());
+
+                var daemon = ResolveDaemonService();
+                if (daemon == null)
+                {
+                    _logger.LogDebug("XboxPrefillDaemonService unavailable - skipping the daemon catalog source");
+                }
+
+                if (!IsAuthenticated && daemon?.IsAnyDaemonAuthenticated() != true)
+                {
+                    _logger.LogInformation(
+                        "Xbox catalog refresh skipped - no Microsoft account is signed in");
+                    await reporter.CompleteAsync(
+                        success: true,
+                        stageKey: XboxSignInSkipStageKey,
+                        context: CreateXboxMappingContext());
+                    return new XboxCatalogRefreshResult();
+                }
 
                 var newPatterns = 0;
                 await reporter.ReportAsync(
@@ -198,14 +224,9 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
                     45,
                     "signalr.xboxMapping.collecting",
                     CreateXboxMappingContext(newPatterns: newPatterns));
-                var daemon = ResolveDaemonService();
                 if (daemon != null)
                 {
                     newPatterns += await daemon.RefreshCatalogFromActiveSessionsAsync(reporter.Token);
-                }
-                else
-                {
-                    _logger.LogDebug("XboxPrefillDaemonService unavailable - skipping the daemon catalog source");
                 }
 
                 await reporter.ReportAsync(
@@ -352,7 +373,9 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
         {
             try
             {
-                await RefreshNowAsync(token);
+                // A login the user just completed is a user action, so this pass carries the manual
+                // trigger rather than whatever the last scheduled tick happened to leave behind.
+                await RefreshNowAsync(token, RunTrigger.Manual);
             }
             catch (OperationCanceledException)
             {

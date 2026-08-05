@@ -14,6 +14,9 @@ public partial class EpicMappingService
 
     private bool _showNotification = true;
 
+    /// <summary>Terminal stage key for a run that collected nothing because Epic is signed out.</summary>
+    private const string EpicSignInSkipStageKey = "signalr.epicMapping.skippedNotSignedIn";
+
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
         if (_cancellationTokenSource.Token.IsCancellationRequested || Volatile.Read(ref _isRunning) == 0)
@@ -24,6 +27,7 @@ public partial class EpicMappingService
         await WaitForAutoReconnectAsync(stoppingToken);
         if (!_isAuthenticated || _currentTokens is null)
         {
+            await ReportSignInSkipAsync(stoppingToken);
             return;
         }
 
@@ -134,6 +138,24 @@ public partial class EpicMappingService
         }, CancellationToken.None);
 
         return true;
+    }
+
+    /// <summary>
+    /// Reports a run that did nothing because no Epic account is signed in. It goes through the same
+    /// reporter and the same terminal stage-key override every other outcome uses, so the run's
+    /// notification mode still decides whether it is shown (a silent service stays silent) and the
+    /// card reads "skipped" instead of claiming the catalog was refreshed.
+    /// </summary>
+    private async Task ReportSignInSkipAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("Epic catalog refresh skipped - no Epic account is signed in");
+        _showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        await using var reporter = CreateEpicMappingReporter(stoppingToken);
+        await reporter.StartAsync(CreateEpicContext());
+        await reporter.CompleteAsync(
+            success: true,
+            stageKey: EpicSignInSkipStageKey,
+            context: CreateEpicContext());
     }
 
     private MappingOperationReporter CreateEpicMappingReporter(

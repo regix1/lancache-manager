@@ -1538,6 +1538,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       { stageKey: 'signalr.epicMapping.checkingFreeGames', context: {} },
       { stageKey: 'signalr.epicMapping.applyingMappings', context: {} },
       { stageKey: 'signalr.epicMapping.completed', context: {} },
+      { stageKey: 'signalr.epicMapping.skippedNotSignedIn', context: {} },
       { stageKey: 'signalr.epicMapping.cancelled', context: {} },
       { stageKey: 'signalr.epicMapping.failed', context: {} }
     ]
@@ -1562,6 +1563,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       { stageKey: 'signalr.xboxMapping.resolving', context: {} },
       { stageKey: 'signalr.xboxMapping.backfilling', context: {} },
       { stageKey: 'signalr.xboxMapping.completed', context: {} },
+      { stageKey: 'signalr.xboxMapping.skippedNotSignedIn', context: {} },
       { stageKey: 'signalr.xboxMapping.cancelled', context: {} },
       { stageKey: 'signalr.xboxMapping.failed', context: {} }
     ]

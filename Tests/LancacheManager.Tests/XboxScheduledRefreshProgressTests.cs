@@ -19,12 +19,12 @@ namespace LancacheManager.Tests;
 /// <summary>
 /// Proves the scheduled Xbox catalog refresh owns a tracked operation and drives the universal bar:
 /// <see cref="XboxCatalogMappingService.RefreshNowAsync"/> registers exactly one tracker op, emits
-/// an operationId-scoped started/progress/complete triple with non-decreasing percent, and finishes
-/// with exactly one terminal event. It also proves the display-flag pattern:
+/// operationId-scoped lifecycle events with non-decreasing percent, and finishes with exactly one
+/// terminal event. It also proves the display-flag pattern:
 /// a silent-mode run still emits every lifecycle event, only stamped <c>showNotification=false</c>
 /// (never transport suppression), so the frontend gates the card rather than the backend dropping events.
-/// The run executes with no authenticated session, no daemon, and an empty database, so only the
-/// instrumentation is exercised.
+/// The run executes with no authenticated session, no daemon, and an empty database, so it takes the
+/// signed-out branch: started plus a terminal that names the skip rather than a completed refresh.
 /// </summary>
 public class XboxScheduledRefreshProgressTests
 {
@@ -99,6 +99,26 @@ public class XboxScheduledRefreshProgressTests
         // The terminal still reports success (display gating never changes the outcome).
         var terminal = events.Single(e => e.IsTerminal);
         Assert.True(terminal.Success);
+    }
+
+    [Fact]
+    public async Task ScheduledRefresh_SignedOut_ReportsSkippedStageKeyAsync()
+    {
+        using var harness = new Harness();
+
+        // No manager MSA session and no daemon: there is no catalog to read, so the run must say so
+        // instead of walking the pipeline and finishing on the ordinary "completed" stage key.
+        await harness.Service.RefreshNowAsync();
+        await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var events = harness.Notifications.XboxLifecycleEvents();
+        var terminal = events.Single(e => e.IsTerminal);
+
+        Assert.Equal("signalr.xboxMapping.skippedNotSignedIn", terminal.StageKey);
+        Assert.NotEqual("signalr.xboxMapping.completed", terminal.StageKey);
+
+        // The collection stages never ran, so started is the only non-terminal event.
+        Assert.Single(events, e => !e.IsTerminal);
     }
 
     [Fact]
@@ -239,7 +259,7 @@ public class XboxScheduledRefreshProgressTests
     }
 
     private sealed record ProgressSnapshot(
-        Guid OperationId, double PercentComplete, bool IsTerminal, OperationStatus Status, bool Success, bool ShowNotification);
+        Guid OperationId, double PercentComplete, bool IsTerminal, OperationStatus Status, bool Success, bool ShowNotification, string StageKey);
 
     private sealed class RecordingNotifications : ISignalRNotificationService
     {
@@ -283,21 +303,24 @@ public class XboxScheduledRefreshProgressTests
                             false,
                             OperationStatus.Running,
                             false,
-                            started.ShowNotification),
+                            started.ShowNotification,
+                            started.StageKey),
                         ScheduledRunProgressEvent progress => new ProgressSnapshot(
                             progress.OperationId,
                             progress.PercentComplete,
                             false,
                             OperationStatus.Running,
                             false,
-                            progress.ShowNotification),
+                            progress.ShowNotification,
+                            progress.StageKey),
                         ScheduledRunCompleteEvent complete => new ProgressSnapshot(
                             complete.OperationId,
                             complete.PercentComplete,
                             true,
                             complete.Status,
                             complete.Success,
-                            complete.ShowNotification),
+                            complete.ShowNotification,
+                            complete.StageKey),
                         _ => throw new InvalidOperationException("Unexpected Xbox lifecycle payload")
                     })
                     .ToList();

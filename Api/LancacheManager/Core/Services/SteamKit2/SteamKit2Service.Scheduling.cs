@@ -62,7 +62,10 @@ public partial class SteamKit2Service
             if (IsGithubMode(_crawlIncrementalMode))
             {
                 _logger.LogInformation("[GitHub Mode] Downloading depot data from GitHub (no Steam connection)");
-                var success = await ImportFromGitHubAsync(stoppingToken, RunTrigger.Scheduled);
+                // Pass the trigger this loop iteration actually resolved (matching the non-GitHub
+                // dispatch below). Hardcoding Scheduled here made a Run Now look automatic, so the
+                // Manual notification mode gated every event of a user-requested import away.
+                var success = await ImportFromGitHubAsync(stoppingToken, CurrentRunTrigger);
 
                 if (success)
                 {

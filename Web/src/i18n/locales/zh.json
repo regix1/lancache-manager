@@ -6970,6 +6970,7 @@
       "checkingFreeGames": "正在检查免费游戏促销活动...",
       "applyingMappings": "正在将 Epic 下载解析为游戏名称...",
       "completed": "Epic 目录刷新完成",
+      "skippedNotSignedIn": "Epic 目录刷新已跳过 - 未登录 Epic 账户",
       "cancelled": "Epic 游戏目录刷新已取消",
       "failed": "Epic 游戏目录刷新失败: {{errorDetail}}",
       "waitingSignIn": "正在等待 Epic 登录...",
@@ -7003,6 +7004,7 @@
       "resolving": "正在将 Xbox 下载解析为游戏名称...",
       "backfilling": "正在回填 Xbox 游戏映射...",
       "completed": "Xbox 游戏目录解析完成",
+      "skippedNotSignedIn": "Xbox 游戏目录解析已跳过 - 未登录 Microsoft 账户",
       "cancelled": "Xbox 游戏目录解析已取消",
       "failed": "Xbox 目录解析失败: {{errorDetail}}"
     },

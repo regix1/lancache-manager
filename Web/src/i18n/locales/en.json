@@ -7007,6 +7007,7 @@
       "checkingFreeGames": "Checking for free game promotions...",
       "applyingMappings": "Resolving Epic downloads to game names...",
       "completed": "Epic catalog refresh completed",
+      "skippedNotSignedIn": "Epic catalog refresh skipped - not signed in to Epic",
       "cancelled": "Epic catalog refresh cancelled",
       "failed": "Epic catalog refresh failed: {{errorDetail}}",
       "waitingSignIn": "Waiting for Epic sign-in...",
@@ -7040,6 +7041,7 @@
       "resolving": "Resolving Xbox downloads to game names...",
       "backfilling": "Backfilling Xbox game mappings...",
       "completed": "Xbox catalog resolve completed",
+      "skippedNotSignedIn": "Xbox catalog resolve skipped - not signed in to Xbox",
       "cancelled": "Xbox catalog resolve cancelled",
       "failed": "Xbox catalog resolve failed: {{errorDetail}}"
     },

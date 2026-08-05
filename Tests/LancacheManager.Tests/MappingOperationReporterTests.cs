@@ -85,6 +85,31 @@ public class MappingOperationReporterTests
         Assert.True(reporterIndex > visibilityIndex);
     }
 
+    /// <summary>
+    /// Both branches of the depot scheduling dispatch must hand the run's real trigger to the work
+    /// they start. A literal trigger here told the notification gate a Run Now was automatic, so a
+    /// service left on the Manual mode dropped every event of an import the user asked for.
+    /// </summary>
+    [Fact]
+    public void DepotScheduling_PassesTheRunTriggerToBothDispatchBranches()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "Api",
+            "LancacheManager",
+            "Core",
+            "Services",
+            "SteamKit2",
+            "SteamKit2Service.Scheduling.cs"));
+
+        Assert.Contains(
+            "ImportFromGitHubAsync(stoppingToken, CurrentRunTrigger)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains("trigger: CurrentRunTrigger", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("RunTrigger.Scheduled)", source, StringComparison.Ordinal);
+    }
+
     [Theory]
     [MemberData(nameof(Definitions))]
     public async Task Reporter_EmitsOneStartedMonotonicProgressAndOneComplete_WithOneTrackedIdAsync(
