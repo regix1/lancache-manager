@@ -206,7 +206,8 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
                     await reporter.CompleteAsync(
                         success: true,
                         stageKey: XboxSignInSkipStageKey,
-                        context: CreateXboxMappingContext());
+                        context: CreateXboxMappingContext(),
+                        skipped: true);
                     return new XboxCatalogRefreshResult();
                 }
 

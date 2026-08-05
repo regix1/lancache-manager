@@ -1249,8 +1249,7 @@ public class RustLogProcessorService
             // suppress the duplicate SignalR completion + CompleteOperation so only ONE
             // terminal event is emitted.
             var alreadyTerminal = !cancelOpId.HasValue
-                || _operationTracker.GetOperation(cancelOpId.Value)?.Status
-                    is (OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled);
+                || _operationTracker.GetOperation(cancelOpId.Value)?.Status.IsTerminal() == true;
 
             if (!alreadyTerminal && cancelOpId.HasValue)
             {

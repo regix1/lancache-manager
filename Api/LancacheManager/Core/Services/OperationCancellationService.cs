@@ -78,8 +78,7 @@ public class OperationCancellationService
         _operationTracker.ForceKillOperation(operationId); // cancels token, best-effort kill (idempotent via HasExited)
 
         var current = _operationTracker.GetOperation(operationId);
-        if (current == null
-            || current.Status is OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled)
+        if (current == null || current.Status.IsTerminal())
         {
             // The worker observed cancellation and already completed the op (A.3 flag). Avoid a duplicate
             // SignalR completion — the op is already terminal.

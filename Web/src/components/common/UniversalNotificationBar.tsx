@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, AlertCircle, X, Trash2, XCircle, Info, Clock } from 'lucide-react';
+import {
+  CheckCircle,
+  AlertCircle,
+  X,
+  Trash2,
+  XCircle,
+  Info,
+  Clock,
+  MinusCircle
+} from 'lucide-react';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import i18n from '../../i18n';
@@ -196,6 +205,10 @@ const getNotificationColor = (notification: UnifiedNotification): string => {
       return 'var(--theme-error)';
     case 'waiting':
       return 'var(--theme-waiting)';
+    case 'skipped':
+      // The run did nothing, so it is neither the green of a finished run nor the red of a
+      // broken one. Warning is reused because it already has a glow tone in the condensed strip.
+      return 'var(--theme-warning)';
     case 'running':
     default:
       return 'var(--theme-info)';
@@ -229,6 +242,13 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
   if (notification.status === 'waiting') {
     // Queued behind a conflicting operation - clock, not spinner (nothing is running yet).
     return <Clock className="w-4 h-4 flex-shrink-0 text-[var(--theme-waiting)]" />;
+  }
+
+  if (notification.status === 'skipped') {
+    // Nothing was done, so neither the tick nor the cross fits. A struck-through circle says
+    // the run passed over its work rather than finishing it or failing at it. The colour is a
+    // constant for this status, so it is a class like the waiting branch above, not an inline style.
+    return <MinusCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-warning)]" />;
   }
 
   if (notification.status === 'completed') {
@@ -782,6 +802,8 @@ const UniversalNotificationBar: React.FC = () => {
 
   const statusOrder: Partial<Record<NotificationStatus, number>> = {
     completed: 0,
+    // Terminal and benign, so it sorts with the finished runs rather than dropping to the end.
+    skipped: 0,
     failed: 1,
     cancelled: 1,
     running: 2,

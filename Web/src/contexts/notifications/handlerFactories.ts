@@ -324,6 +324,8 @@ export function createCompletionHandler<
     context?: Record<string, unknown>;
     message?: string;
     cancelled?: boolean;
+    /** Wire status. Only `'skipped'` is read here; every other outcome is decided by success/cancelled. */
+    status?: string;
   }
 >(
   config: CompletionHandlerConfig<T>,
@@ -349,6 +351,19 @@ export function createCompletionHandler<
     }
 
     const isCancelled = event.cancelled === true;
+    // A skipped run reports success:true (it did not fail) and status:'skipped', so the outcome
+    // can only be read off the wire status. Checked before the success branches below.
+    const isSkipped = event.status === 'skipped' && !isCancelled;
+
+    /**
+     * A skipped run's own stage key already names the reason it did nothing, so the card reuses
+     * the same resolver a successful run uses. It never falls back to the failure text.
+     */
+    const resolveSkippedMessage = (existing?: UnifiedNotification): string =>
+      config.getSuccessMessage?.(event, existing) ??
+      (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+      existing?.message ??
+      i18n.t(GENERIC_COMPLETION_I18N_KEY);
 
     const resolveFailureMessage = (existing?: UnifiedNotification): string => {
       if (isCancelled) {
@@ -375,6 +390,19 @@ export function createCompletionHandler<
       const fastId = config.getFastCompletionId?.(event) ?? notificationId;
       idToSchedule = fastId;
       const failureMessage = resolveFailureMessage();
+
+      if (isSkipped) {
+        return {
+          id: fastId,
+          type: config.type,
+          status: 'skipped' as const,
+          message: resolveSkippedMessage(),
+          detailMessage: config.getDetailMessage?.(event),
+          startedAt: new Date(),
+          // No progress at all: a run that did nothing has nothing to fill a bar with.
+          details: config.getSuccessDetails?.(event)
+        };
+      }
 
       if (event.success && !isCancelled) {
         return {
@@ -439,6 +467,21 @@ export function createCompletionHandler<
         );
         return prev.map((n) => {
           if (n.id === notificationId) {
+            if (isSkipped) {
+              return {
+                ...n,
+                // Drop the bar the started event seeded at 0 rather than filling it to 100.
+                progress: undefined,
+                status: 'skipped' as const,
+                message: resolveSkippedMessage(n),
+                error: undefined,
+                details: {
+                  ...n.details,
+                  ...config.getSuccessDetails?.(event, n)
+                }
+              };
+            }
+
             if (event.success && !isCancelled) {
               return {
                 ...n,
@@ -505,6 +548,22 @@ export function createCompletionHandler<
         );
         return prev.map((n) => {
           if (n.id === notificationId) {
+            if (isSkipped) {
+              return {
+                ...n,
+                // Drop the bar the started event seeded at 0 rather than filling it to 100.
+                progress: undefined,
+                status: 'skipped' as const,
+                message: resolveSkippedMessage(n),
+                error: undefined,
+                detailMessage: config.getDetailMessage?.(event) ?? n.detailMessage,
+                details: {
+                  ...n.details,
+                  ...config.getSuccessDetails?.(event, n)
+                }
+              };
+            }
+
             if (event.success && !isCancelled) {
               return {
                 ...n,

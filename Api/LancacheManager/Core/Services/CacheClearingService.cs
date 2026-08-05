@@ -630,8 +630,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
             // If a universal force-kill already completed this op, the CompletedFlag-gated
             // CompleteOperation below is a no-op and the onTerminalEmit closure does not re-fire.
-            if (_operationTracker.GetOperation(operationId)?.Status
-                is not (OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled))
+            if (_operationTracker.GetOperation(operationId)?.Status.IsTerminal() != true)
             {
                 // Mark operation as complete (cancelled) in unified tracker.
                 // Terminal CacheClearingComplete (cancelled) is emitted by the onTerminalEmit closure.
@@ -1074,10 +1073,7 @@ public class CacheClearingService : ScheduledBackgroundService
             _stateService.UpdateCacheClearOperations(operations =>
             {
                 // Merge active operations with existing completed ones
-                var completedOps = operations.Where(o =>
-                    o.Status == OperationStatus.Completed ||
-                    o.Status == OperationStatus.Failed ||
-                    o.Status == OperationStatus.Cancelled).ToList();
+                var completedOps = operations.Where(o => o.Status.IsTerminal()).ToList();
                 operations.Clear();
                 operations.AddRange(completedOps);
                 operations.AddRange(newOperations);

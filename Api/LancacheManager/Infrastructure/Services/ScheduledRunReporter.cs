@@ -235,7 +235,8 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         string? error = null,
         bool cancelled = false,
         string? stageKey = null,
-        Dictionary<string, object?>? context = null)
+        Dictionary<string, object?>? context = null,
+        bool skipped = false)
     {
         if (!_started)
         {
@@ -263,7 +264,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                     });
                 }
 
-                _tracker.CompleteOperation(_operationId, success, error, cancelled);
+                _tracker.CompleteOperation(_operationId, success, error, cancelled, skipped);
             }
         }
         finally
@@ -301,14 +302,18 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         await _sendGate.WaitAsync(CancellationToken.None);
         try
         {
-            var percent = info.Success ? 100d : _highestPercent;
+            // A skipped run keeps whatever percent it actually reached, which for a run that stopped
+            // before doing anything is 0. Stamping 100 would claim work that never happened.
+            var percent = info.Success && !info.Skipped ? 100d : _highestPercent;
             var error = info.Success
                 ? null
                 : (info.Cancelled ? "Cancelled by user" : (info.Error ?? "Scheduled run failed"));
 
             var status = info.Cancelled
                 ? OperationStatus.Cancelled
-                : info.Success ? OperationStatus.Completed : OperationStatus.Failed;
+                : info.Skipped
+                    ? OperationStatus.Skipped
+                    : info.Success ? OperationStatus.Completed : OperationStatus.Failed;
             var terminalStageKey = _terminalStagePublished
                 ? _terminalStageKey
                 : _externalTerminalStageKey?.Invoke(info) ?? _terminalStageKey;

@@ -59,7 +59,7 @@ public class XboxScheduledRefreshProgressTests
         var terminals = events.Where(e => e.IsTerminal).ToList();
         Assert.Single(terminals);
 
-        // Percent is non-decreasing across the emitted sequence and ends at 100 on success.
+        // Percent is non-decreasing across the emitted sequence.
         var percents = events.Select(e => e.PercentComplete).ToList();
         for (var i = 1; i < percents.Count; i++)
         {
@@ -67,10 +67,12 @@ public class XboxScheduledRefreshProgressTests
                 $"percent regressed: {percents[i - 1]} -> {percents[i]}");
         }
 
+        // The harness runs signed out, so this run had nothing to read and terminates as Skipped
+        // with no work claimed. Success stays true because nothing went wrong.
         var terminal = terminals[0];
         Assert.True(terminal.Success);
-        Assert.Equal(OperationStatus.Completed, terminal.Status);
-        Assert.Equal(100.0, terminal.PercentComplete);
+        Assert.Equal(OperationStatus.Skipped, terminal.Status);
+        Assert.Equal(0.0, terminal.PercentComplete);
 
         // Default mode is All, so the run is visible.
         Assert.All(events, e => Assert.True(e.ShowNotification));
@@ -116,6 +118,13 @@ public class XboxScheduledRefreshProgressTests
 
         Assert.Equal("signalr.xboxMapping.skippedNotSignedIn", terminal.StageKey);
         Assert.NotEqual("signalr.xboxMapping.completed", terminal.StageKey);
+
+        // The wire status has to say it too. The stage key alone still left status "completed" on
+        // the frame, so a run that read nothing announced itself as a finished one.
+        Assert.Equal(OperationStatus.Skipped, terminal.Status);
+
+        // Nothing happened, so nothing is claimed: no fabricated 100%.
+        Assert.Equal(0d, terminal.PercentComplete);
 
         // The collection stages never ran, so started is the only non-terminal event.
         Assert.Single(events, e => !e.IsTerminal);

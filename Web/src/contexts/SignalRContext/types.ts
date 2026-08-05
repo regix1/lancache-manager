@@ -1113,6 +1113,11 @@ export interface ScheduledRunCompleteEvent {
   percentComplete: number;
   error?: string;
   showNotification?: boolean;
+  /**
+   * Terminal status. A skipped run reports success:true here, so this is the only field that
+   * tells a run which did nothing apart from one which finished its work.
+   */
+  status?: OperationStatus;
 }
 
 // ============================================================================

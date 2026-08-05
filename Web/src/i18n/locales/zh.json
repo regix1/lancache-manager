@@ -259,7 +259,8 @@
         "failed": "失败",
         "cancelled": "已取消",
         "cancelling": "取消中",
-        "pending": "待处理"
+        "pending": "待处理",
+        "skipped": "已跳过"
       },
       "steamAnonymous": "Steam 匿名",
       "steamAuthenticated": "Steam 已验证",

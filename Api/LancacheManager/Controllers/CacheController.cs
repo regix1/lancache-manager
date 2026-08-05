@@ -362,10 +362,7 @@ public class CacheController : ControllerBase
     public IActionResult GetActiveOperations()
     {
         var operations = _cacheClearingService.GetActiveOperations();
-        var isProcessing = operations.Any(op =>
-            op.Status != OperationStatus.Completed
-            && op.Status != OperationStatus.Failed
-            && op.Status != OperationStatus.Cancelled);
+        var isProcessing = operations.Any(op => !op.Status.IsTerminal());
         return Ok(new ActiveOperationsResponse { IsProcessing = isProcessing, Operations = operations });
     }
 

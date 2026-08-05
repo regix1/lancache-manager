@@ -10,7 +10,16 @@ namespace LancacheManager.Models;
 /// <param name="Success">True when the operation completed successfully.</param>
 /// <param name="Cancelled">True when the operation was cancelled (mirrors <see cref="OperationInfo.Cancelled"/>).</param>
 /// <param name="Error">Error/diagnostic message when the operation failed; null on success/cancel.</param>
-public readonly record struct OperationTerminalInfo(bool Success, bool Cancelled, string? Error);
+/// <param name="Skipped">
+/// True when the run started, found nothing to do, and stopped without doing it. Carried alongside
+/// <see cref="Success"/> rather than replacing it: a skipped run did not fail, so it must stay out
+/// of the failure funnel, but it must not present as an ordinary completion either.
+/// </param>
+public readonly record struct OperationTerminalInfo(
+    bool Success,
+    bool Cancelled,
+    string? Error,
+    bool Skipped = false);
 
 /// <summary>
 /// Shared terminal contract implemented by every long-running-operation <c>*Complete</c> SignalR
@@ -24,7 +33,8 @@ public readonly record struct OperationTerminalInfo(bool Success, bool Cancelled
 /// Terminal semantics (aligned with the tri-layer status vocabulary): success =
 /// <c>Success=true, Status=Completed, Cancelled=false, Error=null</c>; failure =
 /// <c>Success=false, Status=Failed, Cancelled=false, Error=&lt;message&gt;</c>; cancellation =
-/// <c>Cancelled=true, Status=Cancelled</c>.
+/// <c>Cancelled=true, Status=Cancelled</c>; a run that found nothing to do =
+/// <c>Success=true, Status=Skipped, Cancelled=false, Error=null</c>.
 /// </summary>
 public interface IOperationComplete
 {
@@ -34,7 +44,7 @@ public interface IOperationComplete
     /// <summary>True when the operation completed successfully.</summary>
     bool Success { get; }
 
-    /// <summary>Canonical terminal status (Completed / Failed / Cancelled).</summary>
+    /// <summary>Canonical terminal status (Completed / Failed / Cancelled / Skipped).</summary>
     OperationStatus Status { get; }
 
     /// <summary>True when the operation was cancelled (a distinct terminal outcome, never a failure).</summary>
@@ -44,8 +54,9 @@ public interface IOperationComplete
     string? Error { get; }
 
     /// <summary>
-    /// The canonical terminal triple for this completion, composed from the guaranteed members.
+    /// The canonical terminal carrier for this completion, composed from the guaranteed members.
     /// Lets callers pass a uniform <see cref="OperationTerminalInfo"/> regardless of concrete record type.
     /// </summary>
-    OperationTerminalInfo Terminal => new(Success, Cancelled, Error);
+    OperationTerminalInfo Terminal =>
+        new(Success, Cancelled, Error, Status == OperationStatus.Skipped);
 }

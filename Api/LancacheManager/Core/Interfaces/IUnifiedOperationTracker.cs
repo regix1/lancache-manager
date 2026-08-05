@@ -103,11 +103,17 @@ public interface IUnifiedOperationTracker
     /// <summary>
     /// Marks an operation as complete and cleans up resources.
     /// </summary>
+    /// <param name="skipped">True when the run started, found nothing to do, and stopped. The
+    /// operation becomes <see cref="OperationStatus.Skipped"/>, which is terminal: it raises
+    /// <see cref="OperationTerminal"/> and promotes the wait-queue exactly like a completion.
+    /// Pass it together with <paramref name="success"/> <c>true</c>, because a skipped run did
+    /// not fail and must stay out of the failure funnel.</param>
     void CompleteOperation(
         Guid operationId,
         bool success,
         string? error = null,
-        bool cancelled = false);
+        bool cancelled = false,
+        bool skipped = false);
 
     /// <summary>
     /// Updates the progress of an operation.

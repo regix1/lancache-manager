@@ -259,7 +259,8 @@
         "failed": "failed",
         "cancelled": "cancelled",
         "cancelling": "cancelling",
-        "pending": "pending"
+        "pending": "pending",
+        "skipped": "skipped"
       },
       "steamAnonymous": "Steam Anonymous",
       "steamAuthenticated": "Steam Authenticated",

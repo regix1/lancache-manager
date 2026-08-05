@@ -9,7 +9,9 @@ export type OperationStatus =
   | 'completed'
   | 'failed'
   | 'cancelled'
-  | 'waiting';
+  | 'waiting'
+  /** The run started, found nothing to do, and stopped. Terminal, but neither a success nor an error. */
+  | 'skipped';
 
 /**
  * Variant used by transient system toast/banner events (ShowToast).

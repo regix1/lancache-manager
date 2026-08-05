@@ -1221,8 +1221,7 @@ public class RustLogRemovalService
             return true;
         }
 
-        return _operationTracker.GetOperation(opId.Value)?.Status
-            is (OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled);
+        return _operationTracker.GetOperation(opId.Value)?.Status.IsTerminal() == true;
     }
 
     private bool WasCancelled()

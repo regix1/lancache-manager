@@ -62,13 +62,15 @@ public sealed class MappingOperationReporter : IAsyncDisposable
         string? error = null,
         bool cancelled = false,
         string? stageKey = null,
-        Dictionary<string, object?>? context = null) =>
+        Dictionary<string, object?>? context = null,
+        bool skipped = false) =>
         _inner.CompleteAsync(
             success,
             error,
             cancelled,
             stageKey ?? $"{_definition.StageKeyPrefix}.{GetTerminalSuffix(success, cancelled)}",
-            context);
+            context,
+            skipped);
 
     public bool RequestCancellation() => _inner.RequestCancellation();
 

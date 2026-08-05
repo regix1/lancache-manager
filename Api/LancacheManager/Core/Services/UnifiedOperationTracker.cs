@@ -267,7 +267,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         Guid operationId,
         bool success,
         string? error = null,
-        bool cancelled = false)
+        bool cancelled = false,
+        bool skipped = false)
     {
         if (!_operations.TryGetValue(operationId, out var operation))
         {
@@ -289,10 +290,14 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.Cancelled = true;
         }
 
+        // Skipped rides the success branch on purpose: the run did not fail, so it must not reach
+        // the failure funnel, but it did no work, so it must not read as an ordinary completion.
         operation.Status = success
-            ? OperationStatus.Completed
+            ? (skipped ? OperationStatus.Skipped : OperationStatus.Completed)
             : (operation.Cancelled ? OperationStatus.Cancelled : OperationStatus.Failed); // C.1: Cancelled is terminal
-        operation.Message = success ? "Operation completed successfully" : (error ?? "Operation failed");
+        operation.Message = success
+            ? (skipped ? "Operation skipped - nothing to do" : "Operation completed successfully")
+            : (error ?? "Operation failed");
         operation.Success = success;
         operation.CompletedAt = DateTime.UtcNow;
 
@@ -314,7 +319,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         if (emit != null)
         {
             _ = SafeEmitTerminalAsync(operationId, emit,
-                new OperationTerminalInfo(success, operation.Cancelled, error));
+                new OperationTerminalInfo(success, operation.Cancelled, error, skipped));
         }
 
         // Invoke the owning service's local-state reset BEFORE we log/remove. Best-effort: never throw.
@@ -322,8 +327,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         catch (Exception ex) { _logger.LogWarning(ex, "OnTerminalCleanup threw for operation {Id}", operationId); }
         finally { operation.OnTerminalCleanup = null; } // drop the delegate so it cannot re-run
 
-        _logger.LogInformation("Completed operation {Id} ({Type}: {Name}), Success: {Success}",
-            operationId, operation.Type, operation.Name, success);
+        _logger.LogInformation("Completed operation {Id} ({Type}: {Name}), Status: {Status}",
+            operationId, operation.Type, operation.Name, operation.Status);
 
         // Notify queue/listeners that an operation reached terminal state (exactly once via the
         // CompletedFlag gate above). Fire-and-forget off this stack; handler faults are contained.

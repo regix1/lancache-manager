@@ -160,6 +160,78 @@ public sealed class ScheduledHeavyOperationQueueTests
         Assert.Null(handoff.Error);
     }
 
+    /// <summary>
+    /// A blocker that finds nothing to do terminates as <see cref="OperationStatus.Skipped"/>.
+    /// Skipped has to be terminal everywhere the queue looks, or the waiter behind it never
+    /// promotes and the queue stalls with no error anywhere. Two things are asserted: the
+    /// skipped blocker leaves the active set (that is what the conflict checker reads), and the
+    /// queued operation's own start delegate actually ran.
+    /// </summary>
+    [Fact]
+    public async Task SkippedBlocker_PromotesTheQueuedOperationAsync()
+    {
+        var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
+        var tracker = new UnifiedOperationTracker(
+            processManager,
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var conflictChecker = new OperationConflictChecker(
+            tracker,
+            NullLogger<OperationConflictChecker>.Instance);
+        var handoffReceived = new TaskCompletionSource<OperationWaitingCompleteNotification>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var notifications = CreateProxy<ISignalRNotificationService>((method, args) =>
+        {
+            if (method.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
+            {
+                if ((string)args![0]! == SignalREvents.OperationWaitingComplete
+                    && args[1] is OperationWaitingCompleteNotification handoff)
+                {
+                    handoffReceived.TrySetResult(handoff);
+                }
+
+                return Task.CompletedTask;
+            }
+
+            return DefaultReturn(method.ReturnType);
+        });
+        var queue = new OperationQueueService(
+            tracker,
+            conflictChecker,
+            notifications,
+            NullLogger<OperationQueueService>.Instance);
+
+        var blockerId = tracker.RegisterOperation(
+            OperationType.LogProcessing,
+            "Log Processing",
+            new CancellationTokenSource());
+        var startedId = Guid.NewGuid();
+        var startCalls = 0;
+        var queued = await queue.EnqueueAsync(
+            OperationType.CacheSizeScan,
+            ConflictScope.Bulk(),
+            "Cache File Scan",
+            () =>
+            {
+                Interlocked.Increment(ref startCalls);
+                return Task.FromResult<Guid?>(startedId);
+            },
+            CancellationToken.None);
+
+        Assert.True(queued.Queued);
+        Assert.Equal(0, Volatile.Read(ref startCalls));
+
+        tracker.CompleteOperation(blockerId, success: true, skipped: true);
+
+        Assert.Equal(OperationStatus.Skipped, tracker.GetOperation(blockerId)?.Status);
+        Assert.DoesNotContain(tracker.GetActiveOperations(), op => op.Id == blockerId);
+
+        var promoted = await handoffReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(queued.OperationId, promoted.OperationId);
+        Assert.True(promoted.Promoted);
+        Assert.False(promoted.Cancelled);
+        Assert.Equal(1, Volatile.Read(ref startCalls));
+    }
+
     [Fact]
     public async Task QueuedScheduledOperation_CanBeCancelledBeforePromotionAsync()
     {

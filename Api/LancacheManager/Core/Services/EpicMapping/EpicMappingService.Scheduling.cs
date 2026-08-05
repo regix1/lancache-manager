@@ -155,7 +155,8 @@ public partial class EpicMappingService
         await reporter.CompleteAsync(
             success: true,
             stageKey: EpicSignInSkipStageKey,
-            context: CreateEpicContext());
+            context: CreateEpicContext(),
+            skipped: true);
     }
 
     private MappingOperationReporter CreateEpicMappingReporter(
