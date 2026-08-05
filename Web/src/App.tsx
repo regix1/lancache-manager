@@ -88,6 +88,10 @@ const AppContent: React.FC = () => {
   const [fullScanModalChangeGap, setFullScanModalChangeGap] = useState(0);
   const signalR = useSignalR();
   const hydratedThemeSessionRef = useRef<string | null>(null);
+  // True while the scan or download the user picked is still running. The server keeps
+  // reporting that a full scan is needed until that work finishes, so without this the
+  // periodic state check would put the modal straight back on screen.
+  const fullScanActionRunningRef = useRef(false);
 
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
@@ -160,6 +164,11 @@ const AppContent: React.FC = () => {
       return;
     }
 
+    // Don't check while the work the user asked for is still running
+    if (fullScanActionRunningRef.current) {
+      return;
+    }
+
     // Don't check if modal is already showing
     if (showFullScanRequiredModal) {
       return;
@@ -176,7 +185,7 @@ const AppContent: React.FC = () => {
           const state = await response.json();
 
           // Show modal if cached state says full scan is required
-          if (state.requiresFullScan && !wasModalDismissed()) {
+          if (state.requiresFullScan && !wasModalDismissed() && !fullScanActionRunningRef.current) {
             setFullScanModalChangeGap(state.viabilityChangeGap || 160000);
             setShowFullScanRequiredModal(true);
 
@@ -221,8 +230,8 @@ const AppContent: React.FC = () => {
     if (!signalR || authMode !== 'authenticated') return;
 
     const handleAutomaticScanSkipped = () => {
-      // Only show if not already showing and not dismissed
-      if (!showFullScanRequiredModal && !wasModalDismissed()) {
+      // Only show if not already showing, not dismissed, and nothing is already running
+      if (!showFullScanRequiredModal && !wasModalDismissed() && !fullScanActionRunningRef.current) {
         setFullScanModalChangeGap(160000); // Default large gap
         setShowFullScanRequiredModal(true);
       }
@@ -366,7 +375,9 @@ const AppContent: React.FC = () => {
   };
 
   const handleRunFullScan = async () => {
-    // Close modal WITHOUT marking as dismissed (allow retry if it fails)
+    // Close the modal and let the scan run in the background. Not marked as dismissed,
+    // so a failure can put it back on screen for a retry.
+    fullScanActionRunningRef.current = true;
     setShowFullScanRequiredModal(false);
 
     // Trigger full scan via API
@@ -374,20 +385,26 @@ const AppContent: React.FC = () => {
       await ApiService.triggerSteamKitRebuild(false); // false = full scan
     } catch (error) {
       console.error('Failed to trigger full scan:', error);
+      fullScanActionRunningRef.current = false;
+      setShowFullScanRequiredModal(true);
     }
   };
 
   const handleDownloadFromGitHub = async () => {
-    // Close modal WITHOUT marking as dismissed (allow retry if it fails)
+    // Close the modal and let the download run in the background. Not marked as
+    // dismissed, so a failure can put it back on screen for a retry.
+    fullScanActionRunningRef.current = true;
     setShowFullScanRequiredModal(false);
 
     // Trigger download from GitHub
     try {
       await ApiService.downloadPrecreatedDepotData();
     } catch (error) {
+      fullScanActionRunningRef.current = false;
       // Don't log abort errors (user cancelled)
       if (!isAbortError(error)) {
         console.error('Failed to download from GitHub:', error);
+        setShowFullScanRequiredModal(true);
       }
     }
   };
