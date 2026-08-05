@@ -25,6 +25,7 @@ import { ApiError } from '@services/apiError';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import { ScheduledPrefillEditSessionCleanupRecovery } from '@components/features/management/schedules/scheduled-prefill/ScheduledPrefillEditSessionCleanupRecovery';
+import type { PendingFullScan } from '@components/features/management/schedules/types';
 
 const Dashboard = lazy(() => import('@components/features/dashboard/Dashboard'));
 const DownloadsTab = lazy(() => import('@components/features/downloads/DownloadsTab'));
@@ -159,6 +160,25 @@ const AppContent: React.FC = () => {
 
   const markModalDismissed = useCallback(() => {
     sessionStorage.setItem('fullScanModalDismissed', 'true');
+  }, []);
+
+  // The Steam Game Mapping card on the Schedules page asks for the modal back after Cancel hid it
+  // for the rest of the tab. That dismissal is deliberate for the SignalR path, so this is the only
+  // place the flag is ever cleared, and only because the user asked for the modal by name. The
+  // figures ride along on the event because they came from the schedules response, which a reload
+  // refetches - unlike the SignalR event, whose numbers only ever lived in the state above.
+  useEffect(() => {
+    const handleShowFullScanModal = (event: Event) => {
+      const requirement = (event as CustomEvent<PendingFullScan>).detail;
+      sessionStorage.removeItem('fullScanModalDismissed');
+      setFullScanModalChangeGap(requirement?.changeGap);
+      setFullScanModalEstimatedApps(requirement?.estimatedAppsToScan);
+      setShowFullScanRequiredModal(true);
+    };
+
+    window.addEventListener(APP_EVENTS.SHOW_FULL_SCAN_MODAL, handleShowFullScanModal);
+    return () =>
+      window.removeEventListener(APP_EVENTS.SHOW_FULL_SCAN_MODAL, handleShowFullScanModal);
   }, []);
 
   // Listen for automatic scan skipped event via SignalR (for authenticated users)

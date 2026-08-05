@@ -3830,7 +3830,10 @@
           "scanModeLabel": "计划扫描模式",
           "scanModeHelp": "控制自动运行和此任务的\"立即运行\"按钮。",
           "scanModeFailed": "更新 {{service}} 的计划扫描模式失败",
-          "configureSteamApi": "配置 Steam API"
+          "configureSteamApi": "配置 Steam API",
+          "fullScanRequiredLabel": "需要完整扫描",
+          "fullScanRequiredHelp": "Steam 不接受基于当前仓库数据的增量更新，因此计划扫描未运行便已停止。重新打开提示框，即可从 GitHub 下载数据或启动完整扫描。",
+          "showFullScanPrompt": "显示提示框"
         },
         "scheduledPrefill": {
           "displayName": "计划预填充",

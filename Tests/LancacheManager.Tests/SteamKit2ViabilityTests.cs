@@ -1,4 +1,6 @@
+using System.Reflection;
 using LancacheManager.Core.Services.SteamKit2;
+using LancacheManager.Models;
 
 namespace LancacheManager.Tests;
 
@@ -60,5 +62,21 @@ public class SteamKit2ViabilityTests
         bool expected)
     {
         Assert.Equal(expected, SteamKit2Service.ShouldReuseCachedViability(cachedRequiresFullScan, hasUsableBaseline));
+    }
+
+    // The schedules list picks PendingFullScan off the service by name and type
+    // (ServiceScheduleRegistry.MapConfigurableService, the same reflection route SupportsNotifications
+    // takes). Rename the property or change its type and that lookup returns null instead of failing,
+    // so every schedule would quietly report no pending full scan and the Steam Game Mapping card
+    // would lose its way back to the prompt. Pin both here.
+    [Fact]
+    public void PendingFullScan_IsReachableByTheNameAndTypeTheScheduleListReads()
+    {
+        var property = typeof(SteamKit2Service).GetProperty(
+            "PendingFullScan",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+        Assert.NotNull(property);
+        Assert.Equal(typeof(FullScanRequirement), property!.PropertyType);
     }
 }

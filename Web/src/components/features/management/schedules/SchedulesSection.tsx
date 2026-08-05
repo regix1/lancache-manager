@@ -26,8 +26,10 @@ import {
   isNotificationDisplayMode,
   type NotificationMode,
   type NotificationDisplayMode,
+  type PendingFullScan,
   type ServiceScheduleInfo
 } from './types';
+import { APP_EVENTS } from '@utils/constants';
 import { formatLastRun } from './scheduleFormatting';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
@@ -266,6 +268,20 @@ const ScheduleRow = memo(function ScheduleRow({
     },
     [onDepotScanModeChange]
   );
+
+  // Cancelling the Full Scan Required prompt hides it for the rest of the browser tab, on purpose.
+  // This is the way back to it. App owns the prompt and sits far above this row, so the request
+  // travels as a window event, the same route the dashboard widgets use to ask App to change tab.
+  // The figures come from the schedules response, so they survive a reload that the SignalR event
+  // behind the first showing does not.
+  const handleShowFullScanPrompt = useCallback(() => {
+    if (!service.pendingFullScan) return;
+    window.dispatchEvent(
+      new CustomEvent<PendingFullScan>(APP_EVENTS.SHOW_FULL_SCAN_MODAL, {
+        detail: service.pendingFullScan
+      })
+    );
+  }, [service.pendingFullScan]);
 
   const handleNotificationModeChange = useCallback(
     (value: string) => {
@@ -564,6 +580,26 @@ const ScheduleRow = memo(function ScheduleRow({
                     {t('management.schedules.services.depotMapping.configureSteamApi')}
                   </Button>
                 )}
+              </div>
+            )}
+
+            {/* Only while the server still reports a skipped scan, so the row goes back to its
+            usual shape the moment a full scan or a GitHub download clears the condition. */}
+            {isDepotMapping && service.pendingFullScan && (
+              <div className="schedule-detail-row">
+                <Tooltip
+                  content={t('management.schedules.services.depotMapping.fullScanRequiredHelp')}
+                  className="inline-flex flex-shrink-0"
+                >
+                  <span className="schedule-detail-label">
+                    {t('management.schedules.services.depotMapping.fullScanRequiredLabel')}
+                  </span>
+                </Tooltip>
+                <div className="schedule-detail-control">
+                  <Button variant="subtle" size="sm" fullWidth onClick={handleShowFullScanPrompt}>
+                    {t('management.schedules.services.depotMapping.showFullScanPrompt')}
+                  </Button>
+                </div>
               </div>
             )}
 

@@ -102,6 +102,10 @@ public partial class SteamKit2Service
                     {
                         _logger.LogWarning("Scheduled incremental scan skipped - Steam requires full scan (change gap: {ChangeGap}). User must manually trigger a full scan.", viability.ChangeGap);
                         _automaticScanSkipped = true;
+                        // Keep the same two figures the event below carries, so the schedules list can
+                        // reopen the prompt with them after a reload has thrown the event away.
+                        _skippedScanChangeGap = viability.ChangeGap;
+                        _skippedScanEstimatedApps = viability.EstimatedAppsToScan;
 
                         // Carry the measured gap and app estimate so the client can report what was
                         // actually found instead of standing in a fixed number of its own.

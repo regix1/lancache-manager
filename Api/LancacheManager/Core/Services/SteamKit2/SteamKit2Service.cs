@@ -75,6 +75,10 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private uint _lastChangeNumberSeen;
     private bool _lastScanWasForced = false; // Track if the last scan was forced to be full due to Steam requirements
     private bool _automaticScanSkipped = false; // Track if an automatic scan was skipped due to requiring full scan
+    // The figures the viability check reported when it abandoned that scan. Only meaningful while
+    // _automaticScanSkipped is true, which is the only condition under which PendingFullScan reads them.
+    private uint _skippedScanChangeGap;
+    private int _skippedScanEstimatedApps;
 
     // depotId -> set of appIds (can be multiple for shared depots)
     private readonly ConcurrentDictionary<uint, HashSet<uint>> _depotToAppMappings = new();
@@ -558,6 +562,19 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     public bool IsReady => _isLoggedOn && _steamClient?.IsConnected == true && _depotToAppMappings.Count > 0 && !IsRebuildRunning;
 
     public bool IsRebuildRunning => Interlocked.CompareExchange(ref _rebuildActive, 0, 0) == 1;
+
+    /// <summary>
+    /// The measured figures behind an abandoned scheduled scan, or null while incremental is viable.
+    /// The schedules list reads this so the Steam Game Mapping card can offer the "Full Scan Required"
+    /// prompt again after the user cancelled it, without inventing a change gap of its own.
+    /// </summary>
+    public FullScanRequirement? PendingFullScan => _automaticScanSkipped
+        ? new FullScanRequirement
+        {
+            ChangeGap = _skippedScanChangeGap,
+            EstimatedAppsToScan = _skippedScanEstimatedApps
+        }
+        : null;
 
     /// <summary>
     /// Get or set the crawl interval in hours. Set to 0 to disable automatic crawls.

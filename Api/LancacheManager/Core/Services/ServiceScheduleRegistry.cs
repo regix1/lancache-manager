@@ -706,6 +706,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             IsRunning = configurableIsRunning,
             LastRunUtc = service.LastRunUtc,
             NextRunUtc = service.NextRunUtc,
+            // Only the depot mapping service declares this property, and only while it has given up on
+            // an incremental scan; every other service reads back null. Same reflection route as
+            // SupportsNotifications above, so the registry keeps its distance from the concrete types.
+            PendingFullScan = (FullScanRequirement?)GetPropertyValue(service.GetType(), service, "PendingFullScan", typeof(FullScanRequirement)),
         };
     }
 

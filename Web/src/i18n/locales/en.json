@@ -3830,7 +3830,10 @@
           "scanModeLabel": "Scheduled Scan Mode",
           "scanModeHelp": "Controls automatic runs and this task's Run Now button.",
           "scanModeFailed": "Failed to update scheduled scan mode for {{service}}",
-          "configureSteamApi": "Configure Steam API"
+          "configureSteamApi": "Configure Steam API",
+          "fullScanRequiredLabel": "Full scan required",
+          "fullScanRequiredHelp": "Steam will not accept an incremental update from the depot data you have, so the scheduled scan stopped without running. Bring the prompt back to download the data from GitHub or start a full scan.",
+          "showFullScanPrompt": "Show the prompt"
         },
         "scheduledPrefill": {
           "displayName": "Scheduled Prefill",
