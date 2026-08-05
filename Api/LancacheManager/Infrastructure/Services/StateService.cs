@@ -83,7 +83,8 @@ public class StateService : IStateService
         public string StatusCheckResolverMode { get; set; } = "auto";
         public DateTime? EpicMappingLastCollection { get; set; }
         public double CrawlIntervalHours { get; set; } = 1.0;
-        public object CrawlIncrementalMode { get; set; } = true;
+        // Only applies when state.json has no stored value, i.e. a fresh install. See ManagerState.
+        public object CrawlIncrementalMode { get; set; } = "github";
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
         public bool HasDataLoaded { get; set; } = false;
         public bool HasProcessedLogs { get; set; } = false;

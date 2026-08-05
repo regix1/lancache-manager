@@ -54,7 +54,7 @@ public class SteamPicsProgress
     public double CrawlIntervalHours { get; set; }
 
     [JsonPropertyName("crawlIncrementalMode")]
-    public object CrawlIncrementalMode { get; set; } = true;
+    public object CrawlIncrementalMode { get; set; } = "github";
 
     [JsonPropertyName("lastScanWasForced")]
     public bool LastScanWasForced { get; set; }

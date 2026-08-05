@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 
 import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type { AutomaticScanSkippedEvent } from '@contexts/SignalRContext/types';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useSteamAuth } from '@contexts/useSteamAuth';
 import { useAuth } from '@contexts/useAuth';
@@ -86,7 +87,14 @@ const AppContent: React.FC = () => {
   const [_depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
   const [showFullScanRequiredModal, setShowFullScanRequiredModal] = useState(false);
-  const [fullScanModalChangeGap, setFullScanModalChangeGap] = useState(0);
+  // Both come from the viability check the backend already ran. They stay undefined when the
+  // backend sends nothing, which the modal renders as "no figure" rather than a made-up one.
+  const [fullScanModalChangeGap, setFullScanModalChangeGap] = useState<number | undefined>(
+    undefined
+  );
+  const [fullScanModalEstimatedApps, setFullScanModalEstimatedApps] = useState<number | undefined>(
+    undefined
+  );
   const signalR = useSignalR();
   const hydratedThemeSessionRef = useRef<string | null>(null);
   // True while the scan or download the user picked is still running. The server keeps
@@ -153,87 +161,15 @@ const AppContent: React.FC = () => {
     sessionStorage.setItem('fullScanModalDismissed', 'true');
   }, []);
 
-  // Check state periodically after startup to catch backend initialization
-  useEffect(() => {
-    // Only run for authenticated users
-    if (authMode !== 'authenticated' || checkingAuth) {
-      return;
-    }
-
-    // Don't check if already dismissed
-    if (wasModalDismissed()) {
-      return;
-    }
-
-    // Don't check while the work the user asked for is still running
-    if (fullScanActionRunningRef.current) {
-      return;
-    }
-
-    // Don't check if modal is already showing
-    if (showFullScanRequiredModal) {
-      return;
-    }
-
-    let checkCount = 0;
-    const maxChecks = 6; // Check for 60 seconds (every 10 seconds)
-    let intervalTimer: NodeJS.Timeout | null = null;
-
-    const checkCachedViabilityState = async () => {
-      try {
-        const response = await fetch('/api/system/state', ApiService.getFetchOptions());
-        if (response.ok) {
-          const state = await response.json();
-
-          // Show modal if cached state says full scan is required
-          if (state.requiresFullScan && !wasModalDismissed() && !fullScanActionRunningRef.current) {
-            setFullScanModalChangeGap(state.viabilityChangeGap || 160000);
-            setShowFullScanRequiredModal(true);
-
-            // Clear interval once modal is shown
-            if (intervalTimer) {
-              clearInterval(intervalTimer);
-            }
-          }
-        } else {
-          console.error('[App] Failed to fetch state:', response.status, response.statusText);
-        }
-      } catch (error) {
-        console.error('[App] Error checking cached viability state:', error);
-      }
-    };
-
-    void checkCachedViabilityState();
-
-    // Then check every 10 seconds for up to 60 seconds
-    intervalTimer = setInterval(() => {
-      checkCount++;
-
-      if (checkCount >= maxChecks || wasModalDismissed()) {
-        if (intervalTimer) {
-          clearInterval(intervalTimer);
-        }
-        return;
-      }
-
-      checkCachedViabilityState();
-    }, 10000);
-
-    return () => {
-      if (intervalTimer) {
-        clearInterval(intervalTimer);
-      }
-    };
-  }, [authMode, checkingAuth, showFullScanRequiredModal, wasModalDismissed]);
-
   // Listen for automatic scan skipped event via SignalR (for authenticated users)
   useEffect(() => {
     if (!signalR || authMode !== 'authenticated') return;
 
-    const handleAutomaticScanSkipped = () => {
+    const handleAutomaticScanSkipped = (event?: AutomaticScanSkippedEvent) => {
       // Only show if not already showing, not dismissed, and nothing is already running
       if (!showFullScanRequiredModal && !wasModalDismissed() && !fullScanActionRunningRef.current) {
-        setFullScanModalChangeGap(160000); // Default large gap
+        setFullScanModalChangeGap(event?.context?.changeGap);
+        setFullScanModalEstimatedApps(event?.context?.estimatedAppsToScan);
         setShowFullScanRequiredModal(true);
       }
     };
@@ -591,7 +527,7 @@ const AppContent: React.FC = () => {
           hasSteamApiKey={steamApiStatus?.hasApiKey ?? false}
           title={t('app.fullScanRequired.title')}
           changeGap={fullScanModalChangeGap}
-          estimatedApps={270000}
+          estimatedApps={fullScanModalEstimatedApps}
         />
       )}
 

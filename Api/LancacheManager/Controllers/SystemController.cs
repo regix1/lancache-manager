@@ -382,6 +382,25 @@ public class SystemController : ControllerBase
             }
         });
 
+        // The wizard's platform choice is erased the moment setup completes (see the
+        // hasCompleted branch above), so the scheduled scan mode has to be recorded while the
+        // choice is still on the wire. Without this an install where the user deliberately picked
+        // Steam PICS would silently keep running the GitHub default that a fresh install starts on.
+        // Epic, Xbox and Skip are left alone because they say nothing about how Steam depot data
+        // should be refreshed. Set through the service rather than the state directly so the
+        // running crawler picks the new mode up without a restart.
+        if (hasDataSourceChoice)
+        {
+            if (request.DataSourceChoice == DataSourceChoice.Steam)
+            {
+                _steamKit2Service.CrawlIncrementalMode = true;
+            }
+            else if (request.DataSourceChoice == DataSourceChoice.Github)
+            {
+                _steamKit2Service.CrawlIncrementalMode = "github";
+            }
+        }
+
         // Call SetSetupCompleted AFTER UpdateState so the TaskCompletionSource signal
         // fires and unblocks all gated startup services immediately (no restart needed).
         if (hasCompleted)

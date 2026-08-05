@@ -24,7 +24,11 @@ public class AppState
     public string StatusCheckResolverMode { get; set; } = "auto";
     public DateTime? EpicMappingLastCollection { get; set; } // Last time the Epic catalog/CDN patterns were collected
     public double CrawlIntervalHours { get; set; } = 1.0; // Default to 1 hour
-    public object CrawlIncrementalMode { get; set; } = true; // Default to incremental scans (true/false/"github")
+    // Values are true (incremental), false (full) or "github". A fresh install starts on "github"
+    // because it is the only mode that can succeed there: incremental has no depot baseline to diff
+    // against, and full cannot enumerate app ids without a working Steam Web API. Installs that
+    // already chose a mode keep it, since the stored value is present in state.json.
+    public object CrawlIncrementalMode { get; set; } = "github";
     public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
     public bool HasDataLoaded { get; set; } = false;
     public bool HasProcessedLogs { get; set; } = false; // Track if logs have been processed at least once

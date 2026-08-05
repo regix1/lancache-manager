@@ -68,7 +68,9 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
 
     // Scheduling for periodic PICS crawls
     private DateTime _lastCrawlTime = DateTime.MinValue;
-    private object _crawlIncrementalMode = true; // Default: Run incremental scans (true/false/"github")
+    // Placeholder until InitializeAsync loads the stored mode; matches the fresh-install default in
+    // ManagerState so a tick that lands before initialization cannot start an unusable scan.
+    private object _crawlIncrementalMode = "github"; // true (incremental) / false (full) / "github"
     private readonly PicsDataService _picsDataService;
     private uint _lastChangeNumberSeen;
     private bool _lastScanWasForced = false; // Track if the last scan was forced to be full due to Steam requirements
@@ -201,6 +203,13 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             _crawlIncrementalMode = _stateService.GetCrawlIncrementalMode();
             var modeStr = CrawlModeLabel(_crawlIncrementalMode);
             _logger.LogInformation("Loaded crawl mode from state: {Mode}", modeStr);
+
+            // A stored "requires full scan" verdict is reused for an hour and short-circuits before
+            // the depot baseline is loaded, so it would be replayed against depot data that changed
+            // while the process was down. Both writers of that data update it several steps before
+            // they clear the cache, so a stop in between leaves a verdict that no longer matches the
+            // files on disk. Start every process with no verdict and let the first check ask Steam.
+            ClearViabilityCache();
 
             // Load PICS metadata (crawl time and change number) from JSON or state
             await LoadPicsMetadataAsync();

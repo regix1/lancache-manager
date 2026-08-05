@@ -100,11 +100,16 @@ public partial class SteamKit2Service
                         _logger.LogWarning("Scheduled incremental scan skipped - Steam requires full scan (change gap: {ChangeGap}). User must manually trigger a full scan.", viability.ChangeGap);
                         _automaticScanSkipped = true;
 
-                        // Send SignalR notification
+                        // Carry the measured gap and app estimate so the client can report what was
+                        // actually found instead of standing in a fixed number of its own.
                         await _notifications.NotifyAllAsync(SignalREvents.AutomaticScanSkipped, new
                         {
                             stageKey = "signalr.depotMapping.scan.skippedFullRequired",
-                            context = new Dictionary<string, object?>(),
+                            context = new Dictionary<string, object?>
+                            {
+                                ["changeGap"] = viability.ChangeGap,
+                                ["estimatedAppsToScan"] = viability.EstimatedAppsToScan
+                            },
                             timestamp = DateTime.UtcNow
                         });
 

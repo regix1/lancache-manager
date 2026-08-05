@@ -775,6 +775,19 @@ export interface DepotMappingCompleteEvent extends MappingCompleteEvent {
   timestamp?: string;
 }
 
+export interface AutomaticScanSkippedEvent {
+  stageKey?: string;
+  /**
+   * changeGap and estimatedAppsToScan are the measured values from the viability check.
+   * Backends older than the change that added them send an empty context, so both are optional.
+   */
+  context?: {
+    changeGap?: number;
+    estimatedAppsToScan?: number;
+  };
+  timestamp?: string;
+}
+
 export interface SteamSessionErrorEvent {
   errorType: string;
   stageKey?: string;
