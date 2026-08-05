@@ -1,5 +1,6 @@
 import React from 'react';
-import { AlertTriangle, Download, Scan, Github, Clock, Database, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Github } from 'lucide-react';
+import Badge from '@components/ui/Badge';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { useTranslation } from 'react-i18next';
@@ -25,7 +26,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   onDownloadFromGitHub,
   showDownloadOption = true,
   hasSteamApiKey = false,
-  title = 'Data Update Required',
+  title,
   isDownloading = false
 }) => {
   const { t } = useTranslation();
@@ -45,64 +46,48 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
           <div className="icon-box icon-box--sm full-scan-modal-icon">
             <AlertTriangle className="w-5 h-5" />
           </div>
-          <span>{title}</span>
+          <span>{title ?? t('app.fullScanRequired.title')}</span>
         </div>
       }
       size="md"
     >
       <div className="full-scan-modal-content">
-        {/* Stats Display */}
-        <div className="full-scan-modal-stats">
-          {changeGap && (
+        <p className="full-scan-modal-description">{t('modals.fullScan.description')}</p>
+
+        {/* Both counts read as one figure pair, so they share a single well and a hairline
+            rather than two separate boxes. `changeGap` is checked rather than short-circuited
+            so a zero gap renders nothing instead of the digit 0. */}
+        <div className="well-surface full-scan-modal-stats">
+          {changeGap ? (
             <div className="full-scan-modal-stat">
-              <div className="icon-box full-scan-modal-stat-icon">
-                <RefreshCw className="w-4 h-4" />
-              </div>
-              <div className="full-scan-modal-stat-content">
-                <span className="full-scan-modal-stat-value">{formatNumber(changeGap)}</span>
-                <span className="full-scan-modal-stat-label">
-                  {t('modals.fullScan.stats.updatesBehind')}
-                </span>
-              </div>
+              <span className="tabular-nums full-scan-modal-stat-value">
+                {formatNumber(changeGap)}
+              </span>
+              <span className="caps-label">{t('modals.fullScan.stats.updatesBehind')}</span>
             </div>
-          )}
+          ) : null}
           <div className="full-scan-modal-stat">
-            <div className="full-scan-modal-stat-icon">
-              <Database className="w-4 h-4" />
-            </div>
-            <div className="full-scan-modal-stat-content">
-              <span className="full-scan-modal-stat-value">
-                {estimatedApps ? `~${formatNumber(estimatedApps)}` : '300K+'}
-              </span>
-              <span className="full-scan-modal-stat-label">
-                {t('modals.fullScan.stats.appsToScan')}
-              </span>
-            </div>
+            <span className="tabular-nums full-scan-modal-stat-value">
+              {estimatedApps ? `~${formatNumber(estimatedApps)}` : '300K+'}
+            </span>
+            <span className="caps-label">{t('modals.fullScan.stats.appsToScan')}</span>
           </div>
         </div>
 
-        {/* Description */}
-        <p className="full-scan-modal-description">{t('modals.fullScan.description')}</p>
-
-        {/* GitHub Option */}
         {showDownloadOption && (
           <div className="full-scan-modal-option full-scan-modal-option-primary">
             <div className="full-scan-modal-option-header">
               <Github className="w-4 h-4" />
               <span>{t('modals.fullScan.github.title')}</span>
-              <span className="full-scan-modal-badge">
+              <Badge variant="success" className="full-scan-modal-badge">
                 {t('modals.fullScan.github.recommended')}
-              </span>
+              </Badge>
             </div>
             <div className="full-scan-modal-option-features">
-              <div className="full-scan-modal-feature">
-                <Clock className="w-3.5 h-3.5" />
-                <span>{t('modals.fullScan.github.duration')}</span>
-              </div>
-              <div className="full-scan-modal-feature">
-                <Database className="w-3.5 h-3.5" />
-                <span>{t('modals.fullScan.github.depots')}</span>
-              </div>
+              <span className="full-scan-modal-feature">
+                {t('modals.fullScan.github.duration')}
+              </span>
+              <span className="full-scan-modal-feature">{t('modals.fullScan.github.depots')}</span>
             </div>
             <Button
               onClick={onDownloadFromGitHub}
@@ -110,7 +95,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               color="blue"
               fullWidth
               loading={isDownloading}
-              leftSection={!isDownloading ? <Download className="w-4 h-4" /> : undefined}
+              aria-busy={isDownloading}
             >
               {isDownloading
                 ? t('modals.fullScan.github.downloading')
@@ -119,7 +104,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
           </div>
         )}
 
-        {/* Full Scan Option - only show if Steam API key available */}
+        {/* Only offered when a Steam API key is configured; without one the scan cannot run. */}
         {hasSteamApiKey && onConfirm && (
           <>
             {showDownloadOption && (
@@ -127,24 +112,17 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
                 <span>{t('modals.fullScan.or')}</span>
               </div>
             )}
-            <div className="full-scan-modal-option full-scan-modal-option-secondary">
-              <Button
-                onClick={onConfirm}
-                variant="filled"
-                color="gray"
-                fullWidth
-                leftSection={<Scan className="w-4 h-4" />}
-              >
-                {t('modals.fullScan.fullScanButton')}
-              </Button>
-            </div>
+            <Button onClick={onConfirm} variant="default" fullWidth disabled={isDownloading}>
+              {t('modals.fullScan.fullScanButton')}
+            </Button>
           </>
         )}
 
-        {/* Cancel */}
-        <Button onClick={onCancel} variant="filled" color="gray" fullWidth className="mt-2">
-          {t('common.cancel')}
-        </Button>
+        <div className="full-scan-modal-footer">
+          <Button onClick={onCancel} variant="default">
+            {t('common.cancel')}
+          </Button>
+        </div>
       </div>
     </Modal>
   );
