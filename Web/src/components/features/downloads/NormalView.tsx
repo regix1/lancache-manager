@@ -7,6 +7,7 @@ import Badge from '@components/ui/Badge';
 import { ChevronDown, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
 import { formatBytes, formatCount, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import EvictedBadge from '@components/common/EvictedBadge';
 import BadgesRow from './BadgesRow';
 import { DownloadTimestamp } from './DownloadTimestamp';
@@ -1225,7 +1226,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
       {/* Title area with service badge */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
-          {group.service.toUpperCase()}
+          {getServiceDisplayName(group.service).toUpperCase()}
         </span>
         {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
           <Badge variant="neutral">{group.downloads[0].datasource}</Badge>
@@ -1839,7 +1840,7 @@ const NormalView: React.FC<NormalViewProps> = ({
 
     const fakeGroup = {
       id: `individual-${download.id}`,
-      name: download.gameName || download.service,
+      name: download.gameName || getServiceDisplayName(download.service),
       type: 'game' as const,
       service: download.service,
       downloads: [download],
@@ -1862,7 +1863,7 @@ const NormalView: React.FC<NormalViewProps> = ({
     const totalBytes = download.totalBytes;
     return {
       id: `individual-${download.id}`,
-      name: download.gameName || download.service,
+      name: download.gameName || getServiceDisplayName(download.service),
       type: 'game' as const,
       service: download.service,
       downloads: [download],

@@ -8,6 +8,7 @@ import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useClientHostnames } from '@contexts/useClientHostnames';
 import { resolveClientLabel } from '@utils/clientLabel';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
@@ -269,12 +270,12 @@ const RetroRow: React.FC<RetroRowProps> = memo(
               <div className="px-2 min-w-0 overflow-hidden" data-cell>
                 <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
                   <Tooltip
-                    content={data.gameName || data.service}
+                    content={data.gameName || getServiceDisplayName(data.service)}
                     position="top"
                     className="flex min-w-0"
                   >
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
-                      {data.gameName || data.service}
+                      {data.gameName || getServiceDisplayName(data.service)}
                     </span>
                   </Tooltip>
                   <BadgesRow
@@ -421,12 +422,12 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                 )}
                 <div className="flex-1 min-w-0 overflow-hidden">
                   <Tooltip
-                    content={data.gameName || data.service}
+                    content={data.gameName || getServiceDisplayName(data.service)}
                     position="top"
                     className="block min-w-0"
                   >
                     <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
-                      {data.gameName || data.service}
+                      {data.gameName || getServiceDisplayName(data.service)}
                       {onDiskSizeBytes ? (
                         <span className="text-themed-muted text-xs ml-2">
                           {t('dashboard.downloadsPanel.onDisk', {

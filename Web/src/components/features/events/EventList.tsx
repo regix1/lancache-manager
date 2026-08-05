@@ -19,6 +19,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes } from '@utils/formatters';
+import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
 import ApiService from '@services/api.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
@@ -42,7 +43,7 @@ const groupDownloadsByGame = (downloads: Download[], unknownLabel: string) => {
   > = {};
 
   downloads.forEach((d) => {
-    const key = `${d.service}-${d.gameName || unknownLabel}`;
+    const key = `${getServiceFilterKey(d.service)}-${d.gameName || unknownLabel}`;
     if (!grouped[key]) {
       grouped[key] = {
         name: d.gameName || unknownLabel,
@@ -256,7 +257,9 @@ const EventCard = React.memo(
                   className="flex items-center justify-between py-2 px-3 rounded-lg bg-[var(--theme-bg-secondary)]"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <Badge variant="neutral">{game.service.toUpperCase()}</Badge>
+                    <Badge variant="neutral">
+                      {getServiceDisplayName(game.service).toUpperCase()}
+                    </Badge>
                     <Tooltip content={game.name} position="top" className="flex min-w-0">
                       <span className="text-sm font-medium truncate text-[var(--theme-text-primary)]">
                         {game.name}

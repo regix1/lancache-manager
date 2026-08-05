@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import './VirtualizedList.css';
 import { ChevronRight, ExternalLink, HardDrive } from 'lucide-react';
 import { formatBytes, formatPercent } from '@utils/formatters';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { DownloadTimestamp } from './DownloadTimestamp';
 import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -703,7 +704,7 @@ const CompactView = React.memo(function CompactView({
 
     const fakeGroup = {
       id: `individual-${download.id}`,
-      name: download.gameName || download.service,
+      name: download.gameName || getServiceDisplayName(download.service),
       type: 'game' as const,
       service: download.service,
       downloads: [download],

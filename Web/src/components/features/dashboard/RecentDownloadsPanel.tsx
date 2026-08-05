@@ -74,7 +74,8 @@ const ActiveDownloadItem: React.FC<{
   const displayName =
     game.gameName && game.gameName !== game.service && !game.gameName.match(/^Steam App \d+$/)
       ? game.gameName
-      : game.gameName || (game.depotId ? `Depot ${game.depotId}` : game.service);
+      : game.gameName ||
+        (game.depotId ? `Depot ${game.depotId}` : getServiceDisplayName(game.service));
   return (
     <div className="rdl-row rdl-row-active">
       <div className="rdl-row-main">
@@ -165,7 +166,8 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
         name:
           item.gameName && item.gameName !== item.service && !item.gameName.match(/^Steam App \d+$/)
             ? item.gameName
-            : item.gameName || (item.depotId ? `Depot ${item.depotId}` : item.service),
+            : item.gameName ||
+              (item.depotId ? `Depot ${item.depotId}` : getServiceDisplayName(item.service)),
         totalBytes: item.totalBytes,
         cacheHitPercent: item.cacheHitPercent,
         cacheHitBytes: item.cacheHitBytes,

@@ -1176,8 +1176,8 @@ const DownloadsTab: React.FC = () => {
         }
         case 'alphabetical': {
           // Sort by name alphabetically
-          const aName = 'downloads' in a ? a.name : a.gameName || a.service;
-          const bName = 'downloads' in b ? b.name : b.gameName || b.service;
+          const aName = 'downloads' in a ? a.name : a.gameName || getServiceDisplayName(a.service);
+          const bName = 'downloads' in b ? b.name : b.gameName || getServiceDisplayName(b.service);
           return aName.localeCompare(bName);
         }
         case 'recent':

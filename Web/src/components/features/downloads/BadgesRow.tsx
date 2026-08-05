@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import Badge from '@components/ui/Badge';
 import EvictedBadge from '@components/common/EvictedBadge';
 
@@ -24,7 +25,7 @@ export default function BadgesRow({
   return (
     <div className={`flex items-center gap-1.5 flex-wrap${className ? ` ${className}` : ''}`}>
       <span className="themed-badge" style={getServiceBadgeStyles(service)}>
-        {service.toUpperCase()}
+        {getServiceDisplayName(service).toUpperCase()}
       </span>
       {showDatasource && datasource && <Badge variant="neutral">{datasource}</Badge>}
       {isEvicted && <EvictedBadge />}

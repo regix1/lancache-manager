@@ -30,6 +30,7 @@ import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useClientHostnames } from '@contexts/useClientHostnames';
 import { resolveClientLabel } from '@utils/clientLabel';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { resolveGameDetection } from '@utils/gameDetection';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import { useThemeRevision } from '@components/features/dashboard/ServiceAnalyticsChart/chartTheme';
@@ -347,8 +348,8 @@ const RetroView = memo(
             const onDiskSizeBytes = detection?.total_size_bytes;
             return {
               timeLines: formatTimeRangeLines(data.startTimeUtc, data.endTimeUtc),
-              appName: data.gameName || data.service,
-              serviceBadge: data.service.toUpperCase(),
+              appName: data.gameName || getServiceDisplayName(data.service),
+              serviceBadge: getServiceDisplayName(data.service).toUpperCase(),
               evictionLabel: data.isPartiallyEvicted
                 ? 'Partially Evicted'
                 : data.isEvicted
