@@ -5245,7 +5245,7 @@
         "duration": "1-2 minutes",
         "depots": "300K+ depot mappings",
         "downloading": "Downloading...",
-        "downloadButton": "Download from GitHub"
+        "downloadButton": "Download"
       },
       "or": "or",
       "fullScanButton": "Full Scan (Slower)"
@@ -6658,6 +6658,11 @@
         "description": "Connect your Epic Games account to identify Epic game downloads in your cache. Uses OAuth to securely access your Epic Games library.",
         "note": "Requires an Epic Games account."
       },
+      "xbox": {
+        "label": "Xbox",
+        "description": "Connect your Xbox account to identify Xbox game downloads in your cache. Uses a Microsoft device code sign-in to securely access your Xbox game catalog.",
+        "note": "Requires a Microsoft account."
+      },
       "skip": {
         "label": "Skip Platform Setup",
         "description": "Skip platform configuration for now. You can set up Steam or Epic game mapping anytime from the Management tab.",
@@ -6668,13 +6673,14 @@
       "steamGroup": "Steam Game Mapping",
       "steamGroupNote": "Choose one option",
       "epicGroup": "Epic Game Mapping",
+      "xboxGroup": "Xbox Game Mapping",
       "completed": "Completed",
       "setUp": "Set Up",
       "finishSetup": "Continue",
       "override": "This will replace your current Steam setup",
       "requirementsInfo": {
         "label": "GitHub only:",
-        "body": "GitHub depot mappings are always available without a login. For the latest Steam and Epic game information (names, icons, and depot details), you'll need to authenticate with those platforms."
+        "body": "GitHub depot mappings are always available without a login. For the latest Steam, Epic, and Xbox game information (names, icons, and depot details), you'll need to authenticate with those platforms."
       },
       "recommendedNote": "Recommended",
       "softRequirement": "Setting up at least one platform is recommended to see game names and icons in your dashboard."
@@ -6700,6 +6706,22 @@
       "back": "Back",
       "connecting": "Connecting..."
     },
+    "xboxAuth": {
+      "title": "Xbox Authentication",
+      "subtitle": "Connect your Xbox account to enable game identification for cached downloads",
+      "connectButton": "Connect Xbox Account",
+      "securityNote": "Your Microsoft credentials are handled securely through Microsoft's official device code sign-in. No passwords are stored - only a temporary device code is used.",
+      "deviceCodeTitle": "Enter This Code on Microsoft's Site",
+      "deviceCodeSubtitle": "Open the verification page in your browser and enter the code shown below",
+      "userCodeLabel": "Device Code",
+      "openVerificationLink": "Open Microsoft Sign-In",
+      "waitingMessage": "Waiting for you to complete sign-in...",
+      "success": "Xbox account connected successfully!",
+      "successSubtitle": "Your Xbox game library will now be used to identify cached downloads",
+      "skipNote": "You can also set this up later from the Management tab",
+      "back": "Back",
+      "connecting": "Connecting..."
+    },
     "modal": {
       "setupWizard": "Setup Wizard",
       "stepProgress": "{{current}} / {{total}}",
@@ -6717,7 +6739,8 @@
         "logProcessing": "Log Processing",
         "depotMapping": "Depot Mapping",
         "platformSetup": "Platform Setup",
-        "epicAuthentication": "Epic Authentication"
+        "epicAuthentication": "Epic Authentication",
+        "xboxAuthentication": "Xbox Authentication"
       },
       "errors": {
         "picsStatusCheckFailed": "Couldn't check Steam depot data status. You can continue, but progress may not display correctly.",

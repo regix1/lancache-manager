@@ -5,6 +5,7 @@ export { PermissionsCheckStep } from './PermissionsCheckStep';
 export { ImportHistoricalDataStep } from './ImportHistoricalDataStep';
 export { PlatformSetupStep } from './PlatformSetupStep';
 export { EpicAuthStep } from './EpicAuthStep';
+export { XboxAuthStep } from './XboxAuthStep';
 export { SteamApiKeyStep } from './SteamApiKeyStep';
 export { SteamPicsAuthStep } from './SteamPicsAuthStep';
 export { DepotInitStep } from './DepotInitStep';

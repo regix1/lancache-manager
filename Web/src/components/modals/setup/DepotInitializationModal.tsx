@@ -13,6 +13,7 @@ import {
   ImportHistoricalDataStep,
   PlatformSetupStep,
   EpicAuthStep,
+  XboxAuthStep,
   SteamApiKeyStep,
   SteamPicsAuthStep,
   DepotInitStep,
@@ -49,6 +50,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
     handlePlatformSkip,
     handleEpicAuthComplete,
     handleEpicAuthSkip,
+    handleXboxAuthComplete,
+    handleXboxAuthSkip,
     handleSteamApiKeyComplete,
     handleSteamAuthComplete,
     handleDepotInitComplete,
@@ -136,6 +139,15 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
           <EpicAuthStep
             onComplete={handleEpicAuthComplete}
             onSkip={handleEpicAuthSkip}
+            onAuthStateChange={setBackButtonDisabled}
+          />
+        );
+
+      case 'xbox-auth':
+        return (
+          <XboxAuthStep
+            onComplete={handleXboxAuthComplete}
+            onSkip={handleXboxAuthSkip}
             onAuthStateChange={setBackButtonDisabled}
           />
         );

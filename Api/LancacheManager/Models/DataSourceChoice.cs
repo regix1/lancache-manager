@@ -5,7 +5,7 @@ namespace LancacheManager.Models;
 
 /// <summary>
 /// The data source the user selected during the setup wizard.
-/// Serialized as lowercase strings on the wire ("github", "steam", "epic", "skip")
+/// Serialized as lowercase strings on the wire ("github", "steam", "epic", "skip", "xbox")
 /// to preserve the pre-existing JSON contract with the frontend and persisted state.
 /// </summary>
 [JsonConverter(typeof(DataSourceChoiceJsonConverter))]
@@ -14,12 +14,13 @@ public enum DataSourceChoice
     Github,
     Steam,
     Epic,
-    Skip
+    Skip,
+    Xbox
 }
 
 /// <summary>
 /// Serializes <see cref="DataSourceChoice"/> as lowercase strings
-/// ("github" / "steam" / "epic" / "skip") and accepts any casing on deserialization
+/// ("github" / "steam" / "epic" / "skip" / "xbox") and accepts any casing on deserialization
 /// to match the pre-existing wire contract.
 /// </summary>
 internal sealed class DataSourceChoiceJsonConverter : JsonStringEnumConverter<DataSourceChoice>
@@ -36,7 +37,7 @@ internal sealed class DataSourceChoiceJsonConverter : JsonStringEnumConverter<Da
 public static class DataSourceChoiceExtensions
 {
     /// <summary>
-    /// Returns the canonical lowercase wire value ("github", "steam", "epic", "skip").
+    /// Returns the canonical lowercase wire value ("github", "steam", "epic", "skip", "xbox").
     /// </summary>
     public static string ToWireString(this DataSourceChoice choice) => choice switch
     {
@@ -44,6 +45,7 @@ public static class DataSourceChoiceExtensions
         DataSourceChoice.Steam => "steam",
         DataSourceChoice.Epic => "epic",
         DataSourceChoice.Skip => "skip",
+        DataSourceChoice.Xbox => "xbox",
         _ => choice.ToString().ToLowerInvariant()
     };
 

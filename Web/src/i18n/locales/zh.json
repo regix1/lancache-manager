@@ -5243,7 +5243,7 @@
         "duration": "1-2 分钟",
         "depots": "30 万+ 仓库映射",
         "downloading": "下载中...",
-        "downloadButton": "从 GitHub 下载"
+        "downloadButton": "下载"
       },
       "or": "或",
       "fullScanButton": "全面扫描（较慢）"
@@ -6622,6 +6622,11 @@
         "description": "连接您的 Epic Games 账户以识别缓存中的 Epic 游戏下载。使用 OAuth 安全访问您的 Epic Games 库。",
         "note": "需要 Epic Games 账户。"
       },
+      "xbox": {
+        "label": "Xbox",
+        "description": "连接您的 Xbox 账户以识别缓存中的 Xbox 游戏下载。使用 Microsoft 设备代码登录安全访问您的 Xbox 游戏库。",
+        "note": "需要 Microsoft 账户。"
+      },
       "skip": {
         "label": "跳过平台设置",
         "description": "暂时跳过平台配置。您可以随时从管理标签页设置 Steam 或 Epic 游戏映射。",
@@ -6632,13 +6637,14 @@
       "steamGroup": "Steam 游戏映射",
       "steamGroupNote": "选择一个选项",
       "epicGroup": "Epic 游戏映射",
+      "xboxGroup": "Xbox 游戏映射",
       "completed": "已完成",
       "setUp": "设置",
       "finishSetup": "继续",
       "override": "这将替换您当前的 Steam 设置",
       "requirementsInfo": {
         "label": "仅限 GitHub：",
-        "body": "GitHub 仓库映射无需登录即可始终使用。要获取最新的 Steam 和 Epic 游戏信息（名称、图标和仓库详情），您需要在这些平台进行认证。"
+        "body": "GitHub 仓库映射无需登录即可始终使用。要获取最新的 Steam、Epic 和 Xbox 游戏信息（名称、图标和仓库详情），您需要在这些平台进行认证。"
       },
       "recommendedNote": "推荐",
       "softRequirement": "建议至少设置一个平台，以便在仪表板中查看游戏名称和图标。"
@@ -6664,6 +6670,22 @@
       "back": "返回",
       "connecting": "连接中..."
     },
+    "xboxAuth": {
+      "title": "Xbox 认证",
+      "subtitle": "连接您的 Xbox 账户以启用缓存下载的游戏识别",
+      "connectButton": "连接 Xbox 账户",
+      "securityNote": "您的 Microsoft 凭证通过 Microsoft 官方的设备代码登录流程安全处理。不存储密码 - 仅使用临时设备代码。",
+      "deviceCodeTitle": "在 Microsoft 网站上输入此代码",
+      "deviceCodeSubtitle": "在浏览器中打开验证页面，并输入下方显示的代码",
+      "userCodeLabel": "设备代码",
+      "openVerificationLink": "打开 Microsoft 登录页面",
+      "waitingMessage": "正在等待您完成登录...",
+      "success": "Xbox 账户连接成功！",
+      "successSubtitle": "您的 Xbox 游戏库现在将用于识别缓存的下载",
+      "skipNote": "您也可以稍后从管理标签页进行设置",
+      "back": "返回",
+      "connecting": "连接中..."
+    },
     "modal": {
       "setupWizard": "设置向导",
       "stepProgress": "{{current}} / {{total}}",
@@ -6681,7 +6703,8 @@
         "logProcessing": "日志处理",
         "depotMapping": "仓库映射",
         "platformSetup": "平台设置",
-        "epicAuthentication": "Epic 认证"
+        "epicAuthentication": "Epic 认证",
+        "xboxAuthentication": "Xbox 认证"
       },
       "errors": {
         "picsStatusCheckFailed": "无法检查 Steam 仓库数据状态。您可以继续,但进度可能无法正确显示。",

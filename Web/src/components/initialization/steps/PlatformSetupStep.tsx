@@ -3,12 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { Cloud, Database, CheckCircle, Gamepad2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
+import { XboxIcon } from '@components/ui/XboxIcon';
 import type { CompletedPlatforms } from '@hooks/useInitializationFlow';
 
-type SelectedPlatform = 'github' | 'steam' | 'epic' | null;
+type SelectedPlatform = 'github' | 'steam' | 'epic' | 'xbox' | null;
 
 interface PlatformSetupStepProps {
-  onSelectPlatform: (platform: 'github' | 'steam' | 'epic') => void;
+  onSelectPlatform: (platform: 'github' | 'steam' | 'epic' | 'xbox') => void;
   onContinue: () => void;
   onSkip: () => void;
   completedPlatforms: CompletedPlatforms;
@@ -22,6 +23,12 @@ interface PlatformCardProps {
 }
 
 interface EpicCardProps {
+  selected: SelectedPlatform;
+  completedPlatforms: CompletedPlatforms;
+  onSelect: (platform: SelectedPlatform) => void;
+}
+
+interface XboxCardProps {
   selected: SelectedPlatform;
   completedPlatforms: CompletedPlatforms;
   onSelect: (platform: SelectedPlatform) => void;
@@ -134,6 +141,39 @@ const EpicCard: React.FC<EpicCardProps> = ({ selected, completedPlatforms, onSel
   );
 };
 
+const XboxCard: React.FC<XboxCardProps> = ({ selected, completedPlatforms, onSelect }) => {
+  const { t } = useTranslation();
+  const isSelected = selected === 'xbox';
+  const isCompleted = completedPlatforms.xbox;
+
+  const handleClick = (): void => {
+    onSelect(isSelected ? null : 'xbox');
+  };
+
+  return (
+    <div className={getCardClassName(isSelected)} onClick={handleClick}>
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-2 mb-2">
+          <XboxIcon size={20} className="icon-primary flex-shrink-0" />
+          <h4 className="font-semibold text-themed-primary">
+            {t('initialization.platformSetup.xbox.label')}
+          </h4>
+        </div>
+        {isCompleted && (
+          <div className="flex items-center gap-1 text-xs font-medium text-success flex-shrink-0 ml-2">
+            <CheckCircle className="w-4 h-4" />
+            {t('initialization.platformSetup.completed')}
+          </div>
+        )}
+      </div>
+      <p className="text-sm text-themed-secondary mb-1">
+        {t('initialization.platformSetup.xbox.description')}
+      </p>
+      <p className="text-xs text-themed-muted">{t('initialization.platformSetup.xbox.note')}</p>
+    </div>
+  );
+};
+
 function getPrimaryButtonLabel(selected: SelectedPlatform, t: (key: string) => string): string {
   if (selected === null) {
     return t('initialization.platformSetup.finishSetup');
@@ -143,7 +183,7 @@ function getPrimaryButtonLabel(selected: SelectedPlatform, t: (key: string) => s
 }
 
 function hasAnyCompletion(completedPlatforms: CompletedPlatforms): boolean {
-  return completedPlatforms.steam !== null || completedPlatforms.epic;
+  return completedPlatforms.steam !== null || completedPlatforms.epic || completedPlatforms.xbox;
 }
 
 export const PlatformSetupStep: React.FC<PlatformSetupStepProps> = ({
@@ -229,6 +269,18 @@ export const PlatformSetupStep: React.FC<PlatformSetupStepProps> = ({
           {t('initialization.platformSetup.epicGroup')}
         </p>
         <EpicCard
+          selected={selected}
+          completedPlatforms={completedPlatforms}
+          onSelect={handleSelectCard}
+        />
+      </div>
+
+      {/* Xbox Group */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-themed-secondary">
+          {t('initialization.platformSetup.xboxGroup')}
+        </p>
+        <XboxCard
           selected={selected}
           completedPlatforms={completedPlatforms}
           onSelect={handleSelectCard}

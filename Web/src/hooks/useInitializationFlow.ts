@@ -18,13 +18,15 @@ export type InitStep =
   | 'depot-init'
   | 'pics-progress'
   | 'epic-auth'
+  | 'xbox-auth'
   | 'log-processing';
 
-type DataSourceChoice = 'github' | 'steam' | 'epic' | 'skip' | null;
+type DataSourceChoice = 'github' | 'steam' | 'epic' | 'xbox' | 'skip' | null;
 
 export interface CompletedPlatforms {
   steam: 'github' | 'steam' | null;
   epic: boolean;
+  xbox: boolean;
 }
 
 interface StepInfo {
@@ -56,11 +58,13 @@ interface UseInitializationFlowResult {
   handleExternalDbConfirmContinue: () => void;
   handlePermissionsCheckComplete: () => void;
   handleImportComplete: () => void;
-  handleSelectPlatform: (platform: 'github' | 'steam' | 'epic') => void;
+  handleSelectPlatform: (platform: 'github' | 'steam' | 'epic' | 'xbox') => void;
   handlePlatformContinue: () => void;
   handlePlatformSkip: () => void;
   handleEpicAuthComplete: () => void;
   handleEpicAuthSkip: () => void;
+  handleXboxAuthComplete: () => void;
+  handleXboxAuthSkip: () => void;
   handleSteamApiKeyComplete: () => Promise<void>;
   handleSteamAuthComplete: (usingSteam: boolean) => Promise<void>;
   handleDepotInitComplete: () => void;
@@ -98,6 +102,9 @@ const buildStepInfoMap = (
         break;
       case 'epic':
         if (step === 'epic-auth') return { number: 4, total: BASE_TOTAL + 1 };
+        break;
+      case 'xbox':
+        if (step === 'xbox-auth') return { number: 4, total: BASE_TOTAL + 1 };
         break;
     }
     return null;
@@ -137,6 +144,7 @@ const buildStepInfoMap = (
     'depot-init',
     'pics-progress',
     'epic-auth',
+    'xbox-auth',
     'log-processing'
   ];
 
@@ -152,6 +160,7 @@ const buildStepInfoMap = (
     'depot-init': t('initialization.modal.stepTitles.depotInitialization'),
     'pics-progress': t('initialization.modal.stepTitles.picsDataProgress'),
     'epic-auth': t('initialization.modal.stepTitles.epicAuthentication'),
+    'xbox-auth': t('initialization.modal.stepTitles.xboxAuthentication'),
     'log-processing': t('initialization.modal.stepTitles.logProcessing')
   };
 
@@ -166,12 +175,15 @@ const buildStepInfoMap = (
 function parseCompletedPlatforms(raw: string | null): CompletedPlatforms {
   if (raw) {
     try {
-      return JSON.parse(raw) as CompletedPlatforms;
+      // Spread over the defaults rather than casting the parsed JSON directly: a wizard blob
+      // saved before a platform existed has no field for it, and would otherwise read as
+      // undefined instead of false.
+      return { steam: null, epic: false, xbox: false, ...JSON.parse(raw) };
     } catch {
       /* fall through */
     }
   }
-  return { steam: null, epic: false };
+  return { steam: null, epic: false, xbox: false };
 }
 
 /** Map database-setup and related steps to the correct form for embedded vs external Postgres. */
@@ -222,6 +234,7 @@ function normalizeServerStep(raw: string | null): InitStep | null {
     case 'depot-init':
     case 'pics-progress':
     case 'epic-auth':
+    case 'xbox-auth':
     case 'log-processing':
     case 'api-key':
       return 'permissions-check';
@@ -417,7 +430,7 @@ export function useInitializationFlow({
           lastPersistedDataSource.current = setupData.dataSourceChoice ?? null;
           lastPersistedPlatforms.current = setupData.completedPlatforms
             ? JSON.stringify(parseCompletedPlatforms(setupData.completedPlatforms))
-            : JSON.stringify({ steam: null, epic: false });
+            : JSON.stringify({ steam: null, epic: false, xbox: false });
           hydratedRef.current = true;
           setIsCheckingAuth(false);
           return;
@@ -482,7 +495,7 @@ export function useInitializationFlow({
   }, [goToStep]);
 
   const handleSelectPlatform = useCallback(
-    (platform: 'github' | 'steam' | 'epic'): void => {
+    (platform: 'github' | 'steam' | 'epic' | 'xbox'): void => {
       switch (platform) {
         case 'github':
           setDataSourceChoice('github');
@@ -495,6 +508,10 @@ export function useInitializationFlow({
         case 'epic':
           setDataSourceChoice('epic');
           goToStep('epic-auth');
+          break;
+        case 'xbox':
+          setDataSourceChoice('xbox');
+          goToStep('xbox-auth');
           break;
       }
     },
@@ -518,6 +535,18 @@ export function useInitializationFlow({
 
   const handleEpicAuthSkip = useCallback((): void => {
     // User skipped Epic auth - return to hub without marking complete
+    setDataSourceChoice(null);
+    goToStep('platform-setup');
+  }, [goToStep]);
+
+  const handleXboxAuthComplete = useCallback((): void => {
+    setCompletedPlatforms((prev) => ({ ...prev, xbox: true }));
+    setDataSourceChoice(null);
+    goToStep('platform-setup');
+  }, [goToStep]);
+
+  const handleXboxAuthSkip = useCallback((): void => {
+    // User skipped Xbox auth - return to hub without marking complete
     setDataSourceChoice(null);
     goToStep('platform-setup');
   }, [goToStep]);
@@ -614,6 +643,9 @@ export function useInitializationFlow({
       case 'epic-auth':
         goToStep('platform-setup');
         break;
+      case 'xbox-auth':
+        goToStep('platform-setup');
+        break;
       case 'depot-init':
         if (dataSourceChoice === 'steam') {
           goToStep('steam-auth');
@@ -664,6 +696,8 @@ export function useInitializationFlow({
     handlePlatformSkip,
     handleEpicAuthComplete,
     handleEpicAuthSkip,
+    handleXboxAuthComplete,
+    handleXboxAuthSkip,
     handleSteamApiKeyComplete,
     handleSteamAuthComplete,
     handleDepotInitComplete,
