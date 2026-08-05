@@ -13,7 +13,7 @@ interface FullScanRequiredModalProps {
   onCancel: () => void;
   onDownloadFromGitHub: () => void;
   showDownloadOption?: boolean;
-  hasSteamApiKey?: boolean;
+  isSteamWebApiAvailable?: boolean;
   title?: string;
   isDownloading?: boolean;
 }
@@ -25,7 +25,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   onCancel,
   onDownloadFromGitHub,
   showDownloadOption = true,
-  hasSteamApiKey = false,
+  isSteamWebApiAvailable = false,
   title,
   isDownloading = false
 }) => {
@@ -104,8 +104,10 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
           </div>
         )}
 
-        {/* Only offered when a Steam API key is configured; without one the scan cannot run. */}
-        {hasSteamApiKey && onConfirm && (
+        {/* A full scan enumerates every app through the Steam Web API, which answers either on V2
+            without a key or on V1 with one. Offer it whenever that API is reachable, not only when
+            a key happens to be saved, and hide it when neither route works. */}
+        {isSteamWebApiAvailable && onConfirm && (
           <>
             {showDownloadOption && (
               <div className="full-scan-modal-divider">

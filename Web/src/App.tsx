@@ -544,7 +544,7 @@ const AppContent: React.FC = () => {
           onConfirm={handleRunFullScan}
           onDownloadFromGitHub={handleDownloadFromGitHub}
           showDownloadOption={true}
-          hasSteamApiKey={steamApiStatus?.hasApiKey ?? false}
+          isSteamWebApiAvailable={steamApiStatus?.isFullyOperational ?? false}
           title={t('app.fullScanRequired.title')}
           changeGap={fullScanModalChangeGap}
           estimatedApps={fullScanModalEstimatedApps}

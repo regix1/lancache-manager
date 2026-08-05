@@ -3400,7 +3400,6 @@
         "incremental": "增量",
         "full": "完整",
         "github": "GitHub",
-        "incrementalWebApiRequired": "增量（需要 Web API）",
         "fullWebApiRequired": "完整（需要 Web API）"
       },
       "sources": {

@@ -3400,7 +3400,6 @@
         "incremental": "Incremental",
         "full": "Full",
         "github": "GitHub",
-        "incrementalWebApiRequired": "Incremental (Web API required)",
         "fullWebApiRequired": "Full (Web API required)"
       },
       "sources": {

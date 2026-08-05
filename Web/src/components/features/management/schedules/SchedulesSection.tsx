@@ -127,11 +127,11 @@ const DepotScheduleModeDropdown = memo(function DepotScheduleModeDropdown({
   const { t } = useTranslation();
   const options = [
     {
+      // An incremental scan reads the PICS changelist over the Steam client connection and never
+      // calls the Steam Web API, so it stays selectable while the Web API is unreachable. Only the
+      // full scan enumerates every app through the Web API.
       value: 'incremental',
-      label: isSteamWebApiAvailable
-        ? t('management.depotMapping.modes.incremental')
-        : t('management.depotMapping.modes.incrementalWebApiRequired'),
-      disabled: !isSteamWebApiAvailable
+      label: t('management.depotMapping.modes.incremental')
     },
     {
       value: 'full',
