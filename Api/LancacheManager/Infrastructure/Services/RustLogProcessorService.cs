@@ -853,7 +853,7 @@ public class RustLogProcessorService
 
             if (finalProgress is not null)
             {
-                await riotMappingRun.ObserveAsync(
+                await riotMappingRun.ReportAsync(
                     finalProgress.RiotHostsProcessed,
                     finalProgress.RiotHostsMapped,
                     finalProgress.PercentComplete);
@@ -1319,7 +1319,7 @@ public class RustLogProcessorService
         var monitor = new RustProgressMonitor<ProgressData>(_rustProcessHelper, _logger);
         return monitor.MonitorAsync(progressPath, async (ProgressData progress) =>
         {
-            await riotMappingRun.ObserveAsync(
+            await riotMappingRun.ReportAsync(
                 progress.RiotHostsProcessed,
                 progress.RiotHostsMapped,
                 progress.PercentComplete);

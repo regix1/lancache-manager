@@ -506,7 +506,7 @@ public class CorruptionDetectionService
             var startingStageKey = detectionMethod == CorruptionDetectionMethod.Structural
                 ? "signalr.corruptionDetect.startingStructural"
                 : "signalr.corruptionDetect.startingRepeatedMiss";
-            await RelayProgressAsync(relay.Capture(startingStageKey, 0, null, 0, 0));
+            await ReportProgressAsync(relay.Capture(startingStageKey, 0, null, 0, 0));
 
             StructuralStderrObserver? stderrObserver = detectionMethod == CorruptionDetectionMethod.Structural
                 ? new StructuralStderrObserver(_logger, datasourceName)
@@ -576,7 +576,7 @@ public class CorruptionDetectionService
                             ? "signalr.corruptionDetect.scanning"
                             : progressData.StageKey;
                         UpdateStructuralProgressMetrics(metadata, progressData.Context);
-                        await RelayProgressAsync(relay.Capture(
+                        await ReportProgressAsync(relay.Capture(
                             stageKey,
                             progressData.PercentComplete,
                             progressData.Context,
@@ -638,7 +638,7 @@ public class CorruptionDetectionService
                 report,
                 scanSummary);
 
-            async Task RelayProgressAsync(CorruptionRelayDecision decision)
+            async Task ReportProgressAsync(CorruptionRelayDecision decision)
             {
                 if (decision.IsNew)
                 {

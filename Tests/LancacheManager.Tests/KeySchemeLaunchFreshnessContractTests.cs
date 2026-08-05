@@ -39,7 +39,7 @@ public sealed class KeySchemeLaunchFreshnessContractTests
     {
         var source = ReadSource("CorruptionDetectionService.cs");
         var reportMethod = source.IndexOf("private async Task<DatasourceCorruptionReport> GetReportForDatasourceAsync", StringComparison.Ordinal);
-        var startingNotification = source.IndexOf("await RelayProgressAsync", reportMethod, StringComparison.Ordinal);
+        var startingNotification = source.IndexOf("await ReportProgressAsync", reportMethod, StringComparison.Ordinal);
         var scheme = source.IndexOf("_capabilityService.GetKeySchemeWireValue(datasource)", startingNotification, StringComparison.Ordinal);
         var startInfo = source.IndexOf("var startInfo = detectionMethod switch", scheme, StringComparison.Ordinal);
         var launch = source.IndexOf("ExecuteTrackedProcessWithProgressAsync", startInfo, StringComparison.Ordinal);

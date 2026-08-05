@@ -240,7 +240,7 @@ public class ScheduledPrefillAnonymousRunPathTests
 
     /// <summary>
     /// Records the <c>stage</c> field of every <c>NotifyAllAsync</c> payload
-    /// (<see cref="ScheduledPrefillService"/>'s <c>EmitProgressAsync</c> is the only caller that
+    /// (<see cref="ScheduledPrefillService"/>'s <c>ReportProgressAsync</c> is the only caller that
     /// shapes payloads this way), so the test can assert the run never emitted "needs-login" and did
     /// reach "completed". Every other member returns its type default (mirrors NullReturningProxy).
     /// </summary>

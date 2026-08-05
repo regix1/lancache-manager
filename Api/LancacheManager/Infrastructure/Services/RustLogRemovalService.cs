@@ -355,7 +355,7 @@ public class RustLogRemovalService
                 Context = new Dictionary<string, object?> { ["service"] = service }
             });
 
-            await PublishLogRemovalProgressAsync(
+            await ReportProgressAsync(
                 "signalr.logRemoval.starting.multi",
                 0,
                 new Dictionary<string, object?> { ["service"] = service, ["datasourceCount"] = datasources.Count },
@@ -424,7 +424,7 @@ public class RustLogRemovalService
                         arguments,
                         Path.GetDirectoryName(rustExecutablePath));
 
-                    await PublishLogRemovalProgressAsync(
+                    await ReportProgressAsync(
                         "signalr.logRemoval.processingDatasource",
                         (double)datasourcesProcessed / datasources.Count * MultiDatasourceFileCeiling,
                         new Dictionary<string, object?>
@@ -827,7 +827,7 @@ public class RustLogRemovalService
                     Context = new Dictionary<string, object?> { ["service"] = service, ["datasourceName"] = datasourceName }
                 });
 
-                await PublishLogRemovalProgressAsync(
+                await ReportProgressAsync(
                     "signalr.logRemoval.starting.single",
                     0,
                     new Dictionary<string, object?>
@@ -1058,7 +1058,7 @@ public class RustLogRemovalService
             progress.FilesProcessed,
             progress.LinesProcessed,
             progress.LinesRemoved);
-        return PublishLogRemovalProgressAsync(
+        return ReportProgressAsync(
             string.IsNullOrWhiteSpace(progress.StageKey)
                 ? "signalr.logRemoval.removing"
                 : progress.StageKey,
@@ -1113,7 +1113,7 @@ public class RustLogRemovalService
         return current;
     }
 
-    private async Task PublishLogRemovalProgressAsync(
+    private async Task ReportProgressAsync(
         string stageKey,
         double percentComplete,
         IReadOnlyDictionary<string, object?> context,
@@ -1311,7 +1311,7 @@ public class RustLogRemovalService
         {
             _logger.LogInformation("Starting database cleanup for service: {Service}", service);
 
-            await PublishLogRemovalProgressAsync(
+            await ReportProgressAsync(
                 "signalr.logRemoval.cleaningDatabase",
                 95.0,
                 new Dictionary<string, object?> { ["service"] = service },

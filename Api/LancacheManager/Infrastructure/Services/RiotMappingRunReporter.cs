@@ -41,7 +41,7 @@ internal sealed class RiotMappingRunReporter : IAsyncDisposable
         _cancelOwner = cancelOwner;
     }
 
-    public async Task ObserveAsync(long processed, long mapped, double percent)
+    public async Task ReportAsync(long processed, long mapped, double percent)
     {
         if (processed <= 0 || _completed)
         {

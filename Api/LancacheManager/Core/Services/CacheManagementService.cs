@@ -1697,7 +1697,7 @@ public partial class CacheManagementService
         return remainingMinutes == 0 ? $"{hours} hour{(hours == 1 ? "" : "s")}" : $"{hours}h {remainingMinutes}m";
     }
 
-    // Broadcast gate for RelayProgressAsync. Safe as instance fields: callers hold the scan
+    // Broadcast gate for ReportProgressAsync. Safe as instance fields: callers hold the scan
     // locks so at most one cache size scan relays progress at a time.
     private long _cacheSizeScanLastEmitTicks = long.MinValue;
     private string? _cacheSizeScanLastEmitStageKey;
@@ -1707,7 +1707,7 @@ public partial class CacheManagementService
     /// skipped: the Rust binary overwrites the progress file with the final result JSON (no
     /// stageKey) when it finishes, and the poller may read that before it stops.
     /// </summary>
-    private async Task RelayProgressAsync(Guid operationId, CacheSizeScanProgressData progress, bool showNotification = true)
+    private async Task ReportProgressAsync(Guid operationId, CacheSizeScanProgressData progress, bool showNotification = true)
     {
         if (string.IsNullOrEmpty(progress.StageKey))
         {
@@ -1882,7 +1882,7 @@ public partial class CacheManagementService
                         CalibrationStep = progress.CalibrationStep,
                         CalibrationTotalSteps = progress.CalibrationTotalSteps
                     };
-                    await RelayProgressAsync(operationId, overallProgress, showNotification);
+                    await ReportProgressAsync(operationId, overallProgress, showNotification);
                 }
 
                 var datasourceResult = await RunCacheSizeScanAsync(

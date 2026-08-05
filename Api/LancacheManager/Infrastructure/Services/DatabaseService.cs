@@ -117,7 +117,7 @@ public class DatabaseService
         // resets process-wide). The lambda mirrors the worker finally (lines 900-904).
         // onTerminalEmit fires the typed DatabaseResetComplete event EXACTLY ONCE (CompletedFlag-gated) for
         // the normal success/error path AND the universal force-kill/cancel path. The legacy
-        // All phase progress is routed through ReportResetProgressAsync below; terminal completion
+        // All phase progress is routed through ReportProgressAsync below; terminal completion
         // remains centralized in the tracker's onTerminalEmit callback.
         Guid opId = default;
         opId = _operationTracker.RegisterOperation(
@@ -224,7 +224,7 @@ public class DatabaseService
             _logger.LogInformation($"Starting selective database reset for tables: {string.Join(", ", tableNames)}");
 
             // Send initial progress update
-            await ReportResetProgressAsync(
+            await ReportProgressAsync(
                 operationId,
                 isProcessing: true,
                 percentComplete: 0,
@@ -245,7 +245,7 @@ public class DatabaseService
             {
                 _logger.LogWarning("No valid tables selected for reset");
                 terminalOutcome = OperationStatus.Failed;
-                await ReportResetProgressAsync(
+                await ReportProgressAsync(
                     operationId,
                     isProcessing: false,
                     percentComplete: 0,
@@ -381,7 +381,7 @@ public class DatabaseService
                                 var progressPercent = Math.Min(currentProgress + progressPerTable * (logEntriesDeleted / (double)Math.Max(logEntriesTotal, 1)), 85.0);
                                 var progressMessage = $"Clearing log entries... {logEntriesDeleted:N0}/{logEntriesTotal:N0} ({percentDone:F1}%)";
 
-                                await ReportResetProgressAsync(
+                                await ReportProgressAsync(
                                     operationId,
                                     true,
                                     progressPercent,
@@ -416,7 +416,7 @@ public class DatabaseService
                             // Also reset legacy position
                             _stateRepository.SetLogPosition(0);
 
-                            await ReportResetProgressAsync(operationId, true,
+                            await ReportProgressAsync(operationId, true,
                                 Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
                                 "signalr.dbReset.clearedLogEntries",
                                 new Dictionary<string, object?> { ["count"] = logEntriesDeleted },
@@ -429,7 +429,7 @@ public class DatabaseService
                             _logger.LogInformation($"Cleared {downloadsCount:N0} downloads");
                             deletedRows += downloadsCount;
 
-                            await ReportResetProgressAsync(operationId, true,
+                            await ReportProgressAsync(operationId, true,
                                 Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
                                 "signalr.dbReset.clearedDownloads",
                                 new Dictionary<string, object?> { ["count"] = downloadsCount },
@@ -442,7 +442,7 @@ public class DatabaseService
                             _logger.LogInformation($"Cleared {clientStatsCount:N0} client stats");
                             deletedRows += clientStatsCount;
 
-                            await ReportResetProgressAsync(operationId, true,
+                            await ReportProgressAsync(operationId, true,
                                 Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
                                 "signalr.dbReset.clearedClientStats",
                                 new Dictionary<string, object?> { ["count"] = clientStatsCount },
@@ -455,7 +455,7 @@ public class DatabaseService
                             _logger.LogInformation($"Cleared {serviceStatsCount:N0} service stats");
                             deletedRows += serviceStatsCount;
 
-                            await ReportResetProgressAsync(operationId, true,
+                            await ReportProgressAsync(operationId, true,
                                 Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
                                 "signalr.dbReset.clearedServiceStats",
                                 new Dictionary<string, object?> { ["count"] = serviceStatsCount },
@@ -493,7 +493,7 @@ public class DatabaseService
                                 }
                             }
 
-                            await ReportResetProgressAsync(operationId, true,
+                            await ReportProgressAsync(operationId, true,
                                 Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
                                 "signalr.dbReset.clearedDepotMappings",
                                 new Dictionary<string, object?> { ["count"] = mappingCount },
@@ -506,7 +506,7 @@ public class DatabaseService
                             _logger.LogInformation($"Cleared {gameDetectionCount:N0} cached game detections");
                             deletedRows += gameDetectionCount;
 
-                            await ReportResetProgressAsync(operationId, true,
+                            await ReportProgressAsync(operationId, true,
                                 Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
                                 "signalr.dbReset.clearedGameDetections",
                                 new Dictionary<string, object?> { ["count"] = gameDetectionCount },
@@ -519,7 +519,7 @@ public class DatabaseService
                             _logger.LogInformation($"Cleared {userPreferencesCount:N0} user preferences");
                             deletedRows += userPreferencesCount;
 
-                            await ReportResetProgressAsync(operationId, true,
+                            await ReportProgressAsync(operationId, true,
                                 Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
                                 "signalr.dbReset.clearedUserPreferences",
                                 new Dictionary<string, object?> { ["count"] = userPreferencesCount },
@@ -552,7 +552,7 @@ public class DatabaseService
 
                             // CRITICAL: Clear in-memory caches for both guest sessions and device registrations
                             // Without this, the services would still serve cached sessions from memory
-                            await ReportResetProgressAsync(operationId, true,
+                            await ReportProgressAsync(operationId, true,
                                 Math.Min(currentProgress + progressPerTable, 85.0), OperationStatus.Running,
                                 "signalr.dbReset.clearedUserSessions",
                                 new Dictionary<string, object?> { ["count"] = userSessionsCount },
@@ -775,7 +775,7 @@ public class DatabaseService
                 // Clean up files if LogEntries or Downloads were cleared
                 if (tablesToClear.Contains("LogEntries") || tablesToClear.Contains("Downloads"))
                 {
-                    await ReportResetProgressAsync(
+                    await ReportProgressAsync(
                         operationId,
                         true,
                         90.0,
@@ -845,7 +845,7 @@ public class DatabaseService
             // terminal only after the execution-strategy callback (including its finally) returned;
             // otherwise a cleanup failure could leave a failed reset reported as completed.
             terminalOutcome = OperationStatus.Completed;
-            await ReportResetProgressAsync(
+            await ReportProgressAsync(
                 operationId,
                 false,
                 100.0,
@@ -864,7 +864,7 @@ public class DatabaseService
             _logger.LogInformation("Database reset operation {OperationId} was cancelled by user", operationId);
 
             var current = Volatile.Read(ref _currentResetProgress);
-            await ReportResetProgressAsync(
+            await ReportProgressAsync(
                 operationId,
                 false,
                 current?.Snapshot.PercentComplete ?? 0,
@@ -881,7 +881,7 @@ public class DatabaseService
             _logger.LogError(ex, "Error during selective database reset");
 
             var current = Volatile.Read(ref _currentResetProgress);
-            await ReportResetProgressAsync(
+            await ReportProgressAsync(
                 operationId,
                 false,
                 current?.Snapshot.PercentComplete ?? 0,
@@ -917,7 +917,7 @@ public class DatabaseService
         string tableName,
         int count,
         string message) =>
-        ReportResetProgressAsync(
+        ReportProgressAsync(
             operationId,
             true,
             percentComplete,
@@ -930,7 +930,7 @@ public class DatabaseService
             },
             message);
 
-    private async Task ReportResetProgressAsync(
+    private async Task ReportProgressAsync(
         Guid operationId,
         bool isProcessing,
         double percentComplete,

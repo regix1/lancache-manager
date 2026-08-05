@@ -35,7 +35,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly IHostApplicationLifetime _applicationLifetime;
     private int _isRunning;
     private bool _currentScanIsSilent = true;
-    // Broadcast gate shared by the rust stdout-tick callback and NotifyScanProgressAsync.
+    // Broadcast gate shared by the rust stdout-tick callback and ReportScanProgressAsync.
     // Safe as instance fields: TryBeginRun guarantees at most one scan emits at a time.
     private long _scanProgressLastEmitTicks = long.MinValue;
     private string? _scanProgressLastEmitStageKey;
@@ -468,7 +468,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     "[EvictionScan] Scan complete: processed {Total} downloads, {Evicted} newly evicted, {UnEvicted} un-evicted (re-cached)",
                     scanResult.Processed, scanResult.Evicted, scanResult.UnEvicted);
 
-                await NotifyScanProgressAsync(
+                await ReportScanProgressAsync(
                     operationId,
                     86.0,
                     "signalr.evictionScan.postProcessing",
@@ -608,7 +608,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     // databases. Give it its own labeled stage at 92% and stream the parallel
                     // path-stat counts into 92-99% so the bar visibly moves instead of sitting
                     // frozen while millions of files are checked.
-                    await NotifyScanProgressAsync(
+                    await ReportScanProgressAsync(
                         operationId,
                         92.0,
                         "signalr.evictionScan.refreshingSummary",
@@ -622,7 +622,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             var percent = totalPaths > 0
                                 ? 92.0 + (statted / (double)totalPaths) * 7.0
                                 : 92.0;
-                            _ = NotifyScanProgressAsync(
+                            _ = ReportScanProgressAsync(
                                 operationId,
                                 percent,
                                 "signalr.evictionScan.refreshingSummaryCounted",
@@ -800,7 +800,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         return operationId;
     }
 
-    private async Task NotifyScanProgressAsync(
+    private async Task ReportScanProgressAsync(
         Guid operationId,
         double percentComplete,
         string stageKey,
@@ -969,7 +969,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 _evictionRemovalTerminalStates.TryRemove(operationId, out _);
             },
             // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
-            onTerminalEmit: CreateRemovalTerminalEmit(() => operationId, terminalState));
+            onTerminalEmit: BuildTerminalEmit(() => operationId, terminalState));
         _evictionRemovalTerminalStates[operationId] = terminalState;
 
         await _notifications.NotifyAllAsync(
@@ -1039,7 +1039,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 _evictionRemovalTerminalStates.TryRemove(operationId, out _);
             },
             // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
-            onTerminalEmit: CreateRemovalTerminalEmit(() => operationId, terminalState));
+            onTerminalEmit: BuildTerminalEmit(() => operationId, terminalState));
         _evictionRemovalTerminalStates[operationId] = terminalState;
 
         await _notifications.NotifyAllAsync(
@@ -1148,7 +1148,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// holder at its defaults so the closure still emits a coherent record. The terminal SignalR
     /// event fires EXACTLY ONCE from inside CompleteOperation.
     /// </summary>
-    private Func<OperationTerminalInfo, Task> CreateRemovalTerminalEmit(
+    private Func<OperationTerminalInfo, Task> BuildTerminalEmit(
         Func<Guid> operationIdAccessor,
         EvictionRemovalTerminalState terminalState)
     {
@@ -1449,7 +1449,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 },
                 // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
                 // Silent Remove-mode auto-cleanup carries the display flag false (always emitted).
-                onTerminalEmit: CreateRemovalTerminalEmit(() => selfRegisteredId, terminalState));
+                onTerminalEmit: BuildTerminalEmit(() => selfRegisteredId, terminalState));
             _evictionRemovalTerminalStates[selfRegisteredId] = terminalState;
             operationId = selfRegisteredId;
 
@@ -2051,7 +2051,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 cts,
                 onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(selfRegisteredId, out _),
                 // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
-                onTerminalEmit: CreateRemovalTerminalEmit(() => selfRegisteredId, terminalState));
+                onTerminalEmit: BuildTerminalEmit(() => selfRegisteredId, terminalState));
             _evictionRemovalTerminalStates[selfRegisteredId] = terminalState;
             operationId = selfRegisteredId;
 

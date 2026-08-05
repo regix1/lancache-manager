@@ -137,7 +137,7 @@ public class DataMigrationController : ControllerBase
             _logger.LogInformation("Found {TotalRecords} records in source LancacheManager database", totalRecords);
 
             // Send initial progress
-            await ReportImportProgressAsync(
+            await ReportProgressAsync(
                 operationId,
                 result,
                 processed: 0,
@@ -266,7 +266,7 @@ public class DataMigrationController : ControllerBase
                 if (recordsProcessed > totalRecords) recordsProcessed = totalRecords;
 
                 var progressMessage = $"Importing records... {recordsProcessed:N0} of {totalRecords:N0}";
-                await ReportImportProgressAsync(
+                await ReportProgressAsync(
                     operationId,
                     result,
                     recordsProcessed,
@@ -502,7 +502,7 @@ public class DataMigrationController : ControllerBase
         }
     }
 
-    private async Task ReportImportProgressAsync(
+    private async Task ReportProgressAsync(
         Guid operationId,
         DataImportMetrics metrics,
         ulong processed,

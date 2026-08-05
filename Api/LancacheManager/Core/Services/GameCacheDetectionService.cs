@@ -188,7 +188,7 @@ public partial class GameCacheDetectionService : IDisposable
                 onTerminalCleanup: () => { _currentTrackerOperationId = null; },
                 // Capture this run's visibility in the closure so the terminal always carries the flag
                 // the run started with, even if a concurrent StartDetectionAsync arrives mid-flight.
-                onTerminalEmit: info => EmitDetectionCompleteAsync(registeredId, info, showNotification)
+                onTerminalEmit: info => EmitTerminalAsync(registeredId, info, showNotification)
             );
             var operationId = _currentTrackerOperationId.Value;
             registeredId = operationId;
@@ -983,7 +983,7 @@ public partial class GameCacheDetectionService : IDisposable
     /// force-kill switch. Reads the metrics FinalizeDetectionAsync stashed in <see cref="_terminalPayload"/>;
     /// on a force-kill that bypasses Finalize, the payload defaults to a cancelled-shaped record.
     /// </summary>
-    private Task EmitDetectionCompleteAsync(Guid operationId, OperationTerminalInfo info, bool showNotification)
+    private Task EmitTerminalAsync(Guid operationId, OperationTerminalInfo info, bool showNotification)
     {
         var payload = _terminalPayload;
         var status = info.Cancelled
@@ -1268,7 +1268,7 @@ public partial class GameCacheDetectionService : IDisposable
                         onTerminalCleanup: () => { _currentTrackerOperationId = null; },
                         // Original trigger's visibility is not persisted, so a restored run defaults to
                         // visible rather than inheriting some later attempt's flag.
-                        onTerminalEmit: info => EmitDetectionCompleteAsync(persistedGuid, info, showNotification: true)))
+                        onTerminalEmit: info => EmitTerminalAsync(persistedGuid, info, showNotification: true)))
                 {
                     // core-7: the tracker did NOT adopt this CTS (ID already in use), so we still own it.
                     // Dispose the just-created CTS before continuing so it is not leaked.

@@ -386,7 +386,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(serviceProvider, serviceId);
         if (daemon is null)
         {
-            await EmitProgressAsync(notifications, operationId, serviceConfig, "skipped", "No daemon registered for this service", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+            await ReportProgressAsync(notifications, operationId, serviceConfig, "skipped", "No daemon registered for this service", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
             return ScheduledPrefillServiceRunResult.Skipped;
         }
 
@@ -396,7 +396,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         var persistentSession = daemon.GetActivePersistentSession();
         if (!ScheduledPrefillRunGates.TryGetRunnablePersistentSession(persistentSession, out var sessionId, out var needsLoginReason))
         {
-            await EmitProgressAsync(
+            await ReportProgressAsync(
                 notifications,
                 operationId,
                 serviceConfig,
@@ -434,7 +434,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
         if (!isLoggedIn)
         {
-            await EmitProgressAsync(
+            await ReportProgressAsync(
                 notifications,
                 operationId,
                 serviceConfig,
@@ -454,11 +454,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 _systemUserId,
                 out var skipMessage))
         {
-            await EmitProgressAsync(notifications, operationId, serviceConfig, "skipped", skipMessage, runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+            await ReportProgressAsync(notifications, operationId, serviceConfig, "skipped", skipMessage, runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
             return ScheduledPrefillServiceRunResult.Skipped;
         }
 
-        await EmitProgressAsync(
+        await ReportProgressAsync(
             notifications,
             operationId,
             serviceConfig,
@@ -522,7 +522,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         }
         catch (PrefillAlreadyRunningException)
         {
-            await EmitProgressAsync(notifications, operationId, serviceConfig, "skipped", "A prefill is already in progress", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+            await ReportProgressAsync(notifications, operationId, serviceConfig, "skipped", "A prefill is already in progress", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
             return ScheduledPrefillServiceRunResult.Skipped;
         }
 
@@ -533,11 +533,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             var failureMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
                 ? "Prefill failed to start"
                 : result.ErrorMessage;
-            await EmitProgressAsync(notifications, operationId, serviceConfig, "failed", failureMessage, runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+            await ReportProgressAsync(notifications, operationId, serviceConfig, "failed", failureMessage, runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
             return ScheduledPrefillServiceRunResult.Failed;
         }
 
-        await EmitProgressAsync(
+        await ReportProgressAsync(
             notifications,
             operationId,
             serviceConfig,
@@ -598,14 +598,14 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 if (DateTime.UtcNow >= runDeadline)
                 {
                     await StopRelayAsync();
-                    await EmitProgressAsync(notifications, operationId, serviceConfig, "failed", "Exceeded maximum service runtime", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                    await ReportProgressAsync(notifications, operationId, serviceConfig, "failed", "Exceeded maximum service runtime", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
                     return ScheduledPrefillServiceRunResult.Failed;
                 }
 
                 if (PrefillDaemonServiceBase.IsPrefillStalled(session, DateTime.UtcNow, config.StallTimeout))
                 {
                     await StopRelayAsync();
-                    await EmitProgressAsync(notifications, operationId, serviceConfig, "failed", "Prefill stalled (no progress)", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
+                    await ReportProgressAsync(notifications, operationId, serviceConfig, "failed", "Prefill stalled (no progress)", runShowNotification, percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
                     return ScheduledPrefillServiceRunResult.Failed;
                 }
 
@@ -639,7 +639,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             // genuine "Last run" and told the user their cancelled prefill had succeeded.
             if (session.PrefillState == PrefillState.Cancelled)
             {
-                await EmitProgressAsync(
+                await ReportProgressAsync(
                     notifications,
                     operationId,
                     serviceConfig,
@@ -651,7 +651,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 return ScheduledPrefillServiceRunResult.Cancelled;
             }
 
-            await EmitProgressAsync(
+            await ReportProgressAsync(
                 notifications,
                 operationId,
                 serviceConfig,
@@ -866,7 +866,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 _lastEmittedMessage = message;
                 _lastEmittedBytes = currentAppBytes ?? -1L;
 
-                await _owner.EmitProgressAsync(
+                await _owner.ReportProgressAsync(
                     _notifications,
                     _operationId,
                     _serviceConfig,
@@ -980,7 +980,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         return "Prefill completed (0 bytes downloaded)";
     }
 
-    private Task EmitProgressAsync(
+    private Task ReportProgressAsync(
         ISignalRNotificationService notifications,
         string operationId,
         ScheduledPrefillServiceConfigDto serviceConfig,

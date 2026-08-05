@@ -187,7 +187,7 @@ public class CacheClearingService : ScheduledBackgroundService
             });
 
             _operationTracker.UpdateProgress(operationId, 0, "Checking permissions...");
-            await NotifyProgressAsync(operationId);
+            await ReportProgressAsync(operationId);
 
             // Get datasources to clear (filtered by name if specified)
             var allDatasources = _datasourceService.GetDatasources()
@@ -212,7 +212,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
                 _currentTrackerOperationId = null;
 
-                await NotifyProgressAsync(operationId);
+                await ReportProgressAsync(operationId);
 
                 SaveOperationToState(trackerKey, operationId);
 
@@ -244,7 +244,7 @@ public class CacheClearingService : ScheduledBackgroundService
                     _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
                     _currentTrackerOperationId = null;
 
-                    await NotifyProgressAsync(operationId);
+                    await ReportProgressAsync(operationId);
                     SaveOperationToState(trackerKey, operationId);
 
                     return;
@@ -315,7 +315,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 _operationTracker.CompleteOperation(operationId, success: false, error: error);
                 _currentTrackerOperationId = null;
 
-                await NotifyProgressAsync(operationId);
+                await ReportProgressAsync(operationId);
 
                 SaveOperationToState(trackerKey, operationId);
 
@@ -347,7 +347,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 _operationTracker.CompleteOperation(operationId, success: false, error: error);
                 _currentTrackerOperationId = null;
 
-                await NotifyProgressAsync(operationId);
+                await ReportProgressAsync(operationId);
 
                 SaveOperationToState(trackerKey, operationId);
 
@@ -357,7 +357,7 @@ public class CacheClearingService : ScheduledBackgroundService
             _logger.LogInformation($"Using Rust cache cleaner: {rustBinaryPath}");
 
             _operationTracker.UpdateProgress(operationId, 0, "Starting cache clear...");
-            await NotifyProgressAsync(operationId);
+            await ReportProgressAsync(operationId);
             SaveOperationToState(trackerKey, operationId);
 
             // Track aggregate totals across all datasources
@@ -388,7 +388,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 _logger.LogInformation($"Clearing cache for datasource {dsName} ({dsIndex + 1}/{validCachePaths.Count}): {cachePath}");
                 var percentSoFar = (double)dsIndex / validCachePaths.Count * 100;
                 _operationTracker.UpdateProgress(operationId, percentSoFar, $"Clearing {dsName} cache ({dsIndex + 1}/{validCachePaths.Count})...");
-                await NotifyProgressAsync(operationId);
+                await ReportProgressAsync(operationId);
 
                 // Check for cancellation before starting each datasource
                 operation = _operationTracker.GetOperation(operationId);
@@ -398,7 +398,7 @@ public class CacheClearingService : ScheduledBackgroundService
                     _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
                     _currentTrackerOperationId = null;
 
-                    await NotifyProgressAsync(operationId);
+                    await ReportProgressAsync(operationId);
                     SaveOperationToState(trackerKey, operationId);
 
                     return;
@@ -468,7 +468,7 @@ public class CacheClearingService : ScheduledBackgroundService
                         {
                             lastProgressEmitStageKey = progressData.StageKey;
                             lastProgressEmitTicks = nowTicks;
-                            await NotifyProgressAsync(operationId);
+                            await ReportProgressAsync(operationId);
                         }
 
                         var timeSinceLastLog = DateTime.UtcNow - lastLogTime;
@@ -616,7 +616,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
             _logger.LogInformation($"Cache clear completed in {duration:F1} seconds - Cleared {totalDirsProcessed} directories across {validCachePaths.Count} datasource(s)");
 
-            await NotifyProgressAsync(operationId);
+            await ReportProgressAsync(operationId);
 
             // Terminal CacheClearingComplete is emitted by the onTerminalEmit closure inside
             // CompleteOperation above (exactly-once, CompletedFlag-gated).
@@ -636,7 +636,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 // Terminal CacheClearingComplete (cancelled) is emitted by the onTerminalEmit closure.
                 _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
 
-                await NotifyProgressAsync(operationId);
+                await ReportProgressAsync(operationId);
             }
 
             SaveOperationToState(trackerKey, operationId);
@@ -662,7 +662,7 @@ public class CacheClearingService : ScheduledBackgroundService
             _operationTracker.CompleteOperation(operationId, success: false, error: $"Cache clear failed: {ex.Message}");
             _currentTrackerOperationId = null;
 
-            await NotifyProgressAsync(operationId);
+            await ReportProgressAsync(operationId);
 
             SaveOperationToState(trackerKey, operationId);
         }
@@ -950,7 +950,7 @@ public class CacheClearingService : ScheduledBackgroundService
         return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
     }
 
-    private async Task NotifyProgressAsync(Guid operationId)
+    private async Task ReportProgressAsync(Guid operationId)
     {
         try
         {
