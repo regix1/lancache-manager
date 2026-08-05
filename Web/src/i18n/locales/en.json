@@ -6645,8 +6645,6 @@
     "platformSetup": {
       "title": "Platform Setup",
       "subtitle": "Choose which gaming platform to configure for game identification",
-      "selectLabel": "Select a platform to configure",
-      "selectPlaceholder": "Choose an option...",
       "github": {
         "label": "Download from GitHub (Recommended)",
         "description": "Quick setup - downloads pre-created Steam depot-to-game mappings from GitHub. No API key or authentication required.",
@@ -6668,12 +6666,8 @@
         "note": "Requires a Microsoft account."
       },
       "skip": {
-        "label": "Skip Platform Setup",
-        "description": "Skip platform configuration for now. You can set up Steam or Epic game mapping anytime from the Management tab.",
-        "note": "You can always configure this later."
+        "label": "Skip Platform Setup"
       },
-      "continue": "Continue",
-      "infoBox": "Game mapping links cached downloads to specific games. Choose a platform to set up, or skip and configure later.",
       "steamGroup": "Steam Game Mapping",
       "steamGroupNote": "Choose one option",
       "epicGroup": "Epic Game Mapping",
@@ -6681,12 +6675,10 @@
       "completed": "Completed",
       "setUp": "Set Up",
       "finishSetup": "Continue",
-      "override": "This will replace your current Steam setup",
       "requirementsInfo": {
         "label": "GitHub only:",
         "body": "GitHub depot mappings are always available without a login. For the latest Steam, Epic, and Xbox game information (names, icons, and depot details), you'll need to authenticate with those platforms."
       },
-      "recommendedNote": "Recommended",
       "softRequirement": "Setting up at least one platform is recommended to see game names and icons in your dashboard."
     },
     "epicAuth": {

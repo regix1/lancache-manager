@@ -16,7 +16,6 @@ interface PlatformSetupStepProps {
 }
 
 interface PlatformCardProps {
-  variant: 'github' | 'steam';
   selected: SelectedPlatform;
   completedPlatforms: CompletedPlatforms;
   onSelect: (platform: SelectedPlatform) => void;
@@ -249,13 +248,11 @@ export const PlatformSetupStep: React.FC<PlatformSetupStepProps> = ({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <GithubCard
-            variant="github"
             selected={selected}
             completedPlatforms={completedPlatforms}
             onSelect={handleSelectCard}
           />
           <SteamPicsCard
-            variant="steam"
             selected={selected}
             completedPlatforms={completedPlatforms}
             onSelect={handleSelectCard}

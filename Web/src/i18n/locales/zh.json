@@ -6609,8 +6609,6 @@
     "platformSetup": {
       "title": "平台设置",
       "subtitle": "选择要配置的游戏平台以进行游戏识别",
-      "selectLabel": "选择一个平台进行配置",
-      "selectPlaceholder": "选择一个选项...",
       "github": {
         "label": "从 GitHub 下载（推荐）",
         "description": "快速设置 - 从 GitHub 下载预创建的 Steam 仓库到游戏映射。无需 API 密钥或认证。",
@@ -6632,12 +6630,8 @@
         "note": "需要 Microsoft 账户。"
       },
       "skip": {
-        "label": "跳过平台设置",
-        "description": "暂时跳过平台配置。您可以随时从管理标签页设置 Steam 或 Epic 游戏映射。",
-        "note": "您随时可以稍后配置。"
+        "label": "跳过平台设置"
       },
-      "continue": "继续",
-      "infoBox": "游戏映射将缓存的下载链接到特定游戏。选择一个平台进行设置，或跳过并稍后配置。",
       "steamGroup": "Steam 游戏映射",
       "steamGroupNote": "选择一个选项",
       "epicGroup": "Epic 游戏映射",
@@ -6645,12 +6639,10 @@
       "completed": "已完成",
       "setUp": "设置",
       "finishSetup": "继续",
-      "override": "这将替换您当前的 Steam 设置",
       "requirementsInfo": {
         "label": "仅限 GitHub：",
         "body": "GitHub 仓库映射无需登录即可始终使用。要获取最新的 Steam、Epic 和 Xbox 游戏信息（名称、图标和仓库详情），您需要在这些平台进行认证。"
       },
-      "recommendedNote": "推荐",
       "softRequirement": "建议至少设置一个平台，以便在仪表板中查看游戏名称和图标。"
     },
     "epicAuth": {
