@@ -183,7 +183,6 @@ public class BattleNetMappingService
             {
                 await reporter.CompleteAsync(
                     success: false,
-                    error: "Cancelled by user",
                     cancelled: true,
                     context: Context());
                 throw;

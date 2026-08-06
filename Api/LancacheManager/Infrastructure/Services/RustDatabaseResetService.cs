@@ -298,7 +298,7 @@ public class RustDatabaseResetService
                                 _operationTracker.CompleteOperation(
                                     _currentTrackerOperationId.Value,
                                     success: false,
-                                    error: "Cancelled by user");
+                                    cancelled: true);
                             }
 
                             return false;
@@ -370,20 +370,20 @@ public class RustDatabaseResetService
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Database reset was cancelled by user");
+            _logger.LogInformation("Database reset was cancelled");
             await ReportProgressAsync(new ProgressData
             {
                 IsProcessing = false,
                 PercentComplete = Volatile.Read(ref _currentProgress)?.Snapshot.PercentComplete ?? 0.0,
                 Status = "cancelled",
-                Message = "Database reset was cancelled by user",
+                Message = "Database reset was cancelled",
                 StageKey = "signalr.dbReset.cancelled",
                 Timestamp = DateTime.UtcNow
             });
 
             if (_currentTrackerOperationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "Cancelled by user");
+                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, cancelled: true);
             }
 
             return false;

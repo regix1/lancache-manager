@@ -633,7 +633,7 @@ public class RustLogRemovalService
         catch (OperationCanceledException)
         {
             // Handle cancellation gracefully
-            _logger.LogInformation("Service removal for {Service} was cancelled by user", service);
+            _logger.LogInformation("Service removal for {Service} was cancelled", service);
 
             // If a universal force-kill already completed this op, suppress the duplicate
             // CompleteOperation so only ONE terminal event is emitted. The terminal
@@ -643,7 +643,7 @@ public class RustLogRemovalService
                 // Mark operation as cancelled in unified tracker
                 if (_currentTrackerOperationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "Cancelled by user");
+                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, cancelled: true);
                 }
             }
 
@@ -1258,7 +1258,7 @@ public class RustLogRemovalService
 
         if (_currentTrackerOperationId.HasValue)
         {
-            _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "Cancelled by user");
+            _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, cancelled: true);
         }
 
         return Task.CompletedTask;

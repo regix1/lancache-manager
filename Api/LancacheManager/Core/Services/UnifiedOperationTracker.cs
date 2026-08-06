@@ -361,9 +361,13 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         operation.Status = success
             ? (skipped ? OperationStatus.Skipped : OperationStatus.Completed)
             : (operation.Cancelled ? OperationStatus.Cancelled : OperationStatus.Failed); // C.1: Cancelled is terminal
+        // A cancelled operation with no error gets its own default. Without this the fallback called
+        // every cancel a failure, which is why callers used to pass a message purely to avoid it -
+        // and the message they reached for named a person the code cannot identify, because a run's
+        // token is linked to the host's and a shutdown arrives here exactly like a click.
         operation.Message = success
             ? (skipped ? "Operation skipped - nothing to do" : "Operation completed successfully")
-            : (error ?? "Operation failed");
+            : (error ?? (operation.Cancelled ? "Operation cancelled" : "Operation failed"));
         operation.Success = success;
         operation.CompletedAt = DateTime.UtcNow;
 

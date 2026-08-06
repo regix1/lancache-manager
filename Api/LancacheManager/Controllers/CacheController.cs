@@ -1709,7 +1709,7 @@ public class CacheController : ControllerBase
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
-            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
             // Rethrow so the all-services loop can stop processing further services;
             // the single-service caller swallows this (its operation is already completed).
             throw;

@@ -444,7 +444,7 @@ public class CorruptionDetectionService
         {
             _logger.LogInformation("[CorruptionDetection] Operation {OperationId} was cancelled", operationId);
             _operationStateService.RemoveState(operationId.ToString());
-            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
         }
         catch (Exception ex)
         {

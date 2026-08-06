@@ -80,12 +80,12 @@ public class CompleteOperationTerminalEmitTests
         // Mark the op cancelled (mirrors what CancelOperation/ForceKillOperation do) so CompleteOperation
         // produces the Cancelled terminal state and forwards Cancelled=true to the emit.
         tracker.CancelOperation(operationId);
-        tracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+        tracker.CompleteOperation(operationId, success: false, error: "Stopped before finishing");
 
         var info = await emitGate.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(info.Success);
         Assert.True(info.Cancelled);
-        Assert.Equal("Cancelled by user", info.Error);
+        Assert.Equal("Stopped before finishing", info.Error);
     }
 }

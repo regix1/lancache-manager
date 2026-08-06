@@ -931,8 +931,8 @@ public partial class GameCacheDetectionService : IDisposable
         // Invalidate in-memory detection cache so next dashboard load picks up new data
         InvalidateDetectionCache();
 
-        // Determine error string for tracker (cancelled = "Cancelled by user", failed = stageKey, success = null)
-        var trackerError = success ? null : (cancelled ? "Cancelled by user" : stageKey);
+        // Determine error string for tracker (cancelled carries none, failed = stageKey, success = null)
+        var trackerError = success || cancelled ? null : stageKey;
 
         // Extract newGamesCount from context for the terminal emit payload
         int? newGamesCount = null;

@@ -1920,7 +1920,7 @@ public partial class CacheManagementService
         {
             _logger.LogInformation("[CacheSizeScan] Operation {OperationId} was cancelled", operationId);
             // Terminal CacheSizeScanComplete(cancelled) is emitted by the registered onTerminalEmit closure.
-            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
             if (callerToken.IsCancellationRequested)
             {
                 throw; // preserve the pre-existing contract for host-shutdown / aborted callers

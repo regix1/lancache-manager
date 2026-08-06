@@ -145,7 +145,7 @@ public class ScheduledRunReporterTests
         await reporter.ReportAsync(35, "probe.running");
         await reporter.CompleteAsync(
             success: false,
-            error: "Cancelled by user",
+            error: "Stopped before finishing",
             cancelled: true,
             stageKey: "probe.cancelled");
 
@@ -175,7 +175,7 @@ public class ScheduledRunReporterTests
         stoppingCts.Cancel();
         await reporter.CompleteAsync(
             success: false,
-            error: "Cancelled by user",
+            error: "Stopped before finishing",
             cancelled: true);
 
         var payload = notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName).Single();

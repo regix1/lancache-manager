@@ -395,7 +395,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 if (operation?.CancellationTokenSource?.Token.IsCancellationRequested == true)
                 {
                     // Mark operation as complete (cancelled) in unified tracker
-                    _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+                    _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
                     _currentTrackerOperationId = null;
 
                     await ReportProgressAsync(operationId);
@@ -626,7 +626,7 @@ public class CacheClearingService : ScheduledBackgroundService
         catch (OperationCanceledException)
         {
             // Handle cancellation gracefully - this is expected when user cancels
-            _logger.LogInformation("Cache clear operation {OperationId} was cancelled by user", operationId);
+            _logger.LogInformation("Cache clear operation {OperationId} was cancelled", operationId);
 
             // If a universal force-kill already completed this op, the CompletedFlag-gated
             // CompleteOperation below is a no-op and the onTerminalEmit closure does not re-fire.
@@ -634,7 +634,7 @@ public class CacheClearingService : ScheduledBackgroundService
             {
                 // Mark operation as complete (cancelled) in unified tracker.
                 // Terminal CacheClearingComplete (cancelled) is emitted by the onTerminalEmit closure.
-                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+                _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
 
                 await ReportProgressAsync(operationId);
             }

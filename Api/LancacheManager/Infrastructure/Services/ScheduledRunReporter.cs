@@ -302,9 +302,10 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             // A skipped run keeps whatever percent it actually reached, which for a run that stopped
             // before doing anything is 0. Stamping 100 would claim work that never happened.
             var percent = info.Success && !info.Skipped ? 100d : _highestPercent;
-            var error = info.Success
+            // A cancelled run carries no error: it did not fail, it was stopped.
+            var error = info.Success || info.Cancelled
                 ? null
-                : (info.Cancelled ? "Cancelled by user" : (info.Error ?? "Scheduled run failed"));
+                : (info.Error ?? "Scheduled run failed");
 
             var status = info.Cancelled
                 ? OperationStatus.Cancelled
@@ -376,7 +377,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             var cancelled = _cts.IsCancellationRequested;
             await CompleteAsync(
                 success: false,
-                error: cancelled ? "Cancelled by user" : "Scheduled run ended without completion",
+                error: cancelled ? null : "Scheduled run ended without completion",
                 cancelled: cancelled);
         }
 

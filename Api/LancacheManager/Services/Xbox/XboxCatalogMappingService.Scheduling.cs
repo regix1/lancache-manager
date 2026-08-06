@@ -147,7 +147,6 @@ public partial class XboxCatalogMappingService
             {
                 await reporter.CompleteAsync(
                     success: false,
-                    error: "Cancelled by user",
                     cancelled: true,
                     context: CreateXboxMappingContext());
                 throw;

@@ -174,7 +174,6 @@ public partial class SteamKit2Service
             _logger.LogInformation("[GitHub Mode] Depot mapping download cancelled");
             await reporter.CompleteAsync(
                 success: false,
-                error: "Cancelled by user",
                 cancelled: true,
                 stageKey: "signalr.depotMapping.cancelled",
                 context: CreateDepotContext(message: "Depot mapping download cancelled"));

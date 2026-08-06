@@ -141,7 +141,7 @@ internal static class TrackedRemovalOperationRunner
             {
                 config.LogCancelled?.Invoke(operationId);
                 // onTerminalEmit sends the cancelled Complete event (info.Cancelled) — no direct emit here.
-                operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+                operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
             }
             catch (Exception ex)
             {

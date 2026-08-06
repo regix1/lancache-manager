@@ -696,7 +696,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("[EvictionScan] Operation {OperationId} was cancelled", operationId);
-            operationError = "Cancelled by user";
+            // No error text: the run stopped on request, and Success:false already carries that.
         }
         catch (Exception ex)
         {
@@ -1169,7 +1169,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         StageKey: terminalState.StageKey,
                         DownloadsRemoved: terminalState.DownloadsRemoved,
                         LogEntriesRemoved: terminalState.LogEntriesRemoved,
-                        Error: info.Error ?? "Cancelled by user",
+                        Error: info.Error,
                         Cancelled: true,
                         ShowNotification: showNotification));
             }
@@ -1610,13 +1610,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
         catch (OperationCanceledException)
         {
-            // User-initiated cancel is an expected outcome, not an error.
-            _logger.LogInformation("[EvictionScan] Bulk eviction removal cancelled by user (operation {OpId})", opId);
+            // A cancel is an expected outcome, not an error.
+            _logger.LogInformation("[EvictionScan] Bulk eviction removal cancelled (operation {OpId})", opId);
             await CompleteRemovalAsync(
                 opId,
                 success: false,
                 stageKey: "signalr.evictionRemove.cancelled",
-                error: "Cancelled by user",
+                error: null,
                 cancelled: true);
         }
         catch (Exception ex)
@@ -2413,14 +2413,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
         catch (OperationCanceledException)
         {
-            // User-initiated cancel is an expected outcome, not an error.
-            _logger.LogInformation("[EvictionScan] Eviction removal for {Scope} '{Key}' cancelled by user (operation {OpId})",
+            // A cancel is an expected outcome, not an error.
+            _logger.LogInformation("[EvictionScan] Eviction removal for {Scope} '{Key}' cancelled (operation {OpId})",
                 scope, key, opId);
             await CompleteRemovalAsync(
                 opId,
                 success: false,
                 stageKey: "signalr.evictionRemove.cancelled",
-                error: "Cancelled by user",
+                error: null,
                 cancelled: true);
         }
         catch (Exception ex)

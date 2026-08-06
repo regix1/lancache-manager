@@ -238,7 +238,7 @@ public class MappingOperationReporterTests
         await reporter.ReportAsync(55, $"{definition.StageKeyPrefix}.resolving");
         await reporter.CompleteAsync(
             success: false,
-            error: "Cancelled by user",
+            error: "Stopped before finishing",
             cancelled: true,
             stageKey: $"{definition.StageKeyPrefix}.cancelled");
 

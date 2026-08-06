@@ -309,14 +309,14 @@ public class DataMigrationController : ControllerBase
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("LancacheManager import was cancelled by user");
+            _logger.LogInformation("LancacheManager import was cancelled");
             // Fill the per-op holder so the cancel-branch terminal event keeps the old wire message + counts.
             result.Message = "Import was cancelled";
             result.RecordsImported = recordsImported;
             result.RecordsSkipped = recordsSkipped;
             result.RecordsErrors = recordsErrors;
             result.TotalRecords = totalRecords;
-            _operationTracker.CompleteOperation(operationId, false, "Cancelled by user");
+            _operationTracker.CompleteOperation(operationId, false, cancelled: true);
 
             return Ok(new MigrationImportResponse
             {

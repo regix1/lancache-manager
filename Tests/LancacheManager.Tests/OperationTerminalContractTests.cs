@@ -1,7 +1,10 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
@@ -62,6 +65,50 @@ public sealed partial class OperationTerminalContractTests
     {
         Assert.False(SerializesCancelled(typeof(HiddenCancelledProbe)));
         Assert.True(SerializesCancelled(typeof(VisibleCancelledProbe)));
+    }
+
+    /// <summary>
+    /// A cancelled operation that carries no error must not describe itself as a failure. Callers
+    /// used to pass a message purely to dodge the old "Operation failed" default, and the message
+    /// they reached for was an attribution the code cannot support.
+    /// </summary>
+    [Fact]
+    public void CancelledOperationWithNoError_DoesNotReadAsAFailure()
+    {
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+
+        var operationId = tracker.RegisterOperation(
+            OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
+        tracker.CompleteOperation(operationId, success: false, cancelled: true);
+
+        var operation = tracker.GetOperation(operationId);
+        Assert.Equal(OperationStatus.Cancelled, operation!.Status);
+        Assert.DoesNotContain("failed", operation.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Nothing may claim a cancellation came from a person. Every run links its token to the host's
+    /// shutdown token, so a container restart reaches the same catch block as a click and would be
+    /// recorded as a user action. This scans sources rather than behaviour because the claim is the
+    /// text itself, and it came back repeatedly after being removed from the spots that were noticed.
+    /// </summary>
+    [Fact]
+    public void NoSourceClaimsACancellationCameFromAUser()
+    {
+        var api = Path.Combine(FindRepositoryRoot(), "Api");
+        var offenders = Directory
+            .EnumerateFiles(api, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
+                && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+            .Where(path => File.ReadAllText(path)
+                .Contains("cancelled by user", StringComparison.OrdinalIgnoreCase))
+            .Select(Path.GetFileName)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Empty(offenders);
     }
 
     private static IEnumerable<Type> TerminalRecordTypes() =>

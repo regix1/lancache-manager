@@ -103,7 +103,7 @@ public partial class SteamKit2Service
                 _depotRunFailures.TryRemove(reporter.OperationId, out var failure);
                 await reporter.CompleteAsync(
                     success: false,
-                    error: failure ?? "Cancelled by user",
+                    error: failure,
                     cancelled: failure is null,
                     stageKey: failure is null
                         ? "signalr.depotMapping.cancelled"
@@ -169,7 +169,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Cancelling active PICS rebuild (operationId: {OperationId})", operationId);
 
             // Fail any pending connection/login tasks to unblock waiting code
-            FailConnectionTasks(new OperationCanceledException("PICS rebuild cancelled by user"));
+            FailConnectionTasks(new OperationCanceledException("PICS rebuild cancelled"));
 
             if (_currentPicsOperationId.HasValue)
             {

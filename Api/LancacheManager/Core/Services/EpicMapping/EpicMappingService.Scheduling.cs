@@ -116,7 +116,6 @@ public partial class EpicMappingService
                 _logger.LogInformation("Epic catalog refresh cancelled");
                 await reporter.CompleteAsync(
                     success: false,
-                    error: "Cancelled by user",
                     cancelled: true,
                     context: CreateEpicContext());
             }

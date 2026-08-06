@@ -86,7 +86,6 @@ public partial class SteamKit2Service
         {
             await reporter.CompleteAsync(
                 success: false,
-                error: "Cancelled by user",
                 cancelled: true,
                 stageKey: "signalr.depotMapping.cancelled");
             throw;

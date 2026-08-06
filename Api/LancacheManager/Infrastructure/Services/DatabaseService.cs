@@ -861,7 +861,7 @@ public class DatabaseService
         catch (OperationCanceledException)
         {
             terminalOutcome = OperationStatus.Cancelled;
-            _logger.LogInformation("Database reset operation {OperationId} was cancelled by user", operationId);
+            _logger.LogInformation("Database reset operation {OperationId} was cancelled", operationId);
 
             var current = Volatile.Read(ref _currentResetProgress);
             await ReportProgressAsync(
@@ -871,9 +871,9 @@ public class DatabaseService
                 OperationStatus.Cancelled,
                 "signalr.dbReset.cancelled",
                 new Dictionary<string, object?>(),
-                "Database reset was cancelled by user");
+                "Database reset was cancelled");
 
-            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
         }
         catch (Exception ex)
         {

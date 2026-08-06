@@ -156,7 +156,6 @@ public partial class EpicMappingService
             {
                 await reporter.CompleteAsync(
                     success: false,
-                    error: "Cancelled by user",
                     cancelled: true,
                     context: CreateEpicContext());
             }
