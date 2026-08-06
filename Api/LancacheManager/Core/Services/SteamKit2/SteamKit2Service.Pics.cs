@@ -35,6 +35,13 @@ public partial class SteamKit2Service
         _automaticScanSkipped = false; // Reset flag at start of new scan
         _activeDepotScanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full;
 
+        // The scanned set only exists to stop one crawl re-fetching an app that its own owner-app
+        // expansion queued a second time. Held across crawls it also drops an app that changed again
+        // since the last one, which is never rescanned until the process restarts, so it starts empty
+        // on every run and not just on a full scan. Orphan resolution reads the set later in the same
+        // run, so the reset belongs here rather than anywhere after the batch pass.
+        _scannedApps.Clear();
+
         CancellationTokenSource runCts;
         try
         {
@@ -418,7 +425,6 @@ public partial class SteamKit2Service
             _logger.LogInformation("Starting full PICS generation (will use Web API for app enumeration)");
             _depotToAppMappings.Clear();
             _appNames.Clear();
-            _scannedApps.Clear(); // Clear scanned apps list so all apps are rescanned
             _lastChangeNumberSeen = 0; // Reset to ensure Web API enumeration is used
 
             // Clear game data from Downloads table so all downloads get fresh mappings
@@ -466,10 +472,9 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task ProcessAppBatchesAsync(List<uint> appIds, bool incrementalOnly, CancellationToken ct)
     {
-        var allBatches = appIds
-            .Where(id => !_scannedApps.Contains(id))
-            .Chunk(AppBatchSize)
-            .ToList();
+        // The total counts the work actually queued: every id here is chunked into a batch below, and
+        // the apps discovered mid-run are added to it as they are queued.
+        var allBatches = appIds.Chunk(AppBatchSize).ToList();
 
         _totalAppsToProcess = appIds.Count;
         _processedApps = 0;
@@ -486,6 +491,12 @@ public partial class SteamKit2Service
         foreach (var batch in allBatches)
         {
             ct.ThrowIfCancellationRequested();
+
+            // Every id in the batch is finished work once the run takes the batch on. Steam either
+            // describes it or reports it unknown, and a batch that fails is logged and never retried,
+            // so nothing here is ever asked about again. Crediting only the apps Steam described left
+            // remainingApps parked above zero for the rest of the run.
+            _processedApps += batch.Length;
 
             try
             {
@@ -507,7 +518,6 @@ public partial class SteamKit2Service
                     {
                         var dlcList = ProcessAppDepots(app);
                         dlcAppsToScan.AddRange(dlcList);
-                        _processedApps++;
                     }
                 }
 
@@ -517,9 +527,18 @@ public partial class SteamKit2Service
                     _logger.LogInformation("Found {Count} DLC apps to scan in this batch", dlcAppsToScan.Count);
 
                     // Process DLC apps in smaller sub-batches
-                    var dlcBatches = dlcAppsToScan.Distinct().Chunk(50).ToList();
+                    var dlcAppsToFetch = dlcAppsToScan.Distinct().ToList();
+                    var dlcBatches = dlcAppsToFetch.Chunk(50).ToList();
+
+                    // DLC and owner apps surface mid-run and the crawl fetches them, so the total has
+                    // to grow with them. Crediting them against a total that never contained them is
+                    // what pushed processedApps past totalApps and finished the bar early.
+                    _totalAppsToProcess += dlcAppsToFetch.Count;
+
                     foreach (var dlcBatch in dlcBatches)
                     {
+                        _processedApps += dlcBatch.Length;
+
                         try
                         {
                             var dlcProductCallbacks = await FetchProductInfoBatchAsync(dlcBatch, ct);
@@ -529,7 +548,6 @@ public partial class SteamKit2Service
                                 foreach (var dlcApp in dlcCb.Apps.Values)
                                 {
                                     ProcessAppDepots(dlcApp);  // Don't need to scan DLC's DLCs recursively
-                                    _processedApps++;
                                 }
                             }
 

@@ -22,6 +22,44 @@ public partial class SteamKit2Service
     // Defaults to visible as a backstop for any read that precedes the first rebuild.
     private bool _depotRunShowNotification = true;
 
+    /// <summary>Terminal stage keys for a scheduled run that stopped before doing any depot work.</summary>
+    private const string SetupIncompleteSkipStageKey = "signalr.depotMapping.skippedSetupIncomplete";
+    private const string SteamUnreachableSkipStageKey = "signalr.depotMapping.skippedSteamUnreachable";
+    private const string FullScanRequiredSkipStageKey = "signalr.depotMapping.scan.skippedFullRequired";
+
+    /// <summary>
+    /// Reports a run that stopped before starting any depot work. Epic and Xbox already terminate
+    /// this way when their own preconditions are not met, so Run Now on this service says what
+    /// happened instead of returning in silence. No progress is reported first, so the run ends at 0%
+    /// rather than claiming work it never did, and the notification mode still gates the card - an
+    /// automatic tick on the Manual default stays quiet.
+    /// </summary>
+    private async Task ReportRunSkippedAsync(string stageKey, CancellationToken stoppingToken)
+    {
+        _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        await using var reporter = CreateDepotMappingReporter(stoppingToken);
+        reporter.SuppressProgress();
+        await reporter.StartAsync(CreateDepotContext());
+        await reporter.CompleteSkippedAsync(stageKey, CreateDepotContext());
+    }
+
+    /// <summary>
+    /// Reports a run that could not begin its depot work at all. Kept separate from
+    /// <see cref="ReportRunSkippedAsync"/> because nothing here is a normal "nothing to do" - calling
+    /// these skipped would hide a real failure behind the same wording a signed-out mapping run uses.
+    /// </summary>
+    private async Task ReportRunFailedAsync(string error, CancellationToken stoppingToken)
+    {
+        _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        await using var reporter = CreateDepotMappingReporter(stoppingToken);
+        reporter.SuppressProgress();
+        await reporter.StartAsync(CreateDepotContext());
+        await reporter.CompleteAsync(
+            success: false,
+            error: error,
+            context: CreateDepotContext(errorDetail: error));
+    }
+
     /// <summary>
     /// Called by the ConfigurableScheduledService base class on each interval tick.
     /// Checks preconditions and triggers a PICS crawl if appropriate.
@@ -36,6 +74,8 @@ public partial class SteamKit2Service
             if (!_initialized)
             {
                 _logger.LogWarning("SteamKit2Service initialization retry failed - will try again on next tick");
+                await ReportRunFailedAsync(
+                    "Depot mapping could not start: the service failed to initialize", stoppingToken);
                 return;
             }
             _logger.LogInformation("SteamKit2Service initialization succeeded on retry");
@@ -49,6 +89,7 @@ public partial class SteamKit2Service
         // Skip if setup hasn't been completed yet (fresh install)
         if (!_stateService.GetSetupCompleted())
         {
+            await ReportRunSkippedAsync(SetupIncompleteSkipStageKey, stoppingToken);
             return;
         }
 
@@ -94,6 +135,7 @@ public partial class SteamKit2Service
                     {
                         _logger.LogWarning("Scheduled incremental scan skipped - failed to connect to Steam: {Error}", viability.Error);
                         _logger.LogInformation("Will retry on next scheduled check. If this persists, check network connectivity and Steam service status.");
+                        await ReportRunSkippedAsync(SteamUnreachableSkipStageKey, stoppingToken);
                         return;
                     }
 
@@ -120,6 +162,10 @@ public partial class SteamKit2Service
                             timestamp = DateTime.UtcNow
                         });
 
+                        // The event above drives the full-scan prompt; this terminal is what the
+                        // Schedules card reads, so a Run Now here reports the same outcome the other
+                        // mapping services do rather than appearing to have done nothing.
+                        await ReportRunSkippedAsync(FullScanRequiredSkipStageKey, stoppingToken);
                         return;
                     }
 
@@ -130,6 +176,7 @@ public partial class SteamKit2Service
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Unexpected exception during viability check, skipping scheduled scan");
+                    await ReportRunFailedAsync(ex.Message, stoppingToken);
                     return;
                 }
             }
