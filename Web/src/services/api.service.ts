@@ -2753,22 +2753,6 @@ class ApiService {
 
   // ── Depot Mapping Config ──────────────────────────────────────────────────
 
-  static async setDepotRebuildMode(mode: boolean | 'github'): Promise<void> {
-    const response = await fetch(
-      `${API_BASE}/depots/rebuild/config/mode`,
-      this.getJsonFetchOptions(mode, { method: 'PUT' })
-    );
-    await ApiService.handleResponse(response);
-  }
-
-  static async setDepotRebuildInterval(intervalHours: number): Promise<void> {
-    const response = await fetch(
-      `${API_BASE}/depots/rebuild/config/interval`,
-      this.getJsonFetchOptions(intervalHours, { method: 'PUT' })
-    );
-    await ApiService.handleResponse(response);
-  }
-
   static async importDepotsFromLocal(): Promise<void> {
     const response = await fetch(
       `${API_BASE}/depots/import?source=local`,
