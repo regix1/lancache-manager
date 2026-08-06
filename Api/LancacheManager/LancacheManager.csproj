@@ -80,7 +80,9 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.5" />
     <!-- Microsoft.Extensions.Caching.Memory and HealthChecks are included transitively via ASP.NET Core -->
     <PackageReference Include="SteamKit2" Version="3.4.0" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.5" />
+    <!-- 10.2.1 is the first Swashbuckle that depends on Microsoft.OpenApi 2.7.5. Earlier 10.1.x/10.2.0
+         pull in Microsoft.OpenApi 2.4.1, which fails the build audit as a known vulnerability. -->
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.1" />
 
     <!-- OpenTelemetry for Prometheus + Grafana metrics -->
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
