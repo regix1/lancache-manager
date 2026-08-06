@@ -6,9 +6,11 @@ import fs from 'fs';
 // Read version from VERSION file, fallback to package.json
 let version = '0.0.0';
 try {
-  version = fs.readFileSync(path.resolve(__dirname, '../VERSION'), 'utf-8').trim();
+  version = fs.readFileSync(path.resolve(import.meta.dirname, '../VERSION'), 'utf-8').trim();
 } catch {
-  version = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')).version;
+  version = JSON.parse(
+    fs.readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf-8')
+  ).version;
 }
 
 export default defineConfig({
@@ -18,12 +20,12 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
-      '@components': path.resolve(__dirname, './src/components'),
-      '@services': path.resolve(__dirname, './src/services'),
-      '@utils': path.resolve(__dirname, './src/utils'),
-      '@contexts': path.resolve(__dirname, './src/contexts'),
-      '@hooks': path.resolve(__dirname, './src/hooks'),
+      '@': path.resolve(import.meta.dirname, './src'),
+      '@components': path.resolve(import.meta.dirname, './src/components'),
+      '@services': path.resolve(import.meta.dirname, './src/services'),
+      '@utils': path.resolve(import.meta.dirname, './src/utils'),
+      '@contexts': path.resolve(import.meta.dirname, './src/contexts'),
+      '@hooks': path.resolve(import.meta.dirname, './src/hooks'),
       // React 19 has useSyncExternalStore built-in - redirect the shim package
       // to React's native export. See: https://github.com/facebook/react/issues/29854
       'use-sync-external-store/shim': 'react'
@@ -32,10 +34,7 @@ export default defineConfig({
     dedupe: ['react', 'react-dom']
   },
   optimizeDeps: {
-    include: [
-      'react',
-      'react-dom'
-    ]
+    include: ['react', 'react-dom']
   },
   server: {
     port: 3000,
