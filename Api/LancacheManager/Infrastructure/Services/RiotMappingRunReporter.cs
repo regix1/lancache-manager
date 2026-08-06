@@ -93,7 +93,17 @@ internal sealed class RiotMappingRunReporter : IAsyncDisposable
         }
     }
 
-    public async Task CompleteAsync(bool success, bool cancelled, string? error)
+    /// <summary>
+    /// Closes the run's card with the terminal that matches what it actually did. Does nothing when
+    /// no Riot host was ever observed, because no card was raised in that case.
+    /// </summary>
+    /// <param name="completedCleanly">
+    /// False when the pass finished but reported warnings. Only a clean finish may take the
+    /// nothing-to-resolve terminal below: that stage key is a claim about the INPUT (there was
+    /// nothing here to name), and a pass that hit warnings cannot make it. Such a run reports its
+    /// real counts instead, which say it ran and named nothing without pretending it found nothing.
+    /// </param>
+    public async Task CompleteAsync(bool success, bool cancelled, string? error, bool completedCleanly)
     {
         await _gate.WaitAsync(CancellationToken.None);
         try
@@ -109,7 +119,9 @@ internal sealed class RiotMappingRunReporter : IAsyncDisposable
             // so it reports skipped rather than claiming a completed mapping. Only a run that both
             // succeeded and was not cancelled can end this way - a failure and a cancellation each
             // keep their own terminal, because neither is a run that simply had nothing to do.
-            if (success && !cancelled && _mapped == 0)
+            // A run that finished with warnings is excluded for the same reason: it tried and got
+            // nowhere, which is not the same as having nothing to do.
+            if (success && !cancelled && completedCleanly && _mapped == 0)
             {
                 await _reporter.CompleteSkippedAsync(NothingResolvedSkipStageKey, Context());
                 return;

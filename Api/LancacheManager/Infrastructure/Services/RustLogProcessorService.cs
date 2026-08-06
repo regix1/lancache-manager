@@ -862,6 +862,11 @@ public class RustLogProcessorService
             var riotSuccess = exitCode == 0
                 && hasTerminalCheckpoint
                 && finalProgress!.TerminalStatus is "completed" or "completed_with_warnings";
+            // Warnings still count as success, but they stop the run claiming there was nothing to
+            // resolve when it in fact tried and got nowhere.
+            var riotCompletedCleanly = exitCode == 0
+                && hasTerminalCheckpoint
+                && finalProgress!.TerminalStatus is "completed";
             var riotError = riotSuccess || wasCancelled
                 ? null
                 : finalProgress?.TerminalStatus is { Length: > 0 } terminalStatus
@@ -870,7 +875,10 @@ public class RustLogProcessorService
             await riotMappingRun.CompleteAsync(
                 riotSuccess,
                 wasCancelled,
-                wasCancelled ? "Cancelled by user" : riotError);
+                // No attribution: this run's token is linked to the host's, so a shutdown mid-run
+                // reaches here identically to someone pressing cancel.
+                wasCancelled ? null : riotError,
+                riotCompletedCleanly);
 
             // Committed rows become visible NOW, before any cancellation/partial/success
             // branching and before the post-passes below (auto-tag and the Epic/Blizzard/Xbox
