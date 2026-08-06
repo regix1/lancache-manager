@@ -45,6 +45,10 @@ const announceStatusFetchFailure = () => {
 
 export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ children }) => {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
+  // Set only where the route actually answered. The placeholder below is deliberately
+  // indistinguishable from a real incomplete setup, so this flag is the only way a consumer can
+  // tell "setup is not finished" from "nobody has managed to ask yet".
+  const [isSetupStatusKnown, setIsSetupStatusKnown] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [syncError, setSyncError] = useState<string | null>(null);
   const { isLoading: authLoading, authMode } = useAuth();
@@ -65,6 +69,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         const data = await response.json();
         const isCompleted = data.isCompleted === true || data.setupCompleted === true;
         setSyncError(null);
+        setIsSetupStatusKnown(true);
         setSetupStatus({
           isCompleted,
           hasProcessedLogs: data.hasProcessedLogs === true,
@@ -214,6 +219,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
 
     if (authMode === 'unauthenticated') {
       setSetupStatus(null);
+      setIsSetupStatusKnown(false);
       setIsLoading(true);
     }
 
@@ -224,6 +230,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
     <SetupStatusContext.Provider
       value={{
         setupStatus,
+        isSetupStatusKnown,
         isLoading,
         syncError,
         refreshSetupStatus,

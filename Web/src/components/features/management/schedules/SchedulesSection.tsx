@@ -1099,12 +1099,16 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     updateProgress
   } = usePicsProgress();
   const { status: webApiStatus } = useSteamWebApiStatus();
-  const { setupStatus } = useSetupStatus();
+  const { setupStatus, isSetupStatusKnown } = useSetupStatus();
   const depotScheduledMode = getDepotScheduledScanMode(picsProgress?.crawlIncrementalMode);
   // The progress blob is restored from sessionStorage on a reload, so a non-null picsProgress is
   // not evidence that this page load has an answer - it can predate the API key being added or the
   // mappings being wiped. The fetch flag is the evidence.
-  const isDepotScanModeKnown = !picsLoading && picsProgress !== null && setupStatus !== null;
+  // isSetupStatusKnown, not `setupStatus !== null`: a failed status call falls back to a
+  // placeholder that reads as an incomplete setup, so testing for null answered "setup is not
+  // finished" whenever the route had simply failed once, and both Steam modes went to
+  // "(setup required)" on a fully configured install.
+  const isDepotScanModeKnown = !picsLoading && picsProgress !== null && isSetupStatusKnown;
   const isSetupCompleted = setupStatus?.isCompleted === true;
   // A full scan empties the mapping table at the start and refills it as it goes, so a count read
   // while a crawl is running says nothing about whether a baseline exists. Only the count at rest

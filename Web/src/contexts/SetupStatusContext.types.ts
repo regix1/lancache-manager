@@ -24,6 +24,14 @@ export interface SetupStatus {
 
 interface SetupStatusContextType {
   setupStatus: SetupStatus | null;
+  /**
+   * True once the status route has actually answered. While false, `setupStatus` may still be
+   * non-null: a failed call falls back to a placeholder so the wizard gate stays closed on a
+   * genuine first run, and that placeholder reads `isCompleted: false` like a real incomplete
+   * setup. Anything deciding what a configured install may do must gate on THIS, not on
+   * `setupStatus !== null`, or one failed request makes a working install look unconfigured.
+   */
+  isSetupStatusKnown: boolean;
   isLoading: boolean;
   syncError: string | null;
   refreshSetupStatus: () => Promise<void>;
