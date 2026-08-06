@@ -57,6 +57,30 @@ public static class ScheduledPrefillRunGates
             : $"No running persistent container for {serviceId}";
 
     /// <summary>
+    /// Reason attached to an anonymous platform's skip when its container is running but has not
+    /// reported ready. Battle.net and Riot have no sign-in, so the logged-out wording above would be
+    /// telling the user to do something that does not exist for them.
+    /// </summary>
+    public const string ContainerNotReadyReason =
+        "The persistent container is running but has not reported ready yet. This platform needs no login - wait for the container to finish starting.";
+
+    /// <summary>
+    /// No-container reason for an anonymous platform. Same situation as the reason produced by
+    /// <see cref="TryGetRunnablePersistentSession"/>, minus the instruction to log in.
+    /// </summary>
+    public const string NoContainerReason =
+        "No running persistent container. Start the persistent container before scheduling.";
+
+    /// <summary>
+    /// Top-level message for an anonymous platform whose container is running but not ready. The
+    /// no-container case is worded the same for every platform, so it stays on
+    /// <see cref="BuildNeedsLoginMessage"/>; only the running-but-unusable case needs to drop the
+    /// login language.
+    /// </summary>
+    public static string BuildNotReadyMessage(PrefillPlatform serviceId) =>
+        $"Persistent container for {serviceId} is not ready yet";
+
+    /// <summary>
     /// Returns true when a scheduled run for this daemon should defer. The persistent reuse target
     /// and every other scheduler-owned session share <paramref name="systemUserId"/>, so an idle
     /// authenticated persistent container does NOT block (Cause 2 / 19): only a genuinely-conflicting

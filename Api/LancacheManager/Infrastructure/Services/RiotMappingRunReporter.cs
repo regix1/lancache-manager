@@ -10,6 +10,9 @@ namespace LancacheManager.Infrastructure.Services;
 /// </summary>
 internal sealed class RiotMappingRunReporter : IAsyncDisposable
 {
+    /// <summary>Terminal stage key for a run that saw Riot hosts but resolved none of them.</summary>
+    private const string NothingResolvedSkipStageKey = "signalr.riotMapping.skippedNothingResolved";
+
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _tracker;
     private readonly ILogger _logger;
@@ -64,8 +67,7 @@ internal sealed class RiotMappingRunReporter : IAsyncDisposable
                     MappingOperations.Riot,
                     _showNotification,
                     _sourceToken,
-                    _logger,
-                    bestEffortNotifications: true);
+                    _logger);
                 _processed = processed;
                 _mapped = mapped;
                 _percent = Math.Clamp(percent, 0, 100);
@@ -102,6 +104,17 @@ internal sealed class RiotMappingRunReporter : IAsyncDisposable
             }
 
             _completed = true;
+
+            // A pass that observed Riot hosts but named none of them left every row as it found it,
+            // so it reports skipped rather than claiming a completed mapping. Only a run that both
+            // succeeded and was not cancelled can end this way - a failure and a cancellation each
+            // keep their own terminal, because neither is a run that simply had nothing to do.
+            if (success && !cancelled && _mapped == 0)
+            {
+                await _reporter.CompleteSkippedAsync(NothingResolvedSkipStageKey, Context());
+                return;
+            }
+
             await _reporter.CompleteAsync(
                 success,
                 error,

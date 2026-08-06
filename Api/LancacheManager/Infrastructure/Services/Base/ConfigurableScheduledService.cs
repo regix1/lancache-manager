@@ -183,6 +183,7 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                 _intervalJustChanged = false;
                 skipFirstExecution = false;
                 var runFailed = false;
+                var shuttingDown = false;
                 try
                 {
                     IsCurrentlyExecuting = true;
@@ -197,7 +198,6 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                         ServiceExecutionStateChanged?.Invoke(ServiceName);
                     }
                     await ExecuteWorkAsync(stoppingToken);
-                    LastRunUtc = DateTime.UtcNow;
                     // Advance NextRunUtc now so the run-END broadcast in the finally carries the fresh
                     // next-run instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
                     // authoritatively; this only keeps the END snapshot from shipping a stale countdown.
@@ -210,6 +210,7 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                     // Shutdown - end the loop cleanly. A non-shutdown OCE (e.g. an inner
                     // per-iteration timeout) falls through to the Exception handler below
                     // instead of silently ending the service loop.
+                    shuttingDown = true;
                     break;
                 }
                 catch (Exception ex)
@@ -222,6 +223,16 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                 }
                 finally
                 {
+                    // A run that threw still ran, so it stamps here rather than after ExecuteWorkAsync:
+                    // the Schedules page reads this for "Last run", and the frontend also clears its
+                    // optimistic Run Now flag when this value moves. Stamping only on success left a
+                    // failed run's end-broadcast carrying an unchanged time, which held that button
+                    // disabled until a safety timeout expired. Shutdown is excluded because the work
+                    // never reached a terminal state - the service is stopping, not finishing.
+                    if (!shuttingDown)
+                    {
+                        LastRunUtc = DateTime.UtcNow;
+                    }
                     IsCurrentlyExecuting = false;
                     // Broadcast the end AFTER clearing the flag so GetAll() reports the run finished and
                     // the dot clears - including on the failed-run path.

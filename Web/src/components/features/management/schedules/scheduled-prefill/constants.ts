@@ -1,5 +1,6 @@
 import type {
   ScheduledPrefillAccountServiceId,
+  ScheduledPrefillAnonymousServiceId,
   ScheduledPrefillOperatingSystem,
   ScheduledPrefillPreset,
   ScheduledPrefillServiceKey
@@ -13,16 +14,20 @@ export const SCHEDULED_PREFILL_SERVICE_RUN_ORDER = [
   'riot'
 ] as const satisfies readonly ScheduledPrefillServiceKey[];
 
-export const SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS = [
-  'steam',
-  'epic',
-  'xbox'
-] as const satisfies readonly ScheduledPrefillAccountServiceId[];
-
 export const SCHEDULED_PREFILL_ANONYMOUS_SERVICE_IDS = [
   'battleNet',
   'riot'
-] as const satisfies readonly ScheduledPrefillServiceKey[];
+] as const satisfies readonly ScheduledPrefillAnonymousServiceId[];
+
+/**
+ * Derived from the run order minus the anonymous set rather than hand-listed, so a platform can never
+ * end up in neither list or in both. The type predicate keeps the element type narrow, so callers that
+ * read `(typeof SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS)[number]` still get the exact account union.
+ */
+export const SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS = SCHEDULED_PREFILL_SERVICE_RUN_ORDER.filter(
+  (serviceKey): serviceKey is ScheduledPrefillAccountServiceId =>
+    !(SCHEDULED_PREFILL_ANONYMOUS_SERVICE_IDS as readonly string[]).includes(serviceKey)
+);
 
 /**
  * Uniform action button size across the scheduled prefill configure modal.

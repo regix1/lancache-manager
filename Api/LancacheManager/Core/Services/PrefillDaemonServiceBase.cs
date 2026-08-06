@@ -4344,7 +4344,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             ActivityDomains.PersistentContainer, platformKey, ActivityAspects.Authenticated,
             persistent?.AuthState == DaemonAuthState.Authenticated);
 
-        if (Platform is PrefillPlatform.BattleNet or PrefillPlatform.Riot)
+        if (!Platform.RequiresLogin())
         {
             // The anonymous Battle.net/Riot "Connected" badge reflects Docker availability (the daemon
             // needs no login), matching what BattleNetDaemonStatus/RiotDaemonStatus render.

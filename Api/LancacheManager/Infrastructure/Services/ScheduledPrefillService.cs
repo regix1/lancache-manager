@@ -393,6 +393,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         // 2. Reuse the running persistent admin container. Scheduled prefill is admin-only and
         // downloads INSIDE the long-lived persistent container, which authenticates itself from its
         // named auth volume. It never spawns a temporary guest container and never injects a token.
+        // Battle.net and Riot prefill anonymously, so neither gate below can be a login problem for
+        // them. Reporting one would tell the user to sign in to something that has no sign-in, and
+        // would make the run summary read "All due services need login" for a platform that has none.
+        var requiresLogin = serviceId.RequiresLogin();
+
         var persistentSession = daemon.GetActivePersistentSession();
         if (!ScheduledPrefillRunGates.TryGetRunnablePersistentSession(persistentSession, out var sessionId, out var needsLoginReason))
         {
@@ -400,12 +405,14 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 notifications,
                 operationId,
                 serviceConfig,
-                "needs-login",
+                requiresLogin ? "needs-login" : "skipped",
                 ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: false),
                 runShowNotification,
-                needsLoginReason,
+                requiresLogin ? needsLoginReason : ScheduledPrefillRunGates.NoContainerReason,
                 percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
-            return ScheduledPrefillServiceRunResult.NeedsLogin;
+            return requiresLogin
+                ? ScheduledPrefillServiceRunResult.NeedsLogin
+                : ScheduledPrefillServiceRunResult.Skipped;
         }
 
         // TryGetRunnablePersistentSession only returns true for a non-null session.
@@ -438,12 +445,18 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 notifications,
                 operationId,
                 serviceConfig,
-                "needs-login",
-                ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: true),
+                requiresLogin ? "needs-login" : "skipped",
+                requiresLogin
+                    ? ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: true)
+                    : ScheduledPrefillRunGates.BuildNotReadyMessage(serviceId),
                 runShowNotification,
-                ScheduledPrefillRunGates.LoggedOutNeedsLoginReason,
+                requiresLogin
+                    ? ScheduledPrefillRunGates.LoggedOutNeedsLoginReason
+                    : ScheduledPrefillRunGates.ContainerNotReadyReason,
                 percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
-            return ScheduledPrefillServiceRunResult.NeedsLogin;
+            return requiresLogin
+                ? ScheduledPrefillServiceRunResult.NeedsLogin
+                : ScheduledPrefillServiceRunResult.Skipped;
         }
 
         // 3. Busy check: defer when the persistent container is already prefilling (a prior run still

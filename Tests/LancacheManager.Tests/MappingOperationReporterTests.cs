@@ -165,6 +165,37 @@ public class MappingOperationReporterTests
 
     [Theory]
     [MemberData(nameof(Definitions))]
+    public async Task SuppressedRunEmitsNoProgressAndEndsSkippedAtZeroAsync(
+        MappingOperationDefinition definition)
+    {
+        // The shared contract every mapping service relies on for a pass that may change nothing: go
+        // quiet, then end as skipped at 0%. A bar that climbs and then reports "this run did nothing"
+        // is the mismatch this replaced, and it has to hold for all five services, not just the one
+        // whose bug prompted it.
+        var notifications = new CapturingNotificationService();
+        var tracker = CreateTracker();
+        await using var reporter = CreateReporter(notifications, tracker, definition);
+
+        reporter.SuppressProgress();
+        await reporter.StartAsync();
+        await reporter.ReportAsync(70, $"{definition.StageKeyPrefix}.resolving");
+        await reporter.CompleteSkippedAsync($"{definition.StageKeyPrefix}.skippedNothingToDo");
+
+        var terminal = await notifications.WhenEventAsync(definition.Events.Complete)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        var complete = Assert.IsType<ScheduledRunCompleteEvent>(terminal.Payload);
+
+        Assert.Empty(notifications.PayloadsFor<ScheduledRunProgressEvent>(definition.Events.Progress));
+        Assert.True(complete.Success);
+        Assert.False(complete.Cancelled);
+        Assert.Equal(OperationStatus.Skipped, complete.Status);
+        Assert.Equal(0, complete.PercentComplete);
+        Assert.Equal($"{definition.StageKeyPrefix}.skippedNothingToDo", complete.StageKey);
+        Assert.Empty(tracker.GetActiveOperations(definition.OperationType));
+    }
+
+    [Theory]
+    [MemberData(nameof(Definitions))]
     public async Task Reporter_FailureEmitsOneTerminalAtHighestProgressAsync(
         MappingOperationDefinition definition)
     {

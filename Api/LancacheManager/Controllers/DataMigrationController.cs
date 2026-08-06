@@ -464,7 +464,7 @@ public class DataMigrationController : ControllerBase
                         new DataImportComplete(
                             OperationId: registeredId,
                             Success: false,
-                            Message: result.Message ?? "Import was cancelled by user",
+                            Message: result.Message ?? "Import cancelled",
                             Cancelled: true,
                             RecordsImported: result.RecordsImported,
                             RecordsSkipped: result.RecordsSkipped,

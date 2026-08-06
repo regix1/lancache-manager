@@ -40,9 +40,6 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
     private bool _refreshShowNotification = true;
     private MappingOperationReporter? _currentMappingReporter;
 
-    /// <summary>Terminal stage key for a run that collected nothing because Xbox is signed out.</summary>
-    private const string XboxSignInSkipStageKey = "signalr.xboxMapping.skippedNotSignedIn";
-
     // Serializes every Xbox catalog-mapping producer: the scheduled tick, manual refresh, and
     // post-authentication harvest. Besides avoiding duplicate catalog work, this preserves the
     // frontend's one-card/one-operation recovery contract for OperationType.XboxMapping.
@@ -68,12 +65,13 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
     protected override string ServiceName => "XboxCatalogMappingService";
 
     // This schedule surfaces run notifications the user can gate from the Schedules page (mirrors Epic).
-    // The base default mode (All) applies unless the user overrides it.
     protected override bool SupportsNotifications => true;
 
-    // A failed scheduled refresh usually means the Xbox login expired and needs the user, so
-    // scheduled runs stay visible.
-    protected override NotificationMode DefaultNotificationMode => NotificationMode.All;
+    // Routine background chore: scheduled runs stay quiet by default, manually triggered runs still
+    // notify. Same default as the Epic and Steam mapping schedules so all three behave alike. A run
+    // that collects nothing still reports itself skipped either way - this only decides whether the
+    // card surfaces without being asked for.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
 
     public XboxCatalogMappingService(
         ILogger<XboxCatalogMappingService> logger,
@@ -153,157 +151,6 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
         UnsubscribeDaemonEvents();
         return Task.CompletedTask;
     }
-
-    /// <summary>
-    /// Scheduled tick: collect the catalog from authenticated daemon sessions and resolve downloads.
-    /// </summary>
-    protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
-    {
-        await RefreshNowAsync(stoppingToken, CurrentRunTrigger);
-    }
-
-    /// <summary>
-    /// Runs one catalog collection + download-resolution pass. Shared by the scheduled tick and the
-    /// on-authentication nudge. Serialized via <c>_refreshGate</c>. When neither the manager-side MSA
-    /// session nor any prefill daemon session is signed in there is no catalog to read, so the run
-    /// reports itself skipped instead of walking the pipeline and claiming a completed refresh.
-    /// </summary>
-    /// <param name="trigger">Why this pass is running. The caller supplies it because a nudge from a
-    /// fresh daemon login is a user action, while the loop's own tick is not, and the notification
-    /// mode the user set gates the two differently.</param>
-    public async Task<XboxCatalogRefreshResult> RefreshNowAsync(
-        CancellationToken ct = default,
-        RunTrigger trigger = RunTrigger.Manual)
-    {
-        await _refreshGate.WaitAsync(ct);
-        try
-        {
-            _refreshShowNotification = EffectiveNotificationMode.AllowsTrigger(trigger);
-            await using var reporter = new MappingOperationReporter(
-                _notifications,
-                _operationTracker,
-                MappingOperations.Xbox,
-                _refreshShowNotification,
-                ct,
-                _logger,
-                bestEffortNotifications: true);
-            _currentMappingReporter = reporter;
-
-            try
-            {
-                await reporter.StartAsync(CreateXboxMappingContext());
-
-                var daemon = ResolveDaemonService();
-                if (daemon == null)
-                {
-                    _logger.LogDebug("XboxPrefillDaemonService unavailable - skipping the daemon catalog source");
-                }
-
-                if (!IsAuthenticated && daemon?.IsAnyDaemonAuthenticated() != true)
-                {
-                    _logger.LogInformation(
-                        "Xbox catalog refresh skipped - no Microsoft account is signed in");
-                    await reporter.CompleteAsync(
-                        success: true,
-                        stageKey: XboxSignInSkipStageKey,
-                        context: CreateXboxMappingContext(),
-                        skipped: true);
-                    return new XboxCatalogRefreshResult();
-                }
-
-                var newPatterns = 0;
-                await reporter.ReportAsync(
-                    20,
-                    "signalr.xboxMapping.collecting",
-                    CreateXboxMappingContext());
-                if (IsAuthenticated)
-                {
-                    newPatterns += await HarvestManagerCatalogAsync(reporter.Token);
-                }
-
-                await reporter.ReportAsync(
-                    45,
-                    "signalr.xboxMapping.collecting",
-                    CreateXboxMappingContext(newPatterns: newPatterns));
-                if (daemon != null)
-                {
-                    newPatterns += await daemon.RefreshCatalogFromActiveSessionsAsync(reporter.Token);
-                }
-
-                await reporter.ReportAsync(
-                    70,
-                    "signalr.xboxMapping.resolving",
-                    CreateXboxMappingContext(newPatterns: newPatterns));
-                var resolved = await _mappingService.ResolveDownloadsAsync(reporter.Token);
-
-                await reporter.ReportAsync(
-                    90,
-                    "signalr.xboxMapping.backfilling",
-                    CreateXboxMappingContext(newPatterns, resolved));
-                try
-                {
-                    await _mappingService.BackfillMissingBannerArtAsync(reporter.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Xbox banner-art backfill failed during catalog refresh");
-                }
-
-                _logger.LogInformation(
-                    "Xbox catalog refresh: {NewPatterns} new CDN pattern(s), {Resolved} download(s) re-tagged",
-                    newPatterns, resolved);
-
-                await reporter.CompleteAsync(
-                    success: true,
-                    context: CreateXboxMappingContext(newPatterns, resolved));
-                return new XboxCatalogRefreshResult { NewPatterns = newPatterns, Resolved = resolved };
-            }
-            catch (OperationCanceledException)
-            {
-                await reporter.CompleteAsync(
-                    success: false,
-                    error: "Cancelled by user",
-                    cancelled: true,
-                    context: CreateXboxMappingContext());
-                throw;
-            }
-            catch (Exception ex)
-            {
-                await reporter.CompleteAsync(
-                    success: false,
-                    error: ex.Message,
-                    context: CreateXboxMappingContext(errorDetail: ex.Message));
-                throw;
-            }
-            finally
-            {
-                if (ReferenceEquals(_currentMappingReporter, reporter))
-                {
-                    _currentMappingReporter = null;
-                }
-            }
-        }
-        finally
-        {
-            _refreshGate.Release();
-        }
-    }
-
-    private Dictionary<string, object?> CreateXboxMappingContext(
-        int newPatterns = 0,
-        int resolved = 0,
-        string? errorDetail = null) =>
-        new()
-        {
-            ["gamesDiscovered"] = _gamesDiscovered,
-            ["newPatterns"] = newPatterns,
-            ["resolved"] = resolved,
-            ["errorDetail"] = errorDetail,
-        };
 
     /// <summary>
     /// Resolves the singleton daemon. Prefers the reference captured at subscribe time; otherwise

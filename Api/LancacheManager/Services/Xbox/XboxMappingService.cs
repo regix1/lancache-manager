@@ -338,7 +338,9 @@ public class XboxMappingService
     /// it stops retrying; a title DisplayCatalog genuinely has no art for is retried each refresh, which
     /// is acceptable at the bounded refresh cadence.
     /// </summary>
-    public async Task BackfillMissingBannerArtAsync(CancellationToken ct = default)
+    /// <returns>How many mappings had art stored. A caller that reports what its run did needs this: the
+    /// backfill writes to the database, so a pass that stored art did not do nothing.</returns>
+    public async Task<int> BackfillMissingBannerArtAsync(CancellationToken ct = default)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
 
@@ -346,10 +348,10 @@ public class XboxMappingService
             .Where(m => m.ImageUrl == null || m.ImageUrl == "")
             .ToListAsync(ct);
 
-        if (mappings.Count == 0) return;
+        if (mappings.Count == 0) return 0;
 
         _logger.LogInformation("Backfilling Xbox banner art for {Count} mapping(s) missing art", mappings.Count);
-        await FetchAndStoreBannerArtAsync(db, mappings, ct);
+        return await FetchAndStoreBannerArtAsync(db, mappings, ct);
     }
 
     /// <summary>
@@ -358,11 +360,12 @@ public class XboxMappingService
     /// Each mapping is fetched best-effort: an empty/failed lookup is skipped and logged, never thrown,
     /// so one bad product cannot abort the batch. Persists once, only if at least one banner was stored.
     /// </summary>
-    private async Task FetchAndStoreBannerArtAsync(AppDbContext db, List<XboxGameMapping> mappings, CancellationToken ct)
+    /// <returns>How many mappings had art stored, so a caller can tell whether the pass changed anything.</returns>
+    private async Task<int> FetchAndStoreBannerArtAsync(AppDbContext db, List<XboxGameMapping> mappings, CancellationToken ct)
     {
-        if (mappings.Count == 0) return;
+        if (mappings.Count == 0) return 0;
 
-        var updated = false;
+        var stored = 0;
         foreach (var mapping in mappings)
         {
             try
@@ -372,7 +375,7 @@ public class XboxMappingService
                 {
                     mapping.ImageUrl = imageUrl;
                     mapping.LastSeenAtUtc = DateTime.UtcNow;
-                    updated = true;
+                    stored++;
                 }
             }
             catch (Exception ex)
@@ -381,10 +384,12 @@ public class XboxMappingService
             }
         }
 
-        if (updated)
+        if (stored > 0)
         {
             await db.SaveChangesAsync(ct);
         }
+
+        return stored;
     }
 
     /// <summary>

@@ -173,8 +173,7 @@ public partial class XboxCatalogMappingService
                 MappingOperations.Xbox,
                 _refreshShowNotification,
                 ct,
-                _logger,
-                bestEffortNotifications: true);
+                _logger);
             _currentMappingReporter = reporter;
             await reporter.StartAsync(CreateXboxMappingContext());
             await reporter.ReportAsync(

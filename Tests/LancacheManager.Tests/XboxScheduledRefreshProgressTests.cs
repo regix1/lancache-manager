@@ -1,4 +1,6 @@
+using System.Net;
 using System.Reflection;
+using System.Text;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
@@ -180,18 +182,85 @@ public class XboxScheduledRefreshProgressTests
 
     // ---- harness (hand-rolled; no mocking framework, matching the suite idiom) ----
 
+    [Fact]
+    public async Task SignedOutRefreshThatStoresBannerArtReportsCompletedNotSkippedAsync()
+    {
+        // Banner backfill needs no Microsoft account - it reads the public DisplayCatalog - and it
+        // WRITES to the database when it finds art. So a signed-out pass that stores a banner has done
+        // real work, and calling it "skipped" would tell the user nothing happened when a row changed.
+        // The skip test used to count only new patterns and re-tagged downloads, which is what let this
+        // through.
+        const string catalogJson =
+            """
+            {"Products":[{"ProductId":"9NBLGGH4R315","LocalizedProperties":[{"ProductTitle":"Test Title",
+            "Images":[{"Uri":"//store-images.example/banner.jpg","ImagePurpose":"Poster"}]}]}]}
+            """;
+
+        using var harness = new Harness(new StubCatalogHandler(catalogJson));
+
+        await using (var db = await harness.DbFactory.CreateDbContextAsync())
+        {
+            db.XboxGameMappings.Add(new XboxGameMapping
+            {
+                ProductId = "9NBLGGH4R315",
+                Title = "Test Title",
+                ImageUrl = null
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // No manager MSA session and no daemon, so this run is signed out exactly like the skip test.
+        await harness.Service.RefreshNowAsync();
+        await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var terminal = harness.Notifications.XboxLifecycleEvents().Single(e => e.IsTerminal);
+
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        Assert.NotEqual("signalr.xboxMapping.skippedNotSignedIn", terminal.StageKey);
+
+        // And the art actually landed, so the run really did change something.
+        await using (var db = await harness.DbFactory.CreateDbContextAsync())
+        {
+            var stored = Assert.Single(db.XboxGameMappings.ToList());
+            Assert.False(string.IsNullOrEmpty(stored.ImageUrl));
+        }
+    }
+
+    /// <summary>Answers every request with one canned DisplayCatalog body.</summary>
+    private sealed class StubCatalogHandler : HttpMessageHandler
+    {
+        private readonly string _json;
+
+        public StubCatalogHandler(string json) => _json = json;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(_json, Encoding.UTF8, "application/json")
+            });
+    }
+
     private sealed class Harness : IDisposable
     {
         private readonly string _root;
         private readonly HttpClient _authHttp = new();
-        private readonly HttpClient _apiHttp = new();
+        private readonly HttpClient _apiHttp;
 
         public RecordingNotifications Notifications { get; }
         public UnifiedOperationTracker Tracker { get; }
         public XboxCatalogMappingService Service { get; }
 
-        public Harness()
+        /// <summary>Exposed so a test can seed rows the run is expected to act on.</summary>
+        public InMemoryDbContextFactory DbFactory { get; }
+
+        /// <param name="catalogHandler">Stub responder for the public DisplayCatalog lookup that banner
+        /// backfill makes. Left null the run reaches the real endpoint and stores nothing, which is what
+        /// every pre-existing test here wants.</param>
+        public Harness(HttpMessageHandler? catalogHandler = null)
         {
+            _apiHttp = catalogHandler is null ? new HttpClient() : new HttpClient(catalogHandler);
             _root = Path.Combine(Path.GetTempPath(), $"xbox_sched_{Guid.NewGuid():N}");
             Directory.CreateDirectory(_root);
 
@@ -223,8 +292,9 @@ public class XboxScheduledRefreshProgressTests
             var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
                 .UseInMemoryDatabase($"xbox_sched_{Guid.NewGuid():N}")
                 .Options;
+            DbFactory = new InMemoryDbContextFactory(dbOptions);
             var mappingService = new XboxMappingService(
-                new InMemoryDbContextFactory(dbOptions),
+                DbFactory,
                 Notifications,
                 apiClient,
                 NullLogger<XboxMappingService>.Instance);

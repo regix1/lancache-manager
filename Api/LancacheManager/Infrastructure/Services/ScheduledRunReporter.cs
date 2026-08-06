@@ -36,7 +36,6 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     private readonly ScheduledRunPayloadFactories? _payloadFactories;
     private readonly Action? _onTerminalCleanup;
     private readonly ILogger? _logger;
-    private readonly bool _bestEffortNotifications;
     private readonly Func<OperationTerminalInfo, string>? _externalTerminalStageKey;
     private readonly TaskCompletionSource _terminalEmitted =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -76,7 +75,6 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         ScheduledRunPayloadFactories? payloadFactories = null,
         Action? onTerminalCleanup = null,
         ILogger? logger = null,
-        bool bestEffortNotifications = false,
         Func<OperationTerminalInfo, string>? externalTerminalStageKey = null)
     {
         _notifications = notifications;
@@ -91,7 +89,6 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         _payloadFactories = payloadFactories;
         _onTerminalCleanup = onTerminalCleanup;
         _logger = logger;
-        _bestEffortNotifications = bestEffortNotifications;
         _externalTerminalStageKey = externalTerminalStageKey;
     }
 
@@ -108,9 +105,13 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     public CancellationToken Token => _cts.Token;
 
     /// <summary>
-    /// Registers the tracked operation and awaits the run-started broadcast. Call this only once, and
-    /// only after confirming there is work to do - a prerequisite-not-met run should return BEFORE
-    /// starting so it never surfaces a card (mirrors the existing eviction behavior).
+    /// Registers the tracked operation and awaits the run-started broadcast. Call this only once.
+    /// A run that finds nothing to do has two honest shapes and both are in use: return BEFORE
+    /// calling this, so no card ever surfaces (OperationHistoryCleanupService when there is no
+    /// history old enough to prune), or start and then finish with <c>skipped: true</c>, so the user
+    /// sees that the run happened and changed nothing (Epic and Xbox mapping when no account is
+    /// signed in). Prefer the second whenever the user triggered the run themselves, because silence
+    /// there reads as a button that did not work.
     /// </summary>
     public async Task StartAsync(string stageKey, Dictionary<string, object?>? context = null)
     {
@@ -150,11 +151,9 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 stageKey,
                 context,
                 _showNotification);
-            await SendAsync(
-                () => _notifications.NotifyAllAsync(
-                    _events.Started,
-                    _payloadFactories?.Started(started) ?? started),
-                "started");
+            await _notifications.NotifyAllAsync(
+                _events.Started,
+                _payloadFactories?.Started(started) ?? started);
         }
         finally
         {
@@ -214,11 +213,9 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 clamped,
                 context,
                 _showNotification);
-            await SendAsync(
-                () => _notifications.NotifyAllAsync(
-                    _events.Progress,
-                    _payloadFactories?.Progress(progress) ?? progress),
-                "progress");
+            await _notifications.NotifyAllAsync(
+                _events.Progress,
+                _payloadFactories?.Progress(progress) ?? progress);
         }
         finally
         {
@@ -283,7 +280,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     {
         if (_started)
         {
-            return _tracker.CancelOperation(_operationId);
+            return _tracker.CancelOperation(_operationId) != OperationCancelResult.NotFound;
         }
 
         _cts.Cancel();
@@ -332,15 +329,11 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
 
             if (info.Success || info.Cancelled)
             {
-                await SendAsync(
-                    () => _notifications.NotifyAllAsync(_events.Complete, payload),
-                    "complete");
+                await _notifications.NotifyAllAsync(_events.Complete, payload);
             }
             else
             {
-                await SendAsync(
-                    () => _notifications.NotifyOperationFailedAsync(_events.Complete, payload),
-                    "complete");
+                await _notifications.NotifyOperationFailedAsync(_events.Complete, payload);
             }
         }
         finally
@@ -373,22 +366,6 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         }
     }
 
-    private async Task SendAsync(Func<Task> send, string lifecyclePhase)
-    {
-        try
-        {
-            await send();
-        }
-        catch (Exception ex) when (_bestEffortNotifications)
-        {
-            _logger?.LogWarning(
-                ex,
-                "Failed to send {LifecyclePhase} lifecycle event for {ServiceKey} operation {OperationId}",
-                lifecyclePhase,
-                _serviceKey,
-                _operationId);
-        }
-    }
 
     public async ValueTask DisposeAsync()
     {

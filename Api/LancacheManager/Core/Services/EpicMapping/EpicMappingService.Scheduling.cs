@@ -17,6 +17,12 @@ public partial class EpicMappingService
     /// <summary>Terminal stage key for a run that collected nothing because Epic is signed out.</summary>
     private const string EpicSignInSkipStageKey = "signalr.epicMapping.skippedNotSignedIn";
 
+    /// <summary>
+    /// Terminal stage key for a signed-out run that still named downloads from the stored patterns.
+    /// It cannot use the ordinary completed terminal, which says the catalog was refreshed.
+    /// </summary>
+    private const string EpicResolvedWithoutSignInStageKey = "signalr.epicMapping.resolvedWithoutSignIn";
+
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
         if (_cancellationTokenSource.Token.IsCancellationRequested || Volatile.Read(ref _isRunning) == 0)
@@ -27,7 +33,7 @@ public partial class EpicMappingService
         await WaitForAutoReconnectAsync(stoppingToken);
         if (!_isAuthenticated || _currentTokens is null)
         {
-            await ReportSignInSkipAsync(stoppingToken);
+            await RunWithoutSignInAsync(stoppingToken);
             return;
         }
 
@@ -141,22 +147,48 @@ public partial class EpicMappingService
     }
 
     /// <summary>
-    /// Reports a run that did nothing because no Epic account is signed in. It goes through the same
-    /// reporter and the same terminal stage-key override every other outcome uses, so the run's
-    /// notification mode still decides whether it is shown (a silent service stays silent) and the
-    /// card reads "skipped" instead of claiming the catalog was refreshed.
+    /// Runs the part of a refresh that needs no Epic account. Being signed in only decides whether a
+    /// NEW catalog can be fetched; matching already-ingested downloads against the patterns already
+    /// stored is pure database work, so it runs either way and rows stop waiting for the next log
+    /// pass to get their names. The run reports itself skipped only when it also resolved nothing,
+    /// and goes through the same reporter and terminal stage-key override as every other outcome, so
+    /// the notification mode still decides whether it is shown.
     /// </summary>
-    private async Task ReportSignInSkipAsync(CancellationToken stoppingToken)
+    private async Task RunWithoutSignInAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Epic catalog refresh skipped - no Epic account is signed in");
+        _logger.LogInformation(
+            "Epic catalog refresh: no Epic account is signed in, so no new catalog is collected - resolving downloads against the stored patterns instead");
         _showNotification = EffectiveNotificationMode.AllowsTrigger(CurrentRunTrigger);
+        // No catalog is collected on this path, so the counts a signed-in run left behind are not
+        // this run's. The two signed-in paths clear them at the top of their own run for the same
+        // reason; without this the terminal carries the previous run's numbers.
+        _lastNewGames = 0;
+        _lastUpdatedGames = 0;
         await using var reporter = CreateEpicMappingReporter(stoppingToken);
+        // This pass may finish having changed nothing, so it stays quiet either way rather than
+        // claiming progress it might then report as skipped.
+        reporter.SuppressProgress();
         await reporter.StartAsync(CreateEpicContext());
+
+        var resolved = 0;
+        try
+        {
+            resolved = await ResolveDownloadsAsync(stoppingToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Failed to resolve Epic downloads while signed out");
+        }
+
+        var changedNothing = resolved == 0;
+        // Neither outcome refreshed a catalog, so neither may fall back to the completed terminal,
+        // which says it did. One says the run found nothing to name, the other says what it named
+        // from the patterns already stored.
         await reporter.CompleteAsync(
             success: true,
-            stageKey: EpicSignInSkipStageKey,
+            stageKey: changedNothing ? EpicSignInSkipStageKey : EpicResolvedWithoutSignInStageKey,
             context: CreateEpicContext(),
-            skipped: true);
+            skipped: changedNothing);
     }
 
     private MappingOperationReporter CreateEpicMappingReporter(

@@ -160,6 +160,48 @@ public class ScheduledPrefillRunGatesTests
         Assert.Contains("not logged in", loggedOut);
     }
 
+    [Theory]
+    [InlineData(PrefillPlatform.Steam, true)]
+    [InlineData(PrefillPlatform.Epic, true)]
+    [InlineData(PrefillPlatform.Xbox, true)]
+    [InlineData(PrefillPlatform.BattleNet, false)]
+    [InlineData(PrefillPlatform.Riot, false)]
+    public void RequiresLogin_IsFalseOnlyForTheAnonymousPlatforms(PrefillPlatform platform, bool expected)
+    {
+        // Battle.net and Riot pull public CDN content with no account, which is why their daemons
+        // override InitialAuthState to Authenticated. Everything that gates on login state reads this.
+        Assert.Equal(expected, platform.RequiresLogin());
+    }
+
+    [Fact]
+    public void BuildNotReadyMessage_DropsTheLoginLanguageForAnonymousPlatforms()
+    {
+        // A running-but-unready container is the same situation for every platform, but Battle.net
+        // and Riot have nothing to sign in to - telling them to log in sends the user looking for a
+        // screen that does not exist.
+        var anonymous = ScheduledPrefillRunGates.BuildNotReadyMessage(PrefillPlatform.BattleNet);
+
+        Assert.Contains("BattleNet", anonymous);
+        Assert.DoesNotContain("logged in", anonymous);
+        Assert.DoesNotContain("log in", anonymous);
+        Assert.DoesNotContain("login", anonymous, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("login", ScheduledPrefillRunGates.ContainerNotReadyReason.Replace(
+            "needs no login", string.Empty, StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("log in", ScheduledPrefillRunGates.NoContainerReason);
+    }
+
+    [Fact]
+    public void EvaluateRunOutcome_AnonymousSkipDoesNotReportNeedingLogin()
+    {
+        // An anonymous platform routes its prerequisite failure to Skipped, not NeedsLogin, so a run
+        // where only Battle.net was due cannot summarise itself as "All due services need login".
+        var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(
+            servicesRan: 0, servicesNeedingLogin: 0, servicesSkipped: 1, servicesFailed: 0);
+
+        Assert.False(outcome.Success);
+        Assert.Equal("All enabled services were skipped", outcome.Error);
+    }
+
     [Fact]
     public void LoggedOutNeedsLoginReason_DiffersFromNoContainerReason()
     {

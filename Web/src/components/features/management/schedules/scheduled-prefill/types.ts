@@ -4,7 +4,21 @@ export type ScheduledPrefillServiceKey = 'steam' | 'epic' | 'xbox' | 'battleNet'
 
 export type ScheduledPrefillServiceId = 'Steam' | 'Epic' | 'Xbox' | 'BattleNet' | 'Riot';
 
-export type ScheduledPrefillAccountServiceId = 'steam' | 'epic' | 'xbox';
+/**
+ * Platforms that prefill public CDN content with no account. Their daemons report themselves ready as
+ * soon as they connect, so a readiness failure for one of these means the container is not up yet,
+ * never that a login is missing.
+ *
+ * This is the ONE place the split is written down on the frontend. Everything else derives from it, so
+ * a new platform only has to be classified once.
+ */
+export type ScheduledPrefillAnonymousServiceId = 'battleNet' | 'riot';
+
+/** Every platform that is not anonymous needs a signed-in account. Derived, never hand-listed. */
+export type ScheduledPrefillAccountServiceId = Exclude<
+  ScheduledPrefillServiceKey,
+  ScheduledPrefillAnonymousServiceId
+>;
 
 export type ScheduledPrefillPreset = 'All' | 'Recent' | 'Top';
 
