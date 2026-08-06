@@ -327,7 +327,7 @@ public class SystemController : ControllerBase
     /// RESTful: PATCH is proper method for partial updates
     /// Request body: { "completed": true }
     /// </summary>
-    [Authorize]
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("setup")]
     public IActionResult UpdateSetupStatus([FromBody] UpdateSetupStatusRequest request)
     {

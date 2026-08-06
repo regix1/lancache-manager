@@ -43,6 +43,7 @@ public class ScheduleController : ControllerBase
     /// <summary>
     /// Updates the interval for a service schedule.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPut("{serviceKey}")]
     public async Task<ActionResult> SetIntervalAsync(string serviceKey, [FromBody] UpdateScheduleIntervalRequest request)
     {
@@ -60,6 +61,7 @@ public class ScheduleController : ControllerBase
     /// <summary>
     /// Updates whether the service runs at app startup.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPut("{serviceKey}/runOnStartup")]
     public async Task<ActionResult> SetRunOnStartupAsync(string serviceKey, [FromBody] UpdateScheduleRunOnStartupRequest request)
     {
@@ -144,6 +146,7 @@ public class ScheduleController : ControllerBase
     /// this call actually armed a new run or collided with one already in progress, so a repeated
     /// click can be told apart from a real start.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("{serviceKey}/run")]
     public async Task<ActionResult<QueuedOperationResponse>> TriggerRunAsync(string serviceKey)
     {
@@ -181,6 +184,7 @@ public class ScheduleController : ControllerBase
     /// <summary>
     /// Resets all service schedules to their hardcoded defaults.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("reset")]
     public async Task<ActionResult> ResetToDefaultsAsync()
     {
@@ -192,6 +196,7 @@ public class ScheduleController : ControllerBase
     /// <summary>
     /// Triggers an immediate run of every registered service.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("run-all")]
     public async Task<ActionResult<TriggerAllResponse>> TriggerAllAsync()
     {
