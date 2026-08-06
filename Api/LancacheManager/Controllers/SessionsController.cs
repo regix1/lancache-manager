@@ -275,10 +275,18 @@ public class SessionsController : ControllerBase
             publicIp = parsed.ToString();
         }
 
-        // Fallback: the browser's fetch to api.ipify.org is often blocked by pi-hole
-        // or LAN-level DNS filters (net::ERR_ADDRESS_INVALID). In a typical lancache
-        // deployment the server shares the LAN with the client, so the server's
-        // outbound public IP is the same as the client's - resolve it server-side.
+        // The address this request arrived on. When the caller is remote it IS their public IP, and
+        // it is better evidence than anything the server can look up about itself. When they are on
+        // the LAN it is a private address, which tells us nothing about the public side.
+        if (publicIp == null
+            && HttpContext.Connection.RemoteIpAddress is { } remote
+            && !GeoIpService.IsNonPublic(remote))
+        {
+            publicIp = remote.ToString();
+        }
+
+        // Caller is on the LAN, so fall back to the server's own public IP. In a typical lancache
+        // deployment the server shares the LAN with the client, so the two match.
         if (publicIp == null)
         {
             publicIp = await publicIpLookupService.ResolveAsync(ct);

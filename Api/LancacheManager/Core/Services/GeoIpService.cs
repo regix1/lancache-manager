@@ -128,7 +128,12 @@ public sealed class GeoIpService
         }
     }
 
-    private static bool IsNonPublic(IPAddress ip)
+    /// <summary>
+    /// True for an address that cannot be looked up because it is not routable on the public
+    /// internet: loopback, the RFC1918 ranges, link-local, or CGNAT. Also used to decide whether the
+    /// address a request arrived on is the caller's real public IP or just their place on the LAN.
+    /// </summary>
+    internal static bool IsNonPublic(IPAddress ip)
     {
         if (IPAddress.IsLoopback(ip)) return true;
 
