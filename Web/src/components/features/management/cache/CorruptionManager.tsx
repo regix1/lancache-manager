@@ -986,7 +986,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         )}
       </div>
       {displayedDetectionMethod === 'structural' && (
-        <p className="mgmt-scanmeta">{t('management.corruption.structuralScanHelp')}</p>
+        <>
+          <p className="mgmt-scanmeta">{t('management.corruption.structuralScanHelp')}</p>
+          <p className="mgmt-scanmeta text-themed-warning">
+            {t('management.corruption.incrementalScanLimitation')}
+          </p>
+        </>
       )}
       {hasCachedResults && lastDetectionTime && !isScanBusy && !isLoading && (
         <p className="mgmt-scanmeta">
