@@ -857,7 +857,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 OperationId: operationId,
                 Success: false,
                 Status: OperationStatus.Cancelled,
-                Message: "Cache clear cancelled by user",
+                Message: "Cache clear cancelled",
                 Cancelled: true);
         }
 

@@ -14,6 +14,21 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 {
     private readonly ConcurrentDictionary<Guid, OperationInfo> _operations = new();
     private readonly ConcurrentDictionary<(OperationType Type, string EntityKey), Guid> _entityKeyIndex = new();
+
+    /// <summary>
+    /// old operation id -> the operation that took over its work (see <see cref="RecordHandoff"/>).
+    /// Entries are removed by the same reaper that removes the operation itself, so a handoff stays
+    /// resolvable for exactly as long as a client could still be holding the old id.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, Guid> _handoffs = new();
+
+    /// <summary>
+    /// Bound on how far <see cref="ResolveHandoff"/> will follow a chain. A handoff always points at
+    /// a freshly-registered id so a cycle cannot form, but a bounded walk means a bug upstream
+    /// degrades to "cancel did nothing" instead of hanging the request thread.
+    /// </summary>
+    private const int MaxHandoffDepth = 8;
+
     private readonly ProcessManager _processManager;
     private readonly ILogger<UnifiedOperationTracker> _logger;
 
@@ -99,18 +114,64 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return false;
     }
 
-    public bool CancelOperation(Guid operationId)
+    public void RecordHandoff(Guid fromOperationId, Guid toOperationId)
     {
+        if (fromOperationId == toOperationId || toOperationId == Guid.Empty)
+        {
+            return;
+        }
+
+        _handoffs[fromOperationId] = toOperationId;
+        _logger.LogDebug(
+            "Operation {FromId} handed its work to {ToId}; cancels aimed at the old id now follow it",
+            fromOperationId, toOperationId);
+    }
+
+    /// <summary>
+    /// Follow any recorded handoff to the operation actually doing the work. Returns the id
+    /// unchanged when nothing has taken over.
+    /// </summary>
+    private Guid ResolveHandoff(Guid operationId)
+    {
+        var resolved = operationId;
+        for (var hop = 0; hop < MaxHandoffDepth; hop++)
+        {
+            if (!_handoffs.TryGetValue(resolved, out var next) || next == resolved)
+            {
+                return resolved;
+            }
+            resolved = next;
+        }
+
+        _logger.LogWarning(
+            "Handoff chain from operation {Id} exceeded {MaxDepth} hops — cancelling the last one reached",
+            operationId, MaxHandoffDepth);
+        return resolved;
+    }
+
+    public OperationCancelResult CancelOperation(Guid requestedOperationId)
+    {
+        // The caller's card may still carry the id of an operation that has already handed its work
+        // to another one (the wait-queue promoting a parked operation is the case that matters).
+        // Cancelling the id as given would stop nothing while reporting success.
+        var operationId = ResolveHandoff(requestedOperationId);
+        if (operationId != requestedOperationId)
+        {
+            _logger.LogInformation(
+                "Cancel for operation {RequestedId} follows its handoff to {ActualId}",
+                requestedOperationId, operationId);
+        }
+
         if (!_operations.TryGetValue(operationId, out var operation))
         {
             _logger.LogWarning("Operation {Id} not found for cancellation", operationId);
-            return false;
+            return OperationCancelResult.NotFound;
         }
 
         if (operation.Status.IsTerminal())
         {
             _logger.LogDebug("Operation {Id} already terminal ({Status}) — cancel is a no-op", operationId, operation.Status);
-            return true;
+            return OperationCancelResult.AlreadyFinished;
         }
 
         // P2-C: snapshot the CTS into a local ONCE so a concurrent CompleteOperation cannot null/dispose
@@ -121,7 +182,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         {
             _logger.LogDebug("Operation {Id} has no CancellationTokenSource — attempting process kill only", operationId);
             TryKillAssociatedProcess(operation, operationId);
-            return true;
+            return OperationCancelResult.Requested;
         }
 
         try
@@ -130,7 +191,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             {
                 _logger.LogDebug("Cancellation already in progress for operation {Id} — re-attempting process kill", operationId);
                 TryKillAssociatedProcess(operation, operationId);
-                return true;
+                return OperationCancelResult.Requested;
             }
 
             _logger.LogInformation(
@@ -148,10 +209,13 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         {
             // P2-C: the operation completed concurrently and CompleteOperation disposed the CTS.
             // The op is already terminal — cancellation is a benign no-op.
+            // The operation reached a terminal state while we were cancelling, so the request
+            // stopped nothing the caller could still see.
             _logger.LogDebug("Operation {Id} completed concurrently during cancel — CTS already disposed", operationId);
+            return OperationCancelResult.AlreadyFinished;
         }
 
-        return true;
+        return OperationCancelResult.Requested;
     }
 
     public void AssociateProcess(Guid operationId, Process process)
@@ -174,8 +238,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         }
     }
 
-    public bool ForceKillOperation(Guid operationId)
+    public bool ForceKillOperation(Guid requestedOperationId)
     {
+        // Same reasoning as CancelOperation: follow the work, not the id the caller happens to hold.
+        var operationId = ResolveHandoff(requestedOperationId);
         if (!_operations.TryGetValue(operationId, out var operation))
         {
             _logger.LogWarning("Operation {Id} not found for force kill", operationId);
@@ -378,6 +444,14 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                 foreach (var key in _entityKeyIndex.Where(kvp => kvp.Value == operationId).Select(kvp => kvp.Key).ToList())
                 {
                     _entityKeyIndex.TryRemove(key, out _);
+                }
+
+                // Drop this operation's handoff in both directions once nobody can still be holding
+                // its id: the entry it owns, and any entry pointing at it.
+                _handoffs.TryRemove(operationId, out _);
+                foreach (var stale in _handoffs.Where(kvp => kvp.Value == operationId).Select(kvp => kvp.Key).ToList())
+                {
+                    _handoffs.TryRemove(stale, out _);
                 }
             }
             catch (Exception ex) { _logger.LogDebug(ex, "Reaper cleanup failed for {Id}", operationId); }

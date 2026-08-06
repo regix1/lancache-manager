@@ -757,12 +757,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     return _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                         Success: false,
                         OperationId: operationId,
-                        StageKey: "signalr.evictionScan.complete",
+                        StageKey: "signalr.evictionScan.cancelled",
                         Processed: 0,
                         Evicted: 0,
                         UnEvicted: 0,
-                        Error: "Cancelled by user",
-                        ShowNotification: showNotification));
+                        ShowNotification: showNotification,
+                        Cancelled: true));
                 }
 
                 if (info.Success)

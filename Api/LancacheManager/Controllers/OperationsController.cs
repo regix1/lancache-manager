@@ -77,6 +77,9 @@ public class OperationsController : ControllerBase
     /// <summary>
     /// Aggressively cancels a running operation: kills any associated process tree, then cancels the token.
     /// Idempotent — returns 200 OK if already cancelling (re-attempts process kill).
+    /// A cancel that arrives after the operation finished is also 200, because the caller's intent is
+    /// satisfied, but it carries <c>alreadyFinished: true</c> so the browser can drop the stale card
+    /// instead of waiting for a cancellation that will never arrive.
     /// </summary>
     [HttpPost("{id}/cancel")]
     public IActionResult CancelOperation(Guid id)
@@ -89,18 +92,31 @@ public class OperationsController : ControllerBase
 
         try
         {
-            var cancelled = _cancellationService.Cancel(id);
-            if (cancelled)
+            switch (_cancellationService.Cancel(id))
             {
-                return Ok(new
-                {
-                    message = "Cancellation requested (process kill + token cancel)",
-                    operationId = id,
-                    status = operation.Status
-                });
-            }
+                case OperationCancelResult.Requested:
+                    return Ok(new
+                    {
+                        message = "Cancellation requested (process kill + token cancel)",
+                        operationId = id,
+                        status = operation.Status,
+                        alreadyFinished = false
+                    });
 
-            return BadRequest(ApiResponse.Invalid("Operation cannot be cancelled"));
+                case OperationCancelResult.AlreadyFinished:
+                    return Ok(new
+                    {
+                        message = "Operation already finished",
+                        operationId = id,
+                        status = operation.Status,
+                        alreadyFinished = true
+                    });
+
+                default:
+                    // The tracker's cleanup reaper evicted the operation between the lookup above and
+                    // the cancel. The frontend reads this message to drop the card.
+                    return BadRequest(ApiResponse.Invalid("Operation cannot be cancelled"));
+            }
         }
         catch (Exception ex) when (ex is ObjectDisposedException or NullReferenceException)
         {
@@ -111,7 +127,8 @@ public class OperationsController : ControllerBase
             {
                 message = "Operation already completed",
                 operationId = id,
-                status = OperationStatus.Completed
+                status = OperationStatus.Completed,
+                alreadyFinished = true
             });
         }
     }

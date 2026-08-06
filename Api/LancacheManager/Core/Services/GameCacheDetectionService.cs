@@ -870,7 +870,7 @@ public partial class GameCacheDetectionService : IDisposable
                 }
 
                 await FinalizeDetectionAsync(operationId, success: false,
-                    status: OperationStatus.Cancelled, stageKey: "signalr.gameDetect.starting.incremental", cancelled: true);
+                    status: OperationStatus.Cancelled, stageKey: "signalr.gameDetect.cancelled", cancelled: true);
             }
             else
             {
@@ -996,7 +996,7 @@ public partial class GameCacheDetectionService : IDisposable
         var stageKey = !string.IsNullOrEmpty(payload.StageKey)
             ? payload.StageKey
             : info.Cancelled
-                ? "signalr.gameDetect.starting.incremental"
+                ? "signalr.gameDetect.cancelled"
                 : "signalr.generic.failed";
 
         var record = new SignalRNotifications.GameDetectionComplete(

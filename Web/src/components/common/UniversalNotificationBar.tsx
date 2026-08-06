@@ -89,7 +89,8 @@ const notifyToastError = (i18nKey: string): void => {
 const handleCancel = async (
   notification: UnifiedNotification,
   updateNotification: (id: string, updates: Partial<UnifiedNotification>) => void,
-  removeNotification: (id: string) => void
+  removeNotification: (id: string) => void,
+  getLiveNotification: (id: string) => UnifiedNotification | undefined
 ) => {
   const cancelKind = CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind ?? 'none';
 
@@ -119,13 +120,29 @@ const handleCancel = async (
     return;
   }
 
+  // A card's slot id is shared between a queued operation and the run promoted in its place, so by
+  // the time the server answers, this card may already belong to a DIFFERENT operation that is
+  // still going. Drop it only while it still carries the operation this click cancelled - the same
+  // guard the waiting-complete handler applies for the same promotion window.
+  const removeIfStillThisOperation = (): void => {
+    if (getLiveNotification(notification.id)?.details?.operationId === operationId) {
+      removeNotification(notification.id);
+    }
+  };
+
   if (!cancelRequested) {
     updateNotification(notification.id, {
       details: { ...notification.details, cancelRequested: true, cancelSent: true }
     });
 
     try {
-      await ApiService.cancelOperation(operationId);
+      const result = await ApiService.cancelOperation(operationId);
+      if (result.alreadyFinished === true) {
+        // The operation was already terminal, so no cancellation event will ever arrive for this
+        // card. Its terminal event was gated out or lost, leaving it stuck on screen - drop it,
+        // exactly as the "already gone" branch below does when the operation has been evicted.
+        removeIfStillThisOperation();
+      }
     } catch (err) {
       console.error('Cancel failed:', getErrorMessage(err));
       const errorMessage = err instanceof Error ? err.message : '';
@@ -134,7 +151,7 @@ const handleCancel = async (
         errorMessage.includes('Not Found') ||
         errorMessage.includes('cannot be cancelled')
       ) {
-        removeNotification(notification.id);
+        removeIfStillThisOperation();
       } else {
         // Genuine cancel failure (not the "already gone" case above) - the operation is still
         // running, so tell the user rather than leaving the reset X button as the only signal.
@@ -158,7 +175,7 @@ const handleCancel = async (
     console.error('Force kill failed:', getErrorMessage(err));
     const errorMessage = err instanceof Error ? err.message : '';
     if (errorMessage.includes('not found') || errorMessage.includes('Not Found')) {
-      removeNotification(notification.id);
+      removeIfStillThisOperation();
     } else {
       notifyToastError('common.notifications.forceKillOperationFailed');
     }
@@ -555,8 +572,11 @@ const UnifiedNotificationItem = ({
     >
       {icon}
 
+      {/* Screen readers need a live region, so this repeats the card's own sentence. It sits
+          above the visible message in the DOM, so selecting the card used to copy that sentence
+          twice; select-none leaves it out of the selection without changing what is announced. */}
       <div
-        className="sr-only"
+        className="sr-only select-none"
         role={notification.status === 'failed' ? 'alert' : 'status'}
         aria-live={notification.status === 'failed' ? 'assertive' : 'polite'}
         aria-atomic="true"
@@ -663,6 +683,13 @@ const UniversalNotificationBar: React.FC = () => {
   // watchdog effect below never fires the same cancel twice when notifications
   // re-render. Pruned as notifications disappear.
   const deferredCancelFiredRef = useRef<Set<string>>(new Set());
+
+  // The cancel round trip is async, so handleCancel's captured card can be stale by the time the
+  // server answers. It reads the committed list through this ref instead before removing anything.
+  const notificationsRef = useRef<UnifiedNotification[]>(notifications);
+  useEffect(() => {
+    notificationsRef.current = notifications;
+  }, [notifications]);
 
   // Deferred-cancel watchdog: only when user clicked X before operationId existed.
   useEffect(() => {
@@ -792,7 +819,10 @@ const UniversalNotificationBar: React.FC = () => {
       return undefined;
     }
 
-    return () => handleCancel(notification, updateNotification, removeNotification);
+    return () =>
+      handleCancel(notification, updateNotification, removeNotification, (id: string) =>
+        notificationsRef.current.find((n) => n.id === id)
+      );
   };
 
   // Don't render if no notifications and not animating

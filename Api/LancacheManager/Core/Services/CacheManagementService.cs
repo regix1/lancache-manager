@@ -1807,11 +1807,11 @@ public partial class CacheManagementService
                     return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
                         Success: false,
                         OperationId: operationId,
-                        StageKey: "signalr.cacheSizeScan.complete",
+                        StageKey: "signalr.cacheSizeScan.cancelled",
                         TotalFiles: 0,
                         TotalBytes: 0,
-                        Error: "Cancelled by user",
-                        ShowNotification: showNotification));
+                        ShowNotification: showNotification,
+                        Cancelled: true));
                 }
 
                 if (info.Success)

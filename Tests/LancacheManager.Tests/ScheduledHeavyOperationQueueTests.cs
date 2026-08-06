@@ -282,7 +282,7 @@ public sealed class ScheduledHeavyOperationQueueTests
             CancellationToken.None);
 
         Assert.True(queued.Queued);
-        Assert.True(tracker.CancelOperation(queued.OperationId));
+        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(queued.OperationId));
         var cancelled = await cancelledReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.False(cancelled.Promoted);
 

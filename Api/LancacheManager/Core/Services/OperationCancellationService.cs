@@ -34,7 +34,7 @@ public class OperationCancellationService
     /// <see cref="System.Threading.CancellationToken"/> — the universal cancel path exposed via
     /// <c>POST /operations/{id}/cancel</c>.
     /// </summary>
-    public bool Cancel(Guid operationId)
+    public OperationCancelResult Cancel(Guid operationId)
     {
         return _operationTracker.CancelOperation(operationId);
     }

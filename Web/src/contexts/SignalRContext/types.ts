@@ -1199,6 +1199,7 @@ export interface EvictionScanCompleteEvent {
   prunedOrphans?: number;
   error?: string;
   showNotification?: boolean;
+  cancelled?: boolean;
 }
 
 export interface CacheSizeScanStartedEvent {
@@ -1231,6 +1232,7 @@ export interface CacheSizeScanCompleteEvent {
   formattedSize?: string;
   error?: string;
   showNotification?: boolean;
+  cancelled?: boolean;
 }
 
 /**

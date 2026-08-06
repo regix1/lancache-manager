@@ -1021,7 +1021,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         filesDeleted: event.filesDeleted,
         directoriesProcessed: event.directoriesProcessed
       }),
-      getFailureMessage: (event: CacheClearCompleteEvent) => formatCacheClearFailureMessage(event)
+      getFailureMessage: (event: CacheClearCompleteEvent) => formatCacheClearFailureMessage(event),
+      // Without this the card falls through to the server's own English sentence, which no
+      // locale ever translates.
+      getCancelledMessage: () => i18n.t('signalr.cacheClear.cancelled')
     }
   }),
 
@@ -1084,7 +1087,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         recordsErrors: event.recordsErrors,
         totalRecords: event.totalRecords
       }),
-      getFailureMessage: (event: DataImportCompleteEvent) => formatDataImportFailureMessage(event)
+      getFailureMessage: (event: DataImportCompleteEvent) => formatDataImportFailureMessage(event),
+      // Without this the card falls through to the server's own English sentence, which no
+      // locale ever translates.
+      getCancelledMessage: () => i18n.t('signalr.dataImport.cancelled')
     }
   }),
 
@@ -1148,7 +1154,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     complete: {
       getSuccessMessage: stageKeyMessage('signalr.evictionScan.complete'),
-      getFailureMessage: errorOrStageKeyMessage(GENERIC_FAILURE_I18N_KEY)
+      getFailureMessage: errorOrStageKeyMessage(GENERIC_FAILURE_I18N_KEY),
+      getCancelledMessage: stageKeyMessage('signalr.evictionScan.cancelled')
     }
   }),
 
@@ -1216,7 +1223,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     complete: {
       getSuccessMessage: stageKeyMessage('signalr.cacheSizeScan.complete'),
-      getFailureMessage: errorOrStageKeyMessage(GENERIC_FAILURE_I18N_KEY)
+      getFailureMessage: errorOrStageKeyMessage(GENERIC_FAILURE_I18N_KEY),
+      getCancelledMessage: stageKeyMessage('signalr.cacheSizeScan.cancelled')
     }
   }),
 
@@ -1587,6 +1595,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       { stageKey: 'signalr.battleNetMapping.resolving', context: {} },
       { stageKey: 'signalr.battleNetMapping.saving', context: {} },
       { stageKey: 'signalr.battleNetMapping.completed', context: {} },
+      { stageKey: 'signalr.battleNetMapping.skippedNothingResolved', context: {} },
       { stageKey: 'signalr.battleNetMapping.cancelled', context: {} },
       { stageKey: 'signalr.battleNetMapping.failed', context: {} }
     ]
@@ -1609,6 +1618,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       { stageKey: 'signalr.riotMapping.starting', context: {} },
       { stageKey: 'signalr.riotMapping.resolving', context: {} },
       { stageKey: 'signalr.riotMapping.completed', context: {} },
+      { stageKey: 'signalr.riotMapping.skippedNothingResolved', context: {} },
       { stageKey: 'signalr.riotMapping.cancelled', context: {} },
       { stageKey: 'signalr.riotMapping.failed', context: {} }
     ]

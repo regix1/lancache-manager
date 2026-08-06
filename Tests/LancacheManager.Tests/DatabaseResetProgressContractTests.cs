@@ -166,6 +166,7 @@ public class DatabaseResetProgressContractTests
                 case nameof(IUnifiedOperationTracker.GetOperationByScope):
                     return null;
                 case nameof(IUnifiedOperationTracker.CancelOperation):
+                    return OperationCancelResult.NotFound;
                 case nameof(IUnifiedOperationTracker.ForceKillOperation):
                 case nameof(IUnifiedOperationTracker.TryRestoreOperation):
                     return false;

@@ -22,6 +22,16 @@ namespace LancacheManager.Core.Services;
 /// EXISTING start path, which self-registers its own operation (own id, own CTS) exactly as a
 /// directly-started op would. The frontend waiting card transitions because both cards share
 /// the per-type singleton notification id and the promoted op's Started event replaces it.
+///
+/// Because promotion swaps one tracker registration for another, the id on the user's card is
+/// briefly the id of an operation that no longer drives anything. Cancel intent is carried across
+/// that swap two ways, and both are needed:
+///  - <see cref="IUnifiedOperationTracker.RecordHandoff"/> is published BEFORE the waiting op is
+///    completed, so every later cancel aimed at the old id follows it to the running op.
+///  - the waiting op's Cancelled latch is re-read AFTER the handoff is published, which catches a
+///    cancel that landed earlier, while the start delegate was still running.
+/// Without them a cancel clicked during promotion returned 200, ended the waiting card, and left
+/// the work it had just started running to completion.
 /// </summary>
 public sealed class OperationQueueService : IOperationQueue
 {
@@ -168,9 +178,13 @@ public sealed class OperationQueueService : IOperationQueue
             // A waiting op has no worker, so the queue is its worker: when the universal
             // cancel path cancels the CTS, complete the op as cancelled (CompletedFlag makes
             // a race with promotion's success-complete a safe who-wins).
+            // Cancelled is passed explicitly rather than left to the tracker's latch: this token can
+            // be cancelled by paths other than the cancel endpoint, and the card must read as
+            // cancelled on all of them. No attribution — at this point the code cannot tell a person
+            // clicking cancel from the app shutting down.
             var capturedWaitingId = waitingId;
             cts.Token.Register(() => _ = Task.Run(() =>
-                _tracker.CompleteOperation(capturedWaitingId, success: false, error: "Cancelled by user")));
+                _tracker.CompleteOperation(capturedWaitingId, success: false, cancelled: true)));
 
             var blockerName = ResolveBlockerName(conflict);
             lock (_sync)
@@ -355,9 +369,28 @@ public sealed class OperationQueueService : IOperationQueue
                         _logger.LogInformation(
                             "Promoted queued {Type} '{Name}': waiting op {WaitingId} -> running op {NewId}",
                             waiter.Type, waiter.Name, waiter.WaitingId, startedId.Value);
+
+                        // Point the old id at the new one BEFORE closing the waiting card, so any
+                        // cancel arriving from this moment on reaches the operation now doing the
+                        // work rather than the parked card it replaced.
+                        _tracker.RecordHandoff(waiter.WaitingId, startedId.Value);
+
                         // Successful handoff emits Promoted=true; the frontend keeps a running
                         // replacement card or removes the waiting card for a silent operation.
                         _tracker.CompleteOperation(waiter.WaitingId, success: true);
+
+                        // A cancel that landed WHILE Start() was running hit a waiting operation
+                        // that no longer drove anything: it ended the parked card and left the work
+                        // it had just started running, so the user was told the operation was
+                        // cancelled while it carried on. The Cancelled latch is set before the token
+                        // is cancelled and is never cleared, so that click is still readable here.
+                        if (_tracker.GetOperation(waiter.WaitingId)?.Cancelled == true)
+                        {
+                            _logger.LogInformation(
+                                "Queued {Type} '{Name}' was cancelled during promotion; cancelling promoted op {NewId}",
+                                waiter.Type, waiter.Name, startedId.Value);
+                            _tracker.CancelOperation(startedId.Value);
+                        }
                     }
                     else if (startError == null)
                     {

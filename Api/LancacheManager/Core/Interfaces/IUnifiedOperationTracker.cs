@@ -52,9 +52,25 @@ public interface IUnifiedOperationTracker
     /// Aggressively cancels an operation: terminates any associated process tree immediately,
     /// then cancels the operation's <see cref="CancellationTokenSource"/>.
     /// Idempotent — repeated calls re-attempt process termination.
-    /// Returns false only when the operation was not found or has no cancellation source.
+    /// The result says whether anything was actually stopped, so a caller can tell a live
+    /// operation being cancelled from a request that arrived after it finished.
+    /// A cancel aimed at an operation that has handed its work on (see
+    /// <see cref="RecordHandoff"/>) is forwarded to whichever operation is actually running.
     /// </summary>
-    bool CancelOperation(Guid operationId);
+    OperationCancelResult CancelOperation(Guid operationId);
+
+    /// <summary>
+    /// Records that <paramref name="fromOperationId"/> handed its work to
+    /// <paramref name="toOperationId"/>, so a cancel or force-kill aimed at the old id reaches the
+    /// operation now doing the work.
+    ///
+    /// The wait-queue needs this because a parked operation and the operation it is promoted into
+    /// are two different tracker registrations with two different tokens. The user's card still
+    /// carries the parked id while the promotion runs, so without the handoff a cancel clicked
+    /// during that window is answered with a success the code cannot honour: the parked operation
+    /// ends as cancelled while the work it started runs to completion.
+    /// </summary>
+    void RecordHandoff(Guid fromOperationId, Guid toOperationId);
 
     /// <summary>
     /// Associates a running OS process with an operation so cancel/force-kill can terminate it.
