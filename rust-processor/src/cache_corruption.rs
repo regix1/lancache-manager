@@ -10,26 +10,16 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-mod cache_corruption_detector;
-mod cache_structural_scanner;
-mod cache_structural_state;
-mod cache_utils;
-mod cancel;
-mod db;
-mod log_discovery;
-mod log_layout;
-mod log_purge;
-mod log_reader;
-mod models;
-mod parser;
-mod parser_http_detailed;
-mod progress_events;
-mod progress_utils;
-#[cfg(test)]
-mod riot_hosts;
-mod service_utils;
-mod tact_products;
-
+use lancache_processor::cache_corruption_detector;
+use lancache_processor::cache_structural_scanner;
+use lancache_processor::cache_structural_state;
+use lancache_processor::cache_utils;
+use lancache_processor::cancel;
+use lancache_processor::db;
+use lancache_processor::log_layout;
+use lancache_processor::log_purge;
+use lancache_processor::progress_events;
+use lancache_processor::progress_utils;
 use cache_corruption_detector::{
     CorruptionCandidate, CorruptionDetector, CorruptionEvidence, DetectionMethod,
     CORRUPTION_CONTRACT_VERSION, DEFAULT_LOOKBACK_DAYS,

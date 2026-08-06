@@ -296,7 +296,7 @@ pub struct CorruptionDetector {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RepeatedMissCachePath {
+pub struct RepeatedMissCachePath {
     pub cache_slice: CacheSliceKind,
     pub path: PathBuf,
     /// Present only for bare-metal paths, whose literal key must be verified before unlinking.
@@ -342,7 +342,7 @@ fn cache_path_for_key(cache_dir: &Path, key: &str) -> PathBuf {
 /// Maps one repeated-MISS physical-slice identity to the configured cache recipe.
 /// The raw log URL is normalized exactly as ingestion normalizes it before it is passed
 /// to the bare-metal helper; this preserves query strings for `$request_uri` vhosts.
-pub(crate) fn repeated_miss_cache_paths(
+pub fn repeated_miss_cache_paths(
     cache_dir: &Path,
     service: &str,
     raw_url: &str,

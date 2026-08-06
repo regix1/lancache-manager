@@ -1376,7 +1376,7 @@ fn chunk_end(start: u64) -> u64 {
 /// one level up (stopping at `cache_dir`). Uses `safe_path_under_root` as a guard before
 /// any removal. Returns the count of directories successfully removed.
 #[allow(dead_code)]
-pub(crate) fn cleanup_empty_directories(
+pub fn cleanup_empty_directories(
     cache_dir: &Path,
     dirs_to_check: HashSet<PathBuf>,
 ) -> usize {

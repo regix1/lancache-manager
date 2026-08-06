@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::cache_utils;
+use lancache_processor::cache_utils;
 
 use super::DatasourceConfig;
 

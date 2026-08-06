@@ -13,14 +13,13 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-mod cancel;
-mod cache_utils;
+use lancache_processor::cancel;
+use lancache_processor::cache_utils;
 mod cache_detect_matching;
 mod cache_detect_queries;
-mod db;
-mod progress_events;
-mod progress_utils;
-
+use lancache_processor::db;
+use lancache_processor::progress_events;
+use lancache_processor::progress_utils;
 use cache_detect_matching::{
     detect_epic_game_cache_info,
     detect_epic_game_cache_info_incremental,

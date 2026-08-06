@@ -32,7 +32,7 @@ use regex::Regex;
 /// There is NO `[service]` tag: attribution comes from the per-service filename hint the
 /// caller passes in. Output is the SAME `LogEntry` the cachelog parser produces, so
 /// everything downstream (sessions, stats, game naming) is format-blind.
-pub(crate) struct HttpDetailedParser {
+pub struct HttpDetailedParser {
     main_regex: Regex,
     depot_regex: Regex,
     local_tz: Tz,
@@ -54,7 +54,7 @@ struct DetailedRecord<'a> {
 }
 
 impl HttpDetailedParser {
-    pub(crate) fn new(local_tz: Tz) -> Self {
+    pub fn new(local_tz: Tz) -> Self {
         // Left-anchored fields 1-12, the flexible 13-17 tail as `rest`, and the final quoted
         // user agent. The range field (5) is anchored between the quoted request field and the
         // literal `HTTP/` protocol so both a `-` placeholder and a fully empty rendering
@@ -212,7 +212,7 @@ impl HttpDetailedParser {
     /// Structural recognizer only: is this line an http-detailed record? Never consults
     /// the service hint, so a hint-less file can still be diagnosed as http-detailed.
     #[allow(dead_code)] // used by log_processor's classifier; other binaries share this module
-    pub(crate) fn recognizes(&self, line: &str) -> bool {
+    pub fn recognizes(&self, line: &str) -> bool {
         self.capture(line).is_some()
     }
 
@@ -229,7 +229,7 @@ impl HttpDetailedParser {
     /// Parse an http-detailed record into a `LogEntry`, attributing the given service.
     /// `service_hint` is the manager service name derived from the source filename
     /// (already through the filename map, e.g. `windows-update` -> `wsus`).
-    pub(crate) fn parse_line(&self, line: &str, service_hint: &str) -> Option<LogEntry> {
+    pub fn parse_line(&self, line: &str, service_hint: &str) -> Option<LogEntry> {
         let record = self.capture(line)?;
 
         // Same synthetic-traffic rule as the cachelog parser: the manager's own Status

@@ -14,15 +14,13 @@ use std::sync::{Arc, Mutex};
 use std::sync::OnceLock;
 use std::time::Instant;
 
-mod progress_utils;
-
+use lancache_processor::progress_utils;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 
-mod cache_utils;
-mod cancel;
-mod progress_events;
-
+use lancache_processor::cache_utils;
+use lancache_processor::cancel;
+use lancache_processor::progress_events;
 use cache_utils::{detect_filesystem_type, FilesystemType};
 use progress_events::ProgressReporter;
 

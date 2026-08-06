@@ -9,10 +9,10 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-mod cancel;
-mod cache_utils;
-mod progress_events;
-mod progress_utils;
+use lancache_processor::cancel;
+use lancache_processor::cache_utils;
+use lancache_processor::progress_events;
+use lancache_processor::progress_utils;
 use cache_utils::detect_filesystem_type;
 use progress_events::ProgressReporter;
 

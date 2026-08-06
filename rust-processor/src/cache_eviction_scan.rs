@@ -8,12 +8,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 mod cache_eviction_paths;
-mod cache_utils;
-mod cancel;
-mod db;
-mod progress_events;
-mod progress_utils;
-
+use lancache_processor::cancel;
+use lancache_processor::db;
+use lancache_processor::progress_events;
+use lancache_processor::progress_utils;
 use progress_events::ProgressReporter;
 
 /// Eviction scanner - checks which downloads have been evicted from the nginx cache
@@ -798,8 +796,9 @@ fn write_progress_file(
 
 #[cfg(test)]
 mod tests {
+    use lancache_processor::cache_utils;
     use super::{
-        cache_eviction_paths, cache_utils, classify_download, classify_unverifiable,
+        cache_eviction_paths, classify_download, classify_unverifiable,
         classify_verifiable, download_was_cached, DatasourceConfig, DownloadAction,
         UnverifiableAction, VerifiableAction,
     };

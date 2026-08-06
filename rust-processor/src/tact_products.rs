@@ -52,7 +52,7 @@ struct Catalog {
 
 /// The resolution outcome for a `/tpr/<seg>/` segment.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TactResolution {
+pub enum TactResolution {
     /// Resolved to a concrete game display name (products or aliases).
     Game(String),
     /// A product-agnostic shared path (configs/agent/catalogs/...) -> shared label.
@@ -100,7 +100,7 @@ fn catalog() -> &'static Catalog {
 /// segments are now resolved (to the shared label) rather than dropped, so the
 /// segment must be returned for the resolver to classify it.
 #[allow(dead_code)] // Only used by the log_processor binary, not the cache_* binaries that share parser.rs
-pub(crate) fn extract_tact_product(url: &str) -> Option<String> {
+pub fn extract_tact_product(url: &str) -> Option<String> {
     let segments: Vec<&str> = url.split('/').filter(|s| !s.is_empty()).collect();
     // Find the "tpr" segment and take the following segment as the CDN path / product code.
     if let Some(tpr_idx) = segments.iter().position(|&s| s == "tpr") {
@@ -123,7 +123,7 @@ pub(crate) fn extract_tact_product(url: &str) -> Option<String> {
 /// Returns `TactResolution::Unknown` for genuinely unrecognized segments (no
 /// fallback default), mirroring how an unmapped Steam depot leaves `GameName` NULL.
 #[allow(dead_code)] // Only used by the log_processor binary, not the cache_* binaries that share parser.rs
-pub(crate) fn resolve_tact_segment(segment: &str) -> TactResolution {
+pub fn resolve_tact_segment(segment: &str) -> TactResolution {
     let seg = segment.to_lowercase();
     let cat = catalog();
 

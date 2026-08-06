@@ -6,11 +6,10 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-mod cancel;
-mod db;
-mod progress_events;
-mod progress_utils;
-
+use lancache_processor::cancel;
+use lancache_processor::db;
+use lancache_processor::progress_events;
+use lancache_processor::progress_utils;
 use progress_events::ProgressReporter;
 
 #[derive(Serialize)]

@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::cache_detect_queries::{
     DownloadRecord, EpicDownloadRecord, EvictedDownloadUrl, NamedDownloadRecord,
 };
-use crate::cache_utils;
+use lancache_processor::cache_utils;
 use crate::{GameCacheInfo, ServiceCacheInfo};
 
 /// (service, url, bytes_served) — `bytes_served` is the URL's `MAX(LogEntries.BytesServed)`.

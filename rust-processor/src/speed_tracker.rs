@@ -11,18 +11,15 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-mod cache_utils;
-mod db;
-mod log_discovery;
-mod log_layout;
-mod models;
-mod parser;
-mod parser_http_detailed;
-mod progress_events;
-mod riot_hosts;
-mod service_utils;
-mod tact_products;
-
+use lancache_processor::cache_utils;
+use lancache_processor::db;
+use lancache_processor::log_layout;
+use lancache_processor::parser;
+use lancache_processor::parser_http_detailed;
+use lancache_processor::progress_events;
+use lancache_processor::riot_hosts;
+use lancache_processor::service_utils;
+use lancache_processor::tact_products;
 use log_layout::{discover_log_sources, SourceKind};
 use parser::LogParser;
 use parser_http_detailed::HttpDetailedParser;

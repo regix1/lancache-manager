@@ -3,10 +3,10 @@ use futures_util::TryStreamExt;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use std::collections::HashMap;
 
-use crate::cache_utils;
+use lancache_processor::cache_utils;
 
 #[derive(Debug)]
-pub(crate) struct DownloadRecord {
+pub struct DownloadRecord {
     pub(crate) service: String,
     pub(crate) game_app_id: u32,
     pub(crate) game_name: String,
@@ -18,7 +18,7 @@ pub(crate) struct DownloadRecord {
 }
 
 #[derive(Debug)]
-pub(crate) struct EpicDownloadRecord {
+pub struct EpicDownloadRecord {
     pub(crate) epic_app_id: String,
     pub(crate) game_name: String,
     pub(crate) service: String,
@@ -38,7 +38,7 @@ pub(crate) struct EpicDownloadRecord {
 /// content is delivered as lancache-tagged `wsus` traffic). Splitting them is load-bearing — using
 /// the identity for hashing would miss every Xbox cache file.
 #[derive(Debug)]
-pub(crate) struct NamedDownloadRecord {
+pub struct NamedDownloadRecord {
     pub(crate) service: String,
     pub(crate) cache_service: String,
     pub(crate) game_name: String,
@@ -50,7 +50,7 @@ pub(crate) struct NamedDownloadRecord {
 /// Returns the per-game record map directly. Rows are streamed off the connection straight
 /// into the map: fetch_all would buffer every GROUP BY row (one per unique URL, millions on a
 /// large library) as PgRows and then again as a flat Vec before grouping.
-pub(crate) async fn query_game_downloads(
+pub async fn query_game_downloads(
     pool: &PgPool,
     max_urls_per_game: Option<usize>,
     excluded_game_ids: &[u32],
@@ -261,7 +261,7 @@ pub(crate) async fn query_game_downloads(
     Ok(games_map)
 }
 
-pub(crate) async fn query_service_downloads(
+pub async fn query_service_downloads(
     pool: &PgPool,
 ) -> Result<HashMap<String, Vec<(String, String, i64)>>> {
     eprintln!("Querying LogEntries for non-game services...");
@@ -330,7 +330,7 @@ pub(crate) async fn query_service_downloads(
     Ok(services)
 }
 
-pub(crate) async fn query_epic_game_downloads(pool: &PgPool) -> Result<Vec<EpicDownloadRecord>> {
+pub async fn query_epic_game_downloads(pool: &PgPool) -> Result<Vec<EpicDownloadRecord>> {
     eprintln!("Querying LogEntries for Epic game URLs...");
 
     // GROUP BY (Service, Url, EpicAppId, GameName) + MAX(BytesServed) replaces SELECT DISTINCT
@@ -373,7 +373,7 @@ pub(crate) async fn query_epic_game_downloads(pool: &PgPool) -> Result<Vec<EpicD
 /// GameName but neither a Steam AppId nor an Epic AppId. Identity = (Service, GameName).
 /// Mirrors `query_epic_game_downloads` but gates on
 /// `GameAppId IS NULL AND EpicAppId IS NULL AND GameName IS NOT NULL` instead of EpicAppId.
-pub(crate) async fn query_named_game_downloads(
+pub async fn query_named_game_downloads(
     pool: &PgPool,
 ) -> Result<Vec<NamedDownloadRecord>> {
     eprintln!("Querying LogEntries for named (Blizzard/Riot) game URLs...");
@@ -427,7 +427,7 @@ pub(crate) async fn query_named_game_downloads(
 /// is LogEntries.Service — the cache-hash service (Xbox: `wsus`), the same identity/hash split
 /// as `NamedDownloadRecord`.
 #[derive(Debug)]
-pub(crate) struct EvictedDownloadUrl {
+pub struct EvictedDownloadUrl {
     pub(crate) download_id: i64,
     pub(crate) cache_service: String,
     pub(crate) url: String,
@@ -438,7 +438,7 @@ pub(crate) struct EvictedDownloadUrl {
 /// is excluded: the Steam bucket joins SteamDepotMappings rather than Downloads and never
 /// filtered on IsEvicted, so Steam games were never blind here and their per-download eviction
 /// state stays owned by cache_eviction_scan.
-pub(crate) async fn query_evicted_game_download_urls(
+pub async fn query_evicted_game_download_urls(
     pool: &PgPool,
 ) -> Result<Vec<EvictedDownloadUrl>> {
     eprintln!("Querying LogEntries for evicted Epic/named game URLs...");
@@ -478,7 +478,7 @@ pub(crate) async fn query_evicted_game_download_urls(
 /// cache_eviction_scan's update, but one-directional: detection only ever un-evicts, because a
 /// probe miss against a single datasource root is not eviction evidence (the files may live in
 /// another datasource's cache, which cache_eviction_scan probes holistically).
-pub(crate) async fn unevict_downloads(pool: &PgPool, download_ids: &[i64]) -> Result<u64> {
+pub async fn unevict_downloads(pool: &PgPool, download_ids: &[i64]) -> Result<u64> {
     let result = sqlx::query(r#"UPDATE "Downloads" SET "IsEvicted" = false WHERE "Id" = ANY($1)"#)
         .bind(download_ids)
         .execute(pool)

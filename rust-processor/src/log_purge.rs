@@ -47,14 +47,14 @@ use crate::service_utils;
 /// Byte-level prefilter for removal candidates. A line that fails
 /// `is_candidate` can never match the removal predicate and is written
 /// through without UTF-8 validation or regex parsing.
-pub(crate) struct RemovalPrefilter {
+pub struct RemovalPrefilter {
     automaton: AhoCorasick,
 }
 
 /// One exact stored corruption observation. Matching every field keeps log cleanup inside the
 /// immutable evidence window; a URL match alone is intentionally insufficient.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ExactLogObservation {
+pub struct ExactLogObservation {
     pub service: String,
     pub raw_url: String,
     pub timestamp: DateTime<Utc>,
@@ -67,12 +67,12 @@ pub(crate) struct ExactLogObservation {
 }
 
 /// Hash-set matcher and safe raw-line prefilter derived from exact observations.
-pub(crate) struct ExactLogMatcher {
+pub struct ExactLogMatcher {
     observations: HashSet<ExactLogObservation>,
 }
 
 impl ExactLogMatcher {
-    pub(crate) fn new<I>(observations: I) -> Self
+    pub fn new<I>(observations: I) -> Self
     where
         I: IntoIterator<Item = ExactLogObservation>,
     {
@@ -81,7 +81,7 @@ impl ExactLogMatcher {
         }
     }
 
-    pub(crate) fn prefilter(&self) -> Result<RemovalPrefilter> {
+    pub fn prefilter(&self) -> Result<RemovalPrefilter> {
         RemovalPrefilter::new(
             self.observations
                 .iter()
@@ -89,7 +89,7 @@ impl ExactLogMatcher {
         )
     }
 
-    pub(crate) fn matches(&self, entry: &LogEntry) -> bool {
+    pub fn matches(&self, entry: &LogEntry) -> bool {
         let raw_range = (!entry.http_range.is_empty()).then_some(entry.http_range.clone());
         self.observations.contains(&ExactLogObservation {
             service: entry.service.clone(),
@@ -111,7 +111,7 @@ impl ExactLogMatcher {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct LogRewriteOutcome {
+pub struct LogRewriteOutcome {
     pub lines_removed: u64,
     pub permission_errors: usize,
     pub other_errors: usize,
@@ -159,7 +159,7 @@ impl RemovalPrefilter {
     /// Builds the prefilter from literal byte patterns (exact URL strings and
     /// `/depot/{id}/` fragments). An empty pattern set is valid and matches
     /// nothing, which mirrors a removal predicate that can never fire.
-    pub(crate) fn new<I, P>(patterns: I) -> Result<Self>
+    pub fn new<I, P>(patterns: I) -> Result<Self>
     where
         I: IntoIterator<Item = P>,
         P: AsRef<[u8]>,
@@ -492,7 +492,7 @@ where
 
 /// Strict exact-evidence variant: reports both permission and non-permission file failures so the
 /// caller can retain database/persisted evidence after any partial log rewrite.
-pub(crate) fn rewrite_matching_log_entries_strict<F>(
+pub fn rewrite_matching_log_entries_strict<F>(
     log_dir: &Path,
     description: &str,
     prefilter: &RemovalPrefilter,
@@ -526,7 +526,7 @@ where
 /// delete fallback) so partially-written files are never observed. Files that
 /// contain no matching lines are left completely untouched.
 #[allow(dead_code)]
-pub(crate) fn remove_log_entries_for_game(
+pub fn remove_log_entries_for_game(
     log_dir: &Path,
     urls_to_remove: &HashSet<String>,
     valid_depot_ids: &HashSet<u32>,
@@ -575,7 +575,7 @@ pub(crate) fn remove_log_entries_for_urls(
 }
 
 #[allow(dead_code)]
-pub(crate) fn remove_log_entries_for_service(
+pub fn remove_log_entries_for_service(
     log_dir: &Path,
     service: &str,
     urls_to_remove: &HashSet<String>,

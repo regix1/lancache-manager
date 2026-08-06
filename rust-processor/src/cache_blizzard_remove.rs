@@ -6,25 +6,8 @@
 
 use anyhow::Result;
 
-mod cache_utils;
-mod cancel;
-mod db;
-mod log_discovery;
-mod log_layout;
-mod log_reader;
-mod log_purge;
-mod models;
-mod named_remove_core;
-mod parser;
-mod parser_http_detailed;
-mod progress_events;
-mod progress_utils;
-mod removal_core;
-#[cfg(test)]
-mod riot_hosts;
-mod service_utils;
-mod tact_products;
-
+use lancache_processor::cancel;
+use lancache_processor::named_remove_core;
 #[tokio::main]
 async fn main() -> Result<()> {
     cancel::install();

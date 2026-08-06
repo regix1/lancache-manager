@@ -10,23 +10,16 @@ use std::path::Path;
 use std::time::Instant;
 use tempfile::NamedTempFile;
 
-mod cancel;
-mod content_scan;
-mod log_discovery;
-mod log_layout;
-mod log_reader;
-mod models;
-mod parser;
-mod parser_http_detailed;
-mod progress_events;
-mod progress_utils;
+use lancache_processor::cancel;
+use lancache_processor::content_scan;
+use lancache_processor::log_discovery;
+use lancache_processor::log_layout;
+use lancache_processor::log_reader;
+use lancache_processor::progress_events;
+use lancache_processor::progress_utils;
 // The production binary does not use riot_hosts; it is compiled only for the test build, where the
 // shared parser_http_detailed test suite resolves a Riot CDN host through `crate::riot_hosts`.
-#[cfg(test)]
-mod riot_hosts;
-mod service_utils;
-mod tact_products;
-
+use lancache_processor::service_utils;
 use log_discovery::{discover_log_files, LogFile};
 use log_layout::{discover_log_sources, kind_for_stem, LogSource, SourceKind};
 use log_reader::LogFileReader;
