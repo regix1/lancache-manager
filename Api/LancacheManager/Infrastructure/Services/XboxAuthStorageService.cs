@@ -67,7 +67,12 @@ public class XboxAuthStorageService : AuthFileStorageServiceBase<XboxAuthData, P
 
     protected override bool HasCredentials(XboxAuthData data) => !string.IsNullOrEmpty(data.RefreshToken);
 
-    protected override bool NeedsReEncryption(PersistedXboxAuthData persisted)
+    protected override bool IsStoredUnencrypted(PersistedXboxAuthData persisted)
+        => Encryption.IsUnencrypted(persisted.RefreshToken)
+            || Encryption.IsUnencrypted(persisted.DeviceKeyPkcs8);
+
+    // Xbox discards the file when either secret fails to decrypt, so reaching here means both did.
+    protected override bool NeedsReEncryption(PersistedXboxAuthData persisted, XboxAuthData decrypted)
         => Encryption.NeedsReEncryption(persisted.RefreshToken)
             || Encryption.NeedsReEncryption(persisted.DeviceKeyPkcs8);
 }

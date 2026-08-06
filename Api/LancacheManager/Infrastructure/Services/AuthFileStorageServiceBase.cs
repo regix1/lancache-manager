@@ -53,10 +53,32 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
 
     protected SecureStateEncryptionService Encryption => _encryption;
 
+    /// <summary>The lock guarding this service's file and cache, for subclasses that add their own
+    /// file operations.</summary>
+    protected object SyncRoot => _lock;
+
+    /// <summary>Full path of the credentials file, for subclasses that add their own file
+    /// operations.</summary>
+    protected string AuthFilePath => _authFilePath;
+
     /// <summary>
-    /// Decrypts the on-disk shape into the in-memory shape. Returns null when a stored secret
-    /// fails to decrypt, which tells the caller to discard the credentials file. Implementations
-    /// log the reason before returning null so the message names the field that failed.
+    /// True when any stored secret carries no encryption prefix, meaning it is sitting on disk in
+    /// the clear. Such a secret has to be assumed exposed, so the whole file is discarded and the
+    /// user signs in again with a fresh one. Implementations pass each secret field to
+    /// <see cref="SecureStateEncryptionService.IsUnencrypted"/>.
+    ///
+    /// Asked BEFORE anything is decrypted, so the reason logged is the real one rather than a
+    /// decrypt failure, and so a service that tolerates one secret failing cannot accidentally keep
+    /// a plaintext one alongside a readable encrypted one.
+    /// </summary>
+    protected abstract bool IsStoredUnencrypted(TPersistedAuthData persisted);
+
+    /// <summary>
+    /// Decrypts the on-disk shape into the in-memory shape. Returns null when the file should be
+    /// discarded, which for most services means any stored secret failed to decrypt. A service
+    /// holding more than one secret may instead return partial data when only some failed, keeping
+    /// the half the user can still use. Implementations log the reason before returning null so the
+    /// message names the field that failed.
     /// </summary>
     protected abstract TAuthData? DecryptPersisted(TPersistedAuthData persisted);
 
@@ -74,10 +96,14 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     /// True when at least one secret on disk is still a v1 (ENC:) value, so the file should be
     /// rewritten with the current key. Implementations pass each secret field to
     /// <see cref="SecureStateEncryptionService.NeedsReEncryption"/>. Unencrypted secrets are not
-    /// this method's business: <see cref="SecureStateEncryptionService.Decrypt"/> refuses to return
-    /// them, so the file is deleted before this is ever asked.
+    /// this method's business: <see cref="IsStoredUnencrypted"/> has already discarded that file.
     /// </summary>
-    protected abstract bool NeedsReEncryption(TPersistedAuthData persisted);
+    /// <param name="decrypted">
+    /// What the decrypt actually produced. A service that keeps going after one secret fails must
+    /// refuse the rewrite in that state, because saving would drop the unreadable secret for good
+    /// and it may still decrypt on a later start.
+    /// </param>
+    protected abstract bool NeedsReEncryption(TPersistedAuthData persisted, TAuthData decrypted);
 
     private void EnsureDirectoryExists()
     {
@@ -126,19 +152,26 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
                     var json = File.ReadAllText(_authFilePath);
                     var persisted = JsonSerializer.Deserialize<TPersistedAuthData>(json) ?? new TPersistedAuthData();
 
+                    // A secret written to disk in the clear has to be treated as exposed, so the
+                    // whole file goes and the user signs in again, which replaces it with a fresh
+                    // one. Checked before decrypting so the reason logged is the real one.
+                    if (IsStoredUnencrypted(persisted))
+                    {
+                        _logger.LogWarning(
+                            "{AuthDataLabel} credentials were stored unencrypted - they have been removed, sign in again to store them encrypted.",
+                            AuthDataLabel);
+
+                        DeleteCredentialsFile();
+
+                        _cachedData = new TAuthData();
+                        return _cachedData;
+                    }
+
                     var decrypted = DecryptPersisted(persisted);
 
                     if (decrypted == null)
                     {
-                        try
-                        {
-                            File.Delete(_authFilePath);
-                            _logger.LogInformation("Deleted invalid {AuthDataLabel} auth file", AuthDataLabel);
-                        }
-                        catch (Exception deleteEx)
-                        {
-                            _logger.LogWarning(deleteEx, "Failed to delete invalid {AuthDataLabel} auth file", AuthDataLabel);
-                        }
+                        DeleteCredentialsFile();
 
                         _cachedData = new TAuthData();
                         return _cachedData;
@@ -146,9 +179,9 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
 
                     _cachedData = decrypted;
 
-                    // Everything decrypted, so a secret still under the v1 key can be written back
-                    // with the current one right now instead of waiting for some later save.
-                    if (NeedsReEncryption(persisted))
+                    // A secret still under the v1 key is written back with the current one right
+                    // now instead of waiting for some later save that may never come.
+                    if (NeedsReEncryption(persisted, decrypted))
                     {
                         ReEncryptCredentialsFile(decrypted);
                     }
@@ -165,6 +198,24 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
                 _cachedData = new TAuthData();
                 return _cachedData;
             }
+        }
+    }
+
+    /// <summary>
+    /// Removes the credentials file. A file that is already gone or locked is logged and otherwise
+    /// ignored: the caller has already decided not to hand the stored secret back, so a failed
+    /// delete must not throw out of the getter.
+    /// </summary>
+    private void DeleteCredentialsFile()
+    {
+        try
+        {
+            File.Delete(_authFilePath);
+            _logger.LogInformation("Deleted invalid {AuthDataLabel} auth file", AuthDataLabel);
+        }
+        catch (Exception deleteEx)
+        {
+            _logger.LogWarning(deleteEx, "Failed to delete invalid {AuthDataLabel} auth file", AuthDataLabel);
         }
     }
 

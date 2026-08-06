@@ -60,6 +60,11 @@ public class EpicAuthStorageService : AuthFileStorageServiceBase<EpicAuthData, P
 
     protected override bool HasCredentials(EpicAuthData data) => !string.IsNullOrEmpty(data.RefreshToken);
 
-    protected override bool NeedsReEncryption(PersistedEpicAuthData persisted)
+    protected override bool IsStoredUnencrypted(PersistedEpicAuthData persisted)
+        => Encryption.IsUnencrypted(persisted.RefreshToken);
+
+    // The refresh token is the only secret, and a file whose token failed to decrypt was already
+    // discarded, so reaching here means it decrypted.
+    protected override bool NeedsReEncryption(PersistedEpicAuthData persisted, EpicAuthData decrypted)
         => Encryption.NeedsReEncryption(persisted.RefreshToken);
 }
