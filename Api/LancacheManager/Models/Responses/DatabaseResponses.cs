@@ -65,7 +65,6 @@ public class MigrationImportResponse
     public ulong Imported { get; set; }
     public ulong Skipped { get; set; }
     public ulong Errors { get; set; }
-    public string? BackupPath { get; set; }
 }
 
 /// <summary>

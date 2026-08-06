@@ -352,18 +352,6 @@ export function DatabaseImportForm({
               </span>
             </div>
           </div>
-          {importResult.backupPath && !importResult.backupPath.includes('(no backup') && (
-            <div
-              className={`pt-3 border-t ${importResult.errors > 0 ? 'border-warning' : 'border-success'}`}
-            >
-              <p className="text-xs text-themed-muted mb-1">
-                {t('management.dataImporter.result.backupCreated')}:
-              </p>
-              <p className="text-xs font-mono text-themed-secondary bg-themed-tertiary px-2 py-1 rounded break-all">
-                {importResult.backupPath}
-              </p>
-            </div>
-          )}
         </div>
       )}
 

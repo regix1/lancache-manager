@@ -9,6 +9,7 @@ import { getErrorMessage } from '@utils/error';
 import { usePrefillAnimation } from './usePrefillAnimation';
 import { prefillServiceConfig } from './prefillServiceConfig';
 import { registerPrefillEventHandlers } from './usePrefillEventHandlers';
+import { InfiniteBackoffRetryPolicy } from '@contexts/SignalRContext/retryPolicy';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import {
   PREFILL_SESSION_TIMEOUT_MS,
@@ -326,7 +327,12 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       try {
         const connection = new HubConnectionBuilder()
           .withUrl(`${SIGNALR_BASE}${hubPath}`)
-          .withAutomaticReconnect()
+          // The default policy stops after four tries (~30s) and nothing here rebuilds a closed
+          // connection, so a container restart left prefill progress dead until a page reload.
+          // Always-visible rather than the main hub's page-visibility check: that check pauses
+          // retries while the tab is hidden and relies on the visibility handler to reconnect,
+          // and this hub's handler re-syncs an already-Connected socket instead of rebuilding one.
+          .withAutomaticReconnect(new InfiniteBackoffRetryPolicy(() => true))
           .configureLogging(LogLevel.Information)
           .build();
 

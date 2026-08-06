@@ -3119,8 +3119,7 @@
         "total": "总量",
         "imported": "已导入",
         "skipped": "已跳过",
-        "errors": "错误",
-        "backupCreated": "数据库备份已创建"
+        "errors": "错误"
       },
       "buttons": {
         "validating": "验证中...",

@@ -93,7 +93,6 @@ public class DataMigrationController : ControllerBase
         ulong recordsImported = 0;
         ulong recordsSkipped = 0;
         ulong recordsErrors = 0;
-        string? backupPath = null;
 
         // Send started notification
         var startingSnapshot = result.CurrentProgress!;
@@ -284,18 +283,39 @@ public class DataMigrationController : ControllerBase
             }
 
             _logger.LogInformation(
-                "Import completed: {Imported} imported, {Skipped} skipped, {Errors} errors. Backup: {BackupPath}",
-                recordsImported, recordsSkipped, recordsErrors, backupPath ?? "none");
+                "Import completed: {Imported} imported, {Skipped} skipped, {Errors} errors",
+                recordsImported, recordsSkipped, recordsErrors);
+
+            // A run that landed nothing while hitting errors did not import, so it must not report
+            // as one. Rows are caught and counted individually, so without this every row could
+            // fail and the card would still read "Import completed".
+            var importedNothing = recordsImported == 0 && recordsErrors > 0;
+
+            // The count belongs in the message wherever it is shown: the HTTP response has always
+            // carried it, and the notification card used to drop it.
+            var completionMessage = recordsErrors > 0
+                ? $"Import completed: {recordsImported:N0} imported, {recordsSkipped:N0} skipped, {recordsErrors:N0} errors"
+                : $"Import completed: {recordsImported:N0} imported, {recordsSkipped:N0} skipped";
 
             // Send completion notification
-            _operationTracker.UpdateProgress(operationId, 100, $"Import completed: {recordsImported:N0} imported, {recordsSkipped:N0} skipped");
-            // Fill the per-op holder so the onTerminalEmit closure reproduces the old success wire shape.
-            result.Message = $"Import completed: {recordsImported:N0} imported, {recordsSkipped:N0} skipped";
+            _operationTracker.UpdateProgress(operationId, 100, completionMessage);
+            // Fill the per-op holder so the onTerminalEmit closure reproduces the wire shape.
+            result.Message = importedNothing
+                ? $"Import failed: every one of {recordsErrors:N0} record(s) errored"
+                : completionMessage;
             result.RecordsImported = recordsImported;
             result.RecordsSkipped = recordsSkipped;
             result.RecordsErrors = recordsErrors;
             result.TotalRecords = totalRecords;
-            _operationTracker.CompleteOperation(operationId, true);
+
+            if (importedNothing)
+            {
+                _operationTracker.CompleteOperation(operationId, success: false, error: result.Message);
+            }
+            else
+            {
+                _operationTracker.CompleteOperation(operationId, true);
+            }
 
             return Ok(new MigrationImportResponse
             {
@@ -303,8 +323,7 @@ public class DataMigrationController : ControllerBase
                 TotalRecords = totalRecords,
                 Imported = recordsImported,
                 Skipped = recordsSkipped,
-                Errors = recordsErrors,
-                BackupPath = backupPath
+                Errors = recordsErrors
             });
         }
         catch (OperationCanceledException)
@@ -324,8 +343,7 @@ public class DataMigrationController : ControllerBase
                 TotalRecords = totalRecords,
                 Imported = recordsImported,
                 Skipped = recordsSkipped,
-                Errors = recordsErrors,
-                BackupPath = backupPath
+                Errors = recordsErrors
             });
         }
         catch (Exception ex)

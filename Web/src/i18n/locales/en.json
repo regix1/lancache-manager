@@ -3119,8 +3119,7 @@
         "total": "Total",
         "imported": "Imported",
         "skipped": "Skipped",
-        "errors": "Errors",
-        "backupCreated": "Database backup created"
+        "errors": "Errors"
       },
       "buttons": {
         "validating": "Validating...",
