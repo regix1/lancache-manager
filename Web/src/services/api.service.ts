@@ -174,6 +174,18 @@ interface OperationResponse {
   estimatedApps?: number;
 }
 
+/** What GET /depots/rebuild/check-incremental answers with. Every field is always sent. */
+export interface IncrementalViabilityCheck {
+  isViable: boolean;
+  lastChangeNumber: number;
+  currentChangeNumber: number;
+  changeGap: number;
+  isLargeGap: boolean;
+  willTriggerFullScan: boolean;
+  estimatedAppsToScan: number;
+  error: string | null;
+}
+
 export interface RetroDownloadDto {
   /** Composite key: depotId_clientIp or nodepot_service_clientIp_downloadId */
   id: string;
@@ -1088,9 +1100,7 @@ class ApiService {
     }
   }
 
-  static async checkIncrementalViability(
-    signal?: AbortSignal
-  ): Promise<{ viable: boolean; reason?: string; willTriggerFullScan?: boolean }> {
+  static async checkIncrementalViability(signal?: AbortSignal): Promise<IncrementalViabilityCheck> {
     try {
       const res = await fetch(
         `${API_BASE}/depots/rebuild/check-incremental`,
@@ -1099,7 +1109,7 @@ class ApiService {
           signal
         })
       );
-      return await this.handleResponse<{ viable: boolean; reason?: string }>(res);
+      return await this.handleResponse<IncrementalViabilityCheck>(res);
     } catch (error: unknown) {
       console.error('checkIncrementalViability error:', error);
       throw error;
@@ -2036,8 +2046,12 @@ class ApiService {
   // Universal Operation Cancellation APIs
   // =====================================================
 
-  // Cancel any operation by ID
-  static async cancelOperation(operationId: string): Promise<{ message: string }> {
+  // Cancel any operation by ID. `alreadyFinished` is true when the operation was tracked but
+  // had already reached a terminal state, so the request stopped nothing and any card still
+  // showing it as running is stale. Optional because an older backend build omits the field.
+  static async cancelOperation(
+    operationId: string
+  ): Promise<{ message: string; alreadyFinished?: boolean }> {
     try {
       const res = await fetch(
         `${API_BASE}/operations/${operationId}/cancel`,
@@ -2047,7 +2061,7 @@ class ApiService {
           signal: AbortSignal.timeout(5000)
         })
       );
-      return await this.handleResponse<{ message: string }>(res);
+      return await this.handleResponse<{ message: string; alreadyFinished?: boolean }>(res);
     } catch (error: unknown) {
       console.error('cancelOperation error:', error);
       throw error;

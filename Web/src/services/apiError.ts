@@ -34,7 +34,7 @@ export interface ApiErrorData {
  * `OperationConflictResponse`, camelCase). A conflict is NOT a hard failure - the queue returns
  * 202/409 by design - so its full body is preserved on `ApiError.cause` for i18n stageKey lookup.
  */
-interface OperationConflictBody {
+export interface OperationConflictBody {
   code: string;
   stageKey: string;
   error: string;

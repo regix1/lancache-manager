@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import './SchedulesSection.css';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, Play } from 'lucide-react';
+import { ChevronDown, Play, X } from 'lucide-react';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -10,12 +10,14 @@ import HighlightGlow from '@components/ui/HighlightGlow';
 import type { HighlightGlowVariant } from '@utils/highlightGlow';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
-import { HelpPopover, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpNote, HelpSection } from '@components/ui/HelpPopover';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import ApiService from '@services/api.service';
+import ApiService, { type IncrementalViabilityCheck } from '@services/api.service';
+import { ApiError } from '@services/apiError';
 import { useNotifications } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/usePicsProgress';
+import { useSetupStatus } from '@contexts/useSetupStatus';
 import ScheduleIntervalPicker from './ScheduleIntervalPicker';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -30,6 +32,7 @@ import {
   type ServiceScheduleInfo
 } from './types';
 import { APP_EVENTS } from '@utils/constants';
+import { formatCount } from '@utils/formatters';
 import { formatLastRun } from './scheduleFormatting';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
@@ -111,39 +114,122 @@ const toDepotScheduledScanModePayload = (mode: DepotScheduledScanMode): boolean 
   return mode === 'incremental';
 };
 
+interface DepotScanModeAvailability {
+  /** False until this page load has read the three facts below. */
+  isKnown: boolean;
+  isSetupCompleted: boolean;
+  hasDepotMappings: boolean;
+  isSteamWebApiAvailable: boolean;
+}
+
+/** The label shown in place of a scan mode that cannot run, plus the fuller reason under it. */
+interface DepotScanModeRequirement {
+  labelKey: string;
+  helpKey: string;
+}
+
+/** Body the mode route answers with when the mode asked for cannot run on this install. */
+interface ScanModeRefusal {
+  stageKey?: string;
+  error?: string;
+}
+
+// The refusal names the requirement in the same stage key the dropdown shows for it, so a save the
+// server refuses says which requirement is missing rather than only that the save failed. The
+// browser's copy of the facts can be a moment behind the server's - a key removed in another tab,
+// or a progress blob restored from sessionStorage - and that is exactly when this runs.
+const getScanModeRefusalKey = (error: unknown): string | null => {
+  if (!(error instanceof ApiError) || error.status !== 400) {
+    return null;
+  }
+  const refusal = error.body as ScanModeRefusal | null;
+  return typeof refusal?.stageKey === 'string' && refusal.stageKey.length > 0
+    ? refusal.stageKey
+    : null;
+};
+
+// One place decides what each scan mode needs, so the dropdown and the save path can never
+// disagree about which modes can run. Every term here reads a fact that survives at rest: the
+// crawl closes its own Steam socket when it finishes, so a connection flag would grey both Steam
+// modes out permanently.
+const getDepotScanModeRequirement = (
+  mode: DepotScheduledScanMode,
+  availability: DepotScanModeAvailability
+): DepotScanModeRequirement | null => {
+  // A GitHub import needs neither Steam nor a key.
+  if (mode === 'github') {
+    return null;
+  }
+  // Each fact below arrives from its own request after mount. Until they have all landed nothing
+  // counts as a missing requirement: an unread value read as an absent capability would grey both
+  // Steam modes out on every page load and pop them back a moment later. This is the one place the
+  // loading window is stated, so a fourth requirement cannot spell it a fourth way.
+  if (!availability.isKnown) {
+    return null;
+  }
+  if (!availability.isSetupCompleted) {
+    return {
+      labelKey:
+        mode === 'incremental'
+          ? 'management.depotMapping.modes.incrementalSetupRequired'
+          : 'management.depotMapping.modes.fullSetupRequired',
+      helpKey: 'management.depotMapping.modes.setupRequiredHelp'
+    };
+  }
+  // An incremental scan asks Steam what changed since the mappings it already holds, so with none
+  // stored there is nothing to compare against and Steam answers with a required full update.
+  if (mode === 'incremental' && !availability.hasDepotMappings) {
+    return {
+      labelKey: 'management.depotMapping.modes.incrementalMappingsRequired',
+      helpKey: 'management.depotMapping.modes.mappingsRequiredHelp'
+    };
+  }
+  // Incremental reads the PICS changelist over the Steam client connection and never calls the
+  // Steam Web API, so only the full scan, which enumerates every app through it, needs the key.
+  if (mode === 'full' && !availability.isSteamWebApiAvailable) {
+    return {
+      labelKey: 'management.depotMapping.modes.fullWebApiRequired',
+      helpKey: 'management.depotMapping.modes.fullWebApiRequiredHelp'
+    };
+  }
+  return null;
+};
+
 interface DepotScheduleModeDropdownProps {
   mode: DepotScheduledScanMode;
   isDisabled: boolean;
-  isSteamWebApiAvailable: boolean;
+  availability: DepotScanModeAvailability;
   onChange: (mode: DepotScheduledScanMode) => void;
 }
 
 const DepotScheduleModeDropdown = memo(function DepotScheduleModeDropdown({
   mode,
   isDisabled,
-  isSteamWebApiAvailable,
+  availability,
   onChange
 }: DepotScheduleModeDropdownProps) {
   const { t } = useTranslation();
-  const options = [
-    {
-      // An incremental scan reads the PICS changelist over the Steam client connection and never
-      // calls the Steam Web API, so it stays selectable while the Web API is unreachable. Only the
-      // full scan enumerates every app through the Web API.
-      value: 'incremental',
-      label: t('management.depotMapping.modes.incremental')
-    },
-    {
-      value: 'full',
-      label: isSteamWebApiAvailable
-        ? t('management.depotMapping.modes.full')
-        : t('management.depotMapping.modes.fullWebApiRequired'),
-      disabled: !isSteamWebApiAvailable
-    },
-    {
-      value: 'github',
-      label: t('management.depotMapping.modes.github')
+  const buildOption = (scanMode: DepotScheduledScanMode): DropdownOption => {
+    const requirement = getDepotScanModeRequirement(scanMode, availability);
+    if (!requirement) {
+      return {
+        value: scanMode,
+        label: t(`management.depotMapping.modes.${scanMode}`)
+      };
     }
+    // The label is the reason in short form, matching how the missing Web API key already reads;
+    // the description carries the way out, which is too long for a single truncated line.
+    return {
+      value: scanMode,
+      label: t(requirement.labelKey),
+      description: t(requirement.helpKey),
+      disabled: true
+    };
+  };
+  const options: DropdownOption[] = [
+    buildOption('incremental'),
+    buildOption('full'),
+    buildOption('github')
   ];
 
   const handleChange = useCallback(
@@ -165,13 +251,200 @@ const DepotScheduleModeDropdown = memo(function DepotScheduleModeDropdown({
   );
 });
 
+/** Nothing is requested until the user asks, so idle is the state this starts and stays in. */
+type IncrementalCheckState =
+  | { phase: 'idle' }
+  | { phase: 'checking' }
+  | { phase: 'answered'; check: IncrementalViabilityCheck }
+  | { phase: 'failed' };
+
+/** Which of the three things Steam can say about an incremental scan the answer amounts to. */
+type IncrementalCheckOutcome = 'unreachable' | 'viable' | 'fullRequired';
+
+const INCREMENTAL_CHECK_MESSAGE_KEYS: Record<IncrementalCheckOutcome, string> = {
+  unreachable: 'management.schedules.services.depotMapping.incrementalUnreachable',
+  viable: 'management.schedules.services.depotMapping.incrementalViable',
+  fullRequired: 'management.schedules.services.depotMapping.incrementalFullRequired'
+};
+
+// A connection failure fills the figures with placeholders and can leave the full-scan flag set
+// either way, so reachability is decided before that flag is read - the other order reports a
+// timeout as "Steam wants a full update", which Steam never said. Anything that is not clearly
+// viable falls to fullRequired rather than to nothing, so no answer can render an empty well.
+const getIncrementalCheckOutcome = (check: IncrementalViabilityCheck): IncrementalCheckOutcome => {
+  if (check.error) {
+    return 'unreachable';
+  }
+  if (check.isViable && !check.willTriggerFullScan) {
+    return 'viable';
+  }
+  return 'fullRequired';
+};
+
+/** Both figures are the server's own estimates, so both read as approximate once they are non-zero. */
+const formatIncrementalEstimate = (value: number): string =>
+  value > 0 ? `~${formatCount(value)}` : formatCount(value);
+
+interface DepotIncrementalCheckProps {
+  isDisabled: boolean;
+}
+
+// Asking Steam what an incremental scan would do opens a real Steam connection whenever the
+// server's own answer has aged past an hour, so the request hangs off this button and nothing
+// else: no mount effect, no dropdown open, no render path reaches it. Inside that hour the server
+// replays its cached answer, so looking a second time costs nothing.
+const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
+  isDisabled
+}: DepotIncrementalCheckProps) {
+  const { t } = useTranslation();
+  const [state, setState] = useState<IncrementalCheckState>({ phase: 'idle' });
+
+  const runCheck = useCallback(async (): Promise<void> => {
+    setState({ phase: 'checking' });
+    try {
+      const check = await ApiService.checkIncrementalViability();
+      setState({ phase: 'answered', check });
+    } catch {
+      // The request itself never reached an answer, which is a different thing from Steam being
+      // unreachable, so it gets its own sentence rather than borrowing the Steam one.
+      setState({ phase: 'failed' });
+    }
+  }, []);
+
+  const handleCheck = useCallback((): void => {
+    void runCheck();
+  }, [runCheck]);
+
+  // Back to idle, which is the state the row starts in, so the Check button is live again and
+  // the next press fetches a fresh answer rather than replaying the one that was just closed.
+  const handleDismiss = useCallback((): void => {
+    setState({ phase: 'idle' });
+  }, []);
+
+  const isChecking = state.phase === 'checking';
+  const check = state.phase === 'answered' ? state.check : null;
+  const outcome = check ? getIncrementalCheckOutcome(check) : null;
+
+  // The same control closes the answer and the "check did not finish" note, so it is written
+  // once here. It only ever renders on a panel that is already on screen, which is why nothing
+  // has to cancel a request: the button does not exist while one is out.
+  const dismissButton = (
+    <button
+      type="button"
+      className="btn-icon-square btn-icon-square--sm themed-border-radius-sm focus-ring incremental-check-dismiss"
+      onClick={handleDismiss}
+      aria-label={t('management.schedules.services.depotMapping.dismissIncrementalCheck')}
+    >
+      <X className="w-4 h-4" />
+    </button>
+  );
+
+  return (
+    <>
+      <div className="schedule-detail-row">
+        {/* The popover, not a standing paragraph, carries what Check does and what its two
+            figures actually count. It replaces the label's tooltip rather than joining it, so
+            the row keeps one help affordance. */}
+        <span className="schedule-detail-label schedule-detail-label-help">
+          {t('management.schedules.services.depotMapping.incrementalCheckLabel')}
+          <HelpPopover position="left" width={320}>
+            <HelpSection
+              title={t('management.schedules.services.depotMapping.incrementalHelpTitle')}
+            >
+              {t('management.schedules.services.depotMapping.incrementalCheckHelp')}
+            </HelpSection>
+            <HelpSection
+              title={t('management.schedules.services.depotMapping.incrementalFiguresTitle')}
+            >
+              {t('management.schedules.services.depotMapping.incrementalFiguresHelp')}
+            </HelpSection>
+            <HelpNote type="tip">
+              {t('management.schedules.services.depotMapping.incrementalGithubTip')}
+            </HelpNote>
+          </HelpPopover>
+        </span>
+        <div className="schedule-detail-control">
+          {/* Content width, not the full control column: five letters do not need 19rem. The
+              CSS floor clears the longer loading label so the button keeps one size while the
+              request is out instead of snapping narrower when the answer lands. */}
+          <Button
+            variant="subtle"
+            size="sm"
+            className="incremental-check-button"
+            onClick={handleCheck}
+            disabled={isDisabled || isChecking}
+            loading={isChecking}
+          >
+            {isChecking
+              ? t('management.schedules.services.depotMapping.checkingIncremental')
+              : t('management.schedules.services.depotMapping.checkIncremental')}
+          </Button>
+        </div>
+      </div>
+
+      {check && outcome && (
+        <div className="well-surface incremental-check-result divided-list">
+          <div className="incremental-check-verdict">
+            <div className="incremental-check-verdict-text">
+              <p className="incremental-check-line">{t(INCREMENTAL_CHECK_MESSAGE_KEYS[outcome])}</p>
+              {/* Steam's own words for why it could not answer. Kept because it names the actual
+                  failure (a timeout reads differently from a refused connection) and the line
+                  above deliberately does not guess at one. */}
+              {outcome === 'unreachable' && check.error && (
+                <p className="incremental-check-error">{check.error}</p>
+              )}
+            </div>
+            {dismissButton}
+          </div>
+          {/* No figures on the unreachable branch: the server sends placeholders there, not
+              measurements. On the full-scan branch a zero gap means there is no stored baseline to
+              be behind, so the figure is left out rather than shown as the digit 0. */}
+          {outcome !== 'unreachable' && (outcome === 'viable' || check.changeGap > 0) && (
+            <div className="incremental-check-figure">
+              <span className="caps-label">
+                {t('management.schedules.services.depotMapping.steamWideChanges')}
+              </span>
+              <span className="incremental-check-value tabular-nums">
+                {formatCount(check.changeGap)}
+              </span>
+            </div>
+          )}
+          {outcome !== 'unreachable' && (
+            <div className="incremental-check-figure">
+              <span className="caps-label">
+                {t('management.schedules.services.depotMapping.appsWorthChecking')}
+              </span>
+              <span className="incremental-check-value tabular-nums">
+                {formatIncrementalEstimate(check.estimatedAppsToScan)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {state.phase === 'failed' && (
+        <div className="well-surface incremental-check-result">
+          <div className="incremental-check-verdict">
+            <div className="incremental-check-verdict-text">
+              <p className="incremental-check-line">
+                {t('management.schedules.services.depotMapping.incrementalCheckFailed')}
+              </p>
+            </div>
+            {dismissButton}
+          </div>
+        </div>
+      )}
+    </>
+  );
+});
+
 interface ScheduleRowProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
   onIntervalChange: (key: string, intervalHours: number) => Promise<void>;
   onRunOnStartupChange: (key: string, runOnStartup: boolean) => Promise<void>;
   depotScheduledMode: DepotScheduledScanMode;
-  isSteamWebApiAvailable: boolean;
+  depotScanModeAvailability: DepotScanModeAvailability;
   onDepotScanModeChange: (mode: DepotScheduledScanMode) => Promise<void>;
   onRunNow: (key: string) => Promise<void>;
   /** True while this row's own click is covering the gap between the POST resolving and the
@@ -194,7 +467,7 @@ const ScheduleRow = memo(function ScheduleRow({
   onIntervalChange,
   onRunOnStartupChange,
   depotScheduledMode,
-  isSteamWebApiAvailable,
+  depotScanModeAvailability,
   onDepotScanModeChange,
   onRunNow,
   isPendingRun,
@@ -571,7 +844,7 @@ const ScheduleRow = memo(function ScheduleRow({
                   <DepotScheduleModeDropdown
                     mode={depotScheduledMode}
                     isDisabled={isDisabled}
-                    isSteamWebApiAvailable={isSteamWebApiAvailable}
+                    availability={depotScanModeAvailability}
                     onChange={handleDepotScanModeChange}
                   />
                 </div>
@@ -581,6 +854,17 @@ const ScheduleRow = memo(function ScheduleRow({
                   </Button>
                 )}
               </div>
+            )}
+
+            {/* Sits under the mode control because it answers the question that control asks:
+            what an incremental run would actually do this time. It is information on request,
+            not a gate - the mode dropdown decides what can run from facts that cost nothing.
+            Keyed on the mode so picking a different one drops the answer instead of leaving a
+            verdict about incremental scanning sitting under a control that no longer says
+            incremental. Only a real change of value remounts, so a refresh reporting the same
+            mode leaves the answer alone. */}
+            {isDepotMapping && (
+              <DepotIncrementalCheck key={depotScheduledMode} isDisabled={isDisabled} />
             )}
 
             {/* Only while the server still reports a skipped scan, so the row goes back to its
@@ -808,13 +1092,45 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const [completedKeys, setCompletedKeys] = useState<Record<string, HighlightGlowVariant>>({});
   const { on, off, connectionState } = useSignalR();
   const { addNotification } = useNotifications();
-  const { progress: picsProgress, refreshProgress, updateProgress } = usePicsProgress();
+  const {
+    progress: picsProgress,
+    isLoading: picsLoading,
+    refreshProgress,
+    updateProgress
+  } = usePicsProgress();
   const { status: webApiStatus } = useSteamWebApiStatus();
+  const { setupStatus } = useSetupStatus();
   const depotScheduledMode = getDepotScheduledScanMode(picsProgress?.crawlIncrementalMode);
+  // The progress blob is restored from sessionStorage on a reload, so a non-null picsProgress is
+  // not evidence that this page load has an answer - it can predate the API key being added or the
+  // mappings being wiped. The fetch flag is the evidence.
+  const isDepotScanModeKnown = !picsLoading && picsProgress !== null && setupStatus !== null;
+  const isSetupCompleted = setupStatus?.isCompleted === true;
+  // A full scan empties the mapping table at the start and refills it as it goes, so a count read
+  // while a crawl is running says nothing about whether a baseline exists. Only the count at rest
+  // answers that.
+  const hasDepotMappings =
+    picsProgress !== null && (picsProgress.isProcessing || picsProgress.depotMappingsFound > 0);
+  // Both terms are the server's own cached answer arriving by two routes, so the dropdown judges a
+  // full scan on the fact the save route judges it on. Either one settles it: the status route
+  // stops answering entirely once it takes a 401, and the progress route carries the same fact. A
+  // stored key is deliberately not a third term - a key Steam has rejected is still stored, so
+  // reading it as availability offered a full scan that the save route then refused.
   const isSteamWebApiAvailable =
-    picsProgress?.isWebApiAvailable === true ||
-    webApiStatus?.isFullyOperational === true ||
-    webApiStatus?.hasApiKey === true;
+    picsProgress?.isWebApiAvailable === true || webApiStatus?.isFullyOperational === true;
+  // Each term is reduced to the boolean it contributes before the object is built. picsProgress is
+  // replaced on every PICS push during a crawl, and depending on the object itself gave the rows a
+  // new prop identity at the push rate, re-rendering all twelve of them for a counter that changes
+  // no answer here.
+  const depotScanModeAvailability = useMemo<DepotScanModeAvailability>(
+    () => ({
+      isKnown: isDepotScanModeKnown,
+      isSetupCompleted,
+      hasDepotMappings,
+      isSteamWebApiAvailable
+    }),
+    [isDepotScanModeKnown, isSetupCompleted, hasDepotMappings, isSteamWebApiAvailable]
+  );
 
   // Keep a ref in sync with schedules so callbacks can read the latest value without
   // needing `schedules` in their useCallback deps - that would cause every callback to
@@ -890,12 +1206,27 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   useEffect(() => {
     const handleSchedulesUpdated = (data: ServiceScheduleInfo[]) => {
       signalrGenerationRef.current += 1;
+      // This push is the server truth the optimistic Run Now flag was waiting for, so retire the flag
+      // here rather than letting the hook's safety timeout do it. A row is settled once the server
+      // reports it running, or once its last-run stamp moves - a run short enough to finish between
+      // two pushes never reports isRunning at all, and without that second test its button would keep
+      // spinning for seconds after the work was done.
+      const previous = schedulesRef.current;
+      data.forEach((service) => {
+        const before = previous.find((entry) => entry.key === service.key);
+        if (
+          service.isRunning ||
+          (before !== undefined && before.lastRunUtc !== service.lastRunUtc)
+        ) {
+          clearPending(service.key);
+        }
+      });
       setSchedules(data);
       setError(null);
     };
     on('SchedulesUpdated', handleSchedulesUpdated);
     return () => off('SchedulesUpdated', handleSchedulesUpdated);
-  }, [on, off]);
+  }, [on, off, clearPending]);
 
   // Refetch when SignalR reconnects to recover any missed updates
   useEffect(() => {
@@ -1000,6 +1331,21 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
   const handleDepotScanModeChange = useCallback(
     async (mode: DepotScheduledScanMode) => {
+      // The mode route accepts any well-formed value without checking whether that mode can run,
+      // so this is the only thing standing between a stale or programmatic call and a scheduled
+      // scan that can only ever skip itself. A click that lands on a stale render has to say why
+      // nothing happened, or the control reads as broken.
+      const requirement = getDepotScanModeRequirement(mode, depotScanModeAvailability);
+      if (requirement) {
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: t(requirement.helpKey),
+          details: { notificationType: 'error' }
+        });
+        return;
+      }
+
       const previousMode = crawlIncrementalModeRef.current ?? true;
 
       updateProgress((prev) =>
@@ -1014,7 +1360,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       try {
         await ApiService.setDepotScheduledScanMode(mode);
         await refreshProgress();
-      } catch {
+      } catch (error: unknown) {
         updateProgress((prev) =>
           prev
             ? {
@@ -1024,17 +1370,21 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             : prev
         );
         await refreshProgress();
+        const scanModeFailed = t('management.schedules.services.depotMapping.scanModeFailed', {
+          service: t('management.schedules.services.depotMapping.displayName')
+        });
+        const refusalKey = getScanModeRefusalKey(error);
         addNotification({
           type: 'generic',
           status: 'failed',
-          message: t('management.schedules.services.depotMapping.scanModeFailed', {
-            service: t('management.schedules.services.depotMapping.displayName')
-          }),
+          // A stage key this build does not carry a translation for falls back to the plain
+          // failure rather than printing the key path at the user.
+          message: refusalKey ? t(refusalKey, { defaultValue: scanModeFailed }) : scanModeFailed,
           details: { notificationType: 'error' }
         });
       }
     },
-    [updateProgress, refreshProgress, addNotification, t]
+    [depotScanModeAvailability, updateProgress, refreshProgress, addNotification, t]
   );
 
   const handleResetDefaults = useCallback(async () => {
@@ -1130,9 +1480,9 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         if (result.alreadyRunning) {
           // The click still armed the service's pending-run flag, so one more run follows the
           // one in progress - say that rather than only "already running", which reads as a
-          // no-op. Keep the pending flag until the safety timeout: server truth arrives over
-          // SignalR, and clearing it here would re-enable the button the moment that push is
-          // missed or the connection has dropped.
+          // no-op. Nothing is cleared here on purpose: the SchedulesUpdated handler retires the
+          // pending flag once server truth actually lands, so clearing it on this response would
+          // re-enable the button while the run it queued behind is still going.
           addNotification({
             type: 'generic',
             status: 'completed',
@@ -1225,7 +1575,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
               depotScheduledMode={
                 service.key === 'depotMapping' ? depotScheduledMode : 'incremental'
               }
-              isSteamWebApiAvailable={service.key === 'depotMapping' && isSteamWebApiAvailable}
+              depotScanModeAvailability={depotScanModeAvailability}
               onDepotScanModeChange={handleDepotScanModeChange}
               onRunNow={handleRunNow}
               isPendingRun={isPending(service.key)}

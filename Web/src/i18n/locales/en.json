@@ -3359,91 +3359,17 @@
       }
     },
     "depotMapping": {
-      "title": "Steam Game Mapping",
-      "subtitle": "Automatically identifies Steam games from depot IDs",
-      "configureSteamApi": "Configure Steam API",
-      "viewSchedule": "View Schedule",
-      "downloadingFromGitHub": "Downloading Depot Mappings from GitHub...",
-      "downloadingDescription": "Fetching pre-created depot mappings (290k+ depots). This may take a few moments.",
-      "githubDownloadComplete": "GitHub Data Downloaded - Applying Mappings",
-      "applyingMappingsDescription": "Pre-created depot mappings have been imported from GitHub. The system is now applying these mappings to your download history.",
-      "applyNowSource": "Apply Now Scan Mode",
-      "applyNowSourceHelp": "Only affects the Apply Now button. Scheduled runs and the schedule card's Run Now button use Scheduled Scan Mode in Schedules.",
-      "intervalFixedNote": "Interval is fixed at 30 minutes for GitHub mode",
-      "scanSkipped": {
-        "title": "Automatic Scan Skipped - Data Update Required",
-        "description": "The scheduled incremental scan was skipped because the change gap is too large. Please download the latest pre-created data from GitHub to reset your baseline, then incremental scans will work again."
-      },
-      "schedule": {
-        "automaticSchedule": "Automatic Schedule",
-        "runsEvery": "Runs every:",
-        "scanMode": "Scan mode:",
-        "nextRun": "Next run:",
-        "lastRun": "Last run:",
-        "disabled": "Disabled",
-        "calculating": "Calculating..."
-      },
-      "intervals": {
-        "30min": "30 minutes",
-        "every30Min": "Every 30 minutes",
-        "hours": "{{count}} hour",
-        "hours_other": "{{count}} hours",
-        "disabled": "Disabled",
-        "everyHour": "Every hour",
-        "every6Hours": "Every 6 hours",
-        "every12Hours": "Every 12 hours",
-        "every24Hours": "Every 24 hours",
-        "every2Days": "Every 2 days",
-        "weekly": "Weekly"
-      },
       "modes": {
         "incremental": "Incremental",
         "full": "Full",
         "github": "GitHub",
-        "fullWebApiRequired": "Full (Web API required)"
-      },
-      "sources": {
-        "steamIncremental": "Steam (Incremental Scan)",
-        "steamIncrementalWebApiRequired": "Steam (Incremental Scan - Web API required)",
-        "steamFull": "Steam (Full Scan)",
-        "steamFullWebApiRequired": "Steam (Full Scan - Web API required)",
-        "githubDownload": "GitHub (Download)",
-        "githubAlreadyDownloaded": "GitHub (Already downloaded)"
-      },
-      "buttons": {
-        "downloadingFromGitHub": "Downloading from GitHub...",
-        "startingScan": "Starting Scan...",
-        "scanning": "Scanning ({{percent}}%)",
-        "applyingMappings": "Applying Mappings...",
-        "applyNow": "Apply Now"
-      },
-      "errors": {
-        "changeGapTooLarge": "Change gap too large - please download data from GitHub",
-        "failedToDownloadFromGitHub": "Failed to download from GitHub",
-        "failedToProcessDepotMappings": "Failed to process depot mappings",
-        "failedToStartFullScan": "Failed to start full scan"
-      },
-      "help": {
-        "scanModes": {
-          "title": "Update Methods",
-          "incremental": {
-            "term": "Incremental",
-            "description": "Only checks apps that changed since the last scan. Fast when changes are few, may take longer after a gap."
-          },
-          "full": {
-            "term": "Full Scan",
-            "description": "Re-scans all Steam apps from scratch. Takes several minutes."
-          },
-          "github": {
-            "term": "GitHub Download",
-            "description": "Downloads a pre-built mapping file from GitHub. Updated every hour, takes about a minute."
-          }
-        },
-        "settings": {
-          "title": "Scheduling",
-          "description": "Set a schedule to keep mappings updated automatically, or click Apply Now to run it right away."
-        },
-        "note": "When set to GitHub mode, it checks for new data every 30 minutes."
+        "fullWebApiRequired": "Full (Web API required)",
+        "fullWebApiRequiredHelp": "A full scan needs a Steam Web API key.",
+        "incrementalSetupRequired": "Incremental (setup required)",
+        "fullSetupRequired": "Full (setup required)",
+        "setupRequiredHelp": "Finish setup before scheduling a Steam depot scan.",
+        "incrementalMappingsRequired": "Incremental (depot mappings required)",
+        "mappingsRequiredHelp": "Nothing to compare against yet. Run a full scan or import from GitHub first."
       }
     },
     "database": {
@@ -3832,7 +3758,22 @@
           "configureSteamApi": "Configure Steam API",
           "fullScanRequiredLabel": "Full scan required",
           "fullScanRequiredHelp": "Steam will not accept an incremental update from the depot data you have, so the scheduled scan stopped without running. Bring the prompt back to download the data from GitHub or start a full scan.",
-          "showFullScanPrompt": "Show the prompt"
+          "showFullScanPrompt": "Show the prompt",
+          "incrementalCheckLabel": "Incremental scan",
+          "incrementalHelpTitle": "What Check does",
+          "incrementalCheckHelp": "Asks Steam how much has changed since your stored depot data, so you can see what an incremental scan would do before you start one. This opens a connection to Steam, so it only runs when you press Check.",
+          "incrementalFiguresTitle": "What the figures mean",
+          "incrementalFiguresHelp": "Both figures count changes across all of Steam, not just your games. Steam keeps publishing while a scan runs, so the count never reaches zero.",
+          "incrementalGithubTip": "If Steam asks for a full update, downloading the depot data from GitHub is the quicker way back to incremental scans.",
+          "checkIncremental": "Check",
+          "checkingIncremental": "Asking Steam",
+          "steamWideChanges": "Steam-wide changes",
+          "appsWorthChecking": "Apps worth checking",
+          "incrementalViable": "Steam will send only what changed since your stored depot data.",
+          "incrementalFullRequired": "Steam will not accept an incremental update, so a scan would run in full.",
+          "incrementalUnreachable": "Steam could not be reached, so there is no answer yet.",
+          "incrementalCheckFailed": "The check did not finish. Try again in a moment.",
+          "dismissIncrementalCheck": "Hide this result"
         },
         "scheduledPrefill": {
           "displayName": "Scheduled Prefill",
@@ -6870,6 +6811,7 @@
       "initializing": "Initializing cache clear...",
       "starting": "Starting cache deletion...",
       "progress": "Clearing cache ({{processed}}/{{totalDirs}}) - {{activeCount}} active",
+      "cancelled": "Cache clear cancelled",
       "error": {
         "dirNotFound": "Cache directory does not exist: {{cachePath}}",
         "fatal": "Cache clear failed: {{errorDetail}}"
@@ -6917,7 +6859,7 @@
       "completeStructuralFull": "Full structural scan complete: {{count}} invalid cache files found and the incremental baseline was refreshed.",
       "completeStructuralIncremental": "Incremental structural scan complete: {{count}} invalid cache files found.",
       "completeStructuralBaseline": "Initial incremental baseline complete: {{count}} invalid cache files found.",
-      "cancelled": "Corruption scan cancelled by user",
+      "cancelled": "Corruption scan cancelled",
       "failed": "Corruption scan failed: {{errorDetail}}"
     },
     "corruptionRemove": {
@@ -6981,7 +6923,8 @@
     "dataImport": {
       "starting": "Starting data import…",
       "progress": "Importing: {{processed}} of {{total}} records",
-      "completedDetail": "{{imported}} imported, {{skipped}} skipped, {{errors}} errors"
+      "completedDetail": "{{imported}} imported, {{skipped}} skipped, {{errors}} errors",
+      "cancelled": "Data import cancelled"
     },
     "depotMapping": {
       "starting": "Starting depot mapping...",
@@ -6999,6 +6942,8 @@
       "finalized": "Depot mapping complete",
       "completed": "Depot mapping complete",
       "failed": "Depot mapping failed",
+      "skippedSetupIncomplete": "Depot mapping skipped - setup is not finished yet",
+      "skippedSteamUnreachable": "Depot mapping skipped - could not reach Steam",
       "scan": {
         "skippedFullRequired": "Scheduled scan skipped - full scan required"
       }
@@ -7010,6 +6955,7 @@
       "checkingFreeGames": "Checking for free game promotions...",
       "applyingMappings": "Resolving Epic downloads to game names...",
       "completed": "Epic catalog refresh completed",
+      "resolvedWithoutSignIn": "Epic downloads named from the stored catalog - not signed in to Epic",
       "skippedNotSignedIn": "Epic catalog refresh skipped - not signed in to Epic",
       "cancelled": "Epic catalog refresh cancelled",
       "failed": "Epic catalog refresh failed: {{errorDetail}}",
@@ -7053,6 +6999,7 @@
       "resolving": "Resolving Battle.net downloads to game names...",
       "saving": "Saving Battle.net game mappings...",
       "completed": "Battle.net game mapping completed",
+      "skippedNothingResolved": "Battle.net game mapping skipped - no downloads matched a known game",
       "cancelled": "Battle.net game mapping cancelled",
       "failed": "Battle.net game mapping failed"
     },
@@ -7060,6 +7007,7 @@
       "starting": "Starting Riot game mapping...",
       "resolving": "Resolving Riot downloads to game names...",
       "completed": "Riot game mapping completed",
+      "skippedNothingResolved": "Riot game mapping skipped - no downloads matched a known game",
       "cancelled": "Riot game mapping cancelled",
       "failed": "Riot game mapping failed"
     },
@@ -7128,6 +7076,7 @@
       "refreshingSummary": "Refreshing detection summary of cached files...",
       "refreshingSummaryCounted": "Refreshing detection summary ({{filesChecked}} of {{filesTotal}} files checked)...",
       "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted",
+      "cancelled": "Eviction scan cancelled",
       "error": {
         "fatal": "Eviction scan failed: {{errorDetail}}"
       }
@@ -7139,6 +7088,7 @@
       "counting": "Counting cache files...",
       "calibrating": "Measuring deletion speed (test {{step}} of {{totalSteps}})...",
       "complete": "Cache file scan completed: {{totalFiles}} files, {{totalSize}}",
+      "cancelled": "Cache file scan cancelled",
       "error": {
         "fatal": "Cache size scan failed: {{errorDetail}}"
       }
@@ -7187,6 +7137,7 @@
         "noNewGames": "No new games detected ({{totalGamesDetected}} total with cache files)",
         "full": "Detected {{totalGamesDetected}} games with cache files"
       },
+      "cancelled": "Game detection cancelled",
       "refreshingSummary": "Refreshing detection summary of cached files...",
       "scan": {
         "skippedIncremental": "Skipping cache file scan (incremental mode)...",

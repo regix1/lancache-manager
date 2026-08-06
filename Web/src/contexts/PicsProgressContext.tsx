@@ -36,15 +36,11 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     return null;
   });
 
-  // Only show loading if we don't have cached data
-  const [isLoading, setIsLoading] = useState(() => {
-    try {
-      const cached = sessionStorage.getItem('pics_progress_cache');
-      return !cached; // Show loading only if no cache
-    } catch (_error) {
-      return true;
-    }
-  });
+  // The cache above keeps the last numbers on screen across a reload, so a non-null progress says
+  // nothing about what this page load knows - the blob can predate an API key being added or a data
+  // reset. This flag is the one signal that separates "not read yet" from "read, and the answer is
+  // no", so it starts set on every page load whether or not a cache was restored.
+  const [isLoading, setIsLoading] = useState(true);
 
   const fetchProgress = async (skipAuthCheck = false) => {
     if (mockMode) {
@@ -104,9 +100,16 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
 
   // Initial fetch - only when auth is ready and user has access
   useEffect(() => {
-    if (!mockMode && !authLoading && hasAccess) {
-      fetchProgress();
+    if (authLoading) {
+      return;
     }
+    if (!mockMode && hasAccess) {
+      fetchProgress();
+      return;
+    }
+    // Nothing is going to answer on this page load: mock mode serves no progress and the route is
+    // admin-only. Leaving the flag set would hold every consumer in a wait that never ends.
+    setIsLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode, authLoading, hasAccess]);
 

@@ -513,6 +513,8 @@ public class SystemController : ControllerBase
     /// PATCH /api/system/depots/scan-mode - Set depot scan mode
     /// RESTful: PATCH is proper method for configuration updates
     /// Request body: { "mode": "full" } or { "mode": "incremental" }
+    /// Stores the same setting as PUT /api/depots/rebuild/config/mode, so it answers to the same
+    /// requirements: a mode every scheduled run would have to skip is refused here too.
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch("depots/scan-mode")]
@@ -526,7 +528,17 @@ public class SystemController : ControllerBase
             return BadRequest(ApiResponse.Error("Invalid scan mode. Must be 'full' or 'incremental'"));
         }
 
-        _steamKit2Service.CrawlIncrementalMode = request.Mode == DepotScanMode.Incremental;
+        var incremental = request.Mode == DepotScanMode.Incremental;
+
+        var unavailable = DepotScanModeRequirement.Missing(_steamKit2Service, _stateService, incremental);
+        if (unavailable != null)
+        {
+            _logger.LogInformation("PICS scan mode rejected: {StageKey}", unavailable.StageKey);
+
+            return BadRequest(unavailable);
+        }
+
+        _steamKit2Service.CrawlIncrementalMode = incremental;
         _logger.LogInformation("PICS scan mode set to: {Mode}", request.Mode.ToWireString());
 
         return Ok(new ScanModeResponse

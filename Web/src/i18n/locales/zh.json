@@ -3359,91 +3359,17 @@
       }
     },
     "depotMapping": {
-      "title": "Steam 游戏映射",
-      "subtitle": "从仓库 ID 自动识别 Steam 游戏",
-      "configureSteamApi": "配置 Steam API",
-      "viewSchedule": "查看计划",
-      "downloadingFromGitHub": "正在从 GitHub 下载仓库映射...",
-      "downloadingDescription": "正在获取预先创建的仓库映射（29 万+ 仓库）。这可能需要一些时间。",
-      "githubDownloadComplete": "GitHub 数据已下载 - 正在应用映射",
-      "applyingMappingsDescription": "预先创建的仓库映射已从 GitHub 导入。系统正在将这些映射应用到您的下载历史记录。",
-      "applyNowSource": "立即应用扫描模式",
-      "applyNowSourceHelp": "仅影响\"立即应用\"按钮。计划运行和计划卡片的\"立即运行\"按钮使用\"计划\"中的计划扫描模式。",
-      "intervalFixedNote": "GitHub 模式的间隔固定为 30 分钟",
-      "scanSkipped": {
-        "title": "自动扫描已跳过 - 需要更新数据",
-        "description": "计划的增量扫描已跳过，因为变更差距过大。请从 GitHub 下载最新的预先创建数据以重置基线，然后增量扫描将重新工作。"
-      },
-      "schedule": {
-        "automaticSchedule": "自动计划",
-        "runsEvery": "运行频率：",
-        "scanMode": "扫描模式：",
-        "nextRun": "下次运行：",
-        "lastRun": "上次运行：",
-        "disabled": "已禁用",
-        "calculating": "计算中..."
-      },
-      "intervals": {
-        "30min": "30 分钟",
-        "every30Min": "每 30 分钟",
-        "hours": "{{count}} 小时",
-        "hours_other": "{{count}} 小时",
-        "disabled": "已禁用",
-        "everyHour": "每小时",
-        "every6Hours": "每 6 小时",
-        "every12Hours": "每 12 小时",
-        "every24Hours": "每 24 小时",
-        "every2Days": "每 2 天",
-        "weekly": "每周"
-      },
       "modes": {
         "incremental": "增量",
         "full": "完整",
         "github": "GitHub",
-        "fullWebApiRequired": "完整（需要 Web API）"
-      },
-      "sources": {
-        "steamIncremental": "Steam（增量扫描）",
-        "steamIncrementalWebApiRequired": "Steam（增量扫描 - 需要 Web API）",
-        "steamFull": "Steam（完整扫描）",
-        "steamFullWebApiRequired": "Steam（完整扫描 - 需要 Web API）",
-        "githubDownload": "GitHub（下载）",
-        "githubAlreadyDownloaded": "GitHub（已下载）"
-      },
-      "buttons": {
-        "downloadingFromGitHub": "正在从 GitHub 下载...",
-        "startingScan": "正在启动扫描...",
-        "scanning": "正在扫描（{{percent}}%）",
-        "applyingMappings": "正在应用映射...",
-        "applyNow": "立即应用"
-      },
-      "errors": {
-        "changeGapTooLarge": "变更差距过大 - 请从 GitHub 下载数据",
-        "failedToDownloadFromGitHub": "从 GitHub 下载失败",
-        "failedToProcessDepotMappings": "处理仓库映射失败",
-        "failedToStartFullScan": "启动完整扫描失败"
-      },
-      "help": {
-        "scanModes": {
-          "title": "更新方法",
-          "incremental": {
-            "term": "增量",
-            "description": "仅检查自上次扫描以来发生变更的应用。变更少时速度快，间隔较久后可能需要更长时间。"
-          },
-          "full": {
-            "term": "完整扫描",
-            "description": "从头开始重新扫描所有 Steam 应用。需要几分钟。"
-          },
-          "github": {
-            "term": "GitHub 下载",
-            "description": "从 GitHub 下载预先构建的映射文件。每小时更新，大约需要一分钟。"
-          }
-        },
-        "settings": {
-          "title": "计划安排",
-          "description": "设置计划以自动保持映射更新，或点击\"立即应用\"立即运行。"
-        },
-        "note": "设置为 GitHub 模式时，每 30 分钟检查一次新数据。"
+        "fullWebApiRequired": "完整（需要 Web API）",
+        "fullWebApiRequiredHelp": "完整扫描需要 Steam Web API 密钥。",
+        "incrementalSetupRequired": "增量（需要完成设置）",
+        "fullSetupRequired": "完整（需要完成设置）",
+        "setupRequiredHelp": "请先完成设置，然后再安排 Steam 仓库扫描。",
+        "incrementalMappingsRequired": "增量（需要仓库映射）",
+        "mappingsRequiredHelp": "目前没有可对比的数据。请先运行完整扫描或从 GitHub 导入。"
       }
     },
     "database": {
@@ -3832,7 +3758,22 @@
           "configureSteamApi": "配置 Steam API",
           "fullScanRequiredLabel": "需要完整扫描",
           "fullScanRequiredHelp": "Steam 不接受基于当前仓库数据的增量更新，因此计划扫描未运行便已停止。重新打开提示框，即可从 GitHub 下载数据或启动完整扫描。",
-          "showFullScanPrompt": "显示提示框"
+          "showFullScanPrompt": "显示提示框",
+          "incrementalCheckLabel": "增量扫描",
+          "incrementalHelpTitle": "\"查询\"会做什么",
+          "incrementalCheckHelp": "向 Steam 查询自您保存的仓库数据以来发生了多少变更，让您在启动增量扫描之前先看清它会做什么。此操作会连接 Steam，因此仅在您点击\"查询\"时才会运行。",
+          "incrementalFiguresTitle": "这些数字的含义",
+          "incrementalFiguresHelp": "两个数字统计的都是整个 Steam 的变更，而不只是您的游戏。扫描期间 Steam 仍在持续发布变更，因此这个数字永远不会归零。",
+          "incrementalGithubTip": "如果 Steam 要求完整更新，从 GitHub 下载仓库数据是回到增量扫描的更快方式。",
+          "checkIncremental": "查询",
+          "checkingIncremental": "正在询问 Steam",
+          "steamWideChanges": "Steam 全站变更",
+          "appsWorthChecking": "值得检查的应用",
+          "incrementalViable": "Steam 只会发送自您保存的仓库数据以来发生变化的内容。",
+          "incrementalFullRequired": "Steam 不接受增量更新，因此扫描会以完整方式运行。",
+          "incrementalUnreachable": "目前无法连接 Steam，因此暂时没有答案。",
+          "incrementalCheckFailed": "查询未能完成，请稍后重试。",
+          "dismissIncrementalCheck": "隐藏此结果"
         },
         "scheduledPrefill": {
           "displayName": "计划预填充",
@@ -6834,6 +6775,7 @@
       "initializing": "正在初始化缓存清理...",
       "starting": "开始删除缓存...",
       "progress": "正在清理缓存 ({{processed}}/{{totalDirs}}) - {{activeCount}} 个活跃",
+      "cancelled": "缓存清理已取消",
       "error": {
         "dirNotFound": "缓存目录不存在: {{cachePath}}",
         "fatal": "缓存清理失败: {{errorDetail}}"
@@ -6881,7 +6823,7 @@
       "completeStructuralFull": "全面结构扫描完成：发现 {{count}} 个无效缓存文件，增量基线已刷新。",
       "completeStructuralIncremental": "增量结构扫描完成：发现 {{count}} 个无效缓存文件。",
       "completeStructuralBaseline": "初始增量基线已完成：发现 {{count}} 个无效缓存文件。",
-      "cancelled": "用户已取消损坏扫描",
+      "cancelled": "损坏扫描已取消",
       "failed": "损坏扫描失败：{{errorDetail}}"
     },
     "corruptionRemove": {
@@ -6944,7 +6886,8 @@
     },
     "dataImport": {
       "starting": "正在开始数据导入…",
-      "progress": "正在导入: {{processed}}/{{total}} 条记录"
+      "progress": "正在导入: {{processed}}/{{total}} 条记录",
+      "cancelled": "数据导入已取消"
     },
     "depotMapping": {
       "starting": "正在开始仓库映射...",
@@ -6962,6 +6905,8 @@
       "finalized": "仓库映射完成",
       "completed": "仓库映射完成",
       "failed": "仓库映射失败",
+      "skippedSetupIncomplete": "仓库映射已跳过 - 初始设置尚未完成",
+      "skippedSteamUnreachable": "仓库映射已跳过 - 无法连接到 Steam",
       "scan": {
         "skippedFullRequired": "计划扫描已跳过 - 需要全面扫描"
       }
@@ -6973,6 +6918,7 @@
       "checkingFreeGames": "正在检查免费游戏促销活动...",
       "applyingMappings": "正在将 Epic 下载解析为游戏名称...",
       "completed": "Epic 目录刷新完成",
+      "resolvedWithoutSignIn": "已使用已存储的目录命名 Epic 下载 - 未登录 Epic 账户",
       "skippedNotSignedIn": "Epic 目录刷新已跳过 - 未登录 Epic 账户",
       "cancelled": "Epic 游戏目录刷新已取消",
       "failed": "Epic 游戏目录刷新失败: {{errorDetail}}",
@@ -7016,6 +6962,7 @@
       "resolving": "正在将 Battle.net 下载解析为游戏名称...",
       "saving": "正在保存 Battle.net 游戏映射...",
       "completed": "Battle.net 游戏映射完成",
+      "skippedNothingResolved": "Battle.net 游戏映射已跳过 - 没有下载记录匹配到已知游戏",
       "cancelled": "Battle.net 游戏映射已取消",
       "failed": "Battle.net 游戏映射失败"
     },
@@ -7023,6 +6970,7 @@
       "starting": "正在开始 Riot 游戏映射...",
       "resolving": "正在将 Riot 下载解析为游戏名称...",
       "completed": "Riot 游戏映射完成",
+      "skippedNothingResolved": "Riot 游戏映射已跳过 - 没有下载记录匹配到已知游戏",
       "cancelled": "Riot 游戏映射已取消",
       "failed": "Riot 游戏映射失败"
     },
@@ -7091,6 +7039,7 @@
       "refreshingSummary": "正在刷新缓存文件检测摘要...",
       "refreshingSummaryCounted": "正在刷新检测摘要（已检查 {{filesChecked}} / {{filesTotal}} 个文件）...",
       "complete": "扫描完成: 已处理 {{totalProcessed}}，已淘汰 {{totalEvicted}}，已取消淘汰 {{totalUnEvicted}}",
+      "cancelled": "淘汰扫描已取消",
       "error": {
         "fatal": "淘汰扫描失败: {{errorDetail}}"
       }
@@ -7102,6 +7051,7 @@
       "counting": "正在统计缓存文件数量...",
       "calibrating": "正在测量删除速度（测试 {{step}}/{{totalSteps}}）...",
       "complete": "缓存文件扫描完成: {{totalFiles}} 个文件，{{totalSize}}",
+      "cancelled": "缓存文件扫描已取消",
       "error": {
         "fatal": "缓存大小扫描失败: {{errorDetail}}"
       }
@@ -7150,6 +7100,7 @@
         "noNewGames": "未检测到新游戏（共 {{totalGamesDetected}} 个有缓存文件的游戏）",
         "full": "检测到 {{totalGamesDetected}} 个有缓存文件的游戏"
       },
+      "cancelled": "游戏检测已取消",
       "refreshingSummary": "正在刷新缓存文件检测摘要...",
       "scan": {
         "skippedIncremental": "跳过缓存文件扫描（增量模式）...",

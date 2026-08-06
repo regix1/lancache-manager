@@ -99,8 +99,14 @@ public partial class SteamKit2Service
                 // Get current change number from Steam
                 var currentChangeNumber = await GetPicsChangeNumberAsync(ct);
 
+                // The subtraction is unsigned, so a stored change number ahead of Steam's current
+                // one - after a restore from a newer snapshot, or a Steam-side rollback - wraps to
+                // roughly 4.29 billion and reads as that many updates behind. Clamping the stored
+                // number to Steam's makes that zero, which is what not being behind means, and it
+                // holds for every reader of the figure: the cached result above, the app estimate
+                // below, and both places the number is shown.
                 uint changeGap = changeNumberToCheck > 0
-                    ? currentChangeNumber - changeNumberToCheck
+                    ? currentChangeNumber - Math.Min(changeNumberToCheck, currentChangeNumber)
                     : currentChangeNumber;
 
                 // Actually check with Steam if it will accept incremental update

@@ -4,6 +4,7 @@ using LancacheManager.Core.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 
 
@@ -22,17 +23,20 @@ public class DepotsController : ControllerBase
 {
     private readonly SteamKit2Service _steamKit2Service;
     private readonly PicsDataService _picsDataService;
+    private readonly StateService _stateService;
     private readonly ILogger<DepotsController> _logger;
     private readonly IOperationConflictChecker _conflictChecker;
 
     public DepotsController(
         SteamKit2Service steamKit2Service,
         PicsDataService picsDataService,
+        StateService stateService,
         ILogger<DepotsController> logger,
         IOperationConflictChecker conflictChecker)
     {
         _steamKit2Service = steamKit2Service;
         _picsDataService = picsDataService;
+        _stateService = stateService;
         _logger = logger;
         _conflictChecker = conflictChecker;
     }
@@ -340,6 +344,8 @@ public class DepotsController : ControllerBase
     /// <summary>
     /// PUT /api/depots/rebuild/config/mode - Set the automatic crawl mode
     /// RESTful: PUT is proper method for updating configuration
+    /// A Steam mode is refused when its requirements are not met, so a direct call, a second tab or
+    /// a stale page cannot store a mode that every scheduled run would have to skip.
     /// </summary>
     /// <param name="mode">Mode value: true (incremental), false (full), or "github" (PICS updates only)</param>
     [Authorize(Policy = "AdminOnly")]
@@ -349,15 +355,20 @@ public class DepotsController : ControllerBase
         string scanMode;
 
         // Handle different input types: bool or string "github"
-        if (mode.ValueKind == JsonValueKind.True)
+        if (mode.ValueKind == JsonValueKind.True || mode.ValueKind == JsonValueKind.False)
         {
-            _steamKit2Service.CrawlIncrementalMode = true;
-            scanMode = "Incremental";
-        }
-        else if (mode.ValueKind == JsonValueKind.False)
-        {
-            _steamKit2Service.CrawlIncrementalMode = false;
-            scanMode = "Full";
+            var incremental = mode.ValueKind == JsonValueKind.True;
+
+            var unavailable = DepotScanModeRequirement.Missing(_steamKit2Service, _stateService, incremental);
+            if (unavailable != null)
+            {
+                _logger.LogInformation("Crawl mode rejected: {StageKey}", unavailable.StageKey);
+
+                return BadRequest(unavailable);
+            }
+
+            _steamKit2Service.CrawlIncrementalMode = incremental;
+            scanMode = incremental ? "Incremental" : "Full";
         }
         else if (mode.ValueKind == JsonValueKind.String && mode.GetString() == "github")
         {
@@ -377,4 +388,104 @@ public class DepotsController : ControllerBase
             Message = $"Automatic scan mode set to {scanMode}"
         });
     }
+}
+
+/// <summary>
+/// The one place that decides what a scheduled depot scan mode needs, so the two routes that store a
+/// mode cannot disagree about which modes can run. Every term reads a fact that survives at rest: a
+/// crawl closes its own Steam socket when it finishes, so a connection or login flag would refuse
+/// both Steam modes permanently. Reachability is deliberately not a term here - it cannot be answered
+/// without opening a Steam connection, which a configuration save must never do, and a scheduled run
+/// that cannot reach Steam already reports itself as skipped.
+/// </summary>
+internal static class DepotScanModeRequirement
+{
+    /// <summary>
+    /// Reads the facts off the running services and judges the mode against them. GitHub mode needs
+    /// neither Steam nor a key, so it never reaches this.
+    /// </summary>
+    internal static ScanModeUnavailableResponse? Missing(
+        SteamKit2Service steamKit2Service,
+        StateService stateService,
+        bool incremental)
+    {
+        var availability = new DepotScanModeAvailability(
+            SetupCompleted: stateService.GetSetupCompleted(),
+            RebuildRunning: steamKit2Service.IsRebuildRunning,
+            DepotMappingsFound: steamKit2Service.GetProgress().DepotMappingsFound,
+            WebApiAvailable: steamKit2Service.IsWebApiAvailable());
+
+        return Missing(availability, incremental);
+    }
+
+    /// <summary>
+    /// The requirement a scan mode is missing, or null when the mode can run. The stage keys are the
+    /// ones the scan mode dropdown already shows for the same missing requirement, so a refused save
+    /// and a greyed-out option give the user the same sentence.
+    /// </summary>
+    internal static ScanModeUnavailableResponse? Missing(DepotScanModeAvailability availability, bool incremental)
+    {
+        if (!availability.SetupCompleted)
+        {
+            return new ScanModeUnavailableResponse
+            {
+                StageKey = "management.depotMapping.modes.setupRequiredHelp",
+                Error = "Finish setup before scheduling a Steam depot scan."
+            };
+        }
+
+        if (incremental)
+        {
+            // An incremental scan asks Steam what changed since the mappings already stored, so with
+            // none stored there is nothing to compare against. A full scan empties the mapping table
+            // at the start and refills it as it goes, so a count read while a crawl is running says
+            // nothing about whether a baseline exists.
+            if (availability.RebuildRunning || availability.DepotMappingsFound > 0)
+            {
+                return null;
+            }
+
+            return new ScanModeUnavailableResponse
+            {
+                StageKey = "management.depotMapping.modes.mappingsRequiredHelp",
+                Error = "No depot mappings are stored yet. Run a full scan or import from GitHub first."
+            };
+        }
+
+        // A full scan enumerates every app through the Steam Web API. Incremental reads the PICS
+        // changelist over the client connection and never calls it, which is why the key is only a
+        // requirement on this branch.
+        if (availability.WebApiAvailable)
+        {
+            return null;
+        }
+
+        return new ScanModeUnavailableResponse
+        {
+            StageKey = "management.depotMapping.modes.fullWebApiRequiredHelp",
+            Error = "A full scan needs a Steam Web API key."
+        };
+    }
+}
+
+/// <summary>
+/// What a scheduled scan mode is judged against: the facts about this install that survive at rest,
+/// with no Steam session open. These are the same facts the scan mode dropdown reads in the browser,
+/// so the two gates answer from the same evidence.
+/// </summary>
+internal readonly record struct DepotScanModeAvailability(
+    bool SetupCompleted,
+    bool RebuildRunning,
+    int DepotMappingsFound,
+    bool WebApiAvailable);
+
+/// <summary>
+/// Refusal body for a scheduled scan mode that cannot run with the depot data and credentials on
+/// hand. <see cref="StageKey"/> is the i18n key the client renders; <see cref="Error"/> is the
+/// English fallback for a client that does not localize.
+/// </summary>
+public class ScanModeUnavailableResponse
+{
+    public string StageKey { get; set; } = string.Empty;
+    public string Error { get; set; } = string.Empty;
 }

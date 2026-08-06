@@ -10,6 +10,7 @@ import type {
   DepotMappingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
+import { ApiError, type OperationConflictBody } from '@services/apiError';
 import { isAbortError, getErrorMessage } from '@utils/error';
 import { formatCount, formatPercent } from '@utils/formatters';
 import type { PicsStatus } from '@/types';
@@ -42,6 +43,22 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  // The depot endpoints answer 409 when something else is already running. The pre-checks above each
+  // call cover the common case, but a run started between the check and the request still lands here,
+  // and without this the generic path prints the backend's untranslated English sentence on the
+  // onboarding screen. A duplicate request is only one of the reasons: a global operation or a bulk
+  // eviction blocks these endpoints too, so the reason travels on the response as a stage key and is
+  // translated here rather than assumed. (App.tsx handles its own 409s by staying silent instead,
+  // which is why this does not share a helper with it.)
+  const describeError = (err: unknown, fallbackKey: string) => {
+    if (err instanceof ApiError && err.kind === 'conflict') {
+      const conflict = err.cause as OperationConflictBody | undefined;
+      const duplicate = t('errors.conflict.duplicate');
+      return conflict?.stageKey ? t(conflict.stageKey, { defaultValue: duplicate }) : duplicate;
+    }
+    return getErrorMessage(err) || t(fallbackKey);
+  };
+
   const selectedMethodRef = useRef<'cloud' | 'generate' | 'continue' | null>(null);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const delayTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -147,7 +164,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     } catch (err: unknown) {
       // Don't show error for user-initiated cancellation
       if (!isAbortError(err)) {
-        setError(getErrorMessage(err) || t('initialization.depotInit.failedToDownload'));
+        setError(describeError(err, 'initialization.depotInit.failedToDownload'));
       }
       setInitializing(false);
       setSelectedMethod(null);
@@ -182,7 +199,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
       onGenerateOwn();
     } catch (err: unknown) {
-      setError(getErrorMessage(err) || t('initialization.depotInit.failedToGenerate'));
+      setError(describeError(err, 'initialization.depotInit.failedToGenerate'));
       setInitializing(false);
       setSelectedMethod(null);
     }
@@ -235,7 +252,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
       onContinue();
     } catch (err: unknown) {
-      setError(getErrorMessage(err) || t('initialization.depotInit.failedIncremental'));
+      setError(describeError(err, 'initialization.depotInit.failedIncremental'));
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);

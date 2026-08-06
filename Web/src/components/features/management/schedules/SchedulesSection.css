@@ -319,6 +319,113 @@
   display: flex;
 }
 
+/* Only the incremental check puts a help trigger in the label slot, so the inline
+   alignment is scoped here instead of being added to every detail label. Compounds
+   .schedule-detail-label so the display change wins regardless of chunk order. */
+.schedule-detail-label.schedule-detail-label-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Five letters do not need the full 19rem control column, so this button is content
+   width. The floor clears the longer "Asking Steam" loading label and its spinner, so
+   the button holds one size across both states instead of jolting when the answer lands. */
+.incremental-check-button {
+  min-width: 9.5rem;
+}
+
+/* Steam's answer to the check. It renders inside the expanded detail well, which is
+   already bg-tertiary, so the panel steps up to the control tone rather than repeating
+   its parent's background - .well-surface alone would be invisible here. The width
+   matches the cluster that asked for it (label 10.5rem + gap 1rem + control 19rem), so
+   the answer lines up under the button instead of running the whole page width. */
+.well-surface.incremental-check-result {
+  background: var(--theme-bg-surface);
+  max-width: 30.5rem;
+}
+
+/* Sentence left, the close control on the right of the same line. Aligned to the top so the
+   glyph stays beside the first line when Steam's error text wraps underneath it. */
+.incremental-check-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+}
+
+.incremental-check-verdict-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Quiet by default: no background and no border until it is pointed at, so the answer keeps
+   the eye and the close sits back. The negative margins pull the 2rem square footprint back
+   into the panel padding, which keeps a one-line verdict from growing a row taller than the
+   sentence in it. */
+.incremental-check-dismiss {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin: -0.25rem -0.25rem -0.25rem 0;
+  border: none;
+  background: transparent;
+  color: var(--theme-text-muted);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.incremental-check-dismiss:hover {
+  background-color: var(--theme-bg-hover);
+  color: var(--theme-text-primary);
+}
+
+.incremental-check-dismiss:focus-visible {
+  color: var(--theme-text-primary);
+}
+
+/* Pressed reads as an accent tint rather than another grey, because the greys either side of
+   this panel run in opposite directions in the two themes and a neutral press would land
+   lighter than hover in one of them. The tint is translucent, so it holds in both. */
+.incremental-check-dismiss:active {
+  background-color: var(--theme-primary-on-bg-hover);
+  color: var(--theme-text-primary);
+}
+
+.incremental-check-line {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-secondary);
+  line-height: 1.45;
+}
+
+/* Steam's own failure text, sitting under the line it explains. Long enough to need
+   wrapping on its own hostnames and timeouts. */
+.incremental-check-error {
+  margin: 0.375rem 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Label left, figure right: two facts at most, and one of them can be hidden, so they
+   read as a short list rather than a grid of tiles. */
+.incremental-check-figure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.incremental-check-value {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--theme-text-primary);
+}
+
 /* Below the desktop table width each row folds into a tile: identity across the top,
    the readouts pairing up beneath it with their own caps labels (the head strip stays
    for screen readers only), then the interval and actions each take a full line. */
