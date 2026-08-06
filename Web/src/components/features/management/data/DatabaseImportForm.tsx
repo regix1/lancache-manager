@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CheckCircle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type { DataImportProgressEvent } from '@contexts/SignalRContext/types';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
@@ -43,6 +45,31 @@ export function DatabaseImportForm({
   const [importing, setImporting] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [progress, setProgress] = useState<{
+    processed: number;
+    total: number;
+    percent: number;
+  } | null>(null);
+
+  // The import already broadcasts its progress; before this nothing listened, so a long import
+  // sat on a spinner telling the user to go and watch the notification bar instead.
+  const { on, off } = useSignalR();
+  useEffect(() => {
+    if (!importing) return;
+
+    const handleProgress = (event: DataImportProgressEvent) => {
+      setProgress({
+        processed: event.recordsProcessed ?? 0,
+        total: event.totalRecords ?? 0,
+        percent: event.percentComplete
+      });
+    };
+
+    on('DataImportProgress', handleProgress as (...args: unknown[]) => void);
+    return () => {
+      off('DataImportProgress', handleProgress as (...args: unknown[]) => void);
+    };
+  }, [importing, on, off]);
 
   const getEffectiveConnectionString = (): string => {
     if (showRawConnectionString) return rawConnectionString;
@@ -81,6 +108,8 @@ export function DatabaseImportForm({
 
     setImporting(true);
     setImportResult(null);
+    // Drop any counts left by a previous run so the bar cannot open on stale numbers.
+    setProgress(null);
 
     const cs = getEffectiveConnectionString();
 
@@ -297,8 +326,12 @@ export function DatabaseImportForm({
           <div className="flex items-center gap-2">
             <LoadingSpinner inline size="sm" />
             <span>
-              {t('initialization.importHistorical.importing')} -{' '}
-              {t('initialization.importHistorical.checkNotifications')}
+              {progress && progress.total > 0
+                ? `${t('signalr.dataImport.progress', {
+                    processed: formatCount(progress.processed),
+                    total: formatCount(progress.total)
+                  })} (${Math.round(progress.percent)}%)`
+                : `${t('initialization.importHistorical.importing')} - ${t('initialization.importHistorical.checkNotifications')}`}
             </span>
           </div>
         </Alert>
