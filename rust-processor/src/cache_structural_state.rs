@@ -94,10 +94,18 @@ impl StructuralScanSummary {
     }
 }
 
+/// Identifies which stored baseline a scan may reuse.
+///
+/// The root is identified by its canonical path and nothing else. An earlier version also
+/// carried the root's device+inode, which looked like a stronger check but threw the whole
+/// baseline away after every NFS/SMB remount, because those clients hand out a fresh
+/// anonymous device number each time they mount. Whether the files themselves are still the
+/// files we recorded is settled per file by `FileFingerprint::same_file`, so pointing the
+/// scanner at a different filesystem under the same path costs a fresh inspection, not a
+/// wrong answer.
 #[derive(Debug, Clone)]
 pub struct StateNamespace {
     pub canonical_root_identity: String,
-    pub root_fingerprint: FileFingerprint,
     pub scope: String,
     pub layout_signature: String,
     pub scanner_policy_version: u32,
@@ -110,7 +118,6 @@ struct NamespaceDocument<'a> {
     report_contract_version: u32,
     scanner_policy_version: u32,
     canonical_root_identity: &'a str,
-    root_fingerprint: &'a FileFingerprint,
     scope: &'a str,
     layout_signature: &'a str,
     os: &'static str,
@@ -281,7 +288,6 @@ impl StructuralState {
             report_contract_version: CORRUPTION_CONTRACT_VERSION,
             scanner_policy_version: namespace.scanner_policy_version,
             canonical_root_identity: &namespace.canonical_root_identity,
-            root_fingerprint: &namespace.root_fingerprint,
             scope: &namespace.scope,
             layout_signature: &namespace.layout_signature,
             os: std::env::consts::OS,
@@ -539,7 +545,7 @@ impl StructuralState {
                 .as_ref()
                 .map(|generation| (generation.clone(), input.digest));
             let stored = if let Some(staging) = staging_row {
-                if staging.fingerprint != *current {
+                if !staging.fingerprint.same_file(current) {
                     self.queue_delete(input.digest);
                     None
                 } else {
@@ -548,7 +554,7 @@ impl StructuralState {
             } else {
                 active_key.as_ref().and_then(|key| rows.get(key))
             };
-            let Some(stored) = stored.filter(|row| row.fingerprint == *current) else {
+            let Some(stored) = stored.filter(|row| row.fingerprint.same_file(current)) else {
                 decisions.push(ReuseDecision::Inspect);
                 continue;
             };
@@ -1093,7 +1099,7 @@ fn validate_candidate_fingerprint(
     let CorruptionEvidence::Structural { structural } = &candidate.evidence else {
         bail!("persisted structural state contained non-structural evidence");
     };
-    if candidate.exact_paths.len() != 1 || structural.fingerprint != *fingerprint {
+    if candidate.exact_paths.len() != 1 || !structural.fingerprint.same_file(fingerprint) {
         bail!("persisted structural candidate identity did not match its state row");
     }
     Ok(())
@@ -1119,7 +1125,6 @@ mod tests {
     fn namespace(scope: &str) -> StateNamespace {
         StateNamespace {
             canonical_root_identity: "root".to_string(),
-            root_fingerprint: fingerprint(1),
             scope: scope.to_string(),
             layout_signature: "layout".to_string(),
             scanner_policy_version: 1,
@@ -1161,6 +1166,39 @@ mod tests {
             [ReuseDecision::ReuseConsistent]
         ));
         assert_eq!(second.publish().unwrap(), (0, 1));
+    }
+
+    /// A remount hands out a new device number for files that never changed. NFS and SMB do
+    /// this on every mount, so a host reboot must not cost the user a full rescan.
+    #[test]
+    fn a_new_device_number_alone_still_reuses_the_baseline() {
+        let temp = TempDir::new().unwrap();
+        let path = database(&temp);
+        let mut first =
+            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
+                .unwrap();
+        first
+            .record_success(7, fingerprint(7), SuccessfulOutcome::Consistent)
+            .unwrap();
+        first.publish().unwrap();
+        drop(first);
+
+        let mut remounted = fingerprint(7);
+        remounted.dev += 4_000;
+        let mut second =
+            StructuralState::open(&path, namespace("default"), StructuralScanMode::Incremental)
+                .unwrap();
+        assert_eq!(second.effective_mode(), EffectiveScanMode::Incremental);
+        assert!(matches!(
+            second
+                .lookup_batch(&[LookupInput {
+                    digest: 7,
+                    fingerprint: Some(remounted),
+                }])
+                .unwrap()
+                .as_slice(),
+            [ReuseDecision::ReuseConsistent]
+        ));
     }
 
     #[test]

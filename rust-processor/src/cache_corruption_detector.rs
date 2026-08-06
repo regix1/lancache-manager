@@ -112,6 +112,22 @@ pub struct FileFingerprint {
     pub ctime_ns: i64,
 }
 
+impl FileFingerprint {
+    /// Whether both fingerprints describe the same file on disk.
+    ///
+    /// `dev` is deliberately left out. NFS and SMB clients are handed a fresh anonymous
+    /// device number at every mount, so comparing it would call the same unchanged file
+    /// different after any remount or host reboot. The remaining fields already answer the
+    /// question: a stale match would need the same inode number, the same length, and the
+    /// same mtime and ctime down to the nanosecond.
+    pub fn same_file(&self, other: &Self) -> bool {
+        self.ino == other.ino
+            && self.len == other.len
+            && self.mtime_ns == other.mtime_ns
+            && self.ctime_ns == other.ctime_ns
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StructuralEvidence {

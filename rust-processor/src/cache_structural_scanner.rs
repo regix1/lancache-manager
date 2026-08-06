@@ -29,7 +29,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 pub const MAX_PREFIX_BYTES: u64 = u16::MAX as u64;
 pub const MIN_STABLE_AGE_SECONDS: u64 = 600;
-pub const STRUCTURAL_SCANNER_POLICY_VERSION: u32 = 1;
+/// Bumped whenever the rules for reusing a stored result change. It is part of the state
+/// namespace, so raising it retires every stored baseline once and the next scan rebuilds.
+pub const STRUCTURAL_SCANNER_POLICY_VERSION: u32 = 2;
 const STATE_CLASSIFICATION_BATCH: usize = 500;
 const KEY_MARKER: &[u8] = b"\nKEY: ";
 
@@ -1083,17 +1085,6 @@ fn canonical_root_identity(path: &Path) -> String {
     hex_bytes(path.as_os_str().as_bytes())
 }
 
-fn root_namespace_fingerprint(metadata: &Metadata) -> FileFingerprint {
-    let identity = fingerprint(metadata);
-    FileFingerprint {
-        dev: identity.dev,
-        ino: identity.ino,
-        len: 0,
-        mtime_ns: 0,
-        ctime_ns: 0,
-    }
-}
-
 #[cfg(unix)]
 fn strong_verified_fingerprint(metadata: &Metadata) -> Option<FileFingerprint> {
     Some(fingerprint(metadata))
@@ -1143,7 +1134,7 @@ pub fn path_fingerprint_matches(path: &Path, expected: &FileFingerprint) -> Resu
     };
     Ok(metadata.file_type().is_file()
         && !metadata.file_type().is_symlink()
-        && fingerprint(&metadata) == *expected)
+        && fingerprint(&metadata).same_file(expected))
 }
 
 #[cfg(not(unix))]
@@ -1565,7 +1556,7 @@ impl LinuxRootedAccess {
             Err(error) => return Err(error).context("failed to reopen cache file"),
         };
         let metadata = current.metadata()?;
-        Ok(metadata.file_type().is_file() && fingerprint(&metadata) == *expected)
+        Ok(metadata.file_type().is_file() && fingerprint(&metadata).same_file(expected))
     }
 }
 
@@ -1807,12 +1798,13 @@ fn service_from_key_hex(evidence: &StructuralEvidence) -> String {
 
 fn structural_candidate(path: &Path, evidence: StructuralEvidence) -> CorruptionCandidate {
     let service = service_from_key_hex(&evidence);
+    // The device number is left out on purpose: it is reassigned at every NFS/SMB mount, and
+    // including it would hand the same unchanged file a new candidate id after every reboot.
     let identity = format!(
-        "{}|{}|{:?}|{}|{}|{}",
+        "{}|{}|{:?}|{}|{}",
         path.display(),
         evidence.cache_key_md5,
         evidence.issues,
-        evidence.fingerprint.dev,
         evidence.fingerprint.ino,
         evidence.fingerprint.ctime_ns
     );
@@ -2839,7 +2831,6 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
             state_db,
             StateNamespace {
                 canonical_root_identity: canonical_root_identity(&canonical_root),
-                root_fingerprint: root_namespace_fingerprint(&root_link_metadata),
                 scope: state_scope.to_string(),
                 layout_signature: config
                     .layout
