@@ -1,0 +1,23 @@
+<Project>
+
+  <!--
+    Applies to Tests/LancacheManager.Tests ONLY. MSBuild stops at the first Directory.Build.props it
+    finds walking up from a project, and Api/Directory.Build.props sits closer to
+    Api/LancacheManager/LancacheManager.csproj - so nothing in this file reaches the API.
+
+    AnalysisMode=Recommended raises the .NET analyzer set above the default. It is what surfaces
+    CA1859 (interface parameter/return where the concrete type is always passed) rather than only
+    the highest-confidence cases. Per-rule severity overrides live in .editorconfig and still win
+    over this setting.
+
+    Style rules are not enforced at build time here: EnforceCodeStyleInBuild is left off, so IDE1006
+    naming violations stay warnings in the test project and remain a `dotnet format` concern.
+    The API does the opposite - Api/Directory.Build.props turns EnforceCodeStyleInBuild on and puts
+    IDE1006 in WarningsAsErrors, so an async method there that lacks the Async suffix fails the
+    build. Do not read this file as describing the API's settings.
+  -->
+  <PropertyGroup>
+    <AnalysisMode>Recommended</AnalysisMode>
+  </PropertyGroup>
+
+</Project>
