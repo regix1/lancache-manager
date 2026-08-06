@@ -969,7 +969,8 @@ public class CacheController : ControllerBase
                                 {
                                     ["completedCount"] = processedCount,
                                     ["serviceCount"] = bulkState.ServiceCount
-                                }));
+                                },
+                                Cancelled: true));
                     }
                     else if (bulkState.FailedServices > 0)
                     {
@@ -1408,7 +1409,8 @@ public class CacheController : ControllerBase
                             new CorruptionRemovalComplete(false, serviceName,
                                 StageKey: "signalr.corruptionRemove.cancelled",
                                 OperationId: operationId,
-                                DetectionMethod: selection.DetectionMethod.ToWireString()));
+                                DetectionMethod: selection.DetectionMethod.ToWireString(),
+                                Cancelled: true));
                 }
 
                 if (!info.Success)

@@ -158,11 +158,13 @@ public static class SignalRNotifications
         string? Error = null,
         DateTime? Timestamp = null,
         Dictionary<string, object?>? Context = null,
-        string? DetectionMethod = null
+        string? DetectionMethod = null,
+        bool Cancelled = false
     ) : ICompletionNotification, IOperationComplete
     {
-        OperationStatus IOperationComplete.Status => Success ? OperationStatus.Completed : OperationStatus.Failed;
-        bool IOperationComplete.Cancelled => false;
+        OperationStatus IOperationComplete.Status => Cancelled
+            ? OperationStatus.Cancelled
+            : (Success ? OperationStatus.Completed : OperationStatus.Failed);
     }
 
     #endregion
