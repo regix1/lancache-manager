@@ -104,17 +104,86 @@ public sealed class AuthCredentialFormatTests : IDisposable
         Assert.False(File.Exists(path), "one secret in the clear must take the whole file with it");
     }
 
+    [Fact]
+    public void SteamLegacyEncryptedCredentials_AreRewrittenWithTheCurrentKey()
+    {
+        var path = SteamCredentialsPath();
+        NewSteamStorage().SaveAuthData(new SteamAuthData
+        {
+            RefreshToken = "steam-token",
+            SteamApiKey = "steam-api-key"
+        });
+        ReplaceStoredSecret(path, "ENC:" + LegacyProtect("steam-token"));
+
+        var loaded = NewSteamStorage().GetAuthData();
+
+        // Both secrets survive, and the rewrite only runs because both decrypted.
+        Assert.Equal("steam-token", loaded.RefreshToken);
+        Assert.Equal("steam-api-key", loaded.SteamApiKey);
+        Assert.True(File.Exists(path), "a v1 file is upgraded in place, never discarded");
+        Assert.DoesNotContain("\"ENC:", File.ReadAllText(path), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void XboxCredentialsWithOnePlaintextSecret_RemoveTheWholeFile()
+    {
+        var path = XboxCredentialsPath();
+        NewXboxStorage().SaveAuthData(new XboxAuthData
+        {
+            RefreshToken = "xbox-token",
+            DeviceKeyPkcs8 = "xbox-device-key"
+        });
+
+        // Only the refresh token goes back to plaintext; the device key stays encrypted. Xbox holds
+        // two secrets, so this is the shape that let a plaintext one survive on Steam.
+        ReplaceStoredSecret(path, "xbox-token");
+
+        var loaded = NewXboxStorage().GetAuthData();
+
+        Assert.Null(loaded.RefreshToken);
+        Assert.Null(loaded.DeviceKeyPkcs8);
+        Assert.False(File.Exists(path), "one secret in the clear must take the whole file with it");
+    }
+
+    [Fact]
+    public void XboxLegacyEncryptedCredentials_AreRewrittenWithTheCurrentKey()
+    {
+        var path = XboxCredentialsPath();
+        NewXboxStorage().SaveAuthData(new XboxAuthData
+        {
+            RefreshToken = "xbox-token",
+            DeviceKeyPkcs8 = "xbox-device-key"
+        });
+        ReplaceStoredSecret(path, "ENC:" + LegacyProtect("xbox-token"));
+
+        var loaded = NewXboxStorage().GetAuthData();
+
+        Assert.Equal("xbox-token", loaded.RefreshToken);
+        Assert.Equal("xbox-device-key", loaded.DeviceKeyPkcs8);
+        Assert.True(File.Exists(path), "a v1 file is upgraded in place, never discarded");
+        Assert.DoesNotContain("\"ENC:", File.ReadAllText(path), StringComparison.Ordinal);
+    }
+
+    private string LegacyProtect(string value) =>
+        _dataProtection.CreateProtector(LegacyProtectorPurpose).Protect(value);
+
     private EpicAuthStorageService NewEpicStorage() => new(
         NullLogger<EpicAuthStorageService>.Instance, _paths, _encryption);
 
     private SteamAuthStorageService NewSteamStorage() => new(
         NullLogger<SteamAuthStorageService>.Instance, _paths, _encryption);
 
+    private XboxAuthStorageService NewXboxStorage() => new(
+        NullLogger<XboxAuthStorageService>.Instance, _paths, _encryption);
+
     private string EpicCredentialsPath() =>
         Path.Combine(_paths.GetSecurityDirectory(), "epic_auth", "credentials.json");
 
     private string SteamCredentialsPath() =>
         Path.Combine(_paths.GetSecurityDirectory(), "steam_auth", "credentials.json");
+
+    private string XboxCredentialsPath() =>
+        Path.Combine(_paths.GetSecurityDirectory(), "xbox_auth", "credentials.json");
 
     /// <summary>
     /// Swaps the first stored ENC2 secret for <paramref name="replacement"/>, leaving the rest of the
