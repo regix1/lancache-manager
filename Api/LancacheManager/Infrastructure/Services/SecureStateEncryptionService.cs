@@ -71,10 +71,35 @@ public class SecureStateEncryptionService
     }
 
     /// <summary>
+    /// True when a stored secret is a v1 (ENC:) value. It is genuinely encrypted, just under the
+    /// older scheme, so it is worth rewriting with the current key. Callers check this after loading
+    /// a credentials file and save it back out. A v2 value does not match, because "ENC2:" does not
+    /// start with "ENC:".
+    /// </summary>
+    public bool NeedsReEncryption(string? storedValue)
+    {
+        return !string.IsNullOrEmpty(storedValue) && storedValue.StartsWith(EncryptedPrefix);
+    }
+
+    /// <summary>
+    /// True when a stored secret carries no encryption prefix at all, meaning it is sitting on disk
+    /// in the clear. That is a different situation from a v1 value: it has to be assumed exposed, so
+    /// callers throw the whole credentials file away rather than rewrite it. <see cref="Decrypt"/>
+    /// already refuses to return these; this is for callers that keep going when only some of their
+    /// secrets fail and so have to notice the unencrypted one for themselves.
+    /// </summary>
+    public bool IsUnencrypted(string? storedValue)
+    {
+        return !string.IsNullOrEmpty(storedValue)
+            && !storedValue.StartsWith(EncryptedPrefixV2)
+            && !storedValue.StartsWith(EncryptedPrefix);
+    }
+
+    /// <summary>
     /// Decrypts a sensitive string value
-    /// Handles plaintext, v1 (without API key), and v2 (with API key) encryption
-    /// Automatically migrates from older formats to v2 on next save
-    /// Returns null if decryption fails (data will be cleared, user must re-authenticate)
+    /// Handles v1 (without API key) and v2 (with API key) encryption
+    /// Returns null if decryption fails, or if the value was never encrypted at all
+    /// (data will be cleared, user must re-authenticate)
     /// </summary>
     public string? Decrypt(string? ciphertext)
     {
@@ -120,16 +145,13 @@ public class SecureStateEncryptionService
             }
         }
 
-        // Case 3: Plaintext (no prefix) - oldest legacy format
-        // Log at Warning level so operators can see that an unencrypted credential file was found.
-        // The plaintext value is returned as-is so the caller is unaffected.
-        // TODO: The caller (e.g. SteamAuthStorageService.GetAuthData / EpicAuthStorageService.GetAuthData)
-        //       should detect that at least one field had no encryption prefix (i.e. Decrypt returned a value that
-        //       was not null but the original ciphertext had no ENC:/ENC2: prefix) and immediately call its
-        //       SaveAuthData with the already-decrypted struct so that all fields are
-        //       re-encrypted via Encrypt() and written back to disk.  That pattern is already used for v1→v2
-        //       migration in those services and should be replicated here for the plaintext→v2 case.
-        _logger.LogWarning("Migrating legacy plaintext credentials to encrypted format");
-        return ciphertext;
+        // Case 3: Plaintext (no prefix) - oldest legacy format. A secret that has been sitting on
+        // disk in the clear has to be assumed exposed, so it is thrown away rather than handed back
+        // or re-wrapped: signing in again replaces it with a fresh secret. Returning null puts the
+        // caller on the same path it already takes for a secret it cannot decrypt - the credentials
+        // file is deleted and the user is signed out.
+        _logger.LogWarning(
+            "Stored credentials were not encrypted - discarding them, you will need to sign in again");
+        return null;
     }
 }

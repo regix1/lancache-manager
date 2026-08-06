@@ -96,6 +96,22 @@ public abstract class SteamAuthFileStorageServiceBase
                     var json = File.ReadAllText(_steamAuthFilePath);
                     var persisted = JsonSerializer.Deserialize<PersistedSteamAuthData>(json) ?? new PersistedSteamAuthData();
 
+                    // A secret written to disk in the clear has to be treated as exposed, so the
+                    // whole file goes and the user signs in again, which replaces it with a fresh
+                    // one. Checked before decrypting so the reason logged is the real one.
+                    if (_encryption.IsUnencrypted(persisted.RefreshToken)
+                        || _encryption.IsUnencrypted(persisted.SteamApiKey))
+                    {
+                        _logger.LogWarning(
+                            "{AuthDataLabel} credentials were stored unencrypted - they have been removed, sign in again to store them encrypted.",
+                            AuthDataLabel);
+
+                        DeleteCredentialsFile();
+
+                        _cachedData = new SteamAuthData();
+                        return _cachedData;
+                    }
+
                     var decryptedRefreshToken = _encryption.Decrypt(persisted.RefreshToken);
                     var refreshTokenDecryptFailed = decryptedRefreshToken == null
                         && !string.IsNullOrEmpty(persisted.RefreshToken);
@@ -121,21 +137,13 @@ public abstract class SteamAuthFileStorageServiceBase
                     {
                         _logger.LogWarning("Failed to decrypt all Steam auth data - clearing invalid credentials file.");
 
-                        try
-                        {
-                            File.Delete(_steamAuthFilePath);
-                            _logger.LogInformation("Deleted invalid {AuthDataLabel} auth file", AuthDataLabel);
-                        }
-                        catch (Exception deleteEx)
-                        {
-                            _logger.LogWarning(deleteEx, "Failed to delete invalid {AuthDataLabel} auth file", AuthDataLabel);
-                        }
+                        DeleteCredentialsFile();
 
                         _cachedData = new SteamAuthData();
                         return _cachedData;
                     }
 
-                    _cachedData = new SteamAuthData
+                    var loaded = new SteamAuthData
                     {
                         Mode = persisted.Mode,
                         Username = persisted.Username,
@@ -143,12 +151,24 @@ public abstract class SteamAuthFileStorageServiceBase
                         LastAuthenticated = persisted.LastAuthenticated,
                         SteamApiKey = decryptedApiKey
                     };
-                }
-                else
-                {
-                    _cachedData = new SteamAuthData();
+
+                    _cachedData = loaded;
+
+                    // Write a secret still held under the v1 key back out with the current one, but
+                    // only when both secrets decrypted: rewriting after a partial failure would drop
+                    // the unreadable one for good, and it may still decrypt on a later start.
+                    var storedUnderOldKey = _encryption.NeedsReEncryption(persisted.RefreshToken)
+                        || _encryption.NeedsReEncryption(persisted.SteamApiKey);
+
+                    if (storedUnderOldKey && !refreshTokenDecryptFailed && !apiKeyDecryptFailed)
+                    {
+                        ReEncryptCredentialsFile(loaded);
+                    }
+
+                    return loaded;
                 }
 
+                _cachedData = new SteamAuthData();
                 return _cachedData;
             }
             catch (Exception ex)
@@ -157,6 +177,46 @@ public abstract class SteamAuthFileStorageServiceBase
                 _cachedData = new SteamAuthData();
                 return _cachedData;
             }
+        }
+    }
+
+    /// <summary>
+    /// Removes the credentials file. A file that is already gone or locked is logged and otherwise
+    /// ignored: the caller has already decided not to hand the stored secret back, so a failed
+    /// delete must not throw out of the getter.
+    /// </summary>
+    private void DeleteCredentialsFile()
+    {
+        try
+        {
+            File.Delete(_steamAuthFilePath);
+            _logger.LogInformation("Deleted invalid {AuthDataLabel} auth file", AuthDataLabel);
+        }
+        catch (Exception deleteEx)
+        {
+            _logger.LogWarning(deleteEx, "Failed to delete invalid {AuthDataLabel} auth file", AuthDataLabel);
+        }
+    }
+
+    /// <summary>
+    /// Rewrites the credentials file so secrets kept under the v1 key end up encrypted with the
+    /// current one. The write goes to a temp file and is moved into place, so a failure leaves the
+    /// existing file untouched and still readable, and the caller keeps the credentials it just
+    /// decrypted. The next process start tries again.
+    /// </summary>
+    private void ReEncryptCredentialsFile(SteamAuthData data)
+    {
+        try
+        {
+            SaveAuthData(data);
+            _logger.LogInformation("Re-encrypted the {AuthDataLabel} credentials file with the current key", AuthDataLabel);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to re-encrypt the {AuthDataLabel} credentials file - the existing file is unchanged and still usable",
+                AuthDataLabel);
         }
     }
 

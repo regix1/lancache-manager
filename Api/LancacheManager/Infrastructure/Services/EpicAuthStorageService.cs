@@ -59,4 +59,7 @@ public class EpicAuthStorageService : AuthFileStorageServiceBase<EpicAuthData, P
     }
 
     protected override bool HasCredentials(EpicAuthData data) => !string.IsNullOrEmpty(data.RefreshToken);
+
+    protected override bool NeedsReEncryption(PersistedEpicAuthData persisted)
+        => Encryption.NeedsReEncryption(persisted.RefreshToken);
 }

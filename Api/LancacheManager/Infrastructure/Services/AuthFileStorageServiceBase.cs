@@ -70,6 +70,15 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     /// </summary>
     protected abstract bool HasCredentials(TAuthData data);
 
+    /// <summary>
+    /// True when at least one secret on disk is still a v1 (ENC:) value, so the file should be
+    /// rewritten with the current key. Implementations pass each secret field to
+    /// <see cref="SecureStateEncryptionService.NeedsReEncryption"/>. Unencrypted secrets are not
+    /// this method's business: <see cref="SecureStateEncryptionService.Decrypt"/> refuses to return
+    /// them, so the file is deleted before this is ever asked.
+    /// </summary>
+    protected abstract bool NeedsReEncryption(TPersistedAuthData persisted);
+
     private void EnsureDirectoryExists()
     {
         try
@@ -136,12 +145,18 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
                     }
 
                     _cachedData = decrypted;
-                }
-                else
-                {
-                    _cachedData = new TAuthData();
+
+                    // Everything decrypted, so a secret still under the v1 key can be written back
+                    // with the current one right now instead of waiting for some later save.
+                    if (NeedsReEncryption(persisted))
+                    {
+                        ReEncryptCredentialsFile(decrypted);
+                    }
+
+                    return decrypted;
                 }
 
+                _cachedData = new TAuthData();
                 return _cachedData;
             }
             catch (Exception ex)
@@ -150,6 +165,28 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
                 _cachedData = new TAuthData();
                 return _cachedData;
             }
+        }
+    }
+
+    /// <summary>
+    /// Rewrites the credentials file so secrets kept under the v1 key end up encrypted with the
+    /// current one. The write goes to a temp file and is moved into place, so a failure leaves the
+    /// existing file untouched and still readable, and the caller keeps the credentials it just
+    /// decrypted. The next process start tries again.
+    /// </summary>
+    private void ReEncryptCredentialsFile(TAuthData data)
+    {
+        try
+        {
+            SaveAuthData(data);
+            _logger.LogInformation("Re-encrypted the {AuthDataLabel} credentials file with the current key", AuthDataLabel);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to re-encrypt the {AuthDataLabel} credentials file - the existing file is unchanged and still usable",
+                AuthDataLabel);
         }
     }
 

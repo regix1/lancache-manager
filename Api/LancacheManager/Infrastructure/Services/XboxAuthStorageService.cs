@@ -66,4 +66,8 @@ public class XboxAuthStorageService : AuthFileStorageServiceBase<XboxAuthData, P
     }
 
     protected override bool HasCredentials(XboxAuthData data) => !string.IsNullOrEmpty(data.RefreshToken);
+
+    protected override bool NeedsReEncryption(PersistedXboxAuthData persisted)
+        => Encryption.NeedsReEncryption(persisted.RefreshToken)
+            || Encryption.NeedsReEncryption(persisted.DeviceKeyPkcs8);
 }
