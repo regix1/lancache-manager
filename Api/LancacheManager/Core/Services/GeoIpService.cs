@@ -3,6 +3,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LancacheManager.Core.Services.StatusCheck;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace LancacheManager.Core.Services;
@@ -60,7 +61,7 @@ public sealed class GeoIpService
 
         // Skip private / loopback / link-local - they won't resolve and will
         // just burn a rate-limit slot.
-        if (IsNonPublic(parsed))
+        if (!PublicAddressSafety.IsPublic(parsed))
         {
             return null;
         }
@@ -126,40 +127,6 @@ public sealed class GeoIpService
             _logger.LogWarning(ex, "GeoIP lookup for {Ip} failed", parsed);
             return null;
         }
-    }
-
-    /// <summary>
-    /// True for an address that cannot be looked up because it is not routable on the public
-    /// internet: loopback, the RFC1918 ranges, link-local, or CGNAT. Also used to decide whether the
-    /// address a request arrived on is the caller's real public IP or just their place on the LAN.
-    /// </summary>
-    internal static bool IsNonPublic(IPAddress ip)
-    {
-        if (IPAddress.IsLoopback(ip)) return true;
-
-        var bytes = ip.GetAddressBytes();
-        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && bytes.Length == 4)
-        {
-            // 10.0.0.0/8
-            if (bytes[0] == 10) return true;
-            // 172.16.0.0/12
-            if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
-            // 192.168.0.0/16
-            if (bytes[0] == 192 && bytes[1] == 168) return true;
-            // 169.254.0.0/16 link-local
-            if (bytes[0] == 169 && bytes[1] == 254) return true;
-            // 100.64.0.0/10 CGNAT
-            if (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127) return true;
-            // 0.0.0.0/8
-            if (bytes[0] == 0) return true;
-        }
-        else if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
-        {
-            if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal) return true;
-            // fc00::/7 unique-local
-            if (bytes.Length == 16 && (bytes[0] & 0xFE) == 0xFC) return true;
-        }
-        return false;
     }
 
     private sealed class IpApiResponse

@@ -2544,7 +2544,6 @@ class ApiService {
   }
 
   static async updateOwnClientInfo(payload: {
-    publicIp: string | null;
     timezone: string | null;
     language: string | null;
     screenResolution: string | null;

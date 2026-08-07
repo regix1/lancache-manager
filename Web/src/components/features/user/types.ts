@@ -170,7 +170,9 @@ export const formatLocation = (
 
 // Helper to clean IP addresses
 export const cleanIpAddress = (ip: string): string => {
-  const cleanIp = ip.replace('::ffff:', '');
+  // Anchored so only the IPv4-mapped prefix is stripped. An unanchored replace would also cut
+  // a matching group out of the middle of a real IPv6 address and render a different address.
+  const cleanIp = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
   if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
     return 'localhost';
   }

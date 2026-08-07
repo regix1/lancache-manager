@@ -12,9 +12,9 @@ namespace LancacheManager.Core.Services;
 /// the server and the client share a LAN, so the server's outbound public IP
 /// equals the client's public IP.
 ///
-/// Tries multiple providers in sequence (ipify → icanhazip → ipapi.co), caches
-/// the result in-process so repeated calls don't hammer the provider, and
-/// returns null on total failure rather than throwing.
+/// Tries multiple providers in sequence (ipify → icanhazip → ifconfig.me →
+/// my-ip.io), caches the result in-process so repeated calls don't hammer the
+/// provider, and returns null on total failure rather than throwing.
 /// </summary>
 public sealed class PublicIpLookupService
 {

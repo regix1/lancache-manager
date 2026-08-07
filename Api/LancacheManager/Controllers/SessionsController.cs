@@ -1,6 +1,7 @@
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.StatusCheck;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
@@ -248,10 +249,11 @@ public class SessionsController : ControllerBase
     }
 
     /// <summary>
-    /// Accepts browser-reported client metadata for the caller's own session:
-    /// the public IP learned from ipify.org, plus navigator-derived locale/
-    /// screen fields. Performs a cached GeoIP lookup on the public IP and
-    /// writes the resolved country/city/ISP back onto the session.
+    /// Accepts browser-reported client metadata for the caller's own session: navigator-derived
+    /// locale/screen fields, plus a public IP resolved server-side from the connection's remote
+    /// address, falling back to PublicIpLookupService when the caller is on the LAN. Performs a
+    /// cached GeoIP lookup on the public IP and writes the resolved country/city/ISP back onto
+    /// the session.
     ///
     /// Any session type (admin or guest) may write its own client info.
     /// </summary>
@@ -268,21 +270,14 @@ public class SessionsController : ControllerBase
             return Unauthorized();
         }
 
-        string? publicIp = null;
-        if (!string.IsNullOrWhiteSpace(request.PublicIp)
-            && System.Net.IPAddress.TryParse(request.PublicIp.Trim(), out var parsed))
-        {
-            publicIp = parsed.ToString();
-        }
-
         // The address this request arrived on. When the caller is remote it IS their public IP, and
         // it is better evidence than anything the server can look up about itself. When they are on
         // the LAN it is a private address, which tells us nothing about the public side.
-        if (publicIp == null
-            && HttpContext.Connection.RemoteIpAddress is { } remote
-            && !GeoIpService.IsNonPublic(remote))
+        string? publicIp = null;
+        if (HttpContext.Connection.RemoteIpAddress is { } remote
+            && PublicAddressSafety.IsPublic(remote))
         {
-            publicIp = remote.ToString();
+            publicIp = (remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote).ToString();
         }
 
         // Caller is on the LAN, so fall back to the server's own public IP. In a typical lancache
@@ -344,7 +339,6 @@ public class RefreshRateRequest
 
 public class ClientInfoRequest
 {
-    public string? PublicIp { get; set; }
     public string? Timezone { get; set; }
     public string? Language { get; set; }
     public string? ScreenResolution { get; set; }

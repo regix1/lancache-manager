@@ -64,7 +64,6 @@ export const useClientInfoReporter = (enabled: boolean, sessionId: string | null
       if (cancelled) return;
       try {
         await ApiService.updateOwnClientInfo({
-          publicIp: null,
           timezone: info.timezone,
           language: info.language,
           screenResolution: info.screenResolution

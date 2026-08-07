@@ -1138,7 +1138,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     <span className="mgmt-stat__label caps-label caps-label--sm">
                       {t('activeSessions.labels.publicIp', 'Public IP')}
                     </span>
-                    <span className="mgmt-stat__value">{session.publicIpAddress}</span>
+                    <span className="mgmt-stat__value">
+                      {cleanIpAddress(session.publicIpAddress)}
+                    </span>
                   </div>
                 )}
                 {location && (

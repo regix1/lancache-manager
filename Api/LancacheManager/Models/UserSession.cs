@@ -21,9 +21,10 @@ public class UserSession
     public string UserAgent { get; set; } = string.Empty;
 
     // Client-reported + GeoIP-enriched metadata. All optional - populated by
-    // the /api/sessions/me/client-info endpoint when the browser POSTs the
-    // public IP it learned from ipify.org together with browser-reported
-    // locale/screen fields.
+    // the /api/sessions/me/client-info endpoint. The public IP is resolved
+    // server-side (the request's remote address, falling back to
+    // PublicIpLookupService) rather than reported by the browser; the POST
+    // body only carries the browser-reported locale/screen fields.
     public string? PublicIpAddress { get; set; }
     public string? CountryCode { get; set; }
     public string? CountryName { get; set; }

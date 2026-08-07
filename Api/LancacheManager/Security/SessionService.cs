@@ -1,5 +1,7 @@
+using System.Net;
 using System.Security.Cryptography;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services.StatusCheck;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
@@ -437,9 +439,10 @@ public class SessionService
     }
 
     /// <summary>
-    /// Persist browser-reported client info (public IP, locale, screen) plus
-    /// GeoIP-resolved country/city/ISP for the given session. Silently no-ops
-    /// if the session no longer exists or is revoked.
+    /// Persist the session's public IP, the browser-reported locale/screen fields and the
+    /// GeoIP-resolved country/city/ISP. The public IP is resolved server-side (the request's
+    /// remote address, falling back to PublicIpLookupService) rather than reported by the
+    /// browser. Silently no-ops if the session no longer exists or is revoked.
     /// </summary>
     public async Task UpdateClientInfoAsync(
         Guid sessionId,
@@ -457,7 +460,14 @@ public class SessionService
         var persisted = await context.UserSessions.FindAsync(sessionId);
         if (persisted == null || persisted.IsRevoked) return;
 
-        persisted.PublicIpAddress = publicIpAddress;
+        // A lookup that comes back empty keeps the stored address only while that address is
+        // still a public one. Anything else is cleared, so a private value written before the
+        // classifier rejected mapped LAN ranges cannot survive on a box where the outbound
+        // lookup is always blocked.
+        persisted.PublicIpAddress = publicIpAddress ??
+            (IPAddress.TryParse(persisted.PublicIpAddress, out var storedAddress) && PublicAddressSafety.IsPublic(storedAddress)
+                ? persisted.PublicIpAddress
+                : null);
         persisted.CountryCode = countryCode;
         persisted.CountryName = countryName;
         persisted.RegionName = regionName;
