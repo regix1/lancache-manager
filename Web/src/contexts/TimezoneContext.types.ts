@@ -7,7 +7,6 @@ interface TimezoneContextType {
   use24HourFormat: boolean;
   refreshKey: number;
   setPendingTimeSetting: (value: TimeSettingValue | null) => void;
-  forceRefresh: () => void;
 }
 
 export const TimezoneContext = createContext<TimezoneContextType>({
@@ -15,9 +14,6 @@ export const TimezoneContext = createContext<TimezoneContextType>({
   use24HourFormat: true,
   refreshKey: 0,
   setPendingTimeSetting: () => {
-    /* noop */
-  },
-  forceRefresh: () => {
     /* noop */
   }
 });

@@ -6,6 +6,7 @@ import { Modal } from '@components/ui/Modal';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { useTimezone } from '@contexts/useTimezone';
+import { formatTimestamp } from '@utils/dateTimeFormat';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 
 interface DateTimePickerProps {
@@ -222,6 +223,15 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
     return `${h.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}${suffix}`;
   };
 
+  // The time half comes from the pickers above, so only the date half is formatted here
+  const formatDate = (): string =>
+    formatTimestamp(selectedDate, {
+      useLocalTimezone,
+      use24Hour: use24HourFormat,
+      forceYear: false,
+      style: 'dateOnly'
+    });
+
   return (
     <Modal
       opened={true}
@@ -399,9 +409,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
               {t('common.dateTimePicker.selectedLabel')}
             </span>
             <span className="text-[var(--theme-text-primary)] font-medium">
-              {selectedDate
-                ? `${selectedDate.toLocaleDateString(undefined, { timeZone: getEffectiveTimezone(useLocalTimezone) })} ${formatTime()}`
-                : t('common.dateTimePicker.none')}
+              {selectedDate ? `${formatDate()} ${formatTime()}` : t('common.dateTimePicker.none')}
             </span>
           </div>
         </div>

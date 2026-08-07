@@ -19,6 +19,7 @@ import { useNotifications } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import ScheduleIntervalPicker from './ScheduleIntervalPicker';
+import type { CustomSchedule } from './custom-schedule/types';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useManagerLoading } from '@hooks/useManagerLoading';
@@ -50,26 +51,32 @@ interface SchedulesSectionProps {
 const CountdownDisplay = memo(function CountdownDisplay({
   nextRunUtc,
   intervalHours,
+  hasCustomSchedule,
   isRunning
 }: {
   nextRunUtc: string | null;
   intervalHours: number;
+  hasCustomSchedule: boolean;
   isRunning: boolean;
 }) {
   const { t } = useTranslation();
   const secondsRemaining = useCountdownTimer(nextRunUtc, isRunning);
 
-  if (intervalHours === 0) {
-    return (
-      <span className="schedule-countdown disabled">{t('management.schedules.disabled')}</span>
-    );
-  }
-  if (intervalHours === -1) {
-    return (
-      <span className="schedule-countdown disabled">
-        {t('management.schedules.intervals.startupOnly')}
-      </span>
-    );
+  // A saved schedule runs in preference to the interval, which is left untouched beside it - so
+  // the two interval sentinels only describe the schedule when there is no custom one.
+  if (!hasCustomSchedule) {
+    if (intervalHours === 0) {
+      return (
+        <span className="schedule-countdown disabled">{t('management.schedules.disabled')}</span>
+      );
+    }
+    if (intervalHours === -1) {
+      return (
+        <span className="schedule-countdown disabled">
+          {t('management.schedules.intervals.startupOnly')}
+        </span>
+      );
+    }
   }
   if (isRunning) {
     return <span className="schedule-timing-value">{t('management.schedules.statusRunning')}</span>;
@@ -442,6 +449,7 @@ interface ScheduleRowProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
   onIntervalChange: (key: string, intervalHours: number) => Promise<void>;
+  onCustomScheduleChange: (key: string, schedule: CustomSchedule) => Promise<void>;
   onRunOnStartupChange: (key: string, runOnStartup: boolean) => Promise<void>;
   depotScheduledMode: DepotScheduledScanMode;
   depotScanModeAvailability: DepotScanModeAvailability;
@@ -465,6 +473,7 @@ const ScheduleRow = memo(function ScheduleRow({
   service,
   isAdmin,
   onIntervalChange,
+  onCustomScheduleChange,
   onRunOnStartupChange,
   depotScheduledMode,
   depotScanModeAvailability,
@@ -494,9 +503,12 @@ const ScheduleRow = memo(function ScheduleRow({
   // between this click's POST resolving and that flag arriving over SignalR. Run Now gates on
   // both so a duplicate click can never slip through either window.
   const isRunningOrPending = isRunningDot || isPendingRun;
+  const customSchedule = service.customSchedule ?? null;
   // Zero interval means the schedule effectively won't run; the informational cells dim
   // but the interval picker stays fully legible - it is the way back out of the state.
-  const isDimmed = service.intervalHours === 0;
+  // A custom schedule is what runs when one is saved, so the interval value no longer
+  // says anything about whether the row is idle.
+  const isDimmed = service.intervalHours === 0 && customSchedule === null;
 
   // Run-on-startup is hidden when the interval is "Startup only" (-1): that schedule
   // already runs at startup, so the toggle is redundant.
@@ -522,6 +534,13 @@ const ScheduleRow = memo(function ScheduleRow({
       onIntervalChange(service.key, hours);
     },
     [service.key, onIntervalChange]
+  );
+
+  const handleCustomScheduleChange = useCallback(
+    (schedule: CustomSchedule) => {
+      onCustomScheduleChange(service.key, schedule);
+    },
+    [service.key, onCustomScheduleChange]
   );
 
   const handleRunNow = useCallback(() => {
@@ -742,7 +761,12 @@ const ScheduleRow = memo(function ScheduleRow({
             {/* The absolute date lives in the tooltip rather than a second line under
             every countdown - the relative time is the readout, the exact timestamp is
             the detail. */}
-            {service.nextRunUtc && service.intervalHours > 0 && !service.isRunning ? (
+            {/* A custom schedule computes its own next run and leaves the interval untouched,
+            so gating the tooltip on a positive interval alone would drop it for exactly the
+            rows that most need an exact timestamp. */}
+            {service.nextRunUtc &&
+            (service.intervalHours > 0 || customSchedule !== null) &&
+            !service.isRunning ? (
               <Tooltip
                 content={`${t('management.schedules.nextRun')}: ${formattedNextRun}`}
                 className="schedule-countdown-slot"
@@ -750,6 +774,7 @@ const ScheduleRow = memo(function ScheduleRow({
                 <CountdownDisplay
                   nextRunUtc={service.nextRunUtc}
                   intervalHours={service.intervalHours}
+                  hasCustomSchedule={customSchedule !== null}
                   isRunning={service.isRunning}
                 />
               </Tooltip>
@@ -757,6 +782,7 @@ const ScheduleRow = memo(function ScheduleRow({
               <CountdownDisplay
                 nextRunUtc={service.nextRunUtc}
                 intervalHours={service.intervalHours}
+                hasCustomSchedule={customSchedule !== null}
                 isRunning={service.isRunning}
               />
             )}
@@ -770,6 +796,8 @@ const ScheduleRow = memo(function ScheduleRow({
               intervalHours={service.intervalHours}
               isDisabled={isDisabled}
               onChange={handleIntervalChange}
+              customSchedule={customSchedule}
+              onCustomScheduleChange={handleCustomScheduleChange}
               variant="ghost"
             />
           </div>
@@ -1242,17 +1270,22 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const handleIntervalChange = useCallback(
     async (key: string, intervalHours: number) => {
       try {
+        const current = schedulesRef.current.find((s) => s.key === key);
+
+        // A saved schedule runs in preference to the interval, so it has to be cleared first -
+        // otherwise it would swallow the interval the user just picked and nothing would change.
+        if (current?.customSchedule) {
+          await ApiService.setScheduleCustomSchedule(key, null);
+        }
+
         await ApiService.updateSchedule(key, intervalHours);
 
         // If the user selects "Startup only" (-1), force runOnStartup=true on the backend.
         // Otherwise the service would never run at all: interval=-1 means "no scheduled
         // runs" in the base class loop, so the ONLY way work can happen is via the
         // startup pass - which requires runOnStartup=true.
-        if (intervalHours === -1) {
-          const current = schedulesRef.current.find((s) => s.key === key);
-          if (current && !current.runOnStartup) {
-            await ApiService.setScheduleRunOnStartup(key, true);
-          }
+        if (intervalHours === -1 && current && !current.runOnStartup) {
+          await ApiService.setScheduleRunOnStartup(key, true);
         }
 
         await fetchSchedules();
@@ -1261,6 +1294,30 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       }
     },
     [fetchSchedules]
+  );
+
+  const handleCustomScheduleChange = useCallback(
+    async (key: string, schedule: CustomSchedule) => {
+      const displayName = t(`management.schedules.services.${key}.displayName`);
+      // Optimistic so the trigger reads as the custom schedule immediately
+      setSchedules((prev) =>
+        prev.map((s) => (s.key === key ? { ...s, customSchedule: schedule } : s))
+      );
+      try {
+        await ApiService.setScheduleCustomSchedule(key, schedule);
+        await fetchSchedules();
+      } catch {
+        // Revert optimistic update by refetching authoritative state
+        await fetchSchedules();
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: t('management.schedules.customScheduleFailed', { service: displayName }),
+          details: { notificationType: 'error' }
+        });
+      }
+    },
+    [fetchSchedules, addNotification, t]
   );
 
   const handleRunOnStartupChange = useCallback(
@@ -1575,6 +1632,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
               service={service}
               isAdmin={isAdmin}
               onIntervalChange={handleIntervalChange}
+              onCustomScheduleChange={handleCustomScheduleChange}
               onRunOnStartupChange={handleRunOnStartupChange}
               depotScheduledMode={
                 service.key === 'depotMapping' ? depotScheduledMode : 'incremental'

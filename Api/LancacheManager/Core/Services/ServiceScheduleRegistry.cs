@@ -3,6 +3,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -364,6 +365,47 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         _stateService.SetServiceNotificationDisplayMode(serviceKey, mode);
     }
 
+    public bool SetCustomSchedule(string serviceKey, CustomSchedule? schedule)
+    {
+        // Both loop bases compute their next run through ScheduleTiming, so either kind of service can
+        // act on a schedule. The one exception is below.
+        ScheduledServiceBase? service = null;
+        if (_scheduledServices.TryGetValue(serviceKey, out var scheduled))
+        {
+            service = scheduled;
+        }
+        else if (_configurableServices.TryGetValue(serviceKey, out var configurable))
+        {
+            service = configurable;
+        }
+
+        if (service is null)
+        {
+            return false;
+        }
+
+        // Scheduled prefill's own interval is a fixed 1-minute due-check poll, not a cadence the user
+        // chose, and its real schedules live per platform in the prefill config. Driving that poll off
+        // a cron expression would mean every platform's due-check only ran at the cron times.
+        if (service is IScheduleEnabledGate)
+        {
+            return false;
+        }
+
+        service.UpdateCustomSchedule(schedule);
+
+        if (schedule is null)
+        {
+            _stateService.ClearServiceCustomSchedule(serviceKey);
+        }
+        else
+        {
+            _stateService.SetServiceCustomSchedule(serviceKey, schedule);
+        }
+
+        return true;
+    }
+
     public void ResetToDefaults()
     {
         foreach (var (key, service) in _scheduledServices)
@@ -371,10 +413,15 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             service.ResetInterval();
             service.SetRunOnStartup(null);
             service.SetNotificationMode(null);
+            // Cleared explicitly rather than by ResetInterval, which only owns the interval: a custom
+            // schedule left behind here would keep overriding the interval the reset just restored,
+            // so "Reset to Defaults" would visibly not reset the one thing the user changed.
+            service.UpdateCustomSchedule(null);
             _stateService.ClearServiceInterval(key);
             _stateService.ClearServiceRunOnStartup(key);
             _stateService.ClearServiceNotificationMode(key);
             _stateService.ClearServiceNotificationDisplayMode(key);
+            _stateService.ClearServiceCustomSchedule(key);
         }
 
         foreach (var (key, service) in _configurableServices)
@@ -382,10 +429,15 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             service.ResetInterval();
             service.SetRunOnStartup(null);
             service.SetNotificationMode(null);
+            // Cleared explicitly rather than by ResetInterval, which only owns the interval: a custom
+            // schedule left behind here would keep overriding the interval the reset just restored,
+            // so "Reset to Defaults" would visibly not reset the one thing the user changed.
+            service.UpdateCustomSchedule(null);
             _stateService.ClearServiceInterval(key);
             _stateService.ClearServiceRunOnStartup(key);
             _stateService.ClearServiceNotificationMode(key);
             _stateService.ClearServiceNotificationDisplayMode(key);
+            _stateService.ClearServiceCustomSchedule(key);
         }
 
         // Scheduled prefill keeps its cadence per-service in the config DTO + durable last-run map
@@ -563,6 +615,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             IsRunning = scheduledIsRunning,
             LastRunUtc = service.LastRunUtc,
             NextRunUtc = service.NextRunUtc,
+            // Read from the live service rather than from state so the card shows what the loop is
+            // actually sleeping on. The two only differ in the window between a save and the loop
+            // waking, and during it the loop is still the truth.
+            CustomSchedule = service.ConfiguredCustomSchedule,
         };
     }
 
@@ -606,7 +662,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 }
 
                 var scheduleBasis = _stateService.GetScheduledPrefillServiceLastRun(perService.ServiceId.ToString());
-                var nextRun = ScheduledPrefillRunGates.ComputeNextRunUtc(perService.IntervalHours, scheduleBasis);
+                var nextRun = ScheduledPrefillRunGates.ComputeNextRunUtc(perService.IntervalHours, scheduleBasis, perService.CustomSchedule);
                 if (nextRun is not null && (soonestNextRun is null || nextRun.Value < soonestNextRun.Value))
                 {
                     soonestNextRun = nextRun;
@@ -706,6 +762,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             IsRunning = configurableIsRunning,
             LastRunUtc = service.LastRunUtc,
             NextRunUtc = service.NextRunUtc,
+            // Read from the live service rather than from state so the card shows what the loop is
+            // actually sleeping on. The two only differ in the window between a save and the loop
+            // waking, and during it the loop is still the truth.
+            CustomSchedule = service.ConfiguredCustomSchedule,
             // Only the depot mapping service declares this property, and only while it has given up on
             // an incremental scan; every other service reads back null. Same reflection route as
             // SupportsNotifications above, so the registry keeps its distance from the concrete types.

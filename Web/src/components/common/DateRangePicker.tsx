@@ -8,6 +8,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { useEvents } from '@contexts/useEvents';
 import { getEventColorVar } from '@utils/eventColors';
+import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
 import { formatEventDateRange } from '@utils/formatters';
 import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
 
@@ -18,6 +19,17 @@ interface DateRangePickerProps {
   onEndDateChange: (date: Date | null) => void;
   onClose: () => void;
 }
+
+// The grid builds each selection as a local midnight, so these are calendar days rather than
+// instants and must be read back in the browser's calendar: reformatting them in the server's
+// timezone can move the readout onto the day before the one the user clicked. The date-only
+// shape carries no time, so the 24-hour preference has nothing to act on here.
+const SELECTED_DAY_FORMAT: TimestampSettings = {
+  useLocalTimezone: true,
+  use24Hour: true,
+  forceYear: false,
+  style: 'dateOnly'
+};
 
 const DateRangePicker: React.FC<DateRangePickerProps> = ({
   startDate,
@@ -355,7 +367,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               </span>
               <span className="text-[var(--theme-text-primary)] font-medium">
                 {startDate
-                  ? startDate.toLocaleDateString()
+                  ? formatTimestamp(startDate, SELECTED_DAY_FORMAT)
                   : t('common.dateRangePicker.notSelected')}
               </span>
             </div>
@@ -364,7 +376,9 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 {t('common.dateRangePicker.endLabel')}
               </span>
               <span className="text-[var(--theme-text-primary)] font-medium">
-                {endDate ? endDate.toLocaleDateString() : t('common.dateRangePicker.notSelected')}
+                {endDate
+                  ? formatTimestamp(endDate, SELECTED_DAY_FORMAT)
+                  : t('common.dateRangePicker.notSelected')}
               </span>
             </div>
           </div>

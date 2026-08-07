@@ -1,8 +1,21 @@
 import { FILE_SIZE_UNITS } from './constants';
-import { getServerTimezone } from './timezone';
+import { formatTimestamp, type TimestampSettings, type TimestampStyle } from './dateTimeFormat';
 import { getGlobalTimezonePreference } from './timezonePreference';
 import { getGlobal24HourPreference } from './timeFormatPreference';
-import { getGlobalAlwaysShowYearPreference } from './yearDisplayPreference';
+
+/**
+ * Read the display preferences from module state.
+ * This path is not reactive: a component that renders through it keeps its old string until
+ * something else re-renders it. Components should use the useFormattedDateTime hook instead.
+ */
+function currentTimestampSettings(forceYear: boolean, style: TimestampStyle): TimestampSettings {
+  return {
+    useLocalTimezone: getGlobalTimezonePreference(),
+    use24Hour: getGlobal24HourPreference(),
+    forceYear,
+    style
+  };
+}
 
 /**
  * Format date/time to localized string
@@ -10,69 +23,15 @@ import { getGlobalAlwaysShowYearPreference } from './yearDisplayPreference';
  * For React components, use the useFormattedDateTime hook instead
  *
  * @param dateString - The date to format
- * @param forceYear - If true, always include the year in the output
+ * @param forceYear - Kept for callers that ask for it; every style now carries the year anyway
+ * @param style - Defaults to the standard timestamp; pass 'log' where seconds are real resolution
  */
 export function formatDateTime(
   dateString: string | Date | null | undefined,
-  forceYear = false
+  forceYear = false,
+  style: TimestampStyle = 'stamp'
 ): string {
-  if (!dateString) return 'N/A';
-
-  try {
-    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
-
-    if (isNaN(date.getTime())) return 'Invalid Date';
-
-    // Determine which timezone to use based on preference
-    let targetTimezone: string | undefined;
-
-    if (getGlobalTimezonePreference()) {
-      // Use browser's local timezone (undefined = automatic)
-      targetTimezone = undefined;
-    } else {
-      // Use server timezone from config
-      targetTimezone = getServerTimezone();
-    }
-
-    // Get 24-hour format preference
-    const use24Hour = getGlobal24HourPreference();
-
-    // Check if year should be displayed
-    // Include year if: forceYear is true, OR user preference is to always show year, OR date is from different year
-    const now = new Date();
-    const alwaysShowYear = getGlobalAlwaysShowYearPreference();
-    const includeYear = forceYear || alwaysShowYear || date.getFullYear() !== now.getFullYear();
-
-    // Build format options
-    const formatOptions: Intl.DateTimeFormatOptions = {
-      timeZone: targetTimezone,
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: !use24Hour
-    };
-
-    // Add year if date is from a different year or forced
-    if (includeYear) {
-      formatOptions.year = 'numeric';
-    }
-
-    // Convert to target timezone for display
-    try {
-      return date.toLocaleString(undefined, formatOptions);
-    } catch (_tzError) {
-      // Timezone invalid, fall back to UTC
-      console.warn(`Invalid timezone "${targetTimezone}", falling back to UTC`);
-      return date.toLocaleString(undefined, {
-        ...formatOptions,
-        timeZone: 'UTC'
-      });
-    }
-  } catch (_error) {
-    return 'Invalid Date';
-  }
+  return formatTimestamp(dateString, currentTimestampSettings(forceYear, style));
 }
 
 /**
@@ -159,13 +118,12 @@ export function formatPercent(value: number, decimals = 1): string {
 }
 
 /**
- * Format an event date range as a short localized string (e.g., "Jan 5" or "Jan 5 - Jan 7")
+ * Format an event date range as a localized string (e.g., "Jan 5, 2026" or "Jan 5, 2026 - Jan 7, 2026")
  */
 export function formatEventDateRange(startUtc: string, endUtc: string): string {
-  const start = new Date(startUtc);
-  const end = new Date(endUtc);
-  const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const settings = currentTimestampSettings(false, 'dateOnly');
+  const startStr = formatTimestamp(startUtc, settings);
+  const endStr = formatTimestamp(endUtc, settings);
   return startStr === endStr ? startStr : `${startStr} - ${endStr}`;
 }
 

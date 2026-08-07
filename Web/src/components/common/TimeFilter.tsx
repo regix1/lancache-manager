@@ -20,6 +20,7 @@ import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { getEventColorVar } from '@utils/eventColors';
+import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
 import { formatEventDateRange } from '@utils/formatters';
 import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
@@ -28,6 +29,17 @@ interface TimeFilterProps {
   disabled?: boolean;
   iconOnly?: boolean;
 }
+
+// A custom range is a pair of calendar days the user picked in their own calendar, not two
+// instants, so it renders in the browser's timezone: converting a local midnight into the
+// server's timezone can move the label onto the day before. The date-only shape carries no
+// time, so the 24-hour preference has nothing to act on here.
+const CUSTOM_RANGE_FORMAT: TimestampSettings = {
+  useLocalTimezone: true,
+  use24Hour: true,
+  forceYear: false,
+  style: 'dateOnly'
+};
 
 const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = false }) => {
   const { t } = useTranslation();
@@ -285,14 +297,8 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
   // Generate custom label for date ranges
   const getTimeRangeTriggerLabel = () => {
     if (timeRange === 'custom' && customStartDate && customEndDate) {
-      const start = customStartDate.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric'
-      });
-      const end = customEndDate.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric'
-      });
+      const start = formatTimestamp(customStartDate, CUSTOM_RANGE_FORMAT);
+      const end = formatTimestamp(customEndDate, CUSTOM_RANGE_FORMAT);
       return `${start} - ${end}`;
     }
     const option = timeOptions.find((o) => o.value === timeRange);

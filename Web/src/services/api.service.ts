@@ -64,6 +64,7 @@ import type {
   NotificationDisplayMode,
   ServiceScheduleInfo
 } from '../components/features/management/schedules/types';
+import type { CustomSchedule } from '../components/features/management/schedules/custom-schedule/types';
 import type {
   ScheduledPrefillConfigDto,
   ScheduledPrefillServiceScheduleDto
@@ -2815,6 +2816,24 @@ class ApiService {
     }
   }
 
+  /** `null` clears the schedule and puts the service back on its plain interval, which is left
+   * untouched on the server for exactly that purpose. */
+  static async setScheduleCustomSchedule(
+    serviceKey: string,
+    customSchedule: CustomSchedule | null
+  ): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/${serviceKey}/customSchedule`,
+        this.getJsonFetchOptions({ customSchedule }, { method: 'PUT' })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('setScheduleCustomSchedule error:', error);
+      throw error;
+    }
+  }
+
   static async setScheduleRunOnStartup(serviceKey: string, runOnStartup: boolean): Promise<void> {
     try {
       const res = await fetch(
@@ -3131,8 +3150,8 @@ class ApiService {
         `${API_BASE}/system/prefill/persistent/cancel-login`,
         this.getJsonFetchOptions({ service, sessionId }, { method: 'POST' })
       );
-      // Per plan.md F3: a sessionId mismatch here is an idempotent 200 no-op (it must NOT cancel a
-      // replacement session's login), so there is no 409 branch to special-case - unlike challenge/
+      // A sessionId mismatch here is an idempotent 200 no-op (it must NOT cancel a replacement
+      // session's login), so there is no 409 branch to special-case - unlike challenge/
       // provide-credential above.
       await this.handleResponse<void>(res);
     } catch (error: unknown) {

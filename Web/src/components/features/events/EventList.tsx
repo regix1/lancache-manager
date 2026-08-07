@@ -18,6 +18,7 @@ import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { formatTimestamp } from '@utils/dateTimeFormat';
 import { formatBytes } from '@utils/formatters';
 import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
@@ -296,7 +297,7 @@ interface EventListProps {
 
 const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   const { t } = useTranslation();
-  const { use24HourFormat } = useTimezone();
+  const { use24HourFormat, useLocalTimezone } = useTimezone();
   const { setTimeRange, setSelectedEventIds } = useTimeFilter();
   const { notifyError } = useErrorHandler();
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
@@ -334,18 +335,13 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   }, [events]);
 
   const formatDateTime = useCallback(
-    (dateStr: string) => {
-      const date = new Date(dateStr);
-      return date.toLocaleString(undefined, {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: !use24HourFormat
-      });
-    },
-    [use24HourFormat]
+    (dateStr: string) =>
+      formatTimestamp(dateStr, {
+        useLocalTimezone,
+        use24Hour: use24HourFormat,
+        forceYear: false
+      }),
+    [useLocalTimezone, use24HourFormat]
   );
 
   const formatDurationBetweenDates = useCallback(

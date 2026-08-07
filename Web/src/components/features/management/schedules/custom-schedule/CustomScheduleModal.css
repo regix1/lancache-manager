@@ -1,0 +1,320 @@
+/* Custom schedule builder. Every control is a portalled or in-flow house component, so
+   nothing here is positioned out of the modal body - the body clips an absolute child in
+   both of its overflow modes.
+
+   Overrides of a shared class COMPOUND that class into the selector rather than relying on
+   a single-class rule to win. The production build strips @layer and code-splits CSS by the
+   module graph, so a single-class override ties with the shared class and bundle order,
+   which is not stable, would decide the winner. */
+
+.custom-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.custom-schedule-alert {
+  margin: 0;
+}
+
+/* The sections are told apart by rhythm, not by rules. The space between two sections is
+   about three times the space inside one, which is enough to read them as separate groups;
+   a hairline between them instead cuts a short form into slabs and adds a line for every
+   boundary the spacing already carries. */
+.custom-schedule-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.custom-schedule-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.caps-label.custom-schedule-legend {
+  color: var(--theme-text-secondary);
+}
+
+.custom-schedule-repeat {
+  width: 100%;
+}
+
+/* One column system for every repeat shape. Each field owns an equal track and its control
+   fills that track, so a control narrower than its own label can no longer leave a hole
+   between the two fields and push the time separator away from the field before it. Phones
+   get the single track this collapses to. The revealed fields change with the repeat shape,
+   so the group is re-keyed and replays the same short entrance the dropdown panels use. */
+.custom-schedule-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0.75rem 1.25rem;
+  animation: dropdownSlideDown 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (min-width: 640px) {
+  .custom-schedule-fields {
+    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  }
+}
+
+.custom-schedule-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.caps-label.custom-schedule-field-label {
+  color: var(--theme-text-muted);
+}
+
+.custom-schedule-time {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* Hour and minute split their field's track evenly, so the separator lands in the same
+   place whichever repeat shape is showing and the pair ends flush with the field beside it.
+   The minimum is what a two-digit value needs once the stepper's own buttons have taken their
+   2.5rem of padding: any narrower and the box renders as a pair of chevrons with the number
+   squeezed out of it entirely. */
+.custom-schedule-time-part {
+  flex: 1 1 0;
+  min-width: 5rem;
+}
+
+/* AM/PM takes its own line rather than competing with the two steppers for a track that only
+   comfortably holds two controls. Full width there also gives it a real touch target. */
+.custom-schedule-period {
+  flex: 1 0 100%;
+}
+
+.custom-schedule-time-separator {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--theme-text-muted);
+}
+
+.custom-schedule-days {
+  min-width: 0;
+}
+
+/* Every field is pinned to the shared 2.5rem control height. A NumberInput composes its own
+   height out of padding plus line-height and measures 42px, two pixels off the weekday
+   dropdown and the window toggle beside it, which is exactly the kind of near-miss that reads
+   as sloppy without being obviously wrong. Dropping the vertical padding hands the height to
+   the shared minimum instead of to a sum. */
+.custom-schedule .number-input-wrapper .themed-input {
+  min-height: 2.5rem;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.custom-schedule-zone-note {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  color: var(--theme-text-muted);
+}
+
+/* The answer to the only question the user actually has, so it is the one filled surface in
+   the body and it never collapses. */
+.well-surface.custom-schedule-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.custom-schedule-sentence {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: 1.45;
+  color: var(--theme-text-primary);
+}
+
+.custom-schedule-message {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  color: var(--theme-text-secondary);
+}
+
+.custom-schedule-message--error {
+  color: var(--theme-error-text);
+}
+
+.caps-label.custom-schedule-runs-label {
+  color: var(--theme-text-muted);
+}
+
+.custom-schedule-runs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.custom-schedule-run {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tabular-nums.custom-schedule-run-time {
+  font-size: var(--font-size-md);
+  color: var(--theme-text-primary);
+}
+
+.custom-schedule-run-relative {
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+}
+
+.custom-schedule-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.caps-label.custom-schedule-advanced-label {
+  cursor: pointer;
+}
+
+.custom-schedule-advanced-toggle:hover .caps-label.custom-schedule-advanced-label,
+.custom-schedule-advanced-toggle:hover .custom-schedule-advanced-chevron {
+  color: var(--theme-text-primary);
+}
+
+.custom-schedule-advanced-chevron {
+  flex-shrink: 0;
+  color: var(--theme-text-muted);
+  transition: transform 0.15s ease;
+}
+
+.custom-schedule-advanced-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.custom-schedule-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.5rem;
+}
+
+/* One box per cron position plus the readout, on a single wrapping row. The boxes hold at
+   most a short list or step, so they are sized to their content rather than sharing the
+   width evenly with the readout, which is a sentence-length value. */
+.custom-schedule-cron {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.custom-schedule-cron-position {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  /* The basis is set by the longest label rather than by the value, because the values are a
+     digit or an asterisk while "Day of month" is twelve characters. A box narrower than its
+     own label lets that label run under the next one. */
+  /* No grow. Letting the boxes expand into whatever the readout does not use makes the two
+     fight: the readout wraps, the boxes take the freed width, and it can never come back. */
+  flex: 0 1 5.75rem;
+  min-width: 0;
+}
+
+/* Deliberately allowed to wrap. The row is sized so it does not need to at either tested
+   width, but a longer translation must push its own box taller instead of colliding with the
+   label beside it, and flex-end below keeps every input on one line when that happens. */
+.caps-label.custom-schedule-cron-label {
+  color: var(--theme-text-muted);
+  line-height: 1.2;
+}
+
+/* The readout the user asked for: what the expression on the left actually comes out as, on
+   whichever clock face the modal is set to. It sits on the same baseline as the boxes. */
+/* Sized to its own content rather than given an even share, so the five boxes keep their
+   width and the readout still lands on the same line as them at desktop width. It wraps
+   underneath on a phone, which is the right place for it there. */
+.custom-schedule-cron-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+  min-width: 4.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.custom-schedule-cron-time {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: var(--theme-text-primary);
+}
+
+/* Compounds both classes so the error border outranks .themed-input:focus, which would
+   otherwise repaint the border while the field with the mistake in it is being typed into. */
+.themed-input.custom-schedule-cron-input.has-error {
+  border-color: var(--theme-error);
+}
+
+/* CollapsibleRegion animates its height, which needs overflow:hidden on the inner box
+   (collapsible.css:17), so a ring drawn outside an element's edge is cut off along the
+   bottom. .focus-ring--inset is the shared answer for a flush edge, but it and
+   .themed-input:focus-visible both land at 0,1,1 and set a different offset, which would
+   leave bundle order to decide. Compounding the two classes settles it at 0,2,1. */
+.themed-input.focus-ring--inset:focus-visible {
+  outline-offset: -2px;
+}
+
+/* The zone line and the clock face read as one statement about how to read the times above,
+   so they share a row and split to two lines only when the row runs out of width. */
+.custom-schedule-clock-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+.custom-schedule-footer {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.6rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+@media (min-width: 640px) {
+  .custom-schedule-footer {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .custom-schedule-fields {
+    animation: none;
+  }
+
+  .custom-schedule-advanced-chevron {
+    transition: none;
+  }
+}

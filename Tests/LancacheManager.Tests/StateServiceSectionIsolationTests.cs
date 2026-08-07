@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 using LancacheManager.Models.Responses;
 using LancacheManager.Security;
@@ -160,6 +161,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
     [InlineData("DatasourceCacheSizeOverrides", "DatasourceCacheSizeOverrides")]
     [InlineData("ServiceRunOnStartup", "ServiceRunOnStartup")]
     [InlineData("ServiceNotificationMode", "ServiceNotificationMode")]
+    [InlineData("ServiceCustomSchedule", "ServiceCustomSchedule")]
     [InlineData("ServiceNotificationDisplayMode", "ServiceNotificationDisplayMode")]
     [InlineData("ScheduledPrefillServiceLastRunUtc", "ScheduledPrefillServiceLastRunUtc")]
     [InlineData("ScheduledPrefillServiceLastActualRunUtc", "ScheduledPrefillServiceLastActualRunUtc")]
@@ -484,7 +486,6 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         DefaultGuestSharpCorners = true,
         DefaultGuestDisableTooltips = true,
         DefaultGuestShowDatasourceLabels = false,
-        DefaultGuestShowYearInDates = true,
         AllowedTimeFormats = new() { "local-12h" },
         GuestPrefillEnabledByDefault = true,
         GuestPrefillDurationHours = 1,
@@ -521,6 +522,16 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         DatasourceCacheSizeOverrides = new() { ["alpha"] = 2_147_483_648L },
         ServiceRunOnStartup = new() { ["steam"] = true },
         ServiceNotificationMode = new() { ["cacheReconciliation"] = NotificationMode.Silent },
+        ServiceCustomSchedule = new()
+        {
+            ["gameDetection"] = new CustomSchedule
+            {
+                Expression = "0 3 * * 1",
+                TimeZoneId = "Europe/Berlin",
+                WindowStart = new TimeOnly(22, 0),
+                WindowEnd = new TimeOnly(6, 0),
+            },
+        },
         ServiceNotificationDisplayMode = new() { ["cacheReconciliation"] = NotificationDisplayMode.Condensed },
         EvictionNotificationsMigrated = true,
         ScheduledPrefillServiceLastRunUtc = new()
@@ -587,6 +598,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
             case "DatasourceCacheSizeOverrides":
             case "ServiceRunOnStartup":
             case "ServiceNotificationMode":
+            case "ServiceCustomSchedule":
             case "ServiceNotificationDisplayMode":
             case "ScheduledPrefillServiceLastRunUtc":
             case "ScheduledPrefillServiceLastActualRunUtc":

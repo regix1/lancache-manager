@@ -1,3 +1,4 @@
+import { formatTimestamp } from './dateTimeFormat';
 import { getGlobalTimezonePreference } from './timezonePreference';
 
 // Server timezone storage
@@ -96,18 +97,22 @@ export function getCurrentHour(useLocalTimezone?: boolean): number {
 }
 
 /**
- * Format a date to a short date string (e.g., "Jan 15") in a specific timezone
- * Useful for date range labels
+ * Format a date to a short date string (e.g., "1/15/26")
+ * Useful for date range labels.
+ *
+ * The compact shape is deliberate: this feeds a nowrap label that sits beside a fixed-width control,
+ * where a spelled-out month would widen the row enough to push the group onto its own line.
+ *
+ * Callers pass calendar days that were built in the browser's own calendar, so the value is read
+ * back in that same calendar: reinterpreting a local midnight in the server's timezone can move the
+ * label onto the day before the one the user picked. A date carries no time, so the 24-hour
+ * preference has nothing to act on here.
  */
-export function formatShortDate(
-  date: Date,
-  timezone: string,
-  options?: Partial<Intl.DateTimeFormatOptions>
-): string {
-  return date.toLocaleDateString(undefined, {
-    timeZone: timezone,
-    month: 'short',
-    day: 'numeric',
-    ...options
+export function formatShortDate(date: Date): string {
+  return formatTimestamp(date, {
+    useLocalTimezone: true,
+    use24Hour: true,
+    forceYear: false,
+    style: 'dateShort'
   });
 }

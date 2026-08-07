@@ -997,10 +997,6 @@
         }
       },
       "preferences": {
-        "showYear": {
-          "label": "始终显示年份",
-          "description": "即使在当前年份也在日期中包含年份"
-        },
         "sharpCorners": {
           "label": "方角",
           "description": "使用方角而非圆角"
@@ -2245,10 +2241,7 @@
         "keepNotificationsVisibleDesc": "禁用所有通知的自动关闭，直到手动关闭",
         "downloads": "下载",
         "showDatasourceLabels": "显示数据源标签",
-        "showDatasourceLabelsDesc": "多数据源时显示数据源信息",
-        "dateTime": "日期和时间",
-        "alwaysShowYear": "始终显示年份",
-        "alwaysShowYearDesc": "即使在当前年份也在日期中包含年份"
+        "showDatasourceLabelsDesc": "多数据源时显示数据源信息"
       },
       "integrations": {
         "daemon": {
@@ -3709,6 +3702,7 @@
       "runOnStartupTooltip": "启用后，该服务除了按计划间隔运行外，还会在应用启动时运行一次。",
       "runOnStartupUpdated": "{{service}} 的启动时运行设置已更新",
       "runOnStartupFailed": "更新 {{service}} 的启动时运行设置失败",
+      "customScheduleFailed": "更新 {{service}} 的自定义计划失败",
       "toggleOff": "关",
       "toggleOn": "开",
       "notificationsLabel": "通知",
@@ -3755,6 +3749,79 @@
         "apply": "应用",
         "aria": "自定义间隔（分钟，1 到 59）"
       },
+      "customSchedule": {
+        "optionLabel": "自定义计划...",
+        "savedLabel": "自定义计划",
+        "title": "自定义计划",
+        "repeat": {
+          "legend": "重复",
+          "hourly": "每小时",
+          "daily": "每天",
+          "weekly": "每周",
+          "monthly": "每月",
+          "everyNHours": "运行间隔小时数",
+          "atTime": "时间",
+          "atMinute": "每小时的第几分钟",
+          "clockLabel": "时钟",
+          "clock24": "24 小时制",
+          "clock12": "12 小时制",
+          "onDays": "星期",
+          "onDayOfMonth": "每月日期"
+        },
+        "weekdays": {
+          "mon": "星期一",
+          "tue": "星期二",
+          "wed": "星期三",
+          "thu": "星期四",
+          "fri": "星期五",
+          "sat": "星期六",
+          "sun": "星期日",
+          "separator": "、"
+        },
+        "window": {
+          "toggle": "仅在指定时间段内启动",
+          "help": "运行必须在此时间段内开始。时间段结束时仍在进行的运行会继续完成。",
+          "from": "从",
+          "to": "到"
+        },
+        "preview": {
+          "title": "运行时间",
+          "sentence": "{{repeat}}，在 {{time}}。",
+          "sentence_window": "{{repeat}}，在 {{time}}，但仅在 {{windowStart}} 到 {{windowEnd}} 之间。",
+          "sentence_hourly": "每 {{hours}} 小时一次，在每小时的第 {{minute}} 分钟。",
+          "sentence_hourly_window": "每 {{hours}} 小时一次，在每小时的第 {{minute}} 分钟，但仅在 {{windowStart}} 到 {{windowEnd}} 之间。",
+          "sentence_daily": "每天 {{time}}。",
+          "sentence_daily_window": "每天 {{time}}，但仅在 {{windowStart}} 到 {{windowEnd}} 之间。",
+          "sentence_weekly": "每周 {{days}}，{{time}}。",
+          "sentence_weekly_window": "每周 {{days}}，{{time}}，但仅在 {{windowStart}} 到 {{windowEnd}} 之间。",
+          "sentence_monthly": "每月 {{dayOfMonth}} 日，{{time}}。",
+          "sentence_monthly_window": "每月 {{dayOfMonth}} 日，{{time}}，但仅在 {{windowStart}} 到 {{windowEnd}} 之间。",
+          "nextRuns": "接下来的运行",
+          "never": "此计划永远不会运行：{{time}} 不在 {{windowStart}} 到 {{windowEnd}} 的时间段内。",
+          "needsDay": "请至少选择一天。"
+        },
+        "timezone": {
+          "server": "时间以 {{zone}}（服务器时区）为准。",
+          "browserDiffers": "您的浏览器时区为 {{zone}}，与服务器相差 {{offset}} 小时。"
+        },
+        "advanced": {
+          "toggle": "高级",
+          "expressionLabel": "Cron 表达式",
+          "positions": {
+            "minute": "分钟",
+            "hour": "小时",
+            "dayOfMonth": "日",
+            "month": "月",
+            "weekday": "星期"
+          },
+          "readoutLabel": "运行于",
+          "readoutUnknown": "还不是有效时间",
+          "invalid": "这不是有效的 cron 表达式。",
+          "notRepresentable": "此表达式将按原样保留。上面的控件无法表示它，因此在您更改其中任何一项之前，它们保持停用状态。"
+        },
+        "save": "保存",
+        "cancel": "取消"
+      },
       "services": {
         "depotMapping": {
           "displayName": "Steam 游戏映射",
@@ -3799,7 +3866,8 @@
               "inDays": "{{count}} 天后",
               "soon": "即将运行",
               "paused": "已暂停",
-              "startupOnly": "启动时运行"
+              "startupOnly": "启动时运行",
+              "customSchedule": "自定义计划"
             },
             "configure": "配置",
             "modalTitle": "配置计划预填充",

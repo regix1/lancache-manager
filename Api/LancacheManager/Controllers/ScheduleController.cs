@@ -1,4 +1,5 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -54,6 +55,40 @@ public class ScheduleController : ControllerBase
         }
 
         _registry.SetInterval(serviceKey, request.IntervalHours);
+        await _registry.BroadcastSchedulesAsync();
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Sets the custom schedule that decides when the service runs, or clears it by sending a null
+    /// schedule so the service goes back to its interval.
+    /// </summary>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpPut("{serviceKey}/customSchedule")]
+    public async Task<ActionResult> SetCustomScheduleAsync(string serviceKey, [FromBody] UpdateScheduleCustomScheduleRequest request)
+    {
+        var info = _registry.Get(serviceKey);
+        if (info == null)
+        {
+            return NotFound(ApiResponse.NotFound("Schedule"));
+        }
+
+        // Refuse a schedule that can never fire here rather than at the loop, which would accept it,
+        // idle forever and only say so in a log line the admin never sees.
+        if (request.CustomSchedule is not null)
+        {
+            var problem = ScheduleTiming.Validate(request.CustomSchedule);
+            if (problem is not null)
+            {
+                return BadRequest(problem);
+            }
+        }
+
+        if (!_registry.SetCustomSchedule(serviceKey, request.CustomSchedule))
+        {
+            return BadRequest("This service runs on a fixed interval and cannot take a custom schedule.");
+        }
+
         await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
@@ -227,4 +262,13 @@ public class UpdateScheduleIntervalRequest
 public class UpdateScheduleRunOnStartupRequest
 {
     public bool RunOnStartup { get; set; }
+}
+
+public class UpdateScheduleCustomScheduleRequest
+{
+    /// <summary>
+    /// Null clears the schedule and returns the service to its interval, which is why this is a
+    /// wrapper rather than the schedule posted directly: an empty body is the clear operation.
+    /// </summary>
+    public CustomSchedule? CustomSchedule { get; set; }
 }

@@ -681,7 +681,6 @@ public class SystemController : ControllerBase
             sharpCorners = state.DefaultGuestSharpCorners,
             disableTooltips = state.DefaultGuestDisableTooltips,
             showDatasourceLabels = state.DefaultGuestShowDatasourceLabels,
-            showYearInDates = state.DefaultGuestShowYearInDates,
             allowedTimeFormats = state.AllowedTimeFormats ?? new List<string> { "server-24h", "server-12h", "local-24h", "local-12h" }
         });
     }
@@ -732,7 +731,7 @@ public class SystemController : ControllerBase
     [HttpPatch("default-guest-preferences/{key}")]
     public async Task<IActionResult> SetDefaultGuestPreferenceAsync(string key, [FromBody] SetBoolPreferenceRequest request)
     {
-        var validKeys = new[] { "useLocalTimezone", "use24HourFormat", "sharpCorners", "disableTooltips", "showDatasourceLabels", "showYearInDates" };
+        var validKeys = new[] { "useLocalTimezone", "use24HourFormat", "sharpCorners", "disableTooltips", "showDatasourceLabels" };
         if (!validKeys.Contains(key))
         {
             return BadRequest(ApiResponse.Error($"Invalid preference key: {key}"));
@@ -756,9 +755,6 @@ public class SystemController : ControllerBase
                     break;
                 case "showDatasourceLabels":
                     state.DefaultGuestShowDatasourceLabels = request.Value;
-                    break;
-                case "showYearInDates":
-                    state.DefaultGuestShowYearInDates = request.Value;
                     break;
             }
         });

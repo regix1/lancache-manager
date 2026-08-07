@@ -24,9 +24,6 @@ public class UserPreferences
     public bool Use24HourFormat { get; set; }
     public bool ShowDatasourceLabels { get; set; } = true;
 
-    // Date display preferences
-    public bool ShowYearInDates { get; set; }
-
     // Allowed time formats for this user (JSON array, null = all formats allowed)
     // Valid values: server-24h, server-12h, local-24h, local-12h
     public string? AllowedTimeFormats { get; set; }

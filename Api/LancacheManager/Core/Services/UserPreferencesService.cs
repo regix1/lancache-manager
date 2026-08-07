@@ -27,7 +27,6 @@ public class UserPreferencesService
         public bool UseLocalTimezone { get; set; }
         public bool Use24HourFormat { get; set; }
         public bool ShowDatasourceLabels { get; set; } = true;
-        public bool ShowYearInDates { get; set; }
         public string? RefreshRate { get; set; } // Refresh rate for guest users (null = use default)
         public bool? RefreshRateLocked { get; set; } // Per-session lock override (null = use global, true/false = override)
         public string[]? AllowedTimeFormats { get; set; } // Allowed time formats for this user (null = all formats)
@@ -49,7 +48,6 @@ public class UserPreferencesService
             UseLocalTimezone = false,
             Use24HourFormat = true,
             ShowDatasourceLabels = true,
-            ShowYearInDates = false,
             RefreshRate = null,
             RefreshRateLocked = null,
             AllowedTimeFormats = null
@@ -109,7 +107,6 @@ public class UserPreferencesService
                 existingPreferences.UseLocalTimezone = preferencesDto.UseLocalTimezone;
                 existingPreferences.Use24HourFormat = preferencesDto.Use24HourFormat;
                 existingPreferences.ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels;
-                existingPreferences.ShowYearInDates = preferencesDto.ShowYearInDates;
                 existingPreferences.RefreshRate = RefreshRateExtensions.TryParseWire(preferencesDto.RefreshRate);
                 existingPreferences.RefreshRateLocked = preferencesDto.RefreshRateLocked;
                 existingPreferences.AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats);
@@ -132,7 +129,6 @@ public class UserPreferencesService
                     UseLocalTimezone = preferencesDto.UseLocalTimezone,
                     Use24HourFormat = preferencesDto.Use24HourFormat,
                     ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels,
-                    ShowYearInDates = preferencesDto.ShowYearInDates,
                     RefreshRate = RefreshRateExtensions.TryParseWire(preferencesDto.RefreshRate),
                     RefreshRateLocked = preferencesDto.RefreshRateLocked,
                     AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats),
@@ -215,9 +211,6 @@ public class UserPreferencesService
                     break;
                 case PreferenceKey.ShowDatasourceLabels:
                     preferences.ShowDatasourceLabels = GetValueAsBoolean(value);
-                    break;
-                case PreferenceKey.ShowYearInDates:
-                    preferences.ShowYearInDates = GetValueAsBoolean(value);
                     break;
                 case PreferenceKey.RefreshRate:
                     preferences.RefreshRate = RefreshRateExtensions.TryParseWire(GetValueAsString(value));
@@ -425,7 +418,6 @@ public class UserPreferencesService
         UseLocalTimezone = prefs.UseLocalTimezone,
         Use24HourFormat = prefs.Use24HourFormat,
         ShowDatasourceLabels = prefs.ShowDatasourceLabels,
-        ShowYearInDates = prefs.ShowYearInDates,
         RefreshRate = prefs.RefreshRate?.ToWireString(),
         RefreshRateLocked = prefs.RefreshRateLocked,
         AllowedTimeFormats = ParseAllowedTimeFormats(prefs.AllowedTimeFormats),

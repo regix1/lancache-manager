@@ -28,7 +28,6 @@ interface AppearanceDisplayCardProps {
   defaultGuestPreferences: {
     useLocalTimezone: boolean;
     use24HourFormat: boolean;
-    showYearInDates: boolean;
     sharpCorners: boolean;
     disableTooltips: boolean;
     showDatasourceLabels: boolean;
@@ -251,25 +250,6 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
                         <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
                       )}
                     </span>
-                  </div>
-                </div>
-
-                <div className="mgmt-row">
-                  <div className="mgmt-row__body">
-                    <p className="mgmt-row__title">{t('user.guest.preferences.showYear.label')}</p>
-                    <p className="mgmt-row__meta">
-                      {t('user.guest.preferences.showYear.description')}
-                    </p>
-                  </div>
-                  <div className="mgmt-row__actions">
-                    <ToggleSwitch
-                      options={onOffOptions()}
-                      value={defaultGuestPreferences.showYearInDates ? 'on' : 'off'}
-                      onChange={(value) => handlePrefToggleChange('showYearInDates', value)}
-                      disabled={loadingDefaultPrefs}
-                      loading={updatingDefaultPref === 'showYearInDates'}
-                      size="sm"
-                    />
                   </div>
                 </div>
               </div>

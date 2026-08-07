@@ -10,7 +10,6 @@ interface DefaultGuestPreferences {
   sharpCorners: boolean;
   disableTooltips: boolean;
   showDatasourceLabels: boolean;
-  showYearInDates: boolean;
   allowedTimeFormats: string[];
 }
 
@@ -24,7 +23,6 @@ const defaultPrefs: DefaultGuestPreferences = {
   sharpCorners: false,
   disableTooltips: false,
   showDatasourceLabels: true,
-  showYearInDates: false,
   allowedTimeFormats: ['server-24h', 'server-12h', 'local-24h', 'local-12h']
 };
 
@@ -58,7 +56,6 @@ export const useDefaultGuestPreferences = () => {
           sharpCorners: data.sharpCorners ?? false,
           disableTooltips: data.disableTooltips ?? false,
           showDatasourceLabels: data.showDatasourceLabels ?? true,
-          showYearInDates: data.showYearInDates ?? false,
           allowedTimeFormats: data.allowedTimeFormats ?? [
             'server-24h',
             'server-12h',

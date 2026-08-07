@@ -41,7 +41,6 @@ interface DefaultGuestPreferences {
   sharpCorners: boolean;
   disableTooltips: boolean;
   showDatasourceLabels: boolean;
-  showYearInDates: boolean;
   allowedTimeFormats: string[];
 }
 
@@ -51,7 +50,6 @@ interface DefaultGuestPreferencesResponse {
   sharpCorners: boolean;
   disableTooltips: boolean;
   showDatasourceLabels: boolean;
-  showYearInDates: boolean;
   allowedTimeFormats?: string[];
 }
 
@@ -102,7 +100,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     sharpCorners: false,
     disableTooltips: false,
     showDatasourceLabels: true,
-    showYearInDates: false,
     allowedTimeFormats: ['server-24h', 'server-12h', 'local-24h', 'local-12h']
   });
   const [loadingDefaultPrefs, setLoadingDefaultPrefs] = useState(false);
@@ -219,7 +216,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     }))
   ];
   const preferenceLabels: Record<string, string> = {
-    showYearInDates: t('user.guest.preferences.showYear.label'),
     sharpCorners: t('user.guest.preferences.sharpCorners.label'),
     disableTooltips: t('user.guest.preferences.disableTooltips.label'),
     showDatasourceLabels: t('user.guest.preferences.datasourceLabels.label')
@@ -240,7 +236,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
           sharpCorners: data.sharpCorners,
           disableTooltips: data.disableTooltips,
           showDatasourceLabels: data.showDatasourceLabels,
-          showYearInDates: data.showYearInDates,
           allowedTimeFormats: data.allowedTimeFormats ?? [
             'server-24h',
             'server-12h',

@@ -4,16 +4,28 @@ import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDr
 import { Button } from '@components/ui/Button';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import { getScheduleIntervalOptions } from './constants';
+import CustomScheduleModal from './custom-schedule/CustomScheduleModal';
+import type { CustomSchedule } from './custom-schedule/types';
 import './ScheduleIntervalPicker.css';
 
 const CUSTOM_SENTINEL = 'custom' as const;
+const SCHEDULE_SENTINEL = 'schedule' as const;
 const MIN_CUSTOM_MINUTES = 1;
 const MAX_CUSTOM_MINUTES = 59;
 
 interface ScheduleIntervalPickerProps {
   intervalHours: number;
   isDisabled: boolean;
+  /** Picking a plain interval means "no custom schedule". A caller that also passes
+      `onCustomScheduleChange` must clear the saved schedule in the SAME save that writes the
+      interval - otherwise the schedule keeps winning on the server and the interval the user
+      just chose never takes effect. */
   onChange: (hours: number) => void;
+  /** The saved schedule, or null when the service runs on its plain interval. */
+  customSchedule?: CustomSchedule | null;
+  /** Omitted on a surface that cannot persist a schedule, which also hides the entry that
+      opens the builder. */
+  onCustomScheduleChange?: (schedule: CustomSchedule) => void;
   /** 'field' keeps the bordered input look for forms and modals. 'ghost' renders the
       closed trigger as plain text for table rows; the field chrome returns on hover,
       keyboard focus and while the menu is open. */
@@ -42,6 +54,8 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
   intervalHours,
   isDisabled,
   onChange,
+  customSchedule = null,
+  onCustomScheduleChange,
   variant = 'field'
 }: ScheduleIntervalPickerProps) {
   const { t } = useTranslation();
@@ -57,25 +71,50 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
   // schedule held a custom interval - the popover keeps every row one height.
   const [customOpen, setCustomOpen] = useState(false);
   const [customMinutes, setCustomMinutes] = useState('30');
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const dropdownOptions = useMemo((): DropdownOption[] => {
     const standardOptions = getScheduleIntervalOptions(t);
+    // The builder entry appears where the surface can persist a schedule, and also wherever one
+    // is already saved - a saved schedule is what the trigger reads, so without the entry the
+    // trigger would render blank. Once saved, that same entry carries a state label rather than
+    // the action label, and picking it reopens the builder to edit what is there.
+    const options: DropdownOption[] =
+      onCustomScheduleChange || customSchedule
+        ? [
+            ...standardOptions,
+            {
+              value: SCHEDULE_SENTINEL,
+              label: customSchedule
+                ? t('management.schedules.customSchedule.savedLabel')
+                : t('management.schedules.customSchedule.optionLabel')
+            }
+          ]
+        : standardOptions;
     const currentVal =
       intervalHours === 0 ? '0' : intervalHours === -1 ? '-1' : String(intervalHours);
     if (intervalHours > 0 && !standardOptions.some((opt) => opt.value === currentVal)) {
-      return [
-        { value: currentVal, label: formatIntervalLabel(intervalHours, t) },
-        ...standardOptions
-      ];
+      return [{ value: currentVal, label: formatIntervalLabel(intervalHours, t) }, ...options];
     }
-    return standardOptions;
-  }, [intervalHours, t]);
+    return options;
+  }, [intervalHours, customSchedule, onCustomScheduleChange, t]);
 
-  // While the minutes popover is open the trigger reads as Custom; dismissing the
-  // popover without applying falls straight back to the saved interval's label.
-  const savedValue =
-    intervalHours === 0 ? '0' : intervalHours === -1 ? '-1' : String(intervalHours);
-  const dropdownValue = customOpen ? CUSTOM_SENTINEL : savedValue;
+  // A saved schedule wins over the interval on the server, so the trigger has to read as the
+  // schedule even though the interval value is still stored beside it untouched.
+  const savedValue = customSchedule
+    ? SCHEDULE_SENTINEL
+    : intervalHours === 0
+      ? '0'
+      : intervalHours === -1
+        ? '-1'
+        : String(intervalHours);
+  // While either editor is open the trigger reads as that entry; dismissing without applying
+  // falls straight back to the saved label, because this value is derived and never stored.
+  const dropdownValue = customOpen
+    ? CUSTOM_SENTINEL
+    : scheduleOpen
+      ? SCHEDULE_SENTINEL
+      : savedValue;
 
   const customMinutesValue = parseCustomMinutes(customMinutes);
 
@@ -88,14 +127,33 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
         setCustomOpen(true);
         return;
       }
+      if (value === SCHEDULE_SENTINEL) {
+        // Commits nothing, and stays shut where there is no handler to save what it would build.
+        if (!onCustomScheduleChange) return;
+        setCustomOpen(false);
+        setScheduleOpen(true);
+        return;
+      }
       const parsed = Number(value);
       if (Number.isFinite(parsed)) {
         setCustomOpen(false);
         onChange(parsed);
       }
     },
-    [intervalHours, onChange]
+    [intervalHours, onChange, onCustomScheduleChange]
   );
+
+  const handleScheduleApply = useCallback(
+    (schedule: CustomSchedule) => {
+      setScheduleOpen(false);
+      onCustomScheduleChange?.(schedule);
+    },
+    [onCustomScheduleChange]
+  );
+
+  const handleScheduleClose = useCallback(() => {
+    setScheduleOpen(false);
+  }, []);
 
   // Focus lands in the input as soon as the popover mounts so Enter applies directly.
   useEffect(() => {
@@ -206,6 +264,17 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
             {t('management.schedules.customMinutes.apply')}
           </Button>
         </div>
+      )}
+      {/* The builder is a Modal, which portals to the document body - a picker sitting in a table
+          row or inside another modal would otherwise have its panel clipped by the scroll area. */}
+      {onCustomScheduleChange && (
+        <CustomScheduleModal
+          opened={scheduleOpen}
+          schedule={customSchedule}
+          isDisabled={isDisabled}
+          onClose={handleScheduleClose}
+          onApply={handleScheduleApply}
+        />
       )}
     </div>
   );

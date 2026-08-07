@@ -101,6 +101,19 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
         _logger.LogDebug("{ServiceName} interval reset to default ({Interval})", ServiceName, Interval);
     }
 
+    /// <inheritdoc />
+    protected override void WakeForScheduleChange()
+    {
+        lock (_intervalLock)
+        {
+            // Reuses the flag an interval change already owns: both mean "the sleep you are in was
+            // computed from a value that has since changed", and the loop's response is the same.
+            _intervalJustChanged = true;
+
+            CancelIntervalDelay();
+        }
+    }
+
     /// <summary>
     /// Cancels the sleep this loop is currently in. Taken under the interval lock so an interval
     /// change and the wake it triggers are seen together; the lock is reentrant, so callers that
@@ -165,12 +178,9 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             {
                 IsCurrentlyExecuting = false;
                 // Whether startup succeeded or failed, the next thing is the main loop's skip-first
-                // one-interval sleep, so set the countdown to that before the END broadcast rather than
-                // shipping a null "Soon". The skip-first sleep re-sets this authoritatively.
-                var startupNextInterval = EffectiveInterval;
-                NextRunUtc = startupNextInterval > TimeSpan.Zero
-                    ? DateTime.UtcNow + startupNextInterval
-                    : null;
+                // sleep, so set the countdown to that before the END broadcast rather than shipping a
+                // null "Soon". The skip-first sleep re-sets this authoritatively.
+                NextRunUtc = ComputeNextRun(ConfiguredCustomSchedule, EffectiveInterval);
                 // Broadcast the end AFTER clearing the flag so GetAll() reports the run finished and the
                 // dot clears - including on the failure path above.
                 ServiceExecutionStateChanged?.Invoke(ServiceKey);
@@ -204,14 +214,34 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             // Manual. Mirrors ConfigurableScheduledService's ordering.
             var manualPending = ConsumePendingManualRun();
 
+            var schedule = ConfiguredCustomSchedule;
+            var interval = EffectiveInterval;
+
             if (skipFirstExecution && !manualPending)
             {
                 skipFirstExecution = false;
-                var skipInterval = EffectiveInterval;
-                if (skipInterval > TimeSpan.Zero)
+                NextRunUtc = ComputeNextRun(schedule, interval);
+
+                // A custom schedule names an absolute instant, so wait until that instant rather than
+                // for a duration measured from now. An interval restarts its countdown at process
+                // start, which shifts every later run by however long the app was down; a schedule
+                // lands on the same wall-clock time whether or not a restart happened in between.
+                if (schedule is not null && NextRunUtc is not null)
                 {
-                    NextRunUtc = DateTime.UtcNow + skipInterval;
-                    await InterruptibleDelayAsync(skipInterval, stoppingToken);
+                    await InterruptibleDelayAsync(TimeUntil(NextRunUtc.Value), stoppingToken);
+                    continue;
+                }
+
+                // A schedule with no next run at all cannot be waited for, so it falls back to the
+                // ordinary interval sleep below and re-checks on every wake.
+                if (schedule is not null)
+                {
+                    WarnScheduleNeverFires(schedule);
+                }
+
+                if (interval > TimeSpan.Zero)
+                {
+                    await InterruptibleDelayAsync(interval, stoppingToken);
                 }
                 continue;
             }
@@ -222,7 +252,13 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             {
                 _intervalJustChanged = false;
             }
-            else
+            // `schedule is null` short-circuits to the unchanged behaviour: without a schedule this
+            // branch is still taken unconditionally, and a paused service is stopped by the sleep at
+            // the bottom rather than here. With a schedule, the loop only reaches this after sleeping
+            // to an occurrence, so the gate is whether the schedule can fire at all - a schedule with
+            // no next run idles on the interval sleep, and running the work then would run it on
+            // exactly the schedule the user set to stop it.
+            else if (manualPending || schedule is null || IsWorkDue(schedule, interval))
             {
                 skipFirstExecution = false;
                 _intervalJustChanged = false;
@@ -238,8 +274,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                     // Advance NextRunUtc now so the run-END broadcast in the finally carries the fresh
                     // next-run instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
                     // authoritatively; this only keeps the END snapshot from shipping a stale countdown.
-                    var nextInterval = EffectiveInterval;
-                    NextRunUtc = nextInterval > TimeSpan.Zero ? DateTime.UtcNow + nextInterval : null;
+                    NextRunUtc = ComputeNextRun(ConfiguredCustomSchedule, EffectiveInterval);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -296,17 +331,32 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 continue;
             }
 
-            var interval = EffectiveInterval;
-            if (interval.TotalHours < 0 || interval == TimeSpan.Zero)
+            interval = EffectiveInterval;
+            schedule = ConfiguredCustomSchedule;
+            NextRunUtc = ComputeNextRun(schedule, interval);
+
+            if (schedule is not null && NextRunUtc is not null)
             {
-                // Zero = disabled, negative = startup only - sleep until interval is changed or service stops
-                NextRunUtc = null;
-                await InterruptibleDelayAsync(Timeout.InfiniteTimeSpan, stoppingToken);
+                // Sleep to the schedule's own instant. This is what makes a restart leave a schedule
+                // where it was: the interval branch below counts from now, so downtime pushes every
+                // later run out, while an occurrence is the same wall-clock time either way.
+                await InterruptibleDelayAsync(TimeUntil(NextRunUtc.Value), stoppingToken);
             }
             else
             {
-                NextRunUtc = DateTime.UtcNow + interval;
-                await InterruptibleDelayAsync(interval, stoppingToken);
+                // A schedule with no next run at all cannot be waited for, so it idles on the ordinary
+                // interval sleep and re-checks on every wake rather than recomputing the same null in
+                // a tight loop. Below that, unchanged interval behaviour: zero disables and negative
+                // means startup-only, and both wait until the schedule or interval changes.
+                if (schedule is not null)
+                {
+                    WarnScheduleNeverFires(schedule);
+                }
+
+                var idleDelay = interval.TotalHours < 0 || interval == TimeSpan.Zero
+                    ? Timeout.InfiniteTimeSpan
+                    : interval;
+                await InterruptibleDelayAsync(idleDelay, stoppingToken);
             }
         }
 

@@ -1,6 +1,7 @@
 using LancacheManager.Controllers;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 
 namespace LancacheManager.Tests;
@@ -408,6 +409,114 @@ public class ScheduledPrefillRunGatesTests
             enabled, intervalHours, hasExistingLastRun);
 
         Assert.Equal(expected, shouldAnchor);
+    }
+
+    // ---- Custom schedules on both gates ----
+    // A custom schedule wins over IntervalHours in both gates, and both answer it BEFORE their
+    // interval handling. IsServiceDue's null-lastRun early return would otherwise fire a freshly
+    // saved schedule on the next 1-minute poll, and ComputeNextRunUtc's <= 0 guard (which swallows
+    // the -1 startup-only sentinel as well as 0) would leave it with no next run to show at all.
+
+    [Fact]
+    public void IsServiceDue_CustomScheduleNeverRun_IsNotDue()
+    {
+        // 09:00 against a daily-02:00 schedule with no anchor yet. The interval path answers true
+        // here (a never-run recurring service is due immediately), which would run it on the next poll.
+        var now = new DateTime(2026, 1, 2, 9, 0, 0, DateTimeKind.Utc);
+
+        Assert.False(ScheduledPrefillRunGates.IsServiceDue(
+            24d, lastRunUtc: null, nowUtc: now, hasRunThisProcess: false, schedule: MakeSchedule("0 2 * * *")));
+    }
+
+    [Fact]
+    public void IsServiceDue_CustomScheduleOccurrenceGoneBy_IsDue()
+    {
+        var lastRun = new DateTime(2026, 1, 1, 2, 0, 0, DateTimeKind.Utc);
+        var schedule = MakeSchedule("0 2 * * *");
+
+        Assert.False(ScheduledPrefillRunGates.IsServiceDue(
+            24d, lastRun, new DateTime(2026, 1, 2, 1, 59, 0, DateTimeKind.Utc), hasRunThisProcess: false, schedule));
+        Assert.True(ScheduledPrefillRunGates.IsServiceDue(
+            24d, lastRun, new DateTime(2026, 1, 2, 2, 0, 0, DateTimeKind.Utc), hasRunThisProcess: false, schedule));
+    }
+
+    [Fact]
+    public void IsServiceDue_CustomScheduleOnAPausedOrStartupOnlyInterval_StillFollowsTheSchedule()
+    {
+        // A service keeps whichever interval it had when the custom schedule was set, so neither the
+        // 0 (paused) nor the -1 (startup-only) sentinel may decide the answer.
+        var lastRun = new DateTime(2026, 1, 1, 2, 0, 0, DateTimeKind.Utc);
+        var now = new DateTime(2026, 1, 2, 2, 0, 0, DateTimeKind.Utc);
+        var schedule = MakeSchedule("0 2 * * *");
+
+        Assert.True(ScheduledPrefillRunGates.IsServiceDue(0d, lastRun, now, hasRunThisProcess: false, schedule));
+        Assert.True(ScheduledPrefillRunGates.IsServiceDue(-1d, lastRun, now, hasRunThisProcess: true, schedule));
+    }
+
+    [Fact]
+    public void ComputeNextRunUtc_CustomSchedule_BeatsTheInterval()
+    {
+        // The 1h interval from a 09:00 last run says 10:00; the daily-02:00 schedule says tomorrow 02:00.
+        var lastRun = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc);
+
+        var nextRun = ScheduledPrefillRunGates.ComputeNextRunUtc(1d, lastRun, MakeSchedule("0 2 * * *"));
+
+        Assert.Equal(new DateTime(2026, 1, 2, 2, 0, 0, DateTimeKind.Utc), nextRun);
+    }
+
+    [Fact]
+    public void ComputeNextRunUtc_CustomScheduleOnAPausedOrStartupOnlyInterval_IsNotNull()
+    {
+        var lastRun = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc);
+        var schedule = MakeSchedule("0 2 * * *");
+
+        Assert.NotNull(ScheduledPrefillRunGates.ComputeNextRunUtc(0d, lastRun, schedule));      // paused
+        Assert.NotNull(ScheduledPrefillRunGates.ComputeNextRunUtc(-1d, lastRun, schedule));     // startup-only
+    }
+
+    [Fact]
+    public void ShouldAnchorFirstRunOnSave_CustomScheduleOnANonPositiveInterval_Anchors()
+    {
+        // Without the anchor the schedule has no last-run to measure from, IsServiceDue answers false
+        // for a null last-run, and a custom schedule left on a paused interval would never run at all.
+        Assert.True(ScheduledPrefillRunGates.ShouldAnchorFirstRunOnSave(
+            enabled: true,
+            intervalHours: 0d,
+            hasExistingLastRun: false,
+            wasEnabledBefore: false,
+            schedule: MakeSchedule("0 2 * * *")));
+    }
+
+    [Fact]
+    public void ShouldAnchorFirstRunOnLoad_CustomScheduleOnANonPositiveInterval_Seeds()
+    {
+        Assert.True(ScheduledPrefillRunGates.ShouldAnchorFirstRunOnLoad(
+            enabled: true,
+            intervalHours: -1d,
+            hasExistingLastRun: false,
+            schedule: MakeSchedule("0 2 * * *")));
+        // The restart-no-shift invariant holds for a custom schedule too: a key already present is
+        // never re-seeded.
+        Assert.False(ScheduledPrefillRunGates.ShouldAnchorFirstRunOnLoad(
+            enabled: true,
+            intervalHours: -1d,
+            hasExistingLastRun: true,
+            schedule: MakeSchedule("0 2 * * *")));
+    }
+
+    private static CustomSchedule MakeSchedule(
+        string expression,
+        string timeZoneId = "UTC",
+        TimeOnly? windowStart = null,
+        TimeOnly? windowEnd = null)
+    {
+        return new CustomSchedule
+        {
+            Expression = expression,
+            TimeZoneId = timeZoneId,
+            WindowStart = windowStart,
+            WindowEnd = windowEnd
+        };
     }
 
     private static DaemonSession MakeSession(

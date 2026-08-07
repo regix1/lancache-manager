@@ -5,9 +5,9 @@
  * Any SignalR updates that arrive with stale data are corrected to use the expected value.
  *
  * Usage:
- *   1. Call setPendingPreference() when user changes a preference (before API call)
- *   2. Use getCorrectedValue() when processing SignalR updates
- *   3. Use usePendingValue() hook in React components for immediate UI updates
+ *   1. Call setPendingTimezone() when user changes a preference (before API call)
+ *   2. Use getCorrectedTimezone() when processing SignalR updates
+ *   3. Use getPendingValue() with useSyncExternalStore for immediate UI updates
  */
 
 type PreferenceValue = boolean | string | number | null;
@@ -36,19 +36,6 @@ const setPendingPreference = (key: string, value: PreferenceValue): void => {
 };
 
 /**
- * Check if a preference has a pending value (within cooldown).
- */
-export const hasPendingPreference = (key: string): boolean => {
-  const entry = pending.get(key);
-  if (!entry) return false;
-  if (Date.now() - entry.setTime >= COOLDOWN_MS) {
-    pending.delete(key);
-    return false;
-  }
-  return true;
-};
-
-/**
  * Get the pending value for a preference, or null if none/expired.
  */
 export const getPendingValue = <T extends PreferenceValue>(key: string): T | null => {
@@ -65,7 +52,7 @@ export const getPendingValue = <T extends PreferenceValue>(key: string): T | nul
  * Get the corrected value for a preference. Use when processing SignalR updates.
  * Returns the pending value if incoming is stale, otherwise returns incoming.
  */
-export const getCorrectedValue = <T extends PreferenceValue>(key: string, incoming: T): T => {
+const getCorrectedValue = <T extends PreferenceValue>(key: string, incoming: T): T => {
   const pendingVal = getPendingValue<T>(key);
   if (pendingVal !== null && incoming !== pendingVal) {
     return pendingVal;

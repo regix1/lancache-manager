@@ -1142,9 +1142,6 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<bool>("ShowDatasourceLabels")
                         .HasColumnType("boolean");
 
-                    b.Property<bool>("ShowYearInDates")
-                        .HasColumnType("boolean");
-
                     b.Property<int?>("SteamMaxThreadCount")
                         .HasColumnType("integer");
 

@@ -1,3 +1,4 @@
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 using LancacheManager.Models.Responses;
 
@@ -74,6 +75,11 @@ public interface IStateService
     double? GetServiceInterval(string serviceKey);
     void SetServiceInterval(string serviceKey, double hours);
     void ClearServiceInterval(string serviceKey);
+
+    // Service Custom Schedule Methods (absent key = the service runs on its interval)
+    CustomSchedule? GetServiceCustomSchedule(string serviceKey);
+    void SetServiceCustomSchedule(string serviceKey, CustomSchedule schedule);
+    void ClearServiceCustomSchedule(string serviceKey);
 
     // Per-datasource cache-size override methods (missing/zero = automatic detection)
     Dictionary<string, long> GetDatasourceCacheSizeOverrides();

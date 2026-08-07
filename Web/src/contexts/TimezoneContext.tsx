@@ -3,10 +3,6 @@ import { useSessionPreferences } from './useSessionPreferences';
 import { setGlobalTimezonePreference } from '@utils/timezonePreference';
 import { setGlobal24HourPreference } from '@utils/timeFormatPreference';
 import {
-  setGlobalAlwaysShowYearPreference,
-  getGlobalAlwaysShowYearPreference
-} from '@utils/yearDisplayPreference';
-import {
   setPendingTimezone,
   subscribe as subscribeToPending,
   getPendingValue
@@ -39,7 +35,6 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setActualUse24Hour(currentPreferences.use24HourFormat);
       setGlobalTimezonePreference(currentPreferences.useLocalTimezone);
       setGlobal24HourPreference(currentPreferences.use24HourFormat);
-      setGlobalAlwaysShowYearPreference(currentPreferences.showYearInDates ?? false);
     }
   }, [currentPreferences]);
 
@@ -70,14 +65,6 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           return prev;
         });
       }
-
-      if (key === 'showYearInDates') {
-        const current = getGlobalAlwaysShowYearPreference();
-        if (current !== value) {
-          setGlobalAlwaysShowYearPreference(value);
-          setRefreshKey((k) => k + 1);
-        }
-      }
     };
 
     window.addEventListener(APP_EVENTS.PREFERENCE_CHANGED, handleChange);
@@ -88,19 +75,14 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setPendingTimezone(value);
   }, []);
 
-  const forceRefresh = useCallback(() => {
-    setRefreshKey((k) => k + 1);
-  }, []);
-
   const contextValue = useMemo(
     () => ({
       useLocalTimezone,
       use24HourFormat,
       refreshKey,
-      setPendingTimeSetting,
-      forceRefresh
+      setPendingTimeSetting
     }),
-    [useLocalTimezone, use24HourFormat, refreshKey, setPendingTimeSetting, forceRefresh]
+    [useLocalTimezone, use24HourFormat, refreshKey, setPendingTimeSetting]
   );
 
   return <TimezoneContext.Provider value={contextValue}>{children}</TimezoneContext.Provider>;

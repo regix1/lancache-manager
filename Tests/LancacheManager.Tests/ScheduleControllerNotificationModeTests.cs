@@ -2,6 +2,7 @@ using System.Reflection;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -301,6 +302,7 @@ public class ScheduleControllerNotificationModeTests
         public ServiceScheduleInfo? Get(string serviceKey) => InfoForGet;
         public void SetInterval(string serviceKey, double intervalHours) { }
         public void SetRunOnStartup(string serviceKey, bool runOnStartup) { }
+        public bool SetCustomSchedule(string serviceKey, CustomSchedule? schedule) => true;
 
         public void SetNotificationMode(string serviceKey, NotificationMode mode)
         {

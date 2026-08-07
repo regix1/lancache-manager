@@ -142,7 +142,13 @@ export function ScheduledPrefillScheduleFields({
           <ScheduleIntervalPicker
             intervalHours={config.intervalHours}
             isDisabled={disabled}
-            onChange={(hours) => updateConfig({ intervalHours: hours })}
+            /* Clearing the schedule travels in the same patch as the interval. A second
+               updateConfig call in this tick would read the same stale config and undo the
+               first, and the backend runs a saved schedule in preference to the interval, so
+               a schedule left behind would swallow the interval the user just picked. */
+            onChange={(hours) => updateConfig({ intervalHours: hours, customSchedule: null })}
+            customSchedule={config.customSchedule ?? null}
+            onCustomScheduleChange={(schedule) => updateConfig({ customSchedule: schedule })}
           />
         </div>
       </div>

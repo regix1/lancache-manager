@@ -1,3 +1,4 @@
+import type { CustomSchedule } from '../custom-schedule/types';
 import type { NotificationMode } from '../types';
 
 export type ScheduledPrefillServiceKey = 'steam' | 'epic' | 'xbox' | 'battleNet' | 'riot';
@@ -66,6 +67,13 @@ export interface ScheduledPrefillServiceConfigDto {
    * `-1` = run on startup only. Saved via the whole-config round-trip.
    */
   intervalHours: number;
+  /**
+   * A cron recurrence plus an optional time-of-day window. `null`/`undefined` means the service
+   * runs on `intervalHours` exactly as before. When one IS present it wins over the interval, and
+   * the interval value is left untouched so clearing the schedule puts the service back on the
+   * cadence it had before.
+   */
+  customSchedule?: CustomSchedule | null;
   preset: ScheduledPrefillPreset;
   selectedAppIds: string[];
   topCount?: number | null;
@@ -84,6 +92,9 @@ export interface ScheduledPrefillServiceConfigDto {
 export interface ScheduledPrefillServiceScheduleDto {
   serviceId: ScheduledPrefillServiceId;
   intervalHours: number;
+  /** Mirrors the config field. Present here so a summary row can word its timing without
+   * having to fetch the whole config first. */
+  customSchedule?: CustomSchedule | null;
   enabled: boolean;
   lastRunUtc: string | null;
   nextRunUtc: string | null;

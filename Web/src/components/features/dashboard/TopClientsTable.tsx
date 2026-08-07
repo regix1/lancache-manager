@@ -7,8 +7,7 @@ import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { EmptyState } from '@components/ui/ManagerCard';
-import { useTimezone } from '@contexts/useTimezone';
-import { getEffectiveTimezone, formatShortDate } from '@utils/timezone';
+import { formatShortDate } from '@utils/timezone';
 import { Users, ArrowDown } from 'lucide-react';
 import type { ClientStat } from '@/types';
 
@@ -95,20 +94,18 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
     loading = false
   }) => {
     const { t } = useTranslation();
-    const { useLocalTimezone } = useTimezone();
     const [sortBy, setSortBy] = useState<SortOption>('total');
 
     const timeRangeLabel = useMemo(() => {
       if (timeRange === 'custom' && customStartDate && customEndDate) {
-        const timezone = getEffectiveTimezone(useLocalTimezone);
-        const start = formatShortDate(customStartDate, timezone);
-        const end = formatShortDate(customEndDate, timezone);
+        const start = formatShortDate(customStartDate);
+        const end = formatShortDate(customEndDate);
         return `${start} - ${end}`;
       }
 
       const key = `dashboard.topClients.timeRanges.${timeRange}` as const;
       return t(key);
-    }, [timeRange, customStartDate, customEndDate, useLocalTimezone, t]);
+    }, [timeRange, customStartDate, customEndDate, t]);
 
     const sortedClients = useMemo(() => {
       const sorted = [...clientStats];

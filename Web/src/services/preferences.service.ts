@@ -25,7 +25,6 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   useLocalTimezone: false,
   use24HourFormat: true,
   showDatasourceLabels: true,
-  showYearInDates: false,
   refreshRate: null,
   allowedTimeFormats: null
 };
@@ -64,7 +63,6 @@ class PreferencesService {
           useLocalTimezone: data.useLocalTimezone || false,
           use24HourFormat: data.use24HourFormat || false,
           showDatasourceLabels: data.showDatasourceLabels ?? true,
-          showYearInDates: data.showYearInDates || false,
           refreshRate: data.refreshRate || null,
           allowedTimeFormats: data.allowedTimeFormats || null
         };

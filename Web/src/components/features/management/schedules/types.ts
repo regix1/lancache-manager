@@ -1,3 +1,5 @@
+import type { CustomSchedule } from './custom-schedule/types';
+
 export type NotificationMode = 'all' | 'manual' | 'silent';
 
 export const isNotificationMode = (value: string): value is NotificationMode =>
@@ -21,6 +23,13 @@ export interface PendingFullScan {
 export interface ServiceScheduleInfo {
   key: string;
   intervalHours: number;
+  /**
+   * A cron recurrence plus an optional time-of-day window. `null`/`undefined` means the schedule
+   * runs on `intervalHours` exactly as before. When one IS present it wins over the interval, and
+   * the interval value is left untouched so clearing the schedule puts it back on the cadence it
+   * had before.
+   */
+  customSchedule?: CustomSchedule | null;
   runOnStartup: boolean;
   isRunning: boolean;
   lastRunUtc: string | null;

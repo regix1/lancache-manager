@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 using LancacheManager.Models.Responses;
 
@@ -103,7 +104,6 @@ public class StateService : IStateService
         public bool DefaultGuestSharpCorners { get; set; } = false;
         public bool DefaultGuestDisableTooltips { get; set; } = false;
         public bool DefaultGuestShowDatasourceLabels { get; set; } = true;
-        public bool DefaultGuestShowYearInDates { get; set; } = false;
 
         // Allowed time formats for guests
         public List<string> AllowedTimeFormats { get; set; } = new() { "server-24h", "server-12h", "local-24h", "local-12h" };
@@ -198,6 +198,11 @@ public class StateService : IStateService
         // Per-service notification-mode overrides (keyed by ServiceKey).
         // Absent key = use the service's hardcoded DefaultNotificationMode.
         public Dictionary<string, NotificationMode> ServiceNotificationMode { get; set; } = new();
+
+        // Per-service custom schedules (keyed by ServiceKey). Absent key = the service runs on its
+        // interval. A state.json written before this existed deserializes the property to an empty
+        // map, which is exactly "no service has one".
+        public Dictionary<string, CustomSchedule> ServiceCustomSchedule { get; set; } = new();
 
         // Per-service notification-DISPLAY-mode overrides (keyed by ServiceKey): full card vs condensed
         // status line. Absent key = Full - pure UI display state, no per-service compiled default.
@@ -1044,6 +1049,30 @@ public class StateService : IStateService
         });
     }
 
+    // Service Custom Schedule Methods (absent key = the service runs on its interval)
+    public CustomSchedule? GetServiceCustomSchedule(string serviceKey)
+    {
+        var schedules = GetState().ServiceCustomSchedule;
+        return schedules.TryGetValue(serviceKey, out var value) ? value : null;
+    }
+
+    public void SetServiceCustomSchedule(string serviceKey, CustomSchedule schedule)
+    {
+        ArgumentNullException.ThrowIfNull(schedule);
+        UpdateState(state =>
+        {
+            state.ServiceCustomSchedule[serviceKey] = schedule;
+        });
+    }
+
+    public void ClearServiceCustomSchedule(string serviceKey)
+    {
+        UpdateState(state =>
+        {
+            state.ServiceCustomSchedule.Remove(serviceKey);
+        });
+    }
+
     // Datasource Cache Size Override Methods
     public Dictionary<string, long> GetDatasourceCacheSizeOverrides()
     {
@@ -1183,6 +1212,9 @@ public class StateService : IStateService
             // 1-minute poll sees lastRun = now (not null) and schedules it one interval out instead of
             // running it immediately. Uses the SAME per-service key the poll loop and
             // Get/SetScheduledPrefillServiceLastRun use (ServiceId.ToString()). Run Now stays instant.
+            // A service on a custom schedule is anchored on the same terms whatever its interval value
+            // is: the stamp is the point occurrences are measured from, and without one a schedule
+            // saved on a paused or startup-only interval would never become due at all.
             var anchoredAt = DateTime.UtcNow;
             foreach (var service in validated.GetServicesInRunOrder())
             {
@@ -1191,7 +1223,7 @@ public class StateService : IStateService
                 var wasEnabledBefore = previousEnabled.TryGetValue(key, out var enabledBefore) && enabledBefore;
 
                 if (ScheduledPrefillRunGates.ShouldAnchorFirstRunOnSave(
-                        service.Enabled, service.IntervalHours, hasExistingLastRun, wasEnabledBefore))
+                        service.Enabled, service.IntervalHours, hasExistingLastRun, wasEnabledBefore, service.CustomSchedule))
                 {
                     state.ScheduledPrefillServiceLastRunUtc[key] = anchoredAt;
                 }
@@ -1296,9 +1328,10 @@ public class StateService : IStateService
     }
 
     /// <summary>
-    /// Anchors the initial first-run for each enabled, positive-interval service that has no last-run key
-    /// yet, stamping it to <paramref name="nowUtc"/> so the next poll schedules it one interval out instead
-    /// of running it immediately. Only seeds MISSING keys via
+    /// Anchors the initial first-run for each enabled service that has no last-run key yet and runs on
+    /// either a positive interval or a custom schedule, stamping it to <paramref name="nowUtc"/> so the
+    /// next poll schedules it one interval (or one occurrence) out instead of running it immediately.
+    /// Only seeds MISSING keys via
     /// <see cref="ScheduledPrefillRunGates.ShouldAnchorFirstRunOnLoad"/> — a genuine persisted last-run is
     /// never clobbered, so a normal restart (whose last-run map already round-tripped) never shifts its
     /// schedule. Shared by the load path and the reset path; the explicit-save path keeps its own
@@ -1314,7 +1347,8 @@ public class StateService : IStateService
             if (ScheduledPrefillRunGates.ShouldAnchorFirstRunOnLoad(
                     service.Enabled,
                     service.IntervalHours,
-                    state.ScheduledPrefillServiceLastRunUtc.ContainsKey(key)))
+                    state.ScheduledPrefillServiceLastRunUtc.ContainsKey(key),
+                    service.CustomSchedule))
             {
                 state.ScheduledPrefillServiceLastRunUtc[key] = nowUtc;
                 seeded = true;
@@ -1764,7 +1798,6 @@ public class StateService : IStateService
             DefaultGuestSharpCorners = persisted.DefaultGuestSharpCorners,
             DefaultGuestDisableTooltips = persisted.DefaultGuestDisableTooltips,
             DefaultGuestShowDatasourceLabels = persisted.DefaultGuestShowDatasourceLabels,
-            DefaultGuestShowYearInDates = persisted.DefaultGuestShowYearInDates,
             AllowedTimeFormats = persisted.AllowedTimeFormats ?? new List<string> { "server-24h", "server-12h", "local-24h", "local-12h" },
             // Guest prefill permissions
             GuestPrefillEnabledByDefault = persisted.GuestPrefillEnabledByDefault,
@@ -1820,6 +1853,8 @@ public class StateService : IStateService
             ServiceRunOnStartup = persisted.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
             // Per-service notification-mode overrides
             ServiceNotificationMode = persisted.ServiceNotificationMode ?? new Dictionary<string, NotificationMode>(),
+            // Per-service custom schedules
+            ServiceCustomSchedule = persisted.ServiceCustomSchedule ?? new Dictionary<string, CustomSchedule>(),
             // Per-service notification-display-mode overrides
             ServiceNotificationDisplayMode = persisted.ServiceNotificationDisplayMode ?? new Dictionary<string, NotificationDisplayMode>(),
             // Scheduled prefill config: default-construct when missing (migration from pre-feature
@@ -1881,7 +1916,6 @@ public class StateService : IStateService
             DefaultGuestSharpCorners = state.DefaultGuestSharpCorners,
             DefaultGuestDisableTooltips = state.DefaultGuestDisableTooltips,
             DefaultGuestShowDatasourceLabels = state.DefaultGuestShowDatasourceLabels,
-            DefaultGuestShowYearInDates = state.DefaultGuestShowYearInDates,
             AllowedTimeFormats = state.AllowedTimeFormats,
             // Guest prefill permissions
             GuestPrefillEnabledByDefault = state.GuestPrefillEnabledByDefault,
@@ -1937,6 +1971,8 @@ public class StateService : IStateService
             ServiceRunOnStartup = state.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
             // Per-service notification-mode overrides
             ServiceNotificationMode = state.ServiceNotificationMode ?? new Dictionary<string, NotificationMode>(),
+            // Per-service custom schedules
+            ServiceCustomSchedule = state.ServiceCustomSchedule ?? new Dictionary<string, CustomSchedule>(),
             // Per-service notification-display-mode overrides
             ServiceNotificationDisplayMode = state.ServiceNotificationDisplayMode ?? new Dictionary<string, NotificationDisplayMode>(),
             // Scheduled prefill config: validate (default-construct when missing) before persisting.

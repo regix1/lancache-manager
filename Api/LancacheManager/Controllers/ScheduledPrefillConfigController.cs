@@ -1,5 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -41,7 +42,9 @@ public class ScheduledPrefillConfigController : ControllerBase
     /// <summary>
     /// Returns the independent per-service schedule view: each service's interval, enabled flag, and
     /// the durable last/next run times. <c>nextRunUtc</c> = <c>lastRun + interval</c>, and is null when
-    /// the service has never run or is paused / startup-only.
+    /// the service has never run or is paused / startup-only. A service running on a custom schedule
+    /// gets that schedule's own next occurrence instead, whatever its interval value says, so the
+    /// column is not blank for exactly the schedules that do not use an interval.
     /// </summary>
     [HttpGet("schedule")]
     public ActionResult<ScheduledPrefillServiceScheduleDto[]> GetSchedule()
@@ -64,7 +67,8 @@ public class ScheduledPrefillConfigController : ControllerBase
                 IntervalHours = service.IntervalHours,
                 Enabled = service.Enabled,
                 LastRunUtc = actualLastRun,
-                NextRunUtc = ScheduledPrefillRunGates.ComputeNextRunUtc(service.IntervalHours, scheduleBasis)
+                NextRunUtc = ScheduledPrefillRunGates.ComputeNextRunUtc(service.IntervalHours, scheduleBasis, service.CustomSchedule),
+                CustomSchedule = service.CustomSchedule
             });
         }
 
@@ -148,4 +152,12 @@ public sealed class ScheduledPrefillServiceScheduleDto
 
     /// <summary>Next scheduled run (UTC) = lastRun + interval; null when never-run, paused, or startup-only.</summary>
     public DateTime? NextRunUtc { get; init; }
+
+    /// <summary>
+    /// The service's custom schedule when it has one, null when it runs on its plain interval.
+    /// Mirrored from the config so a summary row can word its own timing without fetching the whole
+    /// config first - <see cref="IntervalHours"/> alone cannot tell a paused service apart from one
+    /// that keeps a paused interval while a schedule drives it.
+    /// </summary>
+    public CustomSchedule? CustomSchedule { get; init; }
 }

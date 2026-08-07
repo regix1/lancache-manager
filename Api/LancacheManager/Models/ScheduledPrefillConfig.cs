@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LancacheManager.Infrastructure.Services.Scheduling;
 
 namespace LancacheManager.Models;
 
@@ -153,6 +154,19 @@ public sealed class ScheduledPrefillServiceConfigDto
     /// saved override silently resets on the next load/save.
     /// </summary>
     public PersistenceMode? PersistenceMode { get; init; }
+
+    /// <summary>
+    /// Cron recurrence plus optional nightly window this service runs on instead of its plain
+    /// <see cref="IntervalHours"/>. <c>null</c> means the interval is in charge exactly as before;
+    /// when one is set it wins outright and the interval value is left untouched on the record so
+    /// clearing the schedule restores the previous cadence. NOT required so a pre-v5 state.json
+    /// (which had no custom-schedule concept) still deserializes. Every DTO-rebuilding copy site in
+    /// <see cref="ScheduledPrefillConfigFactory"/> (<c>WithMigratedNotificationMode</c>,
+    /// <c>WithInterval</c>, <c>WithNotificationMode</c>, <c>CreateDefaultService</c>,
+    /// <c>ReconcileServicePreset</c>, <c>ReconcileServiceOperatingSystems</c>) must thread this
+    /// value through explicitly or a saved schedule silently resets on the next load/save.
+    /// </summary>
+    public CustomSchedule? CustomSchedule { get; init; }
 }
 
 /// <summary>
@@ -235,7 +249,8 @@ public static class ScheduledPrefillConfigFactory
     // Bumped 1 -> 2 when per-service IntervalHours was added (see Migrate).
     // Bumped 2 -> 3 when global + per-service PersistenceMode was added (see Migrate).
     // Bumped 3 -> 4 when per-service ShowNotification (bool) was replaced by NotificationMode (see Migrate).
-    public const int CurrentVersion = 4;
+    // Bumped 4 -> 5 when the per-service CustomSchedule was added (see Migrate).
+    public const int CurrentVersion = 5;
     public const int DefaultTopCount = 50;
     public const int MinFixedConcurrency = 1;
     public const int MaxFixedConcurrency = 256;
@@ -331,7 +346,7 @@ public static class ScheduledPrefillConfigFactory
         {
             config = new ScheduledPrefillConfigDto
             {
-                Version = CurrentVersion,
+                Version = 4,
                 MaxServiceRuntime = config.MaxServiceRuntime,
                 StallTimeout = config.StallTimeout,
                 PersistenceMode = config.PersistenceMode,
@@ -340,6 +355,26 @@ public static class ScheduledPrefillConfigFactory
                 Xbox = WithMigratedNotificationMode(config.Xbox),
                 BattleNet = WithMigratedNotificationMode(config.BattleNet),
                 Riot = WithMigratedNotificationMode(config.Riot)
+            };
+        }
+
+        if (config.Version < 5)
+        {
+            // Nothing to seed: a pre-v5 config has no custom schedule, and a null
+            // ScheduledPrefillServiceConfigDto.CustomSchedule already means "keep running on the
+            // plain interval", which is exactly the behaviour that config had. The step exists only
+            // to stamp the version, because Validate rejects anything that is not CurrentVersion.
+            config = new ScheduledPrefillConfigDto
+            {
+                Version = CurrentVersion,
+                MaxServiceRuntime = config.MaxServiceRuntime,
+                StallTimeout = config.StallTimeout,
+                PersistenceMode = config.PersistenceMode,
+                Steam = config.Steam,
+                Epic = config.Epic,
+                Xbox = config.Xbox,
+                BattleNet = config.BattleNet,
+                Riot = config.Riot
             };
         }
 
@@ -378,7 +413,8 @@ public static class ScheduledPrefillConfigFactory
             OperatingSystems = service.OperatingSystems,
             Force = service.Force,
             MaxConcurrency = service.MaxConcurrency,
-            PersistenceMode = service.PersistenceMode
+            PersistenceMode = service.PersistenceMode,
+            CustomSchedule = service.CustomSchedule
         };
     }
 
@@ -406,7 +442,8 @@ public static class ScheduledPrefillConfigFactory
             OperatingSystems = service.OperatingSystems,
             Force = service.Force,
             MaxConcurrency = service.MaxConcurrency,
-            PersistenceMode = service.PersistenceMode
+            PersistenceMode = service.PersistenceMode,
+            CustomSchedule = service.CustomSchedule
         };
     }
 
@@ -460,7 +497,8 @@ public static class ScheduledPrefillConfigFactory
             OperatingSystems = service.OperatingSystems,
             Force = service.Force,
             MaxConcurrency = service.MaxConcurrency,
-            PersistenceMode = service.PersistenceMode
+            PersistenceMode = service.PersistenceMode,
+            CustomSchedule = service.CustomSchedule
         };
     }
 
@@ -489,7 +527,8 @@ public static class ScheduledPrefillConfigFactory
                 : new List<ScheduledPrefillOperatingSystem>(),
             Force = false,
             MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto },
-            PersistenceMode = null
+            PersistenceMode = null,
+            CustomSchedule = null
         };
     }
 
@@ -614,7 +653,8 @@ public static class ScheduledPrefillConfigFactory
             OperatingSystems = service.OperatingSystems,
             Force = service.Force,
             MaxConcurrency = service.MaxConcurrency,
-            PersistenceMode = service.PersistenceMode
+            PersistenceMode = service.PersistenceMode,
+            CustomSchedule = service.CustomSchedule
         };
     }
 
@@ -681,7 +721,8 @@ public static class ScheduledPrefillConfigFactory
             OperatingSystems = service.OperatingSystems.Where(supportedOperatingSystems.Contains).ToList(),
             Force = service.Force,
             MaxConcurrency = service.MaxConcurrency,
-            PersistenceMode = service.PersistenceMode
+            PersistenceMode = service.PersistenceMode,
+            CustomSchedule = service.CustomSchedule
         };
     }
 
@@ -785,6 +826,18 @@ public static class ScheduledPrefillConfigFactory
         {
             throw new ScheduledPrefillConfigValidationException(
                 $"{expectedServiceId} IntervalHours must be -1 (run on startup), 0 (paused), or between 0 (exclusive) and {MaxIntervalHours} hours.");
+        }
+
+        // A custom schedule takes over from the interval entirely, so an unusable one does not fall
+        // back to anything - it just stops the service running. ScheduleTiming.Validate catches the
+        // silent cases here, at save time: an expression this server cannot read, a Windows timezone
+        // name that would not resolve in the container, a half-set window, and an expression whose
+        // occurrences can never land inside the window it was given.
+        if (service.CustomSchedule is { } customSchedule
+            && ScheduleTiming.Validate(customSchedule) is { } scheduleProblem)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{expectedServiceId} custom schedule is not usable. {scheduleProblem}");
         }
 
         if (service.SelectedAppIds is null)

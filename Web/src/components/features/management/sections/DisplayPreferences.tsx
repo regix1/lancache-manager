@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Brush, Bell, Database, Calendar } from 'lucide-react';
+import { Brush, Bell, Database } from 'lucide-react';
 import { Checkbox } from '@components/ui/Checkbox';
 import preferencesService from '@services/preferences.service';
 import themeService from '@services/theme.service';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
-import { useTimezone } from '@contexts/useTimezone';
-import { setGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
 import { APP_EVENTS } from '@utils/constants';
 
 interface PreferenceRowProps {
@@ -71,7 +69,6 @@ const PreferenceSection: React.FC<PreferenceSectionProps> = ({
 const DisplayPreferences: React.FC = () => {
   const { t } = useTranslation();
   const { currentPreferences } = useSessionPreferences();
-  const { forceRefresh } = useTimezone();
 
   // Visual preferences
   const [sharpCorners, setSharpCorners] = useState(false);
@@ -84,9 +81,6 @@ const DisplayPreferences: React.FC = () => {
   // Downloads preferences
   const [showDatasourceLabels, setShowDatasourceLabels] = useState(true);
 
-  // Date & Time preferences
-  const [alwaysShowYear, setAlwaysShowYear] = useState(false);
-
   // Initialize from SessionPreferencesContext when preferences are loaded
   useEffect(() => {
     if (currentPreferences) {
@@ -95,7 +89,6 @@ const DisplayPreferences: React.FC = () => {
       setDisableStickyNotifications(currentPreferences.disableStickyNotifications);
       setPicsAlwaysVisible(currentPreferences.picsAlwaysVisible);
       setShowDatasourceLabels(currentPreferences.showDatasourceLabels);
-      setAlwaysShowYear(currentPreferences.showYearInDates);
     }
   }, [currentPreferences]);
 
@@ -119,9 +112,6 @@ const DisplayPreferences: React.FC = () => {
           break;
         case 'showDatasourceLabels':
           setShowDatasourceLabels(value);
-          break;
-        case 'showYearInDates':
-          setAlwaysShowYear(value);
           break;
       }
     };
@@ -155,16 +145,6 @@ const DisplayPreferences: React.FC = () => {
     setShowDatasourceLabels(checked);
     await preferencesService.setPreference('showDatasourceLabels', checked);
   }, []);
-
-  const handleAlwaysShowYearChange = useCallback(
-    async (checked: boolean) => {
-      setAlwaysShowYear(checked);
-      setGlobalAlwaysShowYearPreference(checked);
-      forceRefresh();
-      await preferencesService.setPreference('showYearInDates', checked);
-    },
-    [forceRefresh]
-  );
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -222,21 +202,6 @@ const DisplayPreferences: React.FC = () => {
           description={t('management.sections.displayPreferences.showDatasourceLabelsDesc')}
           checked={showDatasourceLabels}
           onChange={handleDatasourceLabelsChange}
-        />
-      </PreferenceSection>
-
-      {/* Date & Time Settings */}
-      <PreferenceSection
-        icon={Calendar}
-        title={t('management.sections.displayPreferences.dateTime')}
-        iconBgVar="--theme-icon-green"
-        iconColorVar="--theme-icon-green"
-      >
-        <PreferenceRow
-          label={t('management.sections.displayPreferences.alwaysShowYear')}
-          description={t('management.sections.displayPreferences.alwaysShowYearDesc')}
-          checked={alwaysShowYear}
-          onChange={handleAlwaysShowYearChange}
         />
       </PreferenceSection>
     </div>

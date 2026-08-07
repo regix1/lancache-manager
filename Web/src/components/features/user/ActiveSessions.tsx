@@ -506,7 +506,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         showDatasourceLabels: prefs.showDatasourceLabels,
         useLocalTimezone: prefs.useLocalTimezone,
         use24HourFormat: prefs.use24HourFormat,
-        showYearInDates: prefs.showYearInDates,
         refreshRate: prefs.refreshRate ?? null,
         refreshRateLocked: prefs.refreshRateLocked ?? null,
         allowedTimeFormats: prefs.allowedTimeFormats,
@@ -2351,28 +2350,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         })}
                   </p>
                 </div>
-
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editingPreferences.showYearInDates}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setEditingPreferences({
-                        ...editingPreferences,
-                        showYearInDates: e.target.checked
-                      })
-                    }
-                    className="w-4 h-4 rounded accent-themed"
-                  />
-                  <div className="flex flex-col">
-                    <span className="text-sm text-themed-secondary">
-                      {t('user.guest.preferences.showYear.label')}
-                    </span>
-                    <span className="text-xs text-themed-muted">
-                      {t('user.guest.preferences.showYear.description')}
-                    </span>
-                  </div>
-                </label>
               </div>
             </div>
           )}

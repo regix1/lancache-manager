@@ -117,8 +117,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         var bypassDueCheck = CurrentRunTrigger == RunTrigger.Manual;
         var now = DateTime.UtcNow;
 
-        // Build the DUE set: each enabled service whose own IntervalHours + persisted last-run says it
-        // should run this tick (or every enabled service when a manual run bypassed the due-check).
+        // Build the DUE set: each enabled service whose own custom schedule (when it has one) or
+        // IntervalHours, plus its persisted last-run, says it should run this tick (or every enabled
+        // service when a manual run bypassed the due-check).
         var dueServices = new List<ScheduledPrefillServiceConfigDto>();
         foreach (var serviceConfig in config.GetEnabledServicesInRunOrder())
         {
@@ -130,7 +131,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
             var lastRun = _stateService.GetScheduledPrefillServiceLastRun(serviceConfig.ServiceId.ToString());
             var hasRunThisProcess = _ranThisProcess.Contains(serviceConfig.ServiceId);
-            if (ScheduledPrefillRunGates.IsServiceDue(serviceConfig.IntervalHours, lastRun, now, hasRunThisProcess))
+            if (ScheduledPrefillRunGates.IsServiceDue(serviceConfig.IntervalHours, lastRun, now, hasRunThisProcess, serviceConfig.CustomSchedule))
             {
                 dueServices.Add(serviceConfig);
             }

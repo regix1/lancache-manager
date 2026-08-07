@@ -997,10 +997,6 @@
         }
       },
       "preferences": {
-        "showYear": {
-          "label": "Always Show Year",
-          "description": "Include year in dates even for current year"
-        },
         "sharpCorners": {
           "label": "Sharp Corners",
           "description": "Square instead of rounded"
@@ -2245,10 +2241,7 @@
         "keepNotificationsVisibleDesc": "Disable auto-dismiss for all notifications until manually closed",
         "downloads": "Downloads",
         "showDatasourceLabels": "Show Datasource Labels",
-        "showDatasourceLabelsDesc": "Display datasource info when multiple sources",
-        "dateTime": "Date & Time",
-        "alwaysShowYear": "Always Show Year",
-        "alwaysShowYearDesc": "Include year in dates even for current year"
+        "showDatasourceLabelsDesc": "Display datasource info when multiple sources"
       },
       "integrations": {
         "daemon": {
@@ -3709,6 +3702,7 @@
       "runOnStartupTooltip": "When enabled, this service runs once when the app starts in addition to its scheduled interval.",
       "runOnStartupUpdated": "{{service}} run-on-startup updated",
       "runOnStartupFailed": "Failed to update run-on-startup for {{service}}",
+      "customScheduleFailed": "Failed to update the custom schedule for {{service}}",
       "toggleOff": "Off",
       "toggleOn": "On",
       "notificationsLabel": "Notifications",
@@ -3755,6 +3749,79 @@
         "apply": "Apply",
         "aria": "Custom interval in minutes (1 to 59)"
       },
+      "customSchedule": {
+        "optionLabel": "Custom schedule…",
+        "savedLabel": "Custom schedule",
+        "title": "Custom schedule",
+        "repeat": {
+          "legend": "Repeat",
+          "hourly": "Hourly",
+          "daily": "Daily",
+          "weekly": "Weekly",
+          "monthly": "Monthly",
+          "everyNHours": "Hours between runs",
+          "atTime": "Time",
+          "atMinute": "Minute past the hour",
+          "clockLabel": "Clock",
+          "clock24": "24h",
+          "clock12": "12h",
+          "onDays": "Days",
+          "onDayOfMonth": "Day of the month"
+        },
+        "weekdays": {
+          "mon": "Monday",
+          "tue": "Tuesday",
+          "wed": "Wednesday",
+          "thu": "Thursday",
+          "fri": "Friday",
+          "sat": "Saturday",
+          "sun": "Sunday",
+          "separator": ", "
+        },
+        "window": {
+          "toggle": "Only start between certain hours",
+          "help": "A run has to start inside this window. One that is still going when the window closes is left to finish.",
+          "from": "From",
+          "to": "To"
+        },
+        "preview": {
+          "title": "When this runs",
+          "sentence": "{{repeat}}, at {{time}}.",
+          "sentence_window": "{{repeat}}, at {{time}}, but only between {{windowStart}} and {{windowEnd}}.",
+          "sentence_hourly": "Every {{hours}}h, at minute {{minute}}.",
+          "sentence_hourly_window": "Every {{hours}}h, at minute {{minute}}, but only between {{windowStart}} and {{windowEnd}}.",
+          "sentence_daily": "Every day at {{time}}.",
+          "sentence_daily_window": "Every day at {{time}}, but only between {{windowStart}} and {{windowEnd}}.",
+          "sentence_weekly": "Every {{days}} at {{time}}.",
+          "sentence_weekly_window": "Every {{days}} at {{time}}, but only between {{windowStart}} and {{windowEnd}}.",
+          "sentence_monthly": "On day {{dayOfMonth}} of each month, at {{time}}.",
+          "sentence_monthly_window": "On day {{dayOfMonth}} of each month, at {{time}}, but only between {{windowStart}} and {{windowEnd}}.",
+          "nextRuns": "Next runs",
+          "never": "This never runs: {{time}} is outside the {{windowStart}} to {{windowEnd}} window.",
+          "needsDay": "Pick at least one day of the week."
+        },
+        "timezone": {
+          "server": "Times are in {{zone}}, the server's timezone.",
+          "browserDiffers": "Your browser is in {{zone}}, which is {{offset}} hours from the server."
+        },
+        "advanced": {
+          "toggle": "Advanced",
+          "expressionLabel": "Cron expression",
+          "positions": {
+            "minute": "Minute",
+            "hour": "Hour",
+            "dayOfMonth": "Day of month",
+            "month": "Month",
+            "weekday": "Day of week"
+          },
+          "readoutLabel": "Runs at",
+          "readoutUnknown": "Not a valid time yet",
+          "invalid": "That is not a valid cron expression.",
+          "notRepresentable": "This expression is kept exactly as typed. The controls above cannot express it, so they stay switched off until you change one."
+        },
+        "save": "Save",
+        "cancel": "Cancel"
+      },
       "services": {
         "depotMapping": {
           "displayName": "Steam Game Mapping",
@@ -3799,7 +3866,8 @@
               "inDays": "in {{count}}d",
               "soon": "soon",
               "paused": "paused",
-              "startupOnly": "on startup"
+              "startupOnly": "on startup",
+              "customSchedule": "custom schedule"
             },
             "configure": "Configure",
             "modalTitle": "Configure Scheduled Prefill",

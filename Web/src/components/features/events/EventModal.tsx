@@ -6,6 +6,7 @@ import { Button } from '@components/ui/Button';
 import { useEvents } from '@contexts/useEvents';
 import { useTimezone } from '@contexts/useTimezone';
 import { useTimeFilter } from '@contexts/useTimeFilter';
+import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';
 import DateTimePicker from '@components/common/DateTimePicker';
@@ -65,19 +66,13 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
   // Format date/time for display
   const formatDateTime = (date: Date): string => {
-    const dateStr = date.toLocaleDateString(undefined, {
-      timeZone: timezone,
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-    const timeStr = date.toLocaleTimeString(undefined, {
-      timeZone: timezone,
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: !use24HourFormat
-    });
+    const settings: TimestampSettings = {
+      useLocalTimezone,
+      use24Hour: use24HourFormat,
+      forceYear: false
+    };
+    const dateStr = formatTimestamp(date, { ...settings, style: 'dateOnly' });
+    const timeStr = formatTimestamp(date, { ...settings, style: 'timeOnly' });
     return t('events.modal.dateAt', { date: dateStr, time: timeStr });
   };
 

@@ -94,6 +94,19 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
             ServiceName, newInterval.TotalHours);
     }
 
+    /// <inheritdoc />
+    protected override void WakeForScheduleChange()
+    {
+        lock (_intervalLock)
+        {
+            // Reuses the flag an interval change already owns: both mean "the sleep you are in was
+            // computed from a value that has since changed", and the loop's response is the same.
+            _intervalJustChanged = true;
+
+            CancelIntervalDelay();
+        }
+    }
+
     /// <summary>
     /// Cancels the sleep this loop is currently in. Taken under the interval lock so an interval
     /// change and the wake it triggers are seen together; the lock is reentrant, so callers that
@@ -155,6 +168,9 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
         while (!stoppingToken.IsCancellationRequested)
         {
             var interval = ConfiguredInterval;
+            var schedule = ConfiguredCustomSchedule;
+
+            var workIsDue = IsWorkDue(schedule, interval);
 
             // A pending manual run must always be honored this iteration, even if it lands
             // alongside an interval change or the skip-first-execution pass, and even while the
@@ -178,7 +194,7 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                 skipFirstExecution = false;
                 _logger.LogInformation("{ServiceName} skipping startup run (RunOnStartup is false)", ServiceName);
             }
-            else if (manualPending || interval > TimeSpan.Zero)
+            else if (manualPending || workIsDue)
             {
                 _intervalJustChanged = false;
                 skipFirstExecution = false;
@@ -202,8 +218,7 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                     // next-run instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
                     // authoritatively; this only keeps the END snapshot from shipping a stale countdown.
                     // (Ignored by services like ScheduledPrefill whose card derives timing elsewhere.)
-                    var nextInterval = ConfiguredInterval;
-                    NextRunUtc = nextInterval > TimeSpan.Zero ? DateTime.UtcNow + nextInterval : null;
+                    NextRunUtc = ComputeNextRun(ConfiguredCustomSchedule, ConfiguredInterval);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -266,11 +281,33 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                 continue;
             }
 
-            // Sleep for the configured interval (or indefinitely if disabled)
+            // Sleep until the next run (or indefinitely if disabled)
             // Use a linked CTS so UpdateInterval() can wake us up
             interval = ConfiguredInterval;
-            var sleepDuration = interval > TimeSpan.Zero ? interval : Timeout.InfiniteTimeSpan;
-            NextRunUtc = interval > TimeSpan.Zero ? DateTime.UtcNow + interval : null;
+            schedule = ConfiguredCustomSchedule;
+            NextRunUtc = ComputeNextRun(schedule, interval);
+
+            // A custom schedule names an absolute instant, so sleep until that instant rather than for
+            // a duration measured from now. An interval restarts its countdown at process start, which
+            // shifts every later run by however long the app was down; a schedule lands on the same
+            // wall-clock time whether or not a restart happened in between.
+            TimeSpan sleepDuration;
+            if (schedule is not null && NextRunUtc is not null)
+            {
+                sleepDuration = TimeUntil(NextRunUtc.Value);
+            }
+            else
+            {
+                // A schedule with no next run at all cannot be waited for. Fall back to the ordinary
+                // interval sleep so the loop idles instead of recomputing the same null in a tight
+                // loop, and it still wakes the moment the schedule or interval is changed.
+                if (schedule is not null)
+                {
+                    WarnScheduleNeverFires(schedule);
+                }
+
+                sleepDuration = interval > TimeSpan.Zero ? interval : Timeout.InfiniteTimeSpan;
+            }
 
             CancellationTokenSource? linkedCts = null;
             try

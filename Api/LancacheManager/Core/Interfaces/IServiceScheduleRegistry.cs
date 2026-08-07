@@ -1,3 +1,4 @@
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Interfaces;
@@ -16,6 +17,14 @@ public interface IServiceScheduleRegistry
     /// <see cref="SetNotificationMode"/>.
     /// </summary>
     void SetNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode);
+
+    /// <summary>
+    /// Sets the custom schedule that decides when the service runs, or clears it with <c>null</c> so
+    /// the service returns to its interval. Returns false when the key names a service whose loop
+    /// cannot honour a schedule, in which case nothing is stored: a schedule the UI shows as active
+    /// while the service keeps running on its old interval is worse than refusing to save one.
+    /// </summary>
+    bool SetCustomSchedule(string serviceKey, CustomSchedule? schedule);
 
     /// <summary>
     /// Triggers an immediate run of the service, bypassing the scheduled interval, and reports the

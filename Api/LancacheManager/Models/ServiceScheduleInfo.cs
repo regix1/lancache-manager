@@ -1,3 +1,5 @@
+using LancacheManager.Infrastructure.Services.Scheduling;
+
 namespace LancacheManager.Models;
 
 public class ServiceScheduleInfo
@@ -11,6 +13,13 @@ public class ServiceScheduleInfo
     public NotificationMode NotificationMode { get; set; }
     public bool SupportsNotifications { get; set; }
     public NotificationDisplayMode NotificationDisplayMode { get; set; }
+
+    /// <summary>
+    /// The custom schedule driving this service, or null when it runs on <see cref="IntervalHours"/>.
+    /// When one is set it decides the next run outright and the interval is only what the service
+    /// falls back to once the schedule is cleared, so the UI must read this before the interval.
+    /// </summary>
+    public CustomSchedule? CustomSchedule { get; set; }
 
     /// <summary>
     /// Set only on the Steam depot mapping schedule, and only while the scheduler has abandoned an

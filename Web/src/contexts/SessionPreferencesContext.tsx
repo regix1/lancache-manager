@@ -6,11 +6,7 @@ import type {
   UserPreferencesUpdatedEvent,
   DefaultGuestThemeChangedEvent
 } from './SignalRContext/types';
-import {
-  getCorrectedTimezone,
-  getCorrectedValue,
-  hasPendingPreference
-} from '@utils/pendingPreferences';
+import { getCorrectedTimezone } from '@utils/pendingPreferences';
 import {
   DEFAULT_GUEST_PREFERENCE_KEYS,
   shouldApplyGuestDefaultChange
@@ -30,7 +26,6 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   useLocalTimezone: false,
   use24HourFormat: true,
   showDatasourceLabels: true,
-  showYearInDates: false,
   refreshRate: null,
   refreshRateLocked: null,
   allowedTimeFormats: null
@@ -118,7 +113,6 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
           showDatasourceLabels: prefs.showDatasourceLabels ?? true,
           useLocalTimezone: prefs.useLocalTimezone ?? false,
           use24HourFormat: prefs.use24HourFormat ?? true,
-          showYearInDates: prefs.showYearInDates ?? false,
           refreshRate: prefs.refreshRate ?? null,
           refreshRateLocked: prefs.refreshRateLocked ?? null,
           allowedTimeFormats: prefs.allowedTimeFormats ?? null
@@ -171,15 +165,10 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       // For the current session, correct stale values from SignalR race conditions
       const incomingUseLocal = newPrefs.useLocalTimezone;
       const incomingUse24Hour = newPrefs.use24HourFormat;
-      const incomingShowYear = newPrefs.showYearInDates;
 
       const { useLocal: useLocalTimezone, use24Hour: use24HourFormat } = isCurrentSession
         ? getCorrectedTimezone(incomingUseLocal, incomingUse24Hour)
         : { useLocal: incomingUseLocal, use24Hour: incomingUse24Hour };
-
-      const showYearInDates = isCurrentSession
-        ? getCorrectedValue('showYearInDates', incomingShowYear)
-        : incomingShowYear;
 
       const normalizedPrefs: UserPreferences = {
         selectedTheme: newPrefs.selectedTheme || null,
@@ -191,7 +180,6 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         showDatasourceLabels: newPrefs.showDatasourceLabels,
         useLocalTimezone,
         use24HourFormat,
-        showYearInDates,
         refreshRate: newPrefs.refreshRate ?? null,
         refreshRateLocked: newPrefs.refreshRateLocked ?? null,
         allowedTimeFormats: newPrefs.allowedTimeFormats ?? null
@@ -206,7 +194,6 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         const keysToCheck: (keyof UserPreferences)[] = [
           'useLocalTimezone',
           'use24HourFormat',
-          'showYearInDates',
           'selectedTheme',
           'sharpCorners',
           'disableTooltips',
@@ -217,11 +204,6 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         ];
 
         keysToCheck.forEach((key) => {
-          // Skip dispatching showYearInDates during cooldown - already handled optimistically
-          if (key === 'showYearInDates' && hasPendingPreference('showYearInDates')) {
-            return;
-          }
-
           if (baseline[key] !== normalizedPrefs[key]) {
             window.dispatchEvent(
               new CustomEvent(APP_EVENTS.PREFERENCE_CHANGED, {

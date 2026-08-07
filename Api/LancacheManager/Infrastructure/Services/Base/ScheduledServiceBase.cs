@@ -1,4 +1,5 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services.Base;
@@ -197,6 +198,12 @@ public abstract class ScheduledServiceBase : BackgroundService
         {
             SetNotificationMode(savedNotificationMode.Value);
         }
+
+        var savedCustomSchedule = stateService.GetServiceCustomSchedule(serviceKey);
+        if (savedCustomSchedule is not null)
+        {
+            UpdateCustomSchedule(savedCustomSchedule);
+        }
     }
 
     /// <summary>
@@ -204,6 +211,116 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// interval setter, which differ in what they treat as the default to fall back to.
     /// </summary>
     protected abstract void ApplyLoadedInterval(TimeSpan interval);
+
+    private readonly object _customScheduleLock = new();
+    private CustomSchedule? _customSchedule;
+    private volatile bool _unreachableScheduleLogged;
+
+    /// <summary>
+    /// Custom schedule currently driving this service, or null when it runs on its plain interval. A
+    /// schedule wins outright over the interval, and the interval is left untouched so clearing the
+    /// schedule puts the service straight back on the cadence it had.
+    /// Thread-safe: the loop reads it every iteration while an HTTP save writes it.
+    /// </summary>
+    public CustomSchedule? ConfiguredCustomSchedule
+    {
+        get { lock (_customScheduleLock) return _customSchedule; }
+    }
+
+    /// <summary>
+    /// Sets or clears the custom schedule at runtime, waking the loop so the change takes effect
+    /// immediately rather than after the sleep computed from the previous value. Public because the
+    /// schedule registry already holds the typed service instance and can apply the value straight
+    /// through, and because both loop bases expose the same setter.
+    /// </summary>
+    public void UpdateCustomSchedule(CustomSchedule? schedule)
+    {
+        lock (_customScheduleLock)
+        {
+            _customSchedule = schedule;
+            // Re-arm the never-fires warning so a corrected schedule that still cannot fire says so
+            // again instead of staying silent behind the previous one.
+            _unreachableScheduleLogged = false;
+        }
+
+        WakeForScheduleChange();
+
+        if (schedule is null)
+        {
+            _logger.LogInformation("{ServiceName} custom schedule cleared, back on its interval", ServiceName);
+        }
+        else
+        {
+            _logger.LogInformation("{ServiceName} custom schedule set to '{Expression}' ({TimeZoneId})",
+                ServiceName, schedule.Expression, schedule.TimeZoneId);
+        }
+    }
+
+    /// <summary>
+    /// Tells the loop that the value its current sleep was computed from has changed: the loop must
+    /// skip work on the wake this causes and re-sleep on the new value. Each loop owns its own flag
+    /// and delay source, which is why this cannot live here.
+    /// </summary>
+    protected abstract void WakeForScheduleChange();
+
+    /// <summary>
+    /// The instant this service should next run: the custom schedule's next occurrence when one is
+    /// set, otherwise the interval counted from now. Null means nothing is scheduled - the service is
+    /// paused (interval at or below zero), or the schedule can never fire again.
+    /// </summary>
+    protected static DateTime? ComputeNextRun(CustomSchedule? schedule, TimeSpan interval)
+    {
+        if (schedule is not null)
+        {
+            return ScheduleTiming.ComputeNextRun(schedule, DateTime.UtcNow);
+        }
+
+        return interval > TimeSpan.Zero ? DateTime.UtcNow + interval : null;
+    }
+
+    /// <summary>
+    /// How long to wait until <paramref name="nextRunUtc"/>, never negative. The next run and this
+    /// wait read the clock a moment apart, so an occurrence that has just passed clamps to zero rather
+    /// than asking for a negative delay.
+    /// </summary>
+    protected static TimeSpan TimeUntil(DateTime nextRunUtc)
+    {
+        var remaining = nextRunUtc - DateTime.UtcNow;
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+    }
+
+    /// <summary>
+    /// Whether this iteration may do work. A schedule replaces the interval outright, so a service
+    /// that has one is gated on whether the schedule can fire at all rather than on its interval: a
+    /// loop only reaches its work branch after sleeping to an occurrence, while a schedule with no
+    /// next run (an expression that can never land inside its own window) idles on the ordinary
+    /// interval sleep instead. Testing the interval in that case would run the work on exactly the
+    /// schedule the user set to stop it.
+    /// </summary>
+    protected static bool IsWorkDue(CustomSchedule? schedule, TimeSpan interval)
+    {
+        return schedule is not null
+            ? ScheduleTiming.ComputeNextRun(schedule, DateTime.UtcNow) is not null
+            : interval > TimeSpan.Zero;
+    }
+
+    /// <summary>
+    /// Warns, at most once per schedule, that a schedule has no next run at all - an expression with
+    /// no future occurrence, or one that can never land inside its own window. A loop reaches this on
+    /// every wake, so warning per iteration would fill the log while the service sits idle.
+    /// </summary>
+    protected void WarnScheduleNeverFires(CustomSchedule schedule)
+    {
+        if (_unreachableScheduleLogged)
+        {
+            return;
+        }
+
+        _unreachableScheduleLogged = true;
+        _logger.LogWarning(
+            "{ServiceName} custom schedule '{Expression}' ({TimeZoneId}) has no next run and will not fire until it is changed",
+            ServiceName, schedule.Expression, schedule.TimeZoneId);
+    }
 
     /// <summary>
     /// Safely delay, catching cancellation exceptions.

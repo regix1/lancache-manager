@@ -338,9 +338,11 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
       download.id,
       download.service,
       download.clientIp,
-      // Format timestamps using the formatDateTime utility (respects timezone preference)
-      download.startTimeUtc ? formatDateTime(download.startTimeUtc) : '',
-      download.endTimeUtc ? formatDateTime(download.endTimeUtc) : '',
+      // Format timestamps using the formatDateTime utility (respects timezone preference).
+      // Keep seconds here: this is a data file someone may sort or diff, and short downloads
+      // start and end inside the same minute.
+      download.startTimeUtc ? formatDateTime(download.startTimeUtc, false, 'log') : '',
+      download.endTimeUtc ? formatDateTime(download.endTimeUtc, false, 'log') : '',
       download.cacheHitBytes,
       download.cacheMissBytes,
       download.totalBytes,
@@ -411,9 +413,8 @@ const DownloadsTab: React.FC = () => {
   //   1. Read the last-known-good value from localStorage - this survives REST failures so a
   //      user who previously opted into 'show'/'showClean' keeps seeing evicted rows even if
   //      /api/state/get-evicted-data-mode starts returning 500.
-  //   2. Fall back to 'hide' when nothing is cached (safe default - see worker-u1-results.md:
-  //      first paint hides evicted rows to prevent the "badge flashes then disappears" flicker
-  //      in unlimited-pagination mode).
+  //   2. Fall back to 'hide' when nothing is cached: first paint hides evicted rows so the
+  //      badge does not flash and then disappear in unlimited-pagination mode.
   //   3. On REST success, persist the response to localStorage for the next mount.
   //   4. On REST failure, keep the cached value (no overwrite) and warn to console.
   const readCachedEvictedDataMode = (): EvictedDataMode => {

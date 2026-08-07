@@ -8,7 +8,6 @@ export interface UserPreferences {
   useLocalTimezone: boolean;
   use24HourFormat: boolean;
   showDatasourceLabels: boolean;
-  showYearInDates: boolean;
   refreshRate?: string | null;
   refreshRateLocked?: boolean | null;
   allowedTimeFormats?: string[] | null;

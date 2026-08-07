@@ -3,8 +3,7 @@ export const DEFAULT_GUEST_PREFERENCE_KEYS = new Set([
   'use24HourFormat',
   'sharpCorners',
   'disableTooltips',
-  'showDatasourceLabels',
-  'showYearInDates'
+  'showDatasourceLabels'
 ]);
 
 interface DefaultGuestPreferencesSnapshot {
@@ -13,7 +12,6 @@ interface DefaultGuestPreferencesSnapshot {
   sharpCorners: boolean;
   disableTooltips: boolean;
   showDatasourceLabels: boolean;
-  showYearInDates: boolean;
   allowedTimeFormats: string[];
 }
 
@@ -24,7 +22,6 @@ interface SessionPrefsForGate {
   sharpCorners: boolean;
   disableTooltips: boolean;
   showDatasourceLabels: boolean;
-  showYearInDates: boolean;
   allowedTimeFormats?: string[] | null;
 }
 

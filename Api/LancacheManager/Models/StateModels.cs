@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models.Responses;
 
 namespace LancacheManager.Models;
@@ -46,7 +47,6 @@ public class AppState
     public bool DefaultGuestSharpCorners { get; set; } = false;
     public bool DefaultGuestDisableTooltips { get; set; } = false;
     public bool DefaultGuestShowDatasourceLabels { get; set; } = true;
-    public bool DefaultGuestShowYearInDates { get; set; } = false;
 
     // Allowed time formats for guests (e.g., ["server-24h", "server-12h", "local-24h", "local-12h"])
     // If empty or null, all formats are allowed
@@ -138,6 +138,12 @@ public class AppState
     // Absent key = use the service's hardcoded DefaultNotificationMode. The user controls this via
     // the Schedules UI and the value is loaded by each service in its constructor.
     public Dictionary<string, NotificationMode> ServiceNotificationMode { get; set; } = new();
+
+    // Per-service custom schedules (keyed by ServiceKey). Absent key = the service runs on its
+    // interval exactly as before; a present one replaces the interval as the source of the next run
+    // time. Stored beside ServiceIntervals rather than inside it because the interval is kept intact,
+    // so clearing the schedule puts the service straight back on the cadence it had.
+    public Dictionary<string, CustomSchedule> ServiceCustomSchedule { get; set; } = new();
 
     // Per-service notification-DISPLAY-mode overrides (keyed by ServiceKey): full card vs condensed
     // status line in the universal notification bar. Absent key = Full. Pure UI display state - no

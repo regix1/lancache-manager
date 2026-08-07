@@ -1,4 +1,5 @@
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services.ScheduledPrefill;
@@ -127,9 +128,29 @@ public static class ScheduledPrefillRunGates
     /// process); <c>0</c> (or any non-<c>-1</c> value <c>&lt;= 0</c>) = paused, never due; a positive
     /// value = recurring, due when never run or once <paramref name="nowUtc"/> has reached
     /// <c>lastRun + intervalHours</c>. The caller pre-filters on the master <c>Enabled</c> flag.
+    /// A non-null <paramref name="schedule"/> replaces that convention entirely: the service is due
+    /// once an occurrence of the schedule has gone by since its last run, and the interval value is
+    /// ignored (it stays on the record so clearing the schedule restores the old cadence).
     /// </summary>
-    public static bool IsServiceDue(double intervalHours, DateTime? lastRunUtc, DateTime nowUtc, bool hasRunThisProcess)
+    public static bool IsServiceDue(double intervalHours, DateTime? lastRunUtc, DateTime nowUtc, bool hasRunThisProcess, CustomSchedule? schedule = null)
     {
+        // A custom schedule wins outright over the interval, and it is answered BEFORE the
+        // null-lastRun early return below. A freshly saved custom schedule arrives here with no
+        // last-run stamp yet, and that early return would treat it as due on the very next
+        // one-minute poll instead of at its first real occurrence. With no stamp there is also no
+        // point to measure "has an occurrence gone by since?" from, so it waits for the save-time
+        // anchor rather than guessing.
+        if (schedule is not null)
+        {
+            if (lastRunUtc is null)
+            {
+                return false;
+            }
+
+            var nextRun = ScheduleTiming.ComputeNextRun(schedule, lastRunUtc.Value);
+            return nextRun is not null && nowUtc >= nextRun.Value;
+        }
+
         if (intervalHours == -1d)
         {
             return !hasRunThisProcess;
@@ -151,10 +172,21 @@ public static class ScheduledPrefillRunGates
     /// <summary>
     /// Computes the next scheduled run time for the per-service schedule view: <c>lastRun + interval</c>
     /// for a recurring service that has run at least once; <c>null</c> when the service is paused
-    /// (<c>&lt;= 0</c>, which also covers startup-only <c>-1</c>) or has never run.
+    /// (<c>&lt;= 0</c>, which also covers startup-only <c>-1</c>) or has never run. A non-null
+    /// <paramref name="schedule"/> is answered first and returns the schedule's own next occurrence,
+    /// so a service running on one still shows a next run whatever its interval value happens to be.
     /// </summary>
-    public static DateTime? ComputeNextRunUtc(double intervalHours, DateTime? lastRunUtc)
+    public static DateTime? ComputeNextRunUtc(double intervalHours, DateTime? lastRunUtc, CustomSchedule? schedule = null)
     {
+        // Answered before the interval guards below, which return null for every value <= 0 - the
+        // startup-only -1 included. A service that keeps a paused or startup-only interval while it
+        // runs on a custom schedule would otherwise show no next run at all. With no last run to
+        // measure from, the first occurrence after now is the honest answer.
+        if (schedule is not null)
+        {
+            return ScheduleTiming.ComputeNextRun(schedule, lastRunUtc ?? DateTime.UtcNow);
+        }
+
         if (intervalHours <= 0d)
         {
             return null;
@@ -176,9 +208,12 @@ public static class ScheduledPrefillRunGates
     /// re-anchors a service that was already enabled, so a genuine past run is preserved and an
     /// interval change recomputes from the real last-run. Paused (<c>0</c>) and startup-only
     /// (<c>-1</c>) services are never anchored. The manual "Run Now" path stays the only instant run.
+    /// A service with a <paramref name="schedule"/> anchors whatever its interval value says: the
+    /// stamp is what tells <see cref="IsServiceDue"/> that occurrences before the save do not count,
+    /// and without it a custom schedule left on a paused or startup-only interval never becomes due.
     /// </summary>
-    public static bool ShouldAnchorFirstRunOnSave(bool enabled, double intervalHours, bool hasExistingLastRun, bool wasEnabledBefore)
-        => enabled && intervalHours > 0d && (!hasExistingLastRun || !wasEnabledBefore);
+    public static bool ShouldAnchorFirstRunOnSave(bool enabled, double intervalHours, bool hasExistingLastRun, bool wasEnabledBefore, CustomSchedule? schedule = null)
+        => enabled && (schedule is not null || intervalHours > 0d) && (!hasExistingLastRun || !wasEnabledBefore);
 
     /// <summary>
     /// Initial-seed rule for the non-save paths that also reach <see cref="IsServiceDue"/> with a null
@@ -189,10 +224,12 @@ public static class ScheduledPrefillRunGates
     /// enabled service already has a key) is never re-anchored and its schedule never shifts. Unlike
     /// <see cref="ShouldAnchorFirstRunOnSave"/> there is deliberately NO disabled-&gt;enabled re-anchor here
     /// (that transition only exists for an explicit save): with a key already present this must return
-    /// false. Paused (<c>0</c>) and startup-only (<c>-1</c>) services are never anchored.
+    /// false. Paused (<c>0</c>) and startup-only (<c>-1</c>) services are never anchored, and a
+    /// service with a <paramref name="schedule"/> is seeded on the same terms as a positive interval
+    /// for the reason given on <see cref="ShouldAnchorFirstRunOnSave"/>.
     /// </summary>
-    public static bool ShouldAnchorFirstRunOnLoad(bool enabled, double intervalHours, bool hasExistingLastRun)
-        => enabled && intervalHours > 0d && !hasExistingLastRun;
+    public static bool ShouldAnchorFirstRunOnLoad(bool enabled, double intervalHours, bool hasExistingLastRun, CustomSchedule? schedule = null)
+        => enabled && (schedule is not null || intervalHours > 0d) && !hasExistingLastRun;
 
     /// <summary>
     /// Computes the overall outcome of a completed scheduled-prefill pass from per-service result

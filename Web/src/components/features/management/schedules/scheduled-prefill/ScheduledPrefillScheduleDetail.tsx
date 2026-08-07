@@ -16,6 +16,7 @@ import {
 } from './constants';
 import ScheduleIntervalPicker from '../ScheduleIntervalPicker';
 import { formatLastRun } from '../scheduleFormatting';
+import type { CustomSchedule } from '../custom-schedule/types';
 import type { ServiceScheduleInfo } from '../types';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { ScheduledPrefillConfigModal } from './ScheduledPrefillConfigModal';
@@ -28,6 +29,7 @@ import {
 import type {
   ScheduledPrefillConfigDto,
   ScheduledPrefillRowLoginState,
+  ScheduledPrefillServiceConfigDto,
   ScheduledPrefillServiceKey,
   ScheduledPrefillServiceScheduleDto
 } from './types';
@@ -62,6 +64,8 @@ interface ScheduledPrefillServiceScheduleRowProps {
    */
   loginState: ScheduledPrefillRowLoginState | null;
   intervalHours: number;
+  /** The saved cron schedule, which runs in preference to the interval, or null. */
+  customSchedule: CustomSchedule | null;
   /** Relative next-run hint ("in 2d", "soon", "paused", "on startup") from formatTiming. */
   nextTiming: string;
   /** Raw next-run timestamp; non-null only for a real upcoming run (drives the absolute date). */
@@ -69,6 +73,10 @@ interface ScheduledPrefillServiceScheduleRowProps {
   lastRunUtc: string | null;
   disabled: boolean;
   onIntervalChange: (serviceKey: ScheduledPrefillServiceKey, hours: number) => void;
+  onCustomScheduleChange: (
+    serviceKey: ScheduledPrefillServiceKey,
+    schedule: CustomSchedule
+  ) => void;
 }
 
 /**
@@ -86,11 +94,13 @@ function ScheduledPrefillServiceScheduleRow({
   containerRunning,
   loginState,
   intervalHours,
+  customSchedule,
   nextTiming,
   nextRunUtc,
   lastRunUtc,
   disabled,
-  onIntervalChange
+  onIntervalChange,
+  onCustomScheduleChange
 }: ScheduledPrefillServiceScheduleRowProps) {
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
@@ -193,6 +203,8 @@ function ScheduledPrefillServiceScheduleRow({
           intervalHours={intervalHours}
           isDisabled={disabled || !enabled}
           onChange={(hours) => onIntervalChange(serviceKey, hours)}
+          customSchedule={customSchedule}
+          onCustomScheduleChange={(schedule) => onCustomScheduleChange(serviceKey, schedule)}
         />
       </div>
     </div>
@@ -305,10 +317,13 @@ export function ScheduledPrefillScheduleDetail({
     }
   });
 
-  // Card-level per-service interval change. Saves via the same whole-config round-trip the
-  // Configure modal uses; optimistic so the picker never flashes back to the old value.
-  const handleServiceIntervalChange = useCallback(
-    async (serviceKey: ScheduledPrefillServiceKey, hours: number) => {
+  // Card-level per-service save. Goes through the same whole-config round-trip the Configure
+  // modal uses; optimistic so the control never flashes back to the old value.
+  const saveServiceConfig = useCallback(
+    async (
+      serviceKey: ScheduledPrefillServiceKey,
+      patch: Partial<ScheduledPrefillServiceConfigDto>
+    ) => {
       if (!config) {
         return;
       }
@@ -316,7 +331,7 @@ export function ScheduledPrefillScheduleDetail({
       const previous = config;
       const updated: ScheduledPrefillConfigDto = {
         ...config,
-        [serviceKey]: { ...config[serviceKey], intervalHours: hours }
+        [serviceKey]: { ...config[serviceKey], ...patch }
       };
       setConfig(updated);
 
@@ -329,6 +344,22 @@ export function ScheduledPrefillScheduleDetail({
       }
     },
     [config, refreshSchedule]
+  );
+
+  const handleServiceIntervalChange = useCallback(
+    async (serviceKey: ScheduledPrefillServiceKey, hours: number) => {
+      // The schedule clears in the same round-trip. A saved schedule runs in preference to the
+      // interval, so one left behind would swallow the interval the user just picked.
+      await saveServiceConfig(serviceKey, { intervalHours: hours, customSchedule: null });
+    },
+    [saveServiceConfig]
+  );
+
+  const handleServiceCustomScheduleChange = useCallback(
+    async (serviceKey: ScheduledPrefillServiceKey, schedule: CustomSchedule) => {
+      await saveServiceConfig(serviceKey, { customSchedule: schedule });
+    },
+    [saveServiceConfig]
   );
 
   useEffect(() => {
@@ -432,14 +463,22 @@ export function ScheduledPrefillScheduleDetail({
 
   const formatTiming = useCallback(
     (item: ScheduledPrefillServiceScheduleDto): string => {
-      if (item.intervalHours === 0) {
-        return t(`${baseKey}.nextRunSummary.paused`);
-      }
-      if (item.intervalHours === -1) {
-        return t(`${baseKey}.nextRunSummary.startupOnly`);
+      // A saved schedule runs in preference to the interval, so it is decided first. The two
+      // interval sentinels below would otherwise claim the row and word it as paused or
+      // startup-only while the schedule is what actually drives it.
+      const hasCustomSchedule = !!item.customSchedule;
+      if (!hasCustomSchedule) {
+        if (item.intervalHours === 0) {
+          return t(`${baseKey}.nextRunSummary.paused`);
+        }
+        if (item.intervalHours === -1) {
+          return t(`${baseKey}.nextRunSummary.startupOnly`);
+        }
       }
       if (!item.nextRunUtc) {
-        return t(`${baseKey}.nextRunSummary.soon`);
+        return hasCustomSchedule
+          ? t(`${baseKey}.nextRunSummary.customSchedule`)
+          : t(`${baseKey}.nextRunSummary.soon`);
       }
 
       const diffMs = new Date(item.nextRunUtc).getTime() - now;
@@ -477,6 +516,7 @@ export function ScheduledPrefillScheduleDetail({
       containerRunning: boolean;
       loginState: ScheduledPrefillRowLoginState | null;
       intervalHours: number;
+      customSchedule: CustomSchedule | null;
       nextTiming: string;
       nextRunUtc: string | null;
       lastRunUtc: string | null;
@@ -494,12 +534,16 @@ export function ScheduledPrefillScheduleDetail({
       // Prefer the (optimistically updated) config value so the picker reflects a change
       // immediately; the schedule DTO catches up on the post-save refresh.
       const intervalHours = config ? config[serviceKey].intervalHours : item.intervalHours;
+      const customSchedule =
+        (config ? config[serviceKey].customSchedule : item.customSchedule) ?? null;
       // The absolute date is only meaningful for a real upcoming run. An overdue (past)
       // nextRunUtc that has not been re-stamped yet still reads as "soon" via formatTiming, so
       // suppress the stale elapsed timestamp here rather than render a confusing past date.
+      // A custom schedule keeps its next run whatever the interval reads, since it is what the
+      // server computes the run from.
       const upcomingNextRunUtc =
         enabled &&
-        intervalHours > 0 &&
+        (intervalHours > 0 || customSchedule !== null) &&
         item.nextRunUtc !== null &&
         new Date(item.nextRunUtc).getTime() > now
           ? item.nextRunUtc
@@ -523,9 +567,15 @@ export function ScheduledPrefillScheduleDetail({
             : 'loginRequired'
           : null,
         intervalHours,
-        // A disabled platform keeps its chosen interval for the picker but has no active next run,
-        // so feed formatTiming a paused interval instead of suggesting that it will run "soon".
-        nextTiming: formatTiming({ ...item, intervalHours: enabled ? intervalHours : 0 }),
+        customSchedule,
+        // A disabled platform keeps its chosen interval and schedule for the picker but has no
+        // active next run, so feed formatTiming a paused interval and no schedule instead of
+        // suggesting that it will run "soon".
+        nextTiming: formatTiming({
+          ...item,
+          intervalHours: enabled ? intervalHours : 0,
+          customSchedule: enabled ? customSchedule : null
+        }),
         nextRunUtc: upcomingNextRunUtc,
         lastRunUtc: item.lastRunUtc
       });
@@ -613,12 +663,16 @@ export function ScheduledPrefillScheduleDetail({
                       containerRunning={row.containerRunning}
                       loginState={row.loginState}
                       intervalHours={row.intervalHours}
+                      customSchedule={row.customSchedule}
                       nextTiming={row.nextTiming}
                       nextRunUtc={row.nextRunUtc}
                       lastRunUtc={row.lastRunUtc}
                       disabled={disabled}
                       onIntervalChange={(serviceKey, hours) =>
                         void handleServiceIntervalChange(serviceKey, hours)
+                      }
+                      onCustomScheduleChange={(serviceKey, schedule) =>
+                        void handleServiceCustomScheduleChange(serviceKey, schedule)
                       }
                     />
                   ))}
