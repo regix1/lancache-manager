@@ -260,8 +260,14 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                     : t('management.steamAuth.manualRebuild')}
                 </p>
               </div>
+              {/* The row stacks below sm, where the control becomes a block child of the setting
+                  row. Sized to its own labels it leaves dead space against the row's right edge and
+                  the two options come out at different widths, so it fills the row and splits evenly
+                  instead. It keeps its natural width once the row turns horizontal. */}
               <SegmentedControl
                 size="sm"
+                fullWidth
+                className="sm:w-auto sm:min-w-[13rem]"
                 value={autoStartPics ? 'automatic' : 'manual'}
                 onChange={(value) => handleAutoStartPicsChange(value === 'automatic')}
                 options={[
