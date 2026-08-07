@@ -44,6 +44,14 @@ interface IntervalChoice {
   description: string;
 }
 
+/**
+ * Shared trigger width for the three dropdowns in the polling-rates section. Their labels are
+ * different lengths ("5 seconds" through "60 seconds", "20 games" through "200 games"), so without
+ * a floor each control sizes to its own text and the stacked column comes out ragged. Wide enough
+ * for the longest label plus the leading icon and the chevron.
+ */
+const POLLING_DROPDOWN_WIDTH = 'min-w-[150px]';
+
 const GrafanaEndpoints: React.FC = () => {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
@@ -477,6 +485,7 @@ const GrafanaEndpoints: React.FC = () => {
               </div>
               <EnhancedDropdown
                 variant="button"
+                className={POLLING_DROPDOWN_WIDTH}
                 options={dataRefreshOptions}
                 value={dataRefreshRate}
                 onChange={handleDataRefreshChange}
@@ -507,6 +516,7 @@ const GrafanaEndpoints: React.FC = () => {
               </div>
               <EnhancedDropdown
                 variant="button"
+                className={POLLING_DROPDOWN_WIDTH}
                 options={scrapeIntervalOptions}
                 value={scrapeInterval}
                 onChange={handleScrapeIntervalChange}
@@ -537,6 +547,7 @@ const GrafanaEndpoints: React.FC = () => {
               </div>
               <EnhancedDropdown
                 variant="button"
+                className={POLLING_DROPDOWN_WIDTH}
                 options={topGameOptions}
                 value={topGames}
                 onChange={handleTopGamesChange}
