@@ -123,7 +123,6 @@ public class EventsService : IEventsService
                 .AsNoTracking()
                 .Where(ed => ed.EventId == eventId)
                 .Select(ed => ed.Download)
-                .ApplyPrefillFilter()
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync(cancellationToken);
         }
@@ -133,7 +132,6 @@ public class EventsService : IEventsService
             downloads = await _context.Downloads
                 .AsNoTracking()
                 .Where(d => d.StartTimeUtc >= evt.StartTimeUtc && d.StartTimeUtc <= evt.EndTimeUtc)
-                .ApplyPrefillFilter()
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync(cancellationToken);
         }

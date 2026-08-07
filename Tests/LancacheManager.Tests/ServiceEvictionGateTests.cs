@@ -529,7 +529,7 @@ public class ServiceEvictionGateTests
         // most fragile translation in the family, so compile it explicitly.
         var appIds = new List<long> { 1L, 2L };
         var groupGateQuery = context.Downloads
-            .Where(d => d.GameAppId != null && appIds.Contains(d.GameAppId.Value))
+            .Where(d => d.GameAppId != null && d.GameAppId > 0 && appIds.Contains(d.GameAppId.Value))
             .GroupBy(d => d.GameAppId!.Value)
             .Where(g => g.Any(d => d.IsEvicted)
                      && g.All(d => d.IsEvicted || (d.CacheHitBytes == 0 && d.CacheMissBytes == 0)))

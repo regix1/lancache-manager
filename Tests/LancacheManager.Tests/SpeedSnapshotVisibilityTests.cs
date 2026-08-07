@@ -4,10 +4,9 @@ using LancacheManager.Models;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Locks the shared client-visible speed snapshot semantics: hidden clients and prefill
-/// traffic are absent from BOTH transports (the SignalR broadcast and the REST endpoint use
-/// the same builder), totals are recomputed from the retained entries, and the raw tracker
-/// snapshot is never mutated.
+/// Locks the shared client-visible speed snapshot semantics: hidden clients are absent from
+/// BOTH transports (the SignalR broadcast and the REST endpoint use the same builder), totals
+/// are recomputed from the retained entries, and the raw tracker snapshot is never mutated.
 /// </summary>
 public sealed class SpeedSnapshotVisibilityTests
 {
@@ -23,29 +22,25 @@ public sealed class SpeedSnapshotVisibilityTests
         ClientSpeeds =
         [
             new ClientSpeedInfo { ClientIp = "10.0.0.1", BytesPerSecond = 100 },
-            new ClientSpeedInfo { ClientIp = "10.0.0.9", BytesPerSecond = 50 },
-            new ClientSpeedInfo { ClientIp = "Prefill", BytesPerSecond = 25 }
+            new ClientSpeedInfo { ClientIp = "10.0.0.9", BytesPerSecond = 50 }
         ],
         GameSpeeds =
         [
             new GameSpeedInfo { ClientIp = "10.0.0.1", Service = "steam", RequestCount = 3, BytesPerSecond = 100 },
             new GameSpeedInfo { ClientIp = "10.0.0.9", Service = "steam", RequestCount = 5 },
-            new GameSpeedInfo { ClientIp = "prefill", Service = "steam", RequestCount = 7 },
             new GameSpeedInfo { ClientIp = "", Service = "wsus", RequestCount = 2 },
             new GameSpeedInfo { ClientIp = "10.0.0.1", Service = "epic", RequestCount = 4, IsEvicted = true }
         ]
     };
 
     [Fact]
-    public void HiddenAndPrefillClientsAreRemovedAndTotalsRecomputed()
+    public void HiddenClientsAreRemovedAndTotalsRecomputed()
     {
         var visible = RustSpeedTrackerService.BuildClientVisibleSnapshot(
             BuildRawSnapshot(), HiddenClients, EvictedDataMode.Show.ToWireString());
 
         Assert.DoesNotContain(visible.ClientSpeeds, c => c.ClientIp == "10.0.0.9");
-        Assert.DoesNotContain(visible.ClientSpeeds, c => string.Equals(c.ClientIp, "prefill", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(visible.GameSpeeds, g => g.ClientIp == "10.0.0.9");
-        Assert.DoesNotContain(visible.GameSpeeds, g => string.Equals(g.ClientIp, "prefill", StringComparison.OrdinalIgnoreCase));
 
         // Totals reflect only the retained entries, never the raw tracker totals.
         Assert.Equal(100, visible.TotalBytesPerSecond);
@@ -95,8 +90,8 @@ public sealed class SpeedSnapshotVisibilityTests
         RustSpeedTrackerService.BuildClientVisibleSnapshot(
             raw, HiddenClients, EvictedDataMode.Hide.ToWireString());
 
-        Assert.Equal(3, raw.ClientSpeeds.Count);
-        Assert.Equal(5, raw.GameSpeeds.Count);
+        Assert.Equal(2, raw.ClientSpeeds.Count);
+        Assert.Equal(4, raw.GameSpeeds.Count);
         Assert.Equal(999_999, raw.TotalBytesPerSecond);
         Assert.Equal(999, raw.EntriesInWindow);
     }

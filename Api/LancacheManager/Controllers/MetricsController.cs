@@ -61,6 +61,60 @@ public class MetricsController : ControllerBase
     }
 
     /// <summary>
+    /// Get how many games the per-game metrics report. Answered from the persisted value, which is
+    /// also what the collection loop reads, so a restart reports the saved limit immediately
+    /// instead of the default until the first cycle completes. [32]
+    /// </summary>
+    [HttpGet("game-limit")]
+    public IActionResult GetGameLimit()
+    {
+        return Ok(new { gameLimit = ReadGameLimit() });
+    }
+
+    /// <summary>
+    /// Set how many games the per-game metrics report (1-500). Persisted, so it survives a restart.
+    /// The new value applies from the next collection cycle, up to one update interval later.
+    /// </summary>
+    [HttpPost("game-limit")]
+    public IActionResult SetGameLimit([FromBody] SetGameLimitRequest request)
+    {
+        if (request.GameLimit < MinGameLimit || request.GameLimit > MaxGameLimit)
+        {
+            return BadRequest(ApiResponse.Invalid($"Game limit must be between {MinGameLimit} and {MaxGameLimit}"));
+        }
+
+        var previousLimit = ReadGameLimit();
+
+        try
+        {
+            _stateRepository.SetTopGameCount(request.GameLimit);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist metrics game limit");
+            return StatusCode(503, ApiResponse.Error("state_persistence_disabled", "Failed to persist the metrics game limit. Your change was not saved."));
+        }
+
+        if (previousLimit != request.GameLimit)
+        {
+            _logger.LogInformation("Metrics game limit changed from {Old} to {New}", previousLimit, request.GameLimit);
+        }
+
+        return Ok(new { gameLimit = ReadGameLimit() });
+    }
+
+    /// <summary>
+    /// The ceiling keeps the series count well under the OpenTelemetry SDK's 2000-point-per-metric
+    /// limit, past which individual games would silently fold into a single overflow series. The
+    /// stored value is clamped on the way out as well as on the way in, because state.json is a
+    /// plain file an operator can edit by hand.
+    /// </summary>
+    private const int MinGameLimit = 1;
+    private const int MaxGameLimit = 500;
+
+    private int ReadGameLimit() => Math.Clamp(_stateRepository.GetTopGameCount(), MinGameLimit, MaxGameLimit);
+
+    /// <summary>
     /// Get metrics authentication security settings
     /// Returns current state, source (ui toggle or config), and env var default
     /// </summary>

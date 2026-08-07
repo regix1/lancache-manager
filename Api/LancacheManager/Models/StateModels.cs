@@ -24,6 +24,7 @@ public class AppState
     public string StatusCheckResolverMode { get; set; } = "auto";
     public DateTime? EpicMappingLastCollection { get; set; } // Last time the Epic catalog/CDN patterns were collected
     public double CrawlIntervalHours { get; set; } = 1.0; // Default to 1 hour
+    public int TopGameCount { get; set; } = 50; // How many games /metrics reports per per-game gauge
     // Values are true (incremental), false (full) or "github". A fresh install starts on "github"
     // because it is the only mode that can succeed there: incremental has no depot baseline to diff
     // against, and full cannot enumerate app ids without a working Steam Web API. Installs that

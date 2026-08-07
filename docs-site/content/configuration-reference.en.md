@@ -52,6 +52,8 @@ The mode decision and full compose examples live in [Choosing an Image and Datab
 | `Security__TrustAllProxies` | `false` | Trust every upstream proxy unconditionally. Convenient for local dev. **Never enable on an internet-exposed host** - anyone can spoof a client IP. |
 | `Security__ForceSecureCookies` | `false` | Force the `Secure` flag on the session cookie even when the request isn't detected as HTTPS. Enable when running behind a TLS-terminating reverse proxy. |
 
+Not every `/metrics` setting has an environment variable. The update interval, the Prometheus scrape interval used in the sample config, and how many games the per-game series export are all set in Management → Integrations. See [Prometheus Metrics](prometheus-metrics.md#grafana--prometheus).
+
 #### Access Levels
 
 | Level | What you can do | Examples |

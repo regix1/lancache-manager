@@ -52,6 +52,8 @@
 | `Security__TrustAllProxies` | `false` | 无条件信任每一个上游代理。方便本地开发使用。**切勿在暴露于公网的主机上启用**——任何人都能伪造客户端 IP。 |
 | `Security__ForceSecureCookies` | `false` | 即使请求未被识别为 HTTPS，也强制在会话 Cookie 上加 `Secure` 标志。在 TLS 终止型反向代理后运行时启用。 |
 
+并非每项 `/metrics` 设置都有对应的环境变量。指标更新间隔、示例配置中使用的 Prometheus 抓取间隔，以及按游戏统计序列导出的游戏数量，都在管理 → 集成中设置。参见 [Prometheus 指标](prometheus-metrics.md#grafana--prometheus)。
+
 #### 访问级别
 
 | 级别 | 可执行的操作 | 示例 |

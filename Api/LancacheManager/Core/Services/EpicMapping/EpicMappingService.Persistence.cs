@@ -380,10 +380,24 @@ public partial class EpicMappingService
 
         var newCount = 0;
         var updatedCount = 0;
+        var skippedCount = 0;
 
         foreach (var info in cdnInfos)
         {
             if (string.IsNullOrWhiteSpace(info.ChunkBaseUrl)) continue;
+
+            // An empty AppId is not an Epic identity. GamesOnDiskCalculator.GetDownloadGameKey
+            // buckets an empty EpicAppId as a named game, while the detection and persistence
+            // layers test the column against null and would bucket the same row as Epic. The
+            // daemon's get-cdn-info reply leaves AppId at its empty default when it reports a
+            // chunk URL with no app attached, so drop the entry here: a pattern with no id
+            // resolves to no game mapping anyway, and letting it through stamps the empty value
+            // onto every download whose URL it matches.
+            if (string.IsNullOrWhiteSpace(info.AppId))
+            {
+                skippedCount++;
+                continue;
+            }
 
             if (existingPatterns.TryGetValue(info.ChunkBaseUrl, out var existing))
             {
@@ -410,6 +424,13 @@ public partial class EpicMappingService
         }
 
         await db.SaveChangesAsync(ct);
+
+        if (skippedCount > 0)
+        {
+            _logger.LogWarning(
+                "Epic CDN pattern merge skipped {Skipped} entries that carried a chunk URL but no app id",
+                skippedCount);
+        }
 
         _logger.LogInformation(
             "Epic CDN pattern merge: {New} new, {Updated} updated, {Total} total",

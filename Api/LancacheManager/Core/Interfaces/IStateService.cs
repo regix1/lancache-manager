@@ -117,6 +117,10 @@ public interface IStateService
     double GetCrawlIntervalHours();
     void SetCrawlIntervalHours(double hours);
 
+    // Per-game metric cap: how many games /metrics reports, so the setting survives a restart.
+    int GetTopGameCount();
+    void SetTopGameCount(int count);
+
     // Crawl Mode Methods
     object GetCrawlIncrementalMode();
     void SetCrawlIncrementalMode(object mode);

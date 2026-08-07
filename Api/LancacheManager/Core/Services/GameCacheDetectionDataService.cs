@@ -35,10 +35,16 @@ public sealed partial class GameCacheDetectionDataService
         // evidence. A zero-byte row proves nothing about disk content, so it must neither
         // un-evict an entity here nor (symmetrically) block eviction in the evict/recovery
         // paths - otherwise one aborted session flips badges in whichever direction it sits.
+        //
+        // App 0 is not a Steam identity: 0 is the detection-side sentinel for named
+        // (Blizzard/Riot/Xbox) rows, and the query above collects it alongside real appIds because
+        // it filters on EpicAppId only. Without the > 0 test an unrelated App 0 Download becomes
+        // re-cache evidence for id 0. Named games self-heal through the named arm below.
         var steamGameIdsToUnevict = evictedSteamGameIds.Count == 0
             ? new List<long>()
             : await context.Downloads
                 .Where(d => d.GameAppId != null
+                         && d.GameAppId > 0
                          && evictedSteamGameIds.Contains(d.GameAppId.Value)
                          && !d.IsEvicted
                          && (d.CacheHitBytes > 0 || d.CacheMissBytes > 0))
@@ -161,8 +167,13 @@ public sealed partial class GameCacheDetectionDataService
         var games = cachedGames.Select(ToGameCacheInfo).ToList();
         var services = cachedServices.Select(ToServiceCacheInfo).ToList();
 
+        // Every Steam-keyed map below excludes App 0. A Download carrying GameAppId 0 has no Steam
+        // identity (0 is the named-game sentinel on the detection side), so pooling those rows under
+        // key 0 would hand one detection row the evicted counts, byte sums, URLs and depot ids of
+        // every unrelated App 0 download - and would let AppendMissingPartialEvictedProjectionsAsync
+        // synthesise a whole game out of that pooled figure.
         var steamEvictedMap = await dbContext.Downloads
-            .Where(d => d.IsEvicted && d.GameAppId != null && d.EpicAppId == null)
+            .Where(d => d.IsEvicted && d.GameAppId != null && d.GameAppId > 0 && d.EpicAppId == null)
             .GroupBy(d => d.GameAppId!.Value)
             .Select(g => new
             {
@@ -255,6 +266,7 @@ public sealed partial class GameCacheDetectionDataService
                 && le.Download != null
                 && le.Download.IsEvicted
                 && le.Download.GameAppId != null
+                && le.Download.GameAppId > 0
                 && le.Download.EpicAppId == null)
             .Select(le => new { GameAppId = le.Download!.GameAppId!.Value, le.Url })
             .Distinct()
@@ -314,7 +326,7 @@ public sealed partial class GameCacheDetectionDataService
 
         var steamEvictedDepotFlat = await dbContext.Downloads
             .AsNoTracking()
-            .Where(d => d.IsEvicted && d.GameAppId != null && d.EpicAppId == null && d.DepotId != null)
+            .Where(d => d.IsEvicted && d.GameAppId != null && d.GameAppId > 0 && d.EpicAppId == null && d.DepotId != null)
             .Select(d => new { GameAppId = d.GameAppId!.Value, DepotId = (uint)d.DepotId!.Value })
             .Distinct()
             .ToListAsync(cancellationToken);
@@ -508,12 +520,15 @@ public sealed partial class GameCacheDetectionDataService
         }
 
         // Partial predicate: byte-backed live sibling (same veto RecoverEvicted* uses). Zero-byte
-        // !IsEvicted siblings do not make an entity partial.
+        // !IsEvicted siblings do not make an entity partial. The Steam arm repeats the App 0
+        // exclusion its caller applies, so the query states its own identity rule rather than
+        // relying on the shape of the id list handed to it.
         var partialSteamIds = missingSteamIds.Count == 0
             ? new List<long>()
             : await dbContext.Downloads
                 .AsNoTracking()
                 .Where(d => d.GameAppId != null
+                         && d.GameAppId > 0
                          && d.EpicAppId == null
                          && missingSteamIds.Contains(d.GameAppId.Value)
                          && !d.IsEvicted
@@ -578,6 +593,7 @@ public sealed partial class GameCacheDetectionDataService
             var steamIdentity = await dbContext.Downloads
                 .AsNoTracking()
                 .Where(d => d.GameAppId != null
+                         && d.GameAppId > 0
                          && d.EpicAppId == null
                          && partialSteamIds.Contains(d.GameAppId.Value))
                 .GroupBy(d => d.GameAppId!.Value)
@@ -994,6 +1010,46 @@ public sealed partial class GameCacheDetectionDataService
         CancellationToken cancellationToken = default)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Collapse an empty EpicAppId to null before anything below classifies these rows. Every
+        // bucket test in this method compares the column against null, while the identity rule in
+        // GamesOnDiskCalculator.GetGameKey that produced the incoming list treats an empty id as a
+        // named game. Left as "", such a row takes the Epic arm here and two things break: the
+        // GroupBy on EpicAppId collapses every empty-id game into a single surviving entry, and the
+        // row persists as (GameAppId 0, EpicAppId ""), which the unique
+        // IX_CachedGameDetection_GameAppId_EpicAppId index treats as one reusable slot instead of
+        // letting PostgreSQL's NULLS-DISTINCT semantics keep the rows apart. Normalizing once here
+        // makes every null test below agree with the identity rule.
+        foreach (var game in games)
+        {
+            if (game.EpicAppId != null && game.EpicAppId.Length == 0)
+            {
+                game.EpicAppId = null;
+            }
+        }
+
+        // Drop a service-scoped game that carries no Steam id, no Epic id and no name. GameName is a
+        // non-nullable string on both GameCacheInfo and CachedGameDetection, so an empty name cannot
+        // be collapsed to null the way an empty EpicAppId is; the row has to go instead. Left in, it
+        // fails the IsNamed test below, takes the Steam arm, and claims the GameAppId 0 slot in
+        // existingSteamDict - overwriting an unrelated App-0 row's service, sizes and paths - even
+        // though the detection queries that produced it selected it as a named game on a
+        // "GameName IS NOT NULL" test. With no id and no title there is nothing to key on and
+        // nothing to display, so keeping it can only cost another game its row.
+        var incomingCount = games.Count;
+        games = games
+            .Where(g => !(g.EpicAppId == null
+                          && g.GameAppId == 0
+                          && g.Service != null
+                          && string.IsNullOrWhiteSpace(g.GameName)))
+            .ToList();
+
+        if (games.Count < incomingCount)
+        {
+            _logger.LogWarning(
+                "[GameDetection] Dropped {Dropped} detected games that carried no app id and no name",
+                incomingCount - games.Count);
+        }
 
         // Discriminator for named (Blizzard/Riot) games: GameAppId==0 && EpicAppId==null && Service != null
         // && GameName != "". These have no Steam AppId and no Epic AppId; identity is (Service, GameName).

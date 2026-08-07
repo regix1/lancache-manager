@@ -154,6 +154,9 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
             // Normalize datasource mappings - fix inconsistent case and missing datasources
             await NormalizeDatasourceMappingsAsync(context, stoppingToken);
 
+            // Repair rows whose game identity columns hold "" instead of an absent value
+            await NormalizeEmptyGameIdentitiesAsync(context, stoppingToken);
+
             // Clean up orphaned services (services in DB but not in log files)
             await CleanupOrphanedServicesAsync(context, stoppingToken);
 
@@ -515,5 +518,104 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
             _logger.LogError(ex, "Error normalizing datasource mappings");
             return 0;
         }
+    }
+
+    /// <summary>
+    /// Repairs rows whose game identity columns hold the empty string instead of an absent value.
+    /// An empty <c>EpicAppId</c> or <c>GameName</c> is neither a real value nor an absent one, and
+    /// the two halves of the codebase read it differently: <c>GamesOnDiskCalculator</c>'s
+    /// <c>GetDownloadGameKey</c> buckets such a row as <c>steam:0</c>, while the detection,
+    /// eviction and metrics queries test the same columns against null and bucket it as Epic or as
+    /// a named game. Distinct games then collapse into one grouping key and the row can drop out
+    /// of the per-game figures entirely.
+    /// The writers that produced these values are guarded, so only rows already on disk are left.
+    /// Returns 0 both when nothing needed repairing AND when the pass fails (logged as an
+    /// error) - this is one best-effort pass among the initial cleanup's several independent
+    /// steps, so a failure here does not abort the others.
+    /// </summary>
+    private async Task<int> NormalizeEmptyGameIdentitiesAsync(AppDbContext context, CancellationToken stoppingToken)
+    {
+        try
+        {
+            return await NormalizeEmptyGameIdentitiesCoreAsync(context, _logger, stoppingToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error repairing empty game identity values");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Repairs the empty identity values in place and returns the number of rows changed.
+    /// Every step is set-based on purpose: the Downloads table has no age-based retention and
+    /// grows without bound, so materializing candidates to assign a field is not affordable on a
+    /// box this size. On a clean database the whole pass is five statements that match no rows.
+    /// Extracted as an internal seam so the repair can be unit tested directly. Exceptions
+    /// propagate to the caller.
+    /// </summary>
+    internal static async Task<int> NormalizeEmptyGameIdentitiesCoreAsync(
+        AppDbContext context,
+        ILogger logger,
+        CancellationToken stoppingToken)
+    {
+        // A download with an empty Epic id is already offered for re-resolution (EpicMappingService
+        // tests IsNullOrEmpty), but every layer that means "not an Epic download" tests the column
+        // against null, so the same row counts as Epic there at the same time. Null is the only
+        // value both halves read the same way.
+        var downloadEpicIdsCleared = await context.Downloads
+            .Where(d => d.EpicAppId == "")
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.EpicAppId, (string?)null), stoppingToken);
+
+        // An empty GameName does not recover on its own: the Xbox re-resolution query selects
+        // candidates on GameName == null, so a row holding "" is never offered again and keeps no
+        // name forever. It also keys as steam:0 rather than on its own service, which is the
+        // collapse GetDownloadGameKey's "" test exists to avoid.
+        var downloadNamesCleared = await context.Downloads
+            .Where(d => d.GameName == "")
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.GameName, (string?)null), stoppingToken);
+
+        // Same reasoning on the detection side. Moving a row from (GameAppId, "") to
+        // (GameAppId, null) cannot violate IX_CachedGameDetection_GameAppId_EpicAppId: the index
+        // is nulls-distinct, so every repaired row lands on a key no other row can equal.
+        var detectionEpicIdsCleared = await context.CachedGameDetections
+            .Where(g => g.EpicAppId == "")
+            .ExecuteUpdateAsync(s => s.SetProperty(g => g.EpicAppId, (string?)null), stoppingToken);
+
+        // CachedGameDetections.GameName is NOT NULL, so there is no absent value to normalize to.
+        // A row with no name, no Steam app id and no Epic id names nothing that can be displayed or
+        // matched, yet it still contributes app id 0 to the Steam un-evict arm, so any download of
+        // app 0 flips its badge. Removing it lets a full scan re-insert the game with its name;
+        // keeping it only preserves a row nothing can address. Runs after the Epic id step above so
+        // a row that held both empty values is caught in the same pass. Rows that still carry a
+        // real identity are left alone - they key correctly and the scan refills the name.
+        var namelessDetectionsRemoved = await context.CachedGameDetections
+            .Where(g => g.GameName == "" && g.EpicAppId == null && g.GameAppId == 0)
+            .ExecuteDeleteAsync(stoppingToken);
+
+        // An Epic CDN pattern with no app id is excluded from resolution, but it is not inert:
+        // IX_EpicCdnPatterns_ChunkBaseUrl is unique and MergeCdnPatternsAsync keys the patterns it
+        // already has by ChunkBaseUrl, taking the update branch (which never writes AppId) when one
+        // is present. The empty row therefore blocks its own chunk URL from ever being recorded
+        // with a real app id. Removing it lets the next merge insert the correct pattern.
+        var emptyCdnPatternsRemoved = await context.EpicCdnPatterns
+            .Where(p => p.AppId == "")
+            .ExecuteDeleteAsync(stoppingToken);
+
+        var total = downloadEpicIdsCleared
+            + downloadNamesCleared
+            + detectionEpicIdsCleared
+            + namelessDetectionsRemoved
+            + emptyCdnPatternsRemoved;
+
+        if (total > 0)
+        {
+            logger.LogInformation(
+                "Repaired empty game identity values: {DownloadEpicIds} download Epic ids, {DownloadNames} download names, {DetectionEpicIds} detection Epic ids cleared; {NamelessDetections} nameless detections and {CdnPatterns} Epic CDN patterns removed",
+                downloadEpicIdsCleared, downloadNamesCleared, detectionEpicIdsCleared,
+                namelessDetectionsRemoved, emptyCdnPatternsRemoved);
+        }
+
+        return total;
     }
 }

@@ -228,6 +228,290 @@ public class DownloadCleanupServiceTests
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Empty game identity repair - real ExecuteUpdate/ExecuteDelete against Sqlite
+    //
+    // The writers that stamped "" onto Downloads.EpicAppId, Downloads.GameName,
+    // EpicCdnPatterns.AppId and the detection cache are guarded now (see
+    // EpicEmptyAppIdIdentityTests and XboxEmptyTitleIdentityTests), so nothing new can be written.
+    // These tests cover the rows already sitting in a user's database, which the guards do not
+    // reach: NormalizeEmptyGameIdentitiesCoreAsync must repair every one of them and leave rows
+    // holding real values exactly as they are.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task NormalizeEmptyGameIdentities_ClearsEmptyDownloadEpicIdAndName_LeavesRealValues()
+    {
+        using var connection = OpenSharedConnection();
+        var options = SqliteOptions(connection);
+
+        long emptyEpicId, emptyNameId, realEpicId, realNameId;
+        await using (var seed = new AppDbContext(options))
+        {
+            await seed.Database.EnsureCreatedAsync();
+
+            var emptyEpic = NewDownload("epicgames");
+            emptyEpic.EpicAppId = "";
+
+            var emptyName = NewDownload("xbox");
+            emptyName.GameName = "";
+
+            var realEpic = NewDownload("epicgames");
+            realEpic.EpicAppId = "Fortnite";
+
+            var realName = NewDownload("xbox");
+            realName.GameName = "Halo Infinite";
+
+            seed.Downloads.AddRange(emptyEpic, emptyName, realEpic, realName);
+            await seed.SaveChangesAsync();
+
+            emptyEpicId = emptyEpic.Id;
+            emptyNameId = emptyName.Id;
+            realEpicId = realEpic.Id;
+            realNameId = realName.Id;
+        }
+
+        await using (var run = new AppDbContext(options))
+        {
+            var repaired = await DownloadCleanupService.NormalizeEmptyGameIdentitiesCoreAsync(
+                run, NullLogger.Instance, CancellationToken.None);
+
+            Assert.Equal(2, repaired);
+        }
+
+        await using (var assert = new AppDbContext(options))
+        {
+            // Both empty values become null, which is what every layer reads as "absent" - and for
+            // the Xbox row it is what makes it a re-resolution candidate again.
+            Assert.Null((await assert.Downloads.SingleAsync(d => d.Id == emptyEpicId)).EpicAppId);
+            Assert.Null((await assert.Downloads.SingleAsync(d => d.Id == emptyNameId)).GameName);
+
+            // Real values are untouched.
+            Assert.Equal("Fortnite", (await assert.Downloads.SingleAsync(d => d.Id == realEpicId)).EpicAppId);
+            Assert.Equal("Halo Infinite", (await assert.Downloads.SingleAsync(d => d.Id == realNameId)).GameName);
+        }
+    }
+
+    [Fact]
+    public async Task NormalizeEmptyGameIdentities_IsIdempotent()
+    {
+        using var connection = OpenSharedConnection();
+        var options = SqliteOptions(connection);
+
+        await using (var seed = new AppDbContext(options))
+        {
+            await seed.Database.EnsureCreatedAsync();
+
+            var emptyName = NewDownload("xbox");
+            emptyName.GameName = "";
+            seed.Downloads.Add(emptyName);
+            await seed.SaveChangesAsync();
+        }
+
+        await using (var first = new AppDbContext(options))
+        {
+            Assert.Equal(1, await DownloadCleanupService.NormalizeEmptyGameIdentitiesCoreAsync(
+                first, NullLogger.Instance, CancellationToken.None));
+        }
+
+        await using (var second = new AppDbContext(options))
+        {
+            // The pass runs on every start, so a second run over an already-repaired database must
+            // change nothing rather than churn rows.
+            Assert.Equal(0, await DownloadCleanupService.NormalizeEmptyGameIdentitiesCoreAsync(
+                second, NullLogger.Instance, CancellationToken.None));
+        }
+    }
+
+    [Fact]
+    public async Task NormalizeEmptyGameIdentities_ClearsDetectionEpicId_WithoutBreakingUniqueIndex()
+    {
+        using var connection = OpenSharedConnection();
+        var options = SqliteOptions(connection);
+
+        long emptyEpicDetectionId, namedDetectionId, realEpicDetectionId;
+        await using (var seed = new AppDbContext(options))
+        {
+            await seed.Database.EnsureCreatedAsync();
+
+            // The row being repaired lands on (0, null). A named row already sits on (0, null),
+            // which is only legal because IX_CachedGameDetection_GameAppId_EpicAppId is
+            // nulls-distinct - so this pair is the collision case if that assumption is wrong.
+            var emptyEpic = NewDetection(0, "Some Epic Game", "epicgames");
+            emptyEpic.EpicAppId = "";
+
+            var named = NewDetection(0, "Overwatch", "blizzard");
+
+            var realEpic = NewDetection(0, "Fortnite", "epicgames");
+            realEpic.EpicAppId = "Fortnite";
+
+            seed.CachedGameDetections.AddRange(emptyEpic, named, realEpic);
+            await seed.SaveChangesAsync();
+
+            emptyEpicDetectionId = emptyEpic.Id;
+            namedDetectionId = named.Id;
+            realEpicDetectionId = realEpic.Id;
+        }
+
+        await using (var run = new AppDbContext(options))
+        {
+            var repaired = await DownloadCleanupService.NormalizeEmptyGameIdentitiesCoreAsync(
+                run, NullLogger.Instance, CancellationToken.None);
+
+            Assert.Equal(1, repaired);
+        }
+
+        await using (var assert = new AppDbContext(options))
+        {
+            // Repaired row keeps its name and now reads as a named game, matching how the download
+            // side keys the same game once its empty Epic id is gone.
+            var repairedRow = await assert.CachedGameDetections.SingleAsync(g => g.Id == emptyEpicDetectionId);
+            Assert.Null(repairedRow.EpicAppId);
+            Assert.Equal("Some Epic Game", repairedRow.GameName);
+
+            // The pre-existing named row on the same (0, null) key survives alongside it.
+            Assert.NotNull(await assert.CachedGameDetections.SingleOrDefaultAsync(g => g.Id == namedDetectionId));
+
+            // A real Epic id is untouched.
+            Assert.Equal("Fortnite", (await assert.CachedGameDetections.SingleAsync(g => g.Id == realEpicDetectionId)).EpicAppId);
+        }
+    }
+
+    [Fact]
+    public async Task NormalizeEmptyGameIdentities_RemovesNamelessDetection_KeepsIdentifiedOnes()
+    {
+        using var connection = OpenSharedConnection();
+        var options = SqliteOptions(connection);
+
+        long namelessId, namelessEvictedId, namelessSteamId, namedId;
+        await using (var seed = new AppDbContext(options))
+        {
+            await seed.Database.EnsureCreatedAsync();
+
+            // No name, no Steam app id, no Epic id: nothing can address this row, and its app id 0
+            // un-evicts on any app 0 download.
+            var nameless = NewDetection(0, "", "xbox");
+
+            // The evicted variant is the one a full scan can never rebuild, so the repair has to
+            // reach it here or it stays broken for good.
+            var namelessEvicted = NewDetection(0, "", "wsus");
+            namelessEvicted.IsEvicted = true;
+
+            // Nameless but still addressable by its Steam app id - keys as steam:4000 either way,
+            // and the scan refills the name, so deleting it would throw away eviction state.
+            var namelessSteam = NewDetection(4000, "", "steam");
+
+            var named = NewDetection(0, "Overwatch", "blizzard");
+
+            seed.CachedGameDetections.AddRange(nameless, namelessEvicted, namelessSteam, named);
+            await seed.SaveChangesAsync();
+
+            namelessId = nameless.Id;
+            namelessEvictedId = namelessEvicted.Id;
+            namelessSteamId = namelessSteam.Id;
+            namedId = named.Id;
+        }
+
+        await using (var run = new AppDbContext(options))
+        {
+            var repaired = await DownloadCleanupService.NormalizeEmptyGameIdentitiesCoreAsync(
+                run, NullLogger.Instance, CancellationToken.None);
+
+            Assert.Equal(2, repaired);
+        }
+
+        await using (var assert = new AppDbContext(options))
+        {
+            Assert.Null(await assert.CachedGameDetections.SingleOrDefaultAsync(g => g.Id == namelessId));
+            Assert.Null(await assert.CachedGameDetections.SingleOrDefaultAsync(g => g.Id == namelessEvictedId));
+            Assert.NotNull(await assert.CachedGameDetections.SingleOrDefaultAsync(g => g.Id == namelessSteamId));
+            Assert.NotNull(await assert.CachedGameDetections.SingleOrDefaultAsync(g => g.Id == namedId));
+        }
+    }
+
+    [Fact]
+    public async Task NormalizeEmptyGameIdentities_RemovesEmptyCdnPattern_SoItsChunkUrlCanBeRecorded()
+    {
+        using var connection = OpenSharedConnection();
+        var options = SqliteOptions(connection);
+
+        const string blockedChunkUrl = "/Builds/Org/o-blocked/abc/default/";
+
+        await using (var seed = new AppDbContext(options))
+        {
+            await seed.Database.EnsureCreatedAsync();
+
+            seed.EpicCdnPatterns.AddRange(
+                NewCdnPattern("", "", blockedChunkUrl),
+                NewCdnPattern("Fortnite", "Fortnite", "/Builds/Org/o-real/def/default/"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using (var run = new AppDbContext(options))
+        {
+            var repaired = await DownloadCleanupService.NormalizeEmptyGameIdentitiesCoreAsync(
+                run, NullLogger.Instance, CancellationToken.None);
+
+            Assert.Equal(1, repaired);
+        }
+
+        await using (var assert = new AppDbContext(options))
+        {
+            // The pattern with a real app id is untouched.
+            Assert.True(await assert.EpicCdnPatterns.AnyAsync(p => p.AppId == "Fortnite"));
+
+            // The chunk URL the empty pattern held is free again. IX_EpicCdnPatterns_ChunkBaseUrl is
+            // unique and the merge path only updates LastSeenAtUtc/Name on a URL it already has, so
+            // while the empty row existed no real app id could ever be recorded for this URL.
+            Assert.False(await assert.EpicCdnPatterns.AnyAsync(p => p.ChunkBaseUrl == blockedChunkUrl));
+
+            assert.EpicCdnPatterns.Add(NewCdnPattern("RealApp", "Real Game", blockedChunkUrl));
+            await assert.SaveChangesAsync();
+
+            Assert.Equal("RealApp",
+                (await assert.EpicCdnPatterns.SingleAsync(p => p.ChunkBaseUrl == blockedChunkUrl)).AppId);
+        }
+    }
+
+    [Fact]
+    public async Task NormalizeEmptyGameIdentities_CleanDatabase_ChangesNothing()
+    {
+        using var connection = OpenSharedConnection();
+        var options = SqliteOptions(connection);
+
+        await using (var seed = new AppDbContext(options))
+        {
+            await seed.Database.EnsureCreatedAsync();
+
+            var steam = NewDownload("steam");
+            steam.GameAppId = 730;
+            steam.GameName = "Counter-Strike 2";
+
+            var epic = NewDownload("epicgames");
+            epic.EpicAppId = "Fortnite";
+
+            seed.Downloads.AddRange(steam, epic);
+            seed.CachedGameDetections.Add(NewDetection(730, "Counter-Strike 2", "steam"));
+            seed.EpicCdnPatterns.Add(NewCdnPattern("Fortnite", "Fortnite", "/Builds/Org/o-real/def/default/"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using (var run = new AppDbContext(options))
+        {
+            Assert.Equal(0, await DownloadCleanupService.NormalizeEmptyGameIdentitiesCoreAsync(
+                run, NullLogger.Instance, CancellationToken.None));
+        }
+
+        await using (var assert = new AppDbContext(options))
+        {
+            Assert.Equal(2, await assert.Downloads.CountAsync());
+            Assert.Equal(1, await assert.CachedGameDetections.CountAsync());
+            Assert.Equal(1, await assert.EpicCdnPatterns.CountAsync());
+            Assert.Equal("Counter-Strike 2",
+                (await assert.Downloads.SingleAsync(d => d.GameAppId == 730)).GameName);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------------------
 
@@ -267,5 +551,26 @@ public class DownloadCleanupServiceTests
         Timestamp = DateTime.UtcNow,
         CreatedAt = DateTime.UtcNow,
         DownloadId = downloadId
+    };
+
+    private static CachedGameDetection NewDetection(long gameAppId, string gameName, string service) => new CachedGameDetection
+    {
+        GameAppId = gameAppId,
+        GameName = gameName,
+        Service = service,
+        CacheFilesFound = 1,
+        TotalSizeBytes = 1024,
+        LastDetectedUtc = DateTime.UtcNow,
+        CreatedAtUtc = DateTime.UtcNow
+    };
+
+    private static EpicCdnPattern NewCdnPattern(string appId, string name, string chunkBaseUrl) => new EpicCdnPattern
+    {
+        AppId = appId,
+        Name = name,
+        CdnHost = "epicgames-download1.akamaized.net",
+        ChunkBaseUrl = chunkBaseUrl,
+        DiscoveredAtUtc = DateTime.UtcNow,
+        LastSeenAtUtc = DateTime.UtcNow
     };
 }

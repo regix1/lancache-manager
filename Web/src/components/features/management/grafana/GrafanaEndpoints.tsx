@@ -1,10 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, Lock, Unlock, Lightbulb, RefreshCw, Clock, Settings } from 'lucide-react';
+import {
+  Link,
+  Lock,
+  Unlock,
+  Lightbulb,
+  RefreshCw,
+  Clock,
+  Settings,
+  ListOrdered
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
-import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -17,6 +26,24 @@ import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import type { MetricsSecurityResponse } from './GrafanaEndpoints.types';
 
+/**
+ * One choice in the exported-game-count dropdown. The cap drives every label on the
+ * row, so only the sentence explaining the trade-off is written out per choice.
+ */
+interface GameCountChoice {
+  count: number;
+  description: string;
+}
+
+/**
+ * One choice in a polling-rate dropdown. The seconds value drives every label on the
+ * row, so only the sentence explaining the trade-off is written out per choice.
+ */
+interface IntervalChoice {
+  seconds: number;
+  description: string;
+}
+
 const GrafanaEndpoints: React.FC = () => {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
@@ -25,94 +52,59 @@ const GrafanaEndpoints: React.FC = () => {
   const { on, off, connectionState } = useSignalR();
 
   const dataRefreshOptions = [
-    {
-      value: '5',
-      label: t('management.grafana.dataRefresh.5sec'),
-      shortLabel: '5s',
-      description: t('management.grafana.dataRefresh.5secDesc'),
-      rightLabel: '5s',
+    { seconds: 5, description: t('management.grafana.dataRefresh.5secDesc') },
+    { seconds: 10, description: t('management.grafana.dataRefresh.10secDesc') },
+    { seconds: 15, description: t('management.grafana.dataRefresh.15secDesc') },
+    { seconds: 30, description: t('management.grafana.dataRefresh.30secDesc') },
+    { seconds: 60, description: t('management.grafana.dataRefresh.60secDesc') }
+  ].map(
+    ({ seconds, description }: IntervalChoice): DropdownOption => ({
+      value: String(seconds),
+      label: t('management.grafana.dataRefresh.label', { seconds }),
+      shortLabel: `${seconds}s`,
+      description,
+      rightLabel: `${seconds}s`,
       icon: RefreshCw
-    },
-    {
-      value: '10',
-      label: t('management.grafana.dataRefresh.10sec'),
-      shortLabel: '10s',
-      description: t('management.grafana.dataRefresh.10secDesc'),
-      rightLabel: '10s',
-      icon: RefreshCw
-    },
-    {
-      value: '15',
-      label: t('management.grafana.dataRefresh.15sec'),
-      shortLabel: '15s',
-      description: t('management.grafana.dataRefresh.15secDesc'),
-      rightLabel: '15s',
-      icon: RefreshCw
-    },
-    {
-      value: '30',
-      label: t('management.grafana.dataRefresh.30sec'),
-      shortLabel: '30s',
-      description: t('management.grafana.dataRefresh.30secDesc'),
-      rightLabel: '30s',
-      icon: RefreshCw
-    },
-    {
-      value: '60',
-      label: t('management.grafana.dataRefresh.60sec'),
-      shortLabel: '60s',
-      description: t('management.grafana.dataRefresh.60secDesc'),
-      rightLabel: '60s',
-      icon: RefreshCw
-    }
-  ];
+    })
+  );
 
   const scrapeIntervalOptions = [
-    {
-      value: '5',
-      label: t('management.grafana.scrapeInterval.5sec'),
-      shortLabel: '5s',
-      description: t('management.grafana.scrapeInterval.5secDesc'),
-      rightLabel: '5s',
+    { seconds: 5, description: t('management.grafana.scrapeInterval.5secDesc') },
+    { seconds: 10, description: t('management.grafana.scrapeInterval.10secDesc') },
+    { seconds: 15, description: t('management.grafana.scrapeInterval.15secDesc') },
+    { seconds: 30, description: t('management.grafana.scrapeInterval.30secDesc') },
+    { seconds: 60, description: t('management.grafana.scrapeInterval.60secDesc') }
+  ].map(
+    ({ seconds, description }: IntervalChoice): DropdownOption => ({
+      value: String(seconds),
+      label: t('management.grafana.scrapeInterval.label', { seconds }),
+      shortLabel: `${seconds}s`,
+      description,
+      rightLabel: `${seconds}s`,
       icon: Clock
-    },
-    {
-      value: '10',
-      label: t('management.grafana.scrapeInterval.10sec'),
-      shortLabel: '10s',
-      description: t('management.grafana.scrapeInterval.10secDesc'),
-      rightLabel: '10s',
-      icon: Clock
-    },
-    {
-      value: '15',
-      label: t('management.grafana.scrapeInterval.15sec'),
-      shortLabel: '15s',
-      description: t('management.grafana.scrapeInterval.15secDesc'),
-      rightLabel: '15s',
-      icon: Clock
-    },
-    {
-      value: '30',
-      label: t('management.grafana.scrapeInterval.30sec'),
-      shortLabel: '30s',
-      description: t('management.grafana.scrapeInterval.30secDesc'),
-      rightLabel: '30s',
-      icon: Clock
-    },
-    {
-      value: '60',
-      label: t('management.grafana.scrapeInterval.60sec'),
-      shortLabel: '60s',
-      description: t('management.grafana.scrapeInterval.60secDesc'),
-      rightLabel: '60s',
-      icon: Clock
-    }
-  ];
+    })
+  );
+
+  const topGameOptions = [
+    { count: 20, description: t('management.grafana.gameCount.20gamesDesc') },
+    { count: 50, description: t('management.grafana.gameCount.50gamesDesc') },
+    { count: 100, description: t('management.grafana.gameCount.100gamesDesc') },
+    { count: 200, description: t('management.grafana.gameCount.200gamesDesc') }
+  ].map(
+    ({ count, description }: GameCountChoice): DropdownOption => ({
+      value: String(count),
+      label: t('management.grafana.gameCount.label', { games: count }),
+      shortLabel: String(count),
+      description,
+      rightLabel: String(count),
+      icon: ListOrdered
+    })
+  );
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
   const [metricsSecurity, setMetricsSecurity] = useState<MetricsSecurityResponse | null>(null);
   const [dataRefreshRate, setDataRefreshRate] = useState<string>('15');
   const [scrapeInterval, setScrapeInterval] = useState<string>('15');
+  const [topGames, setTopGames] = useState<string>('50');
   const [isToggling, setIsToggling] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(false);
   const [areRatesExpanded, setAreRatesExpanded] = useState(false);
@@ -132,11 +124,9 @@ const GrafanaEndpoints: React.FC = () => {
         setMetricsSecurity(data);
       } catch (error: unknown) {
         if (isAbortError(error)) return;
-        notifyError(
-          t('management.grafana.errors.loadSecurityStatus', 'Failed to load metrics access status'),
-          error,
-          { logLabel: 'Failed to load metrics security status' }
-        );
+        notifyError(t('management.grafana.errors.loadSecurityStatus'), error, {
+          logLabel: 'Failed to load metrics security status'
+        });
       }
     },
     [notifyError, t]
@@ -147,22 +137,29 @@ const GrafanaEndpoints: React.FC = () => {
     const controller = new AbortController();
     const loadStatus = async () => {
       try {
-        const [, intervalRes] = await Promise.all([
+        const [, intervalRes, gameLimitRes] = await Promise.all([
           fetchMetricsSecurity(controller.signal),
-          fetch('/api/metrics/interval', ApiService.getFetchOptions({ signal: controller.signal }))
+          fetch('/api/metrics/interval', ApiService.getFetchOptions({ signal: controller.signal })),
+          fetch(
+            '/api/metrics/game-limit',
+            ApiService.getFetchOptions({ signal: controller.signal })
+          )
         ]);
         if (intervalRes.ok) {
           const intervalData = await intervalRes.json();
           setDataRefreshRate(String(intervalData.interval));
         }
+        if (gameLimitRes.ok) {
+          const gameLimitData = (await gameLimitRes.json()) as { gameLimit: number };
+          setTopGames(String(gameLimitData.gameLimit));
+        }
       } catch (error: unknown) {
         if (isAbortError(error)) return;
         // Interval load has a workable default (dataRefreshRate stays '15'); background noise.
-        notifyError(
-          t('management.grafana.errors.loadMetricsStatus', 'Failed to load metrics status'),
-          error,
-          { silent: true, logLabel: 'Failed to load metrics status' }
-        );
+        notifyError(t('management.grafana.errors.loadMetricsStatus'), error, {
+          silent: true,
+          logLabel: 'Failed to load metrics status'
+        });
       }
     };
     void loadStatus();
@@ -197,11 +194,33 @@ const GrafanaEndpoints: React.FC = () => {
         })
       );
     } catch (error) {
-      notifyError(
-        t('management.grafana.errors.updateRefreshRate', 'Failed to update data refresh rate'),
-        error,
-        { logLabel: 'Failed to update data refresh rate' }
+      notifyError(t('management.grafana.errors.updateRefreshRate'), error, {
+        logLabel: 'Failed to update data refresh rate'
+      });
+    }
+  };
+
+  const handleTopGamesChange = async (value: string) => {
+    const previous = topGames;
+    setTopGames(value);
+    try {
+      const response = await fetch(
+        '/api/metrics/game-limit',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameLimit: parseInt(value, 10) })
+        })
       );
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (error) {
+      // The server kept its old cap, so the control has to show it again.
+      setTopGames(previous);
+      notifyError(t('management.grafana.errors.updateTopGames'), error, {
+        logLabel: 'Failed to update exported game count'
+      });
     }
   };
 
@@ -288,11 +307,10 @@ const GrafanaEndpoints: React.FC = () => {
       } catch (copyErr) {
         // Legacy-clipboard-fallback failure: low-stakes UI action, no other visible cue either
         // way. Silence is explicit rather than an accidental console.error.
-        notifyError(
-          t('management.grafana.errors.copyFailed', 'Failed to copy to clipboard'),
-          copyErr,
-          { silent: true, logLabel: 'Failed to copy text' }
-        );
+        notifyError(t('management.grafana.errors.copyFailed'), copyErr, {
+          silent: true,
+          logLabel: 'Failed to copy text'
+        });
       } finally {
         document.body.removeChild(textArea);
       }
@@ -497,6 +515,36 @@ const GrafanaEndpoints: React.FC = () => {
                 alignRight={true}
                 dropdownTitle={t('management.grafana.scrapeIntervalTitle')}
                 footerNote={t('management.grafana.scrapeIntervalRateFooter')}
+                footerIcon={Lightbulb}
+                cleanStyle={true}
+              />
+            </div>
+          </div>
+
+          {/* Top games exported - caps how many per-game series /metrics emits */}
+          <div className="mt-2 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <ListOrdered className="w-4 h-4 text-themed-muted" />
+                <div>
+                  <span className="text-sm font-medium text-themed-primary">
+                    {t('management.grafana.topGames')}
+                  </span>
+                  <p className="text-xs text-themed-muted">
+                    {t('management.grafana.topGamesDesc')}
+                  </p>
+                </div>
+              </div>
+              <EnhancedDropdown
+                variant="button"
+                options={topGameOptions}
+                value={topGames}
+                onChange={handleTopGamesChange}
+                placeholder={t('management.grafana.placeholders.selectGameCount')}
+                dropdownWidth="w-56"
+                alignRight={true}
+                dropdownTitle={t('management.grafana.topGames')}
+                footerNote={t('management.grafana.topGamesFooter')}
                 footerIcon={Lightbulb}
                 cleanStyle={true}
               />

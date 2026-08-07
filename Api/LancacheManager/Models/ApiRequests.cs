@@ -105,6 +105,11 @@ public class SetSecurityRequest
     public bool? Enabled { get; set; }
 }
 
+public class SetGameLimitRequest
+{
+    public int GameLimit { get; set; }
+}
+
 #endregion
 
 #region Operation State Requests

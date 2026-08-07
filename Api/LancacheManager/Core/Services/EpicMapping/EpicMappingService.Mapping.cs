@@ -21,8 +21,12 @@ public partial class EpicMappingService
 
         // Service names are normalized to lowercase during log processing, so a lowercase LIKE
         // pattern preserves the intended matching while staying SQL-translatable.
+        // Empty counts as unresolved, not as resolved. A download stamped with an empty id by an
+        // older pattern row is not an Epic identity to GamesOnDiskCalculator.GetDownloadGameKey,
+        // so a null-only test would leave it permanently stuck: never re-resolved here, yet still
+        // treated as Epic by the layers that test the column against null.
         var unresolvedDownloads = await db.Downloads
-            .Where(d => EF.Functions.Like(d.Service, epicServicePattern) && d.EpicAppId == null && d.LastUrl != null)
+            .Where(d => EF.Functions.Like(d.Service, epicServicePattern) && string.IsNullOrEmpty(d.EpicAppId) && d.LastUrl != null)
             .ToListAsync(ct);
 
         if (unresolvedDownloads.Count == 0)
@@ -46,7 +50,7 @@ public partial class EpicMappingService
         }
 
         var alreadyMapped = await db.Downloads
-            .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && d.EpicAppId != null, ct);
+            .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && !string.IsNullOrEmpty(d.EpicAppId), ct);
         var nullUrls = await db.Downloads
             .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && d.LastUrl == null, ct);
 
@@ -61,8 +65,11 @@ public partial class EpicMappingService
         if (sampleUrl != null)
             _logger.LogInformation("Sample Epic download URL: '{Url}'", sampleUrl);
 
-        // Sort patterns by ChunkBaseUrl length descending so the longest (most specific) pattern matches first
+        // Sort patterns by ChunkBaseUrl length descending so the longest (most specific) pattern matches first.
+        // Patterns stored before MergeCdnPatternsAsync rejected empty app ids are excluded: matching one
+        // stamps its empty AppId onto the download, which no layer agrees how to bucket.
         var patterns = await db.EpicCdnPatterns
+            .Where(p => !string.IsNullOrEmpty(p.AppId))
             .OrderByDescending(p => p.ChunkBaseUrl.Length)
             .ToListAsync(ct);
         if (patterns.Count == 0)

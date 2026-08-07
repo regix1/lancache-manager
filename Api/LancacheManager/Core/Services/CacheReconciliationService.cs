@@ -1839,8 +1839,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // content existed and are never flagged evicted, so they must not veto the
             // all-evicted test. At least one genuinely evicted row is still required so an
             // entity with ONLY zero-byte rows can never flip evicted.
+            //
+            // App 0 Downloads are skipped: 0 is the named-game sentinel on CachedGameDetection, and
+            // the update below matches every row holding an id from this list with EpicAppId null.
+            // Letting 0 through would flag every named (Blizzard/Riot/Xbox) row evicted whenever the
+            // unrelated App 0 Downloads happened to be all evicted.
             var steamGamesToEvict = await context.Downloads
                 .Where(d => d.GameAppId != null
+                         && d.GameAppId > 0
                          && unevictedSteamGameIds.Contains(d.GameAppId.Value))
                 .GroupBy(d => d.GameAppId!.Value)
                 .Where(g => g.Any(d => d.IsEvicted)

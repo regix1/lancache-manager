@@ -1236,22 +1236,11 @@ impl Processor {
                 self.xbox_patterns = rows
                     .iter()
                     .filter_map(|row| {
-                        let fragment: Option<String> = row.get("UrlFragment");
-                        let title: Option<String> = row.get("Title");
-                        let product_id: Option<String> = row.get("ProductId");
-                        match (fragment, title, product_id) {
-                            // Keep ONLY well-formed /filestreamingservice/files/<GUID> fragments.
-                            // Empty / "/" / non-GUID fragments would `contains()`-match generic wsus
-                            // URLs and relabel Windows Update traffic as a game — same shape guard the
-                            // C# resolver (XboxMappingService.IsValidFragment) applies. This Rust path
-                            // is the PRIMARY canonicalizer, so the guard MUST live here too.
-                            (Some(frag), Some(name), Some(pid))
-                                if cache_utils::is_valid_xbox_fragment(&frag) =>
-                            {
-                                Some((frag, name, pid))
-                            }
-                            _ => None,
-                        }
+                        Self::xbox_pattern_row(
+                            row.get("UrlFragment"),
+                            row.get("Title"),
+                            row.get("ProductId"),
+                        )
                     })
                     .collect();
                 self.last_xbox_pattern_load = Some(Instant::now());
@@ -1268,6 +1257,33 @@ impl Processor {
             Err(_) => {
                 // Silently ignore (tables may not exist yet); wsus stays generic.
             }
+        }
+    }
+
+    /// Keep ONLY well-formed `/filestreamingservice/files/<GUID>` fragments that carry a title.
+    /// Empty / "/" / non-GUID fragments would `contains()`-match generic wsus URLs and relabel
+    /// Windows Update traffic as a game — the same shape guard the C# resolver
+    /// (XboxMappingService.IsValidFragment) applies. This Rust path is the PRIMARY canonicalizer,
+    /// so the guard MUST live here too.
+    /// A blank title is dropped exactly like an absent one. This loader is the only source of Xbox
+    /// names, and a match canonicalizes the download to `Service='xbox'` with `GameName` = the
+    /// title. An empty `GameName` splits the codebase — the identity key rule buckets it as
+    /// `steam:0` while the detection queries test the column against NULL and call it a named game
+    /// — and the C# re-resolver only ever revisits `wsus`/`xboxlive` rows, so an `xbox` row stamped
+    /// with `""` can never be given its real title. Dropping the pattern keeps the URL generic
+    /// `wsus`, which stays re-resolvable once a real title arrives.
+    fn xbox_pattern_row(
+        fragment: Option<String>,
+        title: Option<String>,
+        product_id: Option<String>,
+    ) -> Option<(String, String, String)> {
+        match (fragment, title, product_id) {
+            (Some(frag), Some(name), Some(pid))
+                if cache_utils::is_valid_xbox_fragment(&frag) && !name.trim().is_empty() =>
+            {
+                Some((frag, name, pid))
+            }
+            _ => None,
         }
     }
 
@@ -2595,6 +2611,42 @@ mod xbox_fragment_guard_tests {
     fn rejects_empty_and_root() {
         assert!(!is_valid_xbox_fragment(""));
         assert!(!is_valid_xbox_fragment("/"));
+    }
+
+    #[test]
+    fn pattern_row_keeps_a_fragment_that_has_a_title() {
+        let frag = format!("/filestreamingservice/files/{}", GUID);
+        let kept = Processor::xbox_pattern_row(
+            Some(frag.clone()),
+            Some("Halo Infinite".to_string()),
+            Some("9NBLGGH537DL".to_string()),
+        );
+        assert_eq!(
+            kept,
+            Some((frag, "Halo Infinite".to_string(), "9NBLGGH537DL".to_string()))
+        );
+    }
+
+    #[test]
+    fn pattern_row_drops_a_blank_title_like_a_missing_one() {
+        // An empty GameName is bucketed as steam:0 by the identity key rule and as a named game by
+        // the detection queries, and the C# re-resolver only revisits wsus/xboxlive rows, so a row
+        // stamped with "" can never be corrected. The URL must stay generic wsus instead.
+        let frag = format!("/filestreamingservice/files/{}", GUID);
+        let pid = Some("9NBLGGH537DL".to_string());
+
+        assert_eq!(
+            Processor::xbox_pattern_row(Some(frag.clone()), None, pid.clone()),
+            None
+        );
+        assert_eq!(
+            Processor::xbox_pattern_row(Some(frag.clone()), Some(String::new()), pid.clone()),
+            None
+        );
+        assert_eq!(
+            Processor::xbox_pattern_row(Some(frag), Some("   ".to_string()), pid),
+            None
+        );
     }
 
     #[test]

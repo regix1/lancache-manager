@@ -88,8 +88,12 @@ public class XboxMappingService
             .AsNoTracking()
             .ToListAsync(ct);
 
+        // A pattern with no title names nothing. Matching one would set GameName = "" on the
+        // download, and an empty name is worse than no name: the candidate query above selects on
+        // GameName == null, so the row can never be re-resolved once it holds "". Dropping the
+        // pattern leaves the download generic and re-resolvable the moment a real title arrives.
         var validPatterns = patterns
-            .Where(p => IsValidFragment(p.UrlFragment))
+            .Where(p => IsValidFragment(p.UrlFragment) && !string.IsNullOrWhiteSpace(p.Title))
             .OrderByDescending(p => p.UrlFragment.Length)
             .ToList();
 
@@ -220,9 +224,23 @@ public class XboxMappingService
         var newMappings = 0;
         var newPatterns = 0;
 
+        var skippedCount = 0;
+
         foreach (var info in cdnInfos)
         {
-            if (string.IsNullOrWhiteSpace(info.AppId)) continue;
+            // A catalog entry with no title cannot name anything. CdnInfo.Name defaults to
+            // string.Empty and the daemon's get-cdn-info reply leaves it there when it reports a
+            // product it has no title for, so an unguarded insert below stores Title = "" and
+            // ResolveDownloadsAsync stamps that onto every download whose URL matches the fragment.
+            // An empty GameName is the one value the two halves of the codebase disagree about:
+            // GamesOnDiskCalculator.GetDownloadGameKey buckets it as steam:0 while the detection
+            // queries test the column against null and bucket the same row as a named game. The
+            // update branches below already refuse a blank title; the insert branches must too.
+            if (string.IsNullOrWhiteSpace(info.AppId) || string.IsNullOrWhiteSpace(info.Name))
+            {
+                skippedCount++;
+                continue;
+            }
 
             // Upsert the product->title mapping (the catalog row; art is fetched lazily on resolve).
             if (existingMappings.TryGetValue(info.AppId, out var mapping))
@@ -298,6 +316,13 @@ public class XboxMappingService
         _logger.LogInformation(
             "Xbox daemon catalog merge: {NewMappings} new games, {NewPatterns} new CDN patterns ({Apps} apps reported)",
             newMappings, newPatterns, cdnInfos.Count);
+
+        if (skippedCount > 0)
+        {
+            _logger.LogWarning(
+                "Xbox daemon catalog merge skipped {Skipped} entries that carried no product id or no title",
+                skippedCount);
+        }
 
         if (newMappings > 0 || newPatterns > 0)
         {

@@ -83,6 +83,7 @@ public class StateService : IStateService
         public string StatusCheckResolverMode { get; set; } = "auto";
         public DateTime? EpicMappingLastCollection { get; set; }
         public double CrawlIntervalHours { get; set; } = 1.0;
+        public int TopGameCount { get; set; } = 50;
         // Only applies when state.json has no stored value, i.e. a fresh install. See ManagerState.
         public object CrawlIncrementalMode { get; set; } = "github";
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
@@ -998,6 +999,17 @@ public class StateService : IStateService
         UpdateState(state => state.CrawlIntervalHours = hours);
     }
 
+    // Per-Game Metric Cap Methods
+    public int GetTopGameCount()
+    {
+        return GetState().TopGameCount;
+    }
+
+    public void SetTopGameCount(int count)
+    {
+        UpdateState(state => state.TopGameCount = count);
+    }
+
     // Crawl Mode Methods
     public object GetCrawlIncrementalMode()
     {
@@ -1735,6 +1747,7 @@ public class StateService : IStateService
             StatusCheckResolverMode = persisted.StatusCheckResolverMode,
             EpicMappingLastCollection = persisted.EpicMappingLastCollection,
             CrawlIntervalHours = persisted.CrawlIntervalHours,
+            TopGameCount = persisted.TopGameCount,
             CrawlIncrementalMode = persisted.CrawlIncrementalMode,
             LastUpdated = persisted.LastUpdated,
             HasDataLoaded = persisted.HasDataLoaded,
@@ -1851,6 +1864,7 @@ public class StateService : IStateService
             StatusCheckResolverMode = state.StatusCheckResolverMode,
             EpicMappingLastCollection = state.EpicMappingLastCollection,
             CrawlIntervalHours = state.CrawlIntervalHours,
+            TopGameCount = state.TopGameCount,
             CrawlIncrementalMode = state.CrawlIncrementalMode,
             LastUpdated = state.LastUpdated,
             HasDataLoaded = state.HasDataLoaded,

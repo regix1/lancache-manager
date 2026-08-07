@@ -1,4 +1,3 @@
-using LancacheManager.Core.Constants;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Utilities;
@@ -16,8 +15,6 @@ public static class DownloadQueryExtensions
 
     public static IQueryable<Download> ApplyHiddenClientFilter(this IQueryable<Download> query, List<string> hiddenClientIps)
     {
-        query = query.ApplyPrefillFilter();
-
         if (hiddenClientIps.Count == 0)
         {
             return query;
@@ -36,13 +33,6 @@ public static class DownloadQueryExtensions
     public static IQueryable<Download> ApplyEmptySessionFilter(this IQueryable<Download> query)
     {
         return query.Where(d => d.IsActive || d.CacheHitBytes > 0 || d.CacheMissBytes > 0);
-    }
-
-    public static IQueryable<Download> ApplyPrefillFilter(this IQueryable<Download> query)
-    {
-        return query
-            .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != DownloadKindConstants.PrefillToken)
-            .Where(d => d.Datasource == null || d.Datasource.ToLower() != DownloadKindConstants.PrefillToken);
     }
 
     public static IQueryable<Download> ApplyEventFilter(this IQueryable<Download> query, List<long> eventIds, HashSet<long>? eventDownloadIds)

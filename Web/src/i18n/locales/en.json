@@ -3560,6 +3560,9 @@
       "scrapeIntervalRate": "Prometheus Scrape Interval",
       "scrapeIntervalRateDesc": "How often Prometheus pulls data from the /metrics endpoint",
       "scrapeIntervalRateFooter": "Set this in your prometheus.yml scrape_interval",
+      "topGames": "Top Games Exported",
+      "topGamesDesc": "How many games appear in the per-game Prometheus series",
+      "topGamesFooter": "Takes effect on the next data refresh cycle",
       "pollingRates": "Refresh and scrape rates",
       "prometheusConfig": "Prometheus Configuration",
       "prometheusConfigSecured": "Authentication required - include authorization header",
@@ -3571,28 +3574,27 @@
       "staleDataWarning": "Scrape interval is faster than data refresh - you may see stale data",
       "queryExamples": "Grafana Query Examples",
       "dataRefresh": {
-        "5sec": "5 seconds",
+        "label": "{{seconds}} seconds",
         "5secDesc": "Very frequent updates",
-        "10sec": "10 seconds",
         "10secDesc": "Recommended for real-time",
-        "15sec": "15 seconds",
         "15secDesc": "Balanced performance",
-        "30sec": "30 seconds",
         "30secDesc": "Lower resource usage",
-        "60sec": "60 seconds",
         "60secDesc": "Minimal overhead"
       },
       "scrapeInterval": {
-        "5sec": "5 seconds",
+        "label": "{{seconds}} seconds",
         "5secDesc": "High frequency polling",
-        "10sec": "10 seconds",
         "10secDesc": "Recommended",
-        "15sec": "15 seconds",
         "15secDesc": "Standard polling",
-        "30sec": "30 seconds",
         "30secDesc": "Low frequency",
-        "60sec": "60 seconds",
         "60secDesc": "Minimal polling"
+      },
+      "gameCount": {
+        "label": "{{games}} games",
+        "20gamesDesc": "Fewest series",
+        "50gamesDesc": "Recommended",
+        "100gamesDesc": "Larger libraries",
+        "200gamesDesc": "Most series"
       },
       "queries": {
         "hitRate": "Cache hit rate percentage",
@@ -3624,7 +3626,15 @@
       },
       "placeholders": {
         "selectRate": "Select rate",
-        "selectInterval": "Select interval"
+        "selectInterval": "Select interval",
+        "selectGameCount": "Select count"
+      },
+      "errors": {
+        "loadSecurityStatus": "Failed to load metrics access status",
+        "loadMetricsStatus": "Failed to load metrics status",
+        "updateRefreshRate": "Failed to update data refresh rate",
+        "updateTopGames": "Failed to update the exported game count",
+        "copyFailed": "Failed to copy to clipboard"
       },
       "accessMode": "Endpoint Access",
       "metricsToggle": {

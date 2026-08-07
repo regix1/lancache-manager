@@ -1362,33 +1362,23 @@ public partial class GameCacheDetectionService : IDisposable
     }
 
     /// <summary>
-    /// Stable cross-datasource dedup identity for a detected game. Mirrors the persistence
-    /// buckets in <see cref="GameCacheDetectionDataService.SaveGamesAsync"/> exactly so the
-    /// in-memory aggregation can never collapse distinct games:
+    /// Stable cross-datasource dedup identity for a detected game. Forwards to
+    /// <see cref="GamesOnDiskCalculator.GetGameKey"/> so the rule lives in one place:
     /// <list type="bullet">
     /// <item>Epic games: keyed by <c>EpicAppId</c> (GameAppId is a synthetic non-zero id).</item>
-    /// <item>Named (Blizzard/Riot) games: GameAppId is always 0 and EpicAppId is null, so they
-    /// are keyed by <c>(Service, GameName)</c>. Keying on GameAppId alone collapsed all of them
-    /// into one row.</item>
+    /// <item>Named (Blizzard/Riot/Xbox) games: GameAppId is always 0 and EpicAppId is null, so
+    /// they are keyed by <c>(Service, GameName)</c>. Keying on GameAppId alone collapsed all of
+    /// them into one row.</item>
     /// <item>Steam games: keyed by <c>GameAppId</c> (unique per game).</item>
     /// </list>
+    /// A hand-written second copy of those branches drifted here: it read any non-null
+    /// <c>EpicAppId</c> as an Epic identity, so an empty-string one keyed as <c>epic:</c> in this
+    /// method and on its GameAppId in the shared version.
     /// The <c></c> separator cannot appear in a service or game name, matching the Rust
     /// composite-key separator, so named keys can never ambiguously collide.
     /// </summary>
-    private static string BuildGameIdentityKey(GameCacheInfo game)
-    {
-        if (game.EpicAppId != null)
-        {
-            return $"epic:{game.EpicAppId}";
-        }
-
-        if (game.GameAppId == 0 && game.Service != null && game.GameName != "")
-        {
-            return $"named:{game.Service.ToLowerInvariant()}{game.GameName}";
-        }
-
-        return $"steam:{game.GameAppId}";
-    }
+    private static string BuildGameIdentityKey(GameCacheInfo game) =>
+        GamesOnDiskCalculator.GetGameKey(game);
 
     /// <summary>
     /// Maps a single datasource's Rust progress (0..100) into its equal slice of the global

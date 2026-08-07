@@ -1,5 +1,4 @@
 using LancacheManager.Configuration;
-using LancacheManager.Core.Constants;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
@@ -578,12 +577,10 @@ public class DashboardBatchService : IDashboardBatchService
                 .ToListAsync(ct);
         }
 
-        // Filter out excluded and prefill client IPs in a single pass - in live mode this list
-        // is the whole visible downloads table, so each extra ToList is a full-size copy.
+        // Filter out excluded client IPs in a single pass - in live mode this list is the whole
+        // visible downloads table, so each extra ToList is a full-size copy.
         downloads = downloads
             .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
-            .Where(d => !string.Equals(d.ClientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
-            .Where(d => !string.Equals(d.Datasource, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (evictedMode == EvictedDataMode.ShowClean.ToWireString())

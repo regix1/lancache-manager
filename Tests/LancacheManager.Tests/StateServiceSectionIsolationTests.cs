@@ -468,6 +468,7 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         StatusCheckResolverMode = "host",
         EpicMappingLastCollection = new DateTime(2028, 2, 3, 4, 5, 6, DateTimeKind.Utc),
         CrawlIntervalHours = 7.5,
+        TopGameCount = 123,
         CrawlIncrementalMode = false,
         LastUpdated = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc),
         HasDataLoaded = true,

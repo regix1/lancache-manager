@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using LancacheManager.Core.Constants;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
@@ -72,9 +71,9 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     }
 
     /// <summary>
-    /// Gets the current CLIENT-VISIBLE speed snapshot: hidden clients and prefill traffic are
-    /// filtered out and the evicted-data display mode is applied, exactly as the SignalR
-    /// broadcast does, so REST and SignalR always expose identical visibility semantics.
+    /// Gets the current CLIENT-VISIBLE speed snapshot: hidden clients are filtered out and the
+    /// evicted-data display mode is applied, exactly as the SignalR broadcast does, so REST and
+    /// SignalR always expose identical visibility semantics.
     /// </summary>
     public DownloadSpeedSnapshot GetCurrentSnapshot()
     {
@@ -89,11 +88,11 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     }
 
     /// <summary>
-    /// Builds the client-visible snapshot from the raw tracker snapshot. Hidden clients and
-    /// prefill traffic (the same exclusions the dashboard applies to recorded downloads) are
-    /// removed, the evicted-data display mode is applied, and the top-level totals are
-    /// recomputed from the retained entries. Retained game entries are copied so display
-    /// rewrites (ShowClean) can never mutate the tracker's raw snapshot.
+    /// Builds the client-visible snapshot from the raw tracker snapshot. Hidden clients (the same
+    /// exclusion the dashboard applies to recorded downloads) are removed, the evicted-data
+    /// display mode is applied, and the top-level totals are recomputed from the retained
+    /// entries. Retained game entries are copied so display rewrites (ShowClean) can never
+    /// mutate the tracker's raw snapshot.
     /// </summary>
     public static DownloadSpeedSnapshot BuildClientVisibleSnapshot(
         DownloadSpeedSnapshot snapshot,
@@ -134,8 +133,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     }
 
     private static bool IsVisibleClient(string clientIp, IReadOnlyCollection<string> hiddenClientIps) =>
-        !hiddenClientIps.Contains(clientIp) &&
-        !string.Equals(clientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase);
+        !hiddenClientIps.Contains(clientIp);
 
     private static GameSpeedInfo CloneGameSpeed(GameSpeedInfo game) => new()
     {

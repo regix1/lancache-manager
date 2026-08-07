@@ -30,8 +30,7 @@ public class StatsDataService : IStatsDataService
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task<List<Download>> GetLatestDownloadsAsync(int limit = int.MaxValue, bool activeOnly = false, CancellationToken cancellationToken = default)
     {
-        // Start with base query applying prefill filter
-        var baseQuery = _context.Downloads.AsNoTracking().ApplyPrefillFilter()
+        var baseQuery = _context.Downloads.AsNoTracking()
             .ApplyEmptySessionFilter()
             .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0);
 

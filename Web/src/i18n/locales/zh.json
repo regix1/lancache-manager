@@ -3560,6 +3560,9 @@
       "scrapeIntervalRate": "Prometheus 抓取间隔",
       "scrapeIntervalRateDesc": "Prometheus 从 /metrics 端点拉取数据的频率",
       "scrapeIntervalRateFooter": "在您的 prometheus.yml 的 scrape_interval 中设置",
+      "topGames": "导出的游戏数量",
+      "topGamesDesc": "按游戏统计的 Prometheus 序列中包含多少个游戏",
+      "topGamesFooter": "在下一个数据刷新周期生效",
       "pollingRates": "刷新和抓取速率",
       "prometheusConfig": "Prometheus 配置",
       "prometheusConfigSecured": "需要身份验证 - 包含授权标头",
@@ -3571,28 +3574,27 @@
       "staleDataWarning": "抓取间隔快于数据刷新 - 您可能会看到过时数据",
       "queryExamples": "Grafana 查询示例",
       "dataRefresh": {
-        "5sec": "5 秒",
+        "label": "{{seconds}} 秒",
         "5secDesc": "非常频繁的更新",
-        "10sec": "10 秒",
         "10secDesc": "推荐用于实时",
-        "15sec": "15 秒",
         "15secDesc": "平衡性能",
-        "30sec": "30 秒",
         "30secDesc": "较低资源消耗",
-        "60sec": "60 秒",
         "60secDesc": "最小开销"
       },
       "scrapeInterval": {
-        "5sec": "5 秒",
+        "label": "{{seconds}} 秒",
         "5secDesc": "高频率轮询",
-        "10sec": "10 秒",
         "10secDesc": "推荐",
-        "15sec": "15 秒",
         "15secDesc": "标准轮询",
-        "30sec": "30 秒",
         "30secDesc": "低频率",
-        "60sec": "60 秒",
         "60secDesc": "最小轮询"
+      },
+      "gameCount": {
+        "label": "{{games}} 个游戏",
+        "20gamesDesc": "序列数量最少",
+        "50gamesDesc": "推荐",
+        "100gamesDesc": "适合较大的游戏库",
+        "200gamesDesc": "序列数量最多"
       },
       "queries": {
         "hitRate": "缓存命中率百分比",
@@ -3624,7 +3626,15 @@
       },
       "placeholders": {
         "selectRate": "选择速率",
-        "selectInterval": "选择间隔"
+        "selectInterval": "选择间隔",
+        "selectGameCount": "选择数量"
+      },
+      "errors": {
+        "loadSecurityStatus": "加载指标访问状态失败",
+        "loadMetricsStatus": "加载指标状态失败",
+        "updateRefreshRate": "更新数据刷新率失败",
+        "updateTopGames": "更新导出的游戏数量失败",
+        "copyFailed": "复制到剪贴板失败"
       },
       "accessMode": "端点访问",
       "metricsToggle": {

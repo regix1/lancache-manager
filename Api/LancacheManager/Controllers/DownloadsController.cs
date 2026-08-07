@@ -5,7 +5,6 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
-using LancacheManager.Core.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -47,17 +46,11 @@ public class DownloadsController : ControllerBase
     {
         var download = await _context.Downloads
             .AsNoTracking()
-            .FirstOrDefaultAsync(d => d.Id == id && d.ClientIp != DownloadKindConstants.PrefillToken && d.ClientIp != "Prefill")
+            .FirstOrDefaultAsync(d => d.Id == id)
             ?? throw new NotFoundException("Download");
 
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         if (hiddenClientIps.Contains(download.ClientIp))
-        {
-            throw new NotFoundException("Download");
-        }
-
-        if (string.Equals(download.ClientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(download.Datasource, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
         {
             throw new NotFoundException("Download");
         }
@@ -167,8 +160,6 @@ public class DownloadsController : ControllerBase
         var baseQuery = _context.Downloads
             .AsNoTracking()
             .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp))
-            .Where(d => d.ClientIp != DownloadKindConstants.PrefillToken && d.ClientIp != "Prefill")
-            .Where(d => d.Datasource != DownloadKindConstants.PrefillToken && d.Datasource != "Prefill")
             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
 
         baseQuery = baseQuery.ApplyEvictedFilter(evictedMode).ApplyEmptySessionFilter();
@@ -594,16 +585,24 @@ public class DownloadsController : ControllerBase
     private const string UnknownOtherAppName = "Unknown/Other";
 
     /// <summary>
+    /// Whether a download row is Steam content whose game could not be identified: either no game
+    /// name at all, or a name that is just the service name echoed back. Deliberately scoped to
+    /// Steam. WSUS and bare-metal traffic is nameless by design, so treating "no game name" as a
+    /// mapping failure across every service reports a healthy install as broken.
+    /// </summary>
+    public static bool IsUnmappedSteam(string service, string? gameName) =>
+        string.Equals(service, "steam", StringComparison.OrdinalIgnoreCase)
+            && (string.IsNullOrEmpty(gameName)
+                || string.Equals(gameName, service, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// Display name for a retro group. Unmapped Steam content (a Steam row with no resolved
     /// game name) is surfaced as "Unknown/Other" to match the Normal/Compact views. Every
     /// other service keeps its service-name fallback.
     /// </summary>
     private static string ResolveRetroAppName(string service, string? gameName)
     {
-        var isUnmappedSteam = string.Equals(service, "steam", StringComparison.OrdinalIgnoreCase)
-            && (string.IsNullOrEmpty(gameName)
-                || string.Equals(gameName, service, StringComparison.OrdinalIgnoreCase));
-        return isUnmappedSteam ? UnknownOtherAppName : (gameName ?? service);
+        return IsUnmappedSteam(service, gameName) ? UnknownOtherAppName : (gameName ?? service);
     }
 
     /// <summary>
@@ -614,10 +613,8 @@ public class DownloadsController : ControllerBase
     {
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
 
-        // Base query: filter prefill sessions
         var baseQuery = _context.Downloads
             .AsNoTracking()
-            .ApplyPrefillFilter()
             .Where(d => !d.IsActive); // Only completed downloads for retro view
 
         // Exclude hidden client IPs
