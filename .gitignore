@@ -1,8 +1,4 @@
-# Firecrawl cache
-.firecrawl/
 
-# Playwright MCP output (screenshots, snapshots)
-.playwright-mcp/
 # Loose root-level UI review screenshots
 /*.png
 
@@ -21,7 +17,6 @@ bld/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
-
 
 # Visual Studio cache/options
 .vs/
@@ -115,23 +110,11 @@ operation_states.json
 steam_depot_mappings.json
 steam_applist.json
 
-# Claude files
-CLAUDE.md
-.claude/
-*.claude
-.claude.json
-nul
 project.yml
-.serena/
-.swarm/
-.claude-flow/
-tmpclaude-*
-**/tmpclaude-*
 
 # Documentation (local-only; only images are tracked because README references them)
 docs/*
 !docs/images/
-notification_code.md
 
 # Development tools and temporary files
 rustup-init.exe
@@ -142,10 +125,6 @@ rustup-init.exe
 
 # Steam Lancache Prefill tool
 steam-lancache-prefill/
-PROJECT_SERVICES_OVERVIEW.md
-PROJECT_TYPE_CONSISTENCY_AUDIT.md
-PROJECT_VARIABLE_USAGE_MAP.md
-EPIC_GAME_MAPPING_PLAN.md
 
 # Rust build artifacts
 rust-processor/target/
@@ -153,10 +132,6 @@ rust-processor/target/
 # Build test artifacts
 build-test/
 _verify_bin/
-EPIC_IMAGE_FIX_PLAN.md
-CODE_CONSOLIDATION_PLAN.md
-DEAD_CODE_AUDIT.md
-.cursor/
 
 # Generated documentation site (built from the READMEs by docs-site/build.py)
 docs-site/generated/
