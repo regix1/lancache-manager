@@ -103,7 +103,7 @@ public sealed class BattleNetMappingLifecycleTests
             }
         }
 
-        public IReadOnlyList<T> Payloads<T>(string eventName)
+        public List<T> Payloads<T>(string eventName)
         {
             lock (_sync)
             {

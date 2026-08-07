@@ -43,7 +43,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         PrefillPlatform platform)
     {
         var (daemon, client) = CreateRunnablePersistentDaemon(platform);
-        var daemonProvider = BuildProviderWithDaemon(platform, daemon);
+        using var daemonProvider = BuildProviderWithDaemon(platform, daemon);
         using var schedulerProvider = new ServiceCollection().BuildServiceProvider();
         var scheduledPrefillService = new ScheduledPrefillService(
             NullLogger<ScheduledPrefillService>.Instance,
@@ -149,7 +149,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         return (daemon, client);
     }
 
-    private static IServiceProvider BuildProviderWithDaemon(PrefillPlatform platform, PrefillDaemonServiceBase daemon)
+    private static ServiceProvider BuildProviderWithDaemon(PrefillPlatform platform, PrefillDaemonServiceBase daemon)
     {
         var services = new ServiceCollection();
         switch (platform)

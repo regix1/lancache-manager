@@ -2,7 +2,24 @@
 set -e
 
 ROOT="$(git rev-parse --show-toplevel)"
-cd "$ROOT/Web"
 
+cd "$ROOT/Web"
 echo "pre-push: running knip..."
 npm run knip
+
+# Backend analyzer gate. This is the same build CI runs, so a CA/xUnit/nullable
+# violation fails here instead of arriving on GitHub as a warning annotation.
+# --no-incremental is required: an incremental build re-emits zero analyzer
+# warnings and would pass while the rules are still broken.
+cd "$ROOT"
+if ! command -v dotnet >/dev/null 2>&1; then
+  echo "pre-push: dotnet not found on PATH - cannot run the backend analyzer gate." >&2
+  exit 1
+fi
+
+echo "pre-push: building backend with analyzer warnings as errors..."
+dotnet build lancache-manager.sln \
+  --no-incremental \
+  -m:1 \
+  -p:SkipRustBuild=true \
+  -warnaserror:CS8600,CS8601,CS8602,CS8603,CS8604

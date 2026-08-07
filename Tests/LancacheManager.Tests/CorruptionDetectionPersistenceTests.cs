@@ -1318,14 +1318,14 @@ public sealed class CorruptionDetectionPersistenceTests
 
     private sealed class TestableCorruptionScanHistoryMigration : AddCorruptionScanHistory
     {
-        public IReadOnlyList<MigrationOperation> BuildUpOperations()
+        public List<MigrationOperation> BuildUpOperations()
         {
             var builder = new MigrationBuilder("Npgsql.EntityFrameworkCore.PostgreSQL");
             Up(builder);
             return builder.Operations;
         }
 
-        public IReadOnlyList<MigrationOperation> BuildDownOperations()
+        public List<MigrationOperation> BuildDownOperations()
         {
             var builder = new MigrationBuilder("Npgsql.EntityFrameworkCore.PostgreSQL");
             Down(builder);

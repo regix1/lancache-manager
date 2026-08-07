@@ -1373,7 +1373,11 @@ public class PersistentEraseOnStopTests
             return Task.FromResult(true);
         }
 
-        public override void Dispose() => Disposed = true;
+        public override void Dispose()
+        {
+            Disposed = true;
+            base.Dispose();
+        }
     }
 
     /// <summary>

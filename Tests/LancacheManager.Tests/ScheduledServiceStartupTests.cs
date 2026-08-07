@@ -127,7 +127,7 @@ public class ScheduledServiceStartupTests
         return new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
     }
 
-    private static Task TrackCallAsync(string call, ICollection<string> calls)
+    private static Task TrackCallAsync(string call, List<string> calls)
     {
         calls.Add(call);
         return Task.CompletedTask;
@@ -136,7 +136,7 @@ public class ScheduledServiceStartupTests
     private static object? RemoveOperation(
         Guid id,
         List<CacheClearOperation> operations,
-        ICollection<Guid> removedIds)
+        List<Guid> removedIds)
     {
         removedIds.Add(id);
         operations.RemoveAll(op => op.Id == id);

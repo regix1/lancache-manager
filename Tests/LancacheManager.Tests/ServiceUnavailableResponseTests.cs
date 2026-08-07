@@ -104,7 +104,7 @@ public class ServiceUnavailableResponseTests
     /// The availability check is the first statement in the method under test, so nothing past the
     /// seam needs to work for the throw to be reached.
     /// </summary>
-    private static PrefillDaemonServiceBase CreateDaemonWithUnavailableDocker()
+    private static SteamDaemonService CreateDaemonWithUnavailableDocker()
     {
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"service_unavailable_{Guid.NewGuid():N}")

@@ -189,6 +189,8 @@ dotnet_diagnostic.RCS1194.severity = suggestion # Implement exception constructo
 
 # Performance - perf rules promoted to error via WarningsAsErrors in Directory.Build.props
 dotnet_diagnostic.CA1870.severity = warning     # Use cached SearchValues<T> for IndexOfAny / ContainsAny
+dotnet_diagnostic.CA1859.severity = warning     # Use the concrete type where the abstraction is never needed
+dotnet_diagnostic.CA2215.severity = warning     # Dispose override must call base.Dispose()
 
 # Demote high-volume CA rules to suggestion
 dotnet_diagnostic.CA1001.severity = suggestion  # Types owning disposable fields

@@ -38,9 +38,14 @@ jobs:
 
       - run: dotnet restore lancache-manager.sln
 
-      - name: Build with nullable warnings as errors
+      # --no-incremental is not optional: an incremental build re-emits zero analyzer
+      # warnings, so a cached or partial build would report clean while CA/xUnit rules
+      # still fire. Analyzer severities live in .editorconfig and the two
+      # Directory.Build.props files, which already promote them to errors.
+      - name: Build with analyzer and nullable warnings as errors
         run: >
           dotnet build lancache-manager.sln
           --no-restore
+          --no-incremental
           -p:SkipRustBuild=true
           -warnaserror:CS8600,CS8601,CS8602,CS8603,CS8604

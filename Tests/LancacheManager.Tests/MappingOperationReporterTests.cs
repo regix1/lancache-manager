@@ -337,7 +337,7 @@ public class MappingOperationReporterTests
         private readonly List<CapturedEvent> _events = new();
         private readonly Dictionary<string, TaskCompletionSource<CapturedEvent>> _waiters = new();
 
-        public IReadOnlyList<TPayload> PayloadsFor<TPayload>(string eventName)
+        public List<TPayload> PayloadsFor<TPayload>(string eventName)
         {
             lock (_sync)
             {

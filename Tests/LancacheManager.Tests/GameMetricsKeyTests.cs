@@ -51,7 +51,7 @@ public class GameMetricsKeyTests
 
         Assert.Equal(expectedKey, downloadKey);
         Assert.Equal(expectedKey, detectionKey);
-        Assert.True(string.Equals(downloadKey, detectionKey, StringComparison.Ordinal));
+        Assert.Equal(downloadKey, detectionKey);
     }
 
     [Fact]

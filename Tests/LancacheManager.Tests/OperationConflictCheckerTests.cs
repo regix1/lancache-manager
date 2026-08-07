@@ -1,4 +1,3 @@
-using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -337,14 +336,14 @@ public class OperationConflictCheckerTests
 
 
 
-    private static void RegisterBulkOperation(IUnifiedOperationTracker tracker, OperationType type, string name)
+    private static void RegisterBulkOperation(UnifiedOperationTracker tracker, OperationType type, string name)
     {
         // Bulk-scope heavy ops (LogProcessing / GameDetection / EvictionScan / CacheSizeScan)
         // register without metadata, so DeriveScope falls back to Bulk().
         tracker.RegisterOperation(type, name, new CancellationTokenSource());
     }
 
-    private static void RegisterBulkCorruptionDetection(IUnifiedOperationTracker tracker)
+    private static void RegisterBulkCorruptionDetection(UnifiedOperationTracker tracker)
     {
         tracker.RegisterOperation(
             OperationType.CorruptionDetection,
@@ -353,7 +352,7 @@ public class OperationConflictCheckerTests
             new CorruptionDetectionMetrics());
     }
 
-    private static void RegisterNamedGameRemoval(IUnifiedOperationTracker tracker, string service, string gameName)
+    private static void RegisterNamedGameRemoval(UnifiedOperationTracker tracker, string service, string gameName)
     {
         // Mirrors GamesController.RemoveNamedGameFromCacheAsync: entityKind "named",
         // entityKey "{service}:{gameName}".
@@ -369,7 +368,7 @@ public class OperationConflictCheckerTests
             });
     }
 
-    private static void RegisterLogRemoval(IUnifiedOperationTracker tracker, string serviceName)
+    private static void RegisterLogRemoval(UnifiedOperationTracker tracker, string serviceName)
     {
         tracker.RegisterOperation(
             OperationType.LogRemoval,
@@ -383,7 +382,7 @@ public class OperationConflictCheckerTests
             });
     }
 
-    private static void RegisterServiceRemoval(IUnifiedOperationTracker tracker, string serviceName)
+    private static void RegisterServiceRemoval(UnifiedOperationTracker tracker, string serviceName)
     {
         tracker.RegisterOperation(
             OperationType.ServiceRemoval,
@@ -397,7 +396,7 @@ public class OperationConflictCheckerTests
     }
 
     private static void RegisterEvictionRemoval(
-        IUnifiedOperationTracker tracker,
+        UnifiedOperationTracker tracker,
         string scope,
         string key)
     {
@@ -414,7 +413,7 @@ public class OperationConflictCheckerTests
 
     private sealed class TrackerHarness : IDisposable
     {
-        public IUnifiedOperationTracker Tracker { get; }
+        public UnifiedOperationTracker Tracker { get; }
 
         public OperationConflictChecker Checker { get; }
 
@@ -438,7 +437,7 @@ public class OperationConflictCheckerTests
     }
 
     private static void RegisterCacheMutatingRemoval(
-        IUnifiedOperationTracker tracker,
+        UnifiedOperationTracker tracker,
         OperationType type)
     {
         tracker.RegisterOperation(

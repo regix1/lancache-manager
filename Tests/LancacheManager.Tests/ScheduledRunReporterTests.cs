@@ -347,12 +347,12 @@ public class ScheduledRunReporterTests
             _blockedEventName = blockedEventName;
         }
 
-        public IReadOnlyList<CapturedEvent> Events
+        public List<CapturedEvent> Events
         {
             get { lock (_lock) { return _events.ToList(); } }
         }
 
-        public IReadOnlyList<TPayload> PayloadsFor<TPayload>(string eventName)
+        public List<TPayload> PayloadsFor<TPayload>(string eventName)
         {
             lock (_lock)
             {

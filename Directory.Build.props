@@ -15,9 +15,17 @@
     The API does the opposite - Api/Directory.Build.props turns EnforceCodeStyleInBuild on and puts
     IDE1006 in WarningsAsErrors, so an async method there that lacks the Async suffix fails the
     build. Do not read this file as describing the API's settings.
+
+    TreatWarningsAsErrors makes every remaining warning fail the build. The test project ships
+    nowhere, so there is no release build to protect, and the analyzer families that fire here -
+    CA (AnalysisMode above), xUnit (the xunit.analyzers package) and the compiler's own CS set -
+    are all things a test author should fix rather than push. Style rules stay out of it because
+    EnforceCodeStyleInBuild is off, so this does not drag in IDE1006. The API cannot do the same:
+    it is compiled inside the Docker image builds, so it promotes named rules instead.
   -->
   <PropertyGroup>
     <AnalysisMode>Recommended</AnalysisMode>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
 </Project>

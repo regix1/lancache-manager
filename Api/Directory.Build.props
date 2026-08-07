@@ -5,7 +5,11 @@
     <Nullable>enable</Nullable>
     <!-- Promote selected rules from warning to error so they fail the build:
          - CA1870: cached SearchValues<T> for IndexOfAny / ContainsAny
-         - IDE1006: private field naming convention (_camelCase) -->
-    <WarningsAsErrors>$(WarningsAsErrors);CA1870;IDE1006</WarningsAsErrors>
+         - CA1859: concrete type where the abstraction is never needed
+         - CA2215: Dispose override must call base.Dispose()
+         - IDE1006: private field naming convention (_camelCase)
+         A warning here only ever reaches CI as an annotation nobody reads, so anything
+         worth acting on has to fail the build instead. -->
+    <WarningsAsErrors>$(WarningsAsErrors);CA1870;CA1859;CA2215;IDE1006</WarningsAsErrors>
   </PropertyGroup>
 </Project>
