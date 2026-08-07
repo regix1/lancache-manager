@@ -3732,7 +3732,7 @@
       "intervals": {
         "disabled": "Disabled",
         "startupOnly": "Startup only",
-        "custom": "Custom…",
+        "custom": "Every few minutes…",
         "everyHour": "Every hour",
         "every3Hours": "Every 3 hours",
         "every6Hours": "Every 6 hours",

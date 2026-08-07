@@ -3732,7 +3732,7 @@
       "intervals": {
         "disabled": "已禁用",
         "startupOnly": "仅启动时",
-        "custom": "自定义...",
+        "custom": "每隔几分钟…",
         "everyHour": "每小时",
         "every3Hours": "每 3 小时",
         "every6Hours": "每 6 小时",

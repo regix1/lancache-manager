@@ -88,8 +88,11 @@
   min-width: 5rem;
 }
 
-/* AM/PM takes its own line rather than competing with the two steppers for a track that only
-   comfortably holds two controls. Full width there also gives it a real touch target. */
+/* AM/PM wraps below the steppers rather than competing with them for a track that only
+   comfortably holds two controls, and spans that track so it reads as one deliberate control
+   rather than an offcut. It is rendered fullWidth, which splits the two halves evenly: sized
+   to their own text instead, "AM" and "PM" come out at different widths and the divider sits
+   off centre. */
 .custom-schedule-period {
   flex: 1 0 100%;
 }

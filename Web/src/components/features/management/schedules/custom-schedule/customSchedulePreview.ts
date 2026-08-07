@@ -45,7 +45,7 @@ const OCCURRENCE_BATCH = 50;
 export const DEFAULT_SCHEDULE_DRAFT: ScheduleDraft = {
   repeat: 'daily',
   everyNHours: 2,
-  time: { hour: 2, minute: 0 },
+  time: { hour: 0, minute: 0 },
   weekdays: ['mon', 'tue', 'wed', 'thu', 'fri'],
   dayOfMonth: 1,
   windowEnabled: false,

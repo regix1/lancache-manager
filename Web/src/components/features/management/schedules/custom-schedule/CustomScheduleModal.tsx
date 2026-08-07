@@ -148,6 +148,7 @@ function TimeFields({
           onChange={handlePeriodChange}
           size="md"
           showLabels
+          fullWidth
           className="custom-schedule-period"
         />
       )}
