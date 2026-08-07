@@ -368,7 +368,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           historySessions: Session[];
         }
         const first = await ApiService.getSessions<SessionsResponse>(1, 100);
-        let loadedSessions = first.sessions;
+        // A response missing either array still resolves, so it never reaches the catch below.
+        // Falling back to an empty list keeps the page on its empty state instead of throwing
+        // when the counts below read .length.
+        let loadedSessions = first.sessions ?? [];
         const serverPages = first.pagination?.totalPages || 1;
         if (serverPages > 1) {
           const rest = await Promise.all(
@@ -376,10 +379,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               ApiService.getSessions<SessionsResponse>(i + 2, 100)
             )
           );
-          loadedSessions = loadedSessions.concat(rest.flatMap((r: SessionsResponse) => r.sessions));
+          loadedSessions = loadedSessions.concat(
+            rest.flatMap((r: SessionsResponse) => r.sessions ?? [])
+          );
         }
         setSessions(loadedSessions);
-        setHistorySessions(first.historySessions);
+        setHistorySessions(first.historySessions ?? []);
       } catch (err: unknown) {
         notifyError(t('activeSessions.errors.loadSessions'), err, {
           logLabel: 'Failed to load sessions'
