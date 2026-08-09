@@ -5,7 +5,7 @@
 ### 仪表板
 
 <div align="center" markdown>
-<img alt="仪表板概览，显示节省的带宽、缓存命中率、服务分布和热门客户端" src="../images/dashboard-overview.png" />
+<img alt="仪表板概览，显示节省的带宽、缓存命中率、服务分布和热门客户端" src="../../images/dashboard-overview.png" />
 
 <em>仪表板——节省的带宽、命中率、服务分析和热门客户端，一屏尽览</em>
 </div>
@@ -13,7 +13,7 @@
 ### 下载
 
 <div align="center" markdown>
-<img alt="下载页面普通视图，显示带缓存命中进度的按游戏下载卡片" src="../images/downloads-normal.png" />
+<img alt="下载页面普通视图，显示带缓存命中进度的按游戏下载卡片" src="../../images/downloads-normal.png" />
 
 <em>下载——每个已缓存游戏的封面图、大小和按客户端的历史记录</em>
 </div>
@@ -23,7 +23,7 @@
 ### 客户端
 
 <div align="center" markdown>
-<img alt="客户端页面列出设备及各自的下载总量、缓存命中与未命中数、命中率" src="../images/clients.png" />
+<img alt="客户端页面列出设备及各自的下载总量、缓存命中与未命中数、命中率" src="../../images/clients.png" />
 
 <em>客户端——哪些设备在使用缓存，以及缓存为每个设备服务得如何</em>
 </div>
@@ -33,7 +33,7 @@
 ### 用户
 
 <div align="center" markdown>
-<img alt="用户页面显示当前活跃会话列表" src="../images/users-sessions.png" />
+<img alt="用户页面显示当前活跃会话列表" src="../../images/users-sessions.png" />
 
 <em>用户——活跃会话与访客访问</em>
 </div>
@@ -43,7 +43,7 @@
 ### 事件
 
 <div align="center" markdown>
-<img alt="事件日历，显示已安排的一场 LAN 聚会活动" src="../images/events.png" />
+<img alt="事件日历，显示已安排的一场 LAN 聚会活动" src="../../images/events.png" />
 
 <em>事件——在日历上查看下载活动和 LAN 聚会</em>
 </div>
@@ -53,7 +53,7 @@
 ### 状态检查 { #status-check }
 
 <div align="center" markdown>
-<img alt="状态检查标签页，显示 DNS 解析结果与缓存域名验证" src="../images/status-check.png" />
+<img alt="状态检查标签页，显示 DNS 解析结果与缓存域名验证" src="../../images/status-check.png" />
 
 <em>状态检查——验证 DNS、缓存可达性和近期下载的路由情况</em>
 </div>
@@ -87,7 +87,7 @@ location /lancache-heartbeat {
 ### 日志与缓存
 
 <div align="center" markdown>
-<img alt="日志与缓存管理页面，显示日志处理和缓存操作控件" src="../images/management-logs-cache.png" />
+<img alt="日志与缓存管理页面，显示日志处理和缓存操作控件" src="../../images/management-logs-cache.png" />
 
 <em>管理 → 日志与缓存——处理日志、管理磁盘缓存，并检测损坏或已失效的文件</em>
 </div>
@@ -102,7 +102,7 @@ location /lancache-heartbeat {
 #### 设置
 
 <div align="center" markdown>
-<img alt="管理设置标签页，包含 API 认证、演示模式和显示偏好设置" src="../images/management-settings.png" />
+<img alt="管理设置标签页，包含 API 认证、演示模式和显示偏好设置" src="../../images/management-settings.png" />
 
 <em>设置——认证、演示模式和显示偏好设置。</em>
 </div>
@@ -112,7 +112,7 @@ location /lancache-heartbeat {
 #### 集成
 
 <div align="center" markdown>
-<img alt="集成标签页，显示全部五个游戏平台的登录卡片和 Prometheus 端点面板" src="../images/management-integrations.png" />
+<img alt="集成标签页，显示全部五个游戏平台的登录卡片和 Prometheus 端点面板" src="../../images/management-integrations.png" />
 
 <em>集成——登录游戏平台并配置 Prometheus 端点。一个页面即可查看全部五项预填充服务的登录状态。</em>
 </div>
@@ -120,7 +120,7 @@ location /lancache-heartbeat {
 #### 数据
 
 <div align="center" markdown>
-<img alt="数据标签页，包含 Steam 游戏映射卡片和数据库导入表单" src="../images/management-data.png" />
+<img alt="数据标签页，包含 Steam 游戏映射卡片和数据库导入表单" src="../../images/management-data.png" />
 
 <em>数据——Steam 游戏映射与数据库导入。</em>
 </div>
@@ -128,7 +128,7 @@ location /lancache-heartbeat {
 #### 计划任务
 
 <div align="center" markdown>
-<img alt="计划任务标签页，显示每个后台服务的计划卡片，含间隔和立即运行按钮" src="../images/management-schedules-system.png" />
+<img alt="计划任务标签页，显示每个后台服务的计划卡片，含间隔和立即运行按钮" src="../../images/management-schedules-system.png" />
 
 <em>计划任务——每个后台服务都有自己的运行间隔和一个"立即运行"按钮。计划预填充卡片位于本页底部，会在下方的预填充章节中展示。</em>
 </div>
@@ -136,7 +136,7 @@ location /lancache-heartbeat {
 #### 主题
 
 <div align="center" markdown>
-<img alt="主题图库，包含已安装主题、社区主题和自定义主题上传区域" src="../images/management-theme.png" />
+<img alt="主题图库，包含已安装主题、社区主题和自定义主题上传区域" src="../../images/management-theme.png" />
 
 <em>主题——在已安装的主题间切换、导入社区主题，或上传你自己的主题。</em>
 </div>
@@ -144,7 +144,7 @@ location /lancache-heartbeat {
 #### 客户端（别名与排除）
 
 <div align="center" markdown>
-<img alt="管理客户端标签页，用于分配昵称并将设备排除在统计之外" src="../images/management-client-aliases.png" />
+<img alt="管理客户端标签页，用于分配昵称并将设备排除在统计之外" src="../../images/management-client-aliases.png" />
 
 <em>客户端——为设备指定友好名称，并将某些设备排除在统计之外。</em>
 </div>
@@ -154,7 +154,7 @@ location /lancache-heartbeat {
 #### 预填充会话
 
 <div align="center" markdown>
-<img alt="预填充会话标签页，显示实时、持久和历史预填充容器会话" src="../images/management-prefill-sessions.png" />
+<img alt="预填充会话标签页，显示实时、持久和历史预填充容器会话" src="../../images/management-prefill-sessions.png" />
 
 <em>预填充会话——查看实时和持久预填充容器，并回顾历史运行记录。</em>
 </div>

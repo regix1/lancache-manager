@@ -5,7 +5,7 @@
 Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，因此你可以同时预填充所有平台而互不干扰。进度会实时推送到 UI。
 
 <div align="center" markdown>
-<img alt="游戏预填充平台选择界面，显示 Steam、Epic Games、Battle.net、Riot Games 和 Xbox" src="../images/prefill-home.png" />
+<img alt="游戏预填充平台选择界面，显示 Steam、Epic Games、Battle.net、Riot Games 和 Xbox" src="../../images/prefill-home.png" />
 
 <em>选择一个平台，开始一次预填充会话</em>
 </div>
@@ -58,7 +58,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 配置一次，从此不必在每场活动前手动预填充。打开**管理 → 计划任务**，找到计划预填充卡片。五个平台各自拥有独立的间隔、预设和游戏选择。
 
 <div align="center" markdown>
-<img alt="计划预填充卡片，显示 Steam、Epic、Xbox、Battle.net 和 Riot 各自的状态、下次运行时间和运行间隔" src="../images/schedules-prefill-table.png" />
+<img alt="计划预填充卡片，显示 Steam、Epic、Xbox、Battle.net 和 Riot 各自的状态、下次运行时间和运行间隔" src="../../images/schedules-prefill-table.png" />
 
 <em>计划预填充——一眼看清各服务的状态、下次运行和上次运行时间</em>
 </div>
@@ -80,7 +80,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 - 每个服务都可以选择正常显示或静默发送运行通知。
 
 <div align="center" markdown>
-<img alt="配置计划预填充对话框，显示各平台的计划、预设和下载设置" src="../images/schedules-prefill-configure.png" />
+<img alt="配置计划预填充对话框，显示各平台的计划、预设和下载设置" src="../../images/schedules-prefill-configure.png" />
 
 <em>配置计划预填充——各平台的计划、预设和目标平台控制</em>
 </div>
