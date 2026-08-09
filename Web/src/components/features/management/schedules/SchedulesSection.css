@@ -328,13 +328,6 @@
   gap: 0.25rem;
 }
 
-/* Five letters do not need the full 19rem control column, so this button is content
-   width. The floor clears the longer "Asking Steam" loading label and its spinner, so
-   the button holds one size across both states instead of jolting when the answer lands. */
-.incremental-check-button {
-  min-width: 9.5rem;
-}
-
 /* Steam's answer to the check. It renders inside the expanded detail well, which is
    already bg-tertiary, so the panel steps up to the control tone rather than repeating
    its parent's background - .well-surface alone would be invisible here. The width

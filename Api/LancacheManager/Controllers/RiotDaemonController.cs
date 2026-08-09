@@ -25,6 +25,17 @@ public class RiotDaemonController : DaemonControllerBase<RiotDaemonService>
     {
     }
 
+    /// <summary>
+    /// Gets Riot daemon service status.
+    /// </summary>
+    /// <remarks>
+    /// The Riot management card polls this over REST because it has no login flow and
+    /// therefore no session to carry the status over the hub.
+    /// </remarks>
+    [HttpGet("status")]
+    [ProducesResponseType(typeof(DaemonStatusResponse), StatusCodes.Status200OK)]
+    public new ActionResult GetStatus() => base.GetStatus();
+
     protected override int? ResolveThreadLimit(UserSession session)
     {
         if (session.SessionType == SessionType.Admin) return null;

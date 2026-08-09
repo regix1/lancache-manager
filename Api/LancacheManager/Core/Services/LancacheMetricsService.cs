@@ -980,6 +980,9 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
 
+        // Same clock as the dashboard's hourly aggregate: the hour the server recorded for the
+        // download, which is what StartTimeLocal holds. DateTime.Now below reads that clock too,
+        // so the current-hour count lands in the bucket it belongs to. [8]
         var hourlyActivity = await downloads
             .Where(d => d.StartTimeUtc >= sevenDaysAgo)
             .GroupBy(d => d.StartTimeLocal.Hour)

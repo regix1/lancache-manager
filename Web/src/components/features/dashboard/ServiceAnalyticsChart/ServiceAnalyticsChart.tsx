@@ -12,8 +12,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpDefinition } from '@components/ui/HelpPopover';
-import { EmptyState } from '@components/ui/ManagerCard';
-import LoadingSpinner from '@components/common/LoadingSpinner';
+import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
 import DoughnutChart from './DoughnutChart';
 import ChartLegend from './ChartLegend';
 import CompareLineChart from './CompareLineChart';
@@ -73,7 +72,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       return [
         {
           value: ALL_GAME_SERVICES,
-          label: t('dashboard.serviceAnalytics.gameService.all', 'All services')
+          label: t('dashboard.serviceAnalytics.gameService.all')
         },
         ...[...bytesByService.entries()]
           .sort(([, aBytes], [, bBytes]) => bBytes - aBytes)
@@ -127,8 +126,8 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         },
         {
           value: 'games',
-          label: t('dashboard.serviceAnalytics.tabs.games', 'Games'),
-          tooltip: t('dashboard.serviceAnalytics.tabs.gamesFull', 'Games on Disk')
+          label: t('dashboard.serviceAnalytics.tabs.games'),
+          tooltip: t('dashboard.serviceAnalytics.tabs.gamesFull')
         }
       ],
       [t]
@@ -162,11 +161,11 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     const centerLabel = useMemo(() => {
       switch (activeTab) {
         case 'bandwidth':
-          return t('dashboard.serviceAnalytics.centerLabels.saved', 'Cache Hits');
+          return t('dashboard.serviceAnalytics.centerLabels.saved');
         case 'misses':
-          return t('dashboard.serviceAnalytics.centerLabels.internet', 'Cache Misses');
+          return t('dashboard.serviceAnalytics.centerLabels.internet');
         case 'games':
-          return t('dashboard.serviceAnalytics.centerLabels.onDisk', 'On Disk');
+          return t('dashboard.serviceAnalytics.centerLabels.onDisk');
         case 'hit-ratio':
           return t('dashboard.serviceAnalytics.centerLabels.total');
         default:
@@ -238,8 +237,8 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       [activeTab, footerStats, chartData, t]
     );
 
-    const hideListLabel = t('dashboard.serviceAnalytics.hideList', 'Hide breakdown');
-    const showListLabel = t('dashboard.serviceAnalytics.showList', 'Show breakdown');
+    const hideListLabel = t('dashboard.serviceAnalytics.hideList');
+    const showListLabel = t('dashboard.serviceAnalytics.showList');
     const toggleAriaLabel = showList ? hideListLabel : showListLabel;
 
     return (
@@ -324,7 +323,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                   onChange={setGameService}
                   size="md"
                   variant="button"
-                  prefix={t('dashboard.serviceAnalytics.gameService.prefix', 'Service:')}
+                  prefix={t('dashboard.serviceAnalytics.gameService.prefix')}
                   className="service-analytics-game-service-select"
                 />
               )}
@@ -334,7 +333,9 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
 
         {loading ? (
           <div className="service-analytics-loading">
-            <LoadingSpinner size="lg" />
+            <div className="w-full">
+              <LoadingState shape="chart" rows={5} />
+            </div>
           </div>
         ) : !chartData.isEmpty ? (
           <>
@@ -418,7 +419,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                     )
                   }
                 >
-                  {t('dashboard.serviceAnalytics.empty.action', 'View Logs')}
+                  {t('dashboard.serviceAnalytics.empty.action')}
                 </Button>
               }
             />

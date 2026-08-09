@@ -24,7 +24,7 @@ import { Button } from '@components/ui/Button';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
-import { API_BASE, APP_EVENTS } from '@utils/constants';
+import { API_BASE } from '@utils/constants';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -37,6 +37,7 @@ import CreateThemeModal from '@components/modals/theme/CreateThemeModal';
 import EditThemeModal from '@components/modals/theme/EditThemeModal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { useManagerLoading } from '@hooks/useManagerLoading';
+import { useThemePreview } from '@hooks/useThemePreview';
 import { CommunityThemeImporter } from './CommunityThemeImporter';
 import { colorGroups } from './constants';
 import { type Theme, type ThemeManagerProps, type EditableTheme, type ThemeColors } from './types';
@@ -70,7 +71,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   const [currentTheme, setCurrentTheme] = useState('dark-default');
   const { isLoading, setLoading, hasInitiallyLoaded, markLoaded } = useManagerLoading(false);
   const [dragActive, setDragActive] = useState(false);
-  const [previewTheme, setPreviewTheme] = useState<string | null>(null);
+  const previewTheme = useThemePreview();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [themePendingDeletion, setThemePendingDeletion] = useState<{
@@ -123,9 +124,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
     loadThemes().finally(() => markLoaded());
 
     // Load preview state first
-    const savedPreview = themeService.getPreviewTheme();
-    if (savedPreview) {
-      setPreviewTheme(savedPreview);
+    if (previewTheme) {
       // If in preview mode, restore the original theme as the "current" theme
       const originalTheme = themeService.getOriginalThemeBeforePreview();
       if (originalTheme) setCurrentTheme(originalTheme);
@@ -135,14 +134,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       if (saved) setCurrentTheme(saved);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // A preview can also be stopped from the header button, which this page never hears about
-  // otherwise - the cards would go on offering to stop a preview that already ended
-  useEffect(() => {
-    const readPreviewTheme = () => setPreviewTheme(themeService.getPreviewTheme());
-    window.addEventListener(APP_EVENTS.THEME_PREVIEW_CHANGE, readPreviewTheme);
-    return () => window.removeEventListener(APP_EVENTS.THEME_PREVIEW_CHANGE, readPreviewTheme);
   }, []);
 
   // Handler Functions
@@ -188,7 +179,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       }
       await themeService.setTheme(themeId);
       setCurrentTheme(themeId);
-      setPreviewTheme(null);
       // Committing a theme ends any preview that was running. Clearing it raises the
       // preview-change event, which is how the header's stop-preview button knows to disappear
       themeService.clearPreviewTheme();
@@ -220,17 +210,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
     // Entering and leaving a preview both repaint in place: setTheme rebuilds the theme style
     // element, and the preview-state change raises the event the header's button listens on
     if (previewTheme === themeId) {
-      // Toggle off preview - restore original theme from before preview started
-      const originalTheme = themeService.getOriginalThemeBeforePreview() || 'dark-default';
-      await themeService.setTheme(originalTheme);
-      setPreviewTheme(null);
-      themeService.clearPreviewTheme();
-      themeService.clearOriginalThemeBeforePreview();
+      await themeService.stopPreview();
     } else {
       // Toggle on preview - save current theme and apply preview theme
       themeService.setOriginalThemeBeforePreview(currentTheme);
       await themeService.setTheme(themeId);
-      setPreviewTheme(themeId);
       themeService.setPreviewTheme(themeId);
     }
   };
@@ -318,13 +302,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         window.location.reload();
       }
     } catch (error) {
-      notifyError(
-        t('management.themes.notifications.updateFailed', 'Failed to update theme'),
-        error,
-        {
-          logLabel: 'Error updating theme'
-        }
-      );
+      notifyError(t('management.themes.notifications.updateFailed'), error, {
+        logLabel: 'Error updating theme'
+      });
     } finally {
       setLoading(false);
     }
@@ -390,13 +370,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         customCSS: ''
       });
     } catch (error) {
-      notifyError(
-        t('management.themes.notifications.createFailed', 'Failed to create theme'),
-        error,
-        {
-          logLabel: 'Error creating theme'
-        }
-      );
+      notifyError(t('management.themes.notifications.createFailed'), error, {
+        logLabel: 'Error creating theme'
+      });
     } finally {
       setLoading(false);
     }
@@ -428,7 +404,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         setCurrentTheme('dark-default');
       }
       if (previewTheme === themePendingDeletion.id) {
-        setPreviewTheme(null);
         themeService.clearPreviewTheme();
         themeService.clearOriginalThemeBeforePreview();
       }
@@ -468,20 +443,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
       await themeService.setTheme('dark-default');
       setCurrentTheme('dark-default');
-      setPreviewTheme(null);
       themeService.clearPreviewTheme();
       themeService.clearOriginalThemeBeforePreview();
       await loadThemes();
       setShowCleanupModal(false);
       window.location.reload();
     } catch (error) {
-      notifyError(
-        t('management.themes.notifications.cleanupFailed', 'Failed to clean up themes'),
-        error,
-        {
-          logLabel: 'Error cleaning up themes'
-        }
-      );
+      notifyError(t('management.themes.notifications.cleanupFailed'), error, {
+        logLabel: 'Error cleaning up themes'
+      });
     } finally {
       setLoading(false);
     }
@@ -672,7 +642,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
           {t('management.themes.previewBadge')}
         </SectionHeaderChip>
       )}
-      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+      <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>
             <ActionMenuItem
@@ -833,7 +803,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                   </span>
                 </div>
                 {!hasInitiallyLoaded ? (
-                  <LoadingState message={t('management.themes.loadingThemes')} rows={2} />
+                  <LoadingState
+                    message={t('management.themes.loadingThemes')}
+                    shape="cards"
+                    rows={2}
+                  />
                 ) : (
                   <div className="space-y-3">
                     {sliderStops.length > 0 && (

@@ -35,6 +35,11 @@ public class SystemController : ControllerBase
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly CacheManagementService _cacheManagementService;
 
+    // Names the clock change inside DefaultGuestPreferencesChanged, alongside the single-field keys the
+    // same event has always carried. A listener reads this to know the payload holds a whole clock and
+    // the one it replaced rather than one field's new value. [3]
+    private const string DefaultGuestClockKey = "clock";
+
     public SystemController(
         StateService stateService,
         IConfiguration configuration,
@@ -64,12 +69,15 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/system/config - Get system configuration
-    /// Note: Public endpoint - needed for app initialization before authentication
+    /// Gets the system configuration.
     /// </summary>
+    /// <remarks>
+    /// This is a public endpoint, needed for app initialization before authentication.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("config")]
-    public async Task<IActionResult> GetConfigAsync()
+    [ProducesResponseType(typeof(SystemConfigResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SystemConfigResponse>> GetConfigAsync()
     {
         var datasources = _datasourceService.GetDatasources();
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
@@ -120,10 +128,7 @@ public class SystemController : ControllerBase
             DataPath = _pathResolver.GetDataDirectory(),
             CacheDeleteMode = _cacheClearingService.GetDeleteMode(),
             SteamAuthMode = _stateService.GetSteamAuthMode() ?? SteamAuthMode.Anonymous,
-            // Check TZ environment variable first (Docker standard), then TimeZone config, default to UTC
-            TimeZone = _configuration.GetValue<string>("TZ")
-                      ?? _configuration.GetValue<string>("TimeZone")
-                      ?? "UTC",
+            TimeZone = ServerTimeZone.IanaId(_configuration),
             // Use cached permission flags maintained by DirectoryPermissionMonitor.
             CacheWritable = defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable(),
             LogsWritable = defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsWritable(),
@@ -133,27 +138,12 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/system/state - Get application state
-    /// </summary>
-    [AllowAnonymous]
-    [HttpGet("state")]
-    public IActionResult GetState()
-    {
-        return Ok(new SystemStateResponse
-        {
-            SetupCompleted = _stateService.GetSetupCompleted(),
-            HasDataLoaded = _stateService.HasDataLoaded(),
-            SteamAuthMode = _stateService.GetSteamAuthMode() ?? SteamAuthMode.Anonymous,
-            CacheDeleteMode = _cacheClearingService.GetDeleteMode()
-        });
-    }
-
-    /// <summary>
-    /// GET /api/system/permissions - Check directory permissions and docker socket availability
+    /// Checks directory permissions and docker socket availability.
     /// </summary>
     [Authorize]
     [HttpGet("permissions")]
-    public IActionResult GetPermissions()
+    [ProducesResponseType(typeof(SystemPermissionsResponse), StatusCodes.Status200OK)]
+    public ActionResult<SystemPermissionsResponse> GetPermissions()
     {
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
         var cachePath = defaultDatasource?.CachePath ?? _pathResolver.GetCacheDirectory();
@@ -189,12 +179,15 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/system/setup - Get setup status
-    /// Note: Public endpoint - needed for AuthenticationModal before authentication
+    /// Gets the setup status.
     /// </summary>
+    /// <remarks>
+    /// This is a public endpoint, needed for AuthenticationModal before authentication.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("setup")]
-    public IActionResult GetSetupStatus()
+    [ProducesResponseType(typeof(SetupStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<SetupStatusResponse> GetSetupStatus()
     {
         Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
         Response.Headers["Pragma"] = "no-cache";
@@ -308,28 +301,31 @@ public class SystemController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Gets whether GC management (the memory-threshold-triggered collection pass) is enabled.
+    /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("gc-management/status")]
-    public IActionResult GetGcStatus()
+    [ProducesResponseType(typeof(GcStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<GcStatusResponse> GetGcStatus()
     {
         var isEnabled = _configuration.GetValue<bool>(
             "Optimizations:EnableGarbageCollectionManagement",
             false);
 
-        return Ok(new
-        {
-            enabled = isEnabled
-        });
+        return Ok(new GcStatusResponse { Enabled = isEnabled });
     }
 
     /// <summary>
-    /// PATCH /api/system/setup - Update setup status
-    /// RESTful: PATCH is proper method for partial updates
-    /// Request body: { "completed": true }
+    /// Updates the setup status.
     /// </summary>
+    /// <remarks>
+    /// PATCH is the proper method here for partial updates. Request body: { "completed": true }.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch("setup")]
-    public IActionResult UpdateSetupStatus([FromBody] UpdateSetupStatusRequest request)
+    [ProducesResponseType(typeof(SetupUpdateResponse), StatusCodes.Status200OK)]
+    public ActionResult<SetupUpdateResponse> UpdateSetupStatus([FromBody] UpdateSetupStatusRequest request)
     {
         if (request == null)
         {
@@ -456,24 +452,28 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/system/rsync/available - Check if rsync is available
+    /// Checks whether rsync is available.
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("rsync/available")]
-    public async Task<IActionResult> IsRsyncAvailableAsync()
+    [ProducesResponseType(typeof(RsyncAvailableResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<RsyncAvailableResponse>> IsRsyncAvailableAsync()
     {
         var isAvailable = await _cacheClearingService.IsRsyncAvailableAsync();
         return Ok(new RsyncAvailableResponse { Available = isAvailable });
     }
 
     /// <summary>
-    /// PATCH /api/system/cache-delete-mode - Set cache clearing delete mode
-    /// RESTful: PATCH is proper method for configuration updates
-    /// Request body: { "deleteMode": "preserve" | "full" | "rsync" }
+    /// Sets the cache clearing delete mode.
     /// </summary>
+    /// <remarks>
+    /// PATCH is the proper method here for configuration updates. Request body:
+    /// { "deleteMode": "preserve" | "full" | "rsync" }.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch("cache-delete-mode")]
-    public IActionResult SetCacheDeleteMode([FromBody] SetCacheDeleteModeRequest request)
+    [ProducesResponseType(typeof(CacheDeleteModeResponse), StatusCodes.Status200OK)]
+    public ActionResult<CacheDeleteModeResponse> SetCacheDeleteMode([FromBody] SetCacheDeleteModeRequest request)
     {
         _cacheClearingService.SetDeleteMode(request.DeleteMode);
         _logger.LogInformation("Cache delete mode updated to: {Mode}", request.DeleteMode.ToWireString());
@@ -486,88 +486,31 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// PATCH /api/system/depots/crawl-interval - Set depot crawl interval
-    /// RESTful: PATCH is proper method for configuration updates
-    /// Request body: { "intervalHours": 24 }
+    /// Gets the current refresh rate setting.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpPatch("depots/crawl-interval")]
-    public IActionResult SetDepotCrawlInterval([FromBody] SetCrawlIntervalRequest request)
-    {
-        if (request.IntervalHours <= 0)
-        {
-            return BadRequest(ApiResponse.Error("Interval must be greater than 0"));
-        }
-
-        _steamKit2Service.CrawlIntervalHours = request.IntervalHours;
-        _logger.LogInformation("PICS crawl interval set to {Hours} hours", request.IntervalHours);
-
-        return Ok(new CrawlIntervalResponse
-        {
-            Message = "Crawl interval updated",
-            IntervalHours = request.IntervalHours
-        });
-    }
-
-    /// <summary>
-    /// PATCH /api/system/depots/scan-mode - Set depot scan mode
-    /// RESTful: PATCH is proper method for configuration updates
-    /// Request body: { "mode": "full" } or { "mode": "incremental" }
-    /// Stores the same setting as PUT /api/depots/rebuild/config/mode, so it answers to the same
-    /// requirements: a mode every scheduled run would have to skip is refused here too.
-    /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpPatch("depots/scan-mode")]
-    public IActionResult SetDepotScanMode([FromBody] SetScanModeRequest request)
-    {
-        // DepotScanMode.Github is not accepted here - it requires different downstream wiring
-        // (see DepotsController.SetCrawlMode). This endpoint only supports the boolean-backed
-        // incremental/full toggle.
-        if (request.Mode != DepotScanMode.Incremental && request.Mode != DepotScanMode.Full)
-        {
-            return BadRequest(ApiResponse.Error("Invalid scan mode. Must be 'full' or 'incremental'"));
-        }
-
-        var incremental = request.Mode == DepotScanMode.Incremental;
-
-        var unavailable = DepotScanModeRequirement.Missing(_steamKit2Service, _stateService, incremental);
-        if (unavailable != null)
-        {
-            _logger.LogInformation("PICS scan mode rejected: {StageKey}", unavailable.StageKey);
-
-            return BadRequest(unavailable);
-        }
-
-        _steamKit2Service.CrawlIncrementalMode = incremental;
-        _logger.LogInformation("PICS scan mode set to: {Mode}", request.Mode.ToWireString());
-
-        return Ok(new ScanModeResponse
-        {
-            Message = "Scan mode updated",
-            Mode = request.Mode
-        });
-    }
-
-    /// <summary>
-    /// GET /api/system/refresh-rate - Get the current refresh rate setting
-    /// Note: Public endpoint - needed for RefreshRateContext before authentication
-    /// </summary>
+    /// <remarks>
+    /// This is a public endpoint, needed for RefreshRateContext before authentication.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("refresh-rate")]
-    public IActionResult GetRefreshRate()
+    [ProducesResponseType(typeof(RefreshRateResponse), StatusCodes.Status200OK)]
+    public ActionResult<RefreshRateResponse> GetRefreshRate()
     {
         var rate = _stateService.GetRefreshRate();
         return Ok(new RefreshRateResponse { RefreshRate = rate });
     }
 
     /// <summary>
-    /// PATCH /api/system/refresh-rate - Set the refresh rate
-    /// RESTful: PATCH is proper method for configuration updates
-    /// Request body: { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
+    /// Sets the refresh rate.
     /// </summary>
+    /// <remarks>
+    /// PATCH is the proper method here for configuration updates. Request body:
+    /// { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch("refresh-rate")]
-    public IActionResult SetRefreshRate([FromBody] SetRefreshRateRequest request)
+    [ProducesResponseType(typeof(RefreshRateResponse), StatusCodes.Status200OK)]
+    public ActionResult<RefreshRateResponse> SetRefreshRate([FromBody] SetRefreshRateRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.RefreshRate))
         {
@@ -591,28 +534,34 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/system/default-guest-refresh-rate - Get the default refresh rate for guest users.
+    /// Gets the default refresh rate for guest users.
+    /// </summary>
+    /// <remarks>
     /// Anonymous access is intentional: the login screen displays the configured guest refresh rate
     /// before the user authenticates. Leaving this endpoint [Authorize] produced repeated 401
-    /// challenges + log spam for every unauthenticated pageload.
-    /// </summary>
+    /// challenges and log spam for every unauthenticated pageload.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("default-guest-refresh-rate")]
-    public IActionResult GetDefaultGuestRefreshRate()
+    [ProducesResponseType(typeof(DefaultGuestRefreshRateResponse), StatusCodes.Status200OK)]
+    public ActionResult<DefaultGuestRefreshRateResponse> GetDefaultGuestRefreshRate()
     {
         var rate = _stateService.GetDefaultGuestRefreshRate();
         var locked = _stateService.GetGuestRefreshRateLocked();
-        return Ok(new { refreshRate = rate, locked });
+        return Ok(new DefaultGuestRefreshRateResponse { RefreshRate = rate, Locked = locked });
     }
 
     /// <summary>
-    /// PATCH /api/system/default-guest-refresh-rate - Set the default refresh rate for guest users
-    /// RESTful: PATCH is proper method for configuration updates
-    /// Request body: { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
+    /// Sets the default refresh rate for guest users.
     /// </summary>
+    /// <remarks>
+    /// PATCH is the proper method here for configuration updates. Request body:
+    /// { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch("default-guest-refresh-rate")]
-    public async Task<IActionResult> SetDefaultGuestRefreshRateAsync([FromBody] SetRefreshRateRequest request)
+    [ProducesResponseType(typeof(RefreshRateResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<RefreshRateResponse>> SetDefaultGuestRefreshRateAsync([FromBody] SetRefreshRateRequest request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.RefreshRate))
         {
@@ -643,12 +592,15 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// PATCH /api/system/guest-refresh-rate-lock - Lock or unlock guest refresh rate selection
-    /// Request body: { "locked": true | false }
+    /// Locks or unlocks guest refresh rate selection.
     /// </summary>
+    /// <remarks>
+    /// Request body: { "locked": true | false }.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch("guest-refresh-rate-lock")]
-    public async Task<IActionResult> SetGuestRefreshRateLockAsync([FromBody] GuestRefreshRateLockRequest request)
+    [ProducesResponseType(typeof(GuestRefreshRateLockResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<GuestRefreshRateLockResponse>> SetGuestRefreshRateLockAsync([FromBody] GuestRefreshRateLockRequest request)
     {
         if (request == null)
         {
@@ -663,37 +615,39 @@ public class SystemController : ControllerBase
             locked = request.Locked
         });
 
-        return Ok(new { success = true, locked = request.Locked });
+        return Ok(new GuestRefreshRateLockResponse { Success = true, Locked = request.Locked });
     }
 
     /// <summary>
-    /// Get default guest preferences
+    /// Gets the default preferences a new guest session starts with, before any per-session override.
     /// </summary>
     [Authorize]
     [HttpGet("default-guest-preferences")]
-    public IActionResult GetDefaultGuestPreferences()
+    [ProducesResponseType(typeof(DefaultGuestPreferencesResponse), StatusCodes.Status200OK)]
+    public ActionResult<DefaultGuestPreferencesResponse> GetDefaultGuestPreferences()
     {
         var state = _stateService.GetState();
-        return Ok(new
+        return Ok(new DefaultGuestPreferencesResponse
         {
-            useLocalTimezone = state.DefaultGuestUseLocalTimezone,
-            use24HourFormat = state.DefaultGuestUse24HourFormat,
-            sharpCorners = state.DefaultGuestSharpCorners,
-            disableTooltips = state.DefaultGuestDisableTooltips,
-            showDatasourceLabels = state.DefaultGuestShowDatasourceLabels,
-            allowedTimeFormats = state.AllowedTimeFormats ?? new List<string> { "server-24h", "server-12h", "local-24h", "local-12h" }
+            UseLocalTimezone = state.DefaultGuestUseLocalTimezone,
+            UseUtcTimezone = state.DefaultGuestUseUtcTimezone,
+            Use24HourFormat = state.DefaultGuestUse24HourFormat,
+            SharpCorners = state.DefaultGuestSharpCorners,
+            DisableTooltips = state.DefaultGuestDisableTooltips,
+            ShowDatasourceLabels = state.DefaultGuestShowDatasourceLabels,
+            AllowedTimeFormats = state.AllowedTimeFormats
         });
     }
 
     /// <summary>
-    /// Update allowed time formats for guests
+    /// Sets which time formats guests are allowed to pick between, restricting the choices offered by
+    /// the per-session clock preference.
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch("default-guest-preferences/allowed-time-formats")]
-    public async Task<IActionResult> SetAllowedTimeFormatsAsync([FromBody] SetAllowedTimeFormatsRequest request)
+    [ProducesResponseType(typeof(AllowedTimeFormatsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<AllowedTimeFormatsResponse>> SetAllowedTimeFormatsAsync([FromBody] SetAllowedTimeFormatsRequest request)
     {
-        var validFormats = new[] { "server-24h", "server-12h", "local-24h", "local-12h" };
-
         if (request.Formats == null || request.Formats.Count == 0)
         {
             return BadRequest(ApiResponse.Error("At least one time format must be allowed"));
@@ -702,9 +656,9 @@ public class SystemController : ControllerBase
         // Validate all formats
         foreach (var format in request.Formats)
         {
-            if (!validFormats.Contains(format))
+            if (!TimeFormats.All.Contains(format))
             {
-                return BadRequest(ApiResponse.Error($"Invalid time format: {format}. Valid formats are: {string.Join(", ", validFormats)}"));
+                return BadRequest(ApiResponse.Error($"Invalid time format: {format}. Valid formats are: {string.Join(", ", TimeFormats.All)}"));
             }
         }
 
@@ -721,17 +675,76 @@ public class SystemController : ControllerBase
             formats = request.Formats
         });
 
-        return Ok(new { message = "Allowed time formats updated", formats = request.Formats });
+        return Ok(new AllowedTimeFormatsResponse { Message = "Allowed time formats updated", Formats = request.Formats });
     }
 
     /// <summary>
-    /// Update a single default guest preference
+    /// Writes the three default-guest clock fields in one update.
     /// </summary>
+    /// <remarks>
+    /// Sent as separate requests they cross each other: a guest session created between two of them
+    /// copies a clock nobody chose, a second admin changing the clock at the same time leaves the
+    /// three fields describing no option at all, and a listener that sees only the field that moved
+    /// cannot tell whether the guest it is holding still follows the default. The clock the admin
+    /// replaced travels with the new one so it can.
+    /// </remarks>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpPatch("default-guest-preferences/clock")]
+    [ProducesResponseType(typeof(DefaultGuestClockResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> SetDefaultGuestClockAsync([FromBody] UserPreferencesService.ClockPreferences clock)
+    {
+        if (clock == null)
+        {
+            return BadRequest(ApiResponse.Error("A default guest clock needs a value"));
+        }
+
+        // Settles the three against each other before anything is stored, so the tuple a new guest copies
+        // and the tuple the listeners compare against are the one an admin could have picked.
+        UserPreferencesService.NormalizeClockPreferences(clock);
+
+        var previousClock = new UserPreferencesService.ClockPreferences();
+        _stateService.UpdateState(state =>
+        {
+            previousClock.UseUtcTimezone = state.DefaultGuestUseUtcTimezone;
+            previousClock.UseLocalTimezone = state.DefaultGuestUseLocalTimezone;
+            previousClock.Use24HourFormat = state.DefaultGuestUse24HourFormat;
+
+            state.DefaultGuestUseUtcTimezone = clock.UseUtcTimezone;
+            state.DefaultGuestUseLocalTimezone = clock.UseLocalTimezone;
+            state.DefaultGuestUse24HourFormat = clock.Use24HourFormat;
+        });
+
+        _logger.LogInformation(
+            "Default guest clock set to utc={UseUtc}, local={UseLocal}, 24h={Use24Hour}",
+            clock.UseUtcTimezone, clock.UseLocalTimezone, clock.Use24HourFormat);
+
+        // Broadcast to all clients so other admins and guest users can update
+        await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestPreferencesChanged, new
+        {
+            key = DefaultGuestClockKey,
+            clock,
+            previousClock
+        });
+
+        return Ok(new DefaultGuestClockResponse { Message = "Default guest clock updated", Clock = clock });
+    }
+
+    /// <summary>
+    /// Sets a single default guest preference by key.
+    /// </summary>
+    /// <remarks>
+    /// The three clock fields are handled separately by <see cref="SetDefaultGuestClockAsync"/>
+    /// since they must be written together.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch("default-guest-preferences/{key}")]
+    [ProducesResponseType(typeof(DefaultGuestPreferenceResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> SetDefaultGuestPreferenceAsync(string key, [FromBody] SetBoolPreferenceRequest request)
     {
-        var validKeys = new[] { "useLocalTimezone", "use24HourFormat", "sharpCorners", "disableTooltips", "showDatasourceLabels" };
+        // The three clock fields are deliberately absent: between them they hold one choice, and this
+        // route can only ever carry one of them, so accepting them here is what let a half-applied clock
+        // become visible and durable. They go through the clock route above. [3]
+        var validKeys = new[] { "sharpCorners", "disableTooltips", "showDatasourceLabels" };
         if (!validKeys.Contains(key))
         {
             return BadRequest(ApiResponse.Error($"Invalid preference key: {key}"));
@@ -741,12 +754,6 @@ public class SystemController : ControllerBase
         {
             switch (key)
             {
-                case "useLocalTimezone":
-                    state.DefaultGuestUseLocalTimezone = request.Value;
-                    break;
-                case "use24HourFormat":
-                    state.DefaultGuestUse24HourFormat = request.Value;
-                    break;
                 case "sharpCorners":
                     state.DefaultGuestSharpCorners = request.Value;
                     break;
@@ -768,15 +775,20 @@ public class SystemController : ControllerBase
             value = request.Value
         });
 
-        return Ok(new { message = $"Default guest preference {key} updated", key, value = request.Value });
+        return Ok(new DefaultGuestPreferenceResponse { Message = $"Default guest preference {key} updated", Key = key, Value = request.Value });
     }
 
     /// <summary>
-    /// Get default prefill panel settings (session-aware for thread limits)
+    /// Gets the default prefill panel settings.
     /// </summary>
+    /// <remarks>
+    /// Session-aware: a guest session's thread limit clamps the returned max concurrency, while an
+    /// admin session gets no clamp.
+    /// </remarks>
     [Authorize]
     [HttpGet("prefill-defaults")]
-    public IActionResult GetPrefillDefaults()
+    [ProducesResponseType(typeof(PrefillDefaultsResponse), StatusCodes.Status200OK)]
+    public ActionResult<PrefillDefaultsResponse> GetPrefillDefaults()
     {
         var steamMaxThreadLimit = SteamThreadLimit();
         var epicMaxThreadLimit = EpicThreadLimit();
@@ -785,22 +797,26 @@ public class SystemController : ControllerBase
         var epicMaxConcurrency = ClampConcurrency(
             _stateService.GetEpicDefaultPrefillMaxConcurrency(), epicMaxThreadLimit);
 
-        return Ok(new
+        return Ok(new PrefillDefaultsResponse
         {
-            operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
-            maxConcurrency,
-            serverThreadCount = 256,
-            maxThreadLimit = steamMaxThreadLimit,
-            epicDefaultPrefillMaxConcurrency = epicMaxConcurrency
+            OperatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
+            MaxConcurrency = maxConcurrency,
+            ServerThreadCount = 256,
+            MaxThreadLimit = steamMaxThreadLimit,
+            EpicDefaultPrefillMaxConcurrency = epicMaxConcurrency
         });
     }
 
     /// <summary>
-    /// Update default prefill panel settings
+    /// Updates the default prefill panel settings.
     /// </summary>
+    /// <remarks>
+    /// Broadcasts the change so open prefill panels pick up the new defaults without a reload.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch("prefill-defaults")]
-    public async Task<IActionResult> SetPrefillDefaultsAsync([FromBody] SetPrefillDefaultsRequest request)
+    [ProducesResponseType(typeof(PrefillDefaultsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PrefillDefaultsResponse>> SetPrefillDefaultsAsync([FromBody] SetPrefillDefaultsRequest request)
     {
         if (request.OperatingSystems != null)
         {
@@ -827,13 +843,13 @@ public class SystemController : ControllerBase
             epicDefaultPrefillMaxConcurrency = _stateService.GetEpicDefaultPrefillMaxConcurrency()
         });
 
-        return Ok(new
+        return Ok(new PrefillDefaultsResponse
         {
-            operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
-            maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
-            serverThreadCount = 256,
-            maxThreadLimit = steamMaxThreadLimit,
-            epicDefaultPrefillMaxConcurrency = _stateService.GetEpicDefaultPrefillMaxConcurrency()
+            OperatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
+            MaxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
+            ServerThreadCount = 256,
+            MaxThreadLimit = steamMaxThreadLimit,
+            EpicDefaultPrefillMaxConcurrency = _stateService.GetEpicDefaultPrefillMaxConcurrency()
         });
     }
 

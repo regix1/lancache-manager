@@ -14,7 +14,7 @@ namespace LancacheManager.Controllers;
 /// RESTful controller for depot mapping management
 /// Handles Steam PICS data, depot rebuilds, imports, and mappings
 /// Note: /steamkit/* routes have been renamed to /depots/* for proper resource-based naming
-/// Note: Configuration endpoints moved to SystemController at /api/system/depots/*
+/// Note: crawl interval and scan mode are configured here, under /api/depots/rebuild/config/*
 /// </summary>
 [ApiController]
 [Route("api/depots")]
@@ -42,13 +42,16 @@ public class DepotsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/depots/status - Get status of depot mappings (PICS JSON and database)
-    /// RESTful: Proper resource status endpoint
+    /// Gets the status of depot mappings from the PICS JSON file and database.
     /// </summary>
+    /// <remarks>
+    /// This is a proper resource status endpoint.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("status")]
     [Authorize]
-    public async Task<IActionResult> GetDepotStatusAsync()
+    [ProducesResponseType(typeof(DepotFullStatusResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DepotFullStatusResponse>> GetDepotStatusAsync()
     {
         var picsData = await _picsDataService.LoadFromJsonAsync();
         var needsUpdate = await _picsDataService.NeedsUpdateAsync();
@@ -79,15 +82,19 @@ public class DepotsController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/depots/rebuild?incremental=true|false - Start depot mapping rebuild
-    /// RESTful: POST is acceptable for starting async operations
-    /// PRE-FLIGHT VIABILITY CHECK:
-    /// - If incremental=true: Checks with Steam if incremental scan is viable BEFORE starting
-    /// - If Steam requires full scan: Returns requiresFullScan flag to show modal to user
-    /// - If incremental=false: Skips viability check and proceeds directly to full scan
+    /// Starts a depot mapping rebuild, optionally incremental.
     /// </summary>
+    /// <remarks>
+    /// POST is acceptable for starting async operations. This endpoint runs a pre-flight
+    /// viability check: if incremental=true, it checks with Steam whether an incremental scan
+    /// is viable before starting, and if Steam requires a full scan, it returns the
+    /// requiresFullScan flag so a modal can be shown to the user. If incremental=false, the
+    /// viability check is skipped and the endpoint proceeds directly to a full scan.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("rebuild")]
+    [ProducesResponseType(typeof(DepotRebuildViabilityResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(DepotRebuildStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> StartDepotRebuildAsync(CancellationToken cancellationToken, [FromQuery] bool incremental = false)
     {
         // Without this a rebuild already running answers every repeat click with another 202, so a
@@ -149,24 +156,30 @@ public class DepotsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/depots/rebuild/progress - Get current depot rebuild progress
-    /// RESTful: Progress is a sub-resource of the rebuild operation
+    /// Gets the current depot rebuild progress.
     /// </summary>
+    /// <remarks>
+    /// Progress is a sub-resource of the rebuild operation.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("rebuild/progress")]
-    public IActionResult GetRebuildProgress()
+    [ProducesResponseType(typeof(SteamPicsProgress), StatusCodes.Status200OK)]
+    public ActionResult<SteamPicsProgress> GetRebuildProgress()
     {
         var progress = _steamKit2Service.GetProgress();
         return Ok(progress);
     }
 
     /// <summary>
-    /// DELETE /api/depots/rebuild - Cancel the current depot rebuild
-    /// RESTful: DELETE is proper method for cancelling/removing operations
+    /// Cancels the current depot rebuild.
     /// </summary>
+    /// <remarks>
+    /// DELETE is the proper method for cancelling or removing operations.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("rebuild")]
-    public async Task<IActionResult> CancelRebuildAsync()
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageResponse>> CancelRebuildAsync()
     {
         var cancelled = await _steamKit2Service.CancelRebuildAsync();
 
@@ -181,25 +194,31 @@ public class DepotsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/depots/rebuild/check-incremental - Check if incremental scan is viable
-    /// RESTful: This is a query/check operation on the rebuild resource
+    /// Checks whether an incremental depot scan is viable.
     /// </summary>
+    /// <remarks>
+    /// This is a query/check operation on the rebuild resource.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("rebuild/check-incremental")]
-    public async Task<IActionResult> CheckIncrementalAsync(CancellationToken cancellationToken)
+    [ProducesResponseType(typeof(IncrementalViabilityCheck), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IncrementalViabilityCheck>> CheckIncrementalAsync(CancellationToken cancellationToken)
     {
         var result = await _steamKit2Service.CheckViabilityAsync(cancellationToken);
         return Ok(result);
     }
 
     /// <summary>
-    /// POST /api/depots/import?source=github|local - Import depot mappings
-    /// RESTful: POST is proper method for importing/creating resources
-    /// Query param 'source' determines import source: 'github' or 'local'
+    /// Imports depot mappings from GitHub or the local PICS data.
     /// </summary>
+    /// <remarks>
+    /// POST is the proper method for importing or creating resources. The query parameter
+    /// 'source' determines the import source: 'github' or 'local'.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("import")]
-    public async Task<IActionResult> ImportDepotMappingsAsync([FromQuery] string source, CancellationToken cancellationToken)
+    [ProducesResponseType(typeof(DepotImportResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DepotImportResponse>> ImportDepotMappingsAsync([FromQuery] string source, CancellationToken cancellationToken)
     {
         if (source == "github")
         {
@@ -274,12 +293,15 @@ public class DepotsController : ControllerBase
     }
 
     /// <summary>
-    /// PATCH /api/depots - Apply depot mappings to existing downloads
-    /// RESTful: PATCH is proper method for applying updates to a resource collection
+    /// Applies depot mappings to existing downloads.
     /// </summary>
+    /// <remarks>
+    /// PATCH is the proper method for applying updates to a resource collection.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch]
-    public async Task<IActionResult> ApplyDepotMappingsAsync(CancellationToken cancellationToken)
+    [ProducesResponseType(typeof(DepotMappingApplyResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DepotMappingApplyResponse>> ApplyDepotMappingsAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting manual depot mapping application");
 
@@ -296,13 +318,16 @@ public class DepotsController : ControllerBase
 
 
     /// <summary>
-    /// PUT /api/depots/rebuild/config/interval - Set the automatic crawl interval
-    /// RESTful: PUT is proper method for updating configuration
+    /// Sets the automatic depot crawl interval.
     /// </summary>
+    /// <remarks>
+    /// PUT is the proper method for updating configuration.
+    /// </remarks>
     /// <param name="intervalHours">Interval in hours (supports fractional values like 0.00833 for 30 seconds). Use 0 to disable.</param>
     [Authorize(Policy = "AdminOnly")]
     [HttpPut("rebuild/config/interval")]
-    public IActionResult SetCrawlInterval([FromBody] double intervalHours)
+    [ProducesResponseType(typeof(CrawlIntervalResponse), StatusCodes.Status200OK)]
+    public ActionResult<CrawlIntervalResponse> SetCrawlInterval([FromBody] double intervalHours)
     {
         _logger.LogInformation("Received crawl interval request: {IntervalHours} hours", intervalHours);
 
@@ -342,15 +367,18 @@ public class DepotsController : ControllerBase
     }
 
     /// <summary>
-    /// PUT /api/depots/rebuild/config/mode - Set the automatic crawl mode
-    /// RESTful: PUT is proper method for updating configuration
-    /// A Steam mode is refused when its requirements are not met, so a direct call, a second tab or
-    /// a stale page cannot store a mode that every scheduled run would have to skip.
+    /// Sets the automatic depot crawl mode.
     /// </summary>
+    /// <remarks>
+    /// PUT is the proper method for updating configuration. A Steam mode is refused when its
+    /// requirements are not met, so a direct call, a second tab, or a stale page cannot store a
+    /// mode that every scheduled run would have to skip.
+    /// </remarks>
     /// <param name="mode">Mode value: true (incremental), false (full), or "github" (PICS updates only)</param>
     [Authorize(Policy = "AdminOnly")]
     [HttpPut("rebuild/config/mode")]
-    public IActionResult SetCrawlMode([FromBody] JsonElement mode)
+    [ProducesResponseType(typeof(CrawlModeResponse), StatusCodes.Status200OK)]
+    public ActionResult<CrawlModeResponse> SetCrawlMode([FromBody] JsonElement mode)
     {
         string scanMode;
 

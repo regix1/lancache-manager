@@ -70,7 +70,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
       return (
         <div className="flex flex-col items-center justify-center py-12">
           <LoadingSpinner size="lg" className="icon-primary mb-4" />
-          <p className="text-themed-secondary">{t('common.loading', 'Loading...')}</p>
+          <p className="text-themed-secondary">{t('common.loading')}</p>
         </div>
       );
     }

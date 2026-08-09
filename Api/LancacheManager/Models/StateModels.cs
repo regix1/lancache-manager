@@ -5,6 +5,19 @@ using LancacheManager.Models.Responses;
 namespace LancacheManager.Models;
 
 /// <summary>
+/// Every clock setting the app recognises, and the list a guest gets when an admin has not narrowed it.
+/// "utc" carries no 12/24 half because UTC has no 12-hour face worth offering, so it is one entry where
+/// the server and local clocks are two each. It lives here because the state defaults, the persisted
+/// defaults and the endpoint that validates an admin's choice all have to agree on it, and they drifted
+/// apart while each held its own copy. [8]
+/// </summary>
+public static class TimeFormats
+{
+    public static readonly IReadOnlyList<string> All =
+        new[] { "server-24h", "server-12h", "local-24h", "local-12h", "utc" };
+}
+
+/// <summary>
 /// Application state model (with decrypted sensitive fields in memory)
 /// </summary>
 public class AppState
@@ -43,14 +56,19 @@ public class AppState
 
     // Default guest preferences (applied to new guest sessions)
     public bool DefaultGuestUseLocalTimezone { get; set; } = false;
+    public bool DefaultGuestUseUtcTimezone { get; set; } = false;
     public bool DefaultGuestUse24HourFormat { get; set; } = true;
     public bool DefaultGuestSharpCorners { get; set; } = false;
     public bool DefaultGuestDisableTooltips { get; set; } = false;
     public bool DefaultGuestShowDatasourceLabels { get; set; } = true;
 
-    // Allowed time formats for guests (e.g., ["server-24h", "server-12h", "local-24h", "local-12h"])
+    // Allowed time formats for guests (e.g., ["server-24h", "server-12h", "local-24h", "local-12h", "utc"])
     // If empty or null, all formats are allowed
-    public List<string> AllowedTimeFormats { get; set; } = new() { "server-24h", "server-12h", "local-24h", "local-12h" };
+    public List<string> AllowedTimeFormats { get; set; } = new(TimeFormats.All);
+
+    // Marks that the one-time offer of "utc" to installs that predate it has run. Persisted so a restart
+    // never reruns it and cannot put "utc" back after an admin removes it on purpose.
+    public bool UtcTimeFormatMigrated { get; set; } = false;
 
     // Guest prefill permissions - controls access to the Prefill tab for guests
     public bool GuestPrefillEnabledByDefault { get; set; } = false; // Whether new guests get prefill access by default

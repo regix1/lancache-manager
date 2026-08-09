@@ -47,7 +47,15 @@ public class ClientHostnamesController : ControllerBase
         _stateService = stateService;
     }
 
+    /// <summary>
+    /// Returns reverse-DNS names for the client addresses currently visible in the tables.
+    /// </summary>
+    /// <remarks>
+    /// Most recently active first up to <see cref="MaxClientsResolved"/>. Returns
+    /// <c>Enabled = false</c> with no lookups performed when the hostname service is switched off.
+    /// </remarks>
     [HttpGet("")]
+    [ProducesResponseType(typeof(ClientHostnamesResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ClientHostnamesResponse>> GetHostnamesAsync(CancellationToken ct)
     {
         if (!_hostnameService.IsEnabled())
@@ -95,12 +103,16 @@ public class ClientHostnamesController : ControllerBase
     }
 
     /// <summary>
-    /// The addresses the network publishes for one name, so a machine that has never downloaded
-    /// anything can still be given a nickname. Admin-only because it is the nickname editor's own
-    /// lookup and it sends a name typed into the browser out to the LAN's DNS server.
+    /// Returns the addresses the network publishes for one hostname.
     /// </summary>
+    /// <remarks>
+    /// So a machine that has never downloaded anything can still be given a nickname. Admin-only
+    /// because it is the nickname editor's own lookup and it sends a name typed into the browser
+    /// out to the LAN's DNS server.
+    /// </remarks>
     [HttpPost("resolve")]
     [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(typeof(ResolveClientAddressResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ResolveClientAddressResponse>> ResolveAddressesAsync(
         [FromBody] ResolveClientAddressRequest request,
         CancellationToken ct)
@@ -126,8 +138,16 @@ public class ClientHostnamesController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Turns client hostname lookups on or off network-wide.
+    /// </summary>
+    /// <remarks>
+    /// Broadcasts the change so every open client-stats view either starts resolving names or
+    /// clears the ones it already showed.
+    /// </remarks>
     [HttpPost("enabled")]
     [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(typeof(SetClientHostnameLookupResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SetClientHostnameLookupResponse>> SetEnabledAsync(
         [FromBody] SetClientHostnameLookupRequest request)
     {

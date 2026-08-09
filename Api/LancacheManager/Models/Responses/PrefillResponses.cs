@@ -11,6 +11,11 @@ public class PrefillCacheStatusResponse
 {
     public List<string> UpToDateAppIds { get; set; } = new();
     public List<string> OutdatedAppIds { get; set; } = new();
+
+    /// <summary>
+    /// A note about the cache check as a whole, such as apps it could not inspect. Null when every
+    /// requested app was checked without incident.
+    /// </summary>
     public string? Message { get; set; }
 }
 
@@ -95,7 +100,7 @@ public class PersistentLoginStatusResponse
     /// <summary>Login status; "logged-in" for the already-authenticated case.</summary>
     public string Status { get; set; } = "logged-in";
 
-    /// <summary>Optional human-readable message (e.g. "Already logged in").</summary>
+    /// <summary>Human-readable status message (e.g. "Already logged in"). Null when there is nothing extra to say beyond <see cref="Status"/>.</summary>
     public string? Message { get; set; }
 }
 
@@ -186,16 +191,33 @@ public class PrefillSessionDto
 public class BannedPrefillUserDto
 {
     public long Id { get; set; }
+
+    /// <summary>The banned account's username. Null when the ban was recorded against a session that had no resolved account username at the time.</summary>
     public string? Username { get; set; }
+
+    /// <summary>Resolved account id for the banned user, when one was known. Null when only a username was available.</summary>
     public Guid? BannedUserId { get; set; }
+
+    /// <summary>Admin-supplied reason for the ban. Null when none was given.</summary>
     public string? BanReason { get; set; }
+
+    /// <summary>Session that created the ban. Null for a ban not tied to a specific session (e.g. banned by username with no live session).</summary>
     public Guid? BannedBySessionId { get; set; }
+
     public DateTime BannedAtUtc { get; set; }
     public string? BannedBy { get; set; }
+
+    /// <summary>UTC instant the ban expires. Null when the ban never expires.</summary>
     public DateTime? ExpiresAtUtc { get; set; }
+
     public bool IsLifted { get; set; }
+
+    /// <summary>UTC instant the ban was lifted. Null while the ban is still active.</summary>
     public DateTime? LiftedAtUtc { get; set; }
+
+    /// <summary>Who lifted the ban. Null while the ban is still active.</summary>
     public string? LiftedBy { get; set; }
+
     public bool IsActive { get; set; }
 }
 
@@ -207,12 +229,20 @@ public class PrefillHistoryEntryDto
     public long Id { get; set; }
     public string SessionId { get; set; } = string.Empty;
     public string AppId { get; set; } = string.Empty;
+
+    /// <summary>Resolved app name. Null when it could not be looked up.</summary>
     public string? AppName { get; set; }
+
     public DateTime StartedAtUtc { get; set; }
+
+    /// <summary>UTC instant the entry finished. Null while the prefill is still running.</summary>
     public DateTime? CompletedAtUtc { get; set; }
+
     public long BytesDownloaded { get; set; }
     public long TotalBytes { get; set; }
     public string Status { get; set; } = string.Empty;
+
+    /// <summary>Failure detail. Null unless <see cref="Status"/> reports a failure.</summary>
     public string? ErrorMessage { get; set; }
 }
 
@@ -222,20 +252,14 @@ public class PrefillHistoryEntryDto
 public class CachedAppDto
 {
     public string AppId { get; set; } = string.Empty;
+
+    /// <summary>Resolved app name. Null when it could not be looked up.</summary>
     public string? AppName { get; set; }
+
     public int DepotCount { get; set; }
     public long TotalBytes { get; set; }
     public DateTime CachedAtUtc { get; set; }
+
+    /// <summary>Who/what triggered the cache (username, or a system source). Null when not recorded.</summary>
     public string? CachedBy { get; set; }
 }
-
-/// <summary>
-/// Response for cache check operation
-/// </summary>
-public class CacheCheckResponse
-{
-    public List<string> CachedAppIds { get; set; } = new();
-    public List<string> UncachedAppIds { get; set; } = new();
-    public List<CachedAppDto> CacheInfo { get; set; } = new();
-}
-

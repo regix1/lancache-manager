@@ -51,7 +51,7 @@ const ServiceRow: React.FC<ServiceRowProps> = ({ service }) => {
 
 const ServicesTab: React.FC = () => {
   const { t } = useTranslation();
-  const { serviceStats } = useStats();
+  const { serviceStats, loading } = useStats();
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -62,7 +62,7 @@ const ServicesTab: React.FC = () => {
         </h2>
 
         <div className="overflow-x-auto">
-          <table className="w-full mobile-table">
+          <table className="w-full mobile-table" aria-busy={loading}>
             <thead>
               <tr className="text-left text-xs text-themed-muted uppercase tracking-wider border-b border-themed-secondary">
                 <th className="pb-3 min-w-[80px]">{t('services.table.service')}</th>
@@ -75,7 +75,33 @@ const ServicesTab: React.FC = () => {
               </tr>
             </thead>
             <tbody className="text-sm">
-              {serviceStats.length > 0 ? (
+              {loading ? (
+                Array.from({ length: 6 }, (_, index) => (
+                  <tr key={index} aria-hidden="true">
+                    <td className="py-3">
+                      <div className="h-4 w-24 rounded skeleton-shimmer" />
+                    </td>
+                    <td className="hidden sm:table-cell">
+                      <div className="h-4 w-16 rounded skeleton-shimmer" />
+                    </td>
+                    <td>
+                      <div className="h-4 w-20 rounded skeleton-shimmer" />
+                    </td>
+                    <td className="hidden md:table-cell">
+                      <div className="h-4 w-16 rounded skeleton-shimmer" />
+                    </td>
+                    <td className="hidden md:table-cell">
+                      <div className="h-4 w-16 rounded skeleton-shimmer" />
+                    </td>
+                    <td>
+                      <div className="h-4 w-20 rounded skeleton-shimmer" />
+                    </td>
+                    <td className="hidden lg:table-cell">
+                      <div className="h-4 w-24 rounded skeleton-shimmer" />
+                    </td>
+                  </tr>
+                ))
+              ) : serviceStats.length > 0 ? (
                 serviceStats.map((service, idx) => <ServiceRow key={idx} service={service} />)
               ) : (
                 <tr>

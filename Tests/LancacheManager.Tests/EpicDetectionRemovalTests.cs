@@ -13,21 +13,6 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class EpicDetectionRemovalTests
 {
-    private sealed class InMemoryDbContextFactory : IDbContextFactory<AppDbContext>
-    {
-        private readonly DbContextOptions<AppDbContext> _options;
-
-        public InMemoryDbContextFactory(DbContextOptions<AppDbContext> options)
-        {
-            _options = options;
-        }
-
-        public AppDbContext CreateDbContext() => new AppDbContext(_options);
-
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new AppDbContext(_options));
-    }
-
     private static DbContextOptions<AppDbContext> NewInMemoryOptions()
         => new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"epic_removal_{Guid.NewGuid():N}")
@@ -35,7 +20,7 @@ public class EpicDetectionRemovalTests
 
     private static GameCacheDetectionDataService NewDataService(DbContextOptions<AppDbContext> options)
         => new GameCacheDetectionDataService(
-            new InMemoryDbContextFactory(options),
+            new TestDbContextFactory(options),
             NullLogger<GameCacheDetectionDataService>.Instance);
 
     /// <summary>

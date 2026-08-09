@@ -21,21 +21,6 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class EpicMappingBannerArtTests
 {
-    private sealed class InMemoryDbContextFactory : IDbContextFactory<AppDbContext>
-    {
-        private readonly DbContextOptions<AppDbContext> _options;
-
-        public InMemoryDbContextFactory(DbContextOptions<AppDbContext> options)
-        {
-            _options = options;
-        }
-
-        public AppDbContext CreateDbContext() => new AppDbContext(_options);
-
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new AppDbContext(_options));
-    }
-
     private static DbContextOptions<AppDbContext> NewInMemoryOptions()
         => new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"epic_banner_{Guid.NewGuid():N}")
@@ -88,7 +73,7 @@ public class EpicMappingBannerArtTests
             epicApiClient,
             null!,
             notifications,
-            new InMemoryDbContextFactory(options),
+            new TestDbContextFactory(options),
             tracker,
             scopeFactory,
             stateService);
@@ -189,7 +174,7 @@ public class EpicMappingBannerArtTests
     private static (EpicPrefillDaemonService Daemon, string SessionId) NewDaemonWithSession(FakeReconnectDaemonClient client)
     {
         var options = NewInMemoryOptions();
-        var dbFactory = new InMemoryDbContextFactory(options);
+        var dbFactory = new TestDbContextFactory(options);
         var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var pathResolver = (IPathResolver)DispatchProxy.Create<IPathResolver, NullReturningProxy>();
         var stateService = (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>();
@@ -240,20 +225,6 @@ public class EpicMappingBannerArtTests
         }
 
         public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
-    }
-
-    private sealed class StaticOptionsMonitor<T> : IOptionsMonitor<T>
-    {
-        public StaticOptionsMonitor(T value) => CurrentValue = value;
-        public T CurrentValue { get; }
-        public T Get(string? name) => CurrentValue;
-        public IDisposable OnChange(Action<T, string?> listener) => NullDisposable.Instance;
-
-        private sealed class NullDisposable : IDisposable
-        {
-            public static readonly NullDisposable Instance = new();
-            public void Dispose() { }
-        }
     }
 
     // --- Prefill merge path: acceptance criterion 1 ---

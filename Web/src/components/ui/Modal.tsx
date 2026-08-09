@@ -222,6 +222,15 @@ export const Modal: React.FC<ModalProps> = ({
     );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // A modal opened from inside this one renders through a portal, so its DOM sits outside this
+    // element - but React bubbles its events along the component tree, so they arrive here all
+    // the same. Only what actually started inside this modal is this modal's to handle: without
+    // this, a Tab in the modal on top fell through to the branch below that pulls escaped focus
+    // back in, and the caret jumped from the field being typed into onto THIS modal's close
+    // button, behind it.
+    const content = contentRef.current;
+    if (content && e.target instanceof Node && !content.contains(e.target)) return;
+
     if (e.key === 'Escape') {
       e.stopPropagation();
       onClose();

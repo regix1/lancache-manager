@@ -2264,10 +2264,6 @@ class ApiService {
     }
   }
 
-  // Check which apps are cached
-
-  // Clear cache for a specific app
-
   // Clear entire prefill cache
   static async clearAllPrefillCache(): Promise<{ message: string }> {
     try {
@@ -2317,12 +2313,9 @@ class ApiService {
   // Epic Game Mappings API
   // =====================================================
 
-  static async getEpicDaemonStatus(): Promise<DaemonStatusDto> {
-    const response = await fetch(`${API_BASE}/epic-daemon/status`, this.getFetchOptions());
-    return ApiService.handleResponse<DaemonStatusDto>(response);
-  }
-
-  // Battle.net daemon exposes the same service-agnostic status shape as Epic.
+  // Battle.net and Riot prefill anonymously, so their management cards have no session to read a
+  // status from and poll this service-agnostic status route instead. The platforms that do log in
+  // get the same numbers pushed over the prefill hub.
   static async getBattleNetDaemonStatus(): Promise<DaemonStatusDto> {
     const response = await fetch(`${API_BASE}/battlenet-daemon/status`, this.getFetchOptions());
     return ApiService.handleResponse<DaemonStatusDto>(response);
@@ -2330,12 +2323,6 @@ class ApiService {
 
   static async getRiotDaemonStatus(): Promise<DaemonStatusDto> {
     const response = await fetch(`${API_BASE}/riot-daemon/status`, this.getFetchOptions());
-    return ApiService.handleResponse<DaemonStatusDto>(response);
-  }
-
-  // Xbox daemon exposes the same service-agnostic status shape as Epic.
-  static async getXboxDaemonStatus(): Promise<DaemonStatusDto> {
-    const response = await fetch(`${API_BASE}/xbox-daemon/status`, this.getFetchOptions());
     return ApiService.handleResponse<DaemonStatusDto>(response);
   }
 
@@ -3786,7 +3773,6 @@ export interface DaemonSessionDto {
   authState: DaemonAuthState;
   isPrefilling: boolean;
   createdAt: string;
-  endedAt?: string;
   expiresAt: string;
   timeRemainingSeconds: number;
   // Client info for admin visibility

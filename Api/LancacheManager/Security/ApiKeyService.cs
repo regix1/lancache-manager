@@ -179,8 +179,8 @@ public class ApiKeyService
         Console.WriteLine($"  Running as UID: {puid} / GID: {pgid}");
         Console.WriteLine("");
         Console.WriteLine(authenticationEnabled
-            ? "  API KEY (used for login & Metrics/Swagger protection)"
-            : "  API KEY (used for Metrics/Swagger protection)");
+            ? "  API KEY (used for login, Metrics, and API documentation)"
+            : "  API KEY (used for Metrics and API documentation)");
         Console.WriteLine($"  {apiKey}");
         Console.WriteLine("");
         Console.WriteLine($"  File: {_apiKeyPath}");

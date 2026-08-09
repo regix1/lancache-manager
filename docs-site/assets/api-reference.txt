@@ -1,0 +1,2415 @@
+# LancacheManager API Reference
+
+Every HTTP endpoint LancacheManager serves: 273 operations across 6 groups, generated from the OpenAPI document of `LancacheManager | v1` version `1.0.0`.
+
+This is a flattened summary meant to be read by a person or pasted into a chat with an AI assistant. It is not the OpenAPI document itself. A running instance serves the interactive reference at `/scalar` and the full machine-readable document at `/openapi/v1.json`, both of which need an admin API key.
+
+## Calling the API
+
+- Base URL is wherever the instance is served. The bundled Docker image publishes port 8080, so `http://<host>:8080`. A local development run uses `http://localhost:5000`.
+- Endpoints marked **requires X-Api-Key** need an `X-Api-Key: <your key>` header. Endpoints marked **public** work without one, because they have to answer before a caller has credentials (sign-in, guest configuration, setup, health).
+- Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`, or from Management then Integrations inside the app.
+- A browser session cookie is accepted in place of the header, which is how the app calls itself. Scripts and other API clients should send the header.
+- Request and response shapes list top-level fields only, as `name: type`, with `?` marking a field that is optional or nullable. Named types are referenced but not expanded; read `/openapi/v1.json` when the nested shape matters.
+
+## Groups
+
+- **Access** (53 endpoints) - Sign in, sessions, API keys, and per-user settings.
+- **Cache and Games** (58 endpoints) - Cached content, game and depot identification, and game artwork.
+- **Clients** (10 endpoints) - Cache clients, their groups, and their hostname mappings.
+- **Downloads and Reporting** (40 endpoints) - Download history, dashboard figures, statistics, speeds, events, and logs.
+- **Prefill** (64 endpoints) - Platform prefill daemons, their schedules, and their administration.
+- **System** (48 endpoints) - Service health, metrics, database maintenance, migrations, and background operations.
+
+## Access
+
+Sign in, sessions, API keys, and per-user settings.
+
+### GET /api/api-keys/status
+
+Access: requires X-Api-Key
+
+Reports whether the request's API key is a valid admin key.
+
+Response 200 (`ApiKeyStatusResponse`): `hasApiKey?: boolean`, `keyType?: string`, `hasPrimaryKey?: boolean`
+
+### GET /api/auth/guest/battlenet-prefill/config
+
+Access: public
+
+Returns the Battle.net guest-prefill defaults.
+
+Response 200 (`BattleNetGuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`
+
+### GET /api/auth/guest/config
+
+Access: public
+
+Returns the guest-mode duration and lock state, for the guest onboarding screen.
+
+Response 200 (`GuestConfigResponse`): `durationHours?: integer`, `isLocked?: boolean`
+
+### GET /api/auth/guest/config/duration
+
+Access: requires X-Api-Key
+
+Returns the current default guest-session duration, for the admin settings screen.
+
+Response 200 (`GuestDurationResponse`): `durationHours?: integer`, `source?: string`, `canEdit?: boolean`, `envVarValue?: integer`
+
+### GET /api/auth/guest/epic-prefill/config
+
+Access: public
+
+Returns the Epic guest-prefill defaults.
+
+Response 200 (`EpicGuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
+
+### GET /api/auth/guest/prefill/config
+
+Access: public
+
+Returns the Steam guest-prefill defaults.
+
+Response 200 (`GuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`, `epicEnabledByDefault?: boolean`, `epicDurationHours?: integer`, `epicMaxThreadCount?: integer?`, `battlenetEnabledByDefault?: boolean`, `battlenetDurationHours?: integer`
+
+### GET /api/auth/guest/riot-prefill/config
+
+Access: public
+
+Returns the Riot guest-prefill defaults.
+
+Response 200 (`BattleNetGuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`
+
+### GET /api/auth/guest/status
+
+Access: public
+
+Returns whether guest mode is locked and the duration a new guest session would get.
+
+Response 200 (`GuestStatusResponse`): `isLocked?: boolean`, `durationHours?: integer`
+
+### GET /api/auth/guest/xbox-prefill/config
+
+Access: public
+
+Returns the Xbox guest-prefill defaults.
+
+Response 200 (`EpicGuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
+
+### GET /api/auth/status
+
+Access: public
+
+Returns session and setup status for the current request.
+
+Response 200 (`AuthStatusResponse`): `isAuthenticated?: boolean`, `authenticationEnabled?: boolean`, `sessionType?: object`, `sessionId?: string?`, `expiresAt?: string?`, `hasData?: boolean`, `hasBeenInitialized?: boolean`, `hasDataLoaded?: boolean`, `guestAccessEnabled?: boolean`, `guestDurationHours?: integer`, `prefillEnabled?: boolean`, `steamPrefillEnabled?: boolean`, `steamPrefillExpiresAt?: string?`, `epicPrefillEnabled?: boolean`, `epicPrefillExpiresAt?: string?`, `battlenetPrefillEnabled?: boolean`, `battlenetPrefillExpiresAt?: string?`, `riotPrefillEnabled?: boolean`, `riotPrefillExpiresAt?: string?`, `xboxPrefillEnabled?: boolean`, `xboxPrefillExpiresAt?: string?`, `token?: string?`
+
+### GET /api/sessions
+
+Access: requires X-Api-Key
+
+Lists sessions for the admin management screen.
+
+Parameters: `page`? (query): integer, `pageSize`? (query): integer
+Response 200 (`SessionListResponse`): `sessions?: SessionDto[]`, `count?: integer`, `adminCount?: integer`, `guestCount?: integer`, `pagination: SessionListPage`, `historySessions?: SessionDto[]`
+
+### GET /api/steam-api-keys/status
+
+Access: requires X-Api-Key
+
+Gets the Steam Web API status.
+
+Parameters: `forceRefresh`? (query): boolean
+Response 200 (`SteamApiStatusResponse`): `version?: string`, `isV2Available?: boolean`, `isV1Available?: boolean`, `hasApiKey?: boolean`, `isFullyOperational?: boolean`, `message?: string?`, `lastChecked?: string`
+
+### GET /api/steam-auth/status
+
+Access: requires X-Api-Key
+
+Gets the Steam authentication status.
+
+Response 200 (`SteamAuthStatusResponse`): `mode?: string`, `username?: string`, `isAuthenticated?: boolean`, `authMode?: string`, `isConnected?: boolean`, `hasStoredCredentials?: boolean`
+
+### GET /api/themes
+
+Access: public
+
+Lists custom uploaded themes.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/themes/{id}
+
+Access: public
+
+Gets one theme's raw file contents.
+
+Parameters: `id` (path): string
+Response 200: no body
+
+### GET /api/themes/preferences/guest
+
+Access: public
+
+Gets the theme new guest sessions start with by default.
+
+Response 200 (`ThemePreferenceResponse`): `themeId?: string`, `success?: boolean`, `message?: string?`
+
+### GET /api/user-preferences
+
+Access: requires X-Api-Key
+
+Gets the caller's own preferences via their session, or defaults when no session or no stored
+preferences exist yet.
+
+Response 200 (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`
+
+### GET /api/user-preferences/session/{sessionId}
+
+Access: requires X-Api-Key
+
+Gets any session's preferences by ID (admin only), for the management screens.
+
+Parameters: `sessionId` (path): string
+Response 200 (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`
+
+### POST /api/api-keys/regenerate
+
+Access: requires X-Api-Key
+
+Regenerates the admin API key.
+
+Response 200 (`ApiKeyRegenerateResponse`): `success?: boolean`, `message?: string`, `warning?: string`
+
+### POST /api/auth/guest
+
+Access: public
+
+Starts a time-limited guest session.
+
+Response 200 (`LoginResponse`): `success?: boolean`, `sessionType?: SessionType`, `expiresAt?: string`, `token?: string?`
+
+### POST /api/auth/guest/battlenet-prefill/config
+
+Access: requires X-Api-Key
+
+Saves the Battle.net guest-prefill defaults.
+
+Body (`BattleNetGuestPrefillConfigRequest`): `enabledByDefault?: boolean`, `durationHours?: integer`
+Response 200 (`SetBattleNetGuestPrefillConfigResponse`): `success?: boolean`, `enabledByDefault?: boolean`, `durationHours?: integer`
+
+### POST /api/auth/guest/config/duration
+
+Access: requires X-Api-Key
+
+Sets or clears the UI override for the default guest-session duration.
+
+Body (`GuestDurationRequest`): `durationHours?: integer?`
+Response 200 (`GuestDurationResponse`): `durationHours?: integer`, `source?: string`, `canEdit?: boolean`, `envVarValue?: integer`
+
+### POST /api/auth/guest/config/lock
+
+Access: requires X-Api-Key
+
+Locks or unlocks guest mode.
+
+Body (`GuestLockRequest`): `isLocked?: boolean`
+Response 200 (`GuestLockResponse`): `success?: boolean`, `isLocked?: boolean`, `message?: string`
+
+### POST /api/auth/guest/epic-prefill/config
+
+Access: requires X-Api-Key
+
+Saves the Epic guest-prefill defaults.
+
+Body (`EpicGuestPrefillConfigRequest`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
+Response 200 (`SetGuestPrefillConfigResponse`): `success?: boolean`, `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
+
+### POST /api/auth/guest/prefill/config
+
+Access: requires X-Api-Key
+
+Saves the Steam guest-prefill defaults.
+
+Body (`GuestPrefillConfigRequest`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`, `battleNetEnabledByDefault?: boolean?`, `battleNetDurationHours?: integer?`, `riotEnabledByDefault?: boolean?`, `riotDurationHours?: integer?`
+Response 200 (`SetGuestPrefillConfigResponse`): `success?: boolean`, `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
+
+### POST /api/auth/guest/prefill/toggle/{sessionId}
+
+Access: requires X-Api-Key
+
+Grants or revokes one guest session's prefill access for one service.
+
+Parameters: `sessionId` (path): string, `service`? (query): string
+Body (`GuestPrefillToggleRequest`): `enabled?: boolean`
+Response 200 (`GuestPrefillToggleResponse`): `success?: boolean`, `sessionId?: string`, `service?: string`, `enabled?: boolean`, `prefillExpiresAt?: string?`
+
+### POST /api/auth/guest/riot-prefill/config
+
+Access: requires X-Api-Key
+
+Saves the Riot guest-prefill defaults.
+
+Body (`RiotGuestPrefillConfigRequest`): `enabledByDefault?: boolean`, `durationHours?: integer`
+Response 200 (`SetBattleNetGuestPrefillConfigResponse`): `success?: boolean`, `enabledByDefault?: boolean`, `durationHours?: integer`
+
+### POST /api/auth/guest/xbox-prefill/config
+
+Access: requires X-Api-Key
+
+Saves the Xbox guest-prefill defaults.
+
+Body (`XboxGuestPrefillConfigRequest`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
+Response 200 (`SetGuestPrefillConfigResponse`): `success?: boolean`, `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
+
+### POST /api/auth/heartbeat
+
+Access: requires X-Api-Key
+
+Lightweight presence heartbeat for the current session.
+
+Response 200: no body
+
+### POST /api/auth/login
+
+Access: public
+
+Exchanges an API key for an admin session cookie.
+
+Body (`LoginRequest`): `apiKey?: string`
+Response 200 (`LoginResponse`): `success?: boolean`, `sessionType?: SessionType`, `expiresAt?: string`, `token?: string?`
+
+### POST /api/auth/logout
+
+Access: public
+
+Revokes the caller's session and clears the session cookie.
+
+Response 200 (`LogoutResponse`): `success?: boolean`, `message?: string`
+
+### POST /api/sessions/bulk/reset-to-defaults
+
+Access: requires X-Api-Key
+
+Deletes every guest session's stored preferences, resetting them to defaults.
+
+Response 200 (`SessionResetResponse`): `success?: boolean`, `affectedCount?: integer`
+
+### POST /api/sessions/me/client-info
+
+Access: requires X-Api-Key
+
+Accepts browser-reported client metadata for the caller's own session.
+
+Body (`ClientInfoRequest`): `timezone?: string?`, `language?: string?`, `screenResolution?: string?`
+Response 200 (`SessionClientInfoResponse`): `success?: boolean`, `publicIp?: string?`, `countryCode?: string?`, `country?: string?`, `region?: string?`, `city?: string?`, `timezone?: string?`, `isp?: string?`
+
+### POST /api/Setup/credentials
+
+Access: public
+
+Sets the embedded PostgreSQL password.
+
+Body (`SetupCredentialsRequest`): `username?: string?`, `password?: string`
+Response 200 (`SetupCredentialsResponse`): `success?: boolean`, `message?: string`
+
+### POST /api/Setup/external
+
+Access: public
+
+Configures an external PostgreSQL connection.
+
+Body (`SetExternalDbCredentialsRequest`): `host?: string`, `port?: integer`, `database?: string`, `username?: string`, `password?: string`
+Response 200 (`SetExternalDbCredentialsResponse`): `success?: boolean`, `message?: string`, `restartRequired?: boolean`
+
+### POST /api/steam-api-keys
+
+Access: requires X-Api-Key
+
+Saves a Steam Web API key with encrypted storage.
+
+Body (`SaveApiKeyRequest`): `apiKey?: string`
+
+### POST /api/steam-api-keys/test
+
+Access: requires X-Api-Key
+
+Tests a Steam Web API key without saving it.
+
+Body (`TestApiKeyRequest`): `apiKey?: string`
+Response 200 (`ApiKeyTestResponse`): `valid?: boolean`, `message?: string`
+
+### POST /api/steam-auth/login
+
+Access: requires X-Api-Key
+
+Logs in to Steam.
+
+Body (inline object): (no fields)
+Response 200 (`SteamLoginResponse`): `success?: boolean`, `message?: string?`, `authMode?: string?`, `username?: string?`, `status?: string?`, `requiresTwoFactor?: boolean`, `requiresEmailCode?: boolean`, `sessionExpired?: boolean`
+
+### POST /api/themes/cleanup
+
+Access: requires X-Api-Key
+
+Deletes every custom theme file.
+
+Response 200 (`ThemeCleanupResponse`): `success?: boolean`, `message?: string`, `deletedThemes?: string[]`, `errors?: string[]`, `remainingThemes?: string[]`
+
+### POST /api/themes/upload
+
+Access: requires X-Api-Key
+
+Uploads a custom TOML or JSON theme (max 1MB).
+
+Body (inline object): `file?: IFormFile`
+Response 200 (`ThemeUploadResponse`): `success?: boolean`, `themeId?: string`, `message?: string`
+
+### PUT /api/steam-auth/mode
+
+Access: requires X-Api-Key
+
+Sets the Steam authentication mode.
+
+Body (`SetSteamModeRequest`): `mode?: object`
+Response 200 (`SteamModeResponse`): `success?: boolean`, `message?: string`, `mode?: string`
+
+### PUT /api/themes/preferences/guest
+
+Access: requires X-Api-Key
+
+Sets the theme new guest sessions start with by default.
+
+Body (`ThemePreferenceRequest`): `themeId?: string`
+Response 200 (`ThemePreferenceResponse`): `themeId?: string`, `success?: boolean`, `message?: string?`
+
+### PUT /api/user-preferences
+
+Access: requires X-Api-Key
+
+Replaces the caller's own preferences.
+
+Body (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
+### PUT /api/user-preferences/session/{sessionId}
+
+Access: requires X-Api-Key
+
+Replaces any session's preferences by ID (admin only).
+
+Parameters: `sessionId` (path): string
+Body (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
+### PATCH /api/sessions/{id}/refresh-rate
+
+Access: requires X-Api-Key
+
+Updates the caller's own dashboard refresh rate preference.
+
+Parameters: `id` (path): string
+Body (`RefreshRateRequest`): `refreshRate?: string?`
+Response 200 (`StateUpdateResponse`): `success?: boolean`
+
+### PATCH /api/sessions/{id}/revoke
+
+Access: requires X-Api-Key
+
+Revokes a session.
+
+Parameters: `id` (path): string
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
+### PATCH /api/user-preferences/{key}
+
+Access: requires X-Api-Key
+
+Updates a single preference by key for the caller's own session.
+
+Parameters: `key` (path): string
+Body (`JsonElement`): (no fields)
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
+### PATCH /api/user-preferences/clock
+
+Access: requires X-Api-Key
+
+Writes the three clock preference columns in one go.
+
+Body (`ClockPreferences`): `useUtcTimezone?: boolean`, `useLocalTimezone?: boolean`, `use24HourFormat?: boolean`
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
+### DELETE /api/sessions/{id}
+
+Access: requires X-Api-Key
+
+Permanently deletes a session's row and history.
+
+Parameters: `id` (path): string
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
+### DELETE /api/sessions/bulk/clear-guests
+
+Access: requires X-Api-Key
+
+Revokes every active guest session.
+
+Response 200 (`SessionClearGuestsResponse`): `success?: boolean`, `clearedCount?: integer`
+
+### DELETE /api/steam-api-keys/current
+
+Access: requires X-Api-Key
+
+Removes the configured Steam Web API key.
+
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
+### DELETE /api/steam-auth
+
+Access: requires X-Api-Key
+
+Logs out from Steam.
+
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
+### DELETE /api/themes/{id}
+
+Access: requires X-Api-Key
+
+Deletes a custom theme's TOML and/or JSON file.
+
+Parameters: `id` (path): string
+Response 200 (`ThemeDeleteResponse`): `success?: boolean`, `message?: string`, `filesDeleted?: string[]`, `errors?: string[]`
+
+## Cache and Games
+
+Cached content, game and depot identification, and game artwork.
+
+### GET /api/cache
+
+Access: requires X-Api-Key
+
+Returns the cache root path, disk usage, and delete-mode configuration.
+
+Response 200 (`CacheInfo`): `totalCacheSize?: integer`, `configuredCacheSize?: integer`, `driveCapacity?: integer`, `usedCacheSize?: integer`, `freeCacheSize?: integer`, `usagePercent?: number`, `totalFiles?: integer`, `serviceSizes?: object`, `hasCacheScan?: boolean`, `cacheScanTimestampUtc?: string?`, `cacheScanTotalBytes?: integer`, `scanStale?: boolean`
+
+### GET /api/cache/corruption/cached
+
+Access: requires X-Api-Key
+
+Returns cached corruption detection results.
+
+Parameters: `detectionMethod`? (query): string
+Response 200 (`CachedCorruptionResponse`): `hasCachedResults?: boolean`, `scanId?: string?`, `threshold?: integer?`, `lookbackDays?: integer?`, `contractVersion?: integer?`, `detectionMethod?: string?`, `scanMode?: string?`, `settings?: object`, `corruptionCounts?: object?`, `detectionCounts?: object?`, `coverage?: object`, `totalServicesWithCorruption?: integer`, `totalCorruptedChunks?: integer`, `lastDetectionTime?: string?`
+
+### GET /api/cache/corruption/detect/status
+
+Access: requires X-Api-Key
+
+Returns the status of the active corruption detection operation.
+
+Response 200 (`CorruptionDetectionStatusResponse`): `isRunning?: boolean`, `operationId?: string?`, `status?: object`, `message?: string?`, `stageKey?: string?`, `context?: object`, `percentComplete?: number?`, `startTime?: string?`, `detectionMethod?: string?`, `scanMode?: string?`, `effectiveScanMode?: string?`, `baselineStatus?: string?`, `resumed?: boolean?`, `scanSummary?: object`
+
+### GET /api/cache/corruption/history
+
+Access: requires X-Api-Key
+
+Lists retained current and historical corruption scans.
+
+Response 200 (`CorruptionScanHistoryResponse`): `scans?: CorruptionScanHistoryEntryResponse[]`
+
+### GET /api/cache/corruption/history/{scanId}/services/{service}
+
+Access: requires X-Api-Key
+
+Loads validated, read-only evidence for one retained snapshot and service.
+
+Parameters: `scanId` (path): string, `service` (path): string
+Response 200 (inline object): (no fields)
+
+### GET /api/cache/operations
+
+Access: requires X-Api-Key
+
+Returns the cache-clearing operations currently tracked.
+
+Response 200 (`ActiveOperationsResponse`): `isProcessing?: boolean`, `operations?: array?`
+
+### GET /api/cache/removals/active
+
+Access: requires X-Api-Key
+
+Returns all active removal operations.
+
+Response 200 (`AllActiveRemovalsResponse`): `isProcessing?: boolean`, `gameRemovals?: array?`, `serviceRemovals?: array?`, `corruptionRemovals?: array?`, `evictionRemovals?: array?`
+
+### GET /api/cache/services/{service}/corruption
+
+Access: requires X-Api-Key
+
+Returns detailed corruption info for a specific service.
+
+Parameters: `service` (path): string, `scanId`? (query): string
+Response 200 (inline object): (no fields)
+
+### GET /api/cache/size
+
+Access: requires X-Api-Key
+
+Reads the cached cache size, or starts a queued rescan when force is true.
+
+Parameters: `datasource`? (query): string, `force`? (query): boolean
+Response 200 (`CacheSizeUnavailableResponse`): `available?: boolean`
+
+### GET /api/cache/size/scan/status
+
+Access: requires X-Api-Key
+
+Returns the recovery status for the cache file scan notification card.
+
+Response 200 (`CacheSizeScanStatusResponse`): `isProcessing?: boolean`, `showNotification?: boolean`, `status?: OperationStatus`, `percentComplete?: number`, `message?: string`, `stageKey?: string?`, `context?: object?`, `operationId?: string?`
+
+### GET /api/depots/rebuild/check-incremental
+
+Access: requires X-Api-Key
+
+Checks whether an incremental depot scan is viable.
+
+Response 200 (`IncrementalViabilityCheck`): `isViable?: boolean`, `lastChangeNumber?: integer`, `currentChangeNumber?: integer`, `changeGap?: integer`, `isLargeGap?: boolean`, `willTriggerFullScan?: boolean`, `estimatedAppsToScan?: integer`, `error?: string?`
+
+### GET /api/depots/rebuild/progress
+
+Access: requires X-Api-Key
+
+Gets the current depot rebuild progress.
+
+Response 200 (`SteamPicsProgress`): `isProcessing?: boolean`, `status?: DepotScanPhase`, `statusDisplay?: string?`, `totalApps?: integer`, `processedApps?: integer`, `totalBatches?: integer`, `processedBatches?: integer`, `progressPercent?: number`, `depotMappingsFound?: integer`, `depotMappingsFoundInSession?: integer`, `isReady?: boolean`, `lastCrawlTime?: string?`, `nextCrawlIn?: number`, `crawlIntervalHours?: number`, `crawlIncrementalMode?: object`, `lastScanWasForced?: boolean`, `automaticScanSkipped?: boolean`, `isConnected?: boolean`, `isLoggedOn?: boolean`, `errorMessage?: string?`, `isWebApiAvailable?: boolean`, `operationId?: string?`, `showNotification?: boolean`
+
+### GET /api/depots/status
+
+Access: requires X-Api-Key
+
+Gets the status of depot mappings from the PICS JSON file and database.
+
+Response 200 (`DepotFullStatusResponse`): `jsonFile?: DepotJsonFileStatus`, `database?: DepotDatabaseStatus`, `steamKit2?: DepotSteamKit2Status`
+
+### GET /api/epic/game-mappings
+
+Access: requires X-Api-Key
+
+Gets all Epic game mappings, optionally paginated and sorted.
+
+Parameters: `skip`? (query): integer, `take`? (query): integer
+Response 200 (inline object): (no fields)
+
+### GET /api/epic/game-mappings/auth-status
+
+Access: requires X-Api-Key
+
+Gets the current mapping auth status (authenticated, displayName, etc.)
+
+Response 200 (`EpicMappingAuthStatus`): `isAuthenticated?: boolean`, `displayName?: string?`, `lastCollectionUtc?: string?`, `gamesDiscovered?: integer`
+
+### GET /api/epic/game-mappings/schedule
+
+Access: requires X-Api-Key
+
+Gets the current schedule status (interval, next run, last run, processing state).
+
+Response 200 (`EpicScheduleStatus`): `refreshIntervalHours?: number`, `isProcessing?: boolean`, `lastRefreshTime?: string?`, `nextRefreshIn?: number`, `isAuthenticated?: boolean`, `operationId?: string?`, `status?: EpicMappingStatus`, `progressPercent?: number`, `statusMessage?: string?`, `showNotification?: boolean`
+
+### GET /api/epic/game-mappings/search
+
+Access: requires X-Api-Key
+
+Search games by name (case-insensitive partial match).
+
+Parameters: `q`? (query): string
+Response 200 (inline object): (no fields)
+
+### GET /api/epic/game-mappings/stats
+
+Access: requires X-Api-Key
+
+Gets mapping statistics (total games, last updated, etc.)
+
+Response 200 (`EpicMappingStats`): `totalGames?: integer`, `lastUpdatedUtc?: string?`, `oldestGameUtc?: string?`, `distinctSources?: integer`, `cdnPatterns?: integer`
+
+### GET /api/game-images/{appId}/header
+
+Access: public
+
+Returns the cached Steam game header image.
+
+Parameters: `appId` (path): integer
+Response 200: no body
+
+### GET /api/game-images/available
+
+Access: public
+
+Returns the list of app IDs that have cached game images.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/game-images/cache-version
+
+Access: public
+
+Returns the current image cache generation number.
+
+Response 200 (`GameImageCacheVersionResponse`): `version?: integer`
+
+### GET /api/game-images/epic/{epicAppId}/header
+
+Access: public
+
+Returns the cached Epic game header image.
+
+Parameters: `epicAppId` (path): string
+Response 200: no body
+
+### GET /api/game-images/name/{service}/{slug}/header
+
+Access: public
+
+Returns the cached banner image for a name-keyed service.
+
+Parameters: `service` (path): string, `slug` (path): string
+Response 200: no body
+
+### GET /api/games/detect/active
+
+Access: requires X-Api-Key
+
+Gets the currently running detection operation.
+
+Response 200 (`ActiveDetectionResponse`): `isProcessing?: boolean`, `operation?: object`, `showNotification?: boolean`
+
+### GET /api/games/detect/cached
+
+Access: requires X-Api-Key
+
+Gets cached game detection results.
+
+Response 200 (`CachedDetectionResponse`): `hasCachedResults?: boolean`, `games?: object`, `services?: object`, `totalGamesDetected?: integer`, `totalServicesDetected?: integer`, `lastDetectionTime?: string?`, `games_on_disk_bytes?: integer`, `games_on_disk_count?: integer`, `identified_cache_bytes?: integer`, `identified_service_bytes?: integer`, `detection_summary_computed_at?: string?`, `detection_stale?: boolean`
+
+### GET /api/xbox/game-mappings
+
+Access: requires X-Api-Key
+
+Gets all Xbox game mappings, optionally paginated.
+
+Parameters: `skip`? (query): integer, `take`? (query): integer
+Response 200 (inline object): (no fields)
+
+### GET /api/xbox/game-mappings/auth-status
+
+Access: requires X-Api-Key
+
+Gets the current manager-side mapping auth status.
+
+Response 200 (`XboxMappingAuthStatus`): `isAuthenticated?: boolean`, `displayName?: string?`, `lastCollectionUtc?: string?`, `gamesDiscovered?: integer`, `expiresAtUtc?: string?`
+
+### GET /api/xbox/game-mappings/search
+
+Access: requires X-Api-Key
+
+Search games by title (case-insensitive partial match).
+
+Parameters: `q`? (query): string
+Response 200 (inline object): (no fields)
+
+### GET /api/xbox/game-mappings/stats
+
+Access: requires X-Api-Key
+
+Gets mapping statistics (total games discovered, last updated).
+
+Response 200 (`XboxMappingStatsDto`): `totalGames?: integer`, `lastUpdatedUtc?: string?`
+
+### POST /api/cache/corruption/detect
+
+Access: requires X-Api-Key
+
+Starts a background corruption detection scan.
+
+Parameters: `threshold`? (query): integer, `lookbackDays`? (query): integer, `detectionMethod`? (query): string, `scanMode`? (query): string
+Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+
+### POST /api/depots/import
+
+Access: requires X-Api-Key
+
+Imports depot mappings from GitHub or the local PICS data.
+
+Parameters: `source`? (query): string
+Response 200 (`DepotImportResponse`): `message?: string`, `source?: string`, `timestamp?: string`
+
+### POST /api/depots/rebuild
+
+Access: requires X-Api-Key
+
+Starts a depot mapping rebuild, optionally incremental.
+
+Parameters: `incremental`? (query): boolean
+Response 200 (`DepotRebuildViabilityResponse`): `started?: boolean`, `requiresFullScan?: boolean`, `changeGap?: integer?`, `estimatedApps?: integer?`, `message?: string?`, `viabilityError?: string?`
+
+### POST /api/epic/game-mappings/auth/complete
+
+Access: requires X-Api-Key
+
+Completes the Epic login flow using an authorization code.
+
+Body (`EpicAuthCompleteRequest`): `authorizationCode?: string`
+Response 200 (`EpicAuthCompleteResponse`): `message?: string`, `displayName?: string?`, `gamesDiscovered?: integer`
+
+### POST /api/epic/game-mappings/auth/login
+
+Access: requires X-Api-Key
+
+Starts the mapping login flow by returning the Epic authorization URL.
+
+Response 200 (`EpicLoginUrlResponse`): `authorizationUrl?: string`
+
+### POST /api/games/detect
+
+Access: requires X-Api-Key
+
+Starts game detection in the cache.
+
+Parameters: `forceRefresh`? (query): boolean
+Response 202 (`GameDetectionStartResponse`): `message?: string`, `operationId?: string`, `status?: OperationStatus`
+
+### POST /api/xbox/game-mappings/auth/cancel
+
+Access: requires X-Api-Key
+
+Cancels a pending device-code login poll.
+
+Response 200 (`MessageOnlyResponse`): `message?: string`
+
+### POST /api/xbox/game-mappings/auth/login
+
+Access: requires X-Api-Key
+
+Starts the daemon-free Xbox MSA device-code login.
+
+Response 200 (`XboxDeviceCodeChallenge`): `userCode?: string`, `verificationUri?: string`, `expiresIn?: integer`, `interval?: integer`, `operationId?: string`
+
+### PUT /api/depots/rebuild/config/interval
+
+Access: requires X-Api-Key
+
+Sets the automatic depot crawl interval.
+
+Body (inline object): (no fields)
+Response 200 (`CrawlIntervalResponse`): `message?: string`, `intervalHours?: integer`
+
+### PUT /api/depots/rebuild/config/mode
+
+Access: requires X-Api-Key
+
+Sets the automatic depot crawl mode.
+
+Body (`JsonElement`): (no fields)
+Response 200 (`CrawlModeResponse`): `incrementalMode?: object`, `message?: string`
+
+### PUT /api/epic/game-mappings/schedule/interval
+
+Access: requires X-Api-Key
+
+Updates the Epic catalog refresh interval, in hours.
+
+Body (inline object): (no fields)
+Response 200 (`EpicScheduleIntervalResponse`): `intervalHours?: number`, `message?: string`
+
+### PATCH /api/depots
+
+Access: requires X-Api-Key
+
+Applies depot mappings to existing downloads.
+
+Response 200 (`DepotMappingApplyResponse`): `message?: string`, `timestamp?: string`
+
+### DELETE /api/cache
+
+Access: requires X-Api-Key
+
+Clears cache files for every configured datasource.
+
+Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+
+### DELETE /api/cache/corruption
+
+Access: requires X-Api-Key
+
+Removes corrupted chunks for all services at once.
+
+Parameters: `scanId`? (query): string, `services`? (query): string
+Response 200 (`MessageOnlyResponse`): `message?: string`
+
+### DELETE /api/cache/corruption/history/{scanId}
+
+Access: requires X-Api-Key
+
+Deletes only the saved corruption scan and its stored evidence.
+
+Parameters: `scanId` (path): string
+
+### DELETE /api/cache/datasources/{name}
+
+Access: requires X-Api-Key
+
+Clears cache files for one datasource, leaving the others untouched.
+
+Parameters: `name` (path): string
+Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+
+### DELETE /api/cache/evicted
+
+Access: requires X-Api-Key
+
+Removes all evicted downloads in a single batched operation.
+
+Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+
+### DELETE /api/cache/evicted/{scope}
+
+Access: requires X-Api-Key
+
+Removes the evicted downloads and log entries for a single entity.
+
+Parameters: `scope` (path): string, `key`? (query): string
+Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+
+### DELETE /api/cache/evicted/named/{service}/{gameName}
+
+Access: requires X-Api-Key
+
+Removes evicted data for a single named (Blizzard/Riot) game.
+
+Parameters: `service` (path): string, `gameName` (path): string
+Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+
+### DELETE /api/cache/services/{name}
+
+Access: requires X-Api-Key
+
+Removes every cached file for one service across all datasources.
+
+Parameters: `name` (path): string
+Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+
+### DELETE /api/cache/services/{service}/corruption
+
+Access: requires X-Api-Key
+
+Removes the corrupted chunks a prior detection scan found for one service.
+
+Parameters: `service` (path): string, `scanId`? (query): string, `candidateIds`? (query): string
+Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+
+### DELETE /api/depots/rebuild
+
+Access: requires X-Api-Key
+
+Cancels the current depot rebuild.
+
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
+### DELETE /api/epic/game-mappings/auth
+
+Access: requires X-Api-Key
+
+Logs out mapping session and clears saved credentials.
+
+Response 200 (`MessageOnlyResponse`): `message?: string`
+
+### DELETE /api/epic/game-mappings/schedule/refresh
+
+Access: requires X-Api-Key
+
+Cancels the current Epic catalog refresh if one is running.
+
+Response 200 (`EpicRefreshCancelResponse`): `cancelled?: boolean`, `message?: string`
+
+### DELETE /api/game-images/cache
+
+Access: requires X-Api-Key
+
+Clears the game image cache and optionally triggers an Epic image URL refresh.
+
+Response 200 (`ImageCacheClearResponse`): `message?: string`, `epicImageUrlsRefreshed?: integer`, `cacheGeneration?: integer`
+
+### DELETE /api/games/{appId}
+
+Access: requires X-Api-Key
+
+Removes a game from the cache.
+
+Parameters: `appId` (path): integer
+Response 202 (`GameRemovalStartResponse`): `message?: string`, `operationId?: string`, `appId?: string`, `gameName?: string`, `status?: OperationStatus`
+
+### DELETE /api/games/epic/{gameName}
+
+Access: requires X-Api-Key
+
+Removes an Epic game from the cache by name.
+
+Parameters: `gameName` (path): string
+Response 202 (`GameRemovalStartResponse`): `message?: string`, `operationId?: string`, `appId?: string`, `gameName?: string`, `status?: OperationStatus`
+
+### DELETE /api/games/named/{service}/{gameName}
+
+Access: requires X-Api-Key
+
+Removes a named game (Blizzard, Riot, Xbox) from the cache.
+
+Parameters: `service` (path): string, `gameName` (path): string
+Response 202 (`GameRemovalStartResponse`): `message?: string`, `operationId?: string`, `appId?: string`, `gameName?: string`, `status?: OperationStatus`
+
+### DELETE /api/xbox/game-mappings/auth
+
+Access: requires X-Api-Key
+
+Logs out the manager-side mapping session and clears saved credentials.
+
+Response 200 (`MessageOnlyResponse`): `message?: string`
+
+## Clients
+
+Cache clients, their groups, and their hostname mappings.
+
+### GET /api/client-groups
+
+Access: requires X-Api-Key
+
+Get all entities
+
+Response 200: no body
+
+### GET /api/client-groups/{id}
+
+Access: requires X-Api-Key
+
+Parameters: `id` (path): integer
+Response 200: no body
+
+### GET /api/client-groups/mapping
+
+Access: requires X-Api-Key
+
+Returns the full IP-address-to-group mapping in one call.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/clients/hostnames
+
+Access: requires X-Api-Key
+
+Returns reverse-DNS names for the client addresses currently visible in the tables.
+
+Response 200 (`ClientHostnamesResponse`): `enabled?: boolean`, `hostnames?: object`, `reason?: ClientHostnamesReason`
+
+### POST /api/client-groups
+
+Access: requires X-Api-Key
+
+Creates a client group, optionally assigning initial addresses to it.
+
+Body (`CreateClientGroupRequest`): `nickname?: string`, `description?: string?`, `initialIps?: array?`, `separateMemberRows?: boolean`
+
+### POST /api/clients/hostnames/enabled
+
+Access: requires X-Api-Key
+
+Turns client hostname lookups on or off network-wide.
+
+Body (`SetClientHostnameLookupRequest`): `enabled?: boolean`
+Response 200 (`SetClientHostnameLookupResponse`): `enabled?: boolean`
+
+### POST /api/clients/hostnames/resolve
+
+Access: requires X-Api-Key
+
+Returns the addresses the network publishes for one hostname.
+
+Body (`ResolveClientAddressRequest`): `hostname?: string`
+Response 200 (`ResolveClientAddressResponse`): `hostname?: string`, `addresses?: string[]`, `reason?: ClientAddressLookupReason`
+
+### PUT /api/client-groups/{id}
+
+Access: requires X-Api-Key
+
+Updates a client group's fields (nickname, description, row-display setting).
+
+Parameters: `id` (path): integer
+Body (`UpdateClientGroupRequest`): `nickname?: string`, `description?: string?`, `separateMemberRows?: boolean?`, `expectedUpdatedAtUtc?: string?`
+Response 200 (`ClientGroupDto`): `id?: integer`, `nickname?: string`, `description?: string?`, `separateMemberRows?: boolean`, `createdAtUtc?: string`, `updatedAtUtc?: string?`, `memberIps?: string[]`
+
+### PUT /api/client-groups/{id}/members
+
+Access: requires X-Api-Key
+
+Replace every IP in a client group with the full list the caller supplies
+
+Parameters: `id` (path): integer
+Body (`SetMembersRequest`): `clientIps?: string[]`, `expectedUpdatedAtUtc?: string?`
+Response 200 (`SetMembersResponse`): `group?: ClientGroupDto`, `rejectedIps?: string[]`
+
+### DELETE /api/client-groups/{id}
+
+Access: requires X-Api-Key
+
+Deletes a client group.
+
+Parameters: `id` (path): integer
+
+## Downloads and Reporting
+
+Download history, dashboard figures, statistics, speeds, events, and logs.
+
+### GET /api/dashboard/batch
+
+Access: requires X-Api-Key
+
+Returns all dashboard data sets in a single response.
+
+Parameters: `startTime`? (query): integer, `endTime`? (query): integer, `eventId`? (query): integer
+Response 200 (`DashboardBatchResponse`): `cache?: object`, `clients?: object`, `services?: object`, `dashboard?: object`, `downloads?: object`, `detection?: object`, `sparklines?: object`, `hourlyActivity?: object`, `cacheSnapshot?: object`
+
+### GET /api/downloads/{id}
+
+Access: requires X-Api-Key
+
+Get a download by ID with its tags and events
+
+Parameters: `id` (path): integer
+Response 200 (`DownloadWithEventsResponse`): `download?: Download`, `events?: DownloadEventAssociation[]`
+
+### GET /api/downloads/retro
+
+Access: requires X-Api-Key
+
+Gets paginated, grouped download data for the Retro view.
+
+Parameters: `Page`? (query): integer, `PageSize`? (query): integer, `Sort`? (query): string, `Service`? (query): string, `Client`? (query): string, `Search`? (query): string, `HideLocalhost`? (query): boolean, `ShowZeroBytes`? (query): boolean, `HideUnknown`? (query): boolean, `GroupByGame`? (query): boolean, `GroupByService`? (query): boolean, `StartTime`? (query): integer, `EndTime`? (query): integer, `EventId`? (query): integer, `HitMiss`? (query): string
+Response 200 (`RetroDownloadResponse`): `items?: RetroDownloadDto[]`, `totalItems?: integer`, `totalPages?: integer`, `currentPage?: integer`, `pageSize?: integer`
+
+### GET /api/downloads/with-associations
+
+Access: requires X-Api-Key
+
+Get downloads with their tags and events for a time range
+
+Parameters: `count`? (query): integer, `startTime`? (query): integer, `endTime`? (query): integer
+Response 200 (inline object): (no fields)
+
+### GET /api/events
+
+Access: requires X-Api-Key
+
+Get all events
+
+Response 200 (inline object): (no fields)
+
+### GET /api/events/{id}
+
+Access: requires X-Api-Key
+
+Get a single event by ID
+
+Parameters: `id` (path): integer
+Response 200 (`Event`): `id?: integer`, `name?: string`, `description?: string?`, `startTimeUtc?: string`, `endTimeUtc?: string`, `startTimeLocal?: string`, `endTimeLocal?: string`, `colorIndex?: integer`, `createdAtUtc?: string`, `updatedAtUtc?: string?`, `eventDownloads?: EventDownload[]`
+
+### GET /api/events/{id}/downloads
+
+Access: requires X-Api-Key
+
+Get downloads for an event
+
+Parameters: `id` (path): integer, `taggedOnly`? (query): boolean
+Response 200 (inline object): (no fields)
+
+### GET /api/events/active
+
+Access: requires X-Api-Key
+
+Get currently active events
+
+Response 200 (inline object): (no fields)
+
+### GET /api/events/calendar
+
+Access: requires X-Api-Key
+
+Get events for calendar view (by date range)
+
+Parameters: `start`? (query): integer, `end`? (query): integer
+Response 200 (inline object): (no fields)
+
+### GET /api/logs
+
+Access: requires X-Api-Key
+
+Returns the resolved logs directory path and whether it currently exists on disk.
+
+Response 200 (`LogInfoResponse`): `path?: string`, `exists?: boolean`
+
+### GET /api/logs/positions
+
+Access: requires X-Api-Key
+
+Gets log positions for all datasources.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/logs/process/status
+
+Access: requires X-Api-Key
+
+Gets the log processing status.
+
+Response 200 (`LogProcessingStatusResponse`): `isProcessing?: boolean`, `silentMode?: boolean`, `status?: string`, `operationId?: string?`, `percentComplete?: number?`, `mbProcessed?: number?`, `mbTotal?: number?`, `entriesProcessed?: integer?`, `totalLines?: integer?`, `stageKey?: string?`
+
+### GET /api/logs/remove/status
+
+Access: requires X-Api-Key
+
+Gets the status of a log removal operation.
+
+Response 200 (`LogRemovalStatusResponse`): `isProcessing?: boolean`, `service?: string?`, `datasource?: string?`, `operationId?: string?`, `filesProcessed?: integer`, `linesProcessed?: integer`, `linesRemoved?: integer`, `percentComplete?: number?`, `status?: object`, `stageKey?: string?`, `context?: object`
+
+### GET /api/logs/service-counts
+
+Access: requires X-Api-Key
+
+Gets log entry counts by service, aggregated from all datasources.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/logs/service-counts/by-datasource
+
+Access: requires X-Api-Key
+
+Gets log entry counts by service, grouped by datasource.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/Speeds/current
+
+Access: requires X-Api-Key
+
+Gets current download speeds for all active games and clients.
+
+Response 200 (`DownloadSpeedSnapshot`): `timestampUtc?: string`, `totalBytesPerSecond?: number`, `gameSpeeds?: GameSpeedInfo[]`, `clientSpeeds?: ClientSpeedInfo[]`, `windowSeconds?: integer`, `entriesInWindow?: integer`, `hasActiveDownloads?: boolean`
+
+### GET /api/Speeds/history
+
+Access: requires X-Api-Key
+
+Get historical download speeds for a time period
+
+Parameters: `minutes`? (query): integer
+Response 200 (`SpeedHistorySnapshot`): `periodStartUtc?: string`, `periodEndUtc?: string`, `periodMinutes?: integer`, `totalBytes?: integer`, `averageBytesPerSecond?: number`, `totalSessions?: integer`
+
+### GET /api/stats/cache-snapshot
+
+Access: requires X-Api-Key
+
+Gets the historical cache size snapshot for a time range.
+
+Parameters: `startTime`? (query): integer, `endTime`? (query): integer
+Response 200 (`CacheSnapshotResponse`): `hasData?: boolean`, `startUsedSize?: integer`, `endUsedSize?: integer`, `averageUsedSize?: integer`, `totalCacheSize?: integer`, `snapshotCount?: integer`, `isEstimate?: boolean`
+
+### GET /api/stats/clients
+
+Access: requires X-Api-Key
+
+Gets per-client traffic totals ranked by total bytes.
+
+Parameters: `startTime`? (query): integer, `endTime`? (query): integer, `limit`? (query): integer, `eventId`? (query): integer, `includeExcluded`? (query): boolean
+Response 200 (inline object): (no fields)
+
+### GET /api/stats/dashboard
+
+Access: requires X-Api-Key
+
+Gets the dashboard summary.
+
+Parameters: `startTime`? (query): integer, `endTime`? (query): integer, `eventId`? (query): integer
+Response 200 (`DashboardStatsResponse`): `totalBandwidthSaved?: integer`, `totalAddedToCache?: integer`, `totalServed?: integer`, `cacheHitRatio?: number`, `activeDownloads?: integer`, `uniqueClients?: integer`, `topService?: string`, `period?: DashboardPeriodStats`, `serviceBreakdown?: ServiceBreakdownItem[]`, `lastUpdated?: string`
+
+### GET /api/stats/eviction
+
+Access: requires X-Api-Key
+
+Gets the current eviction settings.
+
+Response 200 (`EvictionSettingsResponse`): `evictedDataMode?: string`, `evictionScanNotifications?: boolean`, `pruneOrphanedDownloads?: boolean`
+
+### GET /api/stats/eviction/scan/status
+
+Access: requires X-Api-Key
+
+Gets the running eviction scan's progress.
+
+Response 200 (`EvictionScanStatusResponse`): `isProcessing?: boolean`, `silentMode?: boolean`, `showNotification?: boolean`, `status?: OperationStatus`, `percentComplete?: number`, `message?: string`, `stageKey?: string?`, `context?: object`, `operationId?: string?`
+
+### GET /api/stats/exclusions
+
+Access: requires X-Api-Key
+
+Gets the current stats exclusion settings.
+
+Response 200 (`StatsExclusionsResponse`): `ips?: string[]`, `rules?: ClientExclusionRule[]`
+
+### GET /api/stats/services
+
+Access: requires X-Api-Key
+
+Gets per-service traffic totals for the given period.
+
+Parameters: `since`? (query): string, `startTime`? (query): integer, `endTime`? (query): integer, `eventId`? (query): integer
+Response 200 (inline object): (no fields)
+
+### POST /api/downloads/batch-download-events
+
+Access: requires X-Api-Key
+
+Get events for multiple download IDs in a single batch request
+
+Body (`BatchDownloadEventsRequest`): `downloadIds?: integer[]`
+Response 200 (inline object): (no fields)
+
+### POST /api/events
+
+Access: requires X-Api-Key
+
+Create a new event
+
+Body (`CreateEventRequest`): `name?: string`, `description?: string?`, `startTime?: integer`, `endTime?: integer`, `startTimeLocal?: string?`, `endTimeLocal?: string?`, `colorIndex?: integer?`
+
+### POST /api/events/{eventId}/downloads/{downloadId}
+
+Access: requires X-Api-Key
+
+Manually tag a download to an event
+
+Parameters: `eventId` (path): integer, `downloadId` (path): integer
+Response 200 (`MessageOnlyResponse`): `message?: string`
+
+### POST /api/logs/process
+
+Access: requires X-Api-Key
+
+Starts processing logs from the current position for all datasources.
+
+Response 202 (`OperationResponse`): `message?: string`, `operationId?: string`, `status?: OperationStatus`
+
+### POST /api/logs/process/{datasourceName}
+
+Access: requires X-Api-Key
+
+Starts processing logs for a specific datasource.
+
+Parameters: `datasourceName` (path): string
+Response 202 (`OperationResponse`): `message?: string`, `operationId?: string`, `status?: OperationStatus`
+
+### POST /api/stats/eviction/reconcile
+
+Access: requires X-Api-Key
+
+Manually starts an eviction scan.
+
+Response 200 (`EvictionScanStartedResponse`): `operationId?: string?`
+
+### POST /api/stats/eviction/reset
+
+Access: requires X-Api-Key
+
+Clears the evicted flag on every download.
+
+Response 200 (`EvictionResetResponse`): `reset?: integer`
+
+### PUT /api/events/{id}
+
+Access: requires X-Api-Key
+
+Update an existing event
+
+Parameters: `id` (path): integer
+Body (`UpdateEventRequest`): `name?: string`, `description?: string?`, `startTime?: integer`, `endTime?: integer`, `startTimeLocal?: string?`, `endTimeLocal?: string?`, `colorIndex?: integer?`
+Response 200 (`Event`): `id?: integer`, `name?: string`, `description?: string?`, `startTimeUtc?: string`, `endTimeUtc?: string`, `startTimeLocal?: string`, `endTimeLocal?: string`, `colorIndex?: integer`, `createdAtUtc?: string`, `updatedAtUtc?: string?`, `eventDownloads?: EventDownload[]`
+
+### PUT /api/stats/eviction
+
+Access: requires X-Api-Key
+
+Updates the eviction settings.
+
+Body (`UpdateEvictionSettingsRequest`): `evictedDataMode?: string`, `evictionScanNotifications?: boolean?`, `pruneOrphanedDownloads?: boolean?`
+Response 200 (`EvictionSettingsResponse`): `evictedDataMode?: string`, `evictionScanNotifications?: boolean`, `pruneOrphanedDownloads?: boolean`
+
+### PUT /api/stats/exclusions
+
+Access: requires X-Api-Key
+
+Replaces the stats exclusion rules.
+
+Body (`UpdateStatsExclusionsRequest`): `ips?: string[]`, `rules?: array?`
+Response 200 (`StatsExclusionsResponse`): `ips?: string[]`, `rules?: ClientExclusionRule[]`
+
+### PATCH /api/logs/position
+
+Access: requires X-Api-Key
+
+Updates the log position, resetting to the beginning or end.
+
+Body (inline object): (no fields)
+Response 200 (`LogPositionResponse`): `message?: string`, `position?: integer`
+
+### PATCH /api/logs/position/{datasourceName}
+
+Access: requires X-Api-Key
+
+Resets the log position for a specific datasource.
+
+Parameters: `datasourceName` (path): string
+Body (inline object): (no fields)
+Response 200 (`LogPositionResponse`): `message?: string`, `position?: integer`
+
+### DELETE /api/events/{eventId}/downloads/{downloadId}
+
+Access: requires X-Api-Key
+
+Remove a download tag from an event
+
+Parameters: `eventId` (path): integer, `downloadId` (path): integer
+
+### DELETE /api/events/{id}
+
+Access: requires X-Api-Key
+
+Delete an event
+
+Parameters: `id` (path): integer
+
+### DELETE /api/logs/datasources/{datasourceName}/file
+
+Access: requires X-Api-Key
+
+Deletes the entire access.log file for a datasource.
+
+Parameters: `datasourceName` (path): string
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
+### DELETE /api/logs/datasources/{datasourceName}/services/{service}
+
+Access: requires X-Api-Key
+
+Removes logs for a specific service from a specific datasource.
+
+Parameters: `datasourceName` (path): string, `service` (path): string
+Response 202 (`LogRemovalStartResponse`): `message?: string`, `service?: string`, `operationId?: string`, `status?: OperationStatus`
+
+## Prefill
+
+Platform prefill daemons, their schedules, and their administration.
+
+### GET /api/battlenet-daemon/sessions/{sessionId}/games
+
+Access: requires X-Api-Key
+
+Lists the games owned by the logged-in session, for the prefill picker.
+
+Parameters: `sessionId` (path): string
+Response 200 (inline object): (no fields)
+
+### GET /api/battlenet-daemon/status
+
+Access: requires X-Api-Key
+
+Gets Battle.net daemon service status.
+
+Response 200 (`DaemonStatusResponse`): `dockerAvailable?: boolean`, `activeSessions?: integer`, `authenticatedSessions?: integer`, `maxSessionsPerUser?: integer`, `sessionTimeoutMinutes?: integer`
+
+### GET /api/epic-daemon/sessions/{sessionId}/games
+
+Access: requires X-Api-Key
+
+Lists the games owned by the logged-in session, for the prefill picker.
+
+Parameters: `sessionId` (path): string
+Response 200 (inline object): (no fields)
+
+### GET /api/prefill-admin/bans
+
+Access: requires X-Api-Key
+
+Gets all active bans.
+
+Parameters: `includeLifted`? (query): boolean
+Response 200 (inline object): (no fields)
+
+### GET /api/prefill-admin/cache
+
+Access: requires X-Api-Key
+
+Gets all cached apps with their cache timestamps.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/prefill-admin/sessions
+
+Access: requires X-Api-Key
+
+Gets all prefill sessions (paginated).
+
+Parameters: `page`? (query): integer, `pageSize`? (query): integer, `status`? (query): string, `platform`? (query): string
+Response 200 (`PrefillSessionsResponse`): `sessions?: PrefillSessionDto[]`, `totalCount?: integer`, `page?: integer`, `pageSize?: integer`, `lastPrefillCacheIp?: string?`, `lastPrefillCacheIpSource?: string?`
+
+### GET /api/prefill-admin/sessions/{sessionId}/history
+
+Access: requires X-Api-Key
+
+Gets prefill history for a specific session.
+
+Parameters: `sessionId` (path): string
+Response 200 (inline object): (no fields)
+
+### GET /api/prefill-admin/sessions/active
+
+Access: requires X-Api-Key
+
+Gets all currently active (in-memory) sessions.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/riot-daemon/sessions/{sessionId}/games
+
+Access: requires X-Api-Key
+
+Lists the games owned by the logged-in session, for the prefill picker.
+
+Parameters: `sessionId` (path): string
+Response 200 (inline object): (no fields)
+
+### GET /api/riot-daemon/status
+
+Access: requires X-Api-Key
+
+Gets Riot daemon service status.
+
+Response 200 (`DaemonStatusResponse`): `dockerAvailable?: boolean`, `activeSessions?: integer`, `authenticatedSessions?: integer`, `maxSessionsPerUser?: integer`, `sessionTimeoutMinutes?: integer`
+
+### GET /api/steam-daemon/sessions/{sessionId}/games
+
+Access: requires X-Api-Key
+
+Lists the games owned by the logged-in session, for the prefill picker.
+
+Parameters: `sessionId` (path): string
+Response 200 (inline object): (no fields)
+
+### GET /api/system/prefill/persistent/challenge
+
+Access: requires X-Api-Key
+
+Polls for the next credential challenge or login state.
+
+Parameters: `service`? (query): PrefillPlatform, `sessionId`? (query): string, `timeoutSeconds`? (query): integer
+Response 200 (`CredentialChallenge`): `type?: string`, `challengeId?: string`, `credentialType?: string`, `serverPublicKey?: string`, `email?: string?`, `authUrl?: string?`, `userCode?: string?`, `verificationUri?: string?`, `createdAt?: string`, `expiresAt?: string`, `sessionId?: string?`
+
+### GET /api/system/prefill/persistent/games
+
+Access: requires X-Api-Key
+
+Lists the owned games for the running persistent session of a platform.
+
+Parameters: `service`? (query): PrefillPlatform
+Response 200 (`PersistentPrefillGamesDto`): `games: OwnedGame[]`, `cachedAppIds: string[]`
+
+### GET /api/system/prefill/persistent/list
+
+Access: requires X-Api-Key
+
+Lists every persistent session across all daemons.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/system/prefill/persistent/validity
+
+Access: requires X-Api-Key
+
+Returns the admin-configured persistent login validity window in days.
+
+Response 200 (`PersistentLoginValidityDto`): `days: integer`
+
+### GET /api/system/schedules
+
+Access: requires X-Api-Key
+
+Returns all registered service schedules.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/system/schedules/{serviceKey}
+
+Access: requires X-Api-Key
+
+Returns a single service schedule by its key.
+
+Parameters: `serviceKey` (path): string
+Response 200 (`ServiceScheduleInfo`): `key?: string`, `intervalHours?: number`, `runOnStartup?: boolean`, `isRunning?: boolean`, `lastRunUtc?: string?`, `nextRunUtc?: string?`, `notificationMode?: NotificationMode`, `supportsNotifications?: boolean`, `notificationDisplayMode?: NotificationDisplayMode`, `customSchedule?: object`, `pendingFullScan?: object`
+
+### GET /api/system/schedules/{serviceKey}/run-status
+
+Access: requires X-Api-Key
+
+Returns the live run status for a service.
+
+Parameters: `serviceKey` (path): string
+Response 200 (`ScheduleRunStatus`): `isRunning?: boolean`, `operationId?: string?`, `percentComplete?: number`, `stageKey?: string?`, `context?: object?`, `showNotification?: boolean`
+
+### GET /api/system/schedules/scheduledPrefill/config
+
+Access: requires X-Api-Key
+
+Returns the current scheduled prefill configuration.
+
+Response 200 (`ScheduledPrefillConfigDto`): `version: integer`, `maxServiceRuntime: string`, `stallTimeout: string`, `steam: ScheduledPrefillServiceConfigDto`, `epic: ScheduledPrefillServiceConfigDto`, `xbox: ScheduledPrefillServiceConfigDto`, `battleNet: ScheduledPrefillServiceConfigDto`, `riot: ScheduledPrefillServiceConfigDto`, `persistenceMode?: object`
+
+### GET /api/system/schedules/scheduledPrefill/run-status
+
+Access: requires X-Api-Key
+
+Reports whether a scheduled prefill run is executing right now.
+
+Response 200 (`ScheduledPrefillRunStatusDto`): `isRunning: boolean`, `operationId?: string?`, `showNotification: boolean`
+
+### GET /api/system/schedules/scheduledPrefill/schedule
+
+Access: requires X-Api-Key
+
+Returns the independent per-service schedule view.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/xbox-daemon/sessions/{sessionId}/games
+
+Access: requires X-Api-Key
+
+Lists the games owned by the logged-in session, for the prefill picker.
+
+Parameters: `sessionId` (path): string
+Response 200 (inline object): (no fields)
+
+### POST /api/battlenet-daemon/sessions/{sessionId}/cache-status
+
+Access: requires X-Api-Key
+
+Splits the requested apps into up-to-date and stale groups.
+
+Parameters: `sessionId` (path): string
+Body (`PrefillCacheStatusRequest`): `appIds?: array?`
+Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `message?: string?`
+
+### POST /api/battlenet-daemon/sessions/{sessionId}/prefill
+
+Access: requires X-Api-Key
+
+Runs a prefill for the session's current selection and waits for it to finish.
+
+Parameters: `sessionId` (path): string
+Body (inline object): (no fields)
+Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+
+### POST /api/battlenet-daemon/sessions/{sessionId}/selected-apps
+
+Access: requires X-Api-Key
+
+Stores which apps the next prefill should cover.
+
+Parameters: `sessionId` (path): string
+Body (`SetSelectedAppsRequest`): `appIds?: array?`
+Response 200 (`SelectedAppsResponse`): `message?: string`, `count?: integer`
+
+### POST /api/epic-daemon/sessions/{sessionId}/cache-status
+
+Access: requires X-Api-Key
+
+Splits the requested apps into up-to-date and stale groups.
+
+Parameters: `sessionId` (path): string
+Body (`PrefillCacheStatusRequest`): `appIds?: array?`
+Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `message?: string?`
+
+### POST /api/epic-daemon/sessions/{sessionId}/prefill
+
+Access: requires X-Api-Key
+
+Runs a prefill for the session's current selection and waits for it to finish.
+
+Parameters: `sessionId` (path): string
+Body (inline object): (no fields)
+Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+
+### POST /api/epic-daemon/sessions/{sessionId}/selected-apps
+
+Access: requires X-Api-Key
+
+Stores which apps the next prefill should cover.
+
+Parameters: `sessionId` (path): string
+Body (`SetSelectedAppsRequest`): `appIds?: array?`
+Response 200 (`SelectedAppsResponse`): `message?: string`, `count?: integer`
+
+### POST /api/prefill-admin/bans
+
+Access: requires X-Api-Key
+
+Bans a prefill user by username.
+
+Body (`BanByUsernameRequest`): `username?: string`, `reason?: string?`, `sessionId?: string?`, `expiresAt?: string?`
+Response 200 (`BannedPrefillUserDto`): `id?: integer`, `username?: string?`, `bannedUserId?: string?`, `banReason?: string?`, `bannedBySessionId?: string?`, `bannedAtUtc?: string`, `bannedBy?: string?`, `expiresAtUtc?: string?`, `isLifted?: boolean`, `liftedAtUtc?: string?`, `liftedBy?: string?`, `isActive?: boolean`
+
+### POST /api/prefill-admin/bans/{banId}/lift
+
+Access: requires X-Api-Key
+
+Lifts a ban.
+
+Parameters: `banId` (path): integer
+Response 200 (`MessageOnlyResponse`): `message?: string`
+
+### POST /api/prefill-admin/bans/by-session/{sessionId}
+
+Access: requires X-Api-Key
+
+Bans a prefill user by session ID.
+
+Parameters: `sessionId` (path): string
+Body (`BanRequest`): `reason?: string?`, `expiresAt?: string?`
+Response 200 (`BannedPrefillUserDto`): `id?: integer`, `username?: string?`, `bannedUserId?: string?`, `banReason?: string?`, `bannedBySessionId?: string?`, `bannedAtUtc?: string`, `bannedBy?: string?`, `expiresAtUtc?: string?`, `isLifted?: boolean`, `liftedAtUtc?: string?`, `liftedBy?: string?`, `isActive?: boolean`
+
+### POST /api/prefill-admin/sessions/{sessionId}/terminate
+
+Access: requires X-Api-Key
+
+Terminates a specific session.
+
+Parameters: `sessionId` (path): string
+Body (inline object): (no fields)
+Response 200 (`MessageOnlyResponse`): `message?: string`
+
+### POST /api/prefill-admin/sessions/terminate-all
+
+Access: requires X-Api-Key
+
+Terminates all active sessions.
+
+Body (inline object): (no fields)
+Response 200 (`MessageOnlyResponse`): `message?: string`
+
+### POST /api/riot-daemon/sessions/{sessionId}/cache-status
+
+Access: requires X-Api-Key
+
+Splits the requested apps into up-to-date and stale groups.
+
+Parameters: `sessionId` (path): string
+Body (`PrefillCacheStatusRequest`): `appIds?: array?`
+Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `message?: string?`
+
+### POST /api/riot-daemon/sessions/{sessionId}/prefill
+
+Access: requires X-Api-Key
+
+Runs a prefill for the session's current selection and waits for it to finish.
+
+Parameters: `sessionId` (path): string
+Body (inline object): (no fields)
+Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+
+### POST /api/riot-daemon/sessions/{sessionId}/selected-apps
+
+Access: requires X-Api-Key
+
+Stores which apps the next prefill should cover.
+
+Parameters: `sessionId` (path): string
+Body (`SetSelectedAppsRequest`): `appIds?: array?`
+Response 200 (`SelectedAppsResponse`): `message?: string`, `count?: integer`
+
+### POST /api/steam-daemon/sessions/{sessionId}/cache-status
+
+Access: requires X-Api-Key
+
+Splits the requested apps into up-to-date and stale groups.
+
+Parameters: `sessionId` (path): string
+Body (`PrefillCacheStatusRequest`): `appIds?: array?`
+Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `message?: string?`
+
+### POST /api/steam-daemon/sessions/{sessionId}/prefill
+
+Access: requires X-Api-Key
+
+Runs a prefill for the session's current selection and waits for it to finish.
+
+Parameters: `sessionId` (path): string
+Body (inline object): (no fields)
+Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+
+### POST /api/steam-daemon/sessions/{sessionId}/selected-apps
+
+Access: requires X-Api-Key
+
+Stores which apps the next prefill should cover.
+
+Parameters: `sessionId` (path): string
+Body (`SetSelectedAppsRequest`): `appIds?: array?`
+Response 200 (`SelectedAppsResponse`): `message?: string`, `count?: integer`
+
+### POST /api/system/prefill/persistent/cancel-login
+
+Access: requires X-Api-Key
+
+Cancels a pending interactive login and resets auth state.
+
+Body (`PersistentCancelLoginRequest`): `service: PrefillPlatform`, `sessionId?: string?`
+Response 200 (`MessageOnlyResponse`): `message?: string`
+
+### POST /api/system/prefill/persistent/cancel-prefill
+
+Access: requires X-Api-Key
+
+Cancels an in-flight prefill on the RUNNING persistent session.
+
+Body (`PersistentServiceRequest`): `service: PrefillPlatform`, `sessionId?: string?`
+Response 200: no body
+
+### POST /api/system/prefill/persistent/clear-logins
+
+Access: requires X-Api-Key
+
+Clears logins for every registered service.
+
+Response 200 (`ClearPersistentLoginsResponseDto`): `services: ClearPersistentLoginServiceResultDto[]`
+
+### POST /api/system/prefill/persistent/credential
+
+Access: requires X-Api-Key
+
+Provides an encrypted credential in response to a login challenge.
+
+Body (`PersistentProvideCredentialRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `challenge?: object`, `credential?: string?`, `editSessionId?: string?`, `editActionId?: string?`
+Response 200 (`MessageOnlyResponse`): `message?: string`
+
+### POST /api/system/prefill/persistent/edit-session-cleanup
+
+Access: requires X-Api-Key
+
+Compensates a persistent edit session that was abandoned mid-flight.
+
+Body (`PersistentPrefillEditSessionCleanupRequest`): `editSessionId: string`, `cleanupId: string`, `services: PersistentPrefillEditSessionCleanupServiceRequest[]`
+Response 200: no body
+
+### POST /api/system/prefill/persistent/login
+
+Access: requires X-Api-Key
+
+Starts or resumes the interactive login flow for the running persistent session.
+
+Body (`PersistentLoginRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `editSessionId?: string?`, `editActionId?: string?`
+Response 200 (`CredentialChallenge`): `type?: string`, `challengeId?: string`, `credentialType?: string`, `serverPublicKey?: string`, `email?: string?`, `authUrl?: string?`, `userCode?: string?`, `verificationUri?: string?`, `createdAt?: string`, `expiresAt?: string`, `sessionId?: string?`
+
+### POST /api/system/prefill/persistent/logout
+
+Access: requires X-Api-Key
+
+Logs the running persistent session out in place.
+
+Body (`PersistentLoginRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `editSessionId?: string?`, `editActionId?: string?`
+Response 200 (`PersistentLogoutResponseDto`): `forgotten: boolean`, `fallback?: string?`
+
+### POST /api/system/prefill/persistent/prefill
+
+Access: requires X-Api-Key
+
+Starts a prefill download on the running persistent session.
+
+Body (`PersistentStartPrefillRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `appIds?: array?`, `all?: boolean`, `recent?: boolean`, `recentlyPurchased?: boolean`, `top?: integer?`, `force?: boolean`, `operatingSystems?: array?`, `maxConcurrency?: integer?`, `editSessionId?: string?`, `editActionId?: string?`
+Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+
+### POST /api/system/prefill/persistent/selected-apps
+
+Access: requires X-Api-Key
+
+Sets the selected app list for the running persistent session.
+
+Body (`PersistentSelectedAppsRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `appIds: string[]`, `editSessionId?: string?`, `editActionId?: string?`
+Response 200: no body
+
+### POST /api/system/prefill/persistent/start
+
+Access: requires X-Api-Key
+
+Starts a persistent admin-owned session for the given platform.
+
+Body (`StartPersistentSessionRequest`): `service: PrefillPlatform`, `editSessionId?: string?`, `editActionId?: string?`
+Response 200 (`DaemonSessionDto`): `id?: string`, `userId?: string`, `containerName?: string`, `status?: string`, `errorMessage?: string?`, `authState?: string`, `isPrefilling?: boolean`, `createdAt?: string`, `expiresAt?: string`, `timeRemainingSeconds?: integer`, `isTemporary?: boolean`, `isPersistent?: boolean`, `needsRelogin?: boolean`, `ipAddress?: string?`, `operatingSystem?: string?`, `browser?: string?`, `lastSeenAt?: string`, `accountUsername?: string?`, `platform?: string`, `username?: string?`, `currentAppId?: string?`, `currentAppName?: string?`, `totalBytesTransferred?: integer`, `networkDiagnostics?: object`, `lastPrefillCompletedAt?: string?`, `lastPrefillDurationSeconds?: integer?`, `lastPrefillStatus?: string?`
+
+### POST /api/system/prefill/persistent/stop
+
+Access: requires X-Api-Key
+
+Stops a persistent session.
+
+Body (`StopPersistentSessionRequest`): `sessionId: string`
+Response 200: no body
+
+### POST /api/system/schedules/{serviceKey}/run
+
+Access: requires X-Api-Key
+
+Triggers an immediate run of the service, bypassing the scheduled interval.
+
+Parameters: `serviceKey` (path): string
+Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+
+### POST /api/system/schedules/reset
+
+Access: requires X-Api-Key
+
+Resets all service schedules to their hardcoded defaults.
+
+Response 200: no body
+
+### POST /api/system/schedules/run-all
+
+Access: requires X-Api-Key
+
+Triggers an immediate run of every registered service.
+
+Response 202 (`TriggerAllResponse`): `triggeredCount?: integer`, `alreadyRunningCount?: integer`
+
+### POST /api/xbox-daemon/sessions/{sessionId}/cache-status
+
+Access: requires X-Api-Key
+
+Splits the requested apps into up-to-date and stale groups.
+
+Parameters: `sessionId` (path): string
+Body (`PrefillCacheStatusRequest`): `appIds?: array?`
+Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `message?: string?`
+
+### POST /api/xbox-daemon/sessions/{sessionId}/prefill
+
+Access: requires X-Api-Key
+
+Runs a prefill for the session's current selection and waits for it to finish.
+
+Parameters: `sessionId` (path): string
+Body (inline object): (no fields)
+Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+
+### POST /api/xbox-daemon/sessions/{sessionId}/selected-apps
+
+Access: requires X-Api-Key
+
+Stores which apps the next prefill should cover.
+
+Parameters: `sessionId` (path): string
+Body (`SetSelectedAppsRequest`): `appIds?: array?`
+Response 200 (`SelectedAppsResponse`): `message?: string`, `count?: integer`
+
+### PUT /api/system/prefill/persistent/validity
+
+Access: requires X-Api-Key
+
+Updates the admin-configured persistent login validity window (1-365 days).
+
+Body (`PersistentLoginValidityDto`): `days: integer`
+Response 200 (`PersistentLoginValidityDto`): `days: integer`
+
+### PUT /api/system/schedules/{serviceKey}
+
+Access: requires X-Api-Key
+
+Updates the interval for a service schedule.
+
+Parameters: `serviceKey` (path): string
+Body (`UpdateScheduleIntervalRequest`): `intervalHours?: number`
+Response 200: no body
+
+### PUT /api/system/schedules/{serviceKey}/customSchedule
+
+Access: requires X-Api-Key
+
+Sets the custom schedule that decides when the service runs.
+
+Parameters: `serviceKey` (path): string
+Body (`UpdateScheduleCustomScheduleRequest`): `customSchedule?: object`
+Response 200: no body
+
+### PUT /api/system/schedules/{serviceKey}/notificationDisplayMode
+
+Access: requires X-Api-Key
+
+Updates how the service's run notifications render in the notification bar.
+
+Parameters: `serviceKey` (path): string
+Body (`NotificationDisplayMode`): (no fields)
+Response 200: no body
+
+### PUT /api/system/schedules/{serviceKey}/notificationMode
+
+Access: requires X-Api-Key
+
+Updates how the service surfaces its run notifications.
+
+Parameters: `serviceKey` (path): string
+Body (`NotificationMode`): (no fields)
+Response 200: no body
+
+### PUT /api/system/schedules/{serviceKey}/runOnStartup
+
+Access: requires X-Api-Key
+
+Updates whether the service runs at app startup.
+
+Parameters: `serviceKey` (path): string
+Body (`UpdateScheduleRunOnStartupRequest`): `runOnStartup?: boolean`
+Response 200: no body
+
+### PUT /api/system/schedules/scheduledPrefill/config
+
+Access: requires X-Api-Key
+
+Saves the scheduled prefill configuration.
+
+Body (`ScheduledPrefillConfigDto`): `version: integer`, `maxServiceRuntime: string`, `stallTimeout: string`, `steam: ScheduledPrefillServiceConfigDto`, `epic: ScheduledPrefillServiceConfigDto`, `xbox: ScheduledPrefillServiceConfigDto`, `battleNet: ScheduledPrefillServiceConfigDto`, `riot: ScheduledPrefillServiceConfigDto`, `persistenceMode?: object`
+Response 200: no body
+
+### DELETE /api/prefill-admin/cache
+
+Access: requires X-Api-Key
+
+Clears the entire prefill cache.
+
+Response 200 (`MessageOnlyResponse`): `message?: string`
+
+## System
+
+Service health, metrics, database maintenance, migrations, and background operations.
+
+### GET /api/database/log-entries-count
+
+Access: requires X-Api-Key
+
+Returns the count of log entries currently stored in the database.
+
+Response 200 (`LogEntriesCountResponse`): `count?: integer`
+
+### GET /api/database/reset-status
+
+Access: requires X-Api-Key
+
+Reports whether a database reset is currently running.
+
+Response 200 (`DatabaseResetStatusResponse`): `isProcessing?: boolean`, `status?: object`, `message?: string?`, `percentComplete?: number?`, `operationId?: string?`, `stageKey?: string?`, `context?: object`, `tablesCleared?: integer?`, `totalTables?: integer?`, `filesDeleted?: integer?`
+
+### GET /api/gc/settings
+
+Access: requires X-Api-Key
+
+Gets the current garbage collection settings.
+
+Response 200 (`GcSettingsResponse`): `enabled?: boolean`, `memoryThresholdMB?: integer`, `message?: string?`
+
+### GET /api/memory
+
+Access: requires X-Api-Key
+
+Gets current memory usage for debugging memory leaks.
+
+Parameters: `forceGC`? (query): boolean
+Response 200 (`MemoryStatsResponse`): `timestamp?: string`, `totalSystemMemoryMB?: number`, `totalSystemMemoryGB?: number`, `workingSetMB?: number`, `workingSetGB?: number`, `managedMB?: number`, `managedGB?: number`, `unmanagedMB?: number`, `unmanagedGB?: number`, `totalAllocatedMB?: number`, `totalAllocatedGB?: number`, `heapSizeMB?: number`, `heapSizeGB?: number`, `fragmentedMB?: number`, `fragmentedGB?: number`, `gen0Collections?: integer`, `gen1Collections?: integer`, `gen2Collections?: integer`, `threadCount?: integer`, `handleCount?: integer`
+
+### GET /api/metrics/game-limit
+
+Access: requires X-Api-Key
+
+Gets how many games the per-game metrics report.
+
+Response 200 (`MetricsGameLimitResponse`): `gameLimit?: integer`
+
+### GET /api/metrics/interval
+
+Access: requires X-Api-Key
+
+Get the current metrics update interval
+
+Response 200 (`MetricsIntervalResponse`): `interval?: integer`
+
+### GET /api/metrics/security
+
+Access: requires X-Api-Key
+
+Gets metrics authentication security settings.
+
+Response 200 (`MetricsSecurityResponse`): `requiresAuthentication?: boolean`, `source?: string`, `canToggle?: boolean`, `envVarValue?: boolean`
+
+### GET /api/migration/import/status
+
+Access: requires X-Api-Key
+
+Reports whether a LancacheManager import is currently running.
+
+Response 200 (`DataImportStatusResponse`): `isProcessing?: boolean`, `status?: object`, `message?: string?`, `percentComplete?: number?`, `operationId?: string?`, `stageKey?: string?`, `context?: object`
+
+### GET /api/migration/validate-connection
+
+Access: requires X-Api-Key
+
+Validates a connection string against a source LancacheManager database.
+
+Parameters: `connectionString`? (query): string
+Response 200 (`ConnectionValidationResponse`): `valid?: boolean`, `message?: string`, `recordCount?: integer?`
+
+### GET /api/operations/{id}
+
+Access: requires X-Api-Key
+
+Gets the status of a single tracked operation.
+
+Parameters: `id` (path): string
+Response 200 (`OperationStatusResponse`): `id?: string`, `active?: boolean`, `percentComplete?: number`, `message?: string?`
+
+### GET /api/operations/waiting
+
+Access: requires X-Api-Key
+
+Lists operations parked in the wait queue.
+
+Response 200 (inline object): (no fields)
+
+### GET /api/status-check
+
+Access: requires X-Api-Key
+
+Gets the current Status Check state.
+
+Response 200 (`StatusCheckStateResponse`): `lastResult?: object`, `domainsSource?: object`, `isRunning?: boolean`, `operationId?: string?`, `resolverMode?: string`
+
+### GET /api/status-check/domains
+
+Access: requires X-Api-Key
+
+Gets the cache-domains list backing the test-a-domain dropdown.
+
+Response 200 (`GetDomainsResponse`): `services?: CacheDomainService[]`
+
+### GET /api/system/config
+
+Access: public
+
+Gets the system configuration.
+
+Response 200 (`SystemConfigResponse`): `cachePath?: string`, `logsPath?: string`, `dataPath?: string`, `cacheDeleteMode?: CacheDeleteMode`, `steamAuthMode?: SteamAuthMode`, `timeZone?: string`, `cacheWritable?: boolean`, `logsWritable?: boolean`, `dataSources?: DatasourceInfoDto[]`
+
+### GET /api/system/default-guest-preferences
+
+Access: requires X-Api-Key
+
+Gets the default preferences a new guest session starts with, before any per-session override.
+
+Response 200 (`DefaultGuestPreferencesResponse`): `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `sharpCorners?: boolean`, `disableTooltips?: boolean`, `showDatasourceLabels?: boolean`, `allowedTimeFormats?: string[]`
+
+### GET /api/system/default-guest-refresh-rate
+
+Access: public
+
+Gets the default refresh rate for guest users.
+
+Response 200 (`DefaultGuestRefreshRateResponse`): `refreshRate?: string`, `locked?: boolean`
+
+### GET /api/system/gc-management/status
+
+Access: requires X-Api-Key
+
+Gets whether GC management (the memory-threshold-triggered collection pass) is enabled.
+
+Response 200 (`GcStatusResponse`): `enabled?: boolean`
+
+### GET /api/system/permissions
+
+Access: requires X-Api-Key
+
+Checks directory permissions and docker socket availability.
+
+Response 200 (`SystemPermissionsResponse`): `cache?: DirectoryPermission`, `logs?: DirectoryPermission`, `dockerSocket?: DockerSocketPermission`
+
+### GET /api/system/prefill-defaults
+
+Access: requires X-Api-Key
+
+Gets the default prefill panel settings.
+
+Response 200 (`PrefillDefaultsResponse`): `operatingSystems?: string[]`, `maxConcurrency?: string`, `serverThreadCount?: integer`, `maxThreadLimit?: integer?`, `epicDefaultPrefillMaxConcurrency?: string`
+
+### GET /api/system/refresh-rate
+
+Access: public
+
+Gets the current refresh rate setting.
+
+Response 200 (`RefreshRateResponse`): `message?: string?`, `refreshRate?: string`
+
+### GET /api/system/rsync/available
+
+Access: requires X-Api-Key
+
+Checks whether rsync is available.
+
+Response 200 (`RsyncAvailableResponse`): `available?: boolean`
+
+### GET /api/system/setup
+
+Access: public
+
+Gets the setup status.
+
+Response 200 (`SetupStatusResponse`): `isCompleted?: boolean`, `hasProcessedLogs?: boolean`, `setupCompleted?: boolean`, `needsPostgresCredentials?: boolean`, `currentSetupStep?: string?`, `dataSourceChoice?: string?`, `completedPlatforms?: string?`, `mode?: string`, `postgresHost?: string?`, `postgresPort?: integer?`, `postgresDatabase?: string?`, `postgresUser?: string?`
+
+### GET /api/version
+
+Access: public
+
+Response 200: no body
+
+### GET /health
+
+Access: public
+
+Response 200: no body
+
+### POST /api/gc/trigger
+
+Access: requires X-Api-Key
+
+Manually triggers an immediate garbage collection.
+
+Response 200 (`GcTriggerResponse`): `skipped?: boolean`, `reason?: string?`, `remainingSeconds?: number?`, `beforeMB?: number?`, `afterMB?: number?`, `freedMB?: number?`, `message?: string`
+
+### POST /api/metrics/game-limit
+
+Access: requires X-Api-Key
+
+Sets how many games the per-game metrics report (1-500).
+
+Body (`SetGameLimitRequest`): `gameLimit?: integer`
+Response 200 (`MetricsGameLimitResponse`): `gameLimit?: integer`
+
+### POST /api/metrics/interval
+
+Access: requires X-Api-Key
+
+Set the metrics update interval (5-60 seconds)
+
+Body (`SetIntervalRequest`): `interval?: integer`
+Response 200 (`MetricsIntervalResponse`): `interval?: integer`
+
+### POST /api/metrics/security
+
+Access: requires X-Api-Key
+
+Sets the metrics authentication requirement via a UI toggle.
+
+Body (`SetSecurityRequest`): `enabled?: boolean?`
+Response 200 (`MetricsSecurityResponse`): `requiresAuthentication?: boolean`, `source?: string`, `canToggle?: boolean`, `envVarValue?: boolean`
+
+### POST /api/migration/import-lancache-manager
+
+Access: requires X-Api-Key
+
+Imports historical download rows from another LancacheManager database.
+
+Body (`DataMigrationImportRequest`): `connectionString?: string`, `batchSize?: integer?`, `overwriteExisting?: boolean`
+Response 200 (`MigrationImportResponse`): `message?: string`, `totalRecords?: integer`, `imported?: integer`, `skipped?: integer`, `errors?: integer`
+
+### POST /api/operations/{id}/cancel
+
+Access: requires X-Api-Key
+
+Cancels a running operation.
+
+Parameters: `id` (path): string
+Response 200 (`OperationCancelResponse`): `message?: string`, `operationId?: string`, `status?: OperationStatus`, `alreadyFinished?: boolean`
+
+### POST /api/operations/{id}/force-kill
+
+Access: requires X-Api-Key
+
+Force-kills a running operation when cancel alone does not unblock the UI.
+
+Parameters: `id` (path): string
+Response 200 (`OperationForceKillResponse`): `message?: string`, `operationId?: string`
+
+### POST /api/status-check/refresh-domains
+
+Access: requires X-Api-Key
+
+Forces a re-fetch of the cache-domains list from its configured source.
+
+Response 200 (`RefreshDomainsResponse`): `domainsSource?: DomainsSource`, `serviceCount?: integer`, `domainCount?: integer`
+
+### POST /api/status-check/resolver-mode
+
+Access: requires X-Api-Key
+
+Persists which DNS resolver a Status Check sweep uses to resolve cache-domains entries.
+
+Body (`SetResolverModeRequest`): `mode?: string`
+Response 200 (`SetResolverModeResponse`): `resolverMode?: string`
+
+### POST /api/status-check/run
+
+Access: requires X-Api-Key
+
+Starts a full Status Check sweep of every cache-domains entry.
+
+Response 202 (`RunStatusCheckResponse`): `operationId?: string`
+
+### POST /api/status-check/test-domain
+
+Access: requires X-Api-Key
+
+Runs an ad hoc resolution and heartbeat test against a single hostname.
+
+Body (`TestDomainRequest`): `domain?: string`
+Response 200 (`TestDomainResponse`): `result?: DomainCheckResult`, `heartbeat?: object`
+
+### PUT /api/gc/settings
+
+Access: requires X-Api-Key
+
+Updates the garbage collection settings.
+
+Body (`UpdateGcSettingsRequest`): `enabled?: boolean?`, `aggressiveness?: string?`, `memoryThresholdMB?: integer`
+Response 200 (`GcSettingsResponse`): `enabled?: boolean`, `memoryThresholdMB?: integer`, `message?: string?`
+
+### PUT /api/system/datasources/{datasourceName}/cache-size
+
+Access: requires X-Api-Key
+
+Sets a datasource cache-size override.
+
+Parameters: `datasourceName` (path): string
+Body (`SetDatasourceCacheSizeRequest`): `size?: object`
+Response 200 (`DatasourceCacheSizeResponse`): `name?: string`, `cacheSizeOverrideBytes?: integer?`, `resolvedCacheSizeBytes?: integer`, `cacheSizeSource?: string`
+
+### PATCH /api/system/cache-delete-mode
+
+Access: requires X-Api-Key
+
+Sets the cache clearing delete mode.
+
+Body (`SetCacheDeleteModeRequest`): `deleteMode?: CacheDeleteMode`
+Response 200 (`CacheDeleteModeResponse`): `message?: string`, `deleteMode?: CacheDeleteMode`
+
+### PATCH /api/system/default-guest-preferences/{key}
+
+Access: requires X-Api-Key
+
+Sets a single default guest preference by key.
+
+Parameters: `key` (path): string
+Body (`SetBoolPreferenceRequest`): `value?: boolean`
+Response 200 (`DefaultGuestPreferenceResponse`): `message?: string`, `key?: string`, `value?: boolean`
+
+### PATCH /api/system/default-guest-preferences/allowed-time-formats
+
+Access: requires X-Api-Key
+
+Sets which time formats guests are allowed to pick between, restricting the choices offered by
+the per-session clock preference.
+
+Body (`SetAllowedTimeFormatsRequest`): `formats?: string[]`
+Response 200 (`AllowedTimeFormatsResponse`): `message?: string`, `formats?: string[]`
+
+### PATCH /api/system/default-guest-preferences/clock
+
+Access: requires X-Api-Key
+
+Writes the three default-guest clock fields in one update.
+
+Body (`ClockPreferences`): `useUtcTimezone?: boolean`, `useLocalTimezone?: boolean`, `use24HourFormat?: boolean`
+Response 200 (`DefaultGuestClockResponse`): `message?: string`, `clock?: ClockPreferences`
+
+### PATCH /api/system/default-guest-refresh-rate
+
+Access: requires X-Api-Key
+
+Sets the default refresh rate for guest users.
+
+Body (`SetRefreshRateRequest`): `refreshRate?: string`
+Response 200 (`RefreshRateResponse`): `message?: string?`, `refreshRate?: string`
+
+### PATCH /api/system/guest-refresh-rate-lock
+
+Access: requires X-Api-Key
+
+Locks or unlocks guest refresh rate selection.
+
+Body (`GuestRefreshRateLockRequest`): `locked?: boolean`
+Response 200 (`GuestRefreshRateLockResponse`): `success?: boolean`, `locked?: boolean`
+
+### PATCH /api/system/prefill-defaults
+
+Access: requires X-Api-Key
+
+Updates the default prefill panel settings.
+
+Body (`SetPrefillDefaultsRequest`): `operatingSystems?: array?`, `maxConcurrency?: string?`, `epicDefaultPrefillMaxConcurrency?: string?`
+Response 200 (`PrefillDefaultsResponse`): `operatingSystems?: string[]`, `maxConcurrency?: string`, `serverThreadCount?: integer`, `maxThreadLimit?: integer?`, `epicDefaultPrefillMaxConcurrency?: string`
+
+### PATCH /api/system/refresh-rate
+
+Access: requires X-Api-Key
+
+Sets the refresh rate.
+
+Body (`SetRefreshRateRequest`): `refreshRate?: string`
+Response 200 (`RefreshRateResponse`): `message?: string?`, `refreshRate?: string`
+
+### PATCH /api/system/setup
+
+Access: requires X-Api-Key
+
+Updates the setup status.
+
+Body (`UpdateSetupStatusRequest`): `completed?: boolean?`, `currentSetupStep?: object`, `dataSourceChoice?: object`, `completedPlatforms?: string?`
+Response 200 (`SetupUpdateResponse`): `message?: string`, `setupCompleted?: boolean`
+
+### DELETE /api/database
+
+Access: requires X-Api-Key
+
+Wipes every table in the database.
+
+Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+
+### DELETE /api/database/tables
+
+Access: requires X-Api-Key
+
+Wipes only the named tables instead of the whole database.
+
+Body (`ResetTablesRequest`): `tables?: string[]`
+Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`

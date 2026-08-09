@@ -4,6 +4,7 @@ using LancacheManager.Security;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -100,7 +101,7 @@ public class SessionAuthDatabaseOutageTests
 
         var logger = new CapturingLogger();
         var (handler, context) = await CreateHandlerAsync(
-            new InMemoryDbContextFactory(options), logger, SessionCookieHeader);
+            new TestDbContextFactory(options), logger, SessionCookieHeader);
 
         var result = await handler.AuthenticateAsync();
 
@@ -115,16 +116,18 @@ public class SessionAuthDatabaseOutageTests
         CapturingLogger logger,
         string? cookieHeader)
     {
-        // Only the context factory is exercised: ValidateSessionAsync hashes the token itself and
-        // reads nothing else off the service, and every constructor argument below is stored without
-        // being touched (SessionService.cs).
+        // The context factory and the configuration are the two that get exercised:
+        // ValidateSessionAsync hashes the token itself and reads nothing else off the service, and the
+        // handler asks whether authentication is enabled before deciding what an absent session means.
+        // An empty configuration leaves that at its default of enabled, which is the mode these tests
+        // are about. Every other argument is stored without being touched (SessionService.cs).
         var sessionService = new SessionService(
             dbContextFactory,
             apiKeyService: null!,
             NullLogger<SessionService>.Instance,
             stateService: null!,
             signalR: null!,
-            configuration: null!);
+            configuration: new ConfigurationBuilder().Build());
 
         var services = new ServiceCollection();
         services.AddOptions();
@@ -153,25 +156,20 @@ public class SessionAuthDatabaseOutageTests
         return (handler, context);
     }
 
-    private sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
-
     /// <summary>
     /// Doubles as its own ILoggerFactory so the handler's base class resolves this exact instance for
     /// its protected Logger, which is where the handler reports the outage.
     /// </summary>
     private sealed class CapturingLogger : ILogger, ILoggerFactory
     {
-        private readonly object _sync = new();
-        private readonly List<LogEntry> _entries = new();
+        private readonly LancacheManager.Tests.CapturingLogger<object> _logger = new();
 
-        public IReadOnlyList<LogEntry> Entries
-        {
-            get { lock (_sync) return _entries.ToArray(); }
-        }
+        public IReadOnlyList<LogEntry> Entries => _logger.Entries;
 
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull =>
+            _logger.BeginScope(state);
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(LogLevel logLevel) => _logger.IsEnabled(logLevel);
 
         public void Log<TState>(
             LogLevel logLevel,
@@ -179,12 +177,7 @@ public class SessionAuthDatabaseOutageTests
             TState state,
             Exception? exception,
             Func<TState, Exception?, string> formatter)
-        {
-            lock (_sync)
-            {
-                _entries.Add(new LogEntry(logLevel, formatter(state, exception), exception));
-            }
-        }
+            => _logger.Log(logLevel, eventId, state, exception, formatter);
 
         public ILogger CreateLogger(string categoryName) => this;
 
@@ -193,27 +186,4 @@ public class SessionAuthDatabaseOutageTests
         public void Dispose() { }
     }
 
-    private sealed class ThrowingDbContextFactory : IDbContextFactory<AppDbContext>
-    {
-        public AppDbContext CreateDbContext() =>
-            throw new InvalidOperationException("context creation failed");
-
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
-            Task.FromException<AppDbContext>(new InvalidOperationException("context creation failed"));
-    }
-
-    private sealed class InMemoryDbContextFactory : IDbContextFactory<AppDbContext>
-    {
-        private readonly DbContextOptions<AppDbContext> _options;
-
-        public InMemoryDbContextFactory(DbContextOptions<AppDbContext> options)
-        {
-            _options = options;
-        }
-
-        public AppDbContext CreateDbContext() => new AppDbContext(_options);
-
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new AppDbContext(_options));
-    }
 }

@@ -14,7 +14,6 @@ const slices = (overrides = {}) => ({
   sparklines: null,
   hourlyActivity: null,
   cacheSnapshot: null,
-  cacheGrowth: null,
   ...overrides
 });
 
@@ -30,7 +29,6 @@ const fullBatch = (overrides = {}) => ({
   sparklines: { intervals: [] },
   hourlyActivity: { hours: [] },
   cacheSnapshot: { hasData: true },
-  cacheGrowth: { points: [] },
   ...overrides
 });
 
@@ -70,8 +68,7 @@ test('failed sections clear on a range change instead of keeping foreign-range d
     clientStats: [{ clientIp: '10.0.0.9' }],
     dashboardStats: { period: { duration: '24h' } },
     sparklines: { intervals: [1] },
-    hourlyActivity: { hours: [1] },
-    cacheGrowth: { points: [1] }
+    hourlyActivity: { hours: [1] }
   });
   const { next, hadPartialFailure } = applyDashboardBatchResponse(
     prev,
@@ -80,8 +77,7 @@ test('failed sections clear on a range change instead of keeping foreign-range d
       clients: null,
       dashboard: null,
       sparklines: null,
-      hourlyActivity: null,
-      cacheGrowth: null
+      hourlyActivity: null
     }),
     { rangeKey: LIVE_KEY, previousRangeKey: DAY_KEY }
   );
@@ -90,7 +86,6 @@ test('failed sections clear on a range change instead of keeping foreign-range d
   assert.equal(next.dashboardStats, null);
   assert.equal(next.sparklines, null);
   assert.equal(next.hourlyActivity, null);
-  assert.equal(next.cacheGrowth, null);
   assert.equal(hadPartialFailure, true);
 });
 
@@ -176,7 +171,6 @@ test('fully successful batch applies every section and reports no failure', () =
   assert.equal(next.sparklines, batch.sparklines);
   assert.equal(next.hourlyActivity, batch.hourlyActivity);
   assert.equal(next.cacheSnapshot, batch.cacheSnapshot);
-  assert.equal(next.cacheGrowth, batch.cacheGrowth);
   assert.equal(hadPartialFailure, false);
   assert.deepEqual(failedSectionKeys, []);
 });

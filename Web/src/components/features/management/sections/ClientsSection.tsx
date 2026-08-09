@@ -479,6 +479,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
               {loading ? (
                 <LoadingState
                   message={t('management.sections.clients.loadingNicknames')}
+                  shape="list"
                   rows={3}
                 />
               ) : clientGroups.length === 0 ? (
@@ -666,6 +667,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   {loadingClients ? (
                     <LoadingState
                       message={t('management.sections.clients.loadingClients')}
+                      shape="list"
                       rows={4}
                     />
                   ) : ungroupedClients.length === 0 ? (

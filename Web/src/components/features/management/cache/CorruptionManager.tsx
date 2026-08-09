@@ -34,6 +34,7 @@ import { DiskObjectActionGate } from '@components/features/management/DiskObject
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { resolveCardNotice } from '@utils/cardDirectoryNotice';
+import { resolveDatasources } from '@utils/datasources';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { formatCount } from '@utils/formatters';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -85,21 +86,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const { notifyError } = useErrorHandler();
   const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
-  const datasources =
-    config.dataSources && config.dataSources.length > 0
-      ? config.dataSources
-      : [
-          {
-            name: 'default',
-            cachePath: config.cachePath,
-            logsPath: config.logsPath,
-            cacheWritable: config.cacheWritable,
-            logsWritable: config.logsWritable,
-            enabled: true,
-            layout: 'monolithic' as const,
-            nginxReopenAvailable: false
-          }
-        ];
+  const datasources = resolveDatasources(config);
   const repeatedMissNginxReopenGate = getNginxReopenGate(datasources);
   const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
     useDirectoryPermissionsContext();
@@ -585,7 +572,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
       scanRequestInFlightRef.current = true;
       setStartingScanAction(action);
-      clearLoadedResults();
+      resultEpochRef.current += 1;
       setCachedLoadFailed(false);
       try {
         const result = await ApiService.startCorruptionDetection(
@@ -626,16 +613,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         scanRequestInFlightRef.current = false;
       }
     },
-    [
-      addNotification,
-      clearLoadedResults,
-      detectionMethod,
-      lookbackDays,
-      missThreshold,
-      notifyError,
-      scanBlocked,
-      t
-    ]
+    [addNotification, detectionMethod, lookbackDays, missThreshold, notifyError, scanBlocked, t]
   );
 
   useEffect(() => {
@@ -651,8 +629,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       if (event.detectionMethod !== detectionMethod) return;
 
       // The backend preserves the prior authoritative result when a scan fails or is cancelled.
-      // Reload on every same-method terminal event so clearing the local view at start never
-      // hides that result until a manual Load or page refresh.
+      // Reload on every same-method terminal event so the displayed result stays authoritative.
       beginLoad(true);
       const requestEpoch = resultEpochRef.current;
       void (async () => {
@@ -1035,7 +1012,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           {selectedServices.length}
         </SectionHeaderChip>
       )}
-      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+      <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>
             <DiskObjectActionGate
@@ -1182,6 +1159,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
           {isScanning && (
             <LoadingState
+              variant="spinner"
               message={t(
                 displayedDetectionMethod !== 'structural'
                   ? 'management.corruption.scanningRepeatedMissMessage'
@@ -1216,13 +1194,30 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
           <CardDirectoryNotice notice={directoryNotice} />
 
-          {/*
-            While a scan runs, the scan's own progress is the whole story: nothing below it.
-            Leaving these mounted would put a finished verdict directly under a running
-            scan's spinner, so the actionable result stays hidden until the terminal event.
-          */}
           {isLoading && !isScanning ? (
-            <LoadingState message={t('management.corruption.loadingCachedData')} />
+            <div role="status" aria-live="polite" aria-busy="true">
+              <span className="sr-only">{t('management.corruption.loadingCachedData')}</span>
+              <div className="space-y-3" aria-hidden="true">
+                <div className="skeleton-shimmer rounded h-5 w-28" />
+                <div className="mgmt-list divided-list">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="mgmt-row flex-wrap">
+                      <div className="skeleton-shimmer rounded h-5 w-5 flex-shrink-0" />
+                      <div className="mgmt-row__body">
+                        <div
+                          className={`skeleton-shimmer rounded h-3.5 ${i % 2 === 0 ? 'w-2/5' : 'w-1/2'}`}
+                        />
+                      </div>
+                      <div className="mgmt-row__actions mgmt-corruption-actions flex-wrap justify-end">
+                        <div className="skeleton-shimmer rounded-full h-5 w-24" />
+                        <div className="skeleton-shimmer rounded h-7 w-7" />
+                        <div className="skeleton-shimmer rounded h-7 w-20" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           ) : isScanning ? null : hasCachedResults && projection.rows.length > 0 ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
@@ -1331,7 +1326,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                       </div>
                       <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">
                         {loadingDetailsServices.has(service) ? (
-                          <LoadingState message={t('management.corruption.loadingDetails')} />
+                          <LoadingState
+                            variant="spinner"
+                            message={t('management.corruption.loadingDetails')}
+                          />
                         ) : detailErrors.has(service) ? (
                           <Alert color="red">
                             <div className="flex flex-wrap items-center justify-between gap-3">

@@ -43,6 +43,7 @@ import CardDirectoryNotice from '@components/features/management/CardDirectoryNo
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import type { DatasourceInfo, DatasourceServiceCounts } from '@/types';
 import { resolveCardNotice } from '@utils/cardDirectoryNotice';
+import { resolveDatasources } from '@utils/datasources';
 import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 
 /** One (datasource, service) pair queued for sequential log removal. */
@@ -163,21 +164,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   // The per-datasource service-count endpoint does not carry the source layout, so join it
   // from the config datasource list by name to drive the bare-metal displays below.
   const configuredDatasources = useMemo<DatasourceInfo[]>(
-    () =>
-      config.dataSources && config.dataSources.length > 0
-        ? config.dataSources
-        : [
-            {
-              name: 'default',
-              cachePath: config.cachePath,
-              logsPath: config.logsPath,
-              cacheWritable: config.cacheWritable,
-              logsWritable: config.logsWritable,
-              enabled: true,
-              layout: 'monolithic',
-              nginxReopenAvailable: false
-            }
-          ],
+    () => resolveDatasources(config),
     [config]
   );
   const cardNginxReopenGate = getNginxReopenGate(configuredDatasources);
@@ -639,7 +626,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           {selection.count}
         </SectionHeaderChip>
       )}
-      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+      <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>
             <ActionMenuItem
@@ -675,7 +662,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                   close();
                 }}
               >
-                {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
+                {t('management.batchSelect.removeSelectedLabel')}
               </ActionMenuDangerItem>
             </NginxReopenActionGate>
           </>

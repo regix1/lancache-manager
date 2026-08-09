@@ -28,7 +28,7 @@ function HintDetails({ children }: HintDetailsProps) {
         aria-expanded={open}
         className="focus-ring prefill-network-hint-toggle"
       >
-        <span>{t('prefill.network.details', 'Details')}</span>
+        <span>{t('prefill.network.details')}</span>
         <ChevronDown
           className={`h-3.5 w-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
         />
@@ -137,7 +137,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
           {/* Cache Routing */}
           <div className="well-surface prefill-network-well">
             <p className="caps-label prefill-network-well-title">
-              {t('prefill.network.groupCacheRouting', 'Cache routing')}
+              {t('prefill.network.groupCacheRouting')}
             </p>
             {/* Lancache IP injected (Prefill__LancacheIp) */}
             {diagnostics.lancacheIpInjected ? (
@@ -172,7 +172,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
           {/* Internet Connectivity */}
           <div className="well-surface prefill-network-well">
             <p className="caps-label prefill-network-well-title">
-              {t('prefill.network.groupInternet', 'Internet connectivity')}
+              {t('prefill.network.groupInternet')}
             </p>
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
@@ -283,9 +283,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
 
           {/* DNS Resolution */}
           <div className="well-surface prefill-network-well">
-            <p className="caps-label prefill-network-well-title">
-              {t('prefill.network.groupDns', 'DNS resolution')}
-            </p>
+            <p className="caps-label prefill-network-well-title">{t('prefill.network.groupDns')}</p>
             <div className="divided-list">
               {diagnostics.dnsResults.map((result, index) => {
                 const isPrimaryDomain = result.domain === primaryDomain;

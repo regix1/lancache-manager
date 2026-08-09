@@ -16,7 +16,7 @@ namespace LancacheManager.Core.Services;
 /// Shared compute logic for <c>GET /api/dashboard/batch</c>. Extracted from DashboardController
 /// so a startup warmer (DashboardCacheWarmerService) can pre-populate the IMemoryCache before the
 /// first user request arrives - otherwise the first request after a server restart would run
-/// 9 parallel DB queries on a cold connection pool.
+/// 8 parallel DB queries on a cold connection pool.
 /// </summary>
 public class DashboardBatchService : IDashboardBatchService
 {
@@ -185,12 +185,11 @@ public class DashboardBatchService : IDashboardBatchService
             ? await GetEventDownloadIdsAsync(eventIdList, ct)
             : null;
 
-        // Cache must complete first (cacheGrowth depends on its result)
+        // Cache must complete first because cached detection depends on its result.
         var cacheResult = await SafeExecuteAsync("cache", () => GetCacheInfoAsync(), ct);
         long actualCacheSize = cacheResult?.UsedCacheSize ?? 0;
-        long totalCacheCapacity = cacheResult?.TotalCacheSize ?? 0;
 
-        // Launch remaining 9 queries fully in parallel. AddPooledDbContextFactory bounds concurrency.
+        // Launch remaining queries fully in parallel. AddPooledDbContextFactory bounds concurrency.
         var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
@@ -199,11 +198,8 @@ public class DashboardBatchService : IDashboardBatchService
         var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime, ct), ct);
-        var cacheGrowthTask = SafeExecuteAsync("cacheGrowth", () => GetCacheGrowthAsync(
-            startTime, endTime, actualCacheSize, totalCacheCapacity,
-            eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
 
-        await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask, cacheGrowthTask);
+        await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask);
 
         var detectionResult = await detectionTask;
 
@@ -227,8 +223,7 @@ public class DashboardBatchService : IDashboardBatchService
             Detection = detectionResult,
             Sparklines = await sparklinesTask,
             HourlyActivity = await hourlyTask,
-            CacheSnapshot = await cacheSnapshotTask,
-            CacheGrowth = await cacheGrowthTask
+            CacheSnapshot = await cacheSnapshotTask
         };
 
         // Non-live ranges (startTime/endTime fixed) cache for 60s; live uses the shared warm window.
@@ -271,8 +266,7 @@ public class DashboardBatchService : IDashboardBatchService
             Detection = cached.Detection,
             Sparklines = cached.Sparklines,
             HourlyActivity = cached.HourlyActivity,
-            CacheSnapshot = cached.CacheSnapshot,
-            CacheGrowth = cached.CacheGrowth
+            CacheSnapshot = cached.CacheSnapshot
         };
     }
 
@@ -620,7 +614,7 @@ public class DashboardBatchService : IDashboardBatchService
             detectionStale: detectionStale);
     }
 
-    // ───────────────────── New batch sub-queries (sparklines, hourly, cacheGrowth, cacheSnapshot) ─────────────────────
+    // ───────────────────── New batch sub-queries (sparklines, hourly, cache snapshot) ─────────────────────
 
     private async Task<object> GetSparklineDataAsync(
         long? startTime, long? endTime,
@@ -657,7 +651,7 @@ public class DashboardBatchService : IDashboardBatchService
             ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
             : query;
 
-        // Group in SQL - mirrors the HourlyActivity / CacheGrowth SQL-side GroupBy pattern.
+        // Group in SQL, matching the hourly activity query's aggregation pattern.
         // Returns 10-60 aggregated rows instead of tens of thousands of raw rows.
         List<BucketAggregate> bucketedData;
         if (bucketMinutes >= 1440)
@@ -767,10 +761,24 @@ public class DashboardBatchService : IDashboardBatchService
 
             if (dateRange.Count > 0)
             {
-                var minDate = dateRange.Min();
-                var maxDate = dateRange.Max();
-                periodStartTimestamp = new DateTimeOffset(minDate, TimeSpan.Zero).ToUnixTimeSeconds();
-                periodEndTimestamp = new DateTimeOffset(maxDate.AddDays(1).AddSeconds(-1), TimeSpan.Zero).ToUnixTimeSeconds();
+                // Taken from the recorded instants rather than from the server-local dates above.
+                // A local calendar date stamped with a zero offset is out by the server's own
+                // offset, and the widget checks these bounds against the real start and end of
+                // today to decide whether to mark the current hour at all. [8]
+                var recorded = await query
+                    .GroupBy(d => 1)
+                    .Select(g => new
+                    {
+                        First = g.Min(d => d.StartTimeUtc),
+                        Last = g.Max(d => d.StartTimeUtc)
+                    })
+                    .FirstOrDefaultAsync(ct);
+
+                if (recorded is not null)
+                {
+                    periodStartTimestamp = new DateTimeOffset(recorded.First.AsUtc()).ToUnixTimeSeconds();
+                    periodEndTimestamp = new DateTimeOffset(recorded.Last.AsUtc()).ToUnixTimeSeconds();
+                }
             }
         }
 
@@ -778,6 +786,10 @@ public class DashboardBatchService : IDashboardBatchService
             ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
             : query;
 
+        // Every hour this endpoint reports is the hour the server recorded for the download, which
+        // is what StartTimeLocal holds. The widget reading it marks the current hour and checks
+        // whether today is in range on that same clock; pairing a reader-chosen clock with these
+        // buckets highlights a bucket that was filled at a different hour. [8]
         var hourlyData = await filteredQuery
             .GroupBy(d => d.StartTimeLocal.Hour)
             .Select(g => new HourlyActivityItem
@@ -819,176 +831,6 @@ public class DashboardBatchService : IDashboardBatchService
         };
     }
 
-    private async Task<object> GetCacheGrowthAsync(
-        long? startTime, long? endTime,
-        long actualCacheSize, long totalCacheCapacity,
-        List<long> eventIdList, HashSet<long>? eventDownloadIds,
-        List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps, CancellationToken ct)
-    {
-        await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
-        const string interval = "daily";
-        DateTime? cutoffTime = startTime.HasValue
-            ? startTime.Value.FromUnixSeconds()
-            : (DateTime?)null;
-        DateTime? endDateTime = endTime.HasValue
-            ? endTime.Value.FromUnixSeconds()
-            : (DateTime?)null;
-        var intervalMinutes = TimeUtils.ParseInterval(interval);
-
-        long currentCacheSize = 0;
-        long totalCapacity = totalCacheCapacity;
-
-        var allTimeQuery = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
-        // Awaiting the sum directly keeps a cancelled query surfacing as a cancellation;
-        // reading Result through a continuation would rewrap it as an AggregateException. [8]
-        var totalCacheMiss = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
-            async q => await q.SumAsync(d => (long?)d.CacheMissBytes, ct) ?? 0L);
-
-        currentCacheSize = totalCacheMiss;
-
-        var baseQuery = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
-        baseQuery = baseQuery.ApplyEventFilter(eventIdList, eventDownloadIds);
-
-        if (cutoffTime.HasValue)
-            baseQuery = baseQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
-        if (endDateTime.HasValue)
-            baseQuery = baseQuery.Where(d => d.StartTimeUtc <= endDateTime.Value);
-
-        var filteredQuery = statsExcludedOnlyIps.Count > 0
-            ? baseQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
-            : baseQuery;
-
-        List<CacheGrowthDataPoint> dataPoints;
-
-        if (intervalMinutes >= 1440)
-        {
-            dataPoints = await filteredQuery
-                .GroupBy(d => d.StartTimeUtc.Date)
-                .OrderBy(g => g.Key)
-                .Select(g => new CacheGrowthDataPoint
-                {
-                    Timestamp = g.Key,
-                    CumulativeCacheMissBytes = 0,
-                    GrowthFromPrevious = g.Sum(d => d.CacheMissBytes)
-                })
-                .ToListAsync(ct);
-        }
-        else
-        {
-            dataPoints = await filteredQuery
-                .GroupBy(d => new { d.StartTimeUtc.Date, d.StartTimeUtc.Hour })
-                .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour)
-                .Select(g => new CacheGrowthDataPoint
-                {
-                    Timestamp = g.Key.Date.AddHours(g.Key.Hour),
-                    CumulativeCacheMissBytes = 0,
-                    GrowthFromPrevious = g.Sum(d => d.CacheMissBytes)
-                })
-                .ToListAsync(ct);
-        }
-
-        long cumulative = 0;
-        foreach (var dp in dataPoints)
-        {
-            cumulative += dp.GrowthFromPrevious;
-            dp.CumulativeCacheMissBytes = cumulative;
-        }
-        dataPoints.WithUtcMarking();
-
-        var trend = "stable";
-        double percentChange = 0;
-        long avgDailyGrowth = 0;
-
-        if (dataPoints.Count >= 2)
-        {
-            var firstValue = dataPoints.First().CumulativeCacheMissBytes;
-            var lastValue = dataPoints.Last().CumulativeCacheMissBytes;
-
-            var daysCovered = (dataPoints.Last().Timestamp - dataPoints.First().Timestamp).TotalDays;
-            if (daysCovered > 0)
-                avgDailyGrowth = (long)((lastValue - firstValue) / daysCovered);
-
-            var growthValues = dataPoints.Select(d => (double)d.GrowthFromPrevious).ToList();
-            var midpoint = growthValues.Count / 2;
-            var olderHalf = growthValues.Take(midpoint).ToList();
-            var recentHalf = growthValues.Skip(midpoint).ToList();
-
-            var olderAvg = olderHalf.Count > 0 ? olderHalf.Average() : 0;
-            var recentAvg = recentHalf.Count > 0 ? recentHalf.Average() : 0;
-
-            percentChange = PercentageUtils.CalculateBoundedChange(olderAvg, recentAvg);
-            percentChange = Math.Round(percentChange, 1);
-
-            if (percentChange > 5) trend = "up";
-            else if (percentChange < -5) trend = "down";
-        }
-
-        long netAvgDailyGrowth = avgDailyGrowth;
-        long estimatedBytesDeleted = 0;
-        bool hasDataDeletion = false;
-        bool cacheWasCleared = false;
-
-        if (actualCacheSize > 0)
-        {
-            var cumulativeDownloads = totalCacheMiss;
-
-            if (actualCacheSize < cumulativeDownloads)
-            {
-                hasDataDeletion = true;
-                estimatedBytesDeleted = cumulativeDownloads - actualCacheSize;
-
-                const long CLEARED_THRESHOLD_BYTES = 100L * 1024 * 1024;
-                var cacheRatio = cumulativeDownloads > 0
-                    ? (double)actualCacheSize / cumulativeDownloads
-                    : 1.0;
-
-                cacheWasCleared = actualCacheSize < CLEARED_THRESHOLD_BYTES || cacheRatio < 0.05;
-
-                if (cacheWasCleared)
-                {
-                    netAvgDailyGrowth = avgDailyGrowth;
-                }
-                else if (dataPoints.Count >= 2)
-                {
-                    var firstTimestamp = dataPoints.First().Timestamp;
-                    var lastTimestamp = dataPoints.Last().Timestamp;
-                    var totalDays = (lastTimestamp - firstTimestamp).TotalDays;
-
-                    if (totalDays > 0)
-                    {
-                        var deletionRate = (double)estimatedBytesDeleted / totalDays;
-                        netAvgDailyGrowth = (long)(avgDailyGrowth - deletionRate);
-                    }
-                }
-            }
-        }
-
-        int? daysUntilFull = null;
-        if (netAvgDailyGrowth > 0 && totalCapacity > 0)
-        {
-            var remainingSpace = totalCapacity - (actualCacheSize > 0 ? actualCacheSize : currentCacheSize);
-            if (remainingSpace > 0)
-                daysUntilFull = (int)Math.Ceiling((double)remainingSpace / netAvgDailyGrowth);
-        }
-
-        return new CacheGrowthResponse
-        {
-            DataPoints = dataPoints,
-            CurrentCacheSize = actualCacheSize > 0 ? actualCacheSize : currentCacheSize,
-            TotalCapacity = totalCapacity,
-            AverageDailyGrowth = avgDailyGrowth,
-            NetAverageDailyGrowth = netAvgDailyGrowth,
-            Trend = trend,
-            PercentChange = percentChange,
-            EstimatedDaysUntilFull = daysUntilFull,
-            Period = startTime.HasValue ? "filtered" : "all",
-            HasDataDeletion = hasDataDeletion,
-            EstimatedBytesDeleted = estimatedBytesDeleted,
-            CacheWasCleared = cacheWasCleared
-        };
-    }
-
     private async Task<object> GetCacheSnapshotAsync(long? startTime, long? endTime, CancellationToken ct)
     {
         if (!startTime.HasValue || !endTime.HasValue)
@@ -1025,20 +867,6 @@ public class DashboardBatchService : IDashboardBatchService
         return context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
-    }
-
-    private static async Task<T> AggregateExcludingAsync<T>(
-        IQueryable<Download> query,
-        List<string> statsExcludedIps,
-        Func<IQueryable<Download>, Task<T>> aggregator)
-    {
-        if (statsExcludedIps.Count == 0)
-        {
-            return await aggregator(query);
-        }
-
-        var filtered = query.Where(d => !statsExcludedIps.Contains(d.ClientIp));
-        return await aggregator(filtered);
     }
 
     private sealed class BucketAggregate
@@ -1110,8 +938,7 @@ public class DashboardBatchService : IDashboardBatchService
             || response.Detection == null
             || response.Sparklines == null
             || response.HourlyActivity == null
-            || response.CacheSnapshot == null
-            || response.CacheGrowth == null;
+            || response.CacheSnapshot == null;
     }
 
     /// <summary>

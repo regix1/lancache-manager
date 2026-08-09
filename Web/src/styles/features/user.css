@@ -16,10 +16,17 @@
 
 /* ===== TOOLTIP (shared Tooltip + dashboard charts - global, do not remove) ===== */
 
+/* Tooltips sit at the top of the overlay scale (above the drawer at 200/201 and the dropdown
+   panels at 250/251). A tooltip describes whatever the pointer is already on, so it has to paint
+   over the surface that owns that control; a dropdown panel has an opaque background, so at the
+   old value of 90 a tooltip on any row but the first was drawn behind the menu and read as
+   "hover does nothing". Nothing here is interactive, so being topmost costs no clicks. The same
+   value is on EdgeTooltip in Tooltip.tsx - keep the two in step. [13] */
+
 .tooltip-overlay {
   @apply fixed max-w-xs px-2.5 py-1.5 text-xs pointer-events-none;
   border-radius: var(--theme-border-radius);
-  z-index: 90;
+  z-index: 300;
   background-color: var(--theme-bg-tertiary);
   color: var(--theme-text-primary);
 }

@@ -37,29 +37,30 @@ public class AuthController : ControllerBase
         _signalR = signalR;
     }
 
+    /// <summary>
+    /// Returns session and setup status for the current request.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous so the frontend can call it before login to decide whether to show the login
+    /// screen, the setup wizard, or the app. When authentication is disabled,
+    /// <see cref="SessionAuthenticationHandler"/> has already minted the shared admin session for
+    /// this request, so this reports it exactly like a real login rather than special-casing the
+    /// disabled-auth state here too.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("status")]
-    public async Task<IActionResult> GetStatusAsync()
+    [ProducesResponseType(typeof(AuthStatusResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<AuthStatusResponse>> GetStatusAsync()
     {
         Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
         Response.Headers["Pragma"] = "no-cache";
         Response.Headers["Expires"] = "0";
 
+        // Under disabled auth the shared admin session is resolved and its cookie set by
+        // SessionAuthenticationHandler, which runs for every request rather than only this one, so
+        // the session is already here.
         var session = HttpContext.GetUserSession();
-
-        // When authentication is disabled via config, the frontend is told it is an admin, but no
-        // real session/cookie is ever created. Every session-scoped surface (SignalR download +
-        // prefill-daemon hubs, user preferences, prefill access) then silently fails: the hubs reject
-        // the connection "without session" and preferences return 400. Mint a real admin session (and
-        // set its cookie) on first contact so those features work under disabled auth. Subsequent
-        // requests carry the cookie, so GetUserSession() resolves it and we do not mint again.
         var authenticationEnabled = _sessionService.IsAuthenticationEnabled();
-        if (!authenticationEnabled && session == null)
-        {
-            var (rawToken, adminSession) = await _sessionService.GetOrCreateAuthDisabledAdminSessionAsync(HttpContext);
-            _sessionService.SetSessionCookie(HttpContext, rawToken, adminSession.ExpiresAtUtc);
-            session = adminSession;
-        }
 
         bool hasData = false;
         bool hasBeenInitialized = false;
@@ -164,10 +165,18 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Exchanges an API key for an admin session cookie.
+    /// </summary>
+    /// <remarks>
+    /// If the browser already held a guest session, that session is revoked first so the upgrade
+    /// does not leave two live sessions for the same browser.
+    /// </remarks>
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
     [HttpPost("login")]
-    public async Task<IActionResult> LoginAsync([FromBody] LoginRequest request)
+    [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<LoginResponse>> LoginAsync([FromBody] LoginRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ApiKey))
         {
@@ -212,9 +221,18 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Starts a time-limited guest session.
+    /// </summary>
+    /// <remarks>
+    /// For each prefill service enabled by default, grants that service's guest-prefill access
+    /// immediately so the guest does not have to ask an admin to turn it on. Rejected when guest
+    /// access is turned off.
+    /// </remarks>
     [AllowAnonymous]
     [HttpPost("guest")]
-    public async Task<IActionResult> StartGuestAsync()
+    [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<LoginResponse>> StartGuestAsync()
     {
         if (!_sessionService.IsGuestAccessEnabled())
         {
@@ -273,21 +291,32 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Lightweight presence heartbeat. The authenticated request itself triggers
-    /// SessionAuthenticationHandler.UpdateLastSeenAsync (throttled to 60s server-side),
-    /// which broadcasts SessionLastSeenUpdated on SignalR. Called by useActivityTracker
-    /// while the tab is active so the user's presence dot stays "active" instead of
-    /// flipping to "away" when no other API calls happen to be in-flight.
+    /// Lightweight presence heartbeat for the current session.
     /// </summary>
+    /// <remarks>
+    /// The authenticated request itself triggers
+    /// SessionAuthenticationHandler.UpdateLastSeenAsync (throttled to 60s server-side), which
+    /// broadcasts SessionLastSeenUpdated on SignalR. Called by useActivityTracker while the tab is
+    /// active so the user's presence dot stays "active" instead of flipping to "away" when no
+    /// other API calls happen to be in-flight.
+    /// </remarks>
     [HttpPost("heartbeat")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult Heartbeat()
     {
         return Ok();
     }
 
+    /// <summary>
+    /// Revokes the caller's session and clears the session cookie.
+    /// </summary>
+    /// <remarks>
+    /// Always succeeds, including when the caller had no session to begin with.
+    /// </remarks>
     [AllowAnonymous]
     [HttpPost("logout")]
-    public async Task<IActionResult> LogoutAsync()
+    [ProducesResponseType(typeof(LogoutResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<LogoutResponse>> LogoutAsync()
     {
         var rawToken = SessionService.TokenFromCookie(HttpContext);
         if (!string.IsNullOrEmpty(rawToken))
@@ -308,25 +337,39 @@ public class AuthController : ControllerBase
 
         _sessionService.ClearSessionCookie(HttpContext);
 
-        return Ok(new { success = true, message = "Logged out successfully" });
+        return Ok(new LogoutResponse { Success = true, Message = "Logged out successfully" });
     }
 
+    /// <summary>
+    /// Returns whether guest mode is locked and the duration a new guest session would get.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous so the login screen can show this before the visitor has any session at all.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("guest/status")]
-    public IActionResult GetGuestStatus()
+    [ProducesResponseType(typeof(GuestStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<GuestStatusResponse> GetGuestStatus()
     {
-        return Ok(new
+        return Ok(new GuestStatusResponse
         {
-            isLocked = _sessionService.IsGuestModeLocked(),
-            durationHours = _sessionService.GetGuestDurationHours()
+            IsLocked = _sessionService.IsGuestModeLocked(),
+            DurationHours = _sessionService.GetGuestDurationHours()
         });
     }
 
     // --- Guest Configuration Endpoints ---
 
+    /// <summary>
+    /// Returns the guest-mode duration and lock state, for the guest onboarding screen.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous so it can be read before the visitor has any session.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("guest/config")]
-    public IActionResult GetGuestConfig()
+    [ProducesResponseType(typeof(GuestConfigResponse), StatusCodes.Status200OK)]
+    public ActionResult<GuestConfigResponse> GetGuestConfig()
     {
         return Ok(new GuestConfigResponse
         {
@@ -335,10 +378,18 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Returns the current default guest-session duration, for the admin settings screen.
+    /// </summary>
+    /// <remarks>
+    /// Also reports whether the value came from a UI override or the environment/appsettings
+    /// default.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("guest/config/duration")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public IActionResult GetGuestDuration()
+    [ProducesResponseType(typeof(GuestDurationResponse), StatusCodes.Status200OK)]
+    public ActionResult<GuestDurationResponse> GetGuestDuration()
     {
         return Ok(new GuestDurationResponse
         {
@@ -349,9 +400,17 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Sets or clears the UI override for the default guest-session duration.
+    /// </summary>
+    /// <remarks>
+    /// A null <c>DurationHours</c> clears the override and reverts to the environment/appsettings
+    /// default; existing guest sessions keep whatever duration they were granted with.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/config/duration")]
-    public async Task<IActionResult> SetGuestDurationAsync([FromBody] GuestDurationRequest request)
+    [ProducesResponseType(typeof(GuestDurationResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<GuestDurationResponse>> SetGuestDurationAsync([FromBody] GuestDurationRequest request)
     {
         if (request.DurationHours.HasValue && (request.DurationHours.Value < 1 || request.DurationHours.Value > 720))
         {
@@ -394,9 +453,16 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Locks or unlocks guest mode.
+    /// </summary>
+    /// <remarks>
+    /// While locked, no new guest sessions can be started; existing guest sessions are unaffected.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/config/lock")]
-    public async Task<IActionResult> SetGuestLockAsync([FromBody] GuestLockRequest request)
+    [ProducesResponseType(typeof(GuestLockResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<GuestLockResponse>> SetGuestLockAsync([FromBody] GuestLockRequest request)
     {
         _sessionService.SetGuestModeLocked(request.IsLocked);
 
@@ -405,31 +471,55 @@ public class AuthController : ControllerBase
             isLocked = request.IsLocked
         });
 
-        return Ok(new { success = true, isLocked = request.IsLocked, message = request.IsLocked ? "Guest mode locked" : "Guest mode unlocked" });
+        return Ok(new GuestLockResponse
+        {
+            Success = true,
+            IsLocked = request.IsLocked,
+            Message = request.IsLocked ? "Guest mode locked" : "Guest mode unlocked"
+        });
     }
 
     // --- Guest Prefill Endpoints ---
 
+    /// <summary>
+    /// Returns the Steam guest-prefill defaults.
+    /// </summary>
+    /// <remarks>
+    /// Also includes the Epic and Battle.net enabled flags that predate those services getting
+    /// their own guest-prefill config endpoints below. Anonymous so the guest onboarding screen
+    /// can read it before the visitor has a session.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("guest/prefill/config")]
-    public IActionResult GetGuestPrefillConfig()
+    [ProducesResponseType(typeof(GuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public ActionResult<GuestPrefillConfigResponse> GetGuestPrefillConfig()
     {
-        return Ok(new
+        return Ok(new GuestPrefillConfigResponse
         {
-            enabledByDefault = _sessionService.IsSteamPrefillEnabled(),
-            durationHours = _sessionService.GetGuestPrefillDurationHours(),
-            maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount(),
-            epicEnabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
-            epicDurationHours = _stateService.GetEpicGuestPrefillDurationHours(),
-            epicMaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount(),
-            battlenetEnabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
-            battlenetDurationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+            EnabledByDefault = _sessionService.IsSteamPrefillEnabled(),
+            DurationHours = _sessionService.GetGuestPrefillDurationHours(),
+            MaxThreadCount = _stateService.GetDefaultGuestMaxThreadCount(),
+            EpicEnabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
+            EpicDurationHours = _stateService.GetEpicGuestPrefillDurationHours(),
+            EpicMaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount(),
+            BattlenetEnabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
+            BattlenetDurationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
         });
     }
 
+    /// <summary>
+    /// Saves the Steam guest-prefill defaults.
+    /// </summary>
+    /// <remarks>
+    /// Optionally also saves the Battle.net and Riot defaults alongside them, but only when the
+    /// caller supplies values for those since they are separate anonymous services. Turning a
+    /// service on that was off grants it immediately to every eligible active guest session
+    /// instead of waiting for their next login.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/prefill/config")]
-    public async Task<IActionResult> SetGuestPrefillConfigAsync([FromBody] GuestPrefillConfigRequest request)
+    [ProducesResponseType(typeof(SetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SetGuestPrefillConfigResponse>> SetGuestPrefillConfigAsync([FromBody] GuestPrefillConfigRequest request)
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
@@ -508,31 +598,47 @@ public class AuthController : ControllerBase
             maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount()
         });
 
-        return Ok(new {
-            success = true,
-            enabledByDefault = _sessionService.IsSteamPrefillEnabled(),
-            durationHours = _sessionService.GetGuestPrefillDurationHours(),
-            maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount()
+        return Ok(new SetGuestPrefillConfigResponse
+        {
+            Success = true,
+            EnabledByDefault = _sessionService.IsSteamPrefillEnabled(),
+            DurationHours = _sessionService.GetGuestPrefillDurationHours(),
+            MaxThreadCount = _stateService.GetDefaultGuestMaxThreadCount()
         });
     }
 
     // --- Epic Guest Prefill Endpoints ---
 
+    /// <summary>
+    /// Returns the Epic guest-prefill defaults.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous so the guest onboarding screen can read it before the visitor has a session.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("guest/epic-prefill/config")]
-    public IActionResult GetEpicPrefillConfig()
+    [ProducesResponseType(typeof(EpicGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public ActionResult<EpicGuestPrefillConfigResponse> GetEpicPrefillConfig()
     {
-        return Ok(new
+        return Ok(new EpicGuestPrefillConfigResponse
         {
-            enabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetEpicGuestPrefillDurationHours(),
-            maxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
+            EnabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
+            DurationHours = _stateService.GetEpicGuestPrefillDurationHours(),
+            MaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
         });
     }
 
+    /// <summary>
+    /// Saves the Epic guest-prefill defaults.
+    /// </summary>
+    /// <remarks>
+    /// Turning it on when it was off grants Epic prefill immediately to every eligible active
+    /// guest session instead of waiting for their next login.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/epic-prefill/config")]
-    public async Task<IActionResult> SetEpicPrefillConfigAsync([FromBody] EpicGuestPrefillConfigRequest request)
+    [ProducesResponseType(typeof(SetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SetGuestPrefillConfigResponse>> SetEpicPrefillConfigAsync([FromBody] EpicGuestPrefillConfigRequest request)
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
@@ -574,30 +680,46 @@ public class AuthController : ControllerBase
             epicMaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
         });
 
-        return Ok(new {
-            success = true,
-            enabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetEpicGuestPrefillDurationHours(),
-            maxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
+        return Ok(new SetGuestPrefillConfigResponse
+        {
+            Success = true,
+            EnabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
+            DurationHours = _stateService.GetEpicGuestPrefillDurationHours(),
+            MaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
         });
     }
 
     // --- Battle.net Guest Prefill Endpoints (anonymous - no account login, no thread limit) ---
 
+    /// <summary>
+    /// Returns the Battle.net guest-prefill defaults.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous so the guest onboarding screen can read it before the visitor has a session.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("guest/battlenet-prefill/config")]
-    public IActionResult GetBattleNetPrefillConfig()
+    [ProducesResponseType(typeof(BattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public ActionResult<BattleNetGuestPrefillConfigResponse> GetBattleNetPrefillConfig()
     {
-        return Ok(new
+        return Ok(new BattleNetGuestPrefillConfigResponse
         {
-            enabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+            EnabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
+            DurationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
         });
     }
 
+    /// <summary>
+    /// Saves the Battle.net guest-prefill defaults.
+    /// </summary>
+    /// <remarks>
+    /// Turning it on when it was off grants Battle.net prefill immediately to every eligible
+    /// active guest session instead of waiting for their next login.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/battlenet-prefill/config")]
-    public async Task<IActionResult> SetBattleNetPrefillConfigAsync([FromBody] BattleNetGuestPrefillConfigRequest request)
+    [ProducesResponseType(typeof(SetBattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SetBattleNetGuestPrefillConfigResponse>> SetBattleNetPrefillConfigAsync([FromBody] BattleNetGuestPrefillConfigRequest request)
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
@@ -637,29 +759,45 @@ public class AuthController : ControllerBase
             durationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
         });
 
-        return Ok(new {
-            success = true,
-            enabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+        return Ok(new SetBattleNetGuestPrefillConfigResponse
+        {
+            Success = true,
+            EnabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
+            DurationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
         });
     }
 
     // --- Riot Guest Prefill Endpoints (anonymous - no account login, no thread limit) ---
 
+    /// <summary>
+    /// Returns the Riot guest-prefill defaults.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous so the guest onboarding screen can read it before the visitor has a session.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("guest/riot-prefill/config")]
-    public IActionResult GetRiotPrefillConfig()
+    [ProducesResponseType(typeof(BattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public ActionResult<BattleNetGuestPrefillConfigResponse> GetRiotPrefillConfig()
     {
-        return Ok(new
+        return Ok(new BattleNetGuestPrefillConfigResponse
         {
-            enabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetRiotGuestPrefillDurationHours()
+            EnabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
+            DurationHours = _stateService.GetRiotGuestPrefillDurationHours()
         });
     }
 
+    /// <summary>
+    /// Saves the Riot guest-prefill defaults.
+    /// </summary>
+    /// <remarks>
+    /// Turning it on when it was off grants Riot prefill immediately to every eligible active
+    /// guest session instead of waiting for their next login.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/riot-prefill/config")]
-    public async Task<IActionResult> SetRiotPrefillConfigAsync([FromBody] RiotGuestPrefillConfigRequest request)
+    [ProducesResponseType(typeof(SetBattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SetBattleNetGuestPrefillConfigResponse>> SetRiotPrefillConfigAsync([FromBody] RiotGuestPrefillConfigRequest request)
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
@@ -699,30 +837,46 @@ public class AuthController : ControllerBase
             durationHours = _stateService.GetRiotGuestPrefillDurationHours()
         });
 
-        return Ok(new {
-            success = true,
-            enabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetRiotGuestPrefillDurationHours()
+        return Ok(new SetBattleNetGuestPrefillConfigResponse
+        {
+            Success = true,
+            EnabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
+            DurationHours = _stateService.GetRiotGuestPrefillDurationHours()
         });
     }
 
     // --- Xbox Guest Prefill Endpoints (login-required - mirrors Epic, has a thread limit) ---
 
+    /// <summary>
+    /// Returns the Xbox guest-prefill defaults.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous so the guest onboarding screen can read it before the visitor has a session.
+    /// </remarks>
     [AllowAnonymous]
     [HttpGet("guest/xbox-prefill/config")]
-    public IActionResult GetXboxPrefillConfig()
+    [ProducesResponseType(typeof(EpicGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public ActionResult<EpicGuestPrefillConfigResponse> GetXboxPrefillConfig()
     {
-        return Ok(new
+        return Ok(new EpicGuestPrefillConfigResponse
         {
-            enabledByDefault = _stateService.GetXboxGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetXboxGuestPrefillDurationHours(),
-            maxThreadCount = _stateService.GetXboxDefaultGuestMaxThreadCount()
+            EnabledByDefault = _stateService.GetXboxGuestPrefillEnabledByDefault(),
+            DurationHours = _stateService.GetXboxGuestPrefillDurationHours(),
+            MaxThreadCount = _stateService.GetXboxDefaultGuestMaxThreadCount()
         });
     }
 
+    /// <summary>
+    /// Saves the Xbox guest-prefill defaults.
+    /// </summary>
+    /// <remarks>
+    /// Turning it on when it was off grants Xbox prefill immediately to every eligible active
+    /// guest session instead of waiting for their next login.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/xbox-prefill/config")]
-    public async Task<IActionResult> SetXboxPrefillConfigAsync([FromBody] XboxGuestPrefillConfigRequest request)
+    [ProducesResponseType(typeof(SetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SetGuestPrefillConfigResponse>> SetXboxPrefillConfigAsync([FromBody] XboxGuestPrefillConfigRequest request)
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
@@ -764,17 +918,27 @@ public class AuthController : ControllerBase
             xboxMaxThreadCount = _stateService.GetXboxDefaultGuestMaxThreadCount()
         });
 
-        return Ok(new {
-            success = true,
-            enabledByDefault = _stateService.GetXboxGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetXboxGuestPrefillDurationHours(),
-            maxThreadCount = _stateService.GetXboxDefaultGuestMaxThreadCount()
+        return Ok(new SetGuestPrefillConfigResponse
+        {
+            Success = true,
+            EnabledByDefault = _stateService.GetXboxGuestPrefillEnabledByDefault(),
+            DurationHours = _stateService.GetXboxGuestPrefillDurationHours(),
+            MaxThreadCount = _stateService.GetXboxDefaultGuestMaxThreadCount()
         });
     }
 
+    /// <summary>
+    /// Grants or revokes one guest session's prefill access for one service.
+    /// </summary>
+    /// <remarks>
+    /// Used by the admin session list to flip an individual guest's access without waiting for
+    /// their grant to expire or changing the site-wide default.
+    /// </remarks>
+    /// <param name="service">"steam" (default) | "epic" | "battlenet" | "riot" | "xbox".</param>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/prefill/toggle/{sessionId:guid}")]
-    public async Task<IActionResult> ToggleGuestPrefillAsync(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
+    [ProducesResponseType(typeof(GuestPrefillToggleResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<GuestPrefillToggleResponse>> ToggleGuestPrefillAsync(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
     {
         var normalizedService = service.Trim().ToLowerInvariant();
 
@@ -860,7 +1024,14 @@ public class AuthController : ControllerBase
             prefillExpiresAt
         });
 
-        return Ok(new { success = true, sessionId = sessionId.ToString(), service = normalizedService, enabled = request.Enabled, prefillExpiresAt });
+        return Ok(new GuestPrefillToggleResponse
+        {
+            Success = true,
+            SessionId = sessionId.ToString(),
+            Service = normalizedService,
+            Enabled = request.Enabled,
+            PrefillExpiresAt = prefillExpiresAt
+        });
     }
 
     private async Task EmitDefaultPrefillGrantsAsync(

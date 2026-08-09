@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
-import { formatDateTime } from '@utils/formatters';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { getErrorMessage } from '@utils/error';
 
 interface MemoryStats {
@@ -32,6 +32,7 @@ const MemoryDiagnostics: React.FC = () => {
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const refreshedAt = useFormattedDateTime(stats?.timestamp);
 
   const fetchMemoryStats = async () => {
     try {
@@ -54,8 +55,32 @@ const MemoryDiagnostics: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-themed-primary flex items-center justify-center">
-        <div className="text-themed-primary">{t('memory.loading')}</div>
+      <div
+        className="min-h-screen p-6 bg-themed-primary"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <span className="sr-only">{t('memory.loading')}</span>
+        <div className="h-9 w-64 max-w-full rounded skeleton-shimmer mb-6" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" aria-hidden="true">
+          {Array.from({ length: 3 }, (_, cardIndex) => (
+            <div key={cardIndex} className="rounded-lg p-6 border bg-themed-card border-themed">
+              <div className="h-6 w-1/2 rounded skeleton-shimmer mb-6" />
+              <div className="space-y-5">
+                {Array.from({ length: 3 }, (_, rowIndex) => (
+                  <div key={rowIndex} className="space-y-2">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="h-4 w-2/5 rounded skeleton-shimmer" />
+                      <div className="h-4 w-1/3 rounded skeleton-shimmer" />
+                    </div>
+                    <div className="h-3 w-3/4 rounded skeleton-shimmer" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -246,7 +271,7 @@ const MemoryDiagnostics: React.FC = () => {
       </div>
 
       <div className="mt-6 text-center text-sm text-themed-muted">
-        {t('memory.autoRefresh', { timestamp: formatDateTime(new Date(stats.timestamp)) })}
+        {t('memory.autoRefresh', { timestamp: refreshedAt })}
       </div>
     </div>
   );

@@ -3,14 +3,16 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Middleware;
 using LancacheManager.Infrastructure.Services;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers.Base;
 
 /// <summary>
 /// Abstract base controller for daemon session endpoints.
-/// Provides all 14 shared REST endpoints for Steam and Epic daemon controllers.
+/// Provides the shared owned-games, cache-status, selected-apps and prefill REST endpoints for every
+/// daemon controller. Session creation, login, credential exchange and termination are served by the
+/// prefill hub, and the admin active-session list by <c>PrefillAdminController.GetActiveSessions</c>,
+/// so this class does not route them.
 /// Subclasses provide the route prefix and platform-specific thread limit resolution.
 /// </summary>
 /// <typeparam name="TService">The concrete daemon service type (must extend PrefillDaemonServiceBase)</typeparam>
@@ -49,172 +51,14 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     protected abstract int? ResolveThreadLimit(UserSession session);
 
     /// <summary>
-    /// Gets all active daemon sessions (admin only)
+    /// Lists the games owned by the logged-in session, for the prefill picker.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpGet("sessions")]
-    public ActionResult<IEnumerable<DaemonSessionDto>> GetAllSessions()
-    {
-        var sessions = _daemonService.GetAllSessions()
-            .Select(DaemonSessionDto.FromSession);
-
-        return Ok(sessions);
-    }
-
-    /// <summary>
-    /// Gets sessions for the current user
-    /// </summary>
-    [HttpGet("sessions/mine")]
-    public ActionResult<IEnumerable<DaemonSessionDto>> GetMySessions()
-    {
-        var sessionId = HttpContext.GetRequiredSessionId();
-
-        var sessions = _daemonService.GetUserSessions(sessionId)
-            .Select(DaemonSessionDto.FromSession);
-
-        return Ok(sessions);
-    }
-
-    /// <summary>
-    /// Gets a specific session
-    /// </summary>
-    [HttpGet("sessions/{sessionId}")]
-    public ActionResult<DaemonSessionDto> GetSession(string sessionId)
-    {
-        var ownershipResult = ValidateSessionOwnership(sessionId);
-        if (ownershipResult != null)
-        {
-            return ownershipResult;
-        }
-
-        var session = _daemonService.GetSession(sessionId)!;
-        return Ok(DaemonSessionDto.FromSession(session));
-    }
-
-    /// <summary>
-    /// Creates a new daemon session
-    /// </summary>
-    [HttpPost("sessions")]
-    public async Task<ActionResult<DaemonSessionDto>> CreateSessionAsync()
-    {
-        var sessionId = HttpContext.GetRequiredSessionId();
-        var userSession = HttpContext.GetUserSession();
-        var sessionType = userSession == null ? SessionType.Guest : userSession.SessionType;
-
-        _logger.LogInformation("Creating {Platform} daemon session for session {SessionId} (type {SessionType})",
-            _platformName, sessionId, sessionType);
-        var session = await _daemonService.CreateSessionAsync(sessionId, sessionType: sessionType);
-        return CreatedAtAction(nameof(GetSession), new { sessionId = session.Id }, DaemonSessionDto.FromSession(session));
-    }
-
-    /// <summary>
-    /// Gets the daemon status for a session
-    /// </summary>
-    [HttpGet("sessions/{sessionId}/status")]
-    public async Task<ActionResult<DaemonStatus>> GetSessionStatusAsync(string sessionId)
-    {
-        var ownershipResult = ValidateSessionOwnership(sessionId);
-        if (ownershipResult != null)
-        {
-            return ownershipResult;
-        }
-
-        var status = await _daemonService.GetSessionStatusAsync(sessionId);
-        if (status == null)
-        {
-            return Ok(new DaemonStatus { Status = "unknown" });
-        }
-
-        return Ok(status);
-    }
-
-    /// <summary>
-    /// Starts the login process for a session.
-    /// Returns a credential challenge if credentials are needed.
-    /// </summary>
-    [HttpPost("sessions/{sessionId}/login")]
-    public async Task<ActionResult<CredentialChallenge>> StartLoginAsync(string sessionId)
-    {
-        var ownershipResult = ValidateSessionOwnership(sessionId);
-        if (ownershipResult != null)
-        {
-            return ownershipResult;
-        }
-
-        _logger.LogInformation("Starting {Platform} login for session {SessionId}", _platformName, sessionId);
-        var challenge = await _daemonService.StartLoginAsync(sessionId, TimeSpan.FromSeconds(30));
-
-        if (challenge == null)
-        {
-            // No challenge means either already logged in or timeout
-            var status = await _daemonService.GetSessionStatusAsync(sessionId);
-            if (status?.Status == "logged-in")
-            {
-                return Ok(new { message = "Already logged in", status = "logged-in" });
-            }
-            return BadRequest(ApiResponse.Error("Login timeout - daemon may not be ready"));
-        }
-
-        return Ok(challenge);
-    }
-
-    /// <summary>
-    /// Provides an encrypted credential in response to a challenge
-    /// </summary>
-    [HttpPost("sessions/{sessionId}/credential")]
-    public async Task<ActionResult> ProvideCredentialAsync(string sessionId, [FromBody] ProvideCredentialRequest request)
-    {
-        var ownershipResult = ValidateSessionOwnership(sessionId);
-        if (ownershipResult != null)
-        {
-            return ownershipResult;
-        }
-
-        if (request.Challenge == null || string.IsNullOrEmpty(request.Credential))
-        {
-            return BadRequest(ApiResponse.Required("Challenge and credential"));
-        }
-
-        _logger.LogInformation("Providing {CredentialType} credential for {Platform} session {SessionId}",
-            request.Challenge.CredentialType, _platformName, sessionId);
-
-        await _daemonService.ProvideCredentialAsync(sessionId, request.Challenge, request.Credential);
-
-        return Ok(ApiResponse.Message("Credential sent"));
-    }
-
-    /// <summary>
-    /// Waits for the next credential challenge (polling endpoint)
-    /// </summary>
-    [HttpGet("sessions/{sessionId}/challenge")]
-    public async Task<ActionResult<CredentialChallenge>> WaitForChallengeAsync(string sessionId, [FromQuery] int timeoutSeconds = 30)
-    {
-        var ownershipResult = ValidateSessionOwnership(sessionId);
-        if (ownershipResult != null)
-        {
-            return ownershipResult;
-        }
-
-        var challenge = await _daemonService.WaitForChallengeAsync(sessionId, TimeSpan.FromSeconds(timeoutSeconds));
-
-        if (challenge == null)
-        {
-            // Check if logged in
-            var status = await _daemonService.GetSessionStatusAsync(sessionId);
-            if (status?.Status == "logged-in")
-            {
-                return Ok(new { status = "logged-in" });
-            }
-            return NoContent(); // No challenge, not logged in yet
-        }
-
-        return Ok(challenge);
-    }
-
-    /// <summary>
-    /// Gets owned games for a logged-in session
-    /// </summary>
+    /// <remarks>
+    /// The list comes from the daemon rather than a local catalogue, so it reflects what
+    /// that account can actually download.
+    /// </remarks>
     [HttpGet("sessions/{sessionId}/games")]
+    [ProducesResponseType(typeof(List<OwnedGame>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<OwnedGame>>> GetOwnedGamesAsync(string sessionId)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
@@ -228,9 +72,14 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     }
 
     /// <summary>
-    /// Checks cache status for cached apps.
+    /// Splits the requested apps into up-to-date and stale groups.
     /// </summary>
+    /// <remarks>
+    /// This lets the picker show what a prefill would actually download. App ids are passed
+    /// in the request body rather than the query string because a full selection is far too long for a URL.
+    /// </remarks>
     [HttpPost("sessions/{sessionId}/cache-status")]
+    [ProducesResponseType(typeof(PrefillCacheStatusResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<PrefillCacheStatusResponse>> GetCacheStatusAsync(string sessionId, [FromBody] PrefillCacheStatusRequest request)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
@@ -257,9 +106,14 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     }
 
     /// <summary>
-    /// Sets selected apps for prefill
+    /// Stores which apps the next prefill should cover.
     /// </summary>
+    /// <remarks>
+    /// An empty list is the picker's "clear selection" action and is accepted; only a missing
+    /// list is rejected, so clearing a selection never has to be expressed as a delete.
+    /// </remarks>
     [HttpPost("sessions/{sessionId}/selected-apps")]
+    [ProducesResponseType(typeof(SelectedAppsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult> SetSelectedAppsAsync(string sessionId, [FromBody] SetSelectedAppsRequest request)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
@@ -274,13 +128,18 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
         }
 
         await _daemonService.SetSelectedAppsAsync(sessionId, request.AppIds);
-        return Ok(new { message = "Apps selected", count = request.AppIds.Count });
+        return Ok(new SelectedAppsResponse { Message = "Apps selected", Count = request.AppIds.Count });
     }
 
     /// <summary>
-    /// Starts a prefill operation
+    /// Runs a prefill for the session's current selection and waits for it to finish.
     /// </summary>
+    /// <remarks>
+    /// The caller gets the real outcome rather than a job id. A prefill that is already in
+    /// flight for this session comes back as 409 Conflict instead of starting a second one.
+    /// </remarks>
     [HttpPost("sessions/{sessionId}/prefill")]
+    [ProducesResponseType(typeof(PrefillResult), StatusCodes.Status200OK)]
     public async Task<ActionResult<PrefillResult>> StartPrefillAsync(string sessionId, [FromBody] StartPrefillRequest? request)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
@@ -329,26 +188,14 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     }
 
     /// <summary>
-    /// Terminates a daemon session
+    /// Builds the daemon service status shown on a platform's management card.
     /// </summary>
-    [HttpDelete("sessions/{sessionId}")]
-    public async Task<ActionResult> TerminateSessionAsync(string sessionId)
-    {
-        var ownershipResult = ValidateSessionOwnership(sessionId);
-        if (ownershipResult != null)
-        {
-            return ownershipResult;
-        }
-
-        await _daemonService.TerminateSessionAsync(sessionId, "Terminated via API");
-        return NoContent();
-    }
-
-    /// <summary>
-    /// Gets daemon service status (public endpoint)
-    /// </summary>
-    [HttpGet("status")]
-    public ActionResult GetStatus()
+    /// <remarks>
+    /// This is shared by every daemon controller but routed only by the platforms whose card
+    /// polls it over REST, so it is not an action here; a controller that needs the route
+    /// declares its own <c>status</c> action and calls this one.
+    /// </remarks>
+    protected ActionResult GetStatus()
     {
         var sessions = _daemonService.GetAllSessions().ToList();
 

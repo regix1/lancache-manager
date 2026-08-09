@@ -69,6 +69,7 @@ docker compose up -d
 | [多数据源](https://regix1.github.io/lancache-manager/zh/multiple-datasources/) | 拆分缓存或合并多台 LANCache |
 | [反向代理](https://regix1.github.io/lancache-manager/zh/reverse-proxy/) | 在管理器前使用 Nginx |
 | [Prometheus 指标](https://regix1.github.io/lancache-manager/zh/prometheus-metrics/) | 抓取 `/metrics` 与示例查询 |
+| [API 参考](https://regix1.github.io/lancache-manager/zh/api-reference/) | 全部端点，以及可交给 AI 助手的纯文本汇总 |
 | [故障排除](https://regix1.github.io/lancache-manager/zh/troubleshooting/) | 日志不处理、游戏未识别、权限问题 |
 | [自定义主题](https://regix1.github.io/lancache-manager/zh/custom-themes/) | 创建与分享主题 |
 | [从源码构建](https://regix1.github.io/lancache-manager/zh/building-from-source/) | 本地开发 |

@@ -21,9 +21,10 @@ import type {
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
 import { useConfig } from '@contexts/useConfig';
+import { useSelectionSet } from '@hooks/useSelectionSet';
 import { getErrorMessage } from '@utils/error';
 import { formatCount } from '@utils/formatters';
-import type { DatasourceInfo } from '../../../types';
+import { resolveDatasources } from '@utils/datasources';
 
 interface LogProcessingStepProps {
   onComplete: () => void;
@@ -64,7 +65,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   const [formatWarning, setFormatWarning] = useState(false);
 
   // Multi-datasource state
-  const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
+  const { selected: expandedDatasources, toggle: toggleExpanded } = useSelectionSet<string>();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
   const [lastEventAt, setLastEventAt] = useState<number>(Date.now());
@@ -164,8 +165,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       if (data.cancelled) {
         setNotice({
           tone: 'info',
-          message:
-            data.message || t('initialization.logProcessing.cancelled', 'Processing cancelled')
+          message: data.message || t('initialization.logProcessing.cancelled')
         });
         setProgress({
           isProcessing: false,
@@ -326,18 +326,6 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     };
   }, [complete, progress?.entriesProcessed]);
 
-  const toggleExpanded = (name: string) => {
-    setExpandedDatasources((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
-      } else {
-        next.add(name);
-      }
-      return next;
-    });
-  };
-
   // Always reset to beginning (position 0) and process all logs
   const handleProcessAll = async () => {
     if (processing) return;
@@ -420,7 +408,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       if (!operationId) {
         setNotice({
           tone: 'error',
-          message: t('initialization.logProcessing.cancelFailed', 'Failed to cancel processing')
+          message: t('initialization.logProcessing.cancelFailed')
         });
         return;
       }
@@ -429,34 +417,19 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       setProcessing(false);
       setNotice({
         tone: 'info',
-        message: t('initialization.logProcessing.cancelled', 'Processing cancelled')
+        message: t('initialization.logProcessing.cancelled')
       });
     } catch (err: unknown) {
       setNotice({
         tone: 'error',
-        message:
-          getErrorMessage(err) ||
-          t('initialization.logProcessing.cancelFailed', 'Failed to cancel processing')
+        message: getErrorMessage(err) || t('initialization.logProcessing.cancelFailed')
       });
     } finally {
       setIsCancelling(false);
     }
   };
 
-  // Get datasources - ensure at least one exists
-  const datasources =
-    config.dataSources && config.dataSources.length > 0
-      ? config.dataSources
-      : [
-          {
-            name: 'default',
-            cachePath: config.cachePath,
-            logsPath: config.logsPath,
-            cacheWritable: config.cacheWritable,
-            logsWritable: config.logsWritable,
-            enabled: true
-          } as DatasourceInfo
-        ];
+  const datasources = resolveDatasources(config);
 
   const hasMultiple = datasources.length > 1;
   const progressPercent = progress?.progress || 0;
@@ -758,8 +731,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
             fullWidth
           >
             {isCancelling
-              ? t('initialization.logProcessing.cancelling', 'Cancelling...')
-              : t('initialization.logProcessing.cancel', 'Cancel processing')}
+              ? t('initialization.logProcessing.cancelling')
+              : t('initialization.logProcessing.cancel')}
           </Button>
         )}
       </div>

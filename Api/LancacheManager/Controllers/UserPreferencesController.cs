@@ -33,8 +33,13 @@ public class UserPreferencesController : ControllerBase
         _notifications = notifications;
     }
 
+    /// <summary>
+    /// Gets the caller's own preferences via their session, or defaults when no session or no stored
+    /// preferences exist yet.
+    /// </summary>
     [HttpGet]
-    public IActionResult GetPreferences()
+    [ProducesResponseType(typeof(UserPreferencesDto), StatusCodes.Status200OK)]
+    public ActionResult<UserPreferencesDto> GetPreferences()
     {
         var sessionId = GetSessionId();
 
@@ -54,7 +59,16 @@ public class UserPreferencesController : ControllerBase
         return Ok(preferences);
     }
 
+    /// <summary>
+    /// Replaces the caller's own preferences.
+    /// </summary>
+    /// <remarks>
+    /// The stored/broadcast values are not always exactly what was sent: clock fields are settled
+    /// against each other and an unrecognised refresh rate is dropped, and admin-only columns are
+    /// redacted before a guest's own save is announced to everyone.
+    /// </remarks>
     [HttpPut]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> SavePreferencesAsync([FromBody] UserPreferencesDto preferences)
     {
         var session = GetSession();
@@ -65,21 +79,46 @@ public class UserPreferencesController : ControllerBase
 
         var sessionId = session.Id;
 
-        // Strip admin-only fields for non-admin sessions
-        if (session.SessionType != SessionType.Admin)
-            UserPreferencesService.RedactAdminFields(preferences);
-
-        var success = await _preferencesService.SavePreferencesAsync(sessionId, preferences);
-        if (success)
+        // What the server stored is not always what arrived: the clock columns are settled against each
+        // other and an unrecognised refresh rate is dropped. Sending the request body on would tell every
+        // client the values were taken as written.
+        var stored = await _preferencesService.SavePreferencesAsync(
+            sessionId,
+            preferences,
+            preserveAdminFields: session.SessionType != SessionType.Admin);
+        if (stored != null)
         {
-            await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
+            RedactForBroadcast(stored, session);
+            await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences = stored });
             return Ok(MessageResponse.Ok("Preferences saved successfully"));
         }
 
         return StatusCode(500, new MessageResponse { Success = false, Message = "Error saving preferences" });
     }
 
+    /// <summary>
+    /// Takes the admin-only columns off preferences that are about to be announced on behalf of a guest.
+    /// The stored row carries them whoever last wrote it, and this announcement reaches every connected
+    /// client rather than only the session it names, so one guest's own save would otherwise hand its
+    /// allowed formats, refresh lock and thread caps to everyone. An admin write is left whole: the admin
+    /// screens are the ones that set those values and need to see them land. [2]
+    /// </summary>
+    private static void RedactForBroadcast(UserPreferencesDto stored, UserSession session)
+    {
+        if (session.SessionType != SessionType.Admin)
+        {
+            UserPreferencesService.RedactAdminFields(stored);
+        }
+    }
+
+    /// <summary>
+    /// Updates a single preference by key for the caller's own session.
+    /// </summary>
+    /// <remarks>
+    /// Guests are forbidden from writing admin-only keys.
+    /// </remarks>
     [HttpPatch("{key}")]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> UpdatePreferenceAsync(string key, [FromBody] JsonElement value)
     {
         var session = GetSession();
@@ -102,16 +141,56 @@ public class UserPreferencesController : ControllerBase
 
         if (preferences != null)
         {
+            RedactForBroadcast(preferences, session);
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
             return Ok(MessageResponse.Ok("Preference updated successfully"));
         }
 
-        return BadRequest(new MessageResponse { Success = false, Message = "Invalid preference key" });
+        // A bad key was already rejected at the ParseFromString check above, and a missing session at the
+        // top, so the only way the service comes back empty here is that the write itself failed. Saying
+        // "invalid preference key" a second time named the one cause that cannot apply, which is what kept
+        // a lost concurrent write looking like a client mistake. [6]
+        return StatusCode(500, new MessageResponse { Success = false, Message = "Error updating preference" });
     }
 
+    /// <summary>
+    /// Writes the three clock preference columns in one go.
+    /// </summary>
+    /// <remarks>
+    /// A literal segment wins over the "{key}" route above, so this reaches the clock write rather
+    /// than being read as a preference key.
+    /// </remarks>
+    [HttpPatch("clock")]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> UpdateClockPreferencesAsync([FromBody] ClockPreferences clock)
+    {
+        var session = GetSession();
+        if (session == null)
+        {
+            return BadRequest(new MessageResponse { Success = false, Message = "No session found" });
+        }
+
+        var sessionId = session.Id;
+
+        var preferences = await _preferencesService.UpdateClockPreferencesAsync(sessionId, clock);
+
+        if (preferences != null)
+        {
+            RedactForBroadcast(preferences, session);
+            await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
+            return Ok(MessageResponse.Ok("Preference updated successfully"));
+        }
+
+        return StatusCode(500, new MessageResponse { Success = false, Message = "Error updating preference" });
+    }
+
+    /// <summary>
+    /// Gets any session's preferences by ID (admin only), for the management screens.
+    /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("session/{sessionId}")]
-    public IActionResult GetForSession(Guid sessionId)
+    [ProducesResponseType(typeof(UserPreferencesDto), StatusCodes.Status200OK)]
+    public ActionResult<UserPreferencesDto> GetForSession(Guid sessionId)
     {
         var preferences = _preferencesService.GetPreferences(sessionId);
         if (preferences == null)
@@ -122,14 +201,22 @@ public class UserPreferencesController : ControllerBase
         return Ok(preferences);
     }
 
+    /// <summary>
+    /// Replaces any session's preferences by ID (admin only).
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="SavePreferencesAsync"/>, admin-only columns are not redacted since the
+    /// caller is already an admin.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPut("session/{sessionId}")]
-    public async Task<IActionResult> SaveForSessionAsync(Guid sessionId, [FromBody] UserPreferencesDto preferences)
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageResponse>> SaveForSessionAsync(Guid sessionId, [FromBody] UserPreferencesDto preferences)
     {
-        var success = await _preferencesService.SavePreferencesAsync(sessionId, preferences);
-        if (success)
+        var stored = await _preferencesService.SavePreferencesAsync(sessionId, preferences);
+        if (stored != null)
         {
-            await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
+            await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences = stored });
             return Ok(MessageResponse.Ok("Preferences saved successfully"));
         }
 

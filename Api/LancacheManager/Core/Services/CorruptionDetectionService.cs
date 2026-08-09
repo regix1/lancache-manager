@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -33,6 +34,7 @@ public class CorruptionDetectionService
     private static readonly JsonSerializerOptions _candidateJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly ILogger<CorruptionDetectionService> _logger;
+    private readonly IConfiguration _configuration;
     private readonly IPathResolver _pathResolver;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly ISignalRNotificationService _notifications;
@@ -45,6 +47,7 @@ public class CorruptionDetectionService
 
     public CorruptionDetectionService(
         ILogger<CorruptionDetectionService> logger,
+        IConfiguration configuration,
         IPathResolver pathResolver,
         RustProcessHelper rustProcessHelper,
         ISignalRNotificationService notifications,
@@ -56,6 +59,7 @@ public class CorruptionDetectionService
     {
         _capabilityService = capabilityService;
         _logger = logger;
+        _configuration = configuration;
         _pathResolver = pathResolver;
         _rustProcessHelper = rustProcessHelper;
         _notifications = notifications;
@@ -365,7 +369,10 @@ public class CorruptionDetectionService
         {
             var datasourceReports = new List<DatasourceCorruptionReport>();
             var datasources = _datasourceService.GetDatasources();
-            var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
+            // The same answer /api/system/config publishes, so scan times read on the clock the rest of
+            // the app shows. Reading TZ straight off the environment missed the TimeZone setting entirely
+            // and fell back to UTC on a bare-metal host that had neither. [13]
+            var timezone = ServerTimeZone.IanaId(_configuration);
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
             var scanStartedUtc = FormatScanStartedUtc(startedAtUtc);
             _rustProcessHelper.EnsureBinaryExists(rustBinaryPath, "Corruption manager");

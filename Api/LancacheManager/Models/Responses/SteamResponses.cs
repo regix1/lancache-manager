@@ -20,8 +20,24 @@ public class SteamLoginResponse
 {
     public bool Success { get; set; }
     public string? Message { get; set; }
+
+    /// <summary>
+    /// The current Steam auth mode ("anonymous" | "authenticated"). Null when the response represents
+    /// a two-factor, email-code, or session-expired challenge rather than a status report or a
+    /// successful login.
+    /// </summary>
     public string? AuthMode { get; set; }
+
+    /// <summary>
+    /// The authenticated Steam username. Null unless the response reports a successful login or an
+    /// already-authenticated session.
+    /// </summary>
     public string? Username { get; set; }
+
+    /// <summary>
+    /// Connection status ("connected"). Null except when reporting the current connection status
+    /// without an active login attempt.
+    /// </summary>
     public string? Status { get; set; }
     public bool RequiresTwoFactor { get; set; }
     public bool RequiresEmailCode { get; set; }

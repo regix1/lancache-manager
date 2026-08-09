@@ -50,6 +50,10 @@ public class ThemePreferenceResponse
 {
     public string ThemeId { get; set; } = string.Empty;
     public bool Success { get; set; }
+
+    /// <summary>
+    /// Confirmation text for a successful update. Null on a plain read of the current guest theme.
+    /// </summary>
     public string? Message { get; set; }
 }
 

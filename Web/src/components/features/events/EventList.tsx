@@ -11,7 +11,7 @@ import {
   BarChart3,
   MoreVertical
 } from 'lucide-react';
-import { useTimezone } from '@contexts/useTimezone';
+import { useReaderClock } from '@hooks/useReaderClock';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
@@ -197,7 +197,7 @@ const EventCard = React.memo(
                       setMenuOpen((prev) => !prev);
                     }}
                     className="btn-icon-square btn-icon-square--sm flex items-center hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]"
-                    aria-label={t('events.list.actionsMenuLabel', 'Event actions')}
+                    aria-label={t('events.list.actionsMenuLabel')}
                   >
                     <MoreVertical className="w-4 h-4" />
                   </button>
@@ -297,7 +297,7 @@ interface EventListProps {
 
 const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   const { t } = useTranslation();
-  const { use24HourFormat, useLocalTimezone } = useTimezone();
+  const clock = useReaderClock();
   const { setTimeRange, setSelectedEventIds } = useTimeFilter();
   const { notifyError } = useErrorHandler();
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
@@ -335,13 +335,8 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   }, [events]);
 
   const formatDateTime = useCallback(
-    (dateStr: string) =>
-      formatTimestamp(dateStr, {
-        useLocalTimezone,
-        use24Hour: use24HourFormat,
-        forceYear: false
-      }),
-    [useLocalTimezone, use24HourFormat]
+    (dateStr: string) => formatTimestamp(dateStr, { ...clock, forceYear: false }),
+    [clock]
   );
 
   const formatDurationBetweenDates = useCallback(

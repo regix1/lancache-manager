@@ -4,7 +4,7 @@ import { useEvents } from '@contexts/useEvents';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
-import LoadingSpinner from '@components/common/LoadingSpinner';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { getEventColorStyles } from '@utils/eventColors';
 import EventCalendar from './EventCalendar';
 import EventModal from './EventModal';
@@ -41,11 +41,8 @@ const EventsTab: React.FC = () => {
 
   if (loading && events.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex flex-col items-center gap-3">
-          <LoadingSpinner inline size="xl" className="text-[var(--theme-primary)]" />
-          <span className="text-sm text-[var(--theme-text-secondary)]">Loading events...</span>
-        </div>
+      <div className="space-y-6 animate-fadeIn">
+        <LoadingState shape="calendar" />
       </div>
     );
   }

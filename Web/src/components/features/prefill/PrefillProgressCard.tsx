@@ -25,7 +25,7 @@ export function PrefillProgressCard({
   const getStateLabel = () => {
     switch (progress.state) {
       case 'reconnecting':
-        return t('prefill.progress.reconnecting', 'Reconnecting...');
+        return t('prefill.progress.reconnecting');
       case 'loading-metadata':
         return t('prefill.progress.loadingGameData');
       case 'metadata-loaded':
@@ -134,7 +134,7 @@ export function PrefillProgressCard({
               {isCancelling ? (
                 <>
                   <LoadingSpinner inline size="xs" />
-                  {t('prefill.progress.cancelling', 'Cancelling...')}
+                  {t('prefill.progress.cancelling')}
                 </>
               ) : (
                 t('common.cancel')
@@ -200,10 +200,7 @@ export function PrefillProgressCard({
 
               {progress.state === 'reconnecting' ? (
                 <p className="text-sm text-themed-muted text-center">
-                  {t(
-                    'prefill.progress.reconnectingMessage',
-                    'Prefill in progress. Reconnecting to get current status...'
-                  )}
+                  {t('prefill.progress.reconnectingMessage')}
                 </p>
               ) : progress.state === 'downloading' ? (
                 <div className="flex items-center justify-between text-xs text-themed-muted">

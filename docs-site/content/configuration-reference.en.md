@@ -42,10 +42,9 @@ The mode decision and full compose examples live in [Choosing an Image and Datab
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `Security__EnableAuthentication` | `true` | Require an API key for admin actions. Only turn off for local dev. |
+| `Security__EnableAuthentication` | `true` | Require an API key for admin actions and API documentation. Only turn off for local development. |
 | `Security__GuestSessionDurationHours` | `6` | Default guest session length (also configurable in the UI). |
 | `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. The UI toggle in Management → Integrations overrides this when set. |
-| `Security__ProtectSwagger` | `true` | Require auth on Swagger docs in production. |
 | `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty allows all. |
 | `Security__ApiKeyPath` | `/data/security/api_key.txt` | Override the file path the admin API key is read from and written to. Useful if you bind-mount secrets from outside `/data`. |
 | `Security__KnownProxyNetworks` | (empty) | Comma-separated CIDR list of trusted proxy networks for `X-Forwarded-For` (e.g. `172.16.0.0/12,10.0.0.0/8`). Set this when nginx, Traefik, or another reverse proxy fronts the manager so client IPs are reported correctly. Loopback is always trusted. |
@@ -165,7 +164,6 @@ services:
       # - Security__RequireAuthForMetrics=false   # true = /metrics needs a Bearer token
       # - Security__GuestSessionDurationHours=6
       # - Security__AllowedOrigins=               # CSV of CORS origins; empty allows all
-      # - Security__ProtectSwagger=true
       # - Security__ForceSecureCookies=false      # set true behind a TLS-terminating proxy
       # - Security__KnownProxyNetworks=           # CSV CIDRs of trusted proxies, e.g. 172.16.0.0/12
       # - Security__TrustAllProxies=false         # never true on an internet-exposed host

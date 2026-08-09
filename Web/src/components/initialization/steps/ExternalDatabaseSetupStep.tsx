@@ -123,23 +123,17 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
             <CheckCircle className="w-7 h-7 icon-success" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary mb-1">
-            {t('initialization.externalDb.successTitle', 'Credentials Saved')}
+            {t('initialization.externalDb.successTitle')}
           </h3>
           <p className="text-sm text-themed-secondary max-w-md">
-            {t(
-              'initialization.externalDb.successBody',
-              'The external PostgreSQL connection has been saved. Restart the container to apply.'
-            )}
+            {t('initialization.externalDb.successBody')}
           </p>
         </div>
 
         <div className="rounded-lg border border-themed-secondary bg-themed-tertiary p-4 flex items-start gap-3">
           <RefreshCw className="w-5 h-5 mt-0.5 icon-primary flex-shrink-0" />
           <div className="text-sm text-themed-secondary">
-            {t(
-              'initialization.externalDb.restartHint',
-              'Run "docker compose restart lancache-manager" (or restart the container however you started it). After it comes back up, the wizard will resume from the next step.'
-            )}
+            {t('initialization.externalDb.restartHint')}
           </div>
         </div>
       </div>
@@ -153,21 +147,16 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
           <Database className="w-7 h-7 icon-primary" />
         </div>
         <h3 className="text-lg font-semibold text-themed-primary mb-1">
-          {t('initialization.externalDb.title', 'External PostgreSQL Connection')}
+          {t('initialization.externalDb.title')}
         </h3>
         <p className="text-sm text-themed-secondary max-w-md">
-          {t(
-            'initialization.externalDb.body',
-            'POSTGRES_MODE is set to external but connection details were not provided via environment variables. Enter the details for your PostgreSQL server below.'
-          )}
+          {t('initialization.externalDb.body')}
         </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="sm:col-span-2">
-          <label className="form-field-label">
-            {t('initialization.externalDb.fields.host', 'Host')}
-          </label>
+          <label className="form-field-label">{t('initialization.externalDb.fields.host')}</label>
           <input
             type="text"
             value={form.host}
@@ -179,9 +168,7 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
           {errors.host && <p className="text-xs text-themed-error mt-1">{errors.host}</p>}
         </div>
         <div>
-          <label className="form-field-label">
-            {t('initialization.externalDb.fields.port', 'Port')}
-          </label>
+          <label className="form-field-label">{t('initialization.externalDb.fields.port')}</label>
           <input
             type="text"
             inputMode="numeric"
@@ -196,9 +183,7 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
       </div>
 
       <div>
-        <label className="form-field-label">
-          {t('initialization.externalDb.fields.database', 'Database')}
-        </label>
+        <label className="form-field-label">{t('initialization.externalDb.fields.database')}</label>
         <input
           type="text"
           value={form.database}
@@ -211,9 +196,7 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
       </div>
 
       <div>
-        <label className="form-field-label">
-          {t('initialization.externalDb.fields.username', 'Username')}
-        </label>
+        <label className="form-field-label">{t('initialization.externalDb.fields.username')}</label>
         <input
           type="text"
           value={form.username}
@@ -226,9 +209,7 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
       </div>
 
       <div>
-        <label className="form-field-label">
-          {t('initialization.externalDb.fields.password', 'Password')}
-        </label>
+        <label className="form-field-label">{t('initialization.externalDb.fields.password')}</label>
         <div className="relative">
           <input
             type={showPassword ? 'text' : 'password'}
@@ -274,16 +255,11 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
 
       <Button variant="default" onClick={handleSubmit} disabled={isSubmitting} className="w-full">
         {isSubmitting
-          ? t('initialization.externalDb.testingConnection', 'Testing connection...')
-          : t('initialization.externalDb.submit', 'Test and Save Connection')}
+          ? t('initialization.externalDb.testingConnection')
+          : t('initialization.externalDb.submit')}
       </Button>
 
-      <p className="text-xs text-themed-muted text-center">
-        {t(
-          'initialization.externalDb.tip',
-          'Credentials are validated against the live server before saving. They are written to /data/config/postgres-credentials.json.'
-        )}
-      </p>
+      <p className="text-xs text-themed-muted text-center">{t('initialization.externalDb.tip')}</p>
     </div>
   );
 };

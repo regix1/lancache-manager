@@ -74,6 +74,7 @@ import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 import { FAILED_TO_REMOVE_GAME_I18N_KEY } from '@contexts/notifications/constants';
 import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
+import { resolveDatasources } from '@utils/datasources';
 
 // Adapts the combined evicted selection set (prefixed keyspace) into the raw-keyed
 // SelectionAdapter each list expects, translating keys through the given prefix.
@@ -122,21 +123,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     reload: reloadPermissions
   } = useDirectoryPermissionsContext();
   const { config } = useConfig();
-  const datasources =
-    config.dataSources && config.dataSources.length > 0
-      ? config.dataSources
-      : [
-          {
-            name: 'default',
-            cachePath: config.cachePath,
-            logsPath: config.logsPath,
-            cacheWritable: config.cacheWritable,
-            logsWritable: config.logsWritable,
-            enabled: true,
-            layout: 'monolithic' as const,
-            nginxReopenAvailable: false
-          }
-        ];
+  const datasources = resolveDatasources(config);
   const [isRechecking, setIsRechecking] = useState(false);
 
   // Image cache busting for GameCacheDetector's GameImage components
@@ -222,14 +209,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     } catch (err) {
       // Background refresh (mount + post-removal/scan); the section already renders an empty
       // evicted-items state, so a transient failure here is explicit background noise.
-      notifyError(
-        t('management.storage.errors.fetchEvictedItems', 'Failed to fetch evicted items'),
-        err,
-        {
-          silent: true,
-          logLabel: 'Failed to fetch evicted items'
-        }
-      );
+      notifyError(t('management.storage.errors.fetchEvictedItems'), err, {
+        silent: true,
+        logLabel: 'Failed to fetch evicted items'
+      });
     } finally {
       hasLoadedEvictedItemsRef.current = true;
       setEvictedItemsLoading(false);
@@ -884,7 +867,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                       {selectedEvictedCount}
                     </SectionHeaderChip>
                   )}
-                  <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+                  <SectionActionsMenu label={t('management.actions.menuLabel')}>
                     {(close) => (
                       <>
                         <ActionMenuItem
@@ -967,10 +950,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                                     close();
                                   }}
                                 >
-                                  {t(
-                                    'management.batchSelect.removeSelectedLabel',
-                                    'Remove Selected'
-                                  )}
+                                  {t('management.batchSelect.removeSelectedLabel')}
                                 </ActionMenuDangerItem>
                               </NginxReopenActionGate>
                             </DiskObjectActionGate>
@@ -1008,7 +988,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                                     close();
                                   }}
                                 >
-                                  {t('management.sections.data.evictionRemoveAll', 'Remove All')}
+                                  {t('management.sections.data.evictionRemoveAll')}
                                 </ActionMenuDangerItem>
                               </NginxReopenActionGate>
                             </DiskObjectActionGate>
@@ -1033,7 +1013,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   surface="well"
                 >
                   {evictionLoading ? (
-                    <LoadingState message={t('management.sections.data.evictionLoadingSettings')} />
+                    <LoadingState
+                      message={t('management.sections.data.evictionLoadingSettings')}
+                      shape="settings"
+                    />
                   ) : (
                     <div className="space-y-3">
                       <div className="space-y-2">
@@ -1153,11 +1136,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         opened={showRemoveAllConfirm}
         onClose={() => setShowRemoveAllConfirm(false)}
         onConfirm={handleRemoveAllEvicted}
-        title={t(
-          'management.sections.data.evictionRemoveAllConfirmTitle',
-          'Remove all evicted items?'
-        )}
-        confirmLabel={t('management.sections.data.evictionRemoveAll', 'Remove All')}
+        title={t('management.sections.data.evictionRemoveAllConfirmTitle')}
+        confirmLabel={t('management.sections.data.evictionRemoveAll')}
       >
         <p className="text-themed-secondary">
           {t('management.sections.data.evictionRemoveAllConfirmMessage', {

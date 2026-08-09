@@ -50,6 +50,7 @@ public class PersistentPrefillController : ControllerBase
     /// Starts a persistent admin-owned session for the given platform.
     /// </summary>
     [HttpPost("start")]
+    [ProducesResponseType(typeof(DaemonSessionDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<DaemonSessionDto>> StartAsync(
         [FromBody] StartPersistentSessionRequest request,
         CancellationToken cancellationToken)
@@ -114,8 +115,11 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Stops a persistent session. Auth is not persisted, so a later restart requires a fresh login.
+    /// Stops a persistent session.
     /// </summary>
+    /// <remarks>
+    /// Auth is not persisted, so a later restart requires a fresh login.
+    /// </remarks>
     [HttpPost("stop")]
     public async Task<ActionResult> StopAsync([FromBody] StopPersistentSessionRequest request)
     {
@@ -136,6 +140,14 @@ public class PersistentPrefillController : ControllerBase
         return NotFound(ApiResponse.Error($"No persistent session found with id {request.SessionId}"));
     }
 
+    /// <summary>
+    /// Compensates a persistent edit session that was abandoned mid-flight.
+    /// </summary>
+    /// <remarks>
+    /// For each affected service, stops any session the edit itself started, then rolls back or
+    /// completes any in-flight login/selection/prefill it began, so an interrupted edit never
+    /// leaves an orphaned container or a half-applied change behind.
+    /// </remarks>
     [HttpPost("edit-session-cleanup")]
     public async Task<ActionResult> CleanupEditSessionAsync(
         [FromBody] PersistentPrefillEditSessionCleanupRequest request,
@@ -196,6 +208,7 @@ public class PersistentPrefillController : ControllerBase
     /// Lists every persistent session across all daemons.
     /// </summary>
     [HttpGet("list")]
+    [ProducesResponseType(typeof(List<PersistentPrefillSessionDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<PersistentPrefillSessionDto>>> ListAsync(CancellationToken cancellationToken)
     {
         var nowUtc = DateTime.UtcNow;
@@ -261,8 +274,10 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Lists the owned games (and up-to-date cached app ids) for the RUNNING persistent session of a
-    /// platform. This is the AdminOnly analogue of the user-scoped
+    /// Lists the owned games for the running persistent session of a platform.
+    /// </summary>
+    /// <remarks>
+    /// Also returns up-to-date cached app ids. This is the AdminOnly analogue of the user-scoped
     /// <c>GET {service}/sessions/{id}/games</c> route: that route enforces
     /// <c>ValidateSessionOwnership</c> (session.UserId == caller), which always 403s for persistent
     /// system-owned sessions whose owner is the derived system user, not the admin's session id.
@@ -271,8 +286,9 @@ public class PersistentPrefillController : ControllerBase
     /// Reuses the exact same daemon method the user route calls
     /// (<see cref="PrefillDaemonServiceBase.GetOwnedGamesAsync(string, CancellationToken)"/>) so there
     /// is no game-list duplication.
-    /// </summary>
+    /// </remarks>
     [HttpGet("games")]
+    [ProducesResponseType(typeof(PersistentPrefillGamesDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<PersistentPrefillGamesDto>> GetGamesAsync(
         [FromQuery] PrefillPlatform service,
         CancellationToken cancellationToken)
@@ -316,9 +332,11 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Sets the daemon's selected app list for the RUNNING persistent session (same as guest
-    /// <c>POST …/selected-apps</c>).
+    /// Sets the selected app list for the running persistent session.
     /// </summary>
+    /// <remarks>
+    /// Same as the guest <c>POST …/selected-apps</c> route.
+    /// </remarks>
     [HttpPost("selected-apps")]
     public async Task<ActionResult> SetSelectedAppsAsync(
         [FromBody] PersistentSelectedAppsRequest request,
@@ -366,10 +384,13 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Starts a prefill/download on the RUNNING persistent session (same as guest
-    /// <c>POST …/prefill</c>).
+    /// Starts a prefill download on the running persistent session.
     /// </summary>
+    /// <remarks>
+    /// Same as the guest <c>POST …/prefill</c> route.
+    /// </remarks>
     [HttpPost("prefill")]
+    [ProducesResponseType(typeof(PrefillResult), StatusCodes.Status200OK)]
     public async Task<ActionResult<PrefillResult>> StartPrefillAsync(
         [FromBody] PersistentStartPrefillRequest request,
         CancellationToken cancellationToken)
@@ -470,14 +491,17 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Starts (or resumes) the interactive login flow for the RUNNING persistent session of a
-    /// platform and returns the initial credential challenge. AdminOnly analogue of the user route
+    /// Starts or resumes the interactive login flow for the running persistent session.
+    /// </summary>
+    /// <remarks>
+    /// Returns the initial credential challenge. AdminOnly analogue of the user route
     /// <c>POST {service}/sessions/{id}/login</c>, which enforces <c>ValidateSessionOwnership</c> and
     /// always 403s for system-owned persistent sessions. Safe to bypass ownership here because this
     /// controller is <c>[Authorize(Policy = "AdminOnly")]</c> and hard-restricted to persistent
     /// sessions. Delegates to <see cref="PrefillDaemonServiceBase.StartLoginAsync(string, TimeSpan?, CancellationToken)"/>.
-    /// </summary>
+    /// </remarks>
     [HttpPost("login")]
+    [ProducesResponseType(typeof(CredentialChallenge), StatusCodes.Status200OK)]
     public async Task<ActionResult<CredentialChallenge>> StartLoginAsync(
         [FromBody] PersistentLoginRequest request,
         CancellationToken cancellationToken)
@@ -568,13 +592,17 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Provides an encrypted credential in response to a challenge for the RUNNING persistent session.
-    /// AdminOnly analogue of <c>POST {service}/sessions/{id}/credential</c>. Reuses the user route's
+    /// Provides an encrypted credential in response to a login challenge.
+    /// </summary>
+    /// <remarks>
+    /// For the running persistent session. AdminOnly analogue of
+    /// <c>POST {service}/sessions/{id}/credential</c>. Reuses the user route's
     /// <see cref="ProvideCredentialRequest"/> payload (Challenge + Credential) and delegates to
     /// <see cref="PrefillDaemonServiceBase.ProvideCredentialAsync(string, CredentialChallenge, string, CancellationToken)"/>.
-    /// </summary>
+    /// </remarks>
     [HttpPost("credential")]
-    public async Task<ActionResult> ProvideCredentialAsync(
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageOnlyResponse>> ProvideCredentialAsync(
         [FromBody] PersistentProvideCredentialRequest request,
         CancellationToken cancellationToken)
     {
@@ -646,15 +674,19 @@ public class PersistentPrefillController : ControllerBase
             editAction?.Complete(outcome);
         }
 
-        return Ok(ApiResponse.Message("Credential sent"));
+        return Ok(new MessageOnlyResponse { Message = "Credential sent" });
     }
 
     /// <summary>
-    /// Polls for the next credential challenge / login state of the RUNNING persistent session.
-    /// AdminOnly analogue of <c>GET {service}/sessions/{id}/challenge</c>. Delegates to
-    /// <see cref="PrefillDaemonServiceBase.WaitForChallengeAsync(string, TimeSpan?, CancellationToken)"/>.
+    /// Polls for the next credential challenge or login state.
     /// </summary>
+    /// <remarks>
+    /// Of the running persistent session. AdminOnly analogue of
+    /// <c>GET {service}/sessions/{id}/challenge</c>. Delegates to
+    /// <see cref="PrefillDaemonServiceBase.WaitForChallengeAsync(string, TimeSpan?, CancellationToken)"/>.
+    /// </remarks>
     [HttpGet("challenge")]
+    [ProducesResponseType(typeof(CredentialChallenge), StatusCodes.Status200OK)]
     public async Task<ActionResult<CredentialChallenge>> GetChallengeAsync(
         [FromQuery] PrefillPlatform service,
         [FromQuery] string? sessionId = null,
@@ -692,12 +724,15 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Cancels a pending interactive login for the RUNNING persistent session and resets auth state.
-    /// AdminOnly analogue of the user cancel-login flow. Delegates to
-    /// <see cref="PrefillDaemonServiceBase.CancelLoginAsync(string, CancellationToken)"/>.
+    /// Cancels a pending interactive login and resets auth state.
     /// </summary>
+    /// <remarks>
+    /// For the running persistent session. AdminOnly analogue of the user cancel-login flow.
+    /// Delegates to <see cref="PrefillDaemonServiceBase.CancelLoginAsync(string, CancellationToken)"/>.
+    /// </remarks>
     [HttpPost("cancel-login")]
-    public async Task<ActionResult> CancelLoginAsync(
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageOnlyResponse>> CancelLoginAsync(
         [FromBody] PersistentCancelLoginRequest request,
         CancellationToken cancellationToken)
     {
@@ -722,26 +757,29 @@ public class PersistentPrefillController : ControllerBase
             _logger.LogInformation(
                 "Ignoring cancel-login for persistent {Service}: pinned session {Expected} is no longer active (current {Actual})",
                 request.Service, request.SessionId, session.Id);
-            return Ok(ApiResponse.Message("Login already cancelled"));
+            return Ok(new MessageOnlyResponse { Message = "Login already cancelled" });
         }
 
         await daemon!.CancelLoginAsync(session.Id, cancellationToken);
 
-        return Ok(ApiResponse.Message("Login cancelled"));
+        return Ok(new MessageOnlyResponse { Message = "Login cancelled" });
     }
 
     /// <summary>
-    /// Logs the RUNNING persistent session out in place - the daemon forgets its stored account
-    /// without the container being restarted. AdminOnly analogue of the other persistent-session
-    /// routes. Delegates to
+    /// Logs the running persistent session out in place.
+    /// </summary>
+    /// <remarks>
+    /// The daemon forgets its stored account without the container being restarted. AdminOnly
+    /// analogue of the other persistent-session routes. Delegates to
     /// <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync(string, CancellationToken)"/>.
     /// When the attempt genuinely fails (daemon reports failure, or the round-trip throws),
     /// <c>forgotten</c> is false and the frontend falls back to its existing stop+restart flow. NOTE:
     /// an un-updated steam/epic daemon image reports success here without actually deleting the
     /// stored account file - <c>forgotten:true</c> is not a hard guarantee on such images, and this
     /// endpoint has no way to detect that case; it self-resolves once the image is rebuilt.
-    /// </summary>
+    /// </remarks>
     [HttpPost("logout")]
+    [ProducesResponseType(typeof(PersistentLogoutResponseDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<PersistentLogoutResponseDto>> LogoutAsync(
         [FromBody] PersistentLoginRequest request,
         CancellationToken cancellationToken)
@@ -762,6 +800,9 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
+    /// Clears logins for every registered service.
+    /// </summary>
+    /// <remarks>
     /// Admin "clear all logins" action: for every registered service, forget its login with a HARD
     /// guarantee. A RUNNING session is cleared via <see cref="PrefillDaemonServiceBase.ForgetRunningPersistentLoginAsync(string, CancellationToken)"/>,
     /// which logs out in place, VERIFIES that against the daemon's live status, and escalates to
@@ -772,8 +813,9 @@ public class PersistentPrefillController : ControllerBase
     /// whose in-place logout (with a frontend stop+restart fallback) is intentionally NOT escalated;
     /// this is the only route that hard-removes a RUNNING container's login and the only one that can
     /// forget a login for a service with no running container at all.
-    /// </summary>
+    /// </remarks>
     [HttpPost("clear-logins")]
+    [ProducesResponseType(typeof(ClearPersistentLoginsResponseDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<ClearPersistentLoginsResponseDto>> ClearLoginsAsync(CancellationToken cancellationToken)
     {
         var results = new List<ClearPersistentLoginServiceResultDto>();
@@ -828,6 +870,7 @@ public class PersistentPrefillController : ControllerBase
     /// Returns the admin-configured persistent login validity window in days.
     /// </summary>
     [HttpGet("validity")]
+    [ProducesResponseType(typeof(PersistentLoginValidityDto), StatusCodes.Status200OK)]
     public ActionResult<PersistentLoginValidityDto> GetValidity()
     {
         return Ok(new PersistentLoginValidityDto
@@ -1095,6 +1138,7 @@ public class PersistentPrefillController : ControllerBase
     /// Updates the admin-configured persistent login validity window (1-365 days).
     /// </summary>
     [HttpPut("validity")]
+    [ProducesResponseType(typeof(PersistentLoginValidityDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<PersistentLoginValidityDto>> SetValidityAsync([FromBody] PersistentLoginValidityDto request)
     {
         try

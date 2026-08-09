@@ -10,6 +10,7 @@ import { useCacheSize } from '@contexts/useCacheSize';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
+import { useSelectionSet } from '@hooks/useSelectionSet';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
@@ -28,7 +29,7 @@ import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@compon
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatCount } from '@utils/formatters';
 import { getErrorMessage } from '@utils/error';
-import type { DatasourceInfo } from '../../../../types';
+import { resolveDatasources } from '@utils/datasources';
 import type { CacheClearCompleteEvent } from '@contexts/SignalRContext/types';
 
 const formatScanTime = (timestamp: string): string => {
@@ -117,7 +118,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   // Own-run gate: a running clear-all disables the Clear All button (a re-click is a
   // no-op); a per-datasource clear leaves it clickable so the click can enqueue.
   const isClearAllRunning = isCacheClearing && !clearingDatasource;
-  const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
+  const { selected: expandedDatasources, toggle: toggleExpanded } = useSelectionSet<string>();
   const [sectionExpanded, setSectionExpanded] = useState(() => {
     const saved = localStorage.getItem('management-disk-cache-expanded');
     return saved !== null ? saved === 'true' : false;
@@ -173,18 +174,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         return times.preserveFormatted;
     }
   }, [cacheSize, deleteMode]);
-
-  const toggleExpanded = (name: string) => {
-    setExpandedDatasources((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
-      } else {
-        next.add(name);
-      }
-      return next;
-    });
-  };
 
   // Listen for cache clear completion to refresh cache size
   // Note: NotificationsContext handles the operation state via cache_clearing notifications
@@ -289,21 +278,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     }
   };
 
-  // Get datasources - use dataSources array if available, otherwise create single entry from legacy config
-  const datasources: DatasourceInfo[] =
-    config.dataSources && config.dataSources.length > 0
-      ? config.dataSources
-      : [
-          {
-            name: 'default',
-            cachePath: config.cachePath,
-            logsPath: config.logsPath,
-            cacheWritable: config.cacheWritable,
-            logsWritable: config.logsWritable,
-            enabled: true,
-            nginxReopenAvailable: false
-          }
-        ];
+  const datasources = resolveDatasources(config);
   const directoryNoticeConditions = {
     cacheWrite: true,
     cacheRead: false,
@@ -328,7 +303,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   // Header actions
   const headerActions = (
     <SectionHeaderActions>
-      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+      <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>
             <ActionMenuItem
@@ -400,9 +375,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
               {cacheSizeError ? (
                 <Alert color="red">
-                  <p className="font-medium">
-                    {t('management.cache.cacheSizeError', 'Cache Size Error')}
-                  </p>
+                  <p className="font-medium">{t('management.cache.cacheSizeError')}</p>
                   <p className="text-sm mt-1">{cacheSizeError}</p>
                 </Alert>
               ) : cacheSizeLoading && !cacheSize ? (
@@ -441,8 +414,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   <div className="mgmt-stat">
                     <p className="mgmt-stat__label caps-label caps-label--sm">
                       {cacheSize.isCached
-                        ? t('management.cache.cachedScan', 'Cached scan')
-                        : t('management.cache.freshScan', 'Fresh scan')}
+                        ? t('management.cache.cachedScan')
+                        : t('management.cache.freshScan')}
                     </p>
                     <p className="mgmt-stat__value">{formatScanTime(cacheSize.timestamp)}</p>
                   </div>

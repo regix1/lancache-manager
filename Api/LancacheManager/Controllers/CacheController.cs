@@ -92,21 +92,38 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache - Get cache information (size, path, etc.)
+    /// Returns the cache root path, disk usage, and delete-mode configuration.
     /// </summary>
+    /// <remarks>
+    /// This is the lightweight summary; the byte-accurate size comes from
+    /// <see cref="GetCacheSizeAsync"/> instead, which is backed by a scan rather than a
+    /// filesystem statvfs call.
+    /// </remarks>
     [HttpGet]
-    public async Task<IActionResult> GetCacheInfoAsync()
+    [ProducesResponseType(typeof(CacheInfo), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CacheInfo>> GetCacheInfoAsync()
     {
         var info = await _cacheService.GetCacheInfoAsync();
         return Ok(info);
     }
 
     /// <summary>
-    /// GET /api/cache/size - Read the cached size or start an asynchronous queued rescan when force=true
+    /// Reads the cached cache size, or starts a queued rescan when force is true.
     /// </summary>
+    /// <remarks>
+    /// An ordinary read never triggers the scan itself: it returns the last persisted result, a
+    /// stale one if a scan is not currently running, or an explicit unavailable state if neither
+    /// exists yet. Per-datasource reads are always computed live and are never cached.
+    /// </remarks>
+    /// <param name="datasource">When set, scopes the read to one datasource instead of the combined total; per-datasource reads are always computed live.</param>
+    /// <param name="force">Starts a queued full rescan instead of reading the cached result. Ignored when <paramref name="datasource"/> is set.</param>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("size")]
     [Authorize]
+    [ProducesResponseType(typeof(CacheSizeResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(CacheSizeUnavailableResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(CacheSizeScanningResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> GetCacheSizeAsync(
         [FromQuery] string? datasource = null,
         [FromQuery] bool force = false,
@@ -162,11 +179,21 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/size/scan/status - recovery endpoint for the cache file scan
-    /// notification card (page-refresh recovery polls this, mirroring
-    /// GET /api/stats/eviction/scan/status for the eviction scan).
+    /// Returns the recovery status for the cache file scan notification card.
     /// </summary>
+    /// <remarks>
+    /// Page-refresh recovery polls this, mirroring GET /api/stats/eviction/scan/status for the
+    /// eviction scan.
+    /// </remarks>
     [HttpGet("size/scan/status")]
+    // Kept as an anonymous body with lowercase C# property names, not the usual named-type
+    // pattern, because RecoveryStatusNotificationFlagTests reads these fields via direct
+    // reflection on the returned object's own property names rather than through JSON
+    // deserialization; a PascalCase named type serializes identically over the wire but would
+    // fail that reflection lookup. ProducesResponseType below documents the wire shape through a
+    // real type that mirrors these exact fields without requiring the return value to literally
+    // be that type. [20]
+    [ProducesResponseType(typeof(CacheSizeScanStatusResponse), StatusCodes.Status200OK)]
     public IActionResult GetCacheSizeScanStatus()
     {
         // Snapshot the run-stable display flag BEFORE the active-operation guard. The flag is
@@ -212,29 +239,17 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/permissions - Check cache directory permissions
+    /// Clears cache files for every configured datasource.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpGet("permissions")]
-    public IActionResult GetDirectoryPermissions()
-    {
-        var cachePath = _pathResolver.GetCacheDirectory();
-        var cacheWritable = _pathResolver.IsCacheWritable();
-
-        return Ok(new DirectoryPermission
-        {
-            Path = cachePath,
-            Writable = cacheWritable,
-            ReadOnly = !cacheWritable
-        });
-    }
-
-    /// <summary>
-    /// DELETE /api/cache - Clear all cache (all datasources)
-    /// RESTful: DELETE is proper method for clearing/removing resources
-    /// </summary>
+    /// <remarks>
+    /// Rejected with a permission error before anything starts if the cache directory is not
+    /// writable, rather than failing partway through. A conflicting clear or reset is never
+    /// rejected outright; it is parked on the wait queue and starts once the conflict clears.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete]
+    [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ClearAllCacheAsync(CancellationToken cancellationToken)
     {
         // Use cached permission flags (refreshed by DirectoryPermissionMonitor).
@@ -290,11 +305,17 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/cache/datasources/{name} - Clear cache for a specific datasource
-    /// RESTful: DELETE is proper method for clearing/removing resources
+    /// Clears cache files for one datasource, leaving the others untouched.
     /// </summary>
+    /// <remarks>
+    /// Rejected with a permission error before anything starts if that datasource's cache
+    /// directory is not writable. A conflicting clear or reset is never rejected outright; it is
+    /// parked on the wait queue and starts once the conflict clears.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("datasources/{name}")]
+    [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ClearDatasourceCacheAsync(string name, CancellationToken cancellationToken)
     {
         var datasource = _datasourceService.GetDatasources()
@@ -355,10 +376,15 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/operations - List all active cache operations
+    /// Returns the cache-clearing operations currently tracked.
     /// </summary>
+    /// <remarks>
+    /// Covers both all-datasources and per-datasource clears, active or recently finished. Used
+    /// for recovery so a page refresh mid-clear can resume showing progress.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("operations")]
+    [ProducesResponseType(typeof(ActiveOperationsResponse), StatusCodes.Status200OK)]
     public IActionResult GetActiveOperations()
     {
         var operations = _cacheClearingService.GetActiveOperations();
@@ -367,28 +393,14 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/operations/{id}/status - Get status of specific cache clear operation
+    /// Returns cached corruption detection results.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpGet("operations/{id}/status")]
-    public IActionResult GetCacheClearStatus(Guid id)
-    {
-        var status = _cacheClearingService.GetCacheClearStatus(id);
-
-        if (status == null)
-        {
-            return NotFound(ApiResponse.NotFound("Cache clear operation", id));
-        }
-
-        return Ok(status);
-    }
-
-    /// <summary>
-    /// GET /api/cache/corruption/cached - Get cached corruption detection results
+    /// <remarks>
     /// Returns immediately with cached results (if available) without running a new scan.
-    /// </summary>
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("corruption/cached")]
+    [ProducesResponseType(typeof(CachedCorruptionResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetCachedCorruptionAsync(
         [FromQuery] string? detectionMethod = null,
         CancellationToken cancellationToken = default)
@@ -442,11 +454,14 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/corruption/history - List retained current and historical scans.
-    /// History responses are explicitly read-only and never feed removal endpoints.
+    /// Lists retained current and historical corruption scans.
     /// </summary>
+    /// <remarks>
+    /// History responses are explicitly read-only and never feed removal endpoints.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("corruption/history")]
+    [ProducesResponseType(typeof(CorruptionScanHistoryResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetCorruptionHistoryAsync(
         CancellationToken cancellationToken = default)
     {
@@ -458,11 +473,11 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/corruption/history/{scanId}/services/{service} - Load validated,
-    /// read-only evidence for one retained snapshot and service.
+    /// Loads validated, read-only evidence for one retained snapshot and service.
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("corruption/history/{scanId:guid}/services/{service}")]
+    [ProducesResponseType(typeof(List<CorruptionCandidateResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetCorruptionHistoryDetailsAsync(
         Guid scanId,
         string service,
@@ -486,11 +501,14 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/cache/corruption/history/{scanId} - Delete only the saved scan and
-    /// its stored evidence. This never removes cache files or promotes older history.
+    /// Deletes only the saved corruption scan and its stored evidence.
     /// </summary>
+    /// <remarks>
+    /// This never removes cache files or promotes older history.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("corruption/history/{scanId:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeleteCorruptionHistoryAsync(
         Guid scanId,
         CancellationToken cancellationToken = default)
@@ -545,11 +563,15 @@ public class CacheController : ControllerBase
         };
 
     /// <summary>
-    /// POST /api/cache/corruption/detect - Start a background corruption detection scan
-    /// Returns immediately with an operation ID. Results sent via SignalR when complete.
+    /// Starts a background corruption detection scan.
     /// </summary>
+    /// <remarks>
+    /// Returns immediately with an operation ID. Results are sent via SignalR when complete.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("corruption/detect")]
+    [ProducesResponseType(typeof(CorruptionDetectionStartResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> StartCorruptionDetectionAsync(
         [FromQuery] int threshold = 3,
         [FromQuery] int lookbackDays = CorruptionDetectionService.DefaultLookbackDays,
@@ -614,10 +636,11 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/corruption/detect/status - Get the status of the active corruption detection operation
+    /// Returns the status of the active corruption detection operation.
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("corruption/detect/status")]
+    [ProducesResponseType(typeof(CorruptionDetectionStatusResponse), StatusCodes.Status200OK)]
     public IActionResult GetCorruptionDetectionStatus()
     {
         var activeOp = _corruptionDetectionService.GetActiveOperation();
@@ -660,11 +683,14 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/services/{name}/corruption - Get detailed corruption info for specific service
-    /// Returns the exact stored candidates from the requested completed scan.
+    /// Returns detailed corruption info for a specific service.
     /// </summary>
+    /// <remarks>
+    /// Returns the exact stored candidates from the requested completed scan.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("services/{service}/corruption")]
+    [ProducesResponseType(typeof(List<CorruptionCandidateResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetCorruptionDetailsAsync(
         string service,
         CancellationToken cancellationToken,
@@ -686,11 +712,19 @@ public class CacheController : ControllerBase
 
 
     /// <summary>
-    /// DELETE /api/cache/services/{name}/corruption - Remove corrupted chunks for specific service
-    /// RESTful: DELETE is proper method for removing resources
+    /// Removes the corrupted chunks a prior detection scan found for one service.
     /// </summary>
+    /// <remarks>
+    /// Can be limited to a caller-selected subset via <paramref name="candidateIds"/>. Deleting
+    /// rewrites that service's access log and cache files, so it revalidates the scan-bound
+    /// selection and write permissions again immediately before starting, in case either changed
+    /// since the scan.
+    /// </remarks>
+    /// <param name="candidateIds">Comma-separated candidate IDs to remove; omit to remove every candidate the scan found for this service.</param>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("services/{service}/corruption")]
+    [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveCorruptedChunksAsync(
         string service,
         CancellationToken cancellationToken,
@@ -822,11 +856,15 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/cache/corruption - Remove corrupted chunks for ALL services at once.
-    /// Queries the cached corruption detection results and processes each service sequentially.
+    /// Removes corrupted chunks for all services at once.
     /// </summary>
+    /// <remarks>
+    /// Queries the cached corruption detection results and processes each service sequentially.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("corruption")]
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveAllCorruptedChunksAsync(
         CancellationToken cancellationToken,
         [FromQuery] Guid scanId,
@@ -849,7 +887,7 @@ public class CacheController : ControllerBase
 
         if (cachedDetection.CorruptionCounts.Count == 0)
         {
-            return Ok(new { Message = "No corruption data found. Run a corruption detection scan first." });
+            return Ok(new MessageOnlyResponse { Message = "No corruption data found. Run a corruption detection scan first." });
         }
 
         var availableServices = new HashSet<string>(
@@ -1038,7 +1076,7 @@ public class CacheController : ControllerBase
 
         await StartAllCorruptionRemovalAsync();
 
-        return Accepted(new { Message = "Corruption removal started for all services" });
+        return Accepted(new MessageOnlyResponse { Message = "Corruption removal started for all services" });
     }
 
     private static HashSet<string>? ParseCsvValues(
@@ -1728,61 +1766,6 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/services/{service}/corruption/status - Get corruption removal status
-    /// Used for restoring progress on page refresh
-    /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpGet("services/{service}/corruption/status")]
-    public IActionResult GetCorruptionRemovalStatus(string service)
-    {
-        var operation = _operationTracker.GetOperationByEntityKey(OperationType.CorruptionRemoval, service.ToLowerInvariant());
-        if (operation == null)
-        {
-            return Ok(new RemovalStatusResponse { IsProcessing = false });
-        }
-
-        var metrics = operation.Metadata as RemovalMetrics;
-        return Ok(new RemovalStatusResponse
-        {
-            // Include all non-terminal statuses (running, removing, etc.)
-            IsProcessing = operation.Status != OperationStatus.Completed && operation.Status != OperationStatus.Failed,
-            Status = operation.Status,
-            Message = operation.Message,
-            OperationId = operation.Id,
-            StartedAt = operation.StartedAt,
-            Error = operation.Status == OperationStatus.Failed ? operation.Message : null,
-            DetectionMethod = metrics?.DetectionMethod?.ToWireString()
-        });
-    }
-
-    /// <summary>
-    /// GET /api/cache/corruption/removals/active - Get all active corruption removal operations
-    /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpGet("corruption/removals/active")]
-    public IActionResult GetActiveCorruptionRemovals()
-    {
-        var operations = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
-        return Ok(new ActiveCorruptionRemovalsResponse
-        {
-            IsProcessing = operations.Any(),
-            Operations = operations.Select(op =>
-            {
-                var metrics = op.Metadata as RemovalMetrics;
-                return new CorruptionRemovalInfo
-                {
-                    Service = metrics?.EntityName ?? op.Name,
-                    OperationId = op.Id,
-                    Status = op.Status,
-                    Message = op.Message,
-                    StartedAt = op.StartedAt,
-                    DetectionMethod = metrics?.DetectionMethod?.ToWireString()
-                };
-            })
-        });
-    }
-
-    /// <summary>
     /// Checks cache and logs directory write permissions (mirrors GamesController's helper).
     /// Returns a BadRequest IActionResult with the PUID/PGID error message if either directory
     /// is read-only, or null when both are writable. Logs a warning with the given context.
@@ -1808,11 +1791,17 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/cache/services/{name} - Remove specific service from cache
-    /// RESTful: DELETE is proper method for removing resources
+    /// Removes every cached file for one service across all datasources.
     /// </summary>
+    /// <remarks>
+    /// Also removes its access-log entries and database rows. Unlike the corruption-removal
+    /// endpoints this is not scan-bound, it deletes everything currently cached for the service,
+    /// corrupted or not.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("services/{name}")]
+    [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ClearServiceCacheAsync(string name, CancellationToken requestCt)
     {
         var capabilityError = DenyIfKeyDependentUnavailable();
@@ -1976,67 +1965,17 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/services/{name}/removal-status - Get service removal status
-    /// Used for restoring progress on page refresh
+    /// Returns all active removal operations.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpGet("services/{name}/removal-status")]
-    public IActionResult GetServiceRemovalStatus(string name)
-    {
-        var operation = _operationTracker.GetOperationByEntityKey(OperationType.ServiceRemoval, name.ToLowerInvariant());
-        if (operation == null)
-        {
-            return Ok(new RemovalStatusResponse { IsProcessing = false });
-        }
-
-        var metrics = operation.Metadata as RemovalMetrics;
-        return Ok(new RemovalStatusResponse
-        {
-            // Include all non-terminal statuses (running, removing_cache, removing_database, etc.)
-            IsProcessing = operation.Status != OperationStatus.Completed && operation.Status != OperationStatus.Failed,
-            Status = operation.Status,
-            Message = operation.Message,
-            FilesDeleted = metrics?.FilesDeleted ?? 0,
-            BytesFreed = metrics?.BytesFreed ?? 0,
-            StartedAt = operation.StartedAt,
-            Error = operation.Status == OperationStatus.Failed ? operation.Message : null
-        });
-    }
-
-    /// <summary>
-    /// GET /api/cache/services/removals/active - Get all active service removal operations
-    /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpGet("services/removals/active")]
-    public IActionResult GetActiveServiceRemovals()
-    {
-        var operations = _operationTracker.GetActiveOperations(OperationType.ServiceRemoval);
-        return Ok(new ActiveServiceRemovalsResponse
-        {
-            IsProcessing = operations.Any(),
-            Operations = operations.Select(op =>
-            {
-                var metrics = op.Metadata as RemovalMetrics;
-                return new ServiceRemovalInfo
-                {
-                    ServiceName = metrics?.EntityName ?? op.Name,
-                    OperationId = op.Id,
-                    Status = op.Status,
-                    Message = op.Message,
-                    FilesDeleted = metrics?.FilesDeleted ?? 0,
-                    BytesFreed = metrics?.BytesFreed ?? 0,
-                    StartedAt = op.StartedAt
-                };
-            })
-        });
-    }
-
-    /// <summary>
-    /// GET /api/cache/removals/active - Get all active removal operations (games, services, corruption)
-    /// Used for universal recovery on page refresh
-    /// </summary>
+    /// <remarks>
+    /// Covers games, services, and corruption removals. Used for universal recovery on page
+    /// refresh. Silent automatic eviction removals are deliberately excluded, since they raise no
+    /// SignalR events either, so listing them here would resurrect a notification card for a run
+    /// that was never meant to show one.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("removals/active")]
+    [ProducesResponseType(typeof(AllActiveRemovalsResponse), StatusCodes.Status200OK)]
     public IActionResult GetAllActiveRemovals()
     {
         var gameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
@@ -2139,22 +2078,22 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/cache/evicted
-    ///
-    /// Removes ALL evicted Downloads, their LogEntries, and the evicted detection rows in a
-    /// single batched operation: one access.log rewrite pass covering every evicted entity,
-    /// one transaction of DB deletes, and one disk-summary refresh. Replaces the old frontend
-    /// loop of silent per-entity removals, which rewrote the logs once per entity and emitted
-    /// no SignalR events.
-    ///
+    /// Removes all evicted downloads in a single batched operation.
+    /// </summary>
+    /// <remarks>
+    /// Removes ALL evicted Downloads, their LogEntries, and the evicted detection rows: one
+    /// access.log rewrite pass covering every evicted entity, one transaction of DB deletes, and
+    /// one disk-summary refresh. Replaces the old frontend loop of silent per-entity removals,
+    /// which rewrote the logs once per entity and emitted no SignalR events.
     /// Progress/cancel/recovery flow through the standard eviction_removal notification
     /// (EvictionRemovalStarted with the bulk stage key, Progress ticks, terminal Complete).
-    ///
-    /// Returns 202 Accepted with { operationId }.
-    /// Returns 409 Conflict if another eviction removal is already in progress.
-    /// </summary>
+    /// Returns 202 Accepted with { operationId }. Returns 409 Conflict if another eviction
+    /// removal is already in progress.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("evicted")]
+    [ProducesResponseType(typeof(EvictionRemovalStartResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveAllEvictedAsync(CancellationToken cancellationToken = default)
     {
         var capabilityError = DenyIfKeyDependentUnavailable();
@@ -2187,23 +2126,23 @@ public class CacheController : ControllerBase
         }
 
         var operationId = await _reconciliationService.StartBulkEvictionRemovalAsync(cancellationToken);
-        return Accepted(new { operationId });
+        return Accepted(new EvictionRemovalStartResponse { OperationId = operationId });
     }
 
     /// <summary>
-    /// DELETE /api/cache/evicted/{scope}?key={value}
-    ///
-    /// Removes only the evicted Downloads and their LogEntries for a single entity,
-    /// leaving any active Downloads for the same entity intact.
-    ///
-    /// scope: "steam" | "epic" | "service"
-    /// key:   Steam gameAppId (long), Epic epicAppId (string), or service name (string)
-    ///
-    /// Returns 202 Accepted with { operationId, scope, key }.
-    /// Returns 409 Conflict if a global eviction removal is already in progress.
+    /// Removes the evicted downloads and log entries for a single entity.
     /// </summary>
+    /// <remarks>
+    /// Leaves any active Downloads for the same entity intact.
+    /// scope: "steam" | "epic" | "service"
+    /// key: Steam gameAppId (long), Epic epicAppId (string), or service name (string)
+    /// Returns 202 Accepted with { operationId, scope, key }. Returns 409 Conflict if a global
+    /// eviction removal is already in progress.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("evicted/{scope}")]
+    [ProducesResponseType(typeof(EvictionRemovalEntityStartResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveEvictedForEntityAsync(string scope, [FromQuery] string? key, CancellationToken cancellationToken = default)
     {
         var capabilityError = DenyIfKeyDependentUnavailable();
@@ -2326,23 +2265,25 @@ public class CacheController : ControllerBase
 
         var operationId = await StartScopedEvictedRemovalAsync();
 
-        return Accepted(new { operationId, scope = scopeLower, key });
+        return Accepted(new EvictionRemovalEntityStartResponse { OperationId = operationId!.Value, Scope = scopeLower, Key = key });
     }
 
     /// <summary>
-    /// DELETE /api/cache/evicted/named/{service}/{gameName}
-    ///
-    /// Removes only the evicted Downloads, their LogEntries, and the evicted detection row
-    /// for a single named (Blizzard/Riot) game, leaving any still-cached Downloads for the
-    /// same game intact. Named games have no Steam AppId and no Epic AppId; their identity is
-    /// (Service, GameName), so they need a dedicated two-segment route (the generic
-    /// <c>evicted/{scope}</c> endpoint cannot carry both halves of the key).
-    ///
-    /// Returns 202 Accepted with { operationId, scope = "named", service, gameName }.
-    /// Returns 202 Accepted with a queued operationId if a conflicting removal is already in progress.
+    /// Removes evicted data for a single named (Blizzard/Riot) game.
     /// </summary>
+    /// <remarks>
+    /// Removes the evicted Downloads, their LogEntries, and the evicted detection row for the
+    /// game, leaving any still-cached Downloads for the same game intact. Named games have no
+    /// Steam AppId and no Epic AppId; their identity is (Service, GameName), so they need a
+    /// dedicated two-segment route (the generic <c>evicted/{scope}</c> endpoint cannot carry both
+    /// halves of the key).
+    /// Returns 202 Accepted with { operationId, scope = "named", service, gameName }. Returns 202
+    /// Accepted with a queued operationId if a conflicting removal is already in progress.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("evicted/named/{service}/{gameName}")]
+    [ProducesResponseType(typeof(EvictionRemovalNamedGameStartResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveEvictedForNamedGameAsync(string service, string gameName, CancellationToken cancellationToken = default)
     {
         var capabilityError = DenyIfKeyDependentUnavailable();
@@ -2400,6 +2341,6 @@ public class CacheController : ControllerBase
 
         var operationId = await StartScopedEvictedRemovalAsync();
 
-        return Accepted(new { operationId, scope = "named", service = serviceLower, gameName });
+        return Accepted(new EvictionRemovalNamedGameStartResponse { OperationId = operationId!.Value, Service = serviceLower, GameName = gameName });
     }
 }

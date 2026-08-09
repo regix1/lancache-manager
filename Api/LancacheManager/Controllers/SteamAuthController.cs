@@ -32,11 +32,14 @@ public class SteamAuthController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/steam-auth/status - Get Steam authentication status
-    /// Note: Public endpoint - needed for SteamAuthContext before authentication
+    /// Gets the Steam authentication status.
     /// </summary>
+    /// <remarks>
+    /// This is a public endpoint, needed for SteamAuthContext before authentication.
+    /// </remarks>
     [HttpGet("status")]
-    public IActionResult GetStatus()
+    [ProducesResponseType(typeof(SteamAuthStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<SteamAuthStatusResponse> GetStatus()
     {
         var authMode = _stateService.GetSteamAuthMode();
         var isConnected = _steamKit2Service.IsReady;
@@ -56,16 +59,17 @@ public class SteamAuthController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/steam-auth/login - Login to Steam
-    /// Request body depends on auth mode:
-    /// - Anonymous: No body required
-    /// - Credentials: { "username": "...", "password": "..." }
-    /// - Guard Code: { "guardCode": "..." }
-    /// Note: This endpoint does NOT require LANCache Manager authentication
-    /// since users need to be able to log in to Steam before authenticating to the app
+    /// Logs in to Steam.
     /// </summary>
+    /// <remarks>
+    /// Request body depends on auth mode: Anonymous requires no body, Credentials requires
+    /// { "username": "...", "password": "..." }, and Guard Code requires { "guardCode": "..." }.
+    /// This endpoint does NOT require LANCache Manager authentication, since users need to be able
+    /// to log in to Steam before authenticating to the app.
+    /// </remarks>
     [HttpPost("login")]
     [EnableRateLimiting("steam-auth")]
+    [ProducesResponseType(typeof(SteamLoginResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> LoginAsync([FromBody] SteamLoginRequest? request, CancellationToken cancellationToken)
     {
         // If user provides credentials, they want to authenticate (regardless of current mode)
@@ -133,12 +137,15 @@ public class SteamAuthController : ControllerBase
     }
 
     /// <summary>
-    /// PUT /api/steam-auth/mode - Set Steam authentication mode
-    /// Request body: { "mode": "anonymous" | "authenticated" }
-    /// Used during setup to explicitly save the user's auth mode choice
+    /// Sets the Steam authentication mode.
     /// </summary>
+    /// <remarks>
+    /// Request body: { "mode": "anonymous" | "authenticated" }. Used during setup to explicitly
+    /// save the user's auth mode choice.
+    /// </remarks>
     [HttpPut("mode")]
-    public IActionResult SetMode([FromBody] SetSteamModeRequest request)
+    [ProducesResponseType(typeof(SteamModeResponse), StatusCodes.Status200OK)]
+    public ActionResult<SteamModeResponse> SetMode([FromBody] SetSteamModeRequest request)
     {
         if (request?.Mode is null)
         {
@@ -159,12 +166,15 @@ public class SteamAuthController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/steam-auth - Logout from Steam
-    /// RESTful: DELETE is proper method for removing/ending sessions
-    /// Note: This endpoint does NOT require LANCache Manager authentication
+    /// Logs out from Steam.
     /// </summary>
+    /// <remarks>
+    /// DELETE is the proper method here for removing/ending sessions. This endpoint does NOT
+    /// require LANCache Manager authentication.
+    /// </remarks>
     [HttpDelete]
-    public async Task<IActionResult> LogoutAsync()
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageResponse>> LogoutAsync()
     {
         await _steamKit2Service.LogoutAsync();
         _logger.LogInformation("Steam logout completed");

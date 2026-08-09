@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { OperationStatus, NotificationVariant } from '../../types/operations';
 import type { SessionType } from '../../services/auth.service';
 import type { CorruptionDetectionMethod, CorruptionScanCoverage } from '../../types';
-import type { UserPreferences } from '@/types/userPreferences';
+import type { ClockPreferences, UserPreferences } from '@/types/userPreferences';
 import type {
   StructuralBaselineStatus,
   StructuralEffectiveScanMode,
@@ -837,7 +837,6 @@ export interface DaemonSessionCreatedEvent {
   authState: string;
   isPrefilling: boolean;
   createdAt: string;
-  endedAt?: string;
   expiresAt: string;
   timeRemainingSeconds: number;
   ipAddress?: string;
@@ -859,7 +858,6 @@ export interface DaemonSessionUpdatedEvent {
   authState: string;
   isPrefilling: boolean;
   createdAt: string;
-  endedAt?: string;
   expiresAt: string;
   timeRemainingSeconds: number;
   ipAddress?: string;
@@ -899,6 +897,21 @@ export interface UserPreferencesUpdatedEvent {
 
 export interface DefaultGuestThemeChangedEvent {
   newThemeId: string;
+}
+
+/**
+ * One change to the guest defaults. The clock arrives as a whole tuple next to the tuple it
+ * replaced: no single flag names a clock on its own, and a listener deciding whether an active
+ * guest was still following the default has to be told what the default WAS. Reading that from a
+ * shared cache instead makes the answer depend on which listener the hub happened to call first.
+ * Every other default is one boolean and carries only its new value. [4]
+ */
+export type DefaultGuestPreferencesChangedEvent =
+  | { key: 'clock'; clock: ClockPreferences; previousClock: ClockPreferences }
+  | { key: 'sharpCorners' | 'disableTooltips' | 'showDatasourceLabels'; value: boolean };
+
+export interface AllowedTimeFormatsChangedEvent {
+  formats: string[];
 }
 
 // Data Import Events
@@ -941,17 +954,6 @@ export interface DataImportCompleteEvent {
 // ============================================================================
 // Epic Prefill Daemon Events
 // ============================================================================
-
-/**
- * Fired when a prefill history entry is created or updated.
- * BROADCAST to both downloads hub and Epic daemon hub via NotifyAllDownloadsAndEpicHubAsync.
- * Can be handled by NotificationsContext.tsx.
- */
-export interface EpicPrefillHistoryUpdatedEvent {
-  sessionId: string;
-  appId: string;
-  status: string;
-}
 
 /**
  * Fired when the default Epic guest prefill configuration changes.

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
+import { transpile } from './transpile-module.mjs';
 
 const readWebSource = (relativePath) =>
   readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
@@ -65,12 +66,7 @@ const compileHandlerFactory = () => {
       status === 'completed' || status === 'failed' || status === 'cancelled';
     ${declarations.join('\n')}
   `;
-  const compiled = ts.transpileModule(harness, {
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2022
-    }
-  }).outputText;
+  const compiled = transpile(harness, ts.ModuleKind.CommonJS);
   const exports = {};
   const localStorage = new MemoryStorage();
   const createCompletionHandler = new Function(

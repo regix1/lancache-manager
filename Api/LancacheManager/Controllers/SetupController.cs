@@ -24,22 +24,61 @@ public class SetupController : ControllerBase
     private readonly IPathResolver _pathResolver;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly AuthenticationHelper _authenticationHelper;
+    private readonly IConfiguration _configuration;
 
     public SetupController(
         ILogger<SetupController> logger,
         IPathResolver pathResolver,
         IDbContextFactory<AppDbContext> dbContextFactory,
-        AuthenticationHelper authenticationHelper)
+        AuthenticationHelper authenticationHelper,
+        IConfiguration configuration)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _dbContextFactory = dbContextFactory;
         _authenticationHelper = authenticationHelper;
+        _configuration = configuration;
     }
 
     /// <summary>
-    /// POST /api/setup/credentials - Set the embedded PostgreSQL password.
+    /// The two endpoints below take the API key as their only proof while authentication is disabled.
     ///
+    /// Turning Security:EnableAuthentication off opens the fallback, default and named authorization
+    /// policies alike AND gives every request an admin session, so a caller that presented nothing at
+    /// all arrives here reading as authenticated. Trusting the principal in that state hands the
+    /// statements these two endpoints run to anyone who can reach the port, which is why the flag is
+    /// read here rather than ignored: with it off the principal proves nothing and only the key counts.
+    ///
+    /// The key is also what keeps these reachable at all. A session cannot be created while the
+    /// database is unreachable, because logging in writes a row to UserSessions, so requiring one made
+    /// them unusable in exactly the broken-install case they exist to repair. The key lives in a file
+    /// and is validated without touching the database.
+    ///
+    /// Returns null when the caller may proceed. [36]
+    /// </summary>
+    private ObjectResult? RequireApiKey()
+    {
+        var authenticationEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
+        if (authenticationEnabled && User.Identity?.IsAuthenticated == true)
+        {
+            return null;
+        }
+
+        var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
+        if (apiKeyResult.IsAuthenticated)
+        {
+            return null;
+        }
+
+        return StatusCode(
+            apiKeyResult.StatusCode,
+            ApiResponse.Error(apiKeyResult.ErrorMessage ?? "API key required"));
+    }
+
+    /// <summary>
+    /// Sets the embedded PostgreSQL password.
+    /// </summary>
+    /// <remarks>
     /// Anonymous at the routing layer but never open: a session is accepted when the caller has
     /// one, and the API key otherwise. A session cannot be created while the database is
     /// unreachable, because logging in writes a row to UserSessions, so requiring one made this
@@ -48,23 +87,18 @@ public class SetupController : ControllerBase
     /// possession left during an outage. It stays gated because the statement below runs
     /// ALTER USER against a role that was created WITH SUPERUSER.
     ///
-    /// The gate deliberately ignores Security:EnableAuthentication. Turning that flag off opens
-    /// the fallback, default and named authorization policies alike, so reading it here would
-    /// hand the ALTER USER below to anyone who can reach the API. [36]
-    /// </summary>
+    /// See <see cref="RequireApiKey"/> for why the session is only accepted while authentication is
+    /// enabled.
+    /// </remarks>
     [AllowAnonymous]
     [HttpPost("credentials")]
-    public async Task<IActionResult> SetCredentialsAsync([FromBody] SetupCredentialsRequest request)
+    [ProducesResponseType(typeof(SetupCredentialsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SetupCredentialsResponse>> SetCredentialsAsync([FromBody] SetupCredentialsRequest request)
     {
-        if (User.Identity?.IsAuthenticated != true)
+        var denied = RequireApiKey();
+        if (denied != null)
         {
-            var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
-            if (!apiKeyResult.IsAuthenticated)
-            {
-                return StatusCode(
-                    apiKeyResult.StatusCode,
-                    ApiResponse.Error(apiKeyResult.ErrorMessage ?? "API key required"));
-            }
+            return denied;
         }
 
         // In external mode the user-managed Postgres isn't ours to ALTER. Route them
@@ -199,11 +233,13 @@ public class SetupController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/setup/external - Configure an external PostgreSQL connection.
-    /// Validates the supplied connection details by opening a real connection, then
-    /// persists them to postgres-credentials.json. Used in the cold-start UI fallback
-    /// where POSTGRES_MODE=external is set but no env-var connection details were
-    /// provided - the user supplies them via the wizard and then restarts the container.
+    /// Configures an external PostgreSQL connection.
+    /// </summary>
+    /// <remarks>
+    /// Validates the supplied connection details by opening a real connection, then persists
+    /// them to postgres-credentials.json. Used in the cold-start UI fallback where
+    /// POSTGRES_MODE=external is set but no env-var connection details were provided - the user
+    /// supplies them via the wizard and then restarts the container.
     ///
     /// Gated the same way as SetCredentialsAsync: a session when the caller has one, the API key
     /// otherwise. What this writes is the connection every process in the container rebuilds its
@@ -213,22 +249,18 @@ public class SetupController : ControllerBase
     /// The API key is what keeps this reachable at all. External mode without credentials boots
     /// with no database (see Program.cs), so no session can be created or validated in the state
     /// this screen appears in, while the key is a file that is read without touching the database.
-    /// Security:EnableAuthentication is deliberately not consulted: turning that flag off opens the
-    /// authorization policies, and reading it here would hand this endpoint to anyone with it off.
-    /// </summary>
+    /// See <see cref="RequireApiKey"/> for why the session is only accepted while authentication is
+    /// enabled.
+    /// </remarks>
     [AllowAnonymous]
     [HttpPost("external")]
-    public async Task<IActionResult> SetExternalCredentialsAsync([FromBody] SetExternalDbCredentialsRequest request)
+    [ProducesResponseType(typeof(SetExternalDbCredentialsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SetExternalDbCredentialsResponse>> SetExternalCredentialsAsync([FromBody] SetExternalDbCredentialsRequest request)
     {
-        if (User.Identity?.IsAuthenticated != true)
+        var denied = RequireApiKey();
+        if (denied != null)
         {
-            var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
-            if (!apiKeyResult.IsAuthenticated)
-            {
-                return StatusCode(
-                    apiKeyResult.StatusCode,
-                    ApiResponse.Error(apiKeyResult.ErrorMessage ?? "API key required"));
-            }
+            return denied;
         }
 
         var mode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";

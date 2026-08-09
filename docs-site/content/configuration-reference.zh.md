@@ -42,10 +42,9 @@
 
 | 变量 | 默认值 | 描述 |
 |----------|---------|-------------|
-| `Security__EnableAuthentication` | `true` | 管理操作需要 API 密钥。仅在本地开发时关闭。 |
+| `Security__EnableAuthentication` | `true` | 管理操作和 API 文档需要 API 密钥。仅在本地开发时关闭。 |
 | `Security__GuestSessionDurationHours` | `6` | 默认访客会话时长（也可在 UI 中配置）。 |
 | `Security__RequireAuthForMetrics` | `false` | `/metrics` 端点是否需要 API 密钥。管理 → 集成中的 UI 开关设置后会覆盖此值。 |
-| `Security__ProtectSwagger` | `true` | 生产环境下 Swagger 文档需要认证。 |
 | `Security__AllowedOrigins` | （空） | 逗号分隔的 CORS 允许列表。为空则允许所有来源。 |
 | `Security__ApiKeyPath` | `/data/security/api_key.txt` | 覆盖管理员 API 密钥的读写文件路径。当你从 `/data` 之外绑定挂载密钥时很有用。 |
 | `Security__KnownProxyNetworks` | （空） | 用于 `X-Forwarded-For` 的可信代理网络 CIDR 列表，逗号分隔（例如 `172.16.0.0/12,10.0.0.0/8`）。当 nginx、Traefik 或其他反向代理位于管理器前面时设置此项，客户端 IP 才能被正确报告。回环地址始终受信任。 |
@@ -164,7 +163,6 @@ services:
       # - Security__RequireAuthForMetrics=false   # true = /metrics 需要 Bearer 令牌
       # - Security__GuestSessionDurationHours=6
       # - Security__AllowedOrigins=               # CORS 来源列表，逗号分隔；为空表示全部允许
-      # - Security__ProtectSwagger=true
       # - Security__ForceSecureCookies=false      # 在 TLS 终止型代理之后运行时设为 true
       # - Security__KnownProxyNetworks=           # 可信代理的 CIDR 列表，逗号分隔，例如 172.16.0.0/12
       # - Security__TrustAllProxies=false         # 暴露于公网的主机上永远不要设为 true

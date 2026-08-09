@@ -322,7 +322,7 @@ public class RustLogProcessorService
     /// <summary>
     /// Gets the current processing status including progress data from Rust
     /// </summary>
-    public object GetStatus()
+    public LogProcessingStatusResponse GetStatus()
     {
         // Snapshot the silent flag together with the processing guard, BEFORE the progress-file
         // read below. The completion path clears IsProcessing first and IsSilentMode a few
@@ -333,12 +333,12 @@ public class RustLogProcessorService
         var silentMode = IsSilentMode;
         if (!IsProcessing)
         {
-            return new
+            return new LogProcessingStatusResponse
             {
-                isProcessing = false,
-                silentMode = false,
-                status = "idle",
-                operationId = _currentOperationId
+                IsProcessing = false,
+                SilentMode = false,
+                Status = "idle",
+                OperationId = _currentOperationId
             };
         }
 
@@ -369,12 +369,12 @@ public class RustLogProcessorService
 
         if (progress == null)
         {
-            return new
+            return new LogProcessingStatusResponse
             {
-                isProcessing = true,
-                silentMode,
-                status = "starting",
-                operationId = _currentOperationId
+                IsProcessing = true,
+                SilentMode = silentMode,
+                Status = "starting",
+                OperationId = _currentOperationId
             };
         }
 
@@ -383,18 +383,18 @@ public class RustLogProcessorService
         var mbTotal = progress.TotalBytes / (1024.0 * 1024.0);
         var mbProcessed = progress.BytesProcessed / (1024.0 * 1024.0);
 
-        return new
+        return new LogProcessingStatusResponse
         {
-            isProcessing = true,
-            silentMode,
-            operationId = _currentOperationId,
-            status = progress.Status,
-            percentComplete = progress.PercentComplete,
-            mbProcessed = Math.Round(mbProcessed, 1),
-            mbTotal = Math.Round(mbTotal, 1),
-            entriesProcessed = progress.EntriesSaved,
-            totalLines = progress.TotalLines,
-            stageKey = progress.StageKey
+            IsProcessing = true,
+            SilentMode = silentMode,
+            OperationId = _currentOperationId,
+            Status = progress.Status,
+            PercentComplete = progress.PercentComplete,
+            MbProcessed = Math.Round(mbProcessed, 1),
+            MbTotal = Math.Round(mbTotal, 1),
+            EntriesProcessed = progress.EntriesSaved,
+            TotalLines = progress.TotalLines,
+            StageKey = progress.StageKey
         };
     }
 

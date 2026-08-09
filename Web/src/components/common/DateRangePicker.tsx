@@ -1,16 +1,24 @@
 import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
-import { Button } from '@components/ui/Button';
+import { Calendar } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
-import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { useEvents } from '@contexts/useEvents';
+import { useReaderClock } from '@hooks/useReaderClock';
+import { getDaysInMonth, getFirstDayOfMonth } from '@utils/calendar';
 import { getEventColorVar } from '@utils/eventColors';
 import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
+import {
+  getDateInTimezone,
+  getDayBoundsInTimezone,
+  getDayStartInTimezone,
+  getEffectiveTimezone,
+  parseUtcDate
+} from '@utils/timezone';
 import { formatEventDateRange } from '@utils/formatters';
 import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
+import CalendarNavigation from './CalendarNavigation';
 
 interface DateRangePickerProps {
   startDate: Date | null;
@@ -20,16 +28,12 @@ interface DateRangePickerProps {
   onClose: () => void;
 }
 
-// The grid builds each selection as a local midnight, so these are calendar days rather than
-// instants and must be read back in the browser's calendar: reformatting them in the server's
-// timezone can move the readout onto the day before the one the user clicked. The date-only
-// shape carries no time, so the 24-hour preference has nothing to act on here.
-const SELECTED_DAY_FORMAT: TimestampSettings = {
-  useLocalTimezone: true,
-  use24Hour: true,
-  forceYear: false,
-  style: 'dateOnly'
-};
+/** A day named the way a calendar names it, with `month` 0-indexed as the Date constructors use. */
+interface CalendarDay {
+  year: number;
+  month: number;
+  day: number;
+}
 
 const DateRangePicker: React.FC<DateRangePickerProps> = ({
   startDate,
@@ -40,40 +44,75 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
 }) => {
   const { t } = useTranslation();
   const { events } = useEvents();
+  // Subscribing here is what keeps this picker in step with the header: nothing else in the
+  // component re-renders when that switch is thrown.
+  const eventClock = useReaderClock();
+  const readerZone = useMemo(
+    () => getEffectiveTimezone(eventClock.useLocalTimezone, eventClock.useUtc),
+    [eventClock]
+  );
 
   const [currentMonth, setCurrentMonth] = useState(() => {
-    return startDate ? new Date(startDate.getFullYear(), startDate.getMonth(), 1) : new Date();
+    if (!startDate) return new Date();
+    const { year, month } = getDateInTimezone(startDate, readerZone);
+    return new Date(year, month, 1);
   });
+
+  // Every day here is a calendar day on the reader's clock, and the value handed out is the moment
+  // that day begins there. The grid, the range labels and the event presets then all name the same
+  // day. Reaching for setHours instead reads the browser's own calendar, which within the offset
+  // of midnight is a different day from the one on screen. [7]
+  const dayStartOf = (date: Date): number => {
+    const { year, month, day } = getDateInTimezone(date, readerZone);
+    return getDayStartInTimezone(year, month, day, readerZone).getTime();
+  };
+
+  const gridDayStart = (day: number): number =>
+    getDayStartInTimezone(
+      currentMonth.getFullYear(),
+      currentMonth.getMonth(),
+      day,
+      readerZone
+    ).getTime();
+
+  // The picked bounds are moments on the reader's clock, so they are read back on it.
+  const selectedDayFormat = useMemo<TimestampSettings>(
+    () => ({ ...eventClock, forceYear: false, style: 'dateOnly' }),
+    [eventClock]
+  );
+
+  // The quick presets below name whole calendar days too, so they are built on the same clock the
+  // grid draws and the label reads. Day and month numbers outside their normal range are handed
+  // straight to getDayStartInTimezone, which normalizes them the way Date.UTC does: day 0 is the
+  // last day of the previous month, and a negative day counts back from there.
+  const readerToday = (): CalendarDay => getDateInTimezone(new Date(), readerZone);
+
+  const selectDayRange = (from: CalendarDay, to: CalendarDay): void => {
+    onStartDateChange(getDayStartInTimezone(from.year, from.month, from.day, readerZone));
+    onEndDateChange(getDayStartInTimezone(to.year, to.month, to.day, readerZone));
+  };
 
   // Sort events: active first, then upcoming, then past
   const sortedEvents = useMemo(() => sortEventsByStatus(events), [events]);
 
   const handleEventPresetClick = (startUtc: string, endUtc: string) => {
-    const start = new Date(startUtc);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(endUtc);
-    end.setHours(23, 59, 59, 999);
+    // This button's tooltip names the event's days on the reader's clock, so the range takes its
+    // bounds from that same clock. [7]
+    const { start } = getDayBoundsInTimezone(parseUtcDate(startUtc), readerZone);
+    const { end } = getDayBoundsInTimezone(parseUtcDate(endUtc), readerZone);
     onStartDateChange(start);
     onEndDateChange(end);
     // Navigate calendar to show the event's start month
-    setCurrentMonth(new Date(start.getFullYear(), start.getMonth(), 1));
+    const { year, month } = getDateInTimezone(start, readerZone);
+    setCurrentMonth(new Date(year, month, 1));
   };
   const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
   const [lastClickTime, setLastClickTime] = useState<number>(0);
   const [lastClickedDate, setLastClickedDate] = useState<Date | null>(null);
   const [clickCount, setClickCount] = useState<number>(0);
 
-  const getDaysInMonth = (date: Date): number => {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  };
-
-  const getFirstDayOfMonth = (date: Date): number => {
-    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
-  };
-
   const handleDateClick = (day: number) => {
-    const selectedDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-    selectedDate.setHours(0, 0, 0, 0);
+    const selectedDate = new Date(gridDayStart(day));
 
     const now = Date.now();
     const timeDiff = now - lastClickTime;
@@ -113,9 +152,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
   const handleDateHover = (day: number) => {
     if (startDate && !endDate) {
-      const hoverDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-      hoverDate.setHours(0, 0, 0, 0);
-      setHoveredDate(hoverDate);
+      setHoveredDate(new Date(gridDayStart(day)));
     } else {
       setHoveredDate(null);
     }
@@ -125,59 +162,24 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     setHoveredDate(null);
   };
 
-  const changeMonth = (increment: number) => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + increment, 1));
-  };
-
-  const changeYear = (year: number) => {
-    setCurrentMonth(new Date(year, currentMonth.getMonth(), 1));
-  };
-
-  const changeToMonth = (month: number) => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), month, 1));
-  };
-
-  // The dropdowns speak strings; these keep the numeric handlers above typed instead
-  // of widening them to accept a raw option value.
-  const handleMonthSelect = (option: string): void => changeToMonth(Number(option));
-  const handleYearSelect = (option: string): void => changeYear(Number(option));
-
   const currentYear = new Date().getFullYear();
   const startYear = 1999;
   const endYear = currentYear + 2;
-  const yearOptions: DropdownOption[] = Array.from({ length: endYear - startYear + 1 }, (_, i) => {
-    const year = startYear + i;
-    return { value: String(year), label: String(year) };
-  });
-
   const monthNames = t('common.dateRangePicker.months', { returnObjects: true }) as string[];
-  const monthOptions: DropdownOption[] = monthNames.map((month, index) => ({
-    value: String(index),
-    label: month
-  }));
 
+  // Both ends are normalized to the day they fall on, so a bound that carries the end of its day -
+  // which is what an event preset hands back - still marks that one cell rather than none.
   const isDateInRange = (day: number): boolean => {
-    const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-    checkDate.setHours(0, 0, 0, 0);
+    const checkDate = gridDayStart(day);
 
     if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      start.setHours(0, 0, 0, 0);
-      end.setHours(0, 0, 0, 0);
-      return checkDate >= start && checkDate <= end;
+      return checkDate >= dayStartOf(startDate) && checkDate <= dayStartOf(endDate);
     }
 
     if (startDate && !endDate && hoveredDate) {
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      const hover = new Date(hoveredDate);
-      hover.setHours(0, 0, 0, 0);
-
-      const minDate = start < hover ? start : hover;
-      const maxDate = start > hover ? start : hover;
-
-      return checkDate >= minDate && checkDate <= maxDate;
+      const start = dayStartOf(startDate);
+      const hover = dayStartOf(hoveredDate);
+      return checkDate >= Math.min(start, hover) && checkDate <= Math.max(start, hover);
     }
 
     return false;
@@ -185,46 +187,34 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
   const isStartDate = (day: number): boolean => {
     if (!startDate) return false;
-    const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-    checkDate.setHours(0, 0, 0, 0);
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    return checkDate.getTime() === start.getTime();
+    return gridDayStart(day) === dayStartOf(startDate);
   };
 
   const isEndDate = (day: number): boolean => {
     if (!endDate) return false;
-    const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-    checkDate.setHours(0, 0, 0, 0);
-    const end = new Date(endDate);
-    end.setHours(0, 0, 0, 0);
-    return checkDate.getTime() === end.getTime();
+    return gridDayStart(day) === dayStartOf(endDate);
   };
 
   const isHoveredDate = (day: number): boolean => {
     if (!hoveredDate) return false;
-    const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-    checkDate.setHours(0, 0, 0, 0);
-    const hover = new Date(hoveredDate);
-    hover.setHours(0, 0, 0, 0);
-    return checkDate.getTime() === hover.getTime();
+    return gridDayStart(day) === dayStartOf(hoveredDate);
   };
 
   const isToday = (day: number): boolean => {
-    const today = new Date();
-    return (
-      currentMonth.getFullYear() === today.getFullYear() &&
-      currentMonth.getMonth() === today.getMonth() &&
-      day === today.getDate()
-    );
+    return gridDayStart(day) === dayStartOf(new Date());
   };
 
   const daysInMonth = getDaysInMonth(currentMonth);
   const firstDayOfMonth = getFirstDayOfMonth(currentMonth);
   const weekDays = t('common.dateRangePicker.weekDays', { returnObjects: true }) as string[];
+  // Counted between the two days themselves, not their raw instants: an end that carries the last
+  // millisecond of its day used to round up to an extra day, and a DST step inside the span makes
+  // the raw difference a whole hour short of a multiple of 24.
   const selectedDays =
     startDate && endDate
-      ? Math.abs(Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))) + 1
+      ? Math.abs(
+          Math.round((dayStartOf(endDate) - dayStartOf(startDate)) / (1000 * 60 * 60 * 24))
+        ) + 1
       : 0;
 
   return (
@@ -240,56 +230,13 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       size="md"
     >
       <div>
-        <div className="mb-4 flex items-center justify-between">
-          {/* md is the only size where Button and EnhancedDropdown are both 40px: the
-              dropdown trigger's sm is 34px against Button's 32px. Below the phone breakpoint
-              the trigger takes a 44px touch floor, so the buttons follow it up with min-h-11.
-              Same row and same values as DateTimePicker. */}
-          <Button
-            variant="filled"
-            color="gray"
-            size="md"
-            className="max-sm:min-h-11"
-            onClick={() => changeMonth(-1)}
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </Button>
-
-          <div className="flex items-center gap-2">
-            <EnhancedDropdown
-              options={monthOptions}
-              value={String(currentMonth.getMonth())}
-              onChange={handleMonthSelect}
-              variant="button"
-              size="md"
-              maxHeight="200px"
-              dropdownWidth="w-40"
-              className="w-[104px] sm:w-[128px]"
-            />
-
-            <EnhancedDropdown
-              options={yearOptions}
-              value={String(currentMonth.getFullYear())}
-              onChange={handleYearSelect}
-              variant="button"
-              size="md"
-              alignRight
-              maxHeight="200px"
-              dropdownWidth="w-28"
-              className="w-[76px] sm:w-[92px]"
-            />
-          </div>
-
-          <Button
-            variant="filled"
-            color="gray"
-            size="md"
-            className="max-sm:min-h-11"
-            onClick={() => changeMonth(1)}
-          >
-            <ChevronRight className="w-5 h-5" />
-          </Button>
-        </div>
+        <CalendarNavigation
+          currentMonth={currentMonth}
+          startYear={startYear}
+          endYear={endYear}
+          monthNames={monthNames}
+          onChange={setCurrentMonth}
+        />
 
         <div className="grid grid-cols-7 gap-1 mb-2">
           {weekDays.map((day) => (
@@ -367,7 +314,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               </span>
               <span className="text-[var(--theme-text-primary)] font-medium">
                 {startDate
-                  ? formatTimestamp(startDate, SELECTED_DAY_FORMAT)
+                  ? formatTimestamp(startDate, selectedDayFormat)
                   : t('common.dateRangePicker.notSelected')}
               </span>
             </div>
@@ -377,7 +324,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               </span>
               <span className="text-[var(--theme-text-primary)] font-medium">
                 {endDate
-                  ? formatTimestamp(endDate, SELECTED_DAY_FORMAT)
+                  ? formatTimestamp(endDate, selectedDayFormat)
                   : t('common.dateRangePicker.notSelected')}
               </span>
             </div>
@@ -399,10 +346,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => {
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                onStartDateChange(today);
-                onEndDateChange(today);
+                const today = readerToday();
+                selectDayRange(today, today);
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
@@ -410,12 +355,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             </button>
             <button
               onClick={() => {
-                const end = new Date();
-                end.setHours(0, 0, 0, 0);
-                const start = new Date(end);
-                start.setDate(start.getDate() - 6);
-                onStartDateChange(start);
-                onEndDateChange(end);
+                const end = readerToday();
+                selectDayRange({ ...end, day: end.day - 6 }, end);
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
@@ -423,12 +364,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             </button>
             <button
               onClick={() => {
-                const end = new Date();
-                end.setHours(0, 0, 0, 0);
-                const start = new Date(end);
-                start.setDate(start.getDate() - 29);
-                onStartDateChange(start);
-                onEndDateChange(end);
+                const end = readerToday();
+                selectDayRange({ ...end, day: end.day - 29 }, end);
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
@@ -436,13 +373,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             </button>
             <button
               onClick={() => {
-                const now = new Date();
-                const start = new Date(now.getFullYear(), now.getMonth(), 1);
-                start.setHours(0, 0, 0, 0);
-                const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                end.setHours(0, 0, 0, 0);
-                onStartDateChange(start);
-                onEndDateChange(end);
+                const { year, month } = readerToday();
+                selectDayRange({ year, month, day: 1 }, { year, month: month + 1, day: 0 });
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
@@ -450,13 +382,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             </button>
             <button
               onClick={() => {
-                const now = new Date();
-                const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                start.setHours(0, 0, 0, 0);
-                const end = new Date(now.getFullYear(), now.getMonth(), 0);
-                end.setHours(0, 0, 0, 0);
-                onStartDateChange(start);
-                onEndDateChange(end);
+                const { year, month } = readerToday();
+                selectDayRange({ year, month: month - 1, day: 1 }, { year, month, day: 0 });
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
@@ -464,13 +391,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             </button>
             <button
               onClick={() => {
-                const now = new Date();
-                const start = new Date(now.getFullYear(), 0, 1);
-                start.setHours(0, 0, 0, 0);
-                const end = new Date(now.getFullYear(), 11, 31);
-                end.setHours(0, 0, 0, 0);
-                onStartDateChange(start);
-                onEndDateChange(end);
+                const { year } = readerToday();
+                selectDayRange({ year, month: 0, day: 1 }, { year, month: 11, day: 31 });
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
@@ -495,7 +417,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 return (
                   <Tooltip
                     key={event.id}
-                    content={`${event.name}: ${formatEventDateRange(event.startTimeUtc, event.endTimeUtc)}`}
+                    content={`${event.name}: ${formatEventDateRange(event.startTimeUtc, event.endTimeUtc, eventClock)}`}
                     position="top"
                   >
                     <button

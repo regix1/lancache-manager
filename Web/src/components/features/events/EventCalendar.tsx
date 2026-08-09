@@ -5,6 +5,7 @@ import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useTimezone } from '@contexts/useTimezone';
 import { useCalendarSettings } from '@contexts/useCalendarSettings';
+import { getDaysInMonth } from '@utils/calendar';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';
 import { clampToViewport } from '@utils/viewportClamp';
@@ -77,7 +78,7 @@ interface WeekRow {
 
 const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onDayClick }) => {
   const { t } = useTranslation();
-  const { useLocalTimezone } = useTimezone();
+  const { useLocalTimezone, useUtcTimezone } = useTimezone();
   const { settings } = useCalendarSettings();
   const isMobile = useMediaQuery('(max-width: 640px)');
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
@@ -156,11 +157,6 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
     label: String(startYear + i)
   }));
 
-  // Get days in month
-  const getDaysInMonth = (date: Date): number => {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  };
-
   // Get first day of month adjusted for week start setting
   const getFirstDayOfMonth = (date: Date): number => {
     const dayOfWeek = new Date(date.getFullYear(), date.getMonth(), 1).getDay();
@@ -188,37 +184,33 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
     return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   };
 
+  // Which day counts as today, and which days are already gone, are read from the browser's own
+  // calendar. The event modal and its two date pickers build their minimum date from a browser-local
+  // midnight, so reading today through the display timezone instead let the grid grey out and refuse
+  // a click on a day the modal was still happily accepting. currentMonth is itself a browser-local
+  // date, so both sides of the comparison speak the same calendar and the numbers compare directly.
+  // getEventsForDay keeps binning events with getDateInTimezone in the display timezone, because
+  // that is what decides which cell an event belongs in. [62]
   const isToday = (day: number): boolean => {
-    const now = new Date();
-    const timezone = getEffectiveTimezone(useLocalTimezone);
-    const todayParts = getDateInTimezone(now, timezone);
-    const dayParts = getDateInTimezone(
-      new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day),
-      timezone
-    );
+    const today = new Date();
 
     return (
-      dayParts.year === todayParts.year &&
-      dayParts.month === todayParts.month &&
-      dayParts.day === todayParts.day
+      currentMonth.getFullYear() === today.getFullYear() &&
+      currentMonth.getMonth() === today.getMonth() &&
+      day === today.getDate()
     );
   };
 
   const isPastDay = (day: number): boolean => {
-    const timezone = getEffectiveTimezone(useLocalTimezone);
-    const todayParts = getDateInTimezone(new Date(), timezone);
-    const dayParts = getDateInTimezone(
-      new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day),
-      timezone
-    );
+    const today = new Date();
 
-    if (dayParts.year !== todayParts.year) {
-      return dayParts.year < todayParts.year;
+    if (currentMonth.getFullYear() !== today.getFullYear()) {
+      return currentMonth.getFullYear() < today.getFullYear();
     }
-    if (dayParts.month !== todayParts.month) {
-      return dayParts.month < todayParts.month;
+    if (currentMonth.getMonth() !== today.getMonth()) {
+      return currentMonth.getMonth() < today.getMonth();
     }
-    return dayParts.day < todayParts.day;
+    return day < today.getDate();
   };
 
   const changeMonth = (increment: number) => {
@@ -242,7 +234,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
 
   // Build week rows with spanning events
   const weekRows = useMemo((): WeekRow[] => {
-    const timezone = getEffectiveTimezone(useLocalTimezone);
+    const timezone = getEffectiveTimezone(useLocalTimezone, useUtcTimezone);
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
 
@@ -366,7 +358,14 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
     }
 
     return rows;
-  }, [filteredEvents, currentMonth, firstDayOfMonth, daysInMonth, useLocalTimezone]);
+  }, [
+    filteredEvents,
+    currentMonth,
+    firstDayOfMonth,
+    daysInMonth,
+    useLocalTimezone,
+    useUtcTimezone
+  ]);
 
   // Reset the measured position when the popover closes, matching CalendarSettingsPopover. [18]
   useEffect(() => {
@@ -443,7 +442,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
 
   // Get events for a specific day
   const getEventsForDay = useMemo(() => {
-    const timezone = getEffectiveTimezone(useLocalTimezone);
+    const timezone = getEffectiveTimezone(useLocalTimezone, useUtcTimezone);
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
 
@@ -463,7 +462,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
         return checkDate >= eventStartDate && checkDate <= eventEndDate;
       });
     };
-  }, [filteredEvents, currentMonth, useLocalTimezone]);
+  }, [filteredEvents, currentMonth, useLocalTimezone, useUtcTimezone]);
 
   // Get event count for a specific day
   const getEventCountForDay = useMemo(() => {
@@ -494,6 +493,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
             variant="default"
             size="md"
             onClick={() => changeMonth(-1)}
+            aria-label={t('events.calendar.previousMonth')}
             className="btn-icon-square max-sm:min-h-11 max-sm:min-w-11"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -520,6 +520,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
             variant="default"
             size="md"
             onClick={() => changeMonth(1)}
+            aria-label={t('events.calendar.nextMonth')}
             className="btn-icon-square max-sm:min-h-11 max-sm:min-w-11"
           >
             <ChevronRight className="w-4 h-4" />

@@ -34,9 +34,17 @@ public class SessionsController : ControllerBase
         _stateService = stateService;
     }
 
+    /// <summary>
+    /// Lists sessions for the admin management screen.
+    /// </summary>
+    /// <remarks>
+    /// Active sessions (paginated), plus the full revoked/expired history unpaginated since it is
+    /// only ever shown as a flat audit list.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet]
-    public async Task<IActionResult> GetAllAsync([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    [ProducesResponseType(typeof(SessionListResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SessionListResponse>> GetAllAsync([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 20;
@@ -54,20 +62,20 @@ public class SessionsController : ControllerBase
         var historySessions = await _sessionService.GetSessionHistoryAsync();
         var historyDtos = historySessions.Select(s => ToDto(s, currentSessionId, now)).ToList();
 
-        return Ok(new
+        return Ok(new SessionListResponse
         {
-            sessions = activeDtos,
-            count = activeDtos.Count,
-            adminCount = activeDtos.Count(s => s.SessionType == SessionType.Admin),
-            guestCount = activeDtos.Count(s => s.SessionType == SessionType.Guest),
-            pagination = new
+            Sessions = activeDtos,
+            Count = activeDtos.Count,
+            AdminCount = activeDtos.Count(s => s.SessionType == SessionType.Admin),
+            GuestCount = activeDtos.Count(s => s.SessionType == SessionType.Guest),
+            Pagination = new SessionListPage
             {
-                page,
-                pageSize,
-                totalCount = activeCount,
-                totalPages
+                Page = page,
+                PageSize = pageSize,
+                TotalCount = activeCount,
+                TotalPages = totalPages
             },
-            historySessions = historyDtos
+            HistorySessions = historyDtos
         });
     }
 
@@ -121,9 +129,17 @@ public class SessionsController : ControllerBase
         };
     }
 
+    /// <summary>
+    /// Revokes a session.
+    /// </summary>
+    /// <remarks>
+    /// It can no longer authenticate, but its row (and history) is kept, unlike
+    /// <see cref="DeleteAsync"/> which erases it outright.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch("{id:guid}/revoke")]
-    public async Task<IActionResult> RevokeAsync(Guid id)
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageResponse>> RevokeAsync(Guid id)
     {
         var currentSession = HttpContext.GetUserSession();
 
@@ -140,12 +156,19 @@ public class SessionsController : ControllerBase
             sessionType = currentSession != null && currentSession.Id == id ? currentSession.SessionType.ToString().ToLowerInvariant() : "unknown"
         });
 
-        return Ok(new { success = true, message = "Session revoked" });
+        return Ok(MessageResponse.Ok("Session revoked"));
     }
 
+    /// <summary>
+    /// Permanently deletes a session's row and history.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="RevokeAsync"/> which only blocks it from authenticating again.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> DeleteAsync(Guid id)
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageResponse>> DeleteAsync(Guid id)
     {
         var currentSession = HttpContext.GetUserSession();
 
@@ -162,11 +185,19 @@ public class SessionsController : ControllerBase
             sessionType = currentSession != null && currentSession.Id == id ? currentSession.SessionType.ToString().ToLowerInvariant() : "unknown"
         });
 
-        return Ok(new { success = true, message = "Session permanently deleted" });
+        return Ok(MessageResponse.Ok("Session permanently deleted"));
     }
 
+    /// <summary>
+    /// Updates the caller's own dashboard refresh rate preference.
+    /// </summary>
+    /// <remarks>
+    /// The owning session may always change its own rate; an admin may change anyone's. Guests
+    /// are blocked while the admin has locked the global guest refresh rate.
+    /// </remarks>
     [HttpPatch("{id:guid}/refresh-rate")]
-    public async Task<IActionResult> UpdateRefreshRateAsync(Guid id, [FromBody] RefreshRateRequest request)
+    [ProducesResponseType(typeof(StateUpdateResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<StateUpdateResponse>> UpdateRefreshRateAsync(Guid id, [FromBody] RefreshRateRequest request)
     {
         var callerSession = HttpContext.GetUserSession();
         var isAdmin = callerSession?.SessionType == SessionType.Admin;
@@ -195,12 +226,19 @@ public class SessionsController : ControllerBase
             refreshRate = request.RefreshRate
         });
 
-        return Ok(new { success = true });
+        return Ok(new StateUpdateResponse { Success = true });
     }
 
+    /// <summary>
+    /// Deletes every guest session's stored preferences, resetting them to defaults.
+    /// </summary>
+    /// <remarks>
+    /// Admin sessions are untouched.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("bulk/reset-to-defaults")]
-    public async Task<IActionResult> ResetToDefaultsAsync()
+    [ProducesResponseType(typeof(SessionResetResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SessionResetResponse>> ResetToDefaultsAsync()
     {
         using var scope = _scopeFactory.CreateScope();
         var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
@@ -230,12 +268,20 @@ public class SessionsController : ControllerBase
             });
         }
 
-        return Ok(new { success = true, affectedCount });
+        return Ok(new SessionResetResponse { Success = true, AffectedCount = affectedCount });
     }
 
+    /// <summary>
+    /// Revokes every active guest session.
+    /// </summary>
+    /// <remarks>
+    /// Frees up their slots and forces a fresh session on next visit. Admin sessions are
+    /// untouched.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("bulk/clear-guests")]
-    public async Task<IActionResult> ClearGuestsAsync()
+    [ProducesResponseType(typeof(SessionClearGuestsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SessionClearGuestsResponse>> ClearGuestsAsync()
     {
         var count = await _sessionService.RevokeAllGuestSessionsAsync();
 
@@ -245,20 +291,23 @@ public class SessionsController : ControllerBase
             sessionType = "guest"
         });
 
-        return Ok(new { success = true, clearedCount = count });
+        return Ok(new SessionClearGuestsResponse { Success = true, ClearedCount = count });
     }
 
     /// <summary>
-    /// Accepts browser-reported client metadata for the caller's own session: navigator-derived
-    /// locale/screen fields, plus a public IP resolved server-side from the connection's remote
-    /// address, falling back to PublicIpLookupService when the caller is on the LAN. Performs a
-    /// cached GeoIP lookup on the public IP and writes the resolved country/city/ISP back onto
-    /// the session.
+    /// Accepts browser-reported client metadata for the caller's own session.
+    /// </summary>
+    /// <remarks>
+    /// Navigator-derived locale/screen fields, plus a public IP resolved server-side from the
+    /// connection's remote address, falling back to PublicIpLookupService when the caller is on
+    /// the LAN. Performs a cached GeoIP lookup on the public IP and writes the resolved
+    /// country/city/ISP back onto the session.
     ///
     /// Any session type (admin or guest) may write its own client info.
-    /// </summary>
+    /// </remarks>
     [HttpPost("me/client-info")]
-    public async Task<IActionResult> UpdateClientInfoAsync(
+    [ProducesResponseType(typeof(SessionClientInfoResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SessionClientInfoResponse>> UpdateClientInfoAsync(
         [FromBody] ClientInfoRequest request,
         [FromServices] GeoIpService geoIpService,
         [FromServices] PublicIpLookupService publicIpLookupService,
@@ -311,16 +360,16 @@ public class SessionsController : ControllerBase
             screenResolution: Truncate(request.ScreenResolution, 32),
             browserLanguage: Truncate(request.Language, 16));
 
-        return Ok(new
+        return Ok(new SessionClientInfoResponse
         {
-            success = true,
-            publicIp,
-            countryCode = geo?.CountryCode,
-            country = geo?.CountryName,
-            region = geo?.RegionName,
-            city = geo?.City,
-            timezone,
-            isp = geo?.IspName
+            Success = true,
+            PublicIp = publicIp,
+            CountryCode = geo?.CountryCode,
+            Country = geo?.CountryName,
+            Region = geo?.RegionName,
+            City = geo?.City,
+            Timezone = timezone,
+            Isp = geo?.IspName
         });
     }
 

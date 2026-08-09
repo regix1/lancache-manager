@@ -36,35 +36,18 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
       service={BATTLENET_DAEMON}
       onError={onError}
       copy={{
-        title: t('management.sections.integrations.battlenetDaemonStatus.title', 'Battle.net'),
+        title: t('management.sections.integrations.battlenetDaemonStatus.title'),
         summary: t('management.sections.integrations.battlenetDaemonStatus.summary'),
-        connected: t(
-          'management.sections.integrations.battlenetDaemonStatus.connected',
-          'Connected'
-        ),
-        notConnected: t(
-          'management.sections.integrations.battlenetDaemonStatus.notConnected',
-          'Not Connected'
-        ),
-        loadingStatus: t(
-          'management.sections.integrations.battlenetDaemonStatus.loadingStatus',
-          'Loading Battle.net status...'
-        ),
-        loadError: t(
-          'management.sections.integrations.battlenetDaemonStatus.loadError',
-          'Failed to load Battle.net status. Displaying default values.'
-        ),
-        availableHeadline: t(
-          'management.sections.integrations.battlenetDaemonStatus.dockerStatus',
-          'Docker Service'
-        ),
+        connected: t('management.sections.integrations.battlenetDaemonStatus.connected'),
+        notConnected: t('management.sections.integrations.battlenetDaemonStatus.notConnected'),
+        loadingStatus: t('management.sections.integrations.battlenetDaemonStatus.loadingStatus'),
+        loadError: t('management.sections.integrations.battlenetDaemonStatus.loadError'),
+        availableHeadline: t('management.sections.integrations.battlenetDaemonStatus.dockerStatus'),
         availableDetail: t(
-          'management.sections.integrations.battlenetDaemonStatus.dockerAvailableDesc',
-          'Docker is available and ready for Battle.net prefill sessions. No account login required.'
+          'management.sections.integrations.battlenetDaemonStatus.dockerAvailableDesc'
         ),
         unavailableDetail: t(
-          'management.sections.integrations.battlenetDaemonStatus.dockerUnavailableDesc',
-          'Start Docker to enable Battle.net prefill sessions.'
+          'management.sections.integrations.battlenetDaemonStatus.dockerUnavailableDesc'
         ),
         sessionCount: (count) =>
           count > 0
@@ -72,41 +55,28 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
                 count,
                 defaultValue: '{{count}} active session'
               })
-            : t(
-                'management.sections.integrations.battlenetDaemonStatus.noActiveSessions',
-                'No active sessions'
-              ),
+            : t('management.sections.integrations.battlenetDaemonStatus.noActiveSessions'),
         help: {
-          title: t(
-            'management.sections.integrations.battlenetDaemonStatus.help.anonymous.title',
-            'Anonymous Prefill'
-          ),
+          title: t('management.sections.integrations.battlenetDaemonStatus.help.anonymous.title'),
           definitions: [
             {
               term: t(
-                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.noLogin.term',
-                'No Account Login'
+                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.noLogin.term'
               ),
               description: t(
-                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.noLogin.description',
-                'Battle.net prefill downloads public Blizzard CDN content and requires no account, credentials, or login.'
+                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.noLogin.description'
               )
             },
             {
               term: t(
-                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.products.term',
-                'Product Catalog'
+                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.products.term'
               ),
               description: t(
-                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.products.description',
-                'The daemon exposes the full fixed Battle.net product catalog for prefill selection.'
+                'management.sections.integrations.battlenetDaemonStatus.help.anonymous.products.description'
               )
             }
           ],
-          note: t(
-            'management.sections.integrations.battlenetDaemonStatus.help.note',
-            'No login required. The daemon container only needs Docker to be available to run prefill sessions.'
-          )
+          note: t('management.sections.integrations.battlenetDaemonStatus.help.note')
         }
       }}
     />

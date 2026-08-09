@@ -106,7 +106,7 @@ const serviceFilterKey = (service: string): string => {
   return SERVICE_FILTER_ALIASES[raw] ?? raw;
 };
 
-const isResolvedGameName = (
+export const isResolvedGameName = (
   gameName: string | null | undefined,
   service: string | null | undefined
 ): boolean => {

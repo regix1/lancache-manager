@@ -389,7 +389,13 @@ export function GameSelectionModal({
           {isLoading ? (
             <div className="p-3 space-y-2" aria-busy="true">
               {[0, 1, 2, 3, 4].map((row) => (
-                <div key={row} className="skeleton-shimmer h-11 rounded-lg" />
+                <div key={row} className="flex items-center gap-3 px-4 py-3">
+                  <div className="flex-shrink-0 w-5 h-5 rounded skeleton-shimmer" />
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="skeleton-shimmer h-4 rounded w-2/5" />
+                    <div className="skeleton-shimmer h-3 rounded w-1/5" />
+                  </div>
+                </div>
               ))}
             </div>
           ) : sortedGames.length === 0 ? (

@@ -29,11 +29,13 @@ public class SpeedsController : ControllerBase
     }
 
     /// <summary>
-    /// Get current download speeds for all active games and clients. Hidden-client, prefill,
-    /// and evicted-data filtering happen inside the tracker's shared client-visible snapshot
-    /// builder, which the SignalR broadcast also uses, so both transports always expose
-    /// identical visibility semantics.
+    /// Gets current download speeds for all active games and clients.
     /// </summary>
+    /// <remarks>
+    /// Hidden-client, prefill, and evicted-data filtering happen inside the tracker's shared
+    /// client-visible snapshot builder, which the SignalR broadcast also uses, so both transports
+    /// always expose identical visibility semantics.
+    /// </remarks>
     [HttpGet("current")]
     [ProducesResponseType(typeof(DownloadSpeedSnapshot), StatusCodes.Status200OK)]
     public ActionResult<DownloadSpeedSnapshot> GetCurrentSpeeds()

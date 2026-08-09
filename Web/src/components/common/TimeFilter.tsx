@@ -15,6 +15,7 @@ import {
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import type { TimeRange } from '@contexts/TimeFilterContext.types';
 import { useEvents } from '@contexts/useEvents';
+import { useReaderClock } from '@hooks/useReaderClock';
 import DateRangePicker from './DateRangePicker';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -29,17 +30,6 @@ interface TimeFilterProps {
   disabled?: boolean;
   iconOnly?: boolean;
 }
-
-// A custom range is a pair of calendar days the user picked in their own calendar, not two
-// instants, so it renders in the browser's timezone: converting a local midnight into the
-// server's timezone can move the label onto the day before. The date-only shape carries no
-// time, so the 24-hour preference has nothing to act on here.
-const CUSTOM_RANGE_FORMAT: TimestampSettings = {
-  useLocalTimezone: true,
-  use24Hour: true,
-  forceYear: false,
-  style: 'dateOnly'
-};
 
 const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = false }) => {
   const { t } = useTranslation();
@@ -56,6 +46,19 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
   } = useTimeFilter();
 
   const { events } = useEvents();
+
+  // Subscribing here is what keeps the event rows and the custom-range label in step with the
+  // header: nothing else in this component re-renders when that switch is thrown.
+  const eventClock = useReaderClock();
+
+  // The date picker builds a custom range as two moments on the reader's clock, so the label reads
+  // them back on it. Forcing the browser's calendar here instead names the day before whenever the
+  // reader is on the server or UTC clock and the browser sits behind it. The date-only shape
+  // carries no time, so the 24-hour preference has nothing to act on. [7]
+  const customRangeFormat = useMemo<TimestampSettings>(
+    () => ({ ...eventClock, forceYear: false, style: 'dateOnly' }),
+    [eventClock]
+  );
 
   const [isOpen, setIsOpen] = useState(false);
   const { present, closing } = useExitPresence(isOpen, DROPDOWN_EXIT_MS);
@@ -297,8 +300,8 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
   // Generate custom label for date ranges
   const getTimeRangeTriggerLabel = () => {
     if (timeRange === 'custom' && customStartDate && customEndDate) {
-      const start = formatTimestamp(customStartDate, CUSTOM_RANGE_FORMAT);
-      const end = formatTimestamp(customEndDate, CUSTOM_RANGE_FORMAT);
+      const start = formatTimestamp(customStartDate, customRangeFormat);
+      const end = formatTimestamp(customEndDate, customRangeFormat);
       return `${start} - ${end}`;
     }
     const option = timeOptions.find((o) => o.value === timeRange);
@@ -540,7 +543,11 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                                       )}
                                     </div>
                                     <span className="text-xs mt-0.5 text-[var(--theme-text-secondary)]">
-                                      {formatEventDateRange(event.startTimeUtc, event.endTimeUtc)}
+                                      {formatEventDateRange(
+                                        event.startTimeUtc,
+                                        event.endTimeUtc,
+                                        eventClock
+                                      )}
                                     </span>
                                   </div>
                                 </div>

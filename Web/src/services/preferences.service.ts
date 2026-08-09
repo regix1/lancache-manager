@@ -2,7 +2,12 @@ import { API_BASE } from '../utils/constants';
 import ApiService from './api.service';
 import type { UserSessionRevokedEvent } from '../contexts/SignalRContext/types';
 import { APP_EVENTS } from '@utils/constants';
-import type { UserPreferences as SessionUserPreferences } from '@/types/userPreferences';
+import {
+  CLOCK_KEYS,
+  DEFAULT_PREFERENCES,
+  type ClockPreferences,
+  type UserPreferences as SessionUserPreferences
+} from '@/types/userPreferences';
 
 // SignalR connection interface - handler needs to accept any args for compatibility
 interface SignalRConnection {
@@ -12,22 +17,7 @@ interface SignalRConnection {
 
 type UserPreferences = Omit<SessionUserPreferences, 'refreshRateLocked'>;
 
-/**
- * Default preferences used when API calls fail
- */
-const DEFAULT_PREFERENCES: UserPreferences = {
-  selectedTheme: null,
-  sharpCorners: false,
-  disableFocusOutlines: true,
-  disableTooltips: false,
-  picsAlwaysVisible: false,
-  disableStickyNotifications: false,
-  useLocalTimezone: false,
-  use24HourFormat: true,
-  showDatasourceLabels: true,
-  refreshRate: null,
-  allowedTimeFormats: null
-};
+type PreferenceValue = UserPreferences[keyof UserPreferences];
 
 /**
  * PreferencesService - Pure API layer for user preferences
@@ -61,6 +51,7 @@ class PreferencesService {
           picsAlwaysVisible: data.picsAlwaysVisible || false,
           disableStickyNotifications: data.disableStickyNotifications || false,
           useLocalTimezone: data.useLocalTimezone || false,
+          useUtcTimezone: data.useUtcTimezone || false,
           use24HourFormat: data.use24HourFormat || false,
           showDatasourceLabels: data.showDatasourceLabels ?? true,
           refreshRate: data.refreshRate || null,
@@ -86,38 +77,103 @@ class PreferencesService {
     value: UserPreferences[K]
   ): Promise<boolean> {
     const keyStr = key as string;
+    const inFlight = this.pendingUpdates.get(keyStr);
 
-    // If there's already an update in-flight for this key, return that promise
-    if (this.pendingUpdates.has(keyStr)) {
-      return this.pendingUpdates.get(keyStr)!;
-    }
+    // A second value for the same key waits behind the request already out rather than being
+    // dropped for it, so the server ends on the value picked last and the caller is told what
+    // happened to its own value instead of the earlier one's. [21]
+    const send = inFlight
+      ? inFlight.then(() => this.sendPreference(keyStr, value))
+      : this.sendPreference(keyStr, value);
 
-    const updatePromise = (async () => {
-      try {
-        const response = await fetch(
-          `${API_BASE}/user-preferences/${key}`,
-          ApiService.getJsonFetchOptions(value, { method: 'PATCH' })
-        );
-
-        if (response.ok) {
-          return true;
-        } else {
-          console.error(
-            `[PreferencesService] Failed to update preference ${key}:`,
-            response.status
-          );
-          return false;
-        }
-      } catch (error: unknown) {
-        console.error(`[PreferencesService] Error updating preference ${key}:`, error);
-        return false;
-      } finally {
+    const tracked: Promise<boolean> = send.finally(() => {
+      // Only the tail clears the slot; an earlier link finishing must not free a key that a
+      // later value is still queued behind.
+      if (this.pendingUpdates.get(keyStr) === tracked) {
         this.pendingUpdates.delete(keyStr);
       }
-    })();
+    });
 
-    this.pendingUpdates.set(keyStr, updatePromise);
-    return updatePromise;
+    this.pendingUpdates.set(keyStr, tracked);
+    return tracked;
+  }
+
+  /**
+   * Update the three clock flags in one request.
+   *
+   * They share the in-flight map with the per-key path, so a second click still waits behind the
+   * request already out and the server ends on the clock picked last. What the single request buys is
+   * that the three columns commit together: no second click can be applied between two writes of the
+   * first and leave the row naming a clock nobody chose. [63]
+   */
+  async setClockPreferences(clock: ClockPreferences): Promise<boolean> {
+    const inFlight = CLOCK_KEYS.map((key) => this.pendingUpdates.get(key)).filter(
+      (update): update is Promise<boolean> => update !== undefined
+    );
+
+    const send =
+      inFlight.length > 0
+        ? Promise.all(inFlight).then(() => this.sendClockPreferences(clock))
+        : this.sendClockPreferences(clock);
+
+    const tracked: Promise<boolean> = send.finally(() => {
+      // Only the tail clears a slot; an earlier link finishing must not free a key that a later
+      // value is still queued behind.
+      CLOCK_KEYS.forEach((key) => {
+        if (this.pendingUpdates.get(key) === tracked) {
+          this.pendingUpdates.delete(key);
+        }
+      });
+    });
+
+    CLOCK_KEYS.forEach((key) => this.pendingUpdates.set(key, tracked));
+    return tracked;
+  }
+
+  /**
+   * Send the clock flags to the API. Reports failure by resolving false rather than throwing, the same
+   * way the per-key send does.
+   */
+  private async sendClockPreferences(clock: ClockPreferences): Promise<boolean> {
+    try {
+      const response = await fetch(
+        `${API_BASE}/user-preferences/clock`,
+        ApiService.getJsonFetchOptions(clock, { method: 'PATCH' })
+      );
+
+      if (response.ok) {
+        return true;
+      }
+
+      console.error('[PreferencesService] Failed to update clock preferences:', response.status);
+      return false;
+    } catch (error: unknown) {
+      console.error('[PreferencesService] Error updating clock preferences:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Send one preference to the API. Reports failure by resolving false rather than throwing, so
+   * callers awaiting several of these have to read the results.
+   */
+  private async sendPreference(key: string, value: PreferenceValue): Promise<boolean> {
+    try {
+      const response = await fetch(
+        `${API_BASE}/user-preferences/${key}`,
+        ApiService.getJsonFetchOptions(value, { method: 'PATCH' })
+      );
+
+      if (response.ok) {
+        return true;
+      } else {
+        console.error(`[PreferencesService] Failed to update preference ${key}:`, response.status);
+        return false;
+      }
+    } catch (error: unknown) {
+      console.error(`[PreferencesService] Error updating preference ${key}:`, error);
+      return false;
+    }
   }
 
   /**

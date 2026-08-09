@@ -37,10 +37,16 @@ public class DatabaseController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/database - Reset entire database
-    /// RESTful: DELETE is proper method for clearing/resetting resources
+    /// Wipes every table in the database.
     /// </summary>
+    /// <remarks>
+    /// A conflicting bulk operation does not reject the request; it is parked on the wait queue
+    /// and started automatically once the conflict clears, so the caller always gets back an
+    /// operation to track rather than a 409.
+    /// </remarks>
     [HttpDelete]
+    [ProducesResponseType(typeof(DatabaseResetStartResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ResetDatabaseAsync(CancellationToken cancellationToken)
     {
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
@@ -82,11 +88,16 @@ public class DatabaseController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/database/tables - Reset selected tables
-    /// RESTful: DELETE with body specifying which tables to reset
-    /// Request body: { "tables": ["Downloads", "ClientStats", ...] }
+    /// Wipes only the named tables instead of the whole database.
     /// </summary>
+    /// <remarks>
+    /// Uses the same wait-queue model as the full reset: a conflicting bulk operation parks this
+    /// request instead of rejecting it.
+    /// </remarks>
+    /// <param name="request">The table names to clear; an empty or missing list is rejected.</param>
     [HttpDelete("tables")]
+    [ProducesResponseType(typeof(SelectedTablesResetResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ResetSelectedTablesAsync([FromBody] ResetTablesRequest request, CancellationToken cancellationToken)
     {
         if (request.Tables == null || request.Tables.Count == 0)
@@ -125,11 +136,17 @@ public class DatabaseController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/database/reset-status - Get status of database reset operation
-    /// Checks both Rust-based reset service and C# DatabaseService reset operations
+    /// Reports whether a database reset is currently running.
     /// </summary>
+    /// <remarks>
+    /// Recovery endpoint for the database reset notification card, covering both full and
+    /// selected-tables resets. Checks both the Rust-based reset path and the older C#
+    /// <see cref="DatabaseService"/> reset path so a page refresh mid-reset always finds the
+    /// operation regardless of which one started it.
+    /// </remarks>
     [HttpGet("reset-status")]
-    public IActionResult GetDatabaseResetStatus()
+    [ProducesResponseType(typeof(DatabaseResetStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<DatabaseResetStatusResponse> GetDatabaseResetStatus()
     {
         // Check C# DatabaseService reset operations first
         if (_dbService.IsResetOperationRunning)
@@ -166,10 +183,15 @@ public class DatabaseController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/database/log-entries-count - Get count of log entries in database
+    /// Returns the count of log entries currently stored in the database.
     /// </summary>
+    /// <remarks>
+    /// This is the survivor of a duplicate pair; <c>LogsController.GetEntriesCount</c> was
+    /// removed because it returned a sentence instead of a number.
+    /// </remarks>
     [HttpGet("log-entries-count")]
-    public async Task<IActionResult> GetLogCountAsync()
+    [ProducesResponseType(typeof(LogEntriesCountResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<LogEntriesCountResponse>> GetLogCountAsync()
     {
         var count = await _dbService.GetLogEntriesCountAsync();
         return Ok(new LogEntriesCountResponse { Count = count });

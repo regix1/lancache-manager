@@ -34,19 +34,24 @@ public class ScheduledPrefillConfigController : ControllerBase
     /// Returns the current scheduled prefill configuration.
     /// </summary>
     [HttpGet("config")]
+    [ProducesResponseType(typeof(ScheduledPrefillConfigDto), StatusCodes.Status200OK)]
     public ActionResult<ScheduledPrefillConfigDto> GetConfig()
     {
         return Ok(_stateService.GetScheduledPrefillConfig());
     }
 
     /// <summary>
-    /// Returns the independent per-service schedule view: each service's interval, enabled flag, and
-    /// the durable last/next run times. <c>nextRunUtc</c> = <c>lastRun + interval</c>, and is null when
-    /// the service has never run or is paused / startup-only. A service running on a custom schedule
-    /// gets that schedule's own next occurrence instead, whatever its interval value says, so the
-    /// column is not blank for exactly the schedules that do not use an interval.
+    /// Returns the independent per-service schedule view.
     /// </summary>
+    /// <remarks>
+    /// Each service's interval, enabled flag, and the durable last/next run times. <c>nextRunUtc</c>
+    /// = <c>lastRun + interval</c>, and is null when the service has never run or is paused /
+    /// startup-only. A service running on a custom schedule gets that schedule's own next
+    /// occurrence instead, whatever its interval value says, so the column is not blank for
+    /// exactly the schedules that do not use an interval.
+    /// </remarks>
     [HttpGet("schedule")]
+    [ProducesResponseType(typeof(ScheduledPrefillServiceScheduleDto[]), StatusCodes.Status200OK)]
     public ActionResult<ScheduledPrefillServiceScheduleDto[]> GetSchedule()
     {
         var config = _stateService.GetScheduledPrefillConfig();
@@ -95,12 +100,16 @@ public class ScheduledPrefillConfigController : ControllerBase
     }
 
     /// <summary>
-    /// Reports whether a scheduled prefill run is executing right now. Notification recovery calls
-    /// this on (re)connect so a "Prefill in progress" card whose terminal SignalR event was missed
-    /// (page closed or connection dropped mid-run) is stale-completed instead of lingering forever,
-    /// and so a card is re-seeded when a run is genuinely still going.
+    /// Reports whether a scheduled prefill run is executing right now.
     /// </summary>
+    /// <remarks>
+    /// Notification recovery calls this on (re)connect so a "Prefill in progress" card whose
+    /// terminal SignalR event was missed (page closed or connection dropped mid-run) is
+    /// stale-completed instead of lingering forever, and so a card is re-seeded when a run is
+    /// genuinely still going.
+    /// </remarks>
     [HttpGet("run-status")]
+    [ProducesResponseType(typeof(ScheduledPrefillRunStatusDto), StatusCodes.Status200OK)]
     public ActionResult<ScheduledPrefillRunStatusDto> GetRunStatus()
     {
         var operation = _operationTracker

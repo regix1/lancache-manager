@@ -21,11 +21,18 @@ public class UserPreferences
     public bool PicsAlwaysVisible { get; set; }
     public bool DisableStickyNotifications { get; set; }
     public bool UseLocalTimezone { get; set; }
+    /// <summary>
+    /// Reads every time in the app on the UTC clock, whatever <see cref="UseLocalTimezone"/> says. It is a
+    /// third answer to "which clock", not a variation on the other two, which is why it is its own column
+    /// rather than a combination of them. UTC has no 12-hour face worth offering, so choosing it also puts
+    /// <see cref="Use24HourFormat"/> on.
+    /// </summary>
+    public bool UseUtcTimezone { get; set; }
     public bool Use24HourFormat { get; set; }
     public bool ShowDatasourceLabels { get; set; } = true;
 
     // Allowed time formats for this user (JSON array, null = all formats allowed)
-    // Valid values: server-24h, server-12h, local-24h, local-12h
+    // Valid values: server-24h, server-12h, local-24h, local-12h, utc
     public string? AllowedTimeFormats { get; set; }
 
     // Refresh rate for guest users (null = use default guest refresh rate)

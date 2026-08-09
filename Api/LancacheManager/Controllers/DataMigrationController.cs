@@ -40,10 +40,19 @@ public class DataMigrationController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/migration/import-lancache-manager - Import data from another LancacheManager database
-    /// Request body: { "connectionString": "Host=localhost;Database=lancachemanager;Username=postgres;Password=...", "batchSize": 1000, "overwriteExisting": false }
+    /// Imports historical download rows from another LancacheManager database.
     /// </summary>
+    /// <remarks>
+    /// Streams rows batch by batch, skipping or overwriting rows that already exist by
+    /// (ClientIp, StartTimeUtc). Runs as a tracked, cancellable operation reported over SignalR;
+    /// the HTTP response only carries the final tally.
+    /// </remarks>
+    /// <param name="request">
+    /// Connection string for the source database plus <c>batchSize</c> (default 1000) and
+    /// <c>overwriteExisting</c> (default false).
+    /// </param>
     [HttpPost("import-lancache-manager")]
+    [ProducesResponseType(typeof(MigrationImportResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> ImportLancacheManagerAsync([FromBody] DataMigrationImportRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
@@ -361,11 +370,15 @@ public class DataMigrationController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/migration/import/status - Get current data import status
-    /// Returns whether an import is running, progress percentage, status message, and operation ID
+    /// Reports whether a LancacheManager import is currently running.
     /// </summary>
+    /// <remarks>
+    /// Recovery endpoint for the import notification card. Also reports progress, so a page
+    /// refresh mid-import can resume showing the card instead of losing it.
+    /// </remarks>
     [HttpGet("import/status")]
-    public IActionResult GetImportStatus()
+    [ProducesResponseType(typeof(DataImportStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<DataImportStatusResponse> GetImportStatus()
     {
         var activeImports = _operationTracker.GetActiveOperations(OperationType.DataImport).ToList();
 
@@ -392,11 +405,18 @@ public class DataMigrationController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/migration/validate-connection - Test connection to a source LancacheManager PostgreSQL database
-    /// Query params: connectionString (PostgreSQL connection string)
+    /// Validates a connection string against a source LancacheManager database.
     /// </summary>
+    /// <remarks>
+    /// Confirms it has a Downloads table, so the import form can validate a connection before the
+    /// caller commits to a full import run. Connection and query failures are reported in the
+    /// response body (<c>Valid = false</c>), not as an HTTP error, since a bad connection string
+    /// is an expected input here rather than a server fault.
+    /// </remarks>
+    /// <param name="connectionString">PostgreSQL connection string for the source database.</param>
     [HttpGet("validate-connection")]
-    public async Task<IActionResult> ValidateConnectionAsync([FromQuery] string connectionString)
+    [ProducesResponseType(typeof(ConnectionValidationResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ConnectionValidationResponse>> ValidateConnectionAsync([FromQuery] string connectionString)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {

@@ -336,6 +336,25 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         Assert.True(reloaded.GuestModeLocked);
     }
 
+    // LA-5: the guest UTC clock default must survive a persist round-trip. It reached AppState without
+    // reaching the persisted mirror or either mapper, so an admin's choice was accepted, confirmed by the
+    // UI, and gone again after the next restart.
+    [Fact]
+    public void DefaultGuestUseUtcTimezone_SurvivesPersistRoundTrip()
+    {
+        var (writer, _) = CreateStateService();
+        writer.SaveState(new AppState { DefaultGuestUseUtcTimezone = true });
+
+        // The value was actually serialized (ToPersisted mapped it), not merely re-set by a default on reload.
+        var persisted = JsonNode.Parse(File.ReadAllText(StateFilePath))!.AsObject();
+        var node = persisted["DefaultGuestUseUtcTimezone"];
+        Assert.NotNull(node);
+        Assert.True(node!.GetValue<bool>());
+
+        var reloaded = CreateStateService().Service.GetState();
+        Assert.True(reloaded.DefaultGuestUseUtcTimezone);
+    }
+
     // ---- eviction-notification migration marker persistence + seeding rule ----
 
     // S-1: the migration marker must be written by ToPersisted and read back by FromPersisted. Without the
@@ -482,11 +501,16 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         DefaultGuestRefreshRate = RefreshRate.Relaxed,
         GuestRefreshRateLocked = false,
         DefaultGuestUseLocalTimezone = true,
+        DefaultGuestUseUtcTimezone = true,
         DefaultGuestUse24HourFormat = false,
         DefaultGuestSharpCorners = true,
         DefaultGuestDisableTooltips = true,
         DefaultGuestShowDatasourceLabels = false,
         AllowedTimeFormats = new() { "local-12h" },
+        // Set for the same reason as EvictionNotificationsMigrated below: this fixture is compared
+        // section by section after a reload, and a marker left at false would let the one-time UTC
+        // migration change the state between the two loads.
+        UtcTimeFormatMigrated = true,
         GuestPrefillEnabledByDefault = true,
         GuestPrefillDurationHours = 1,
         AdminPersistentLoginValidityDays = 222,
@@ -726,41 +750,4 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         }
     }
 
-    private class PathResolverProxy : DispatchProxy
-    {
-        public string Root { get; set; } = string.Empty;
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            ArgumentNullException.ThrowIfNull(targetMethod);
-
-            if (targetMethod.Name == nameof(IPathResolver.ResolvePath))
-            {
-                var path = Assert.IsType<string>(args![0]);
-                return Path.IsPathRooted(path) ? path : Path.Combine(Root, path);
-            }
-
-            if (targetMethod.Name == nameof(IPathResolver.NormalizePath))
-            {
-                return Assert.IsType<string>(args![0]);
-            }
-
-            if (targetMethod.ReturnType == typeof(string))
-            {
-                return Path.Combine(Root, targetMethod.Name);
-            }
-
-            if (targetMethod.ReturnType == typeof(bool))
-            {
-                return true;
-            }
-
-            if (targetMethod.ReturnType == typeof(int))
-            {
-                return 0;
-            }
-
-            return null;
-        }
-    }
 }

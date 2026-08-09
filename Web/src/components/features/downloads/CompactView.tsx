@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import './VirtualizedList.css';
 import { ChevronRight, ExternalLink, HardDrive } from 'lucide-react';
 import { formatBytes, formatPercent } from '@utils/formatters';
-import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { DownloadTimestamp } from './DownloadTimestamp';
 import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -28,9 +27,12 @@ import IpSessionList from './IpSessionList';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
+import { useIpExpansion } from './useIpExpansion';
+import { cacheHitPercent, toGroup } from './downloadGrouping';
 import type { Download, DownloadGroup, GameDetectionSummary } from '../../../types';
 import { useFlatRows } from '@hooks/useFlatRows';
 import type { HeaderRowKind } from './types';
+import { isResolvedGameName } from './liveDownloadPreviews';
 
 interface CompactViewSectionLabels {
   multipleDownloads: string;
@@ -142,16 +144,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
     stopHoldTimer
   });
 
-  const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
-
-  const toggleIp = (ip: string): void => {
-    setExpandedIps((prev) => ({ ...prev, [ip]: !prev[ip] }));
-  };
-
-  const isIpExpanded = (ip: string, sessionCount: number): boolean => {
-    if (ip in expandedIps) return expandedIps[ip];
-    return sessionCount <= 5;
-  };
+  const { toggleIp, isIpExpanded } = useIpExpansion();
 
   // Fetch associations when group is expanded
   // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
@@ -177,7 +170,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
   }, [isExpanded, enableScrollIntoView]);
 
   const availableImages = useAvailableGameImages();
-  const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
+  const hitPercent = cacheHitPercent(group.cacheHitBytes, group.totalBytes);
   const primaryDownload = group.downloads[0];
   const serviceLower = (group.service ?? '').toLowerCase();
   const isEpicService = serviceLower === 'epic' || serviceLower === 'epicgames';
@@ -210,10 +203,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
   // (whose members have no real game name, so the sentinel service drives it).
   const showGroupName =
     serviceLower === 'unknown' ||
-    group.downloads.some(
-      (d: Download) =>
-        d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
-    );
+    group.downloads.some((d: Download) => isResolvedGameName(d.gameName, d.service));
   const detection = resolveGameDetection(
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,
@@ -547,10 +537,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                 className="divide-y divide-[var(--theme-border-secondary)]"
                                 renderItem={(download) => {
                                   const totalBytes = download.totalBytes;
-                                  const cachePercent =
-                                    totalBytes > 0
-                                      ? (download.cacheHitBytes / totalBytes) * 100
-                                      : 0;
+                                  const cachePercent = cacheHitPercent(
+                                    download.cacheHitBytes,
+                                    totalBytes
+                                  );
                                   const associations = getAssociations(download.id);
 
                                   return (
@@ -699,28 +689,6 @@ const CompactView = React.memo(function CompactView({
     />
   );
 
-  const renderDownloadRow = (download: Download) => {
-    const totalBytes = download.totalBytes;
-
-    const fakeGroup = {
-      id: `individual-${download.id}`,
-      name: download.gameName || getServiceDisplayName(download.service),
-      type: 'game' as const,
-      service: download.service,
-      downloads: [download],
-      totalBytes: totalBytes,
-      totalDownloaded: totalBytes,
-      cacheHitBytes: download.cacheHitBytes,
-      cacheMissBytes: download.cacheMissBytes,
-      clientsSet: new Set([download.clientIp]),
-      firstSeen: download.startTimeUtc,
-      lastSeen: download.startTimeUtc,
-      count: 1
-    };
-
-    return renderGroupRow(fakeGroup);
-  };
-
   // Virtualization threshold: >200 rows. Section headers from `groupByFrequency`
   // are flattened into the same typed row array so the virtualizer can index
   // over them uniformly. Compact rows have roughly constant height (~48px);
@@ -785,9 +753,7 @@ const CompactView = React.memo(function CompactView({
                 >
                   {row.kind === 'header'
                     ? renderSectionHeader(row.variant)
-                    : 'downloads' in row.item
-                      ? renderGroupRow(row.item as DownloadGroup)
-                      : renderDownloadRow(row.item as Download)}
+                    : renderGroupRow(toGroup(row.item))}
                 </div>
               );
             })}
@@ -805,9 +771,7 @@ const CompactView = React.memo(function CompactView({
           <React.Fragment key={row.id}>
             {row.kind === 'header'
               ? renderSectionHeader(row.variant)
-              : 'downloads' in row.item
-                ? renderGroupRow(row.item as DownloadGroup)
-                : renderDownloadRow(row.item as Download)}
+              : renderGroupRow(toGroup(row.item))}
           </React.Fragment>
         ))}
       </div>

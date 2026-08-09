@@ -96,6 +96,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get all events
     /// </summary>
     [HttpGet]
+    [ProducesResponseType(typeof(List<Event>), StatusCodes.Status200OK)]
     public override Task<IActionResult> GetAllAsync(CancellationToken ct = default)
         => base.GetAllAsync(ct);
 
@@ -103,7 +104,8 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get currently active events
     /// </summary>
     [HttpGet("active")]
-    public async Task<IActionResult> GetActiveAsync()
+    [ProducesResponseType(typeof(List<Event>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<Event>>> GetActiveAsync()
     {
         var events = await _eventsService.GetActiveEventsAsync();
         return Ok(events);
@@ -113,7 +115,8 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get events for calendar view (by date range)
     /// </summary>
     [HttpGet("calendar")]
-    public async Task<IActionResult> GetCalendarEventsAsync([FromQuery] long start, [FromQuery] long end)
+    [ProducesResponseType(typeof(List<Event>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<Event>>> GetCalendarEventsAsync([FromQuery] long start, [FromQuery] long end)
     {
         var startUtc = start.FromUnixSeconds();
         var endUtc = end.FromUnixSeconds();
@@ -126,6 +129,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get a single event by ID
     /// </summary>
     [HttpGet("{id:long}")]
+    [ProducesResponseType(typeof(Event), StatusCodes.Status200OK)]
     public override Task<IActionResult> GetByIdAsync(long id, CancellationToken ct = default)
         => base.GetByIdAsync(id, ct);
 
@@ -137,6 +141,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// </remarks>
     [HttpPost]
     [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(typeof(Event), StatusCodes.Status201Created)]
     public override Task<IActionResult> CreateAsync([FromBody] CreateEventRequest request, CancellationToken ct = default)
         => base.CreateAsync(request, ct);
 
@@ -148,6 +153,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// </remarks>
     [HttpPut("{id:long}")]
     [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(typeof(Event), StatusCodes.Status200OK)]
     public override Task<IActionResult> UpdateAsync(long id, [FromBody] UpdateEventRequest request, CancellationToken ct = default)
         => base.UpdateAsync(id, request, ct);
 
@@ -156,6 +162,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// </summary>
     [HttpDelete("{id:long}")]
     [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public override Task<IActionResult> DeleteAsync(long id, CancellationToken ct = default)
         => base.DeleteAsync(id, ct);
 
@@ -163,7 +170,8 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get downloads for an event
     /// </summary>
     [HttpGet("{id:long}/downloads")]
-    public async Task<IActionResult> GetDownloadsAsync(long id, [FromQuery] bool taggedOnly = false)
+    [ProducesResponseType(typeof(List<Download>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<Download>>> GetDownloadsAsync(long id, [FromQuery] bool taggedOnly = false)
     {
         var evt = await _eventsService.GetByIdOrThrowAsync(id, "Event");
 
@@ -176,7 +184,8 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// </summary>
     [HttpPost("{eventId:long}/downloads/{downloadId:long}")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> TagDownloadAsync(long eventId, long downloadId)
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageOnlyResponse>> TagDownloadAsync(long eventId, long downloadId)
     {
         var evt = await _eventsService.GetByIdOrThrowAsync(eventId, "Event");
 
@@ -193,6 +202,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// </summary>
     [HttpDelete("{eventId:long}/downloads/{downloadId:long}")]
     [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> UntagDownloadAsync(long eventId, long downloadId)
     {
         await _eventsService.UntagDownloadAsync(eventId, downloadId);

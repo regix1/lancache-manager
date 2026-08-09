@@ -13,6 +13,7 @@ import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { LoadingState } from '@components/ui/ManagerCard';
 import UniversalNotificationBar from '@components/common/UniversalNotificationBar';
 import DepotInitializationModal from '@components/modals/setup/DepotInitializationModal';
 import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
@@ -76,6 +77,7 @@ const AppContent: React.FC = () => {
   const {
     authMode,
     sessionId,
+    hasSession,
     isLoading: checkingAuth,
     refreshAuth,
     prefillEnabled,
@@ -102,6 +104,12 @@ const AppContent: React.FC = () => {
   // reporting that a full scan is needed until that work finishes, so without this the
   // periodic state check would put the modal straight back on screen.
   const fullScanActionRunningRef = useRef(false);
+
+  // User preferences are stored against a real server session. With
+  // Security:EnableAuthentication off the app is granted full access without one, so authMode
+  // reports a session that the preference endpoints reject - the session ID it carries is not
+  // proof that a session record exists. Gate preference writes on both facts.
+  const hasServerSession = authenticationEnabled && hasSession;
 
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
@@ -297,7 +305,7 @@ const AppContent: React.FC = () => {
     }
 
     // Reload theme from server after initialization
-    await themeService.reloadThemeAfterAuth();
+    await themeService.reloadThemeAfterAuth(hasServerSession);
 
     // Refresh Steam-related contexts to pick up data saved during setup
     // This ensures ManagementTab shows the correct Steam API status and auth mode
@@ -321,10 +329,10 @@ const AppContent: React.FC = () => {
     }
 
     hydratedThemeSessionRef.current = sessionKey;
-    themeService.reloadThemeAfterAuth().catch((error) => {
+    themeService.reloadThemeAfterAuth(hasServerSession).catch((error) => {
       console.error('[App] Failed to hydrate theme after auth:', error);
     });
-  }, [checkingAuth, authMode, sessionId]);
+  }, [checkingAuth, authMode, sessionId, hasServerSession]);
 
   const handleFullScanModalDismiss = () => {
     setShowFullScanRequiredModal(false);
@@ -527,7 +535,7 @@ const AppContent: React.FC = () => {
   // Handle special routes like /memory
   if (isMemoryRoute) {
     return (
-      <Suspense fallback={<LoadingSpinner fullScreen={false} />}>
+      <Suspense fallback={<LoadingState shape="cards" rows={3} />}>
         <MemoryDiagnostics />
       </Suspense>
     );
@@ -568,7 +576,32 @@ const AppContent: React.FC = () => {
         {authMode === 'authenticated' && <UniversalNotificationBar />}
         <main className="container mx-auto px-4 py-6 flex-grow">
           <div className="app-content-area">
-            <Suspense fallback={<LoadingSpinner fullScreen={false} />}>{renderContent()}</Suspense>
+            <Suspense
+              fallback={
+                <LoadingState
+                  shape={
+                    activeTab === 'dashboard'
+                      ? 'dashboard'
+                      : activeTab === 'downloads'
+                        ? 'downloads'
+                        : activeTab === 'events'
+                          ? 'calendar'
+                          : activeTab === 'clients' || activeTab === 'services'
+                            ? 'table'
+                            : activeTab === 'authenticate'
+                              ? 'form'
+                              : activeTab === 'management'
+                                ? 'settings'
+                                : activeTab === 'users'
+                                  ? 'list'
+                                  : 'cards'
+                  }
+                  rows={activeTab === 'dashboard' ? 8 : 5}
+                />
+              }
+            >
+              {renderContent()}
+            </Suspense>
           </div>
         </main>
         <Footer />

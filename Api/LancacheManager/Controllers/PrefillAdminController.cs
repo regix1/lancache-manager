@@ -76,6 +76,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("sessions")]
+    [ProducesResponseType(typeof(PrefillSessionsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<PrefillSessionsResponse>> GetSessionsAsync(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -145,6 +146,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("sessions/active")]
+    [ProducesResponseType(typeof(List<DaemonSessionDto>), StatusCodes.Status200OK)]
     public ActionResult<List<DaemonSessionDto>> GetActiveSessions()
     {
         var sessions = _steamDaemonService.GetAllSessions()
@@ -162,6 +164,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("sessions/{sessionId}/history")]
+    [ProducesResponseType(typeof(List<PrefillHistoryEntryDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<PrefillHistoryEntryDto>>> GetSessionHistoryAsync(string sessionId)
     {
         var history = await _sessionService.GetHistoryAsync(sessionId);
@@ -186,7 +189,8 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("sessions/{sessionId}/terminate")]
-    public async Task<ActionResult> TerminateAsync(
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageOnlyResponse>> TerminateAsync(
         string sessionId,
         [FromBody] TerminateSessionRequest? request = null)
     {
@@ -218,7 +222,7 @@ public class PrefillAdminController : ControllerBase
         await _riotDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
         await _xboxDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
 
-        return Ok(ApiResponse.Message("Session terminated"));
+        return Ok(new MessageOnlyResponse { Message = "Session terminated" });
     }
 
     /// <summary>
@@ -226,7 +230,8 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("sessions/terminate-all")]
-    public async Task<ActionResult> TerminateAllAsync([FromBody] TerminateSessionRequest? request = null)
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageOnlyResponse>> TerminateAllAsync([FromBody] TerminateSessionRequest? request = null)
     {
         var adminSessionId = HttpContext.GetRequiredSessionId();
         var adminSessionIdString = adminSessionId.ToString();
@@ -271,7 +276,7 @@ public class PrefillAdminController : ControllerBase
             await _xboxDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString);
         }
 
-        return Ok(new { message = $"Terminated {count} sessions" });
+        return Ok(new MessageOnlyResponse { Message = $"Terminated {count} sessions" });
     }
 
     #endregion
@@ -283,6 +288,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("bans")]
+    [ProducesResponseType(typeof(List<BannedPrefillUserDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<BannedPrefillUserDto>>> GetBansAsync([FromQuery] bool includeLifted = false)
     {
         var bans = includeLifted
@@ -308,10 +314,13 @@ public class PrefillAdminController : ControllerBase
 
     /// <summary>
     /// Bans a prefill user by session ID.
-    /// Looks up the username from the session.
     /// </summary>
+    /// <remarks>
+    /// Looks up the username from the session.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("bans/by-session/{sessionId}")]
+    [ProducesResponseType(typeof(BannedPrefillUserDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<BannedPrefillUserDto>> BanBySessionAsync(
         string sessionId,
         [FromBody] BanRequest request)
@@ -348,6 +357,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("bans")]
+    [ProducesResponseType(typeof(BannedPrefillUserDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<BannedPrefillUserDto>> BanByUsernameAsync([FromBody] BanByUsernameRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Username))
@@ -376,7 +386,8 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("bans/{banId}/lift")]
-    public async Task<ActionResult> LiftBanAsync(long banId)
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageOnlyResponse>> LiftBanAsync(long banId)
     {
         var adminSessionId = HttpContext.GetRequiredSessionId();
         var adminSessionIdString = adminSessionId.ToString();
@@ -390,7 +401,7 @@ public class PrefillAdminController : ControllerBase
 
         _logger.LogInformation("Admin session {AdminId} lifted ban {BanId}", adminSessionId, banId);
 
-        return Ok(ApiResponse.Message("Ban lifted"));
+        return Ok(new MessageOnlyResponse { Message = "Ban lifted" });
     }
 
     #endregion
@@ -402,6 +413,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AnyPrefillAccess")]
     [HttpGet("cache")]
+    [ProducesResponseType(typeof(List<CachedAppDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<CachedAppDto>>> GetCachedAppsAsync()
     {
         var apps = await _cacheService.GetCachedAppsAsync();
@@ -418,63 +430,16 @@ public class PrefillAdminController : ControllerBase
     }
 
     /// <summary>
-    /// Checks if specific apps are cached. Returns which ones are cached.
-    /// </summary>
-    [Authorize(Policy = "AnyPrefillAccess")]
-    [HttpPost("cache/check")]
-    public async Task<ActionResult<CacheCheckResponse>> CheckCachedAsync([FromBody] List<long> appIds)
-    {
-        if (appIds == null || appIds.Count == 0)
-        {
-            return BadRequest(ApiResponse.Error("No app IDs provided"));
-        }
-
-        var cachedApps = await _cacheService.GetCachedAppsAsync();
-        var cachedAppIds = cachedApps.Select(a => a.AppId).ToHashSet();
-
-        var result = new CacheCheckResponse
-        {
-            CachedAppIds = appIds.Where(id => cachedAppIds.Contains(id)).Select(id => id.ToString()).ToList(),
-            UncachedAppIds = appIds.Where(id => !cachedAppIds.Contains(id)).Select(id => id.ToString()).ToList(),
-            CacheInfo = cachedApps
-                .Where(a => appIds.Contains(a.AppId))
-                .Select(a => new CachedAppDto
-                {
-                    AppId = a.AppId.ToString(),
-                    AppName = a.AppName,
-                    DepotCount = a.DepotCount,
-                    TotalBytes = a.TotalBytes,
-                    CachedAtUtc = a.CachedAtUtc,
-                    CachedBy = a.CachedBy
-                })
-                .ToList()
-        };
-
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// Clears cache for a specific app (for force re-download).
-    /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpDelete("cache/{appId}")]
-    public async Task<ActionResult> ClearAppCacheAsync(long appId)
-    {
-        await _cacheService.ClearAppCacheAsync(appId);
-        _logger.LogInformation("Cache cleared for app {AppId} by session {SessionId}", appId, HttpContext.GetRequiredSessionId());
-        return Ok(ApiResponse.Message($"Cache cleared for app {appId}"));
-    }
-
-    /// <summary>
     /// Clears the entire prefill cache.
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("cache")]
-    public async Task<ActionResult> ClearAllCacheAsync()
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageOnlyResponse>> ClearAllCacheAsync()
     {
         await _cacheService.ClearAllCacheAsync();
         _logger.LogInformation("Entire prefill cache cleared by session {SessionId}", HttpContext.GetRequiredSessionId());
-        return Ok(ApiResponse.Message("Prefill cache cleared"));
+        return Ok(new MessageOnlyResponse { Message = "Prefill cache cleared" });
     }
 
     #endregion

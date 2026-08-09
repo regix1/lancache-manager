@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.StatusCheck;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
@@ -25,6 +26,10 @@ public class SessionService
     // status dots read the one ActivityUpdated event.
     private readonly IActivityRegistry? _activityRegistry;
 
+    // Optional for the same reason as _activityRegistry: unit tests construct this service directly and
+    // do not all care about the guest defaults. At runtime DI always supplies the singleton.
+    private readonly UserPreferencesService? _userPreferences;
+
     private const string CookieName = "LancacheManager.Session";
     // Admin sessions effectively never expire - a far-future ExpiresAtUtc keeps the
     // session valid for the life of the installation and lets the UI render "Never"
@@ -39,6 +44,15 @@ public class SessionService
     private static (Guid SessionId, string RawToken)? _authDisabledAdminSession;
     private static readonly SemaphoreSlim _authDisabledAdminLock = new(1, 1);
 
+    // While the database cannot be reached, every request that arrives without a usable cookie lands on
+    // the shared session and repeats the same failing read/create and the same error line. One outage then
+    // costs a database round trip per request and fills the log with copies of a single fault. The first
+    // failure is still reported in full; the ones inside the next few seconds are refused before the
+    // database is touched. The gate is cleared by the first attempt after it rather than by a timer, so
+    // the service comes back on its own once the database does. [14]
+    private static readonly TimeSpan _authDisabledRetryDelay = TimeSpan.FromSeconds(5);
+    private static DateTime _authDisabledRetryAfterUtc = DateTime.MinValue;
+
     public SessionService(
         IDbContextFactory<AppDbContext> dbContextFactory,
         ApiKeyService apiKeyService,
@@ -46,7 +60,8 @@ public class SessionService
         StateService stateService,
         ISignalRNotificationService signalR,
         IConfiguration configuration,
-        IActivityRegistry? activityRegistry = null)
+        IActivityRegistry? activityRegistry = null,
+        UserPreferencesService? userPreferences = null)
     {
         _dbContextFactory = dbContextFactory;
         _apiKeyService = apiKeyService;
@@ -55,6 +70,7 @@ public class SessionService
         _signalR = signalR;
         _configuration = configuration;
         _activityRegistry = activityRegistry;
+        _userPreferences = userPreferences;
     }
 
     // Marks a session present or absent in the unified activity registry. Best-effort: the registry
@@ -119,8 +135,12 @@ public class SessionService
     /// One session is reused for all anonymous callers (rather than minting per request) so a
     /// cookie-less client cannot flood the UserSessions table. The cached session is revalidated
     /// against the database on every call, so an admin revoking it simply triggers a fresh one.
+    ///
+    /// Returns null when the database could not answer, so the caller carries on unauthenticated
+    /// instead of failing outright. Repeated attempts inside <see cref="_authDisabledRetryDelay"/> of a
+    /// failure are refused without touching the database. [14]
     /// </summary>
-    public async Task<(string RawToken, UserSession Session)> GetOrCreateAuthDisabledAdminSessionAsync(HttpContext httpContext)
+    public async Task<(string RawToken, UserSession Session)?> GetOrCreateAuthDisabledAdminSessionAsync(HttpContext httpContext)
     {
         // Defense in depth: never hand out an admin session while authentication is enabled,
         // regardless of caller. The only caller already gates on this, but this guarantees a future
@@ -131,48 +151,101 @@ public class SessionService
                 "GetOrCreateAuthDisabledAdminSessionAsync called while authentication is enabled.");
         }
 
-        // Fast path: reuse the cached session if its row is still valid (no lock needed).
-        var reused = await TryReuseAuthDisabledAdminSessionAsync();
-        if (reused != null)
+        // Every database attempt is serialized. In particular, a request that passed the hold-off before
+        // waiting must check it again after the request ahead of it records a failure. Keeping the failure
+        // write inside this lock makes that handoff deterministic: the next waiter observes the hold-off
+        // before it can repeat the same database call. [14]
+        await _authDisabledAdminLock.WaitAsync();
+        try
         {
-            return reused.Value;
+            var heldOffUntil = _authDisabledRetryAfterUtc;
+            if (DateTime.UtcNow < heldOffUntil)
+            {
+                _logger.LogDebug(
+                    "Skipped the shared auth-disabled session: the last attempt failed and the next one is not due until {RetryAt}",
+                    heldOffUntil);
+                return null;
+            }
+
+            try
+            {
+                var reused = await TryReuseAuthDisabledAdminSessionAsync();
+                if (reused != null)
+                {
+                    _authDisabledRetryAfterUtc = DateTime.MinValue;
+                    return reused.Value;
+                }
+
+                var (rawToken, tokenHash) = GenerateSessionToken();
+
+                var session = new UserSession
+                {
+                    Id = Guid.NewGuid(),
+                    SessionTokenHash = tokenHash,
+                    SessionType = SessionType.Admin,
+                    IpAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    UserAgent = httpContext.Request.Headers.UserAgent.ToString(),
+                    CreatedAtUtc = DateTime.UtcNow,
+                    ExpiresAtUtc = _adminNeverExpiresUtc,
+                    LastSeenAtUtc = DateTime.UtcNow,
+                    IsRevoked = false
+                };
+
+                using var context = _dbContextFactory.CreateDbContext();
+                context.UserSessions.Add(session);
+                await context.SaveChangesAsync();
+
+                _authDisabledAdminSession = (session.Id, rawToken);
+                _authDisabledRetryAfterUtc = DateTime.MinValue;
+                _logger.LogInformation(
+                    "Created shared auth-disabled admin session {SessionId} (Security:EnableAuthentication=false)",
+                    session.Id);
+                await ReportSessionPresenceAsync(session.Id, true);
+                return (rawToken, session);
+            }
+            catch (Exception ex)
+            {
+                // Deliberately catching everything: nothing in the stack tells a server that cannot be
+                // reached apart from any other provider fault, and every one of them leaves this request
+                // with no session either way. The first report carries the exception in full so the cause
+                // is not lost; the ones held off behind it say only that they were skipped. [14]
+                var retryAt = DateTime.UtcNow + _authDisabledRetryDelay;
+                _authDisabledRetryAfterUtc = retryAt;
+                _logger.LogError(
+                    ex,
+                    "Could not resolve the shared session used while authentication is disabled; the next attempt is held off until {RetryAt}",
+                    retryAt);
+                return null;
+            }
+        }
+        finally
+        {
+            _authDisabledAdminLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Keeps the cached shared auth-disabled token equal to the one now stored. Callers holding no cookie
+    /// (the hubs reading access_token, and any request that arrives without one) are handed this cached
+    /// token, so leaving the rotated-away token here means they authenticate only until the previous
+    /// token's 30-second grace runs out and are rejected from then on. [1]
+    /// </summary>
+    private static async Task ReplaceAuthDisabledAdminTokenAsync(Guid sessionId, string rawToken)
+    {
+        if (_authDisabledAdminSession?.SessionId != sessionId)
+        {
+            return;
         }
 
         await _authDisabledAdminLock.WaitAsync();
         try
         {
-            // Re-check under the lock in case another request created it while we waited.
-            reused = await TryReuseAuthDisabledAdminSessionAsync();
-            if (reused != null)
+            // Re-check under the lock: the cached session can be replaced wholesale while this waits,
+            // and that newer session's token must not be overwritten with this rotation's.
+            if (_authDisabledAdminSession?.SessionId == sessionId)
             {
-                return reused.Value;
+                _authDisabledAdminSession = (sessionId, rawToken);
             }
-
-            var (rawToken, tokenHash) = GenerateSessionToken();
-
-            var session = new UserSession
-            {
-                Id = Guid.NewGuid(),
-                SessionTokenHash = tokenHash,
-                SessionType = SessionType.Admin,
-                IpAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-                UserAgent = httpContext.Request.Headers.UserAgent.ToString(),
-                CreatedAtUtc = DateTime.UtcNow,
-                ExpiresAtUtc = _adminNeverExpiresUtc,
-                LastSeenAtUtc = DateTime.UtcNow,
-                IsRevoked = false
-            };
-
-            using var context = _dbContextFactory.CreateDbContext();
-            context.UserSessions.Add(session);
-            await context.SaveChangesAsync();
-
-            _authDisabledAdminSession = (session.Id, rawToken);
-            _logger.LogInformation(
-                "Created shared auth-disabled admin session {SessionId} (Security:EnableAuthentication=false)",
-                session.Id);
-            await ReportSessionPresenceAsync(session.Id, true);
-            return (rawToken, session);
         }
         finally
         {
@@ -231,8 +304,40 @@ public class SessionService
 
         _logger.LogInformation("Created guest session {SessionId} for IP {IP}, expires in {Hours}h",
             session.Id, session.IpAddress, durationHours);
+        await SeedGuestDefaultsAsync(session.Id);
         await ReportSessionPresenceAsync(session.Id, true);
         return (rawToken, session);
+    }
+
+    /// <summary>
+    /// Gives a brand-new guest session the defaults an admin chose, so someone logging in after the change
+    /// sees it instead of the built-in values. The write is the preferences service's own and swallows its
+    /// failures there, so this can never stop a session being created or a login completing. [7]
+    /// </summary>
+    private async Task SeedGuestDefaultsAsync(Guid sessionId)
+    {
+        if (_userPreferences is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var state = _stateService.GetState();
+            await _userPreferences.SeedGuestDefaultsAsync(sessionId, new UserPreferencesService.UserPreferencesDto
+            {
+                UseLocalTimezone = state.DefaultGuestUseLocalTimezone,
+                UseUtcTimezone = state.DefaultGuestUseUtcTimezone,
+                Use24HourFormat = state.DefaultGuestUse24HourFormat,
+                SharpCorners = state.DefaultGuestSharpCorners,
+                DisableTooltips = state.DefaultGuestDisableTooltips,
+                ShowDatasourceLabels = state.DefaultGuestShowDatasourceLabels
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not apply guest defaults to session {SessionId}", sessionId);
+        }
     }
 
     public async Task<UserSession?> ValidateSessionAsync(string rawToken)
@@ -515,6 +620,8 @@ public class SessionService
         // Update the cookie with the new token
         SetSessionCookie(httpContext, newRawToken, session.ExpiresAtUtc);
 
+        await ReplaceAuthDisabledAdminTokenAsync(session.Id, newRawToken);
+
         return newRawToken;
     }
 
@@ -688,7 +795,7 @@ public class SessionService
         return grants;
     }
 
-    private static DateTime? GetPrefillExpiresAt(UserSession session, PrefillPlatform service) =>
+    internal static DateTime? GetPrefillExpiresAt(UserSession session, PrefillPlatform service) =>
         service switch
         {
             PrefillPlatform.Steam => session.SteamPrefillExpiresAtUtc,
@@ -699,7 +806,7 @@ public class SessionService
             _ => null
         };
 
-    private static void SetPrefillExpiresAt(UserSession session, PrefillPlatform service, DateTime expiresAtUtc)
+    private static void SetPrefillExpiresAt(UserSession session, PrefillPlatform service, DateTime? expiresAtUtc)
     {
         switch (service)
         {
@@ -721,124 +828,73 @@ public class SessionService
         }
     }
 
-    public async Task GrantSteamPrefillAccessAsync(Guid sessionId, int durationHours)
+    public Task GrantSteamPrefillAccessAsync(Guid sessionId, int durationHours) =>
+        GrantPrefillAccessAsync(sessionId, durationHours, PrefillPlatform.Steam, "Steam");
+
+    public Task GrantEpicPrefillAccessAsync(Guid sessionId, int durationHours) =>
+        GrantPrefillAccessAsync(sessionId, durationHours, PrefillPlatform.Epic, "Epic");
+
+    public Task RevokeSteamPrefillAccessAsync(Guid sessionId) =>
+        RevokePrefillAccessAsync(sessionId, PrefillPlatform.Steam, "Steam");
+
+    public Task RevokeEpicPrefillAccessAsync(Guid sessionId) =>
+        RevokePrefillAccessAsync(sessionId, PrefillPlatform.Epic, "Epic");
+
+    public Task GrantBattleNetPrefillAccessAsync(Guid sessionId, int durationHours) =>
+        GrantPrefillAccessAsync(sessionId, durationHours, PrefillPlatform.BattleNet, "Battle.net");
+
+    public Task RevokeBattleNetPrefillAccessAsync(Guid sessionId) =>
+        RevokePrefillAccessAsync(sessionId, PrefillPlatform.BattleNet, "Battle.net");
+
+    public Task GrantRiotPrefillAccessAsync(Guid sessionId, int durationHours) =>
+        GrantPrefillAccessAsync(sessionId, durationHours, PrefillPlatform.Riot, "Riot");
+
+    public Task RevokeRiotPrefillAccessAsync(Guid sessionId) =>
+        RevokePrefillAccessAsync(sessionId, PrefillPlatform.Riot, "Riot");
+
+    public Task GrantXboxPrefillAccessAsync(Guid sessionId, int durationHours) =>
+        GrantPrefillAccessAsync(sessionId, durationHours, PrefillPlatform.Xbox, "Xbox");
+
+    public Task RevokeXboxPrefillAccessAsync(Guid sessionId) =>
+        RevokePrefillAccessAsync(sessionId, PrefillPlatform.Xbox, "Xbox");
+
+    private async Task GrantPrefillAccessAsync(
+        Guid sessionId,
+        int durationHours,
+        PrefillPlatform platform,
+        string platformName)
     {
         using var context = _dbContextFactory.CreateDbContext();
         var session = await context.UserSessions.FindAsync(sessionId);
-        if (session != null)
-        {
-            session.SteamPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Granted Steam prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.SteamPrefillExpiresAtUtc);
-        }
+        if (session == null)
+            return;
+
+        var expiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
+        SetPrefillExpiresAt(session, platform, expiresAtUtc);
+        await context.SaveChangesAsync();
+        _logger.LogInformation(
+            "Granted {Platform} prefill access to session {SessionId}, expires at {ExpiresAt}",
+            platformName,
+            sessionId,
+            expiresAtUtc);
     }
 
-    public async Task GrantEpicPrefillAccessAsync(Guid sessionId, int durationHours)
+    private async Task RevokePrefillAccessAsync(
+        Guid sessionId,
+        PrefillPlatform platform,
+        string platformName)
     {
         using var context = _dbContextFactory.CreateDbContext();
         var session = await context.UserSessions.FindAsync(sessionId);
-        if (session != null)
-        {
-            session.EpicPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Granted Epic prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.EpicPrefillExpiresAtUtc);
-        }
-    }
+        if (session == null)
+            return;
 
-    public async Task RevokeSteamPrefillAccessAsync(Guid sessionId)
-    {
-        using var context = _dbContextFactory.CreateDbContext();
-        var session = await context.UserSessions.FindAsync(sessionId);
-        if (session != null)
-        {
-            session.SteamPrefillExpiresAtUtc = null;
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Revoked Steam prefill access for session {SessionId}", sessionId);
-        }
-    }
-
-    public async Task RevokeEpicPrefillAccessAsync(Guid sessionId)
-    {
-        using var context = _dbContextFactory.CreateDbContext();
-        var session = await context.UserSessions.FindAsync(sessionId);
-        if (session != null)
-        {
-            session.EpicPrefillExpiresAtUtc = null;
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Revoked Epic prefill access for session {SessionId}", sessionId);
-        }
-    }
-
-    public async Task GrantBattleNetPrefillAccessAsync(Guid sessionId, int durationHours)
-    {
-        using var context = _dbContextFactory.CreateDbContext();
-        var session = await context.UserSessions.FindAsync(sessionId);
-        if (session != null)
-        {
-            session.BattleNetPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Granted Battle.net prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.BattleNetPrefillExpiresAtUtc);
-        }
-    }
-
-    public async Task RevokeBattleNetPrefillAccessAsync(Guid sessionId)
-    {
-        using var context = _dbContextFactory.CreateDbContext();
-        var session = await context.UserSessions.FindAsync(sessionId);
-        if (session != null)
-        {
-            session.BattleNetPrefillExpiresAtUtc = null;
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Revoked Battle.net prefill access for session {SessionId}", sessionId);
-        }
-    }
-
-    public async Task GrantRiotPrefillAccessAsync(Guid sessionId, int durationHours)
-    {
-        using var context = _dbContextFactory.CreateDbContext();
-        var session = await context.UserSessions.FindAsync(sessionId);
-        if (session != null)
-        {
-            session.RiotPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Granted Riot prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.RiotPrefillExpiresAtUtc);
-        }
-    }
-
-    public async Task RevokeRiotPrefillAccessAsync(Guid sessionId)
-    {
-        using var context = _dbContextFactory.CreateDbContext();
-        var session = await context.UserSessions.FindAsync(sessionId);
-        if (session != null)
-        {
-            session.RiotPrefillExpiresAtUtc = null;
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Revoked Riot prefill access for session {SessionId}", sessionId);
-        }
-    }
-
-    public async Task GrantXboxPrefillAccessAsync(Guid sessionId, int durationHours)
-    {
-        using var context = _dbContextFactory.CreateDbContext();
-        var session = await context.UserSessions.FindAsync(sessionId);
-        if (session != null)
-        {
-            session.XboxPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Granted Xbox prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.XboxPrefillExpiresAtUtc);
-        }
-    }
-
-    public async Task RevokeXboxPrefillAccessAsync(Guid sessionId)
-    {
-        using var context = _dbContextFactory.CreateDbContext();
-        var session = await context.UserSessions.FindAsync(sessionId);
-        if (session != null)
-        {
-            session.XboxPrefillExpiresAtUtc = null;
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Revoked Xbox prefill access for session {SessionId}", sessionId);
-        }
+        SetPrefillExpiresAt(session, platform, null);
+        await context.SaveChangesAsync();
+        _logger.LogInformation(
+            "Revoked {Platform} prefill access for session {SessionId}",
+            platformName,
+            sessionId);
     }
 
     private static (string RawToken, string TokenHash) GenerateSessionToken()

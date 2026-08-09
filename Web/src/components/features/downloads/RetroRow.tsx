@@ -21,6 +21,7 @@ import { GameImage } from '@components/common/GameImage';
 import BadgesRow from './BadgesRow';
 import DownloadBadges from './DownloadBadges';
 import { efficiencyTier, type EfficiencyTier } from './retroGrouping';
+import { cacheHitPercent } from './downloadGrouping';
 import { GAUGE_DIAL_SIZE } from './retroColumnSizing';
 
 const getServiceIcon = (service: string, size = 24) => {
@@ -126,7 +127,7 @@ const CombinedProgressBar: React.FC<{
   missBytes: number;
   totalBytes: number;
 }> = ({ hitBytes, missBytes, totalBytes }) => {
-  const hitPercent = totalBytes > 0 ? (hitBytes / totalBytes) * 100 : 0;
+  const hitPercent = cacheHitPercent(hitBytes, totalBytes);
   const missPercent = totalBytes > 0 ? (missBytes / totalBytes) * 100 : 0;
 
   return (

@@ -10,6 +10,15 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
 {
     public const string SchemeName = "Session";
 
+    private static readonly (PrefillPlatform Platform, string ClaimType)[] _prefillClaims =
+    [
+        (PrefillPlatform.Steam, "SteamPrefillActive"),
+        (PrefillPlatform.Epic, "EpicPrefillActive"),
+        (PrefillPlatform.BattleNet, "BattleNetPrefillActive"),
+        (PrefillPlatform.Riot, "RiotPrefillActive"),
+        (PrefillPlatform.Xbox, "XboxPrefillActive")
+    ];
+
     public SessionAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
@@ -18,17 +27,18 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        var sessionService = Context.RequestServices.GetRequiredService<SessionService>();
+        var authenticationEnabled = sessionService.IsAuthenticationEnabled();
+
         // 1. Extract session token from cookie
         var rawToken = SessionService.TokenFromCookie(Context);
-        if (string.IsNullOrEmpty(rawToken))
-            return AuthenticateResult.NoResult();
 
         // 2. Validate session
-        var sessionService = Context.RequestServices.GetRequiredService<SessionService>();
-        UserSession? session;
+        UserSession? session = null;
         try
         {
-            session = await sessionService.ValidateSessionAsync(rawToken);
+            if (authenticationEnabled && !string.IsNullOrEmpty(rawToken))
+                session = await sessionService.ValidateSessionAsync(rawToken);
         }
         catch (Exception ex)
         {
@@ -50,8 +60,54 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             return AuthenticateResult.NoResult();
         }
 
+        if (session == null
+            && authenticationEnabled
+            && Context.Request.Headers.ContainsKey("X-Api-Key"))
+        {
+            var authenticationHelper = Context.RequestServices.GetRequiredService<AuthenticationHelper>();
+            if (!authenticationHelper.ValidateApiKey(Context).IsAuthenticated)
+            {
+                return AuthenticateResult.Fail("Invalid API key");
+            }
+
+            return AuthenticateResult.Success(CreateTicket(Guid.Empty, SessionType.Admin));
+        }
+
+        // With authentication turned off the frontend is told it is an admin and starts writing
+        // preferences, joining the hubs and asking for prefill access straight away. All of those need
+        // a real session, and the only thing that created one was GET /api/auth/status. Anything that
+        // went out before that call landed, and everything sent while the browser still held a cookie
+        // for a session that no longer exists, came back 400 "No session found" instead. Resolving the
+        // shared session here means every request has one, whatever order they arrive in.
+        if (session == null && !authenticationEnabled)
+        {
+            try
+            {
+                // A database that cannot be reached comes back as null rather than an exception, and the
+                // service reports the first such failure itself and holds the next attempts off for a
+                // few seconds. That keeps one outage from costing a database round trip and an error
+                // line on every anonymous request, while the request still carries on unauthenticated
+                // so the endpoints the error screens are built from stay reachable. [14]
+                var shared = await sessionService.GetOrCreateAuthDisabledAdminSessionAsync(Context);
+                if (shared is { } resolved)
+                {
+                    sessionService.SetSessionCookie(Context, resolved.RawToken, resolved.Session.ExpiresAtUtc);
+                    session = resolved.Session;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Same reasoning as the validation failure above: the request carries on
+                // unauthenticated rather than failing outright, so anything the shared-session path
+                // could still throw does not take out those endpoints either.
+                Logger.LogError(ex, "Could not create the shared session used while authentication is disabled");
+            }
+        }
+
         if (session == null)
-            return AuthenticateResult.Fail("Invalid session");
+            return !authenticationEnabled || string.IsNullOrEmpty(rawToken)
+                ? AuthenticateResult.NoResult()
+                : AuthenticateResult.Fail("Invalid session");
 
         // 3. Store session in HttpContext.Items for backward compatibility
         Context.Items["Session"] = session;
@@ -89,42 +145,38 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
         }
 
         // 5. Build ClaimsPrincipal
+        return AuthenticateResult.Success(CreateTicket(session.Id, session.SessionType, session));
+    }
+
+    private AuthenticationTicket CreateTicket(Guid sessionId, SessionType sessionType, UserSession? session = null)
+    {
         // NOTE: Claim values are lowercase strings ("admin"/"guest") to match existing
         // AuthorizationPolicy.RequireClaim("SessionType", "admin") in Program.cs and legacy cookies.
-        var sessionTypeClaim = session.SessionType.ToString().ToLowerInvariant();
+        var sessionTypeClaim = sessionType.ToString().ToLowerInvariant();
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, session.Id.ToString()),
+            new(ClaimTypes.NameIdentifier, sessionId.ToString()),
             new(ClaimTypes.Role, sessionTypeClaim),
             new("SessionType", sessionTypeClaim),
         };
 
         // Add prefill access claims: admins always have access, guests need valid expiry
-        if (session.SessionType == SessionType.Admin
-            || (session.SteamPrefillExpiresAtUtc != null && session.SteamPrefillExpiresAtUtc > DateTime.UtcNow))
-            claims.Add(new Claim("SteamPrefillActive", "true"));
-
-        if (session.SessionType == SessionType.Admin
-            || (session.EpicPrefillExpiresAtUtc != null && session.EpicPrefillExpiresAtUtc > DateTime.UtcNow))
-            claims.Add(new Claim("EpicPrefillActive", "true"));
-
-        if (session.SessionType == SessionType.Admin
-            || (session.BattleNetPrefillExpiresAtUtc != null && session.BattleNetPrefillExpiresAtUtc > DateTime.UtcNow))
-            claims.Add(new Claim("BattleNetPrefillActive", "true"));
-
-        if (session.SessionType == SessionType.Admin
-            || (session.RiotPrefillExpiresAtUtc != null && session.RiotPrefillExpiresAtUtc > DateTime.UtcNow))
-            claims.Add(new Claim("RiotPrefillActive", "true"));
-
-        if (session.SessionType == SessionType.Admin
-            || (session.XboxPrefillExpiresAtUtc != null && session.XboxPrefillExpiresAtUtc > DateTime.UtcNow))
-            claims.Add(new Claim("XboxPrefillActive", "true"));
+        if (session != null)
+        {
+            foreach (var (platform, claimType) in _prefillClaims)
+            {
+                if (sessionType == SessionType.Admin
+                    || (SessionService.GetPrefillExpiresAt(session, platform) is { } expiresAtUtc
+                        && expiresAtUtc > DateTime.UtcNow))
+                {
+                    claims.Add(new Claim(claimType, "true"));
+                }
+            }
+        }
 
         var identity = new ClaimsIdentity(claims, SchemeName);
         var principal = new ClaimsPrincipal(identity);
-        var ticket = new AuthenticationTicket(principal, SchemeName);
-
-        return AuthenticateResult.Success(ticket);
+        return new AuthenticationTicket(principal, SchemeName);
     }
 
     /// <summary>

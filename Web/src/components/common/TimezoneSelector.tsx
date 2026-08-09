@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Clock, Globe, MapPin } from 'lucide-react';
+import { Clock } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import {
+  getTimeFormatOptions,
+  timezoneSelectorKeys
+} from '@components/features/user/timeFormatOptions';
 import preferencesService from '@services/preferences.service';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useTimezone } from '@contexts/useTimezone';
@@ -9,6 +13,7 @@ import { useAuth } from '@contexts/useAuth';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { getEffectiveTimezone, getTimeInTimezone } from '@utils/timezone';
+import { clockFromTimeSetting, timeSettingFromClock } from '@utils/pendingPreferences';
 import type { TimeSettingValue } from '@contexts/TimezoneContext.types';
 
 interface TimezoneSelectorProps {
@@ -18,7 +23,13 @@ interface TimezoneSelectorProps {
 const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false }) => {
   const { t } = useTranslation();
   const { currentPreferences } = useSessionPreferences();
-  const { useLocalTimezone, use24HourFormat, setPendingTimeSetting } = useTimezone();
+  const {
+    useLocalTimezone,
+    useUtcTimezone,
+    use24HourFormat,
+    setPendingTimeSetting,
+    dropPendingTimeSetting
+  } = useTimezone();
   const { authMode } = useAuth();
   const { prefs: guestDefaults, loading: loadingDefaults } = useDefaultGuestPreferences();
   const { notifyError } = useErrorHandler();
@@ -30,15 +41,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
   // Get allowed time formats from SessionPreferencesContext
   const userAllowedFormats = currentPreferences?.allowedTimeFormats || null;
 
-  const getAdminDefault = (): TimeSettingValue => {
-    const isLocal = guestDefaults.useLocalTimezone;
-    const is24h = guestDefaults.use24HourFormat;
-
-    if (isLocal && is24h) return 'local-24h';
-    if (isLocal && !is24h) return 'local-12h';
-    if (!isLocal && is24h) return 'server-24h';
-    return 'server-12h';
-  };
+  const getAdminDefault = (): TimeSettingValue => timeSettingFromClock(guestDefaults);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -64,7 +67,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
   useEffect(() => {
     if (!isGuest || loadingDefaults || hasAutoSwitched.current) return;
 
-    const currentValue = getCurrentValueInternal();
+    const currentValue = getCurrentValue();
     const allowedFormats = getEffectiveAllowedFormats();
 
     if (allowedFormats.length > 0 && !allowedFormats.includes(currentValue)) {
@@ -79,16 +82,8 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isGuest, loadingDefaults, guestDefaults.allowedTimeFormats, userAllowedFormats]);
 
-  const getCurrentValueInternal = (): TimeSettingValue => {
-    if (useLocalTimezone) {
-      return use24HourFormat ? 'local-24h' : 'local-12h';
-    } else {
-      return use24HourFormat ? 'server-24h' : 'server-12h';
-    }
-  };
-
   const computeTime = () => {
-    const timezone = getEffectiveTimezone(useLocalTimezone);
+    const timezone = getEffectiveTimezone(useLocalTimezone, useUtcTimezone);
     const { hour: hours, minute: minutes } = getTimeInTimezone(new Date(), timezone);
 
     if (use24HourFormat) {
@@ -104,59 +99,38 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
   void tick;
   const currentTime = computeTime();
 
-  const getCurrentValue = (): TimeSettingValue => {
-    if (useLocalTimezone) {
-      return use24HourFormat ? 'local-24h' : 'local-12h';
-    } else {
-      return use24HourFormat ? 'server-24h' : 'server-12h';
-    }
-  };
+  const getCurrentValue = (): TimeSettingValue =>
+    timeSettingFromClock({ useUtcTimezone, useLocalTimezone, use24HourFormat });
 
   const handleTimeSettingChange = async (value: string) => {
     const typedValue = value as TimeSettingValue;
     setPendingTimeSetting(typedValue);
 
-    try {
-      const newUseLocal = typedValue.startsWith('local');
-      const newUse24Hour = typedValue.endsWith('24h');
-      await Promise.all([
-        preferencesService.setPreference('useLocalTimezone', newUseLocal),
-        preferencesService.setPreference('use24HourFormat', newUse24Hour)
-      ]);
-    } catch (error) {
+    // Takes back only this click's own optimistic values. A save can fail while the click after it is
+    // already on the wire, and clearing the three keys outright would drop the newer click's values
+    // too. [61]
+    const reportFailure = (error?: unknown): void => {
+      dropPendingTimeSetting(typedValue);
       notifyError(t('common.timezoneSelector.errors.updateFailed'), error, {
         logLabel: 'Failed to update time settings'
       });
-      setPendingTimeSetting(null);
+    };
+
+    try {
+      const saved = await preferencesService.setClockPreferences(clockFromTimeSetting(typedValue));
+
+      // A rejected promise is not what a rejected save looks like here: the service reports failure
+      // by resolving false. Left unread, the optimistic value simply expires and the control slides
+      // back to the old choice with nothing said. [20]
+      if (!saved) {
+        reportFailure();
+      }
+    } catch (error) {
+      reportFailure(error);
     }
   };
 
-  const options = [
-    {
-      value: 'server-24h',
-      label: t('common.timezoneSelector.options.server24.label'),
-      description: t('common.timezoneSelector.options.server24.description'),
-      icon: Globe
-    },
-    {
-      value: 'server-12h',
-      label: t('common.timezoneSelector.options.server12.label'),
-      description: t('common.timezoneSelector.options.server12.description'),
-      icon: Globe
-    },
-    {
-      value: 'local-24h',
-      label: t('common.timezoneSelector.options.local24.label'),
-      description: t('common.timezoneSelector.options.local24.description'),
-      icon: MapPin
-    },
-    {
-      value: 'local-12h',
-      label: t('common.timezoneSelector.options.local12.label'),
-      description: t('common.timezoneSelector.options.local12.description'),
-      icon: MapPin
-    }
-  ];
+  const options = getTimeFormatOptions(t, timezoneSelectorKeys);
 
   const adminDefault = isGuest ? getAdminDefault() : null;
   const effectiveAllowedFormats = getEffectiveAllowedFormats();

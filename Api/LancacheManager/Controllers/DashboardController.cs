@@ -1,5 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Extensions;
+using LancacheManager.Models.Responses;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -25,12 +26,21 @@ public class DashboardController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/dashboard/batch - returns cache, clients, services, dashboard stats, downloads,
-    /// detection, sparklines, hourly activity, cache snapshot, and cache growth in a single
-    /// response. Sub-queries execute in parallel inside the service.
+    /// Returns all dashboard data sets in a single response.
     /// </summary>
+    /// <remarks>
+    /// Returns cache, clients, services, dashboard stats, downloads, detection, sparklines,
+    /// hourly activity, and cache snapshot in one call. Sub-queries execute in parallel inside the
+    /// service, and a sub-query that fails leaves its own field null instead of failing the whole
+    /// request (see <see cref="DashboardBatchResponse"/>).
+    /// </remarks>
+    /// <param name="eventId">
+    /// When set, scopes every sub-query to the downloads tagged to this event instead of the
+    /// requested time range. An unknown id throws NotFound before any sub-query runs.
+    /// </param>
     [HttpGet("batch")]
-    public async Task<IActionResult> GetBatchAsync(
+    [ProducesResponseType(typeof(DashboardBatchResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DashboardBatchResponse>> GetBatchAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] long? eventId = null,

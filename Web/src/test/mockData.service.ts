@@ -7,8 +7,6 @@ import type {
   DashboardStats,
   HourlyActivityResponse,
   HourlyActivityItem,
-  CacheGrowthResponse,
-  CacheGrowthDataPoint,
   GameDetectionSummary,
   ServiceDetectionSummary
 } from '../types';
@@ -559,85 +557,6 @@ class MockDataService {
       periodStart,
       periodEnd: now,
       period: '7d'
-    };
-  }
-
-  /**
-   * Generate mock cache growth data for CacheGrowthTrend widget
-   */
-  static generateMockCacheGrowth(
-    usedCacheSize = 1450000000000,
-    totalCacheSize = 2000000000000
-  ): CacheGrowthResponse {
-    const now = new Date();
-    const daysOfData = 14;
-
-    // Generate daily data points showing cumulative growth
-    const dataPoints: CacheGrowthDataPoint[] = [];
-    let cumulativeBytes = usedCacheSize * 0.6; // Start at 60% of current
-    const dailyGrowthBase = (usedCacheSize * 0.4) / daysOfData; // Spread remaining 40% over period
-
-    for (let i = daysOfData; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      date.setHours(23, 59, 59, 0);
-
-      const growthVariation = 0.5 + Math.random(); // 50-150% of base growth
-      const dailyGrowth = Math.floor(dailyGrowthBase * growthVariation);
-
-      dataPoints.push({
-        timestamp: date.toISOString(),
-        cumulativeCacheMissBytes: Math.floor(cumulativeBytes),
-        growthFromPrevious: i === daysOfData ? 0 : dailyGrowth
-      });
-
-      cumulativeBytes += dailyGrowth;
-    }
-
-    // Calculate average daily growth
-    const totalGrowth =
-      dataPoints[dataPoints.length - 1].cumulativeCacheMissBytes -
-      dataPoints[0].cumulativeCacheMissBytes;
-    const averageDailyGrowth = Math.floor(totalGrowth / daysOfData);
-
-    // Calculate trend by comparing first half to second half
-    const midpoint = Math.floor(dataPoints.length / 2);
-    const firstHalfGrowth =
-      dataPoints[midpoint].cumulativeCacheMissBytes - dataPoints[0].cumulativeCacheMissBytes;
-    const secondHalfGrowth =
-      dataPoints[dataPoints.length - 1].cumulativeCacheMissBytes -
-      dataPoints[midpoint].cumulativeCacheMissBytes;
-
-    let trend: 'up' | 'down' | 'stable';
-    let percentChange = 0;
-
-    if (firstHalfGrowth > 0) {
-      percentChange = ((secondHalfGrowth - firstHalfGrowth) / firstHalfGrowth) * 100;
-      if (percentChange > 10) trend = 'up';
-      else if (percentChange < -10) trend = 'down';
-      else trend = 'stable';
-    } else {
-      trend = 'stable';
-    }
-
-    // Calculate days until full
-    const remainingSpace = totalCacheSize - usedCacheSize;
-    const estimatedDaysUntilFull =
-      averageDailyGrowth > 0 ? Math.ceil(remainingSpace / averageDailyGrowth) : null;
-
-    return {
-      dataPoints,
-      currentCacheSize: usedCacheSize,
-      totalCapacity: totalCacheSize,
-      averageDailyGrowth,
-      netAverageDailyGrowth: averageDailyGrowth,
-      trend,
-      percentChange,
-      estimatedDaysUntilFull,
-      period: '14d',
-      hasDataDeletion: false,
-      estimatedBytesDeleted: 0,
-      cacheWasCleared: false
     };
   }
 

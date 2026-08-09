@@ -64,6 +64,7 @@ import {
 } from './cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 import { isCardDiskActionBlocked, resolveCardNotice } from '@utils/cardDirectoryNotice';
+import { resolveDatasources } from '@utils/datasources';
 import { getNginxReopenGateForEntities } from '@utils/nginxReopenAvailability';
 
 interface GameCacheDetectorProps {
@@ -129,22 +130,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [serviceToRemove, setServiceToRemove] = useState<ServiceCacheInfo | null>(null);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
-  // Derive datasources from config context (guaranteed non-null)
-  const datasources =
-    config.dataSources && config.dataSources.length > 0
-      ? config.dataSources
-      : [
-          {
-            name: 'default',
-            cachePath: config.cachePath,
-            logsPath: config.logsPath,
-            cacheWritable: config.cacheWritable,
-            logsWritable: config.logsWritable,
-            enabled: true,
-            layout: 'monolithic' as const,
-            nginxReopenAvailable: false
-          }
-        ];
+  const datasources = resolveDatasources(config);
   const [selectedDatasource, setSelectedDatasource] = useState<string | null>(null);
 
   // Accordion state for Services, Games, and Evicted Games sections
@@ -256,14 +242,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // Shared background-resync helper (initial load + post-removal/scan auto-refresh); every
         // caller already has a working fallback (empty state or stale list), so a failure here is
         // explicit background noise rather than a blocking error.
-        notifyError(
-          t('management.gameDetection.errors.syncFailed', 'Failed to refresh cached results'),
-          err,
-          {
-            silent: true,
-            logLabel: `[GameCacheDetector] ${errorContext}`
-          }
-        );
+        notifyError(t('management.gameDetection.errors.syncFailed'), err, {
+          silent: true,
+          logLabel: `[GameCacheDetector] ${errorContext}`
+        });
         return null;
       }
     },
@@ -472,9 +454,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
       setIsStartingDetection(true);
       setScanType(scanTypeLabel);
-      setGames([]);
-      setServices([]);
-      setLastDetectionTime(null); // Clear previous detection time when starting new scan
 
       try {
         // Start background detection - SignalR will send GameDetectionStarted event
@@ -818,7 +797,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           {selectedCombinedCount}
         </SectionHeaderChip>
       )}
-      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+      <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>
             <ActionMenuItem
@@ -908,7 +887,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         close();
                       }}
                     >
-                      {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
+                      {t('management.batchSelect.removeSelectedLabel')}
                     </ActionMenuDangerItem>
                   </NginxReopenActionGate>
                 </DiskObjectActionGate>
@@ -946,7 +925,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         close();
                       }}
                     >
-                      {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
+                      {t('management.sections.data.gameCacheRemoveAll')}
                     </ActionMenuDangerItem>
                   </NginxReopenActionGate>
                 </DiskObjectActionGate>
@@ -1010,6 +989,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           {/* Loading State */}
           {showBlockingLoader && (
             <LoadingState
+              variant="spinner"
               message={
                 datasources.length > 1
                   ? t('management.gameDetection.scanningMultipleDatasources', {
@@ -1021,7 +1001,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             />
           )}
 
-          {cacheExist && !showBlockingLoader && (
+          {cacheExist && (
             <>
               {/* Previous Results Summary */}
               {lastDetectionTime && hasResults && (
@@ -1166,11 +1146,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         opened={showRemoveAllConfirm}
         onClose={() => setShowRemoveAllConfirm(false)}
         onConfirm={handleRemoveAllCached}
-        title={t(
-          'management.sections.data.gameCacheRemoveAllConfirmTitle',
-          'Remove all cached games & services?'
-        )}
-        confirmLabel={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
+        title={t('management.sections.data.gameCacheRemoveAllConfirmTitle')}
+        confirmLabel={t('management.sections.data.gameCacheRemoveAll')}
       >
         <p className="text-themed-secondary">
           {t('management.sections.data.gameCacheRemoveAllConfirmMessage', {

@@ -9,8 +9,7 @@ import type {
   GameDetectionSummary,
   SparklineDataResponse,
   HourlyActivityResponse,
-  CacheSnapshotResponse,
-  CacheGrowthResponse
+  CacheSnapshotResponse
 } from '../../types';
 
 // Every selector below reads the same provider, so they share one guard instead of restating it.
@@ -104,25 +103,12 @@ export const useCacheSnapshot = (): {
   cacheSnapshot: CacheSnapshotResponse | null;
   loading: boolean;
   isRefreshing: boolean;
-} => {
-  const context = useDashboardDataContext();
-  return {
-    cacheSnapshot: context.cacheSnapshot,
-    loading: context.loading,
-    isRefreshing: context.isRefreshing
-  };
-};
-
-export const useCacheGrowth = (): {
-  cacheGrowth: CacheGrowthResponse | null;
-  loading: boolean;
-  isRefreshing: boolean;
   error: string | null;
   refetch: () => Promise<void>;
 } => {
   const context = useDashboardDataContext();
   return {
-    cacheGrowth: context.cacheGrowth,
+    cacheSnapshot: context.cacheSnapshot,
     loading: context.loading,
     isRefreshing: context.isRefreshing,
     error: context.error,

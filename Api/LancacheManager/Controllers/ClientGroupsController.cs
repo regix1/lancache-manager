@@ -134,8 +134,17 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
 
     // ===== Override Create to return Created with location =====
 
+    /// <summary>
+    /// Creates a client group, optionally assigning initial addresses to it.
+    /// </summary>
+    /// <remarks>
+    /// An address that could not be taken (already owned by another group, or not a valid
+    /// address) is named in <see cref="CreateClientGroupResponse.RejectedIps"/> rather than
+    /// silently dropped; if none of the requested addresses could be taken, the group is not kept.
+    /// </remarks>
     [HttpPost]
     [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(typeof(CreateClientGroupResponse), StatusCodes.Status201Created)]
     public override async Task<IActionResult> CreateAsync([FromBody] CreateClientGroupRequest request, CancellationToken ct = default)
     {
         await ValidateCreateAsync(request, ct);
@@ -202,6 +211,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// </remarks>
     [HttpPut("{id:long}/members")]
     [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(typeof(SetMembersResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> SetMembersAsync(long id, [FromBody] SetMembersRequest request, CancellationToken ct = default)
     {
         var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, ResourceName, ct);
@@ -250,29 +260,33 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     }
 
     /// <summary>
-    /// Get the IP to group mapping for efficient lookups
+    /// Returns the full IP-address-to-group mapping in one call.
     /// </summary>
+    /// <remarks>
+    /// For callers that need to resolve many addresses at once (client stats, dashboard batch)
+    /// without a lookup per address. Has no UI caller of its own; it exists as a bulk-lookup API
+    /// for scripted or external use.
+    /// </remarks>
     [HttpGet("mapping")]
-    public async Task<IActionResult> GetMappingAsync(CancellationToken ct = default)
+    [ProducesResponseType(typeof(Dictionary<string, ClientGroupAssignment>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<Dictionary<string, ClientGroupAssignment>>> GetMappingAsync(CancellationToken ct = default)
     {
         var mapping = await _clientGroupsRepository.GetIpMappingAsync(ct);
-        var result = mapping.ToDictionary(
-            kvp => kvp.Key,
-            kvp => new
-            {
-                groupId = kvp.Value.GroupId,
-                nickname = kvp.Value.Nickname,
-                separateMemberRows = kvp.Value.SeparateMemberRows
-            }
-        );
-        return Ok(result);
+        return Ok(mapping);
     }
 
     /// <summary>
-    /// Update a client group (admin only)
+    /// Updates a client group's fields (nickname, description, row-display setting).
     /// </summary>
+    /// <remarks>
+    /// Membership is not touched here; addresses are managed separately through
+    /// <see cref="SetMembersAsync"/>. A request carrying <c>ExpectedUpdatedAtUtc</c> that no
+    /// longer matches the stored group is rejected with the group as it now stands, so a caller
+    /// editing a stale copy does not silently overwrite someone else's change.
+    /// </remarks>
     [HttpPut("{id}")]
     [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(typeof(ClientGroupDto), StatusCodes.Status200OK)]
     public override async Task<IActionResult> UpdateAsync(long id, [FromBody] UpdateClientGroupRequest request, CancellationToken ct = default)
     {
         var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, ResourceName, ct);
@@ -296,10 +310,15 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     }
 
     /// <summary>
-    /// Delete a client group (admin only)
+    /// Deletes a client group.
     /// </summary>
+    /// <remarks>
+    /// Member addresses are not deleted; they simply stop being assigned to a group and revert to
+    /// reporting individually.
+    /// </remarks>
     [HttpDelete("{id}")]
     [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public override Task<IActionResult> DeleteAsync(long id, CancellationToken ct = default)
         => base.DeleteAsync(id, ct);
 

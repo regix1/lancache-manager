@@ -133,10 +133,14 @@ public class GamesController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/games/{appId} - Remove game from cache
-    /// RESTful: DELETE is proper method for removing resources
+    /// Removes a game from the cache.
     /// </summary>
+    /// <remarks>
+    /// DELETE is the proper method for removing resources.
+    /// </remarks>
     [HttpDelete("{appId}")]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(GameRemovalStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveGameFromCacheAsync(long appId, CancellationToken cancellationToken)
     {
         var capabilityError = DenyIfKeyDependentUnavailable();
@@ -196,11 +200,15 @@ public class GamesController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/games/epic/{gameName} - Remove Epic game by name
-    /// Uses the Rust cache_epic_remove binary to delete cache files, log entries,
-    /// and database records - same three-step process as Steam game removal.
+    /// Removes an Epic game from the cache by name.
     /// </summary>
+    /// <remarks>
+    /// Uses the Rust cache_epic_remove binary to delete cache files, log entries, and database
+    /// records, the same three-step process as Steam game removal.
+    /// </remarks>
     [HttpDelete("epic/{gameName}")]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(GameRemovalStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveEpicGameFromCacheAsync(string gameName, CancellationToken cancellationToken)
     {
         var capabilityError = DenyIfKeyDependentUnavailable();
@@ -263,12 +271,16 @@ public class GamesController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/games/named/{service}/{gameName} - Remove a named (Blizzard/Riot/Xbox) game by Service + GameName.
-    /// These games have no Steam AppId and no Epic AppId; their identity is (Service, GameName).
-    /// Dispatches to the per-service Rust binary (cache_{service}_remove) to delete cache files, log
-    /// entries, and database records - same three-step process as Epic game removal.
+    /// Removes a named game (Blizzard, Riot, Xbox) from the cache.
     /// </summary>
+    /// <remarks>
+    /// These games have no Steam AppId and no Epic AppId; their identity is (Service, GameName).
+    /// Dispatches to the per-service Rust binary (cache_{service}_remove) to delete cache files,
+    /// log entries, and database records, the same three-step process as Epic game removal.
+    /// </remarks>
     [HttpDelete("named/{service}/{gameName}")]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(GameRemovalStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveNamedGameFromCacheAsync(string service, string gameName, CancellationToken cancellationToken)
     {
         var capabilityError = DenyIfKeyDependentUnavailable();
@@ -363,8 +375,8 @@ public class GamesController : ControllerBase
         var errorStageKey = isEpic ? "signalr.epicRemove.error.fatal" : "signalr.gameRemove.error.fatal";
 
         // Register with unified operation tracker for centralized cancellation and tracking.
-        // EntityKind + EpicAppId let the REST recovery endpoints (/api/cache/removals/active,
-        // /api/games/removals/active) project scope-aware identity onto GameRemovalInfo.
+        // EntityKind + EpicAppId let the REST recovery endpoint /api/cache/removals/active
+        // project scope-aware identity onto GameRemovalInfo.
         var removalMetrics = new RemovalMetrics
         {
             EntityKey = entityKey,
@@ -516,105 +528,18 @@ public class GamesController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/games/{appId}/removal-status - Get status of game removal operation
-    /// Used for restoring progress on page refresh
+    /// Starts game detection in the cache.
     /// </summary>
-    [HttpGet("{appId}/removal-status")]
-    public IActionResult GetGameRemovalStatus(long appId)
-    {
-        var operation = _operationTracker.GetOperationByEntityKey(OperationType.GameRemoval, appId.ToString());
-        if (operation == null)
-        {
-            return Ok(new RemovalStatusResponse { IsProcessing = false });
-        }
-
-        var metrics = operation.Metadata as RemovalMetrics;
-        return Ok(new RemovalStatusResponse
-        {
-            IsProcessing = operation.Status != OperationStatus.Completed && operation.Status != OperationStatus.Failed,
-            Status = operation.Status,
-            Message = operation.Message,
-            GameName = metrics?.EntityName,
-            FilesDeleted = metrics?.FilesDeleted ?? 0,
-            BytesFreed = metrics?.BytesFreed ?? 0,
-            StartedAt = operation.StartedAt,
-            OperationId = operation.Id
-        });
-    }
-
-    /// <summary>
-    /// GET /api/games/removals/active - Get all active game removal operations
-    /// Used for universal recovery on page refresh
-    /// </summary>
-    [HttpGet("removals/active")]
-    public IActionResult GetActiveGameRemovals()
-    {
-        var operations = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
-        return Ok(new ActiveGameRemovalsResponse
-        {
-            IsProcessing = operations.Any(),
-            Operations = operations.Select(op =>
-            {
-                var metrics = op.Metadata as RemovalMetrics;
-                return ToRemovalInfo(op, metrics);
-            })
-        });
-    }
-
-    /// <summary>
-    /// Scope-aware projection from an OperationInfo + its RemovalMetrics into a GameRemovalInfo DTO.
-    /// Steam entries emit `GameAppId`; Epic entries emit `EpicAppId`. Legacy rows without
-    /// `EntityKind` fall back to numeric parse so existing Steam-only data keeps round-tripping.
-    /// </summary>
-    private static GameRemovalInfo ToRemovalInfo(OperationInfo op, RemovalMetrics? metrics)
-    {
-        long? gameAppId = null;
-        string? epicAppId = null;
-
-        switch (metrics?.EntityKind)
-        {
-            case "steam":
-                if (long.TryParse(metrics.EntityKey, out var parsedSteamId))
-                {
-                    gameAppId = parsedSteamId;
-                }
-                break;
-            case "epic":
-                epicAppId = metrics.EpicAppId ?? metrics.EntityKey;
-                break;
-            case "named":
-                // Named (Blizzard/Riot) games carry no Steam AppId and no Epic AppId.
-                // Identity lives in EntityKey ("service:gameName") + EntityName; leave both ids null.
-                break;
-            default:
-                // Legacy rows persisted before EntityKind existed - preserve numeric compat.
-                if (long.TryParse(metrics?.EntityKey, out var legacySteamId))
-                {
-                    gameAppId = legacySteamId;
-                }
-                break;
-        }
-
-        return new GameRemovalInfo
-        {
-            GameAppId = gameAppId,
-            EpicAppId = epicAppId,
-            EntityKind = metrics?.EntityKind ?? (epicAppId != null ? "epic" : gameAppId.HasValue ? "steam" : null),
-            GameName = metrics?.EntityName ?? op.Name,
-            OperationId = op.Id,
-            Status = op.Status,
-            Message = op.Message,
-            FilesDeleted = metrics?.FilesDeleted ?? 0,
-            BytesFreed = metrics?.BytesFreed ?? 0,
-            StartedAt = op.StartedAt
-        };
-    }
-
-    /// <summary>
-    /// POST /api/games/detect - Start game detection in cache
-    /// Note: POST is acceptable as this starts an asynchronous operation
-    /// </summary>
+    /// <remarks>
+    /// POST is acceptable since this starts an asynchronous operation.
+    /// </remarks>
+    /// <param name="forceRefresh">
+    /// When true, runs a full scan of every cache entry. When false (default), runs a quick
+    /// incremental scan that only looks at what changed since the last detection.
+    /// </param>
     [HttpPost("detect")]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(GameDetectionStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> DetectGamesAsync([FromQuery] bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
         var capabilityError = DenyIfKeyDependentUnavailable();
@@ -666,10 +591,11 @@ public class GamesController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/games/detect/active - Get currently running detection operation
+    /// Gets the currently running detection operation.
     /// </summary>
     [HttpGet("detect/active")]
-    public IActionResult GetActiveDetection()
+    [ProducesResponseType(typeof(ActiveDetectionResponse), StatusCodes.Status200OK)]
+    public ActionResult<ActiveDetectionResponse> GetActiveDetection()
     {
         var activeOperation = _gameCacheDetectionService.GetActiveOperation();
 
@@ -687,27 +613,16 @@ public class GamesController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/games/detect/{id}/status - Get status of specific detection operation
+    /// Gets cached game detection results.
     /// </summary>
-    [HttpGet("detect/{id}/status")]
-    public IActionResult GetDetectionStatus(Guid id)
-    {
-        var status = _gameCacheDetectionService.GetOperationStatus(id);
-
-        if (status == null)
-        {
-            return NotFound(ApiResponse.NotFound("Detection operation", id));
-        }
-
-        return Ok(status);
-    }
-
-    /// <summary>
-    /// GET /api/games/detect/cached - Get cached detection results
-    /// </summary>
-    [AllowAnonymous]
+    /// <remarks>
+    /// Returns the full (non-slim) shape, including per-game cache_file_paths, which the
+    /// dashboard's slim variant deliberately omits to keep its payload small. Used by the admin
+    /// management screen, which needs the actual file paths to act on.
+    /// </remarks>
     [HttpGet("detect/cached")]
-    public async Task<IActionResult> GetCachedDetectionAsync()
+    [ProducesResponseType(typeof(CachedDetectionResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CachedDetectionResponse>> GetCachedDetectionAsync()
     {
         // Non-slim response carries cache_file_paths, which the singleton cache deliberately
         // omits - load them per request instead.

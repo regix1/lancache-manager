@@ -30,6 +30,11 @@ public class GameDetectionStartResponse
 public class ActiveDetectionResponse
 {
     public bool IsProcessing { get; set; }
+
+    /// <summary>
+    /// Snapshot of the running detection operation. Null when <see cref="IsProcessing"/> is false
+    /// (no detection is active).
+    /// </summary>
     public object? Operation { get; set; }
 
     /// <summary>
@@ -46,10 +51,24 @@ public class ActiveDetectionResponse
 public class CachedDetectionResponse
 {
     public bool HasCachedResults { get; set; }
+
+    /// <summary>
+    /// The detected game list (full or dashboard-slim shape depending on the caller). Null when
+    /// <see cref="HasCachedResults"/> is false.
+    /// </summary>
     public object? Games { get; set; }
+
+    /// <summary>
+    /// The detected non-game service list. Null when <see cref="HasCachedResults"/> is false.
+    /// </summary>
     public object? Services { get; set; }
     public int TotalGamesDetected { get; set; }
     public int TotalServicesDetected { get; set; }
+
+    /// <summary>
+    /// ISO-8601 timestamp of the last completed detection scan. Null when
+    /// <see cref="HasCachedResults"/> is false (no scan has completed yet).
+    /// </summary>
     public string? LastDetectionTime { get; set; }
 
     /// <summary>
@@ -77,7 +96,9 @@ public class CachedDetectionResponse
     public ulong IdentifiedServiceBytes { get; set; }
 
     /// <summary>
-    /// When deduplicated on-disk totals were last computed from cache file paths.
+    /// When deduplicated on-disk totals were last computed from cache file paths. Null when
+    /// <see cref="HasCachedResults"/> is false, or when no summary timestamp was recorded for
+    /// this scan.
     /// </summary>
     [JsonPropertyName("detection_summary_computed_at")]
     public string? DetectionSummaryComputedAt { get; set; }
@@ -96,16 +117,25 @@ public class CachedDetectionResponse
 /// </summary>
 public class CachedCorruptionResponse
 {
+    /// <summary>Whether a prior detection scan has results to report. Every other field on this response is null when this is false.</summary>
     public bool HasCachedResults { get; set; }
+
+    /// <summary>The scan these results came from. Null when <see cref="HasCachedResults"/> is false.</summary>
     public Guid? ScanId { get; set; }
+
+    /// <summary>Repeated-miss threshold used by the scan. Null when <see cref="HasCachedResults"/> is false, or when the scan used the structural detection method instead.</summary>
     public int? Threshold { get; set; }
     public int? LookbackDays { get; set; }
     public int? ContractVersion { get; set; }
     public string? DetectionMethod { get; set; }
+
+    /// <summary>Structural scan mode. Null when <see cref="HasCachedResults"/> is false, or when the scan used the repeated-miss detection method instead.</summary>
     public string? ScanMode { get; set; }
     public CorruptionScanSettingsResponse? Settings { get; set; }
     public Dictionary<string, long>? CorruptionCounts { get; set; }
     public Dictionary<string, long>? DetectionCounts { get; set; }
+
+    /// <summary>Structural scan coverage counters. Null when <see cref="ScanMode"/> is null (the scan used the repeated-miss detection method).</summary>
     public CorruptionScanCoverageResponse? Coverage { get; set; }
     public int TotalServicesWithCorruption { get; set; }
     public long TotalCorruptedChunks { get; set; }

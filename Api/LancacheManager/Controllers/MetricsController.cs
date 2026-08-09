@@ -40,16 +40,18 @@ public class MetricsController : ControllerBase
     /// Get the current metrics update interval
     /// </summary>
     [HttpGet("interval")]
-    public IActionResult GetInterval()
+    [ProducesResponseType(typeof(MetricsIntervalResponse), StatusCodes.Status200OK)]
+    public ActionResult<MetricsIntervalResponse> GetInterval()
     {
-        return Ok(new { interval = _metricsService.GetUpdateInterval() });
+        return Ok(new MetricsIntervalResponse { Interval = _metricsService.GetUpdateInterval() });
     }
 
     /// <summary>
     /// Set the metrics update interval (5-60 seconds)
     /// </summary>
     [HttpPost("interval")]
-    public IActionResult SetInterval([FromBody] SetIntervalRequest request)
+    [ProducesResponseType(typeof(MetricsIntervalResponse), StatusCodes.Status200OK)]
+    public ActionResult<MetricsIntervalResponse> SetInterval([FromBody] SetIntervalRequest request)
     {
         if (request.Interval < 5 || request.Interval > 60)
         {
@@ -57,26 +59,34 @@ public class MetricsController : ControllerBase
         }
 
         _metricsService.SetUpdateInterval(request.Interval);
-        return Ok(new { interval = _metricsService.GetUpdateInterval() });
+        return Ok(new MetricsIntervalResponse { Interval = _metricsService.GetUpdateInterval() });
     }
 
     /// <summary>
-    /// Get how many games the per-game metrics report. Answered from the persisted value, which is
-    /// also what the collection loop reads, so a restart reports the saved limit immediately
-    /// instead of the default until the first cycle completes. [32]
+    /// Gets how many games the per-game metrics report.
     /// </summary>
+    /// <remarks>
+    /// Answered from the persisted value, which is also what the collection loop reads, so a
+    /// restart reports the saved limit immediately instead of the default until the first cycle
+    /// completes.
+    /// </remarks>
     [HttpGet("game-limit")]
-    public IActionResult GetGameLimit()
+    [ProducesResponseType(typeof(MetricsGameLimitResponse), StatusCodes.Status200OK)]
+    public ActionResult<MetricsGameLimitResponse> GetGameLimit()
     {
-        return Ok(new { gameLimit = ReadGameLimit() });
+        return Ok(new MetricsGameLimitResponse { GameLimit = ReadGameLimit() });
     }
 
     /// <summary>
-    /// Set how many games the per-game metrics report (1-500). Persisted, so it survives a restart.
-    /// The new value applies from the next collection cycle, up to one update interval later.
+    /// Sets how many games the per-game metrics report (1-500).
     /// </summary>
+    /// <remarks>
+    /// Persisted, so it survives a restart. The new value applies from the next collection
+    /// cycle, up to one update interval later.
+    /// </remarks>
     [HttpPost("game-limit")]
-    public IActionResult SetGameLimit([FromBody] SetGameLimitRequest request)
+    [ProducesResponseType(typeof(MetricsGameLimitResponse), StatusCodes.Status200OK)]
+    public ActionResult<MetricsGameLimitResponse> SetGameLimit([FromBody] SetGameLimitRequest request)
     {
         if (request.GameLimit < MinGameLimit || request.GameLimit > MaxGameLimit)
         {
@@ -100,7 +110,7 @@ public class MetricsController : ControllerBase
             _logger.LogInformation("Metrics game limit changed from {Old} to {New}", previousLimit, request.GameLimit);
         }
 
-        return Ok(new { gameLimit = ReadGameLimit() });
+        return Ok(new MetricsGameLimitResponse { GameLimit = ReadGameLimit() });
     }
 
     /// <summary>
@@ -115,12 +125,15 @@ public class MetricsController : ControllerBase
     private int ReadGameLimit() => Math.Clamp(_stateRepository.GetTopGameCount(), MinGameLimit, MaxGameLimit);
 
     /// <summary>
-    /// Get metrics authentication security settings
-    /// Returns current state, source (ui toggle or config), and env var default
+    /// Gets metrics authentication security settings.
     /// </summary>
+    /// <remarks>
+    /// Returns current state, source (UI toggle or config), and env var default.
+    /// </remarks>
     [HttpGet("security")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public IActionResult GetSecurity()
+    [ProducesResponseType(typeof(MetricsSecurityResponse), StatusCodes.Status200OK)]
+    public ActionResult<MetricsSecurityResponse> GetSecurity()
     {
         // Get env var / appsettings.json value (the default)
         var configValue = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
@@ -142,11 +155,14 @@ public class MetricsController : ControllerBase
     }
 
     /// <summary>
-    /// Set metrics authentication requirement via UI toggle.
-    /// Pass null to clear the UI override and fall back to the env-var / appsettings default.
+    /// Sets the metrics authentication requirement via a UI toggle.
     /// </summary>
+    /// <remarks>
+    /// Pass null to clear the UI override and fall back to the env-var / appsettings default.
+    /// </remarks>
     [HttpPost("security")]
-    public async Task<IActionResult> SetSecurityAsync([FromBody] SetSecurityRequest request)
+    [ProducesResponseType(typeof(MetricsSecurityResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MetricsSecurityResponse>> SetSecurityAsync([FromBody] SetSecurityRequest request)
     {
         try
         {

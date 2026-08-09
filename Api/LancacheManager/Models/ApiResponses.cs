@@ -65,6 +65,16 @@ public class ErrorResponse
 }
 
 /// <summary>
+/// A response carrying only a message, with no success flag or additional data. Matches the wire
+/// shape of <see cref="ApiResponse.Message(string)"/> exactly, so an action can declare it in
+/// <c>ProducesResponseType</c> without adding fields <c>ApiResponse.Message</c> does not emit.
+/// </summary>
+public class MessageOnlyResponse
+{
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// Response for validation errors with multiple error messages
 /// Used by FluentValidation filter for consistent error responses
 /// </summary>

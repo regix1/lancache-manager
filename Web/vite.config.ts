@@ -56,6 +56,14 @@ export default defineConfig({
       '/swagger': {
         target: 'http://localhost:5000',
         changeOrigin: true
+      },
+      '/scalar': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
+      },
+      '/openapi': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
       }
     }
   },

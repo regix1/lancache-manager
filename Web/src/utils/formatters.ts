@@ -1,38 +1,5 @@
 import { FILE_SIZE_UNITS } from './constants';
-import { formatTimestamp, type TimestampSettings, type TimestampStyle } from './dateTimeFormat';
-import { getGlobalTimezonePreference } from './timezonePreference';
-import { getGlobal24HourPreference } from './timeFormatPreference';
-
-/**
- * Read the display preferences from module state.
- * This path is not reactive: a component that renders through it keeps its old string until
- * something else re-renders it. Components should use the useFormattedDateTime hook instead.
- */
-function currentTimestampSettings(forceYear: boolean, style: TimestampStyle): TimestampSettings {
-  return {
-    useLocalTimezone: getGlobalTimezonePreference(),
-    use24Hour: getGlobal24HourPreference(),
-    forceYear,
-    style
-  };
-}
-
-/**
- * Format date/time to localized string
- * NOTE: This is for non-React contexts (CSV exports, etc.)
- * For React components, use the useFormattedDateTime hook instead
- *
- * @param dateString - The date to format
- * @param forceYear - Kept for callers that ask for it; every style now carries the year anyway
- * @param style - Defaults to the standard timestamp; pass 'log' where seconds are real resolution
- */
-export function formatDateTime(
-  dateString: string | Date | null | undefined,
-  forceYear = false,
-  style: TimestampStyle = 'stamp'
-): string {
-  return formatTimestamp(dateString, currentTimestampSettings(forceYear, style));
-}
+import { formatTimestamp, type ReaderClock } from './dateTimeFormat';
 
 /**
  * Check if a date is from a different year than the current year
@@ -119,9 +86,13 @@ export function formatPercent(value: number, decimals = 1): string {
 
 /**
  * Format an event date range as a localized string (e.g., "Jan 5, 2026" or "Jan 5, 2026 - Jan 7, 2026")
+ *
+ * An event's ends are real instants, so they follow whichever clock the reader is on. That clock is
+ * an argument because this runs inside a `.map` over events, where a hook cannot go. See
+ * {@link ReaderClock} for why reading it from module state instead leaves the label stale.
  */
-export function formatEventDateRange(startUtc: string, endUtc: string): string {
-  const settings = currentTimestampSettings(false, 'dateOnly');
+export function formatEventDateRange(startUtc: string, endUtc: string, clock: ReaderClock): string {
+  const settings = { ...clock, forceYear: false, style: 'dateOnly' as const };
   const startStr = formatTimestamp(startUtc, settings);
   const endStr = formatTimestamp(endUtc, settings);
   return startStr === endStr ? startStr : `${startStr} - ${endStr}`;

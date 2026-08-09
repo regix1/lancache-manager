@@ -1,13 +1,22 @@
+// Explicit extension: this module is loaded directly by the node test runner, which resolves
+// value imports itself and cannot fill in a missing one.
+import { CLOCK_KEYS, type ClockPreferences } from '../types/userPreferences.ts';
+
 export const DEFAULT_GUEST_PREFERENCE_KEYS = new Set([
   'useLocalTimezone',
+  'useUtcTimezone',
   'use24HourFormat',
   'sharpCorners',
   'disableTooltips',
   'showDatasourceLabels'
 ]);
 
+// Every key in the Set above needs a field on both shapes below. The lookup casts through
+// `keyof`, so a missing field type-checks and silently reads whatever the caller happened to
+// pass, which is how a key with no declared type stops being checked at all. [19]
 interface DefaultGuestPreferencesSnapshot {
   useLocalTimezone: boolean;
+  useUtcTimezone: boolean;
   use24HourFormat: boolean;
   sharpCorners: boolean;
   disableTooltips: boolean;
@@ -18,6 +27,7 @@ interface DefaultGuestPreferencesSnapshot {
 interface SessionPrefsForGate {
   selectedTheme: string | null;
   useLocalTimezone: boolean;
+  useUtcTimezone: boolean;
   use24HourFormat: boolean;
   sharpCorners: boolean;
   disableTooltips: boolean;
@@ -67,4 +77,29 @@ export function shouldApplyGuestDefaultChange(
   const sessionValue = sessionPrefs[key as keyof SessionPrefsForGate];
   const defaultValue = previousDefaults[key as keyof DefaultGuestPreferencesSnapshot];
   return sessionValue === defaultValue;
+}
+
+export function shouldApplyGuestClockChange(
+  sessionClock: ClockPreferences,
+  previousClock: ClockPreferences
+): boolean {
+  return CLOCK_KEYS.every((key) => sessionClock[key] === previousClock[key]);
+}
+
+/**
+ * Replays clock changes received while a guest's preference request was still in flight. The order
+ * matters: if defaults move A to B and then B to C before the request for A finishes, keeping only C
+ * would compare A with B and incorrectly decide that the guest chose a different clock.
+ */
+export function applyGuestClockChanges<T extends ClockPreferences>(
+  sessionClock: T,
+  changes: readonly { clock: ClockPreferences; previousClock: ClockPreferences }[]
+): T {
+  let settled = sessionClock;
+  for (const change of changes) {
+    if (shouldApplyGuestClockChange(settled, change.previousClock)) {
+      settled = { ...settled, ...change.clock };
+    }
+  }
+  return settled;
 }

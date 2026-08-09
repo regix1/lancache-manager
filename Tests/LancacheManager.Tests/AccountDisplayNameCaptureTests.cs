@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using static LancacheManager.Tests.DaemonTestMethods;
 
 namespace LancacheManager.Tests;
 
@@ -162,7 +163,7 @@ public class AccountDisplayNameCaptureTests
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"account_display_name_{Guid.NewGuid():N}")
             .Options;
-        var dbFactory = new InMemoryDbContextFactory(dbOptions);
+        var dbFactory = new TestDbContextFactory(dbOptions);
         var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
         var cacheService = new PrefillCacheService(dbFactory, NullLogger<PrefillCacheService>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
@@ -195,60 +196,6 @@ public class AccountDisplayNameCaptureTests
             session.Id, session.UserId, $"container-{session.Id}", $"name-{session.Id}", session.ExpiresAt, persistPlatform);
 
         return (daemon, session, sessionService, recorder);
-    }
-
-    private static async Task InvokePrivateHandlerAsync(PrefillDaemonServiceBase daemon, string methodName, params object[] args)
-    {
-        var method = typeof(PrefillDaemonServiceBase).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException($"{methodName} not found on {nameof(PrefillDaemonServiceBase)}");
-        await (Task)method.Invoke(daemon, args)!;
-    }
-
-    private sealed class TestableSteamDaemonService : SteamDaemonService
-    {
-        public TestableSteamDaemonService(
-            Microsoft.Extensions.Logging.ILogger<SteamDaemonService> logger,
-            ISignalRNotificationService notifications,
-            IConfiguration configuration,
-            IPathResolver pathResolver,
-            IStateService stateService,
-            PrefillSessionService sessionService,
-            PrefillCacheService cacheService,
-            IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
-        {
-        }
-
-        public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
-    }
-
-    private sealed class InMemoryDbContextFactory : IDbContextFactory<AppDbContext>
-    {
-        private readonly DbContextOptions<AppDbContext> _options;
-
-        public InMemoryDbContextFactory(DbContextOptions<AppDbContext> options)
-        {
-            _options = options;
-        }
-
-        public AppDbContext CreateDbContext() => new AppDbContext(_options);
-
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new AppDbContext(_options));
-    }
-
-    private sealed class StaticOptionsMonitor<T> : IOptionsMonitor<T>
-    {
-        public StaticOptionsMonitor(T value) => CurrentValue = value;
-        public T CurrentValue { get; }
-        public T Get(string? name) => CurrentValue;
-        public IDisposable OnChange(Action<T, string?> listener) => NullDisposable.Instance;
-
-        private sealed class NullDisposable : IDisposable
-        {
-            public static readonly NullDisposable Instance = new();
-            public void Dispose() { }
-        }
     }
 
     private class RecordingNotificationProxy : DispatchProxy

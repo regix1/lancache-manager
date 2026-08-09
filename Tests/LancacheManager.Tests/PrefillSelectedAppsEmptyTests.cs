@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Tests;
 
@@ -90,7 +89,7 @@ public class PrefillSelectedAppsEmptyTests
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"selected_apps_empty_{Guid.NewGuid():N}")
             .Options;
-        var dbFactory = new InMemoryDbContextFactory(dbOptions);
+        var dbFactory = new TestDbContextFactory(dbOptions);
         var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
         var cacheService = new PrefillCacheService(dbFactory, NullLogger<PrefillCacheService>.Instance);
         var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
@@ -102,24 +101,6 @@ public class PrefillSelectedAppsEmptyTests
         return new TestableSteamDaemonService(
             NullLogger<SteamDaemonService>.Instance, notifications, configuration, pathResolver,
             stateService, sessionService, cacheService, networkOptions);
-    }
-
-    private sealed class TestableSteamDaemonService : SteamDaemonService
-    {
-        public TestableSteamDaemonService(
-            Microsoft.Extensions.Logging.ILogger<SteamDaemonService> logger,
-            ISignalRNotificationService notifications,
-            IConfiguration configuration,
-            IPathResolver pathResolver,
-            IStateService stateService,
-            PrefillSessionService sessionService,
-            PrefillCacheService cacheService,
-            IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
-        {
-        }
-
-        public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
     }
 
     /// <summary>
@@ -180,41 +161,6 @@ public class PrefillSelectedAppsEmptyTests
             }
 
             return null;
-        }
-    }
-
-    private sealed class InMemoryDbContextFactory : IDbContextFactory<AppDbContext>
-    {
-        private readonly DbContextOptions<AppDbContext> _options;
-
-        public InMemoryDbContextFactory(DbContextOptions<AppDbContext> options)
-        {
-            _options = options;
-        }
-
-        public AppDbContext CreateDbContext() => new(_options);
-
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new AppDbContext(_options));
-    }
-
-    private sealed class StaticOptionsMonitor<T> : IOptionsMonitor<T>
-    {
-        public StaticOptionsMonitor(T value)
-        {
-            CurrentValue = value;
-        }
-
-        public T CurrentValue { get; }
-
-        public T Get(string? name) => CurrentValue;
-
-        public IDisposable OnChange(Action<T, string?> listener) => NullDisposable.Instance;
-
-        private sealed class NullDisposable : IDisposable
-        {
-            public static readonly NullDisposable Instance = new();
-            public void Dispose() { }
         }
     }
 }

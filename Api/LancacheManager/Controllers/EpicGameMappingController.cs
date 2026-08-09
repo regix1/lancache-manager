@@ -30,6 +30,7 @@ public class EpicGameMappingController : ControllerBase
     /// Gets all Epic game mappings, optionally paginated and sorted.
     /// </summary>
     [HttpGet]
+    [ProducesResponseType(typeof(List<EpicGameMappingDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<EpicGameMappingDto>>> GetAllMappingsAsync(
         [FromQuery] int? skip = null,
         [FromQuery] int? take = null,
@@ -59,6 +60,7 @@ public class EpicGameMappingController : ControllerBase
     /// Gets mapping statistics (total games, last updated, etc.)
     /// </summary>
     [HttpGet("stats")]
+    [ProducesResponseType(typeof(EpicMappingStats), StatusCodes.Status200OK)]
     public async Task<ActionResult<EpicMappingStats>> GetStatsAsync(CancellationToken ct = default)
     {
         return Ok(await _epicMappingService.GetStatsAsync(ct));
@@ -68,6 +70,7 @@ public class EpicGameMappingController : ControllerBase
     /// Gets the current mapping auth status (authenticated, displayName, etc.)
     /// </summary>
     [HttpGet("auth-status")]
+    [ProducesResponseType(typeof(EpicMappingAuthStatus), StatusCodes.Status200OK)]
     public ActionResult<EpicMappingAuthStatus> GetAuthStatus()
     {
         return Ok(_epicMappingService.GetAuthStatus());
@@ -75,15 +78,18 @@ public class EpicGameMappingController : ControllerBase
 
     /// <summary>
     /// Starts the mapping login flow by returning the Epic authorization URL.
-    /// No Docker container is created - the URL points directly to Epic's login page.
     /// </summary>
+    /// <remarks>
+    /// No Docker container is created; the URL points directly to Epic's login page.
+    /// </remarks>
     [HttpPost("auth/login")]
-    public ActionResult StartLogin()
+    [ProducesResponseType(typeof(EpicLoginUrlResponse), StatusCodes.Status200OK)]
+    public ActionResult<EpicLoginUrlResponse> StartLogin()
     {
         try
         {
             var authorizationUrl = _epicMappingService.GetAuthorizationUrl();
-            return Ok(new { authorizationUrl });
+            return Ok(new EpicLoginUrlResponse { AuthorizationUrl = authorizationUrl });
         }
         catch (Exception ex)
         {
@@ -96,18 +102,22 @@ public class EpicGameMappingController : ControllerBase
     /// Logs out mapping session and clears saved credentials.
     /// </summary>
     [HttpDelete("auth")]
-    public async Task<ActionResult> LogoutAsync()
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageOnlyResponse>> LogoutAsync()
     {
         await _epicMappingService.LogoutAsync();
         return Ok(ApiResponse.Message("Epic mapping logged out"));
     }
 
     /// <summary>
-    /// Accepts the authorization code from the Epic login page,
-    /// exchanges it for tokens, fetches games, and saves credentials.
+    /// Completes the Epic login flow using an authorization code.
     /// </summary>
+    /// <remarks>
+    /// Exchanges the authorization code for tokens, fetches games, and saves credentials.
+    /// </remarks>
     [HttpPost("auth/complete")]
-    public async Task<ActionResult> CompleteAuthAsync([FromBody] EpicAuthCompleteRequest request)
+    [ProducesResponseType(typeof(EpicAuthCompleteResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<EpicAuthCompleteResponse>> CompleteAuthAsync([FromBody] EpicAuthCompleteRequest request)
     {
         if (string.IsNullOrWhiteSpace(request?.AuthorizationCode))
         {
@@ -118,11 +128,11 @@ public class EpicGameMappingController : ControllerBase
         {
             await _epicMappingService.OnAuthCodeReceivedAsync(request.AuthorizationCode.Trim());
             var status = _epicMappingService.GetAuthStatus();
-            return Ok(new
+            return Ok(new EpicAuthCompleteResponse
             {
-                message = "Game collection complete",
-                displayName = status.DisplayName,
-                gamesDiscovered = status.GamesDiscovered
+                Message = "Game collection complete",
+                DisplayName = status.DisplayName,
+                GamesDiscovered = status.GamesDiscovered
             });
         }
         catch (Exception ex) when (ex is not ConflictException)
@@ -136,6 +146,7 @@ public class EpicGameMappingController : ControllerBase
     /// Gets the current schedule status (interval, next run, last run, processing state).
     /// </summary>
     [HttpGet("schedule")]
+    [ProducesResponseType(typeof(EpicScheduleStatus), StatusCodes.Status200OK)]
     public ActionResult<EpicScheduleStatus> GetScheduleStatus()
     {
         return Ok(_epicMappingService.GetScheduleStatus());
@@ -143,24 +154,31 @@ public class EpicGameMappingController : ControllerBase
 
     /// <summary>
     /// Cancels the current Epic catalog refresh if one is running.
-    /// Mirrors Steam's DELETE /api/depots/rebuild pattern.
     /// </summary>
+    /// <remarks>
+    /// Mirrors the pattern used by DELETE /api/depots/rebuild for Steam.
+    /// </remarks>
     [HttpDelete("schedule/refresh")]
-    public async Task<ActionResult> CancelRefreshAsync()
+    [ProducesResponseType(typeof(EpicRefreshCancelResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<EpicRefreshCancelResponse>> CancelRefreshAsync()
     {
         var cancelled = await _epicMappingService.CancelRefreshAsync();
         if (cancelled)
         {
-            return Ok(new { cancelled = true, message = "Epic catalog refresh cancelled" });
+            return Ok(new EpicRefreshCancelResponse { Cancelled = true, Message = "Epic catalog refresh cancelled" });
         }
         return NotFound(new NotFoundResponse { Error = "No active refresh to cancel" });
     }
 
     /// <summary>
-    /// Updates the refresh interval in hours. Set to 0 to disable.
+    /// Updates the Epic catalog refresh interval, in hours.
     /// </summary>
+    /// <remarks>
+    /// Set to 0 to disable the refresh schedule.
+    /// </remarks>
     [HttpPut("schedule/interval")]
-    public ActionResult UpdateScheduleInterval([FromBody] double intervalHours)
+    [ProducesResponseType(typeof(EpicScheduleIntervalResponse), StatusCodes.Status200OK)]
+    public ActionResult<EpicScheduleIntervalResponse> UpdateScheduleInterval([FromBody] double intervalHours)
     {
         if (intervalHours < 0)
         {
@@ -169,13 +187,14 @@ public class EpicGameMappingController : ControllerBase
 
         _epicMappingService.RefreshIntervalHours = intervalHours;
         _logger.LogInformation("Epic refresh interval updated to {Hours} hours", intervalHours);
-        return Ok(new { intervalHours, message = $"Refresh interval set to {intervalHours} hours" });
+        return Ok(new EpicScheduleIntervalResponse { IntervalHours = intervalHours, Message = $"Refresh interval set to {intervalHours} hours" });
     }
 
     /// <summary>
     /// Search games by name (case-insensitive partial match).
     /// </summary>
     [HttpGet("search")]
+    [ProducesResponseType(typeof(List<EpicGameMappingDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<EpicGameMappingDto>>> SearchGamesAsync(
         [FromQuery] string q,
         CancellationToken ct = default)
@@ -217,5 +236,9 @@ public class EpicGameMappingDto
     public DateTime DiscoveredAtUtc { get; set; }
     public DateTime LastSeenAtUtc { get; set; }
     public string Source { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Header image URL for this game. Null until the image fetch service has resolved one.
+    /// </summary>
     public string? ImageUrl { get; set; }
 }

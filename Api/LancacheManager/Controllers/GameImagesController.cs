@@ -51,10 +51,13 @@ public class GameImagesController : ControllerBase
 
     /// <summary>
     /// Returns the cached Steam game header image.
-    /// Returns 404 if no image is stored in the DB for this app.
     /// </summary>
+    /// <remarks>
+    /// Returns 404 if no image is stored in the database for this app.
+    /// </remarks>
     [HttpGet("{appId}/header")]
     [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetHeaderImageAsync(
         int appId,
         CancellationToken cancellationToken = default)
@@ -72,10 +75,13 @@ public class GameImagesController : ControllerBase
 
     /// <summary>
     /// Returns the cached Epic game header image.
-    /// Returns 404 if no image is stored in the DB for this Epic app.
     /// </summary>
+    /// <remarks>
+    /// Returns 404 if no image is stored in the database for this Epic app.
+    /// </remarks>
     [HttpGet("epic/{epicAppId}/header")]
     [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetEpicHeaderImageAsync(
         string epicAppId,
         CancellationToken cancellationToken = default)
@@ -92,13 +98,16 @@ public class GameImagesController : ControllerBase
     }
 
     /// <summary>
-    /// Returns the cached banner image for a name-keyed service (Blizzard/Riot) whose games are
-    /// identified only by GameName. The slug is the normalized GameName produced by
-    /// NameKeyedBannerSource.Slug, and the service is the canonical "blizzard"/"riot" key.
-    /// Returns 404 if no image is stored for this (slug, service).
+    /// Returns the cached banner image for a name-keyed service.
     /// </summary>
+    /// <remarks>
+    /// Applies to services (Blizzard/Riot) whose games are identified only by GameName. The slug
+    /// is the normalized GameName produced by NameKeyedBannerSource.Slug, and the service is the
+    /// canonical "blizzard"/"riot" key. Returns 404 if no image is stored for this (slug, service).
+    /// </remarks>
     [HttpGet("name/{service}/{slug}/header")]
     [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetNameKeyedHeaderImageAsync(
         string service,
         string slug,
@@ -145,19 +154,26 @@ public class GameImagesController : ControllerBase
     }
 
     /// <summary>
-    /// Returns the current cache generation so the frontend can build cache-busted image URLs on page load.
+    /// Returns the current image cache generation number.
     /// </summary>
+    /// <remarks>
+    /// The frontend uses this to build cache-busted image URLs on page load.
+    /// </remarks>
     [HttpGet("cache-version")]
     [AllowAnonymous]
-    public IActionResult GetCacheVersion() => Ok(new { version = CacheGeneration });
+    [ProducesResponseType(typeof(GameImageCacheVersionResponse), StatusCodes.Status200OK)]
+    public ActionResult<GameImageCacheVersionResponse> GetCacheVersion() => Ok(new GameImageCacheVersionResponse { Version = CacheGeneration });
 
     /// <summary>
     /// Returns the list of app IDs that have cached game images.
-    /// The frontend uses this to skip rendering image components for apps without images.
     /// </summary>
+    /// <remarks>
+    /// The frontend uses this to skip rendering image components for apps without images.
+    /// </remarks>
     [HttpGet("available")]
     [AllowAnonymous]
-    public async Task<IActionResult> GetAvailableImageIdsAsync(CancellationToken cancellationToken = default)
+    [ProducesResponseType(typeof(HashSet<string>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<HashSet<string>>> GetAvailableImageIdsAsync(CancellationToken cancellationToken = default)
     {
         var ids = await _context.GameImages
             .AsNoTracking()
@@ -178,7 +194,8 @@ public class GameImagesController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("cache")]
-    public async Task<IActionResult> ClearImageCacheAsync(CancellationToken cancellationToken = default)
+    [ProducesResponseType(typeof(ImageCacheClearResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ImageCacheClearResponse>> ClearImageCacheAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("=== ClearImageCache START ===");
 
@@ -223,11 +240,11 @@ public class GameImagesController : ControllerBase
 
         _logger.LogInformation("=== ClearImageCache END === Epic URLs refreshed: {Epic}", epicUrlsRefreshed);
 
-        return Ok(new
+        return Ok(new ImageCacheClearResponse
         {
-            message = "Image cache cleared and re-fetch triggered",
-            epicImageUrlsRefreshed = epicUrlsRefreshed,
-            cacheGeneration
+            Message = "Image cache cleared and re-fetch triggered",
+            EpicImageUrlsRefreshed = epicUrlsRefreshed,
+            CacheGeneration = cacheGeneration
         });
     }
 

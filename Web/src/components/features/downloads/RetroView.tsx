@@ -27,6 +27,7 @@ import type { ColumnWidths } from '@utils/textMeasurement';
 import { Alert } from '@components/ui/Alert';
 import { Pagination } from '@components/ui/Pagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
+import { useReaderClock } from '@hooks/useReaderClock';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useClientHostnames } from '@contexts/useClientHostnames';
 import { resolveClientLabel } from '@utils/clientLabel';
@@ -36,6 +37,7 @@ import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import { useThemeRevision } from '@components/features/dashboard/ServiceAnalyticsChart/chartTheme';
 import RetroRow from './RetroRow';
 import { useRetroDownloads } from './useRetroDownloads';
+import { cacheHitPercent } from './downloadGrouping';
 import {
   efficiencyTier,
   formatTimeRange,
@@ -150,53 +152,53 @@ const RetroSkeletonRows: React.FC<{ isDesktop: boolean; visibility: RetroColumnV
         <div key={i} className="retro-grid-row retro-body-row items-center">
           {visibility.showTimestamps && (
             <div className="px-2">
-              <div className="retro-skeleton-bar w-4/5" />
-              <div className="retro-skeleton-bar retro-skeleton-bar-sub w-3/5" />
+              <div className="retro-skeleton-bar skeleton-shimmer w-4/5" />
+              <div className="retro-skeleton-bar skeleton-shimmer retro-skeleton-bar-sub w-3/5" />
             </div>
           )}
           {visibility.showBanner && (
             <div className="px-2 flex justify-center">
-              <div className="retro-skeleton-banner" />
+              <div className="retro-skeleton-banner skeleton-shimmer" />
             </div>
           )}
           <div className="px-2">
-            <div className="retro-skeleton-bar w-3/4" />
-            <div className="retro-skeleton-bar retro-skeleton-bar-sub w-1/3" />
+            <div className="retro-skeleton-bar skeleton-shimmer w-3/4" />
+            <div className="retro-skeleton-bar skeleton-shimmer retro-skeleton-bar-sub w-1/3" />
           </div>
           {visibility.showDatasource && (
             <div className="px-2 flex justify-center">
-              <div className="retro-skeleton-bar w-2/3" />
+              <div className="retro-skeleton-bar skeleton-shimmer w-2/3" />
             </div>
           )}
           <div className="px-2 flex justify-center">
-            <div className="retro-skeleton-bar w-1/2" />
+            <div className="retro-skeleton-bar skeleton-shimmer w-1/2" />
           </div>
           <div className="px-2 flex justify-end">
-            <div className="retro-skeleton-bar w-2/3" />
+            <div className="retro-skeleton-bar skeleton-shimmer w-2/3" />
           </div>
           <div className="px-2 flex justify-end">
-            <div className="retro-skeleton-bar w-3/4" />
+            <div className="retro-skeleton-bar skeleton-shimmer w-3/4" />
           </div>
           <div className="px-2 flex justify-end">
-            <div className="retro-skeleton-bar w-1/2" />
+            <div className="retro-skeleton-bar skeleton-shimmer w-1/2" />
           </div>
           <div className="px-2">
-            <div className="retro-skeleton-bar w-full" />
+            <div className="retro-skeleton-bar skeleton-shimmer w-full" />
           </div>
           <div className="px-2 flex justify-center">
-            <div className="retro-skeleton-gauge" />
+            <div className="retro-skeleton-gauge skeleton-shimmer" />
           </div>
         </div>
       ) : (
         <div key={i} className="retro-body-row">
           <div className="flex items-center gap-3">
-            <div className="retro-skeleton-banner" />
+            <div className="retro-skeleton-banner skeleton-shimmer" />
             <div className="flex-1 min-w-0">
-              <div className="retro-skeleton-bar w-2/3" />
-              <div className="retro-skeleton-bar retro-skeleton-bar-sub w-1/3" />
+              <div className="retro-skeleton-bar skeleton-shimmer w-2/3" />
+              <div className="retro-skeleton-bar skeleton-shimmer retro-skeleton-bar-sub w-1/3" />
             </div>
           </div>
-          <div className="retro-skeleton-bar w-full mt-3" />
+          <div className="retro-skeleton-bar skeleton-shimmer w-full mt-3" />
         </div>
       )
     )}
@@ -314,7 +316,7 @@ const RetroView = memo(
       const headerLabels = useMemo<Record<keyof ColumnWidths, string>>(
         () => ({
           timestamp: t('downloads.tab.retro.headers.timestamp'),
-          banner: t('downloads.tab.retro.headers.banner', 'Banner'),
+          banner: t('downloads.tab.retro.headers.banner'),
           app: t('downloads.tab.retro.headers.app'),
           datasource: t('downloads.tab.retro.headers.source'),
           events: t('downloads.tab.retro.headers.events'),
@@ -327,6 +329,11 @@ const RetroView = memo(
         [t]
       );
 
+      // Read from context rather than letting retroGrouping fall back to the module-level
+      // preference: this component does not otherwise subscribe, so the timestamp column kept
+      // showing the clock the reader had just switched away from until an unrelated re-render.
+      const clock = useReaderClock();
+
       // Pre-formatted strings for canvas-based column measurement - mirrors
       // exactly what RetroRow renders so fitted widths match the real cells.
       // Canvas measuring avoids forced DOM reflows on every data load.
@@ -334,7 +341,7 @@ const RetroView = memo(
         () =>
           groupedItems.map((data) => {
             const totalBytes = data.totalBytes || 0;
-            const hitPercent = totalBytes > 0 ? (data.cacheHitBytes / totalBytes) * 100 : 0;
+            const hitPercent = cacheHitPercent(data.cacheHitBytes, totalBytes);
             const missPercent = totalBytes > 0 ? (data.cacheMissBytes / totalBytes) * 100 : 0;
             const tier = efficiencyTier(hitPercent);
             const detection = resolveGameDetection(
@@ -347,7 +354,7 @@ const RetroView = memo(
             );
             const onDiskSizeBytes = detection?.total_size_bytes;
             return {
-              timeLines: formatTimeRangeLines(data.startTimeUtc, data.endTimeUtc),
+              timeLines: formatTimeRangeLines(data.startTimeUtc, data.endTimeUtc, clock),
               appName: data.gameName || getServiceDisplayName(data.service),
               serviceBadge: getServiceDisplayName(data.service).toUpperCase(),
               evictionLabel: data.isPartiallyEvicted
@@ -392,6 +399,7 @@ const RetroView = memo(
         [
           groupedItems,
           t,
+          clock,
           detectionLookup,
           detectionByName,
           detectionByService,
@@ -671,9 +679,9 @@ const RetroView = memo(
           const totalBytes = data.totalBytes || 0;
           const cacheHitBytes = data.cacheHitBytes || 0;
           const cacheMissBytes = data.cacheMissBytes || 0;
-          const hitPercent = totalBytes > 0 ? (cacheHitBytes / totalBytes) * 100 : 0;
-          const timeLines = formatTimeRangeLines(data.startTimeUtc, data.endTimeUtc);
-          const timeRangeTitle = formatTimeRange(data.startTimeUtc, data.endTimeUtc);
+          const hitPercent = cacheHitPercent(cacheHitBytes, totalBytes);
+          const timeLines = formatTimeRangeLines(data.startTimeUtc, data.endTimeUtc, clock);
+          const timeRangeTitle = formatTimeRange(data.startTimeUtc, data.endTimeUtc, clock);
 
           // Check if has game image
           const serviceLower = (data.service ?? '').toLowerCase();
@@ -727,6 +735,7 @@ const RetroView = memo(
         groupedItems,
         getAssociations,
         aestheticMode,
+        clock,
         imageErrors,
         availableImages,
         detectionLookup,

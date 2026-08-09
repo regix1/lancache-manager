@@ -19,17 +19,18 @@ interface EventProviderProps {
 }
 
 export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
-  const { hasSession, authMode, isLoading: authLoading } = useAuth();
+  const { hasSession, authMode, sessionId, isLoading: authLoading } = useAuth();
   const { on, off } = useSignalR();
   const { selectedEventIds, setSelectedEventIds, timeRange, setTimeRange } = useTimeFilter();
   const [events, setEvents] = useState<Event[]>([]);
   const [activeEvents, setActiveEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const refreshEventsRef = useRef<(() => Promise<void>) | undefined>(undefined);
   // Monotonic id claimed by each refreshEvents call. Only the call still holding the latest id
   // when its response lands may write any of this context's state - see the guard in refreshEvents.
   const refreshRequestIdRef = useRef(0);
+  const hasLoadedRef = useRef(false);
 
   // Restore selected event ID from localStorage
   const [selectedEventId, setSelectedEventIdState] = useState<number | null>(() => {
@@ -85,7 +86,9 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
     // still supports (the prune effect below then also removes that id from
     // `selectedEventIds` once it re-checks against the newer `events`).
     const requestId = ++refreshRequestIdRef.current;
-    setLoading(true);
+    if (!hasLoadedRef.current) {
+      setLoading(true);
+    }
     setError(null);
     try {
       // Fetch both endpoints independently so active events can still show for guests
@@ -124,19 +127,27 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
         if (selectedEventId && !allEvents.find((e) => e.id === selectedEventId)) {
           setSelectedEventId(null);
         }
-      } else if (authMode === 'authenticated') {
-        // Guests may not have access to the full event list; avoid surfacing a noisy error in that case.
-        const message =
-          allEventsResult.reason instanceof Error
-            ? allEventsResult.reason.message
-            : 'Failed to fetch events';
-        setError((prev) => prev ?? message);
-        console.error('Failed to fetch events:', allEventsResult.reason);
+      } else {
+        // The full list is the privileged half of the pair. Leaving the previous value in place is
+        // what kept an administrator's events on screen for the guest who replaced them, because a
+        // guest's fetch of this endpoint is expected to fail, so the failure empties it whoever
+        // asked. Only an authenticated reader is told about it; for a guest the rejection is the
+        // normal answer and not worth an error banner. [6]
+        setEvents([]);
+        if (authMode === 'authenticated') {
+          const message =
+            allEventsResult.reason instanceof Error
+              ? allEventsResult.reason.message
+              : 'Failed to fetch events';
+          setError((prev) => prev ?? message);
+          console.error('Failed to fetch events:', allEventsResult.reason);
+        }
       }
     } finally {
       // Only the call still holding the latest id clears the flag. A superseded call finishing
-      // first would hide the spinner while the newer refresh is still running.
+      // first would hide the initial loading state while the newer refresh is still running.
       if (requestId === refreshRequestIdRef.current) {
+        hasLoadedRef.current = true;
         setLoading(false);
       }
     }
@@ -144,11 +155,35 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
 
   // Initial load - fetch when authenticated or in guest mode
   const hasAccess = hasSession;
+
+  // Which session the state above belongs to. Two guest sessions are as different as a guest and an
+  // administrator here, so the id is part of it: a swap between sessions of the same kind moves
+  // neither authMode nor hasAccess, and refreshEvents keeps its identity, so nothing else would
+  // notice the handoff.
+  const sessionIdentity = `${authMode}:${sessionId ?? ''}`;
+  const loadedIdentityRef = useRef(sessionIdentity);
+
   useEffect(() => {
+    if (loadedIdentityRef.current !== sessionIdentity) {
+      loadedIdentityRef.current = sessionIdentity;
+      // Claiming a fresh id first is what retires the previous session's in-flight calls: they
+      // fail the guard in refreshEvents when they land and write nothing. Without the reset the
+      // provider keeps serving whatever the last session loaded, and hasLoadedRef keeps the loader
+      // suppressed for a session that has fetched nothing yet. [6]
+      refreshRequestIdRef.current++;
+      hasLoadedRef.current = false;
+      setEvents([]);
+      setActiveEvents([]);
+      setError(null);
+      // A session that can still fetch goes back to the state the first load had; one that cannot,
+      // which is what a logout leaves behind, settles as empty instead of spinning forever.
+      setLoading(authLoading || hasAccess);
+    }
+
     if (!authLoading && hasAccess) {
       refreshEvents();
     }
-  }, [authLoading, hasAccess, refreshEvents]);
+  }, [authLoading, hasAccess, sessionIdentity, refreshEvents]);
 
   // Drop dashboard-filter event ids whose event no longer exists - covers deleteEvent, the
   // EventDeleted/EventsCleared SignalR handlers, any other path that shrinks `events`, and a

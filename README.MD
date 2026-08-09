@@ -69,6 +69,7 @@ The full documentation lives at **[regix1.github.io/lancache-manager](https://re
 | [Multiple Datasources](https://regix1.github.io/lancache-manager/multiple-datasources/) | Split caches or combine several LANCache servers |
 | [Reverse Proxy](https://regix1.github.io/lancache-manager/reverse-proxy/) | Nginx in front of the manager |
 | [Prometheus Metrics](https://regix1.github.io/lancache-manager/prometheus-metrics/) | Scraping `/metrics` and example queries |
+| [API Reference](https://regix1.github.io/lancache-manager/api-reference/) | Every endpoint, plus a plain-text summary to hand an AI assistant |
 | [Troubleshooting](https://regix1.github.io/lancache-manager/troubleshooting/) | Logs not processing, games not identified, permissions |
 | [Custom Themes](https://regix1.github.io/lancache-manager/custom-themes/) | Building and sharing a theme |
 | [Building from Source](https://regix1.github.io/lancache-manager/building-from-source/) | Local development |

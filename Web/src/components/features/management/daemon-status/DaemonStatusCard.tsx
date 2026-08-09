@@ -120,7 +120,7 @@ const DaemonStatusCard: React.FC<DaemonStatusCardProps> = ({
       badge={statusBadge}
     >
       {loading ? (
-        <LoadingState message={loadingMessage} rows={1} />
+        <LoadingState message={loadingMessage} shape="cards" rows={1} />
       ) : (
         <>
           {hasError && (

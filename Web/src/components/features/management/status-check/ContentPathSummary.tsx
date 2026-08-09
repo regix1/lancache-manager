@@ -2,7 +2,8 @@ import React from 'react';
 import '../managementSectionContent.css';
 import { useTranslation } from 'react-i18next';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { formatBytes, formatDateTime } from '@utils/formatters';
+import { formatBytes } from '@utils/formatters';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import type { StatusCheckContentReport } from '@services/api.service';
 import { summarizeContentReport } from './contentPathHelpers';
 
@@ -21,6 +22,7 @@ interface ContentStatTile {
 
 const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunning }) => {
   const { t } = useTranslation();
+  const checkedAtTime = useFormattedDateTime(report?.checkedAtUtc);
   const keys = 'management.sections.statusCheck.content';
 
   let body: React.ReactNode;
@@ -103,7 +105,7 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
         <div className="status-check-content-scope">
           <span>
             {report.checkedAtUtc
-              ? t(`${keys}.checkedAt`, { time: formatDateTime(report.checkedAtUtc) })
+              ? t(`${keys}.checkedAt`, { time: checkedAtTime })
               : t(`${keys}.checkedAtUnknown`)}
           </span>
           <span>

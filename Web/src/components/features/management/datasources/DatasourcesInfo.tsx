@@ -19,6 +19,7 @@ import { useConfig } from '@contexts/useConfig';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { useSelectionSet } from '@hooks/useSelectionSet';
 import { getErrorMessage } from '@utils/error';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useReconnectRefetch } from '@/hooks/useReconnectRefetch';
@@ -27,6 +28,7 @@ import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { formatBytes, formatCount } from '@utils/formatters';
+import { resolveDatasources } from '@utils/datasources';
 import type { DatasourceInfo, DatasourceLogPosition } from '../../../../types';
 
 interface DatasourcesManagerProps {
@@ -60,9 +62,9 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const { config, refreshConfig, updateConfig } = useConfig();
   const { checkingPermissions } = useDirectoryPermissionsContext();
   const [logPositions, setLogPositions] = useState<DatasourceLogPosition[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!mockMode);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
+  const { selected: expandedDatasources, toggle: toggleExpanded } = useSelectionSet<string>();
   const [resetModal, setResetModal] = useState<{ datasource: string | null; all: boolean } | null>(
     null
   );
@@ -145,11 +147,9 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         const positionsData = await fetchLogPositions();
         setLogPositions(positionsData);
       } catch (err) {
-        notifyError(
-          t('management.datasources.errors.loadFailed', 'Failed to load datasource data'),
-          err,
-          { logLabel: 'Failed to load datasource data' }
-        );
+        notifyError(t('management.datasources.errors.loadFailed'), err, {
+          logLabel: 'Failed to load datasource data'
+        });
       } finally {
         setLoading(false);
       }
@@ -157,8 +157,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
     if (!mockMode) {
       loadData();
-    } else {
-      setLoading(false);
     }
   }, [mockMode, notifyError, t]);
 
@@ -171,11 +169,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       } catch (err) {
         // Background auto-refresh after a completed processing run; the position display simply
         // stays stale until the next successful refresh, so this is explicit background noise.
-        notifyError(
-          t('management.datasources.errors.loadFailed', 'Failed to load datasource data'),
-          err,
-          { silent: true, logLabel: 'Failed to refresh log positions after processing' }
-        );
+        notifyError(t('management.datasources.errors.loadFailed'), err, {
+          silent: true,
+          logLabel: 'Failed to refresh log positions after processing'
+        });
       }
     };
 
@@ -195,11 +192,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         const positions = await fetchLogPositions();
         setLogPositions(positions);
       } catch (err) {
-        notifyError(
-          t('management.datasources.errors.loadFailed', 'Failed to load datasource data'),
-          err,
-          { silent: true, logLabel: 'Failed to refresh log positions after reconnect' }
-        );
+        notifyError(t('management.datasources.errors.loadFailed'), err, {
+          silent: true,
+          logLabel: 'Failed to refresh log positions after reconnect'
+        });
       }
     })();
   });
@@ -207,18 +203,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   useEffect(() => {
     localStorage.setItem('management-datasources-expanded-v2', String(isExpanded));
   }, [isExpanded]);
-
-  const toggleExpanded = (name: string) => {
-    setExpandedDatasources((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
-      } else {
-        next.add(name);
-      }
-      return next;
-    });
-  };
 
   const handleProcessAll = async () => {
     if (!isAdmin || isProcessing) return;
@@ -328,20 +312,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     });
   };
 
-  // Get datasources - ensure at least one exists
-  const datasources =
-    config.dataSources && config.dataSources.length > 0
-      ? config.dataSources
-      : [
-          {
-            name: 'default',
-            cachePath: config.cachePath,
-            logsPath: config.logsPath,
-            cacheWritable: config.cacheWritable,
-            logsWritable: config.logsWritable,
-            enabled: true
-          } as DatasourceInfo
-        ];
+  const datasources = resolveDatasources(config);
 
   const hasMultiple = datasources.length > 1;
 
@@ -381,7 +352,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   const headerActions = (
     <SectionHeaderActions>
-      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+      <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>
             <ActionMenuItem
@@ -436,7 +407,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         badge={headerActions}
       >
         {loading ? (
-          <LoadingState message={t('management.datasources.loadingDatasources')} />
+          <LoadingState message={t('management.datasources.loadingDatasources')} shape="rows" />
         ) : (
           <div className="space-y-3">
             {datasources.map((ds: DatasourceInfo) => {

@@ -73,16 +73,16 @@ export function getInsightCards(
         : '-';
     return [
       {
-        label: t('dashboard.serviceAnalytics.footer.totalDisk', 'Total on Disk'),
+        label: t('dashboard.serviceAnalytics.footer.totalDisk'),
         value: formatBytes(footerStats.totalBytes),
         tone: 'primary'
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.gamesDetected', 'Games'),
+        label: t('dashboard.serviceAnalytics.footer.gamesDetected'),
         value: String(footerStats.gameCount)
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.largestGameValue', 'Largest'),
+        label: t('dashboard.serviceAnalytics.footer.largestGameValue'),
         value: largestValue
       }
     ];
@@ -91,16 +91,16 @@ export function getInsightCards(
   if (activeTab === 'hit-ratio') {
     return [
       {
-        label: t('dashboard.serviceAnalytics.footer.totalData', 'Total Data'),
+        label: t('dashboard.serviceAnalytics.footer.totalData'),
         value: formatBytes(footerStats.totalBytes),
         tone: 'primary'
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.cacheHits', 'Cache Hits'),
+        label: t('dashboard.serviceAnalytics.footer.cacheHits'),
         value: formatBytes(footerStats.totalHitBytes)
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.hitRate', 'Hit Rate'),
+        label: t('dashboard.serviceAnalytics.footer.hitRate'),
         value: formatPercent(footerStats.hitRatio)
       }
     ];
@@ -112,16 +112,16 @@ export function getInsightCards(
     const topServiceValue = topName ? `${topName} - ${formatBytes(topBytes)}` : '-';
     return [
       {
-        label: t('dashboard.serviceAnalytics.footer.bandwidthSaved', 'Bandwidth Saved'),
+        label: t('dashboard.serviceAnalytics.footer.bandwidthSaved'),
         value: formatBytes(chartData.total),
         tone: 'primary'
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.hitRate', 'Hit Rate'),
+        label: t('dashboard.serviceAnalytics.footer.hitRate'),
         value: formatPercent(footerStats.hitRatio)
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.topService', 'Top Service'),
+        label: t('dashboard.serviceAnalytics.footer.topService'),
         value: topServiceValue
       }
     ];
@@ -134,16 +134,16 @@ export function getInsightCards(
     const topSourceValue = topName ? `${topName} - ${formatBytes(topBytes)}` : '-';
     return [
       {
-        label: t('dashboard.serviceAnalytics.footer.originPulls', 'From Internet'),
+        label: t('dashboard.serviceAnalytics.footer.originPulls'),
         value: formatBytes(footerStats.missBytes),
         tone: 'primary'
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.missRate', 'Miss Rate'),
+        label: t('dashboard.serviceAnalytics.footer.missRate'),
         value: formatPercent(missRate)
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.topSource', 'Top Source'),
+        label: t('dashboard.serviceAnalytics.footer.topSource'),
         value: topSourceValue
       }
     ];
@@ -156,16 +156,16 @@ export function getInsightCards(
       : '-';
   return [
     {
-      label: t('dashboard.serviceAnalytics.footer.totalData', 'Total Data'),
+      label: t('dashboard.serviceAnalytics.footer.totalData'),
       value: formatBytes(footerStats.totalBytes),
       tone: 'primary'
     },
     {
-      label: t('dashboard.serviceAnalytics.footer.services', 'Services'),
+      label: t('dashboard.serviceAnalytics.footer.services'),
       value: String(footerStats.serviceCount)
     },
     {
-      label: t('dashboard.serviceAnalytics.footer.topService', 'Top Service'),
+      label: t('dashboard.serviceAnalytics.footer.topService'),
       value: topServiceValue
     }
   ];

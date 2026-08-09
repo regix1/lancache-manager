@@ -7,7 +7,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
-import { formatDateTime } from '@utils/formatters';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import type {
   StatusCheckResult,
   StatusCheckServiceResult,
@@ -82,6 +82,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const keys = 'management.sections.statusCheck';
+  const lastCheckedTime = useFormattedDateTime(lastResult?.completedAtUtc);
 
   const summary = lastResult?.summary ?? null;
   // Disabled services are intentionally not cached - excluded from verdict math entirely.
@@ -400,18 +401,12 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
           <Button variant="filled" color="blue" size="md" loading={isRunning} onClick={onRun}>
             {t(`${keys}.runCheck`)}
           </Button>
+          {/* No tooltip: the timestamp wraps instead of being clipped, so there is nothing
+              hidden left to reveal and the tooltip only repeated the line already on screen. */}
           {lastResult && (
-            <Tooltip
-              content={t(`${keys}.lastChecked`, {
-                time: formatDateTime(lastResult.completedAtUtc)
-              })}
-              position="top"
-              className="status-check-last-checked"
-            >
-              <span className="status-check-last-checked-text">
-                {t(`${keys}.lastChecked`, { time: formatDateTime(lastResult.completedAtUtc) })}
-              </span>
-            </Tooltip>
+            <span className="status-check-last-checked-text">
+              {t(`${keys}.lastChecked`, { time: lastCheckedTime })}
+            </span>
           )}
         </div>
       </div>

@@ -5,7 +5,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { TogglePill } from '@components/ui/TogglePill';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
-import LoadingSpinner from '@components/common/LoadingSpinner';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import ApiService, {
   type StatusCheckDomainGroup,
@@ -15,6 +15,7 @@ import ApiService, {
   type StatusCheckStatusResponse
 } from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useSelectionSet } from '@hooks/useSelectionSet';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import VerdictCard from './VerdictCard';
 import ServiceResultsList from './ServiceResultsList';
@@ -70,7 +71,7 @@ const StatusCheckSection: React.FC = () => {
   const [progress, setProgress] = useState<StatusCheckProgressEvent | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [problemsOnly, setProblemsOnly] = useState(false);
-  const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set());
+  const { selected: expandedServices, toggle: toggleService, setMany } = useSelectionSet<string>();
   const [refreshingDomains, setRefreshingDomains] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
@@ -282,18 +283,6 @@ const StatusCheckSection: React.FC = () => {
     return sortedServices.map((service) => ({ service: service.service, status: service.status }));
   }, [isRunning, progress, domainGroups, sortedServices, status?.lastResult]);
 
-  const toggleService = useCallback((service: string) => {
-    setExpandedServices((previous) => {
-      const next = new Set(previous);
-      if (next.has(service)) {
-        next.delete(service);
-      } else {
-        next.add(service);
-      }
-      return next;
-    });
-  }, []);
-
   const registerServiceRef = useCallback((service: string, element: HTMLDivElement | null) => {
     if (element) {
       serviceRowRefs.current.set(service, element);
@@ -309,7 +298,7 @@ const StatusCheckSection: React.FC = () => {
       if (problemsOnly && !isVisibleWithProblemsOnly(target, status?.lastResult?.contentReport)) {
         setProblemsOnly(false);
       }
-      setExpandedServices((previous) => new Set(previous).add(service));
+      setMany([service], true);
       // Let the filter change / accordion expansion mount before scrolling.
       setTimeout(() => {
         serviceRowRefs.current.get(service)?.scrollIntoView({
@@ -318,7 +307,7 @@ const StatusCheckSection: React.FC = () => {
         });
       }, 60);
     },
-    [sortedServices, problemsOnly, status?.lastResult?.contentReport]
+    [sortedServices, problemsOnly, status?.lastResult?.contentReport, setMany]
   );
 
   const handleRefreshDomains = useCallback(async () => {
@@ -346,11 +335,7 @@ const StatusCheckSection: React.FC = () => {
   );
 
   if (isLoading) {
-    return sectionShell(
-      <div className="flex justify-center py-12">
-        <LoadingSpinner size="lg" />
-      </div>
-    );
+    return sectionShell(<LoadingState shape="status" rows={4} />);
   }
 
   if (statusError && !status) {

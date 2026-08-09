@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Database, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
 import { getErrorMessage } from '@utils/error';
@@ -13,12 +14,14 @@ interface FormState {
   username: string;
   password: string;
   confirmPassword: string;
+  apiKey: string;
 }
 
 interface FormErrors {
   username: string | null;
   password: string | null;
   confirmPassword: string | null;
+  apiKey: string | null;
 }
 
 interface CredentialsResponse {
@@ -28,15 +31,18 @@ interface CredentialsResponse {
 }
 
 export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupComplete }) => {
+  const { authenticationEnabled } = useAuth();
   const [form, setForm] = useState<FormState>({
     username: 'lancache',
     password: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    apiKey: ''
   });
   const [errors, setErrors] = useState<FormErrors>({
     username: null,
     password: null,
-    confirmPassword: null
+    confirmPassword: null,
+    apiKey: null
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -66,7 +72,8 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
     const newErrors: FormErrors = {
       username: null,
       password: null,
-      confirmPassword: null
+      confirmPassword: null,
+      apiKey: null
     };
 
     if (!form.username.trim()) {
@@ -103,9 +110,13 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
+    if (authenticationEnabled === false && !form.apiKey.trim()) {
+      newErrors.apiKey = 'Primary API key is required';
+    }
+
     setErrors(newErrors);
-    return !newErrors.username && !newErrors.password && !newErrors.confirmPassword;
-  }, [form]);
+    return Object.values(newErrors).every((error) => error === null);
+  }, [authenticationEnabled, form]);
 
   const handleInputChange = useCallback(
     (field: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -132,7 +143,12 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
             username: form.username.trim(),
             password: form.password
           },
-          { method: 'POST' }
+          {
+            method: 'POST',
+            ...(authenticationEnabled === false
+              ? { headers: { 'X-Api-Key': form.apiKey.trim() } }
+              : {})
+          }
         )
       );
 
@@ -153,7 +169,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
     } finally {
       setIsSubmitting(false);
     }
-  }, [form, validateForm, onSetupComplete]);
+  }, [authenticationEnabled, form, validateForm, onSetupComplete]);
 
   if (setupSuccess) {
     return (
@@ -287,6 +303,26 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
           <p className="text-xs text-themed-error mt-1">{errors.confirmPassword}</p>
         )}
       </div>
+
+      {authenticationEnabled === false && (
+        <div>
+          <label className="form-field-label">Primary API key</label>
+          <input
+            type="password"
+            value={form.apiKey}
+            onChange={handleInputChange('apiKey')}
+            placeholder="Enter the primary API key"
+            className="w-full px-3 py-2.5 themed-input"
+            autoComplete="off"
+            disabled={isSubmitting}
+          />
+          {errors.apiKey && <p className="text-xs text-themed-error mt-1">{errors.apiKey}</p>}
+          <p className="text-xs text-themed-muted mt-1">
+            Authentication is disabled, so database setup still requires the key printed in the
+            container log or stored at /data/security/api_key.txt.
+          </p>
+        </div>
+      )}
 
       {/* Submit Button */}
       <div className="space-y-3">

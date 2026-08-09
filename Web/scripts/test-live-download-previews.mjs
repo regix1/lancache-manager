@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   computeStickyTtlMs,
   filterLivePreviews,
+  isResolvedGameName,
   reconcileLivePreviews
 } from '../src/components/features/downloads/liveDownloadPreviews.ts';
 
@@ -76,6 +77,15 @@ test('service-only traffic is never treated as a resolved game', () => {
   assert.equal(previews.length, 1);
   assert.equal(previews[0].hasResolvedGame, false);
   assert.equal(previews[0].displayName, 'Windows Update');
+});
+
+test('resolved game-name policy rejects service labels and Steam placeholders', () => {
+  assert.equal(isResolvedGameName('Windows Update', 'wsus'), false);
+  assert.equal(isResolvedGameName('Epic Games', 'epicgames'), false);
+  assert.equal(isResolvedGameName('Riot Games', 'riot'), false);
+  assert.equal(isResolvedGameName('steam', 'steam'), false);
+  assert.equal(isResolvedGameName(' Steam App 730 ', 'steam'), false);
+  assert.equal(isResolvedGameName('Fortnite', 'epicgames'), true);
 });
 
 test('same game on two clients produces two previews; same key upserts', () => {

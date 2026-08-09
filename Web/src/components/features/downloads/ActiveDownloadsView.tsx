@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, HardDrive, Users, RefreshCw } from 'lucide-react';
-import LoadingSpinner from '@components/common/LoadingSpinner';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { formatBytes, formatSpeed } from '@utils/formatters';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -39,8 +39,10 @@ const ActiveDownloadsView: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="active-loading-state">
-        <LoadingSpinner inline className="active-loading-spinner" />
+      <div className="active-downloads-view">
+        <div className="w-full">
+          <LoadingState shape="downloads" rows={3} />
+        </div>
       </div>
     );
   }

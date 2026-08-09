@@ -1,4 +1,5 @@
-import { formatDateTime, isFromDifferentYear } from '@utils/formatters';
+import { formatTimestamp, type ReaderClock } from '@utils/dateTimeFormat';
+import { isFromDifferentYear } from '@utils/formatters';
 import type { RetroDownloadDto } from '@services/api.service';
 
 // Data for one rendered retro row: a depot+client group (or a whole game when
@@ -33,19 +34,21 @@ export interface DepotGroupedData {
  * If either date is from a different year than now, both dates show the year
  * @param startTimeUtc - Start time
  * @param endTimeUtc - End time
+ * @param clock - Which clock to render on, from the timezone context. See {@link ReaderClock}.
  * @param forceYear - If true, always include year in both dates (for measurement)
  */
 export const formatTimeRange = (
   startTimeUtc: string,
   endTimeUtc: string,
+  clock: ReaderClock,
   forceYear = false
 ): string => {
   // Check if either date needs the year displayed
   const needsYear =
     forceYear || isFromDifferentYear(startTimeUtc) || isFromDifferentYear(endTimeUtc);
 
-  const startTime = formatDateTime(startTimeUtc, needsYear);
-  const endTime = formatDateTime(endTimeUtc, needsYear);
+  const startTime = formatTimestamp(startTimeUtc, { ...clock, forceYear: needsYear });
+  const endTime = formatTimestamp(endTimeUtc, { ...clock, forceYear: needsYear });
 
   return startTime === endTime ? startTime : `${startTime} - ${endTime}`;
 };
@@ -57,12 +60,13 @@ export const formatTimeRange = (
  */
 export const formatTimeRangeLines = (
   startTimeUtc: string,
-  endTimeUtc: string
+  endTimeUtc: string,
+  clock: ReaderClock
 ): [string, string | null] => {
   const needsYear = isFromDifferentYear(startTimeUtc) || isFromDifferentYear(endTimeUtc);
 
-  const startTime = formatDateTime(startTimeUtc, needsYear);
-  const endTime = formatDateTime(endTimeUtc, needsYear);
+  const startTime = formatTimestamp(startTimeUtc, { ...clock, forceYear: needsYear });
+  const endTime = formatTimestamp(endTimeUtc, { ...clock, forceYear: needsYear });
 
   return startTime === endTime ? [startTime, null] : [startTime, `→ ${endTime}`];
 };

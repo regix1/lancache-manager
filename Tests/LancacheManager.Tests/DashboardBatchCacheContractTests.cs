@@ -23,8 +23,7 @@ public sealed class DashboardBatchCacheContractTests
         Detection = new object(),
         Sparklines = new object(),
         HourlyActivity = new object(),
-        CacheSnapshot = new object(),
-        CacheGrowth = new object()
+        CacheSnapshot = new object()
     };
 
     [Fact]
@@ -43,7 +42,6 @@ public sealed class DashboardBatchCacheContractTests
     [InlineData("sparklines")]
     [InlineData("hourlyActivity")]
     [InlineData("cacheSnapshot")]
-    [InlineData("cacheGrowth")]
     public void HasFailedSection_TrueWhenAnySingleSectionIsNull(string section)
     {
         var response = FullyPopulatedResponse();
@@ -58,7 +56,6 @@ public sealed class DashboardBatchCacheContractTests
             case "sparklines": response.Sparklines = null; break;
             case "hourlyActivity": response.HourlyActivity = null; break;
             case "cacheSnapshot": response.CacheSnapshot = null; break;
-            case "cacheGrowth": response.CacheGrowth = null; break;
             default: throw new ArgumentOutOfRangeException(nameof(section));
         }
 
@@ -236,7 +233,6 @@ public sealed class DashboardBatchCacheContractTests
         [
             "await GetEventDownloadIdsAsync(eventIdList, ct)",
             "await EnrichGameNamesAsync(context, downloads, ct);",
-            "await q.SumAsync(d => (long?)d.CacheMissBytes, ct) ?? 0L",
             ".CountAsync(d => d.StartTimeUtc >= activeThreshold && d.EndTimeUtc == default, ct)",
             ".ToDictionaryAsync(m => m.DepotId, m => m, ct)",
             ".ToDictionaryAsync(m => m.AppId, m => m.Name, ct)",

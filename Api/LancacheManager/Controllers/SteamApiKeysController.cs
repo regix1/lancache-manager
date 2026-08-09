@@ -27,11 +27,14 @@ public class SteamApiKeysController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/steam-api-keys/status - Get Steam Web API status (V2/V1 availability)
-    /// RESTful: Status endpoint for the API keys resource
+    /// Gets the Steam Web API status.
     /// </summary>
+    /// <remarks>
+    /// Reports V2 and V1 availability. This is the status endpoint for the API keys resource.
+    /// </remarks>
     [HttpGet("status")]
-    public async Task<IActionResult> GetStatusAsync([FromQuery] bool forceRefresh = false)
+    [ProducesResponseType(typeof(SteamApiStatusResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SteamApiStatusResponse>> GetStatusAsync([FromQuery] bool forceRefresh = false)
     {
         var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh);
 
@@ -48,21 +51,22 @@ public class SteamApiKeysController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/steam-api-keys/test - Test a Steam Web API key without saving
-    /// RESTful: POST is acceptable for testing/validation operations
-    /// Request body: { "apiKey": "..." }
+    /// Tests a Steam Web API key without saving it.
     /// </summary>
     /// <remarks>
+    /// POST is used here for testing/validation, not resource creation. Request body:
+    /// { "apiKey": "..." }.
+    ///
     /// Validation is handled automatically by FluentValidation (see TestApiKeyRequestValidator).
     ///
-    /// NOTE: This endpoint appears redundant with the validation in POST /api/steam-api-keys,
-    /// but both are intentionally kept for UX purposes:
-    /// - /test allows users to test a key without saving it (try before commit)
-    /// - POST (save) validates as a safety check before persisting
-    /// Both endpoints are actively used by the frontend setup wizard and settings modal.
+    /// This endpoint appears redundant with the validation in POST /api/steam-api-keys, but both
+    /// are intentionally kept for UX purposes: /test allows users to test a key without saving it
+    /// (try before commit), and POST (save) validates as a safety check before persisting. Both
+    /// endpoints are actively used by the frontend setup wizard and settings modal.
     /// </remarks>
     [HttpPost("test")]
-    public async Task<IActionResult> TestKeyAsync([FromBody] TestApiKeyRequest request)
+    [ProducesResponseType(typeof(ApiKeyTestResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiKeyTestResponse>> TestKeyAsync([FromBody] TestApiKeyRequest request)
     {
         // Validation is handled automatically by FluentValidation
         var isValid = await _steamWebApiService.TestApiKeyAsync(request.ApiKey);
@@ -86,15 +90,17 @@ public class SteamApiKeysController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/steam-api-keys - Save Steam Web API key (encrypted storage)
-    /// RESTful: POST is proper method for creating/saving resources
-    /// Request body: { "apiKey": "..." }
+    /// Saves a Steam Web API key with encrypted storage.
     /// </summary>
     /// <remarks>
-    /// Validation is handled automatically by FluentValidation (see SaveApiKeyRequestValidator)
+    /// POST is the proper method here for creating/saving resources. Request body:
+    /// { "apiKey": "..." }.
+    ///
+    /// Validation is handled automatically by FluentValidation (see SaveApiKeyRequestValidator).
     /// </remarks>
     [HttpPost]
-    public async Task<IActionResult> SaveKeyAsync([FromBody] SaveApiKeyRequest request)
+    [ProducesResponseType(typeof(ApiKeySaveResponse), StatusCodes.Status201Created)]
+    public async Task<ActionResult<ApiKeySaveResponse>> SaveKeyAsync([FromBody] SaveApiKeyRequest request)
     {
         // Validation is handled automatically by FluentValidation
         // Test the key first
@@ -122,11 +128,14 @@ public class SteamApiKeysController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/steam-api-keys/current - Remove the configured Steam Web API key
-    /// RESTful: DELETE is proper method for removing resources
+    /// Removes the configured Steam Web API key.
     /// </summary>
+    /// <remarks>
+    /// DELETE is the proper method here for removing resources.
+    /// </remarks>
     [HttpDelete("current")]
-    public IActionResult RemoveKey()
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public ActionResult<MessageResponse> RemoveKey()
     {
         _steamWebApiService.RemoveApiKey();
 

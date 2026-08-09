@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, memo } from 'react';
+import { useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePaginatedList } from '@/hooks/usePaginatedList';
 import { EmptyState } from '@components/ui/ManagerCard';
+import { useReaderClock } from '@hooks/useReaderClock';
+import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
 import {
   CheckCircle2,
   AlertCircle,
@@ -104,17 +106,16 @@ const LogIcon = memo(({ type }: { type: LogEntryType }) => {
 
 LogIcon.displayName = 'LogIcon';
 
-const formatTime = (date: Date, locale: string): string => {
-  return date.toLocaleTimeString(locale || 'en-US', {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  });
-};
-
 const LogEntryRow = memo(
-  ({ entry, isLast, locale }: { entry: LogEntry; isLast: boolean; locale: string }) => {
+  ({
+    entry,
+    isLast,
+    clock
+  }: {
+    entry: LogEntry;
+    isLast: boolean;
+    clock: Omit<TimestampSettings, 'style'>;
+  }) => {
     const style = typeStyles[entry.type];
 
     return (
@@ -125,7 +126,7 @@ const LogEntryRow = memo(
       >
         {/* Timestamp - hidden on mobile, shown on sm+ */}
         <span className="hidden sm:block text-[11px] font-mono flex-shrink-0 tabular-nums pt-1.5 opacity-50 group-hover:opacity-80 transition-opacity text-[var(--theme-text-muted)] tracking-[0.02em]">
-          {formatTime(entry.timestamp, locale)}
+          {formatTimestamp(entry.timestamp, { ...clock, style: 'timeSeconds' })}
         </span>
 
         {/* Color indicator line */}
@@ -163,11 +164,15 @@ export function ActivityLog({
   serviceId = 'steam',
   nested = false
 }: ActivityLogProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const shouldAutoScroll = useRef(true);
   const [currentPage, setCurrentPage] = useState(1);
-  const locale = i18n.language || 'en-US';
   const authAccent = AUTH_ACCENT_VARS[serviceId] ?? AUTH_ACCENT_VARS.steam;
+
+  // One object per preference change rather than per render, so the memoized rows below only
+  // re-render when the clock actually moves.
+  const readerClock = useReaderClock();
+  const clock = useMemo(() => ({ ...readerClock, forceYear: false }), [readerClock]);
 
   // Controlled pagination via shared hook; hook handles clamping and slice math.
   const { totalPages, paginatedItems: visibleEntries } = usePaginatedList<LogEntry>({
@@ -227,7 +232,7 @@ export function ActivityLog({
                 key={entry.id}
                 entry={entry}
                 isLast={index === visibleEntries.length - 1}
-                locale={locale}
+                clock={clock}
               />
             ))}
           </div>

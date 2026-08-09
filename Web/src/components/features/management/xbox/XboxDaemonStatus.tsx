@@ -46,7 +46,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   const [hasError, setHasError] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!mockMode);
 
   const loadStatus = useCallback(async () => {
     // Demo/mock mode has no admin session, and auth-status is AdminOnly, so a fetch would 401/403
@@ -169,79 +169,51 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
     <>
       <DaemonStatusCard
         accordionId="integrations-xbox"
-        title={t('management.sections.integrations.xboxDaemonStatus.title', 'Xbox')}
+        title={t('management.sections.integrations.xboxDaemonStatus.title')}
         description={t('management.sections.integrations.xboxDaemonStatus.summary')}
         icon={XboxIcon}
         iconColor="var(--theme-xbox)"
         help={{
-          title: t(
-            'management.sections.integrations.xboxDaemonStatus.help.authentication.title',
-            'Xbox Authentication'
-          ),
+          title: t('management.sections.integrations.xboxDaemonStatus.help.authentication.title'),
           definitions: [
             {
               term: t(
-                'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.term',
-                'Login Required'
+                'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.term'
               ),
               description: t(
-                'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.description',
-                'Xbox requires a Microsoft account login to discover your game library. Sign-in uses a device code entered in your own browser. No password ever enters the server.'
+                'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.description'
               )
             },
             {
               term: t(
-                'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.term',
-                'Game Discovery'
+                'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.term'
               ),
               description: t(
-                'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.description',
-                'Once connected, your Xbox and Microsoft Store library is scanned to identify cached downloads and match them to game titles.'
+                'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.description'
               )
             }
           ],
-          note: t(
-            'management.sections.integrations.xboxDaemonStatus.help.note',
-            'Sign in to enable Xbox game discovery. Docker is not required. Authentication runs directly in the manager.'
-          )
+          note: t('management.sections.integrations.xboxDaemonStatus.help.note')
         }}
         loading={loading}
-        loadingMessage={t(
-          'management.sections.integrations.xboxDaemonStatus.loadingStatus',
-          'Loading Xbox status...'
-        )}
+        loadingMessage={t('management.sections.integrations.xboxDaemonStatus.loadingStatus')}
         hasError={hasError}
-        errorMessage={t(
-          'management.sections.integrations.xboxDaemonStatus.loadError',
-          'Failed to load Xbox status. Displaying default values.'
-        )}
+        errorMessage={t('management.sections.integrations.xboxDaemonStatus.loadError')}
         connected={isAuthenticated}
-        connectedLabel={t(
-          'management.sections.integrations.xboxDaemonStatus.connected',
-          'Connected'
-        )}
-        notConnectedLabel={t(
-          'management.sections.integrations.xboxDaemonStatus.notConnected',
-          'Not Connected'
-        )}
+        connectedLabel={t('management.sections.integrations.xboxDaemonStatus.connected')}
+        notConnectedLabel={t('management.sections.integrations.xboxDaemonStatus.notConnected')}
         headline={
           isAuthenticated
             ? t('management.sections.integrations.xboxDaemonStatus.connectedAs', {
                 name: authStatus?.displayName ?? 'Xbox User',
                 defaultValue: 'Connected as {{name}}'
               })
-            : t('management.sections.integrations.xboxDaemonStatus.notConnected', 'Not Connected')
+            : t('management.sections.integrations.xboxDaemonStatus.notConnected')
         }
         detail={
           isAuthenticated
-            ? t(
-                'management.sections.integrations.xboxDaemonStatus.connectedDesc',
-                'Library synced. Game detection is active.'
-              )
-            : t(
-                'management.sections.integrations.xboxDaemonStatus.notConnectedDesc',
-                'Sign in with your Microsoft account to enable Xbox game discovery.'
-              )
+            ? t('management.sections.integrations.xboxDaemonStatus.connectedDesc')
+            : t('management.sections.integrations.xboxDaemonStatus.notConnectedDesc')
         }
         extraDetail={
           isAuthenticated &&
@@ -257,11 +229,8 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
         }
         auth={{
           enabled: authMode === 'authenticated' && !mockMode,
-          loginLabel: t(
-            'management.sections.integrations.xboxDaemonStatus.loginButton',
-            'Login with Xbox'
-          ),
-          logoutLabel: t('management.sections.integrations.xboxDaemonStatus.logout', 'Logout'),
+          loginLabel: t('management.sections.integrations.xboxDaemonStatus.loginButton'),
+          logoutLabel: t('management.sections.integrations.xboxDaemonStatus.logout'),
           onLogin: handleLoginClick,
           onLogout: handleLogout,
           loggingOut,

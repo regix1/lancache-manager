@@ -120,9 +120,6 @@ services:
       # false = /metrics endpoint is publicly accessible
       # - Security__RequireAuthForMetrics=false
 
-      # Require authentication to access Swagger API documentation
-      # - Security__ProtectSwagger=true
-
       # Comma-separated list of allowed CORS origins (empty = allow all)
       # Example: http://localhost:3000,https://mysite.com
       # - Security__AllowedOrigins=

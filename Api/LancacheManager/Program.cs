@@ -19,15 +19,17 @@ using LancacheManager.Security;
 using LancacheManager.Validators;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.SignalR; // HubOptions.AddFilter<T>() extension for the HubExceptionFilter
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.ResponseCompression;
-using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.RateLimiting;
 using OpenTelemetry.Metrics;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.OpenApi;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -80,7 +82,125 @@ builder.Services.AddEndpointsApiExplorer();
 // Configure FluentValidation for request validation (manual via ValidationFilter)
 builder.Services.AddValidatorsFromAssemblyContaining<CreateClientGroupRequestValidator>();
 
-builder.Services.AddSwaggerGen();
+// The documented API is grouped into six domains. The order below is the order the
+// reference UI lists them in, and every operation is mapped to exactly one of them.
+var documentedDomains = new (string Name, string Description)[]
+{
+    ("Access", "Sign in, sessions, API keys, and per-user settings."),
+    ("Clients", "Cache clients, their groups, and their hostname mappings."),
+    ("Cache and Games", "Cached content, game and depot identification, and game artwork."),
+    ("Downloads and Reporting", "Download history, dashboard figures, statistics, speeds, events, and logs."),
+    ("Prefill", "Platform prefill daemons, their schedules, and their administration."),
+    ("System", "Service health, metrics, database maintenance, migrations, and background operations.")
+};
+
+// One central controller-to-domain map. Controllers carry no tag attributes and must be listed
+// here; documented non-controller endpoints belong to System.
+var documentedDomainByController = new Dictionary<string, string>(StringComparer.Ordinal)
+{
+    ["ApiKeys"] = "Access",
+    ["Auth"] = "Access",
+    ["Sessions"] = "Access",
+    ["Setup"] = "Access",
+    ["SteamApiKeys"] = "Access",
+    ["SteamAuth"] = "Access",
+    ["Theme"] = "Access",
+    ["UserPreferences"] = "Access",
+    ["ClientGroups"] = "Clients",
+    ["ClientHostnames"] = "Clients",
+    ["Cache"] = "Cache and Games",
+    ["Depots"] = "Cache and Games",
+    ["EpicGameMapping"] = "Cache and Games",
+    ["GameImages"] = "Cache and Games",
+    ["Games"] = "Cache and Games",
+    ["XboxGameMapping"] = "Cache and Games",
+    ["Dashboard"] = "Downloads and Reporting",
+    ["Downloads"] = "Downloads and Reporting",
+    ["Events"] = "Downloads and Reporting",
+    ["Logs"] = "Downloads and Reporting",
+    ["Speeds"] = "Downloads and Reporting",
+    ["Stats"] = "Downloads and Reporting",
+    ["BattleNetDaemon"] = "Prefill",
+    ["EpicDaemon"] = "Prefill",
+    ["PersistentPrefill"] = "Prefill",
+    ["PrefillAdmin"] = "Prefill",
+    ["RiotDaemon"] = "Prefill",
+    ["Schedule"] = "Prefill",
+    ["ScheduledPrefillConfig"] = "Prefill",
+    ["SteamDaemon"] = "Prefill",
+    ["XboxDaemon"] = "Prefill",
+    ["Database"] = "System",
+    ["DataMigration"] = "System",
+    ["DatasourceConfiguration"] = "System",
+    ["Gc"] = "System",
+    ["Memory"] = "System",
+    ["Metrics"] = "System",
+    ["Operations"] = "System",
+    ["StatusCheck"] = "System",
+    ["System"] = "System"
+};
+
+builder.Services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Components ??= new OpenApiComponents();
+        document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
+        document.Components.SecuritySchemes["ApiKey"] = new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.ApiKey,
+            In = ParameterLocation.Header,
+            Name = "X-Api-Key",
+            Description = "Enter the Lancache Manager API key. No credential is prefilled."
+        };
+
+        document.Security ??= [];
+        document.Security.Add(new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference("ApiKey", document)] = []
+        });
+
+        // Replace the per-controller tags the document collects by default with the six
+        // domains, added in the order they should be listed.
+        document.Tags ??= new HashSet<OpenApiTag>();
+        document.Tags.Clear();
+        foreach (var (name, description) in documentedDomains)
+        {
+            document.Tags.Add(new OpenApiTag { Name = name, Description = description });
+        }
+
+        return Task.CompletedTask;
+    });
+
+    options.AddOperationTransformer((operation, context, _) =>
+    {
+        // An operation-level empty list overrides the document-level API key requirement,
+        // so anonymous endpoints are not shown as locked. Everything else inherits it.
+        if (context.Description.ActionDescriptor.EndpointMetadata?.OfType<IAllowAnonymous>().Any() == true)
+        {
+            operation.Security = [];
+        }
+
+        var controller = (context.Description.ActionDescriptor as ControllerActionDescriptor)?.ControllerName;
+        string domain;
+        if (controller == null)
+        {
+            domain = "System";
+        }
+        else if (documentedDomainByController.TryGetValue(controller, out var mapped))
+        {
+            domain = mapped;
+        }
+        else
+        {
+            throw new InvalidOperationException($"Controller '{controller}' must be assigned to a documented API domain.");
+        }
+
+        operation.Tags = new HashSet<OpenApiTagReference> { new(domain, context.Document) };
+
+        return Task.CompletedTask;
+    });
+});
 builder.Services.AddSignalR(options =>
 {
     // Increase timeouts to prevent disconnections during long-running operations (PICS scans, log processing, corruption analysis)
@@ -1021,20 +1141,40 @@ app.UseAuthorization();
 // does not reject it; this middleware then enforces RequireAuthForMetrics when enabled.
 app.UseMiddleware<MetricsAuthenticationMiddleware>();
 
-// Swagger authentication middleware (requires API key when Security:ProtectSwagger=true)
-app.UseMiddleware<SwaggerAuthenticationMiddleware>();
-
-// Enable Swagger in all environments
-app.UseSwagger();
-app.UseSwaggerUI(c =>
+app.MapOpenApi().RequireAuthorization("AdminOnly");
+app.MapScalarApiReference("/scalar", options =>
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "LancacheManager API V1");
-    c.RoutePrefix = "swagger"; // Access at /swagger
+    options.WithOpenApiRoutePattern("/openapi/{documentName}.json");
 
-    // Note: We intentionally do NOT call EnablePersistAuthorization()
-    // This prevents storing API keys in browser localStorage (security risk)
-    // Users must re-enter the API key on each page load, but it's more secure
-});
+    // Selects the documented header scheme in the reference UI. It never carries a value:
+    // the caller types their own key and nothing is prefilled or persisted.
+    options.AddPreferredSecuritySchemes(["ApiKey"]);
+
+    // Keeps the sidebar and search to just method and path. The default shows each
+    // operation's full summary text there, which turns the sidebar into a wall of
+    // paragraphs; summaries and remarks still appear in full on the main detail panel.
+    options.WithOperationTitleSource(OperationTitleSource.Path);
+
+    // Without this, tags list in whatever order the controllers happen to be scanned
+    // in, which reads as random. Alphabetical keeps the group list predictable to scan.
+    options.SortTagsAlphabetically();
+
+    // Groups each tag's endpoints by HTTP method (every GET together, then every POST,
+    // and so on) instead of by path, so read-only calls are easy to tell apart from
+    // the ones that change something.
+    options.SortOperationsByMethod();
+})
+    .RequireAuthorization("AdminOnly")
+    .Finally(endpointBuilder =>
+    {
+        for (var index = endpointBuilder.Metadata.Count - 1; index >= 0; index--)
+        {
+            if (endpointBuilder.Metadata[index] is IAllowAnonymous)
+            {
+                endpointBuilder.Metadata.RemoveAt(index);
+            }
+        }
+    });
 
 // Map endpoints
 app.MapControllers();
@@ -1049,13 +1189,6 @@ app.MapHub<XboxPrefillDaemonHub>("/hubs/xbox-prefill-daemon");
 // AllowAnonymous bypasses the FallbackPolicy; MetricsAuthenticationMiddleware enforces
 // the optional API-key check when Security:RequireAuthForMetrics is true.
 app.MapPrometheusScrapingEndpoint().AllowAnonymous();
-
-// Explicit route mapping for OperationState controller to fix 404 issues
-app.MapControllerRoute(
-    name: "operationstate_patch",
-    pattern: "api/operationstate/{key}",
-    defaults: new { controller = "OperationState", action = "UpdateState" },
-    constraints: new { httpMethod = new HttpMethodRouteConstraint("PATCH") });
 
 // Liveness. This is what the image's HEALTHCHECK probes, so it always answers 200 while the
 // process is up: a setup-only boot is a container that needs a human, not a container to kill,

@@ -11,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using static LancacheManager.Tests.DaemonTestMethods;
 
 namespace LancacheManager.Tests;
 
@@ -875,7 +876,7 @@ public class PersistentEraseOnStopTests
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"persistent_erase_on_stop_{Guid.NewGuid():N}")
             .Options;
-        var dbFactory = new InMemoryDbContextFactory(dbOptions);
+        var dbFactory = new TestDbContextFactory(dbOptions);
         var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
         var cacheService = new PrefillCacheService(dbFactory, NullLogger<PrefillCacheService>.Instance);
         var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
@@ -925,222 +926,6 @@ public class PersistentEraseOnStopTests
         }
 
         public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
-    }
-
-    private sealed class InMemoryDbContextFactory : IDbContextFactory<AppDbContext>
-    {
-        private readonly DbContextOptions<AppDbContext> _options;
-
-        public InMemoryDbContextFactory(DbContextOptions<AppDbContext> options)
-        {
-            _options = options;
-        }
-
-        public AppDbContext CreateDbContext() => new AppDbContext(_options);
-
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new AppDbContext(_options));
-    }
-
-    private sealed class StaticOptionsMonitor<T> : IOptionsMonitor<T>
-    {
-        public StaticOptionsMonitor(T value)
-        {
-            CurrentValue = value;
-        }
-
-        public T CurrentValue { get; }
-
-        public T Get(string? name) => CurrentValue;
-
-        public IDisposable OnChange(Action<T, string?> listener) => NullDisposable.Instance;
-
-        private sealed class NullDisposable : IDisposable
-        {
-            public static readonly NullDisposable Instance = new();
-            public void Dispose() { }
-        }
-    }
-
-    /// <summary>
-    /// Fake <see cref="IDaemonClient"/> exposing only the surface these scenarios touch; every other
-    /// member throws <see cref="NotSupportedException"/> so an unexpected call fails loudly (mirrors
-    /// TestDaemonClientBase in PersistentLogoutTests.cs).
-    /// </summary>
-    private abstract class TestDaemonClientBase : IDaemonClient
-    {
-        public event Func<CredentialChallenge, Task>? OnCredentialChallenge { add { } remove { } }
-        public event Func<DaemonStatus, Task>? OnStatusUpdate { add { } remove { } }
-        public event Func<SocketPrefillProgress, Task>? OnProgressUpdate { add { } remove { } }
-        public event Func<string, Task>? OnError { add { } remove { } }
-        public event Func<Task>? OnDisconnected { add { } remove { } }
-
-        public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("Unexpected GetStatusAsync in this scenario.");
-
-        public Task<CommandResponse> SendCommandAsync(
-            string type, Dictionary<string, string>? parameters = null, TimeSpan? timeout = null,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException($"Unexpected SendCommandAsync({type}) in this test.");
-
-        public Task<CredentialChallenge?> StartLoginAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("Unexpected StartLoginAsync in an erase-on-stop scenario.");
-
-        public Task ProvideCredentialAsync(CredentialChallenge challenge, string credential, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<CredentialChallenge?> GetAutoLoginChallengeAsync(string sessionId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<bool> ProvideAutoLoginAsync(string sessionId, string username, string refreshToken, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<bool> ProvideEpicAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, string deviceKeyPkcs8, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<CredentialChallenge?> WaitForChallengeAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task CancelLoginAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public abstract Task<bool> LogoutAsync(CancellationToken cancellationToken = default);
-
-        // Explicit (virtual, not DIM-inherited) so a subclass can override it the normal OOP way to
-        // simulate the daemon's RequiresLogin signal - mirrors TestDaemonClientBase in PersistentLogoutTests.cs.
-        // Fakes that don't override this just adapt whatever LogoutAsync returns, matching
-        // IDaemonClient's own default implementation.
-        public virtual async Task<LogoutOutcome> LogoutWithReasonAsync(CancellationToken cancellationToken = default)
-        {
-            var success = await LogoutAsync(cancellationToken);
-            return new LogoutOutcome(success, RequiresLogin: false);
-        }
-
-        public Task CancelPrefillAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<PrefillResult> PrefillAsync(
-            bool all = false, bool recent = false, bool recentlyPurchased = false, int? top = null,
-            bool force = false, List<string>? operatingSystems = null, int? maxConcurrency = null,
-            List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<ClearCacheResult> GetCacheInfoAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(List<string>? operatingSystems = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<CacheStatusResult> CheckCacheStatusAsync(List<CachedDepotInput> cachedDepots, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        // TerminateSessionAsync calls ShutdownAsync in its graceful (non-force) branch, but only when
-        // _dockerClient and session.ContainerId are both set - neither is true in this harness (no
-        // Docker started, ContainerId left unset), so this is never actually invoked here. Completed
-        // rather than throwing purely as a defensive default, matching TestDaemonClientBase's style.
-        public Task ShutdownAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public virtual void ClearPendingChallenges() { }
-
-        // Declared virtual (not left to IDaemonClient's default method) so a fake can override it - a
-        // default interface method cannot be overridden through the class hierarchy. Mirrors how
-        // LogoutWithReasonAsync is exposed above.
-        public virtual Task DrainEventsAsync(TimeSpan timeout, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public virtual void Dispose() { }
-    }
-
-    /// <summary>
-    /// Scenario: the daemon responds to the <c>logout</c> command without a transport error, either
-    /// succeeding or reporting failure - both must be swallowed by the best-effort guards under test.
-    /// </summary>
-    private sealed class ScriptedLogoutDaemonClient : TestDaemonClientBase
-    {
-        private readonly bool _succeeds;
-
-        public ScriptedLogoutDaemonClient(bool succeeds)
-        {
-            _succeeds = succeeds;
-        }
-
-        public int LogoutCallCount { get; private set; }
-
-        public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
-        {
-            LogoutCallCount++;
-            return Task.FromResult(_succeeds);
-        }
-    }
-
-    /// <summary>
-    /// Scenario: the daemon round-trip itself throws (dead/hung socket) - must be swallowed, not
-    /// propagated, by both best-effort guards under test.
-    /// </summary>
-    private sealed class ThrowingLogoutDaemonClient : TestDaemonClientBase
-    {
-        public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Simulated daemon logout round-trip failure.");
-    }
-
-    /// <summary>
-    /// Scenario: an older daemon image's pre-login command gate rejects "logout" outright because the
-    /// session hasn't finished authenticating - a real daemon response (not a transport error), just
-    /// one that carries <c>RequiresLogin: true</c> alongside <c>Success: false</c>.
-    /// </summary>
-    private sealed class PreLoginRejectionDaemonClient : TestDaemonClientBase
-    {
-        public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(false);
-
-        public override Task<LogoutOutcome> LogoutWithReasonAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new LogoutOutcome(false, RequiresLogin: true));
-    }
-
-    private sealed record LogEntry(LogLevel Level, string Message);
-
-    /// <summary>Captures log entries so a test can assert on the exact text a scenario produces -
-    /// mirrors ScheduledPrefillServiceTests.cs's CapturingLogger.</summary>
-    private sealed class CapturingLogger : ILogger<SteamDaemonService>
-    {
-        private readonly object _sync = new();
-        private readonly List<LogEntry> _entries = [];
-
-        public IReadOnlyList<LogEntry> Entries
-        {
-            get { lock (_sync) return _entries.ToArray(); }
-        }
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter)
-        {
-            lock (_sync)
-            {
-                _entries.Add(new LogEntry(logLevel, formatter(state, exception)));
-            }
-        }
     }
 
     private static async Task SeedSessionRowAsync(PrefillSessionService sessionService, DaemonSession session)
@@ -1224,13 +1009,6 @@ public class PersistentEraseOnStopTests
     // Invokes a private daemon event handler (OnStatusChangeAsync / OnProgressChangeAsync) directly, so a
     // test can prove the post-detach guard early-returns for a session no longer in _sessions. Production
     // wires these off the socket read loop, which a session-injection harness bypasses.
-    private static async Task InvokePrivateHandlerAsync(PrefillDaemonServiceBase daemon, string methodName, params object[] args)
-    {
-        var method = typeof(PrefillDaemonServiceBase).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException($"{methodName} not found on {nameof(PrefillDaemonServiceBase)}");
-        await (Task)method.Invoke(daemon, args)!;
-    }
-
     // Flips the private volatile _stopping flag so a test can pin "host shutdown has begun" deterministically
     // without driving StopAsync (which would also tear the target session down). Production only ever sets
     // this at the top of StopAsync.
@@ -1267,7 +1045,7 @@ public class PersistentEraseOnStopTests
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"persistent_mode_aware_{Guid.NewGuid():N}")
             .Options;
-        var dbFactory = new InMemoryDbContextFactory(dbOptions);
+        var dbFactory = new TestDbContextFactory(dbOptions);
         var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
         var cacheService = new PrefillCacheService(dbFactory, NullLogger<PrefillCacheService>.Instance);
         var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();

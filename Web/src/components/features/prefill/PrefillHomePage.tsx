@@ -28,7 +28,7 @@ function ServiceFeatureList({ items }: ServiceFeatureListProps) {
         aria-expanded={isWideViewport || open}
         className="focus-ring prefill-features-toggle"
       >
-        <span>{t('prefill.home.featuresToggle', "What's included")}</span>
+        <span>{t('prefill.home.featuresToggle')}</span>
         <ChevronDown
           className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
         />
@@ -115,13 +115,8 @@ export function PrefillHomePage({
   return (
     <div className="prefill-home">
       <div className="prefill-home-header">
-        <h1 className="prefill-home-title">{t('prefill.home.title', 'Game Prefill')}</h1>
-        <p className="prefill-home-subtitle">
-          {t(
-            'prefill.home.subtitle',
-            'Pre-download game content to your lancache before the event. Choose a platform to start a prefill session.'
-          )}
-        </p>
+        <h1 className="prefill-home-title">{t('prefill.home.title')}</h1>
+        <p className="prefill-home-subtitle">{t('prefill.home.subtitle')}</p>
       </div>
 
       <div className="prefill-home-grid">
@@ -138,7 +133,7 @@ export function PrefillHomePage({
                 <div className="prefill-service-meta">
                   <h2 className="prefill-service-name">{service.displayName}</h2>
                   <div className="caps-label prefill-service-status">
-                    <span>{t('prefill.home.ready', 'Ready')}</span>
+                    <span>{t('prefill.home.ready')}</span>
                   </div>
                 </div>
               </div>
@@ -160,7 +155,7 @@ export function PrefillHomePage({
                   {t(service.homeLoginNoteKey)}
                 </span>
                 <Button variant="filled" size="md" onClick={() => onServiceStart(service.id)}>
-                  {t('prefill.home.startSession', 'Start Session')}
+                  {t('prefill.home.startSession')}
                 </Button>
               </div>
             </div>

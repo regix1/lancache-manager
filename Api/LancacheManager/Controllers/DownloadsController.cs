@@ -42,7 +42,8 @@ public class DownloadsController : ControllerBase
     /// Get a download by ID with its tags and events
     /// </summary>
     [HttpGet("{id:long}")]
-    public async Task<IActionResult> GetByIdAsync(long id)
+    [ProducesResponseType(typeof(DownloadWithEventsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DownloadWithEventsResponse>> GetByIdAsync(long id)
     {
         var download = await _context.Downloads
             .AsNoTracking()
@@ -76,21 +77,21 @@ public class DownloadsController : ControllerBase
             .Where(ed => ed.DownloadId == id)
             .ToListAsync();
 
-        var events = eventDownloads.Select(ed => new
+        var events = eventDownloads.Select(ed => new DownloadEventAssociation
         {
-            ed.Event.Id,
-            ed.Event.Name,
-            ed.Event.ColorIndex,
-            ed.Event.StartTimeUtc,
-            ed.Event.EndTimeUtc,
-            ed.AutoTagged,
-            ed.TaggedAtUtc
+            Id = ed.Event.Id,
+            Name = ed.Event.Name,
+            ColorIndex = ed.Event.ColorIndex,
+            StartTimeUtc = ed.Event.StartTimeUtc,
+            EndTimeUtc = ed.Event.EndTimeUtc,
+            AutoTagged = ed.AutoTagged,
+            TaggedAtUtc = ed.TaggedAtUtc
         }).ToList();
 
-        return Ok(new
+        return Ok(new DownloadWithEventsResponse
         {
-            download,
-            events
+            Download = download,
+            Events = events
         });
     }
 
@@ -98,11 +99,12 @@ public class DownloadsController : ControllerBase
     /// Get events for multiple download IDs in a single batch request
     /// </summary>
     [HttpPost("batch-download-events")]
-    public async Task<IActionResult> GetBatchEventsAsync([FromBody] BatchDownloadEventsRequest request)
+    [ProducesResponseType(typeof(Dictionary<long, DownloadEventBatchEntry>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<Dictionary<long, DownloadEventBatchEntry>>> GetBatchEventsAsync([FromBody] BatchDownloadEventsRequest request)
     {
         if (request.DownloadIds == null || request.DownloadIds.Count == 0)
         {
-            return Ok(new Dictionary<long, object>());
+            return Ok(new Dictionary<long, DownloadEventBatchEntry>());
         }
 
         // Limit to prevent abuse
@@ -119,16 +121,16 @@ public class DownloadsController : ControllerBase
         // Group by download ID and return as dictionary
         var result = downloadIds.ToDictionary(
             id => id,
-            id => new
+            id => new DownloadEventBatchEntry
             {
-                events = eventDownloads
+                Events = eventDownloads
                     .Where(ed => ed.DownloadId == id)
-                    .Select(ed => new
+                    .Select(ed => new DownloadEventTag
                     {
-                        ed.Event.Id,
-                        ed.Event.Name,
-                        ed.Event.ColorIndex,
-                        ed.AutoTagged
+                        Id = ed.Event.Id,
+                        Name = ed.Event.Name,
+                        ColorIndex = ed.Event.ColorIndex,
+                        AutoTagged = ed.AutoTagged
                     })
                     .ToList()
             }
@@ -141,7 +143,8 @@ public class DownloadsController : ControllerBase
     /// Get downloads with their tags and events for a time range
     /// </summary>
     [HttpGet("with-associations")]
-    public async Task<IActionResult> GetWithEventsAsync(
+    [ProducesResponseType(typeof(List<DownloadWithEventTags>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<DownloadWithEventTags>>> GetWithEventsAsync(
         [FromQuery] int count = 100,
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
@@ -186,17 +189,23 @@ public class DownloadsController : ControllerBase
 
         if (downloadsWithEvents.Count == 0)
         {
-            return Ok(new List<object>());
+            return Ok(new List<DownloadWithEventTags>());
         }
 
         // Mark timestamps as UTC and build response
         var result = downloadsWithEvents.Select(item =>
         {
             item.Download.WithUtcMarking();
-            return new
+            return new DownloadWithEventTags
             {
-                download = item.Download,
-                events = (object)item.Events
+                Download = item.Download,
+                Events = item.Events.Select(ed => new DownloadEventTag
+                {
+                    Id = ed.Id,
+                    Name = ed.Name,
+                    ColorIndex = ed.ColorIndex,
+                    AutoTagged = ed.AutoTagged
+                }).ToList()
             };
         }).ToList();
 
@@ -204,11 +213,14 @@ public class DownloadsController : ControllerBase
     }
 
     /// <summary>
-    /// Get paginated, grouped download data for the Retro view.
-    /// Groups downloads by DepotId + ClientIp and aggregates cache statistics.
-    /// Resolves game names on the aggregated rows before returning them.
+    /// Gets paginated, grouped download data for the Retro view.
     /// </summary>
+    /// <remarks>
+    /// Groups downloads by DepotId and ClientIp and aggregates cache statistics, then resolves
+    /// game names on the aggregated rows before returning them.
+    /// </remarks>
     [HttpGet("retro")]
+    [ProducesResponseType(typeof(RetroDownloadResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<RetroDownloadResponse>> GetRetroDownloadsAsync([FromQuery] RetroDownloadQuery query)
     {
         const int maxPageSize = 200;

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Core.Services;
 
 namespace LancacheManager.Models;
 
@@ -159,20 +160,11 @@ public class DatasourceInfoDto
 public class DatasourceCacheSizeResponse
 {
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>The manual override in bytes. Null when the datasource uses automatic size detection instead.</summary>
     public long? CacheSizeOverrideBytes { get; set; }
     public long ResolvedCacheSizeBytes { get; set; }
     public string CacheSizeSource { get; set; } = CacheSizeSourceValues.FullDisk;
-}
-
-/// <summary>
-/// Response for system state
-/// </summary>
-public class SystemStateResponse
-{
-    public bool SetupCompleted { get; set; }
-    public bool HasDataLoaded { get; set; }
-    public SteamAuthMode SteamAuthMode { get; set; } = SteamAuthMode.Anonymous;
-    public CacheDeleteMode CacheDeleteMode { get; set; } = CacheDeleteMode.Preserve;
 }
 
 /// <summary>
@@ -213,18 +205,50 @@ public class SetupStatusResponse
     public bool HasProcessedLogs { get; set; }
     public bool SetupCompleted { get; set; } // Legacy field for backward compatibility
     public bool NeedsPostgresCredentials { get; set; }
+
+    /// <summary>
+    /// The wizard step in progress. Null once setup has completed, or before the wizard has recorded
+    /// a step.
+    /// </summary>
     public string? CurrentSetupStep { get; set; }
+
+    /// <summary>
+    /// The data source the wizard is set up for. Null once setup has completed, at which point the
+    /// wizard state is cleared.
+    /// </summary>
     public string? DataSourceChoice { get; set; }
+
+    /// <summary>
+    /// Platforms the wizard has finished configuring so far. Null once setup has completed, at which
+    /// point the wizard state is cleared.
+    /// </summary>
     public string? CompletedPlatforms { get; set; }
 
     // Postgres deployment mode: "embedded" (default) or "external".
     public string Mode { get; set; } = "embedded";
 
-    // Sanitized connection details for the database info screen (external or embedded).
-    // Never includes the password.
+    /// <summary>
+    /// Configured Postgres host. Null while <see cref="NeedsPostgresCredentials"/> is true and
+    /// nothing has determined a host yet.
+    /// </summary>
     public string? PostgresHost { get; set; }
+
+    /// <summary>
+    /// Configured Postgres port. Null in embedded mode (a fixed Unix socket is used instead) and
+    /// while <see cref="NeedsPostgresCredentials"/> is true.
+    /// </summary>
     public int? PostgresPort { get; set; }
+
+    /// <summary>
+    /// Configured Postgres database name. Null while <see cref="NeedsPostgresCredentials"/> is true
+    /// and nothing has determined a database yet.
+    /// </summary>
     public string? PostgresDatabase { get; set; }
+
+    /// <summary>
+    /// Configured Postgres username. Null while <see cref="NeedsPostgresCredentials"/> is true and
+    /// nothing has determined a username yet.
+    /// </summary>
     public string? PostgresUser { get; set; }
 }
 
@@ -238,21 +262,101 @@ public class SetupUpdateResponse
 }
 
 /// <summary>
-/// Response for scan mode update
-/// </summary>
-public class ScanModeResponse
-{
-    public string Message { get; set; } = string.Empty;
-    public DepotScanMode Mode { get; set; } = DepotScanMode.Incremental;
-}
-
-/// <summary>
 /// Response for refresh rate setting
 /// </summary>
 public class RefreshRateResponse
 {
+    /// <summary>
+    /// Confirmation text for a successful update. Null on a plain read of the current rate; only the
+    /// update actions set it.
+    /// </summary>
     public string? Message { get; set; }
     public string RefreshRate { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Response for GC management status.
+/// </summary>
+public class GcStatusResponse
+{
+    public bool Enabled { get; set; }
+}
+
+/// <summary>
+/// Response for the default guest refresh rate.
+/// </summary>
+public class DefaultGuestRefreshRateResponse
+{
+    public string RefreshRate { get; set; } = string.Empty;
+    public bool Locked { get; set; }
+}
+
+/// <summary>
+/// Response for locking or unlocking guest refresh rate selection.
+/// </summary>
+public class GuestRefreshRateLockResponse
+{
+    public bool Success { get; set; }
+    public bool Locked { get; set; }
+}
+
+/// <summary>
+/// Response for default guest preferences.
+/// </summary>
+public class DefaultGuestPreferencesResponse
+{
+    public bool UseLocalTimezone { get; set; }
+    public bool UseUtcTimezone { get; set; }
+    public bool Use24HourFormat { get; set; }
+    public bool SharpCorners { get; set; }
+    public bool DisableTooltips { get; set; }
+    public bool ShowDatasourceLabels { get; set; }
+    public List<string> AllowedTimeFormats { get; set; } = new();
+}
+
+/// <summary>
+/// Response for updating the allowed guest time formats.
+/// </summary>
+public class AllowedTimeFormatsResponse
+{
+    public string Message { get; set; } = string.Empty;
+    public List<string> Formats { get; set; } = new();
+}
+
+/// <summary>
+/// Response for updating the default guest clock.
+/// </summary>
+public class DefaultGuestClockResponse
+{
+    public string Message { get; set; } = string.Empty;
+    public UserPreferencesService.ClockPreferences Clock { get; set; } = new();
+}
+
+/// <summary>
+/// Response for updating a single default guest preference.
+/// </summary>
+public class DefaultGuestPreferenceResponse
+{
+    public string Message { get; set; } = string.Empty;
+    public string Key { get; set; } = string.Empty;
+    public bool Value { get; set; }
+}
+
+/// <summary>
+/// Response for default prefill panel settings.
+/// </summary>
+public class PrefillDefaultsResponse
+{
+    public List<string> OperatingSystems { get; set; } = new();
+    public string MaxConcurrency { get; set; } = string.Empty;
+    public int ServerThreadCount { get; set; }
+
+    /// <summary>
+    /// The guest thread cap MaxConcurrency was clamped against. Null for an admin session, which has
+    /// no thread limit.
+    /// </summary>
+    public int? MaxThreadLimit { get; set; }
+    public string EpicDefaultPrefillMaxConcurrency { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -262,6 +366,11 @@ public class GcSettingsResponse
 {
     public bool Enabled { get; set; }
     public long MemoryThresholdMB { get; set; }
+
+    /// <summary>
+    /// Confirmation text for a settings update. Null when read from <c>GET /api/gc/settings</c>,
+    /// which only reports the current settings.
+    /// </summary>
     public string? Message { get; set; }
 }
 
@@ -271,10 +380,34 @@ public class GcSettingsResponse
 public class GcTriggerResponse
 {
     public bool Skipped { get; set; }
+
+    /// <summary>
+    /// Why the trigger was skipped. Null when <see cref="Skipped"/> is false.
+    /// </summary>
     public string? Reason { get; set; }
+
+    /// <summary>
+    /// Seconds left in the cooldown before another trigger will run. Null when
+    /// <see cref="Skipped"/> is false.
+    /// </summary>
     public double? RemainingSeconds { get; set; }
+
+    /// <summary>
+    /// Process working-set size before the collection, in megabytes. Null when
+    /// <see cref="Skipped"/> is true (no collection ran).
+    /// </summary>
     public double? BeforeMB { get; set; }
+
+    /// <summary>
+    /// Process working-set size after the collection, in megabytes. Null when
+    /// <see cref="Skipped"/> is true.
+    /// </summary>
     public double? AfterMB { get; set; }
+
+    /// <summary>
+    /// Megabytes freed by the collection (<see cref="BeforeMB"/> minus <see cref="AfterMB"/>).
+    /// Null when <see cref="Skipped"/> is true.
+    /// </summary>
     public double? FreedMB { get; set; }
     public string Message { get; set; } = string.Empty;
 }

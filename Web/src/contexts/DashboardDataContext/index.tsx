@@ -25,8 +25,7 @@ import type {
   GameDetectionSummary,
   SparklineDataResponse,
   HourlyActivityResponse,
-  CacheSnapshotResponse,
-  CacheGrowthResponse
+  CacheSnapshotResponse
 } from '../../types';
 import {
   DashboardDataContext,
@@ -59,7 +58,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const { hasSession, isLoading: authLoading } = useAuth();
   const hasAccess = hasSession;
 
-  // State. All 9 dashboard fields start empty and populate from the first batch fetch.
+  // State. Dashboard fields start empty and populate from the first batch fetch.
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
   const [clientStats, setClientStats] = useState<ClientStat[]>([]);
   const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
@@ -81,7 +80,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const [sparklines, setSparklines] = useState<SparklineDataResponse | null>(null);
   const [hourlyActivity, setHourlyActivity] = useState<HourlyActivityResponse | null>(null);
   const [cacheSnapshot, setCacheSnapshot] = useState<CacheSnapshotResponse | null>(null);
-  const [cacheGrowth, setCacheGrowth] = useState<CacheGrowthResponse | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -144,8 +142,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     latestDownloads,
     sparklines,
     hourlyActivity,
-    cacheSnapshot,
-    cacheGrowth
+    cacheSnapshot
   });
 
   // Update refs synchronously on every render
@@ -166,8 +163,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     latestDownloads,
     sparklines,
     hourlyActivity,
-    cacheSnapshot,
-    cacheGrowth
+    cacheSnapshot
   };
 
   // Single unified fetch function that fetches all data in parallel
@@ -229,6 +225,12 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const currentEventIds = [...selectedEventIdsRef.current];
       const { startTime, endTime } = getTimeRangeParamsRef.current();
       const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
+      const eventId = eventIds && eventIds.length > 0 ? eventIds[0] : undefined;
+      const rangeKey = buildRangeKey(startTime, endTime, eventId);
+      if (rangeKey !== appliedRangeKeyRef.current) {
+        slicesRef.current = { ...slicesRef.current, cacheSnapshot: null };
+        setCacheSnapshot(null);
+      }
       // Backend IMemoryCache dedupes identical in-flight requests (15s live / 60s historical TTL).
 
       const requestController = new AbortController();
@@ -247,7 +249,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         timeoutId = setTimeout(() => requestController.abort(), timeout);
 
         // Single batch endpoint replaces 6 individual API calls
-        const eventId = eventIds && eventIds.length > 0 ? eventIds[0] : undefined;
         const batchResponse: DashboardBatchResponse = await ApiService.getDashboardBatch(
           signal,
           startTime,
@@ -272,7 +273,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // Resolve each slice under the wire contract (null = failed sub-query,
         // empty = successful empty): keep previous data on failure within the
         // same range, clear on a range change, apply successful results.
-        const rangeKey = buildRangeKey(startTime, endTime, eventId);
         const { next, hadPartialFailure, failedSectionKeys } = applyDashboardBatchResponse(
           slicesRef.current,
           batchResponse,
@@ -295,7 +295,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         setSparklines(next.sparklines);
         setHourlyActivity(next.hourlyActivity);
         setCacheSnapshot(next.cacheSnapshot);
-        setCacheGrowth(next.cacheGrowth);
 
         setConnectionStatus('connected');
         // A partial apply clears any prior hard error; the stale flag is now the
@@ -746,7 +745,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       sparklines,
       hourlyActivity,
       cacheSnapshot,
-      cacheGrowth,
       loading,
       isRefreshing,
       error,
@@ -768,7 +766,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       sparklines,
       hourlyActivity,
       cacheSnapshot,
-      cacheGrowth,
       loading,
       isRefreshing,
       error,

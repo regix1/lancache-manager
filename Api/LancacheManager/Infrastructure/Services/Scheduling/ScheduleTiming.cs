@@ -177,7 +177,11 @@ public static class ScheduleTiming
         }
     }
 
-    private static TimeZoneInfo? ResolveTimeZone(string timeZoneId)
+    /// <summary>
+    /// The zone this machine knows by that id, or null when it knows none. Shared with the reader that
+    /// names the server's own zone so a zone id means resolvable in exactly one place. [11]
+    /// </summary>
+    public static TimeZoneInfo? ResolveTimeZone(string timeZoneId)
     {
         if (string.IsNullOrWhiteSpace(timeZoneId))
         {

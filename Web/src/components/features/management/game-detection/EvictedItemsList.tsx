@@ -40,7 +40,9 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
   const evictedServices = useMemo(() => getEvictedServices(services), [services]);
 
   if (loading) {
-    return <LoadingState message={t('management.gameDetection.loadingEvictedGames')} />;
+    return (
+      <LoadingState message={t('management.gameDetection.loadingEvictedGames')} shape="cards" />
+    );
   }
 
   if (evictedGames.length === 0 && evictedServices.length === 0) {

@@ -33,12 +33,17 @@ const MINUTES_PER_DAY = 1440;
 const MS_PER_DAY = 86_400_000;
 
 /**
- * Bounds on the occurrence walk, matching the server's. An expression and a window that
- * never intersect (03:00 daily inside a 22:00-06:00 window) would otherwise walk forever
- * looking for a run that cannot exist.
+ * Bounds on the occurrence walk. An expression and a window that never intersect (03:00 daily
+ * inside a 22:00-06:00 window) would otherwise walk forever looking for a run that cannot exist.
+ *
+ * The lookahead has to clear the longest gap this grammar can put between two runs, or a legal
+ * expression reads as one that never runs and the modal refuses to save it. That longest gap is
+ * the eight years an every-29-February expression waits across a century that skips its leap
+ * year: 29 Feb 2096 to 29 Feb 2104 is 2921 days. The value below clears it with room to spare
+ * and is the same span the server allows.
  */
 const MAX_CANDIDATES = 4000;
-const MAX_LOOKAHEAD_DAYS = 400;
+const MAX_LOOKAHEAD_DAYS = 3700;
 const OCCURRENCE_BATCH = 50;
 
 /** Daily at 02:00 with no window: valid on open, so the preview has something to show. */
@@ -63,6 +68,36 @@ export function isWeekdayKey(value: string): value is WeekdayKey {
  * of as a single run of characters where nobody can tell where one position ends.
  */
 export const CRON_POSITIONS = ['minute', 'hour', 'dayOfMonth', 'month', 'weekday'] as const;
+
+interface PositionLimit {
+  /** The largest number the position accepts. */
+  max: number;
+  /** How many digits a written number runs to. A weekday is never padded to two. */
+  digits: number;
+}
+
+const POSITION_LIMITS: readonly PositionLimit[] = [
+  { max: 59, digits: 2 },
+  { max: 23, digits: 2 },
+  { max: 31, digits: 2 },
+  { max: 12, digits: 2 },
+  { max: 7, digits: 1 }
+];
+
+/**
+ * Whether a typed number fills its position, meaning no further digit could be added and still
+ * land in range: hour `3` is filled because `30` is past 23, hour `2` is not because `23` is
+ * real. Only plain numbers can be filled; a `*`, a list or a step can always grow, so a box
+ * holding one of those never says it is done and never moves the caret out from under someone
+ * halfway through typing a step.
+ */
+export function fillsPosition(index: number, value: string): boolean {
+  const limit = POSITION_LIMITS[index];
+  if (!limit || !/^\d{1,2}$/.test(value)) return false;
+  const parsed = Number(value);
+  if (parsed > limit.max) return false;
+  return value.length >= limit.digits || parsed * 10 > limit.max;
+}
 
 /**
  * An expression split into its five positions, padded with empties so a half-typed string
@@ -89,17 +124,6 @@ export function toTwelveHour(hour: number): { hour: number; period: ClockPeriod 
 export function toTwentyFourHour(hour: number, period: ClockPeriod): number {
   const base = hour % 12;
   return period === 'am' ? base : base + 12;
-}
-
-/**
- * The wall-clock time an occurrence lands on, read in the schedule's own zone. An occurrence
- * is an instant, and the readout beside the expression is a clock face, so the zone has to be
- * applied here rather than left to whatever zone the caller happens to render in.
- */
-export function clockOfRun(run: Date, timeZoneId: string): ClockTime {
-  const local = getTimeInTimezone(run, timeZoneId);
-  // Some ICU builds report midnight as hour 24 under a 24-hour cycle.
-  return { hour: local.hour % 24, minute: local.minute };
 }
 
 function readNumber(field: string, min: number, max: number): number | null {
@@ -313,37 +337,46 @@ function isWithinWindow(
  * The next occurrences that also fall inside the window, walking forward from `from`. Returns
  * fewer than `count` (possibly none) when the expression and the window never intersect; the
  * walk is bounded so that case ends rather than spinning.
+ *
+ * The whole walk is guarded, not just the parse. A zone id this browser's database has no entry
+ * for is accepted by the parser and only fails once it is asked for a run, and the window test
+ * reads the same zone through Intl, so both throw from inside the loop. This runs in a render
+ * body, so an empty list is the answer rather than an exception taking the page down.
  */
 export function computeNextRuns(schedule: CustomSchedule, count: number, from: Date): Date[] {
   const runs: Date[] = [];
   const trimmed = schedule.expression.trim();
   if (trimmed.length === 0) return runs;
 
-  let cron: Cron;
-  try {
-    cron = new Cron(trimmed, { timezone: schedule.timeZoneId });
-  } catch {
-    return runs;
-  }
-
   const start = parseClockTime(schedule.windowStart);
   const end = parseClockTime(schedule.windowEnd);
   const deadline = from.getTime() + MAX_LOOKAHEAD_DAYS * MS_PER_DAY;
+  const listed = new Set<number>();
   let cursor = from;
   let examined = 0;
 
-  while (runs.length < count && examined < MAX_CANDIDATES) {
-    const batch = cron.nextRuns(OCCURRENCE_BATCH, cursor);
-    if (batch.length === 0) return runs;
-    for (const occurrence of batch) {
-      examined += 1;
-      if (occurrence.getTime() > deadline) return runs;
-      if (isWithinWindow(occurrence, schedule.timeZoneId, start, end)) {
-        runs.push(occurrence);
-        if (runs.length === count) return runs;
+  try {
+    const cron = new Cron(trimmed, { timezone: schedule.timeZoneId });
+    while (runs.length < count && examined < MAX_CANDIDATES) {
+      const batch = cron.nextRuns(OCCURRENCE_BATCH, cursor);
+      if (batch.length === 0) return runs;
+      for (const occurrence of batch) {
+        examined += 1;
+        if (occurrence.getTime() > deadline) return runs;
+        // The hour a zone skips going on to daylight saving time is emitted twice for a step
+        // expression, once on each side of the jump, and both land on the same instant. Listing
+        // it twice reads as two runs a second apart and hands two rows the same key.
+        if (listed.has(occurrence.getTime())) continue;
+        listed.add(occurrence.getTime());
+        if (isWithinWindow(occurrence, schedule.timeZoneId, start, end)) {
+          runs.push(occurrence);
+          if (runs.length === count) return runs;
+        }
       }
+      cursor = batch[batch.length - 1];
     }
-    cursor = batch[batch.length - 1];
+  } catch {
+    return runs;
   }
   return runs;
 }
@@ -401,24 +434,4 @@ export function formatTimeUntil(target: Date, from: Date): string {
   const hours = Math.round(minutes / 60);
   if (Math.abs(hours) < 48) return relative.format(hours, 'hour');
   return relative.format(Math.round(hours / 24), 'day');
-}
-
-/**
- * How far the browser's zone sits from the schedule's, in whole hours. Read off the current
- * instant so it reflects whichever side is presently on daylight saving time.
- */
-export function zoneOffsetHours(browserZone: string, scheduleZone: string, at: Date): number {
-  const browser = getTimeInTimezone(at, browserZone);
-  const schedule = getTimeInTimezone(at, scheduleZone);
-  const difference =
-    (browser.hour % 24) * 60 + browser.minute - ((schedule.hour % 24) * 60 + schedule.minute);
-  // Zones never differ by more than half a day, so a larger gap is the two sides landing on
-  // opposite sides of midnight rather than a real offset.
-  const normalized =
-    difference > MINUTES_PER_DAY / 2
-      ? difference - MINUTES_PER_DAY
-      : difference < -MINUTES_PER_DAY / 2
-        ? difference + MINUTES_PER_DAY
-        : difference;
-  return Math.round(normalized / 60);
 }

@@ -152,15 +152,9 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
           note: t('management.sections.integrations.epicDaemonStatus.help.note')
         }}
         loading={loading}
-        loadingMessage={t(
-          'management.sections.integrations.epicDaemonStatus.loadingStatus',
-          'Loading Epic status...'
-        )}
+        loadingMessage={t('management.sections.integrations.epicDaemonStatus.loadingStatus')}
         hasError={hasError}
-        errorMessage={t(
-          'management.sections.integrations.epicDaemonStatus.loadError',
-          'Failed to load Epic status. Displaying default values.'
-        )}
+        errorMessage={t('management.sections.integrations.epicDaemonStatus.loadError')}
         connected={isAuthenticated}
         connectedLabel={t('management.sections.integrations.epicDaemonStatus.connected')}
         notConnectedLabel={t('management.sections.integrations.epicDaemonStatus.notConnected')}

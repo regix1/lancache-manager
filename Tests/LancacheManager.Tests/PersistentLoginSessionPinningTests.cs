@@ -63,7 +63,7 @@ public class PersistentLoginSessionPinningTests
 
         var result = await controller.ProvideCredentialAsync(request, CancellationToken.None);
 
-        var conflict = Assert.IsType<ConflictObjectResult>(result);
+        var conflict = Assert.IsType<ConflictObjectResult>(result.Result);
         var body = Assert.IsType<PersistentLoginConflictResponse>(conflict.Value);
         Assert.Equal(PersistentLoginConflictReasons.SessionReplaced, body.Error);
         Assert.DoesNotContain(nameof(IDaemonClient.ProvideCredentialAsync), activeClient.InvokedMethods);
@@ -78,7 +78,7 @@ public class PersistentLoginSessionPinningTests
 
         var result = await controller.CancelLoginAsync(request, CancellationToken.None);
 
-        Assert.IsType<OkObjectResult>(result);
+        Assert.IsType<OkObjectResult>(result.Result);
         Assert.DoesNotContain(nameof(IDaemonClient.CancelLoginAsync), activeClient.InvokedMethods);
     }
 
@@ -107,7 +107,7 @@ public class PersistentLoginSessionPinningTests
 
         var result = await controller.ProvideCredentialAsync(request, CancellationToken.None);
 
-        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.IsType<BadRequestObjectResult>(result.Result);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class PersistentLoginSessionPinningTests
 
         var result = await controller.CancelLoginAsync(request, CancellationToken.None);
 
-        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.IsType<BadRequestObjectResult>(result.Result);
     }
 
     // ---- RC4: manager leg surfaces a dropped credential -----------------------------------------
@@ -140,7 +140,7 @@ public class PersistentLoginSessionPinningTests
 
         var result = await controller.ProvideCredentialAsync(request, CancellationToken.None);
 
-        var conflict = Assert.IsType<ConflictObjectResult>(result);
+        var conflict = Assert.IsType<ConflictObjectResult>(result.Result);
         var body = Assert.IsType<PersistentLoginConflictResponse>(conflict.Value);
         Assert.Equal(PersistentLoginConflictReasons.CredentialRejected, body.Error);
         // Proves the credential actually reached the daemon client (which then rejected it).
@@ -162,7 +162,7 @@ public class PersistentLoginSessionPinningTests
 
         var result = await controller.ProvideCredentialAsync(request, CancellationToken.None);
 
-        Assert.IsType<OkObjectResult>(result);
+        Assert.IsType<OkObjectResult>(result.Result);
         Assert.Contains(nameof(IDaemonClient.ProvideCredentialAsync), activeClient.InvokedMethods);
     }
 

@@ -203,31 +203,6 @@ export interface HourlyActivityResponse {
   period: string;
 }
 
-export interface CacheGrowthDataPoint {
-  timestamp: string;
-  cumulativeCacheMissBytes: number;
-  growthFromPrevious: number;
-}
-
-export interface CacheGrowthResponse {
-  dataPoints: CacheGrowthDataPoint[];
-  currentCacheSize: number;
-  totalCapacity: number;
-  averageDailyGrowth: number;
-  /** Net average daily growth accounting for deletions (can be negative) */
-  netAverageDailyGrowth: number;
-  trend: 'up' | 'down' | 'stable';
-  percentChange: number;
-  estimatedDaysUntilFull: number | null;
-  period: string;
-  /** True if actual cache size < cumulative downloads (data was deleted) */
-  hasDataDeletion: boolean;
-  /** Estimated bytes that were deleted from cache */
-  estimatedBytesDeleted: number;
-  /** True if cache was essentially cleared (very small relative to historical downloads) */
-  cacheWasCleared?: boolean;
-}
-
 export interface SparklineMetric {
   data: number[];
   trend: 'up' | 'down' | 'stable';

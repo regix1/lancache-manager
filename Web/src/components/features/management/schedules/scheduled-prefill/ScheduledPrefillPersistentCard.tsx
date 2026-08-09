@@ -8,7 +8,8 @@ import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import StatusDot from '@components/common/StatusDot';
 import { formatTimeRemaining } from '@components/features/prefill/types';
-import { formatBytes, formatDateTime } from '@utils/formatters';
+import { formatBytes } from '@utils/formatters';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { SCHEDULED_PREFILL_BUTTON_SIZE } from './constants';
 import {
   getPersistentServiceId,
@@ -93,6 +94,7 @@ export function ScheduledPrefillPersistentCard({
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const containersKey = `${baseKey}.persistentContainers`;
+  const authExpiresAt = useFormattedDateTime(container?.authExpiresAtUtc);
 
   // Anonymous services (Battle.net/Riot) have no login step: the persistent container is
   // ready as soon as it's running, so every authenticated-gated conditional below treats
@@ -278,7 +280,7 @@ export function ScheduledPrefillPersistentCard({
                   {t('prefill.persistent.reloginRequiredBy')}
                 </span>
                 <span className="scheduled-prefill-persistent-card__meta-value">
-                  {formatDateTime(container.authExpiresAtUtc)}
+                  {authExpiresAt}
                   <span className="scheduled-prefill-persistent-card__meta-detail">
                     {t('prefill.persistent.timeRemaining', {
                       time: formatTimeRemaining(container.authTimeRemainingSeconds)

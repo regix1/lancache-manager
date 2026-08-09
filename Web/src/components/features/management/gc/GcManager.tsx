@@ -6,6 +6,7 @@ import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { useNotifications } from '@contexts/notifications';
 import { API_BASE } from '@utils/constants';
 import ApiService from '@services/api.service';
@@ -195,7 +196,8 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
 
   const triggerGarbageCollection = async () => {
     setTriggering(true);
-    setTriggerResult(null);
+    // The previous result stays up until this one replaces it. Clearing it here would pull the
+    // panel out for the length of the request and put it back, which shifts everything below it.
     try {
       const response = await fetch(
         `${API_BASE}/gc/trigger`,
@@ -225,11 +227,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <LoadingSpinner inline size="lg" className="text-themed-muted" />
-      </div>
-    );
+    return <LoadingState shape="settings" />;
   }
 
   return (

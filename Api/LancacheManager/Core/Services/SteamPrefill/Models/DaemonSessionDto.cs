@@ -9,11 +9,16 @@ public class DaemonSessionDto
     public Guid UserId { get; set; }
     public string ContainerName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The failure reason recorded on the session. Null while the session has not recorded a failure,
+    /// which is the normal state for every healthy session.
+    /// </summary>
     public string? ErrorMessage { get; set; }
+
     public string AuthState { get; set; } = string.Empty;
     public bool IsPrefilling { get; set; }
     public DateTime CreatedAt { get; set; }
-    public DateTime? EndedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
     public int TimeRemainingSeconds { get; set; }
 
@@ -36,16 +41,53 @@ public class DaemonSessionDto
     public bool NeedsRelogin { get; set; }
 
     // Client info for admin visibility
+
+    /// <summary>
+    /// The client address the session was created from. Null when the request carried no remote
+    /// address, which happens for sessions the manager itself starts rather than a browser.
+    /// </summary>
     public string? IpAddress { get; set; }
+
+    /// <summary>
+    /// Operating system parsed from the creating request's user agent. Null when the request sent no
+    /// user agent or the agent could not be recognised.
+    /// </summary>
     public string? OperatingSystem { get; set; }
+
+    /// <summary>
+    /// Browser parsed from the creating request's user agent. Null when the request sent no user
+    /// agent or the agent could not be recognised.
+    /// </summary>
     public string? Browser { get; set; }
+
     public DateTime LastSeenAt { get; set; }
+
+    /// <summary>
+    /// The prefill account this session is logged in as. Null before the login completes, and always
+    /// null for the anonymous platforms that have no account at all.
+    /// </summary>
     public string? AccountUsername { get; set; }
+
     public string Platform { get; set; } = "Steam";
+
+    /// <summary>
+    /// Platform-agnostic display name, falling back to <see cref="AccountUsername"/>. Null for the
+    /// same reason that name is null: no login has completed, or the platform has no account.
+    /// </summary>
     public string? Username { get; set; }
 
     // Current prefill progress info for admin visibility
+
+    /// <summary>
+    /// The app currently downloading. Null whenever the session is not downloading, and cleared again
+    /// as soon as a prefill run ends.
+    /// </summary>
     public string? CurrentAppId { get; set; }
+
+    /// <summary>
+    /// Display name of the app currently downloading. Null under the same conditions as
+    /// <see cref="CurrentAppId"/>.
+    /// </summary>
     public string? CurrentAppName { get; set; }
 
     /// <summary>
@@ -54,15 +96,28 @@ public class DaemonSessionDto
     public long TotalBytesTransferred { get; set; }
 
     /// <summary>
-    /// Network diagnostics results (internet connectivity and DNS resolution tests)
+    /// Network diagnostics results (internet connectivity and DNS resolution tests). Null when the
+    /// container's connectivity test did not run or did not finish, so the session was created
+    /// without a result to report.
     /// </summary>
     public NetworkDiagnostics? NetworkDiagnostics { get; set; }
 
     /// <summary>
-    /// Last prefill completion result - for background completion detection
+    /// When the last prefill on this session finished, used for background completion detection.
+    /// Null before any prefill has completed, and cleared again while a new prefill is running.
     /// </summary>
     public DateTime? LastPrefillCompletedAt { get; set; }
+
+    /// <summary>
+    /// How long the last completed prefill took. Null under the same conditions as
+    /// <see cref="LastPrefillCompletedAt"/>.
+    /// </summary>
     public int? LastPrefillDurationSeconds { get; set; }
+
+    /// <summary>
+    /// How the last prefill ended (for example completed or cancelled). Null under the same
+    /// conditions as <see cref="LastPrefillCompletedAt"/>.
+    /// </summary>
     public string? LastPrefillStatus { get; set; }
 
     public static DaemonSessionDto FromSession(DaemonSession session)
@@ -77,7 +132,6 @@ public class DaemonSessionDto
             AuthState = session.AuthState.ToString(),
             IsPrefilling = session.IsPrefilling,
             CreatedAt = session.CreatedAt,
-            EndedAt = session.EndedAt,
             ExpiresAt = session.ExpiresAt,
             TimeRemainingSeconds = Math.Max(0, (int)(session.ExpiresAt - DateTime.UtcNow).TotalSeconds),
             IsTemporary = session.IsTemporary,

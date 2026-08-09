@@ -32,32 +32,16 @@ const RiotDaemonStatus: React.FC<RiotDaemonStatusProps> = ({ onError }) => {
       service={RIOT_DAEMON}
       onError={onError}
       copy={{
-        title: t('management.sections.integrations.riotDaemonStatus.title', 'Riot Games'),
+        title: t('management.sections.integrations.riotDaemonStatus.title'),
         summary: t('management.sections.integrations.riotDaemonStatus.summary'),
-        connected: t('management.sections.integrations.riotDaemonStatus.connected', 'Connected'),
-        notConnected: t(
-          'management.sections.integrations.riotDaemonStatus.notConnected',
-          'Not Connected'
-        ),
-        loadingStatus: t(
-          'management.sections.integrations.riotDaemonStatus.loadingStatus',
-          'Loading Riot status...'
-        ),
-        loadError: t(
-          'management.sections.integrations.riotDaemonStatus.loadError',
-          'Failed to load Riot status. Displaying default values.'
-        ),
-        availableHeadline: t(
-          'management.sections.integrations.riotDaemonStatus.dockerStatus',
-          'Docker Service'
-        ),
-        availableDetail: t(
-          'management.sections.integrations.riotDaemonStatus.dockerAvailableDesc',
-          'Docker is available and ready for Riot prefill sessions. No account login required.'
-        ),
+        connected: t('management.sections.integrations.riotDaemonStatus.connected'),
+        notConnected: t('management.sections.integrations.riotDaemonStatus.notConnected'),
+        loadingStatus: t('management.sections.integrations.riotDaemonStatus.loadingStatus'),
+        loadError: t('management.sections.integrations.riotDaemonStatus.loadError'),
+        availableHeadline: t('management.sections.integrations.riotDaemonStatus.dockerStatus'),
+        availableDetail: t('management.sections.integrations.riotDaemonStatus.dockerAvailableDesc'),
         unavailableDetail: t(
-          'management.sections.integrations.riotDaemonStatus.dockerUnavailableDesc',
-          'Start Docker to enable Riot prefill sessions.'
+          'management.sections.integrations.riotDaemonStatus.dockerUnavailableDesc'
         ),
         sessionCount: (count) =>
           count > 0
@@ -65,41 +49,28 @@ const RiotDaemonStatus: React.FC<RiotDaemonStatusProps> = ({ onError }) => {
                 count,
                 defaultValue: '{{count}} active session'
               })
-            : t(
-                'management.sections.integrations.riotDaemonStatus.noActiveSessions',
-                'No active sessions'
-              ),
+            : t('management.sections.integrations.riotDaemonStatus.noActiveSessions'),
         help: {
-          title: t(
-            'management.sections.integrations.riotDaemonStatus.help.anonymous.title',
-            'Anonymous Prefill'
-          ),
+          title: t('management.sections.integrations.riotDaemonStatus.help.anonymous.title'),
           definitions: [
             {
               term: t(
-                'management.sections.integrations.riotDaemonStatus.help.anonymous.noLogin.term',
-                'No Account Login'
+                'management.sections.integrations.riotDaemonStatus.help.anonymous.noLogin.term'
               ),
               description: t(
-                'management.sections.integrations.riotDaemonStatus.help.anonymous.noLogin.description',
-                'Riot prefill downloads public Riot CDN content and requires no account, credentials, or login.'
+                'management.sections.integrations.riotDaemonStatus.help.anonymous.noLogin.description'
               )
             },
             {
               term: t(
-                'management.sections.integrations.riotDaemonStatus.help.anonymous.products.term',
-                'Product Catalog'
+                'management.sections.integrations.riotDaemonStatus.help.anonymous.products.term'
               ),
               description: t(
-                'management.sections.integrations.riotDaemonStatus.help.anonymous.products.description',
-                'The daemon exposes the full fixed Riot product catalog for prefill selection.'
+                'management.sections.integrations.riotDaemonStatus.help.anonymous.products.description'
               )
             }
           ],
-          note: t(
-            'management.sections.integrations.riotDaemonStatus.help.note',
-            'No login required. The daemon container only needs Docker to be available to run prefill sessions.'
-          )
+          note: t('management.sections.integrations.riotDaemonStatus.help.note')
         }
       }}
     />

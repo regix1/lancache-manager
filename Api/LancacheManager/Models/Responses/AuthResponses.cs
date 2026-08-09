@@ -5,8 +5,14 @@ public class AuthStatusResponse
     public bool IsAuthenticated { get; set; }
     /// <summary>False when Security:EnableAuthentication is disabled; lets the frontend bypass the login prompt + setup wizard.</summary>
     public bool AuthenticationEnabled { get; set; }
+
+    /// <summary>The current session's kind. Null when <see cref="IsAuthenticated"/> is false.</summary>
     public SessionType? SessionType { get; set; }
+
+    /// <summary>The current session's id. Null when <see cref="IsAuthenticated"/> is false.</summary>
     public Guid? SessionId { get; set; }
+
+    /// <summary>When the current session expires. Null when <see cref="IsAuthenticated"/> is false.</summary>
     public DateTime? ExpiresAt { get; set; }
     public bool HasData { get; set; }
     public bool HasBeenInitialized { get; set; }
@@ -16,15 +22,27 @@ public class AuthStatusResponse
     /// <summary>Backward-compatible: true if any prefill service (Steam, Epic, or Battle.net) is active.</summary>
     public bool PrefillEnabled { get; set; }
     public bool SteamPrefillEnabled { get; set; }
+
+    /// <summary>When Steam prefill access expires for this session. Null when <see cref="SteamPrefillEnabled"/> is false.</summary>
     public DateTime? SteamPrefillExpiresAt { get; set; }
     public bool EpicPrefillEnabled { get; set; }
+
+    /// <summary>When Epic prefill access expires for this session. Null when <see cref="EpicPrefillEnabled"/> is false.</summary>
     public DateTime? EpicPrefillExpiresAt { get; set; }
     public bool BattlenetPrefillEnabled { get; set; }
+
+    /// <summary>When Battle.net prefill access expires for this session. Null when <see cref="BattlenetPrefillEnabled"/> is false.</summary>
     public DateTime? BattlenetPrefillExpiresAt { get; set; }
     public bool RiotPrefillEnabled { get; set; }
+
+    /// <summary>When Riot prefill access expires for this session. Null when <see cref="RiotPrefillEnabled"/> is false.</summary>
     public DateTime? RiotPrefillExpiresAt { get; set; }
     public bool XboxPrefillEnabled { get; set; }
+
+    /// <summary>When Xbox prefill access expires for this session. Null when <see cref="XboxPrefillEnabled"/> is false.</summary>
     public DateTime? XboxPrefillExpiresAt { get; set; }
+
+    /// <summary>A freshly rotated session token for the SignalR accessTokenFactory. Null when <see cref="IsAuthenticated"/> is false.</summary>
     public string? Token { get; set; }
 }
 
@@ -38,6 +56,8 @@ public class LoginResponse
     public bool Success { get; set; }
     public SessionType SessionType { get; set; }
     public DateTime ExpiresAt { get; set; }
+
+    /// <summary>The raw session token to store client-side. Null when <see cref="Success"/> is false.</summary>
     public string? Token { get; set; }
 }
 
@@ -86,6 +106,14 @@ public class ApiKeyStatusResponse
     public bool HasPrimaryKey { get; set; }
 }
 
+/// <summary>Response for POST api/api-keys/regenerate: confirms the key was rotated.</summary>
+public class ApiKeyRegenerateResponse
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string Warning { get; set; } = string.Empty;
+}
+
 public class GuestConfigResponse
 {
     public int DurationHours { get; set; }
@@ -98,4 +126,108 @@ public class GuestDurationResponse
     public string Source { get; set; } = "config";
     public bool CanEdit { get; set; } = true;
     public int EnvVarValue { get; set; }
+}
+
+/// <summary>Response for POST api/auth/logout.</summary>
+public class LogoutResponse
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>Response for GET api/auth/guest/status.</summary>
+public class GuestStatusResponse
+{
+    public bool IsLocked { get; set; }
+    public int DurationHours { get; set; }
+}
+
+/// <summary>Response for POST api/auth/guest/config/lock.</summary>
+public class GuestLockResponse
+{
+    public bool Success { get; set; }
+    public bool IsLocked { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Response for GET api/auth/guest/prefill/config: the Steam guest-prefill defaults, plus the
+/// Epic and Battle.net enabled flags that were bundled onto this endpoint before those services
+/// got their own guest-prefill config endpoints.
+/// </summary>
+public class GuestPrefillConfigResponse
+{
+    public bool EnabledByDefault { get; set; }
+    public int DurationHours { get; set; }
+
+    /// <summary>Per-guest-session thread cap. Null when no cap is configured.</summary>
+    public int? MaxThreadCount { get; set; }
+    public bool EpicEnabledByDefault { get; set; }
+    public int EpicDurationHours { get; set; }
+
+    /// <summary>Per-guest-session thread cap for Epic prefill. Null when no cap is configured.</summary>
+    public int? EpicMaxThreadCount { get; set; }
+    public bool BattlenetEnabledByDefault { get; set; }
+    public int BattlenetDurationHours { get; set; }
+}
+
+/// <summary>
+/// Response for POST api/auth/guest/prefill/config: the Steam guest-prefill defaults after the
+/// save. Shared with the Epic and Xbox save endpoints, whose responses have the same shape.
+/// </summary>
+public class SetGuestPrefillConfigResponse
+{
+    public bool Success { get; set; }
+    public bool EnabledByDefault { get; set; }
+    public int DurationHours { get; set; }
+
+    /// <summary>Per-guest-session thread cap. Null when no cap is configured.</summary>
+    public int? MaxThreadCount { get; set; }
+}
+
+/// <summary>
+/// Response for GET api/auth/guest/epic-prefill/config. Shared with the Xbox get endpoint,
+/// whose response has the same shape.
+/// </summary>
+public class EpicGuestPrefillConfigResponse
+{
+    public bool EnabledByDefault { get; set; }
+    public int DurationHours { get; set; }
+
+    /// <summary>Per-guest-session thread cap. Null when no cap is configured.</summary>
+    public int? MaxThreadCount { get; set; }
+}
+
+/// <summary>
+/// Response for GET api/auth/guest/battlenet-prefill/config. Battle.net guest prefill is
+/// anonymous (no account login), so it carries no thread-count cap. Shared with the Riot get
+/// endpoint, whose response has the same shape.
+/// </summary>
+public class BattleNetGuestPrefillConfigResponse
+{
+    public bool EnabledByDefault { get; set; }
+    public int DurationHours { get; set; }
+}
+
+/// <summary>
+/// Response for POST api/auth/guest/battlenet-prefill/config: the Battle.net guest-prefill
+/// defaults after the save. Shared with the Riot save endpoint, whose response has the same shape.
+/// </summary>
+public class SetBattleNetGuestPrefillConfigResponse
+{
+    public bool Success { get; set; }
+    public bool EnabledByDefault { get; set; }
+    public int DurationHours { get; set; }
+}
+
+/// <summary>Response for POST api/auth/guest/prefill/toggle/{sessionId}: the per-session prefill grant after the change.</summary>
+public class GuestPrefillToggleResponse
+{
+    public bool Success { get; set; }
+    public string SessionId { get; set; } = string.Empty;
+    public string Service { get; set; } = string.Empty;
+    public bool Enabled { get; set; }
+
+    /// <summary>When the session's prefill access for this service expires. Null when the grant was just revoked, or <see cref="Enabled"/> is false.</summary>
+    public DateTime? PrefillExpiresAt { get; set; }
 }

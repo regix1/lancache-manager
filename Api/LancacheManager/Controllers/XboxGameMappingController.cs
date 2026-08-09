@@ -36,6 +36,7 @@ public class XboxGameMappingController : ControllerBase
     /// Gets all Xbox game mappings, optionally paginated.
     /// </summary>
     [HttpGet]
+    [ProducesResponseType(typeof(List<XboxGameMappingDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<XboxGameMappingDto>>> GetAllMappingsAsync(
         [FromQuery] int? skip = null,
         [FromQuery] int? take = null,
@@ -71,6 +72,7 @@ public class XboxGameMappingController : ControllerBase
     /// Gets mapping statistics (total games discovered, last updated).
     /// </summary>
     [HttpGet("stats")]
+    [ProducesResponseType(typeof(XboxMappingStatsDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<XboxMappingStatsDto>> GetStatsAsync(CancellationToken ct = default)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
@@ -88,65 +90,75 @@ public class XboxGameMappingController : ControllerBase
     }
 
     /// <summary>
-    /// Gets the current manager-side mapping auth status (authenticated, gamertag, last collection, count).
-    /// Mirrors Epic's <c>GET auth-status</c>. Synchronous, no I/O.
+    /// Gets the current manager-side mapping auth status.
     /// </summary>
+    /// <remarks>
+    /// Includes authenticated state, gamertag, last collection, and count. Mirrors Epic's
+    /// <c>GET auth-status</c>. Synchronous, no I/O.
+    /// </remarks>
     [HttpGet("auth-status")]
+    [ProducesResponseType(typeof(XboxMappingAuthStatus), StatusCodes.Status200OK)]
     public ActionResult<XboxMappingAuthStatus> GetAuthStatus()
     {
         return Ok(_xboxCatalogMappingService.GetAuthStatus());
     }
 
     /// <summary>
-    /// Starts the daemon-free Xbox MSA device-code login: returns the <c>userCode</c>/<c>verificationUri</c>
-    /// for the user to approve in their browser and kicks a background poll loop. No Docker container and no
-    /// prefill daemon are created. Authentication state is surfaced via
-    /// <c>XboxMappingAuthStateChanged</c>; approved catalog work then uses the tracked Xbox mapping
-    /// lifecycle (there is no code-paste complete step - the backend polls the token endpoint).
+    /// Starts the daemon-free Xbox MSA device-code login.
     /// </summary>
+    /// <remarks>
+    /// Returns the <c>userCode</c>/<c>verificationUri</c> for the user to approve in their browser
+    /// and kicks a background poll loop. No Docker container and no prefill daemon are created.
+    /// Authentication state is surfaced via <c>XboxMappingAuthStateChanged</c>; approved catalog
+    /// work then uses the tracked Xbox mapping lifecycle (there is no code-paste complete step, the
+    /// backend polls the token endpoint).
+    /// </remarks>
     [HttpPost("auth/login")]
-    public async Task<ActionResult> StartLoginAsync(CancellationToken ct = default)
+    [ProducesResponseType(typeof(XboxDeviceCodeChallenge), StatusCodes.Status200OK)]
+    public async Task<ActionResult<XboxDeviceCodeChallenge>> StartLoginAsync(CancellationToken ct = default)
     {
         // Cancellation can come from the initiating request, a superseding login, logout, or
         // modal close. Let the global exception middleware classify it as a quiet 499 instead of
         // logging the expected TaskCanceledException as a failed login here.
         var challenge = await _xboxCatalogMappingService.StartLoginAsync(ct);
-        return Ok(new
-        {
-            userCode = challenge.UserCode,
-            verificationUri = challenge.VerificationUri,
-            expiresIn = challenge.ExpiresIn,
-            interval = challenge.Interval,
-            operationId = challenge.OperationId
-        });
+        return Ok(challenge);
     }
 
     /// <summary>
-    /// Cancels a pending (not-yet-approved) device-code login poll, e.g. when the user closes the login
-    /// modal. Does NOT clear credentials or sign out an already-authenticated account - unlike
-    /// <see cref="LogoutAsync"/>, this only stops a poll that has not completed.
+    /// Cancels a pending device-code login poll.
     /// </summary>
+    /// <remarks>
+    /// Used e.g. when the user closes the login modal. Does NOT clear credentials or sign out an
+    /// already-authenticated account. Unlike <see cref="LogoutAsync"/>, this only stops a poll that
+    /// has not completed.
+    /// </remarks>
     [HttpPost("auth/cancel")]
-    public ActionResult CancelLogin()
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    public ActionResult<MessageOnlyResponse> CancelLogin()
     {
         _xboxCatalogMappingService.CancelLogin();
-        return Ok(ApiResponse.Message("Xbox login cancelled"));
+        return Ok(new MessageOnlyResponse { Message = "Xbox login cancelled" });
     }
 
     /// <summary>
-    /// Logs out the manager-side mapping session and clears saved credentials. No Docker container to stop.
+    /// Logs out the manager-side mapping session and clears saved credentials.
     /// </summary>
+    /// <remarks>
+    /// No Docker container to stop.
+    /// </remarks>
     [HttpDelete("auth")]
-    public async Task<ActionResult> LogoutAsync()
+    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageOnlyResponse>> LogoutAsync()
     {
         await _xboxCatalogMappingService.LogoutAsync();
-        return Ok(ApiResponse.Message("Xbox mapping logged out"));
+        return Ok(new MessageOnlyResponse { Message = "Xbox mapping logged out" });
     }
 
     /// <summary>
     /// Search games by title (case-insensitive partial match).
     /// </summary>
     [HttpGet("search")]
+    [ProducesResponseType(typeof(List<XboxGameMappingDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<XboxGameMappingDto>>> SearchGamesAsync(
         [FromQuery] string q,
         CancellationToken ct = default)

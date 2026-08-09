@@ -11,6 +11,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -1246,7 +1247,7 @@ public sealed class CorruptionDetectionPersistenceTests
     };
 
     private static async Task<Guid> SeedV3ScanAsync(
-        IDbContextFactory<AppDbContext> factory,
+        TestDbContextFactory factory,
         string candidatesJson)
     {
         var scanId = Guid.NewGuid();
@@ -1278,9 +1279,10 @@ public sealed class CorruptionDetectionPersistenceTests
         return scanId;
     }
 
-    private static CorruptionDetectionService NewService(IDbContextFactory<AppDbContext> factory) =>
+    private static CorruptionDetectionService NewService(TestDbContextFactory factory) =>
         new(
             NullLogger<CorruptionDetectionService>.Instance,
+            configuration: new ConfigurationBuilder().Build(),
             pathResolver: null!,
             rustProcessHelper: null!,
             notifications: null!,
@@ -1333,11 +1335,4 @@ public sealed class CorruptionDetectionPersistenceTests
         }
     }
 
-    private sealed class TestDbContextFactory(DbContextOptions<AppDbContext> options)
-        : IDbContextFactory<AppDbContext>
-    {
-        public AppDbContext CreateDbContext() => new(options);
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(CreateDbContext());
-    }
 }

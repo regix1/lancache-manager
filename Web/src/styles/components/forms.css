@@ -21,9 +21,13 @@
     border-color: var(--theme-input-focus);
   }
 
+  /* The ring is drawn INSIDE the box, flush against the border. A focused input already
+     repaints its border in the focus colour, so a ring standing 2px clear of it reads as
+     two separate rings around one field. Inset, the two touch and read as one edge - and
+     it also survives a field sitting flush inside an overflow-clipped container. */
   .themed-input:focus-visible {
     outline: 2px solid var(--theme-border-focus);
-    outline-offset: 2px;
+    outline-offset: -2px;
     border-color: var(--theme-input-focus);
   }
 
@@ -55,6 +59,17 @@
   [data-disable-focus-outlines='true'] textarea:focus-visible {
     outline: 2px solid var(--theme-border-focus);
     outline-offset: 2px;
+  }
+
+  /* This block outranks .themed-input:focus-visible, so the fields it covers need the
+     inset repeated or they get the doubled ring back the moment outlines are switched
+     off. Checkboxes and the range thumb keep the outside ring: neither has a border
+     that turns blue, and a ring drawn inside a 16px box lands on the control itself. */
+  [data-disable-focus-outlines='true']
+    input:focus-visible:not([type='checkbox']):not([type='range']),
+  [data-disable-focus-outlines='true'] select:focus-visible,
+  [data-disable-focus-outlines='true'] textarea:focus-visible {
+    outline-offset: -2px;
   }
 
   /* Themed Checkbox Styling - Simplified */

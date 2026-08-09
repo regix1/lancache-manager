@@ -72,6 +72,11 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
   const [customOpen, setCustomOpen] = useState(false);
   const [customMinutes, setCustomMinutes] = useState('30');
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  // Latches on the first open and never falls back, so the builder is mounted from then on and
+  // closing it plays the modal's exit rather than snapping it out of the tree. Read during
+  // render rather than held in state: opening already re-renders this component.
+  const scheduleEverOpened = useRef(false);
+  if (scheduleOpen) scheduleEverOpened.current = true;
 
   const dropdownOptions = useMemo((): DropdownOption[] => {
     const standardOptions = getScheduleIntervalOptions(t);
@@ -266,8 +271,12 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
         </div>
       )}
       {/* The builder is a Modal, which portals to the document body - a picker sitting in a table
-          row or inside another modal would otherwise have its panel clipped by the scroll area. */}
-      {onCustomScheduleChange && (
+          row or inside another modal would otherwise have its panel clipped by the scroll area.
+          It is mounted only once someone asks for it: its body reads the browser's whole zone
+          database and walks the schedule, and one picker renders per service row, so a page of
+          rows nobody opened would pay all of it. The mount is kept afterwards so the modal can
+          play its own closing animation. */}
+      {onCustomScheduleChange && scheduleEverOpened.current && (
         <CustomScheduleModal
           opened={scheduleOpen}
           schedule={customSchedule}

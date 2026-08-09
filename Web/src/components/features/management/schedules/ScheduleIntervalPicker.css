@@ -93,6 +93,11 @@
   border-color: var(--theme-border-focus);
 }
 
+/* Border and ring touch instead of reading as two rings around the one field. */
+.schedule-interval-picker-input:focus-visible {
+  outline-offset: -2px;
+}
+
 .schedule-interval-picker-input.has-error {
   border-color: var(--theme-error);
 }

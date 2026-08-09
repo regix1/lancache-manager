@@ -1,0 +1,1321 @@
+using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text;
+using System.Text.Json;
+using LancacheManager.Controllers;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Models;
+using LancacheManager.Security;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.ApiExplorer;
+using Microsoft.AspNetCore.Mvc.Controllers;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+
+namespace LancacheManager.Tests;
+
+[CollectionDefinition(nameof(EndpointAuthorizationCollection), DisableParallelization = true)]
+public sealed class EndpointAuthorizationCollection
+{
+}
+
+[Collection(nameof(EndpointAuthorizationCollection))]
+public sealed class EndpointAuthorizationContractTests
+{
+    private static readonly IReadOnlyDictionary<string, string> PrefillClaims =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["SteamPrefillAccess"] = "SteamPrefillActive",
+            ["EpicPrefillAccess"] = "EpicPrefillActive",
+            ["BattleNetPrefillAccess"] = "BattleNetPrefillActive",
+            ["RiotPrefillAccess"] = "RiotPrefillActive",
+            ["XboxPrefillAccess"] = "XboxPrefillActive"
+        };
+
+    private static readonly HashSet<string> KnownPolicies =
+    [
+        "AdminOnly",
+        "GuestAllowed",
+        "AnyPrefillAccess",
+        .. PrefillClaims.Keys
+    ];
+
+    private static readonly Dictionary<string, EndpointAccess> SpecialRoutes =
+        new Dictionary<string, EndpointAccess>(StringComparer.Ordinal)
+        {
+            ["/health"] = EndpointAccess.Public,
+            ["/api/version"] = EndpointAccess.Public,
+            ["/metrics"] = EndpointAccess.Public,
+            ["/scalar/{documentName?}"] = EndpointAccess.Admin,
+            ["/scalar/scalar.js"] = EndpointAccess.Admin,
+            ["/scalar/scalar.aspnetcore.js"] = EndpointAccess.Admin,
+            ["/scalar/favicon.svg"] = EndpointAccess.Admin,
+            ["/openapi/{documentName}.json"] = EndpointAccess.Admin,
+            ["{*path:nonfile}"] = EndpointAccess.Public
+        };
+
+    private static readonly HashSet<string> PublicActions = new(StringComparer.Ordinal)
+    {
+        "AuthController.GetStatus",
+        "AuthController.Login",
+        "AuthController.StartGuest",
+        "AuthController.Logout",
+        "AuthController.GetGuestStatus",
+        "AuthController.GetGuestConfig",
+        "AuthController.GetGuestPrefillConfig",
+        "AuthController.GetEpicPrefillConfig",
+        "AuthController.GetBattleNetPrefillConfig",
+        "AuthController.GetRiotPrefillConfig",
+        "AuthController.GetXboxPrefillConfig",
+        "GameImagesController.GetHeaderImage",
+        "GameImagesController.GetEpicHeaderImage",
+        "GameImagesController.GetNameKeyedHeaderImage",
+        "GameImagesController.GetCacheVersion",
+        "GameImagesController.GetAvailableImageIds",
+        "SetupController.SetCredentials",
+        "SetupController.SetExternalCredentials",
+        "SystemController.GetConfig",
+        "SystemController.GetSetupStatus",
+        "SystemController.GetRefreshRate",
+        "SystemController.GetDefaultGuestRefreshRate",
+        "ThemeController.GetThemes",
+        "ThemeController.GetTheme",
+        "ThemeController.GetDefaultGuestTheme"
+    };
+
+    private static readonly HashSet<string> AdminControllers = new(StringComparer.Ordinal)
+    {
+        "ApiKeysController",
+        "DataMigrationController",
+        "DatabaseController",
+        "EpicGameMappingController",
+        "GcController",
+        "GamesController",
+        "LogsController",
+        "MemoryController",
+        "MetricsController",
+        "OperationsController",
+        "PersistentPrefillController",
+        "ScheduledPrefillConfigController",
+        "StatusCheckController",
+        "SteamApiKeysController",
+        "SteamAuthController",
+        "XboxGameMappingController"
+    };
+
+    private static readonly HashSet<string> AdminActions = new(StringComparer.Ordinal)
+    {
+        "AuthController.GetGuestDuration",
+        "AuthController.SetGuestDuration",
+        "AuthController.SetGuestLock",
+        "AuthController.SetGuestPrefillConfig",
+        "AuthController.SetEpicPrefillConfig",
+        "AuthController.SetBattleNetPrefillConfig",
+        "AuthController.SetRiotPrefillConfig",
+        "AuthController.SetXboxPrefillConfig",
+        "AuthController.ToggleGuestPrefill",
+        "CacheController.GetCacheSize",
+        "CacheController.ClearAllCache",
+        "CacheController.ClearDatasourceCache",
+        "CacheController.GetActiveOperations",
+        "CacheController.GetCachedCorruption",
+        "CacheController.GetCorruptionHistory",
+        "CacheController.GetCorruptionHistoryDetails",
+        "CacheController.DeleteCorruptionHistory",
+        "CacheController.StartCorruptionDetection",
+        "CacheController.GetCorruptionDetectionStatus",
+        "CacheController.GetCorruptionDetails",
+        "CacheController.RemoveCorruptedChunks",
+        "CacheController.RemoveAllCorruptedChunks",
+        "CacheController.ClearServiceCache",
+        "CacheController.GetAllActiveRemovals",
+        "CacheController.RemoveAllEvicted",
+        "CacheController.RemoveEvictedForEntity",
+        "CacheController.RemoveEvictedForNamedGame",
+        "ClientGroupsController.Create",
+        "ClientGroupsController.SetMembers",
+        "ClientGroupsController.Update",
+        "ClientGroupsController.Delete",
+        "ClientHostnamesController.ResolveAddresses",
+        "ClientHostnamesController.SetEnabled",
+        "DatasourceConfigurationController.SetCacheSize",
+        "DepotsController.GetDepotStatus",
+        "DepotsController.StartDepotRebuild",
+        "DepotsController.GetRebuildProgress",
+        "DepotsController.CancelRebuild",
+        "DepotsController.CheckIncremental",
+        "DepotsController.ImportDepotMappings",
+        "DepotsController.ApplyDepotMappings",
+        "DepotsController.SetCrawlInterval",
+        "DepotsController.SetCrawlMode",
+        "EventsController.Create",
+        "EventsController.Update",
+        "EventsController.Delete",
+        "EventsController.TagDownload",
+        "EventsController.UntagDownload",
+        "GameImagesController.ClearImageCache",
+        "PrefillAdminController.GetSessions",
+        "PrefillAdminController.GetActiveSessions",
+        "PrefillAdminController.GetSessionHistory",
+        "PrefillAdminController.Terminate",
+        "PrefillAdminController.TerminateAll",
+        "PrefillAdminController.GetBans",
+        "PrefillAdminController.BanBySession",
+        "PrefillAdminController.BanByUsername",
+        "PrefillAdminController.LiftBan",
+        "PrefillAdminController.ClearAllCache",
+        "ScheduleController.SetInterval",
+        "ScheduleController.SetCustomSchedule",
+        "ScheduleController.SetRunOnStartup",
+        "ScheduleController.SetNotificationMode",
+        "ScheduleController.SetNotificationDisplayMode",
+        "ScheduleController.TriggerRun",
+        "ScheduleController.ResetToDefaults",
+        "ScheduleController.TriggerAll",
+        "SessionsController.GetAll",
+        "SessionsController.Revoke",
+        "SessionsController.Delete",
+        "SessionsController.ResetToDefaults",
+        "SessionsController.ClearGuests",
+        "StatsController.UpdateExcludedClients",
+        "StatsController.UpdateEvictionSettings",
+        "StatsController.Reconcile",
+        "StatsController.ResetEvictions",
+        "ThemeController.UploadTheme",
+        "ThemeController.DeleteTheme",
+        "ThemeController.CleanupThemes",
+        "ThemeController.SetDefaultGuestTheme",
+        "UserPreferencesController.GetForSession",
+        "UserPreferencesController.SaveForSession",
+        "SystemController.GetGcStatus",
+        "SystemController.UpdateSetupStatus",
+        "SystemController.IsRsyncAvailable",
+        "SystemController.SetCacheDeleteMode",
+        "SystemController.SetRefreshRate",
+        "SystemController.SetDefaultGuestRefreshRate",
+        "SystemController.SetGuestRefreshRateLock",
+        "SystemController.SetAllowedTimeFormats",
+        "SystemController.SetDefaultGuestClock",
+        "SystemController.SetDefaultGuestPreference",
+        "SystemController.SetPrefillDefaults"
+    };
+
+    private static readonly IReadOnlyDictionary<string, string> PrefillControllers =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["BattleNetDaemonController"] = "BattleNetPrefillAccess",
+            ["EpicDaemonController"] = "EpicPrefillAccess",
+            ["RiotDaemonController"] = "RiotPrefillAccess",
+            ["SteamDaemonController"] = "SteamPrefillAccess",
+            ["XboxDaemonController"] = "XboxPrefillAccess"
+        };
+
+    private static readonly HashSet<string> AnyPrefillActions = new(StringComparer.Ordinal)
+    {
+        "PrefillAdminController.GetCachedApps"
+    };
+
+    private static readonly string[] SharedDaemonActions =
+    [
+        "GetOwnedGames",
+        "GetCacheStatus",
+        "SetSelectedApps",
+        "StartPrefill"
+    ];
+
+    private static readonly string[] RemovedDaemonActions =
+    [
+        "GetAllSessions",
+        "GetMySessions",
+        "GetSession",
+        "CreateSession",
+        "GetSessionStatus",
+        "StartLogin",
+        "ProvideCredential",
+        "WaitForChallenge",
+        "TerminateSession"
+    ];
+
+    private static readonly HashSet<string> StatusDaemonControllers = new(StringComparer.Ordinal)
+    {
+        "BattleNetDaemonController",
+        "RiotDaemonController"
+    };
+
+    private static readonly string[] DomainTags =
+    [
+        "Access",
+        "Clients",
+        "Cache and Games",
+        "Downloads and Reporting",
+        "Prefill",
+        "System"
+    ];
+
+    private static readonly string[] OperationMethods =
+    [
+        "get",
+        "put",
+        "post",
+        "delete",
+        "options",
+        "head",
+        "patch",
+        "trace"
+    ];
+
+    private static readonly string[] DaemonSchemas =
+    [
+        "DaemonSessionDto",
+        "DaemonStatus",
+        "CredentialChallenge",
+        "PrefillResult",
+        "ClearCacheResult",
+        "AppStatus",
+        "SelectedAppsStatus",
+        "CacheStatusResult",
+        "CommandRequest",
+        "CommandResponse",
+        "NetworkDiagnostics",
+        "DnsTestResult"
+    ];
+
+    [Fact]
+    public async Task RegisteredEndpointsHonorTheirAuthorizationMetadata()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var client = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(client);
+
+        var services = host.Application.Services;
+        var endpointDataSource = services.GetRequiredService<EndpointDataSource>();
+        var policyProvider = services.GetRequiredService<IAuthorizationPolicyProvider>();
+        var authorizationService = services.GetRequiredService<IAuthorizationService>();
+        var authorizationOptions = services.GetRequiredService<IOptions<AuthorizationOptions>>().Value;
+        var endpoints = endpointDataSource.Endpoints;
+
+        Assert.NotEmpty(endpoints);
+        Assert.Contains(endpoints, endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>() != null);
+
+        var accessByEndpoint = endpoints.ToDictionary(
+            endpoint => endpoint,
+            endpoint => Classify(endpoint));
+
+        AssertExpectedAccessContract(endpoints, accessByEndpoint);
+        AssertRequiredEndpointDispositions(endpoints, accessByEndpoint);
+
+        foreach (var endpoint in endpoints)
+        {
+            var authorization = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>();
+            var unknownPolicies = authorization
+                .Select(item => item.Policy)
+                .Where(policy => !string.IsNullOrEmpty(policy) && !KnownPolicies.Contains(policy))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            Assert.True(
+                unknownPolicies.Length == 0,
+                $"Endpoint '{endpoint.DisplayName}' uses an unrecognized authorization policy: {string.Join(", ", unknownPolicies)}.");
+
+            switch (accessByEndpoint[endpoint])
+            {
+                case EndpointAccess.Public:
+                    Assert.NotNull(endpoint.Metadata.GetMetadata<IAllowAnonymous>());
+                    break;
+
+                case EndpointAccess.Authenticated:
+                    await AssertAuthorizationAsync(
+                        endpoint,
+                        authorization,
+                        policyProvider,
+                        authorizationOptions,
+                        authorizationService,
+                        anonymousAllowed: false,
+                        guestAllowed: true,
+                        adminAllowed: true);
+                    break;
+
+                case EndpointAccess.Admin:
+                    await AssertAuthorizationAsync(
+                        endpoint,
+                        authorization,
+                        policyProvider,
+                        authorizationOptions,
+                        authorizationService,
+                        anonymousAllowed: false,
+                        guestAllowed: false,
+                        adminAllowed: true);
+                    break;
+
+                case EndpointAccess.Prefill:
+                case EndpointAccess.AdminPrefill:
+                case EndpointAccess.AnyPrefill:
+                    var claims = ClaimsFor(authorization);
+                    var policy = await ResolvePolicyAsync(endpoint, authorization, policyProvider, authorizationOptions);
+
+                    Assert.False((await authorizationService.AuthorizeAsync(Anonymous(), endpoint, policy)).Succeeded);
+                    Assert.False((await authorizationService.AuthorizeAsync(Principal(SessionType.Guest), endpoint, policy)).Succeeded);
+                    Assert.False((await authorizationService.AuthorizeAsync(Principal(SessionType.Admin), endpoint, policy)).Succeeded);
+
+                    var guestAllowed = accessByEndpoint[endpoint] != EndpointAccess.AdminPrefill;
+                    Assert.Equal(guestAllowed, (await authorizationService.AuthorizeAsync(Principal(SessionType.Guest, claims), endpoint, policy)).Succeeded);
+                    Assert.True((await authorizationService.AuthorizeAsync(Principal(SessionType.Admin, claims), endpoint, policy)).Succeeded);
+                    break;
+
+                default:
+                    throw new InvalidOperationException($"Endpoint '{endpoint.DisplayName}' has no authorization disposition.");
+            }
+        }
+
+        await AssertPrefillPoliciesAsync(policyProvider, authorizationService);
+    }
+
+    [Fact]
+    public async Task DocumentationRoutesAllowAnonymousAccessWhenAuthenticationIsDisabled()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: false);
+        using var isolationClient = host.Application.CreateClient();
+        using var client = host.Application.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        await host.AssertIsolationAsync(isolationClient);
+
+        using (var scalarRedirect = await client.GetAsync("/scalar"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.Redirect, scalarRedirect.StatusCode);
+            Assert.Equal("scalar/", scalarRedirect.Headers.Location?.OriginalString);
+        }
+
+        foreach (var path in new[] { "/scalar/", "/openapi/v1.json" })
+        {
+            using var response = await client.GetAsync(path);
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task DocumentationRoutesRejectAnonymousAndGuestSessionsWhenAuthenticationIsEnabled()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
+        using var isolationClient = host.Application.CreateClient();
+        using var anonymousClient = host.Application.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var guestClient = host.Application.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        await host.AssertIsolationAsync(isolationClient);
+
+        foreach (var path in new[] { "/scalar", "/openapi/v1.json" })
+        {
+            using var response = await anonymousClient.GetAsync(path);
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.True(
+                response.StatusCode == System.Net.HttpStatusCode.Unauthorized,
+                $"Anonymous request to '{path}' returned {(int)response.StatusCode} {response.StatusCode}: {body}");
+        }
+
+        using var guestResponse = await guestClient.PostAsync("/api/auth/guest", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, guestResponse.StatusCode);
+
+        foreach (var path in new[] { "/scalar", "/openapi/v1.json" })
+        {
+            using var response = await guestClient.GetAsync(path);
+            Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task DocumentationRoutesAllowAnAdminSessionEstablishedWithTheApiKey()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
+        using var isolationClient = host.Application.CreateClient();
+        using var client = host.Application.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        await host.AssertIsolationAsync(isolationClient);
+
+        var apiKey = host.Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
+        using var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { ApiKey = apiKey });
+        Assert.Equal(System.Net.HttpStatusCode.OK, loginResponse.StatusCode);
+
+        using (var scalarRedirect = await client.GetAsync("/scalar"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.Redirect, scalarRedirect.StatusCode);
+            Assert.Equal("scalar/", scalarRedirect.Headers.Location?.OriginalString);
+        }
+
+        using var scalarResponse = await client.GetAsync("/scalar/");
+        Assert.Equal(System.Net.HttpStatusCode.OK, scalarResponse.StatusCode);
+        var scalar = await scalarResponse.Content.ReadAsStringAsync();
+        Assert.Contains("\"url\":\"openapi/v1.json\"", scalar, StringComparison.Ordinal);
+        Assert.Contains("ApiKey", scalar, StringComparison.Ordinal);
+        Assert.DoesNotContain(apiKey, scalar, StringComparison.Ordinal);
+
+        using var documentResponse = await client.GetAsync("/openapi/v1.json");
+        Assert.Equal(System.Net.HttpStatusCode.OK, documentResponse.StatusCode);
+        var document = await documentResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var apiKeyScheme = document.GetProperty("components").GetProperty("securitySchemes").GetProperty("ApiKey");
+        Assert.Equal("apiKey", apiKeyScheme.GetProperty("type").GetString());
+        Assert.Equal("header", apiKeyScheme.GetProperty("in").GetString());
+        Assert.Equal("X-Api-Key", apiKeyScheme.GetProperty("name").GetString());
+
+        var schemeDescription = apiKeyScheme.TryGetProperty("description", out var schemeText) ? schemeText.GetString() : null;
+        Assert.True(
+            !string.IsNullOrWhiteSpace(schemeDescription),
+            "The ApiKey scheme has no description telling the caller which key to enter.");
+        Assert.Contains("Lancache Manager", schemeDescription!, StringComparison.Ordinal);
+        Assert.Contains("No credential is prefilled.", schemeDescription!, StringComparison.Ordinal);
+
+        Assert.Contains(
+            document.GetProperty("security").EnumerateArray(),
+            requirement => requirement.TryGetProperty("ApiKey", out _));
+    }
+
+    [Fact]
+    public async Task DocumentationRoutesAcceptDirectApiKeyAuthentication()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
+        using var isolationClient = host.Application.CreateClient();
+        using var validClient = host.Application.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var invalidClient = host.Application.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        await host.AssertIsolationAsync(isolationClient);
+
+        var apiKey = host.Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
+        validClient.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
+
+        foreach (var path in new[] { "/scalar/", "/openapi/v1.json" })
+        {
+            using var response = await validClient.GetAsync(path);
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        }
+
+        invalidClient.DefaultRequestHeaders.Add("X-Api-Key", "invalid-api-key");
+
+        foreach (var path in new[] { "/scalar/", "/openapi/v1.json" })
+        {
+            using var response = await invalidClient.GetAsync(path);
+            Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task DaemonControllersExposeOnlyTheSharedPrefillActions()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var client = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(client);
+
+        var actions = host.Application.Services
+            .GetRequiredService<IActionDescriptorCollectionProvider>()
+            .ActionDescriptors.Items
+            .OfType<ControllerActionDescriptor>()
+            .ToArray();
+
+        Assert.NotEmpty(actions);
+
+        foreach (var controller in PrefillControllers.Keys)
+        {
+            var routed = actions
+                .Where(action => action.ControllerTypeInfo.Name == controller)
+                .Select(action => action.ActionName)
+                .ToHashSet(StringComparer.Ordinal);
+
+            Assert.NotEmpty(routed);
+
+            foreach (var removed in RemovedDaemonActions)
+            {
+                Assert.True(
+                    !routed.Contains(removed),
+                    $"'{controller}.{removed}' is still routed. The session lifecycle is served by the prefill hub and by PrefillAdminController.GetActiveSessions.");
+            }
+
+            foreach (var shared in SharedDaemonActions)
+            {
+                Assert.True(
+                    routed.Contains(shared),
+                    $"'{controller}.{shared}' is missing. The live prefill flow calls it over REST.");
+            }
+
+            var statusExpected = StatusDaemonControllers.Contains(controller);
+            Assert.True(
+                statusExpected == routed.Contains("GetStatus"),
+                $"'{controller}.GetStatus' routed is {routed.Contains("GetStatus")} but should be {statusExpected}.");
+
+            Assert.Equal(
+                DaemonActions(controller).OrderBy(identity => identity, StringComparer.Ordinal).ToArray(),
+                routed.Select(action => $"{controller}.{action}").OrderBy(identity => identity, StringComparer.Ordinal).ToArray());
+        }
+
+        var adminActions = actions
+            .Where(action => action.ControllerTypeInfo.Name == "PrefillAdminController")
+            .Select(action => action.ActionName)
+            .ToArray();
+
+        Assert.Contains("GetActiveSessions", adminActions);
+    }
+
+    [Fact]
+    public async Task DocumentedOperationsCarryExactlyOneOfTheSixOrderedDomainTags()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
+        using var isolationClient = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(isolationClient);
+
+        using var client = await host.CreateAdminClientAsync();
+        var document = await ReadOpenApiDocumentAsync(client);
+
+        Assert.True(document.TryGetProperty("tags", out var tags), "The document declares no root tags.");
+        Assert.Equal(
+            DomainTags,
+            tags.EnumerateArray().Select(tag => tag.GetProperty("name").GetString() ?? string.Empty).ToArray());
+
+        foreach (var tag in tags.EnumerateArray())
+        {
+            var name = tag.GetProperty("name").GetString();
+            var description = tag.TryGetProperty("description", out var text) ? text.GetString() : null;
+
+            Assert.True(
+                !string.IsNullOrWhiteSpace(description),
+                $"Root tag '{name}' has no description.");
+        }
+
+        foreach (var (method, path, operation) in Operations(document))
+        {
+            var identity = $"{method.ToUpperInvariant()} {path}";
+
+            Assert.True(operation.TryGetProperty("tags", out var operationTags), $"Operation '{identity}' carries no tag.");
+
+            var names = operationTags.EnumerateArray().Select(tag => tag.GetString() ?? string.Empty).ToArray();
+
+            Assert.True(
+                names.Length == 1,
+                $"Operation '{identity}' carries {names.Length} tags: {string.Join(", ", names)}.");
+            Assert.True(
+                DomainTags.Contains(names[0], StringComparer.Ordinal),
+                $"Operation '{identity}' carries tag '{names[0]}', which is not one of the six domain tags.");
+        }
+    }
+
+    [Fact]
+    public async Task AnonymousOperationsDeclareAnEmptySecurityRequirement()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
+        using var isolationClient = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(isolationClient);
+
+        using var client = await host.CreateAdminClientAsync();
+        var document = await ReadOpenApiDocumentAsync(client);
+
+        var anonymousKeys = OperationKeys(host.Application.Services, anonymous: true);
+        var protectedKeys = OperationKeys(host.Application.Services, anonymous: false);
+
+        Assert.NotEmpty(anonymousKeys);
+        Assert.NotEmpty(protectedKeys);
+
+        var anonymousChecked = 0;
+        var protectedChecked = 0;
+
+        foreach (var (method, path, operation) in Operations(document))
+        {
+            var identity = $"{method.ToUpperInvariant()} {path}";
+            var key = OperationKey(method, path);
+            var declared = operation.TryGetProperty("security", out var security);
+
+            if (anonymousKeys.Contains(key))
+            {
+                Assert.True(
+                    declared,
+                    $"Anonymous operation '{identity}' inherits the document API key requirement instead of declaring its own empty security list.");
+                Assert.True(
+                    security.ValueKind == JsonValueKind.Array && security.GetArrayLength() == 0,
+                    $"Anonymous operation '{identity}' declares security '{security}' instead of an empty list.");
+                anonymousChecked++;
+                continue;
+            }
+
+            if (!protectedKeys.Contains(key))
+            {
+                continue;
+            }
+
+            if (declared)
+            {
+                Assert.True(
+                    security.ValueKind == JsonValueKind.Array && security.GetArrayLength() > 0,
+                    $"Protected operation '{identity}' drops the API key requirement.");
+                Assert.Contains(security.EnumerateArray(), requirement => requirement.TryGetProperty("ApiKey", out _));
+            }
+
+            protectedChecked++;
+        }
+
+        Assert.True(anonymousChecked > 0, "No documented operation matched a runtime endpoint that allows anonymous callers.");
+        Assert.True(protectedChecked > 0, "No documented operation matched a protected runtime endpoint.");
+    }
+
+    [Fact]
+    public async Task DaemonSchemasDropTheLiveEndTimeAndDescribeTheirNullableProperties()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
+        using var isolationClient = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(isolationClient);
+
+        using var client = await host.CreateAdminClientAsync();
+        var document = await ReadOpenApiDocumentAsync(client);
+
+        var schemas = document.GetProperty("components").GetProperty("schemas");
+
+        Assert.True(schemas.TryGetProperty("DaemonSessionDto", out var sessionSchema), "The document no longer publishes the live daemon session schema.");
+        Assert.True(
+            !sessionSchema.GetProperty("properties").TryGetProperty("endedAt", out _),
+            "The live daemon session schema still publishes 'endedAt'; a live session is removed before it can carry an end time.");
+
+        var described = 0;
+
+        foreach (var schemaName in DaemonSchemas)
+        {
+            if (!schemas.TryGetProperty(schemaName, out var schema)
+                || !schema.TryGetProperty("properties", out var properties))
+            {
+                continue;
+            }
+
+            foreach (var property in properties.EnumerateObject())
+            {
+                if (!AllowsNull(property.Value))
+                {
+                    continue;
+                }
+
+                var description = property.Value.TryGetProperty("description", out var text) ? text.GetString() : null;
+
+                Assert.True(
+                    !string.IsNullOrWhiteSpace(description),
+                    $"Nullable property '{schemaName}.{property.Name}' has no description saying when the value is absent.");
+                described++;
+            }
+        }
+
+        Assert.True(described > 0, "The document exposed no nullable daemon property to check.");
+
+        var serializerOptions = host.Application.Services
+            .GetRequiredService<IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>()
+            .Value
+            .JsonSerializerOptions;
+        var json = JsonSerializer.Serialize(
+            new DaemonSessionDto { Id = "endpoint-authorization", Platform = "Steam" },
+            serializerOptions);
+
+        Assert.Contains("\"platform\":\"Steam\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"errorMessage\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"lastPrefillStatus\"", json, StringComparison.Ordinal);
+    }
+
+    private static void AssertExpectedAccessContract(
+        IReadOnlyList<Endpoint> endpoints,
+        IReadOnlyDictionary<Endpoint, EndpointAccess> accessByEndpoint)
+    {
+        var expected = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var endpoint in endpoints)
+        {
+            var endpointAccess = ExpectedAccess(endpoint);
+            var identity = IdentityFor(endpoint);
+
+            Assert.True(
+                endpointAccess == accessByEndpoint[endpoint],
+                $"Endpoint '{identity}' is expected to be {endpointAccess}, but runtime metadata is {accessByEndpoint[endpoint]}.");
+
+            if (endpointAccess == EndpointAccess.Authenticated)
+            {
+                continue;
+            }
+
+            Assert.True(expected.Add(identity), $"Authorization contract contains duplicate endpoint identity '{identity}'.");
+
+            if (endpointAccess is EndpointAccess.Prefill or EndpointAccess.AdminPrefill)
+            {
+                var controller = endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()?.ControllerTypeInfo.Name
+                    ?? throw new InvalidOperationException($"Prefill endpoint '{endpoint.DisplayName}' has no controller action identity.");
+                var policy = PrefillControllers[controller];
+                Assert.Contains(policy, endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Select(item => item.Policy));
+            }
+        }
+
+        Assert.Equal(ExpectedContractIdentities(), expected);
+    }
+
+    private static EndpointAccess ExpectedAccess(Endpoint endpoint)
+    {
+        var route = (endpoint as RouteEndpoint)?.RoutePattern.RawText;
+        if (route != null && SpecialRoutes.TryGetValue(route, out var routeAccess))
+        {
+            return routeAccess;
+        }
+
+        var action = endpoint.Metadata.GetMetadata<ControllerActionDescriptor>();
+        if (action == null)
+        {
+            return EndpointAccess.Authenticated;
+        }
+
+        var identity = $"{action.ControllerTypeInfo.Name}.{action.ActionName}";
+        if (PublicActions.Contains(identity))
+        {
+            return EndpointAccess.Public;
+        }
+
+        if (AnyPrefillActions.Contains(identity))
+        {
+            return EndpointAccess.AnyPrefill;
+        }
+
+        if (PrefillControllers.ContainsKey(action.ControllerTypeInfo.Name))
+        {
+            return action.ActionName == "GetAllSessions"
+                ? EndpointAccess.AdminPrefill
+                : EndpointAccess.Prefill;
+        }
+
+        if (AdminControllers.Contains(action.ControllerTypeInfo.Name) || AdminActions.Contains(identity))
+        {
+            return EndpointAccess.Admin;
+        }
+
+        return EndpointAccess.Authenticated;
+    }
+
+    private static HashSet<string> ExpectedContractIdentities()
+    {
+        var identities = new HashSet<string>(StringComparer.Ordinal);
+        identities.UnionWith(SpecialRoutes.Where(item => item.Value != EndpointAccess.Authenticated).Select(item => item.Key));
+        identities.UnionWith(PublicActions);
+        identities.UnionWith(AdminActions);
+        identities.UnionWith(AnyPrefillActions);
+
+        foreach (var controller in AdminControllers)
+        {
+            identities.UnionWith(ActionIdentities(controller));
+        }
+
+        foreach (var controller in PrefillControllers.Keys)
+        {
+            identities.UnionWith(ActionIdentities(controller));
+        }
+
+        return identities;
+    }
+
+    private static IEnumerable<string> ActionIdentities(string controller)
+    {
+        return controller switch
+        {
+            "ApiKeysController" => ["ApiKeysController.GetStatus", "ApiKeysController.RegenerateApiKey"],
+            "DataMigrationController" => ["DataMigrationController.ImportLancacheManager", "DataMigrationController.GetImportStatus", "DataMigrationController.ValidateConnection"],
+            "DatabaseController" => ["DatabaseController.ResetDatabase", "DatabaseController.ResetSelectedTables", "DatabaseController.GetDatabaseResetStatus", "DatabaseController.GetLogCount"],
+            "EpicGameMappingController" => ["EpicGameMappingController.GetAllMappings", "EpicGameMappingController.GetStats", "EpicGameMappingController.GetAuthStatus", "EpicGameMappingController.StartLogin", "EpicGameMappingController.Logout", "EpicGameMappingController.CompleteAuth", "EpicGameMappingController.GetScheduleStatus", "EpicGameMappingController.CancelRefresh", "EpicGameMappingController.UpdateScheduleInterval", "EpicGameMappingController.SearchGames"],
+            "GcController" => ["GcController.GetSettings", "GcController.UpdateSettings", "GcController.TriggerGc"],
+            "GamesController" => ["GamesController.RemoveGameFromCache", "GamesController.RemoveEpicGameFromCache", "GamesController.RemoveNamedGameFromCache", "GamesController.DetectGames", "GamesController.GetActiveDetection", "GamesController.GetCachedDetection"],
+            "LogsController" => ["LogsController.GetLogInfo", "LogsController.GetServiceCounts", "LogsController.GetServiceCountsByDatasource", "LogsController.ResetLogPosition", "LogsController.GetLogPositions", "LogsController.ResetDatasourceLogPosition", "LogsController.ProcessAllLogs", "LogsController.ProcessDatasourceLogs", "LogsController.GetProcessingStatus", "LogsController.RemoveServiceLogsFromDatasource", "LogsController.DeleteLogFile", "LogsController.GetRemovalStatus"],
+            "MemoryController" => ["MemoryController.GetMemoryStats"],
+            "MetricsController" => ["MetricsController.GetInterval", "MetricsController.SetInterval", "MetricsController.GetGameLimit", "MetricsController.SetGameLimit", "MetricsController.GetSecurity", "MetricsController.SetSecurity"],
+            "OperationsController" => ["OperationsController.GetOperationStatus", "OperationsController.GetWaitingOperations", "OperationsController.CancelOperation", "OperationsController.ForceKill"],
+            "PersistentPrefillController" => ["PersistentPrefillController.Start", "PersistentPrefillController.Stop", "PersistentPrefillController.CleanupEditSession", "PersistentPrefillController.List", "PersistentPrefillController.GetGames", "PersistentPrefillController.SetSelectedApps", "PersistentPrefillController.StartPrefill", "PersistentPrefillController.CancelPrefill", "PersistentPrefillController.StartLogin", "PersistentPrefillController.ProvideCredential", "PersistentPrefillController.GetChallenge", "PersistentPrefillController.CancelLogin", "PersistentPrefillController.Logout", "PersistentPrefillController.ClearLogins", "PersistentPrefillController.GetValidity", "PersistentPrefillController.SetValidity"],
+            "ScheduledPrefillConfigController" => ["ScheduledPrefillConfigController.GetConfig", "ScheduledPrefillConfigController.GetSchedule", "ScheduledPrefillConfigController.SetConfig", "ScheduledPrefillConfigController.GetRunStatus"],
+            "StatusCheckController" => ["StatusCheckController.GetState", "StatusCheckController.SetResolverMode", "StatusCheckController.Run", "StatusCheckController.TestDomain", "StatusCheckController.RefreshDomains", "StatusCheckController.GetDomains"],
+            "SteamApiKeysController" => ["SteamApiKeysController.GetStatus", "SteamApiKeysController.TestKey", "SteamApiKeysController.SaveKey", "SteamApiKeysController.RemoveKey"],
+            "SteamAuthController" => ["SteamAuthController.GetStatus", "SteamAuthController.Login", "SteamAuthController.SetMode", "SteamAuthController.Logout"],
+            "XboxGameMappingController" => ["XboxGameMappingController.GetAllMappings", "XboxGameMappingController.GetStats", "XboxGameMappingController.GetAuthStatus", "XboxGameMappingController.StartLogin", "XboxGameMappingController.CancelLogin", "XboxGameMappingController.Logout", "XboxGameMappingController.SearchGames"],
+            "BattleNetDaemonController" => DaemonActions("BattleNetDaemonController"),
+            "EpicDaemonController" => DaemonActions("EpicDaemonController"),
+            "RiotDaemonController" => DaemonActions("RiotDaemonController"),
+            "SteamDaemonController" => DaemonActions("SteamDaemonController"),
+            "XboxDaemonController" => DaemonActions("XboxDaemonController"),
+            _ => throw new InvalidOperationException($"No endpoint identities are maintained for '{controller}'.")
+        };
+    }
+
+    private static IEnumerable<string> DaemonActions(string controller)
+    {
+        var identities = SharedDaemonActions.Select(action => $"{controller}.{action}");
+
+        return StatusDaemonControllers.Contains(controller)
+            ? identities.Append($"{controller}.GetStatus")
+            : identities;
+    }
+
+    private static string IdentityFor(Endpoint endpoint)
+    {
+        var route = (endpoint as RouteEndpoint)?.RoutePattern.RawText;
+        if (route != null && SpecialRoutes.ContainsKey(route))
+        {
+            return route;
+        }
+
+        var action = endpoint.Metadata.GetMetadata<ControllerActionDescriptor>();
+        return action == null
+            ? endpoint.DisplayName ?? "<unknown>"
+            : $"{action.ControllerTypeInfo.Name}.{action.ActionName}";
+    }
+
+    private static void AssertRequiredEndpointDispositions(
+        IReadOnlyList<Endpoint> endpoints,
+        IReadOnlyDictionary<Endpoint, EndpointAccess> accessByEndpoint)
+    {
+        var routes = endpoints.OfType<RouteEndpoint>().ToArray();
+
+        Assert.Equal(EndpointAccess.Public, accessByEndpoint[Assert.Single(routes, route => route.RoutePattern.RawText == "/health")]);
+        Assert.Equal(EndpointAccess.Public, accessByEndpoint[Assert.Single(routes, route => route.RoutePattern.RawText == "/api/version")]);
+        Assert.Equal(EndpointAccess.Public, accessByEndpoint[Assert.Single(routes, route => route.RoutePattern.RawText == "/metrics")]);
+
+        var hubHandshakes = routes
+            .Where(route => route.RoutePattern.RawText?.StartsWith("/hubs/", StringComparison.Ordinal) == true
+                            && route.RoutePattern.RawText.EndsWith("/negotiate", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(6, hubHandshakes.Length);
+        Assert.All(hubHandshakes, endpoint => Assert.NotEqual(EndpointAccess.Public, accessByEndpoint[endpoint]));
+
+        var setupEndpoints = endpoints
+            .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>()?.ControllerTypeInfo.AsType() == typeof(SetupController))
+            .ToArray();
+        Assert.NotEmpty(setupEndpoints);
+        Assert.All(setupEndpoints, endpoint => Assert.Equal(EndpointAccess.Public, accessByEndpoint[endpoint]));
+
+        var spaFallback = Assert.Single(routes, route => route.RoutePattern.RawText?.Contains("path:nonfile", StringComparison.Ordinal) == true);
+        Assert.Equal(EndpointAccess.Public, accessByEndpoint[spaFallback]);
+
+        var documentationRoutes = new[]
+        {
+            "/scalar/{documentName?}",
+            "/scalar/scalar.js",
+            "/scalar/scalar.aspnetcore.js",
+            "/scalar/favicon.svg",
+            "/openapi/{documentName}.json"
+        };
+
+        foreach (var routePattern in documentationRoutes)
+        {
+            var documentationRoute = Assert.Single(routes, route => route.RoutePattern.RawText == routePattern);
+            Assert.Equal(EndpointAccess.Admin, accessByEndpoint[documentationRoute]);
+            Assert.Contains("AdminOnly", documentationRoute.Metadata.GetOrderedMetadata<IAuthorizeData>().Select(item => item.Policy));
+            Assert.Null(documentationRoute.Metadata.GetMetadata<IAllowAnonymous>());
+        }
+
+        var swaggerRoutes = routes
+            .Where(route => route.RoutePattern.RawText?.StartsWith("/swagger", StringComparison.Ordinal) == true)
+            .Select(route => route.RoutePattern.RawText)
+            .ToArray();
+
+        Assert.True(
+            swaggerRoutes.Length == 0,
+            $"The legacy Swagger redirect is still mapped: {string.Join(", ", swaggerRoutes)}. The documentation surface is '/scalar' and '/openapi/v1.json'.");
+    }
+
+    private static async Task AssertAuthorizationAsync(
+        Endpoint endpoint,
+        IReadOnlyList<IAuthorizeData> authorization,
+        IAuthorizationPolicyProvider policyProvider,
+        AuthorizationOptions authorizationOptions,
+        IAuthorizationService authorizationService,
+        bool anonymousAllowed,
+        bool guestAllowed,
+        bool adminAllowed)
+    {
+        var policy = await ResolvePolicyAsync(endpoint, authorization, policyProvider, authorizationOptions);
+
+        Assert.Equal(anonymousAllowed, (await authorizationService.AuthorizeAsync(Anonymous(), endpoint, policy)).Succeeded);
+        Assert.Equal(guestAllowed, (await authorizationService.AuthorizeAsync(Principal(SessionType.Guest), endpoint, policy)).Succeeded);
+        Assert.Equal(adminAllowed, (await authorizationService.AuthorizeAsync(Principal(SessionType.Admin), endpoint, policy)).Succeeded);
+    }
+
+    private static async Task AssertPrefillPoliciesAsync(
+        IAuthorizationPolicyProvider policyProvider,
+        IAuthorizationService authorizationService)
+    {
+        foreach (var (policyName, claim) in PrefillClaims)
+        {
+            var policy = await RequiredPolicyAsync(policyProvider, policyName);
+
+            Assert.False((await authorizationService.AuthorizeAsync(Principal(SessionType.Guest), null, policy)).Succeeded);
+            Assert.True((await authorizationService.AuthorizeAsync(Principal(SessionType.Guest, [claim]), null, policy)).Succeeded);
+        }
+
+        var anyPrefill = await RequiredPolicyAsync(policyProvider, "AnyPrefillAccess");
+        Assert.False((await authorizationService.AuthorizeAsync(Principal(SessionType.Guest), null, anyPrefill)).Succeeded);
+        Assert.True((await authorizationService.AuthorizeAsync(Principal(SessionType.Guest, ["SteamPrefillActive"]), null, anyPrefill)).Succeeded);
+    }
+
+    private static async Task<AuthorizationPolicy> ResolvePolicyAsync(
+        Endpoint endpoint,
+        IReadOnlyList<IAuthorizeData> authorization,
+        IAuthorizationPolicyProvider policyProvider,
+        AuthorizationOptions authorizationOptions)
+    {
+        if (authorization.Count == 0)
+        {
+            return authorizationOptions.FallbackPolicy
+                ?? throw new InvalidOperationException($"Endpoint '{endpoint.DisplayName}' has no fallback authorization policy.");
+        }
+
+        return await AuthorizationPolicy.CombineAsync(policyProvider, authorization)
+            ?? throw new InvalidOperationException($"Endpoint '{endpoint.DisplayName}' has no effective authorization policy.");
+    }
+
+    private static async Task<AuthorizationPolicy> RequiredPolicyAsync(
+        IAuthorizationPolicyProvider policyProvider,
+        string policyName)
+    {
+        return await policyProvider.GetPolicyAsync(policyName)
+            ?? throw new InvalidOperationException($"Required authorization policy '{policyName}' was not registered.");
+    }
+
+    private static EndpointAccess Classify(Endpoint endpoint)
+    {
+        if (endpoint.Metadata.GetMetadata<IAllowAnonymous>() != null)
+        {
+            return EndpointAccess.Public;
+        }
+
+        var policies = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
+            .Select(item => item.Policy)
+            .Where(policy => !string.IsNullOrEmpty(policy))
+            .Cast<string>()
+            .ToHashSet(StringComparer.Ordinal);
+
+        var platformPrefill = policies.Overlaps(PrefillClaims.Keys);
+        if (policies.Contains("AdminOnly") && platformPrefill)
+        {
+            return EndpointAccess.AdminPrefill;
+        }
+
+        if (policies.Contains("AdminOnly"))
+        {
+            return EndpointAccess.Admin;
+        }
+
+        if (platformPrefill)
+        {
+            return EndpointAccess.Prefill;
+        }
+
+        return policies.Contains("AnyPrefillAccess")
+            ? EndpointAccess.AnyPrefill
+            : EndpointAccess.Authenticated;
+    }
+
+    private static HashSet<string> ClaimsFor(IReadOnlyList<IAuthorizeData> authorization)
+    {
+        var policies = authorization
+            .Select(item => item.Policy)
+            .Where(policy => !string.IsNullOrEmpty(policy))
+            .Cast<string>()
+            .ToHashSet(StringComparer.Ordinal);
+
+        var claims = policies
+            .Select(policy => PrefillClaims.GetValueOrDefault(policy))
+            .Where(claim => claim != null)
+            .Cast<string>()
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (claims.Count == 0 && policies.Contains("AnyPrefillAccess"))
+        {
+            claims.Add("SteamPrefillActive");
+        }
+
+        return claims;
+    }
+
+    private static async Task<JsonElement> ReadOpenApiDocumentAsync(HttpClient client)
+    {
+        using var response = await client.GetAsync("/openapi/v1.json");
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+
+        return await response.Content.ReadFromJsonAsync<JsonElement>();
+    }
+
+    private static IEnumerable<(string Method, string Path, JsonElement Operation)> Operations(JsonElement document)
+    {
+        foreach (var path in document.GetProperty("paths").EnumerateObject())
+        {
+            foreach (var operation in path.Value.EnumerateObject())
+            {
+                if (!OperationMethods.Contains(operation.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                yield return (operation.Name, path.Name, operation.Value);
+            }
+        }
+    }
+
+    private static HashSet<string> OperationKeys(IServiceProvider services, bool anonymous)
+    {
+        return services.GetRequiredService<IApiDescriptionGroupCollectionProvider>()
+            .ApiDescriptionGroups.Items
+            .SelectMany(group => group.Items)
+            .Where(description => description.ActionDescriptor.EndpointMetadata.Any(item => item is IAllowAnonymous) == anonymous)
+            .Select(description => OperationKey(description.HttpMethod, description.RelativePath))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string OperationKey(string? method, string? route)
+    {
+        return $"{method?.ToUpperInvariant()} /{NormalizeRoute(route)}";
+    }
+
+    private static string NormalizeRoute(string? route)
+    {
+        if (string.IsNullOrEmpty(route))
+        {
+            return string.Empty;
+        }
+
+        var normalized = new StringBuilder(route.Length);
+        var inParameter = false;
+        var inSuffix = false;
+
+        foreach (var character in route)
+        {
+            switch (character)
+            {
+                case '{':
+                    inParameter = true;
+                    inSuffix = false;
+                    normalized.Append(character);
+                    break;
+
+                case '}':
+                    inParameter = false;
+                    inSuffix = false;
+                    normalized.Append(character);
+                    break;
+
+                case ':' or '=' or '?' when inParameter:
+                    inSuffix = true;
+                    break;
+
+                default:
+                    if (!inSuffix)
+                    {
+                        normalized.Append(character);
+                    }
+
+                    break;
+            }
+        }
+
+        return normalized.ToString().Trim('/');
+    }
+
+    private static bool AllowsNull(JsonElement schema)
+    {
+        return schema.TryGetProperty("type", out var type)
+            && type.ValueKind == JsonValueKind.Array
+            && type.EnumerateArray().Any(entry => entry.ValueKind == JsonValueKind.String
+                                                  && string.Equals(entry.GetString(), "null", StringComparison.Ordinal));
+    }
+
+    private static ClaimsPrincipal Anonymous() => new();
+
+    private static ClaimsPrincipal Principal(SessionType sessionType, IEnumerable<string>? prefillClaims = null)
+    {
+        var sessionTypeClaim = sessionType.ToString().ToLowerInvariant();
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, Guid.Empty.ToString()),
+            new(ClaimTypes.Role, sessionTypeClaim),
+            new("SessionType", sessionTypeClaim)
+        };
+
+        if (prefillClaims != null)
+        {
+            claims.AddRange(prefillClaims.Select(claim => new Claim(claim, "true")));
+        }
+
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, SessionAuthenticationHandler.SchemeName));
+    }
+
+    private enum EndpointAccess
+    {
+        Public,
+        Authenticated,
+        Admin,
+        Prefill,
+        AdminPrefill,
+        AnyPrefill
+    }
+}
+
+internal sealed class EndpointAuthorizationHost : IDisposable
+{
+    private static readonly string[] EnvironmentVariables =
+    [
+        "POSTGRES_MODE",
+        "POSTGRES_HOST",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_USER",
+        "POSTGRES_PORT",
+        "POSTGRES_DB",
+        "LANCACHE_MANAGER_VERSION",
+        "Security__EnableAuthentication"
+    ];
+
+    private readonly string _originalCurrentDirectory;
+    private readonly string _repositoryDataDirectory;
+    private readonly IReadOnlyList<PathState> _repositoryData;
+    private readonly IReadOnlyDictionary<string, string?> _environment;
+    private readonly string _temporaryRoot;
+    private WebApplicationFactory<SetupController>? _application;
+    private bool _disposed;
+
+    public EndpointAuthorizationHost(bool authenticationEnabled = true)
+    {
+        _originalCurrentDirectory = Directory.GetCurrentDirectory();
+        var repositoryRoot = FindRepositoryRoot();
+        var apiRoot = Path.Combine(repositoryRoot, "Api", "LancacheManager");
+        _repositoryDataDirectory = Path.Combine(repositoryRoot, "data");
+        _repositoryData = Capture(_repositoryDataDirectory);
+        _environment = EnvironmentVariables.ToDictionary(
+            name => name,
+            Environment.GetEnvironmentVariable,
+            StringComparer.Ordinal);
+        _temporaryRoot = Path.Combine(Path.GetTempPath(), $"lm-endpoint-authorization-{Guid.NewGuid():N}");
+
+        try
+        {
+            Assert.True(Directory.Exists(apiRoot), $"API content root '{apiRoot}' was not found.");
+            Directory.CreateDirectory(Path.Combine(_temporaryRoot, "Api"));
+            Directory.CreateDirectory(Path.Combine(_temporaryRoot, "Web"));
+
+            Environment.SetEnvironmentVariable("POSTGRES_MODE", "external");
+            Environment.SetEnvironmentVariable("POSTGRES_HOST", null);
+            Environment.SetEnvironmentVariable("POSTGRES_PASSWORD", null);
+            Environment.SetEnvironmentVariable("POSTGRES_USER", null);
+            Environment.SetEnvironmentVariable("POSTGRES_PORT", null);
+            Environment.SetEnvironmentVariable("POSTGRES_DB", null);
+            Environment.SetEnvironmentVariable("LANCACHE_MANAGER_VERSION", "endpoint-authorization-test");
+            Environment.SetEnvironmentVariable("Security__EnableAuthentication", authenticationEnabled.ToString());
+            Directory.SetCurrentDirectory(_temporaryRoot);
+
+            _application = new WebApplicationFactory<SetupController>()
+                .WithWebHostBuilder(builder => builder.UseContentRoot(apiRoot));
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
+    }
+
+    public WebApplicationFactory<SetupController> Application => _application
+        ?? throw new ObjectDisposedException(nameof(EndpointAuthorizationHost));
+
+    public async Task<HttpClient> CreateAdminClientAsync()
+    {
+        var client = Application.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        try
+        {
+            var apiKey = Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
+            using var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { ApiKey = apiKey });
+            Assert.Equal(System.Net.HttpStatusCode.OK, loginResponse.StatusCode);
+
+            return client;
+        }
+        catch
+        {
+            client.Dispose();
+            throw;
+        }
+    }
+
+    public async Task AssertIsolationAsync(HttpClient client)
+    {
+        var pathResolver = Application.Services.GetRequiredService<IPathResolver>();
+        Assert.Equal(Path.Combine(_temporaryRoot, "data"), pathResolver.GetDataDirectory());
+
+        var health = await client.GetFromJsonAsync<JsonElement>("/health");
+        Assert.Equal("setup-required", health.GetProperty("status").GetString());
+        Assert.True(health.GetProperty("setupRequired").GetBoolean());
+
+        AssertRepositoryDataUnchanged();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        try
+        {
+            _application?.Dispose();
+            AssertRepositoryDataUnchanged();
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(_originalCurrentDirectory);
+            foreach (var (name, value) in _environment)
+            {
+                Environment.SetEnvironmentVariable(name, value);
+            }
+
+            if (Directory.Exists(_temporaryRoot))
+            {
+                Directory.Delete(_temporaryRoot, recursive: true);
+            }
+        }
+    }
+
+    private void AssertRepositoryDataUnchanged()
+    {
+        Assert.Equal(_repositoryData, Capture(_repositoryDataDirectory));
+    }
+
+    private static PathState[] Capture(string directory)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return [new PathState("<missing>", 0, DateTime.MinValue, true)];
+        }
+
+        return Directory
+            .EnumerateFileSystemEntries(directory, "*", SearchOption.AllDirectories)
+            .Append(directory)
+            .Select(path => Directory.Exists(path)
+                ? new PathState(Path.GetRelativePath(directory, path), 0, Directory.GetLastWriteTimeUtc(path), true)
+                : new PathState(Path.GetRelativePath(directory, path), new FileInfo(path).Length, File.GetLastWriteTimeUtc(path), false))
+            .OrderBy(state => state.RelativePath, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        foreach (var startingDirectory in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+        {
+            for (var directory = new DirectoryInfo(startingDirectory); directory != null; directory = directory.Parent)
+            {
+                if (Directory.Exists(Path.Combine(directory.FullName, "Api"))
+                    && Directory.Exists(Path.Combine(directory.FullName, "Web")))
+                {
+                    return directory.FullName;
+                }
+            }
+        }
+
+        throw new DirectoryNotFoundException("Could not find the repository root.");
+    }
+
+    private sealed record PathState(string RelativePath, long Length, DateTime LastWriteTimeUtc, bool IsDirectory);
+}

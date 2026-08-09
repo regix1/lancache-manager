@@ -16,16 +16,6 @@
   opacity: 1;
 }
 
-/* Progress bar for widgets */
-.widget-progress {
-  @apply h-2 rounded-full overflow-hidden;
-  background: var(--theme-bg-tertiary);
-}
-
-.widget-progress-fill {
-  @apply h-full rounded-full transition-[width] duration-500 ease-out;
-}
-
 /* ===== SHARED DASHBOARD PANEL VOCABULARY =====
    Labeled readout strip (value over small-caps label, hairline dividers) and
    the bordered data well. Used by the Recent Downloads panel, the analytics
@@ -503,53 +493,35 @@
   border-radius: 0.25rem;
 }
 
-/* CacheGrowthTrend skeleton */
-.cache-growth-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.cache-growth-skeleton-stat {
-  height: 1.75rem;
-  width: 55%;
-  border-radius: 0.375rem;
-}
-
-.cache-growth-skeleton-progress {
-  height: 0.375rem;
+.cache-growth-progress {
+  display: block;
+  appearance: none;
   width: 100%;
-  border-radius: 0.25rem;
+  height: 0.5rem;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--theme-bg-tertiary);
 }
 
-.cache-growth-skeleton-chart {
-  height: 2.5rem;
-  width: 100%;
-  border-radius: 0.375rem;
+.cache-growth-progress::-webkit-progress-bar {
+  background: var(--theme-bg-tertiary);
 }
 
-.cache-growth-skeleton-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1rem;
+.cache-growth-progress::-webkit-progress-value,
+.cache-growth-progress::-moz-progress-bar {
+  border-radius: 9999px;
+  background: var(--theme-primary);
 }
 
-.cache-growth-skeleton-grid-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
+.cache-growth-progress--warning::-webkit-progress-value,
+.cache-growth-progress--warning::-moz-progress-bar {
+  background: var(--theme-warning);
 }
 
-.cache-growth-skeleton-label {
-  height: 0.625rem;
-  width: 60%;
-  border-radius: 0.25rem;
-}
-
-.cache-growth-skeleton-value {
-  height: 0.875rem;
-  width: 45%;
-  border-radius: 0.25rem;
+.cache-growth-progress--error::-webkit-progress-value,
+.cache-growth-progress--error::-moz-progress-bar {
+  background: var(--theme-error);
 }
 
 /* Dashboard stat card grids */

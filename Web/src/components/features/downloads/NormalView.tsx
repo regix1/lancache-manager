@@ -27,6 +27,7 @@ import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import { useGroupPagination } from '@hooks/useGroupPagination';
+import { useGroupDownloadAssociations } from '@hooks/useGroupDownloadAssociations';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { Pagination } from '@components/ui/Pagination';
@@ -39,6 +40,9 @@ import type { DownloadAssociations } from '@contexts/DownloadAssociationsContext
 import type { Download, DownloadGroup, EventSummary, GameDetectionSummary } from '../../../types';
 import { useFlatRows } from '@hooks/useFlatRows';
 import type { HeaderRowKind } from './types';
+import { isResolvedGameName } from './liveDownloadPreviews';
+import { useIpExpansion } from './useIpExpansion';
+import { cacheHitPercent, toGroup } from './downloadGrouping';
 
 interface NormalViewSectionLabels {
   multipleDownloads: string;
@@ -179,8 +183,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
     startHoldTimer,
     stopHoldTimer
   });
-  const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
-  const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
+  const { toggleIp, isIpExpanded } = useIpExpansion();
+  const hitPercent = cacheHitPercent(group.cacheHitBytes, group.totalBytes);
   const primaryDownload = group.downloads[0];
   const serviceLower = (group.service ?? '').toLowerCase();
   const isSteam = serviceLower === 'steam';
@@ -230,10 +234,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   // members have no real game name so the sentinel service drives it.
   const hasRealGameName =
     serviceLower === 'unknown' ||
-    group.downloads.some(
-      (d: Download) =>
-        d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
-    );
+    group.downloads.some((d: Download) => isResolvedGameName(d.gameName, d.service));
 
   React.useEffect(() => {
     if (!enableScrollIntoView) return;
@@ -258,10 +259,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   // Fetch associations when group is rendered (not just when expanded)
   // This allows us to show event badges at the group level
   // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
-  React.useEffect(() => {
-    const downloadIds = group.downloads.map((d) => d.id);
-    fetchAssociations(downloadIds);
-  }, [group.downloads, fetchAssociations, refreshVersion]);
+  useGroupDownloadAssociations(group.downloads, fetchAssociations, refreshVersion);
 
   const groupEvents = React.useMemo(
     () => collectGroupEvents(group.downloads, getAssociations),
@@ -426,7 +424,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-bold text-[var(--theme-text-primary)] uppercase tracking-wider opacity-80">
-                  {t('downloads.tab.normal.stats.title', 'Analytics Overview')}
+                  {t('downloads.tab.normal.stats.title')}
                 </h4>
                 {storeLink && (
                   <a
@@ -478,13 +476,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 {/* Disk Usage */}
                 {diskSizeBytes ? (
                   <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-                    <h5 className="caps-label mb-3">
-                      {t('downloads.tab.normal.stats.diskUsage', 'Disk Usage')}
-                    </h5>
+                    <h5 className="caps-label mb-3">{t('downloads.tab.normal.stats.diskUsage')}</h5>
                     <div className="flex flex-col gap-4">
                       <div className="flex items-baseline justify-between">
                         <span className="text-sm text-[var(--theme-text-secondary)]">
-                          {t('downloads.tab.normal.stats.dataOnDisk', 'Data on Disk')}
+                          {t('downloads.tab.normal.stats.dataOnDisk')}
                         </span>
                         <span className="text-xl font-bold text-[var(--theme-primary)]">
                           {formatBytes(diskSizeBytes)}
@@ -492,7 +488,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       </div>
                       <div className="flex items-baseline justify-between pt-2 border-t border-[var(--theme-border-secondary)]">
                         <span className="text-xs text-[var(--theme-text-muted)]">
-                          {t('downloads.tab.normal.stats.cacheFiles', 'Cache Files')}
+                          {t('downloads.tab.normal.stats.cacheFiles')}
                         </span>
                         <span className="text-sm font-bold text-[var(--theme-text-secondary)]">
                           {detection?.cache_files_found != null
@@ -507,7 +503,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 {/* Network Traffic */}
                 <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
                   <h5 className="caps-label mb-3">
-                    {t('downloads.tab.normal.stats.networkTraffic', 'Network Traffic')}
+                    {t('downloads.tab.normal.stats.networkTraffic')}
                   </h5>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
@@ -573,14 +569,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
             {/* Download Sessions List */}
             {group.downloads.length > 0 &&
               (() => {
-                const toggleIp = (ip: string) => {
-                  setExpandedIps((prev) => ({ ...prev, [ip]: !prev[ip] }));
-                };
-                const isIpExpanded = (ip: string, count: number): boolean => {
-                  if (ip in expandedIps) return expandedIps[ip];
-                  return count <= 5;
-                };
-
                 const excludedSessions = Math.max(0, group.downloads.length - group.count);
 
                 return (
@@ -682,10 +670,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                 className="divide-y divide-[var(--theme-border-secondary)]"
                                 renderItem={(download) => {
                                   const totalBytes = download.totalBytes;
-                                  const cachePercent =
-                                    totalBytes > 0
-                                      ? (download.cacheHitBytes / totalBytes) * 100
-                                      : 0;
+                                  const cachePercent = cacheHitPercent(
+                                    download.cacheHitBytes,
+                                    totalBytes
+                                  );
                                   const associations = getAssociations(download.id);
 
                                   return (
@@ -895,7 +883,7 @@ const GridCard: React.FC<GridCardProps> = ({
 }) => {
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const cardRef = React.useRef<HTMLDivElement>(null);
-  const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
+  const hitPercent = cacheHitPercent(group.cacheHitBytes, group.totalBytes);
   const primaryDownload = group.downloads[0];
   const serviceLower = (group.service ?? '').toLowerCase();
   const isSteam = serviceLower === 'steam';
@@ -927,10 +915,7 @@ const GridCard: React.FC<GridCardProps> = ({
   const isPartiallyEvicted = !isEvicted && group.downloads.some((d: Download) => d.isEvicted);
   const placeholderIconSize = 48;
 
-  React.useEffect(() => {
-    const downloadIds = group.downloads.map((d) => d.id);
-    fetchAssociations(downloadIds);
-  }, [group.downloads, fetchAssociations, refreshVersion]);
+  useGroupDownloadAssociations(group.downloads, fetchAssociations, refreshVersion);
 
   const groupEvents = React.useMemo(
     () => collectGroupEvents(group.downloads, getAssociations),
@@ -1107,7 +1092,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     filteredCount,
     hasActiveFilters
   } = useSessionFilters(group.downloads);
-  const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
+  const { toggleIp, isIpExpanded } = useIpExpansion();
   const drawerContentRef = React.useRef<HTMLDivElement>(null);
   const drawerScrollRef = React.useRef<HTMLElement | null>(null);
 
@@ -1119,7 +1104,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     }
     drawerScrollRef.current = contentEl.closest<HTMLElement>('.drawer-body');
   }, [group.id]);
-  const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
+  const hitPercent = cacheHitPercent(group.cacheHitBytes, group.totalBytes);
   const primaryDownload = group.downloads[0];
   const serviceLower = (group.service ?? '').toLowerCase();
   const isSteam = serviceLower === 'steam';
@@ -1160,10 +1145,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
     : null;
 
-  React.useEffect(() => {
-    const downloadIds = group.downloads.map((d) => d.id);
-    fetchAssociations(downloadIds);
-  }, [group.downloads, fetchAssociations, refreshVersion]);
+  useGroupDownloadAssociations(group.downloads, fetchAssociations, refreshVersion);
 
   const groupEvents = React.useMemo(
     () => collectGroupEvents(group.downloads, getAssociations),
@@ -1191,14 +1173,6 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   }
 
   // Session pagination
-  const toggleIp = (ip: string) => {
-    setExpandedIps((prev) => ({ ...prev, [ip]: !prev[ip] }));
-  };
-  const isIpExpanded = (ip: string, count: number): boolean => {
-    if (ip in expandedIps) return expandedIps[ip];
-    return count <= 5;
-  };
-
   const excludedSessions = Math.max(0, group.downloads.length - group.count);
 
   const {
@@ -1254,7 +1228,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
       {/* Analytics Overview */}
       <div className="mb-4">
         <h4 className="text-sm font-bold text-[var(--theme-text-primary)] uppercase tracking-wider opacity-80 mb-3">
-          {t('downloads.tab.normal.stats.title', 'Analytics Overview')}
+          {t('downloads.tab.normal.stats.title')}
         </h4>
 
         <div className="flex flex-col gap-3">
@@ -1292,13 +1266,11 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
           {/* Disk Usage */}
           {diskSizeBytes ? (
             <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-              <h5 className="caps-label mb-3">
-                {t('downloads.tab.normal.stats.diskUsage', 'Disk Usage')}
-              </h5>
+              <h5 className="caps-label mb-3">{t('downloads.tab.normal.stats.diskUsage')}</h5>
               <div className="flex flex-col gap-4">
                 <div className="flex items-baseline justify-between">
                   <span className="text-sm text-[var(--theme-text-secondary)]">
-                    {t('downloads.tab.normal.stats.dataOnDisk', 'Data on Disk')}
+                    {t('downloads.tab.normal.stats.dataOnDisk')}
                   </span>
                   <span className="text-xl font-bold text-[var(--theme-primary)]">
                     {formatBytes(diskSizeBytes)}
@@ -1306,7 +1278,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                 </div>
                 <div className="flex items-baseline justify-between pt-2 border-t border-[var(--theme-border-secondary)]">
                   <span className="text-xs text-[var(--theme-text-muted)]">
-                    {t('downloads.tab.normal.stats.cacheFiles', 'Cache Files')}
+                    {t('downloads.tab.normal.stats.cacheFiles')}
                   </span>
                   <span className="text-sm font-bold text-[var(--theme-text-secondary)]">
                     {detection?.cache_files_found != null
@@ -1320,9 +1292,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
 
           {/* Network Traffic */}
           <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
-            <h5 className="caps-label mb-3">
-              {t('downloads.tab.normal.stats.networkTraffic', 'Network Traffic')}
-            </h5>
+            <h5 className="caps-label mb-3">{t('downloads.tab.normal.stats.networkTraffic')}</h5>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-[var(--theme-text-secondary)]">
@@ -1471,8 +1441,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                       className="divide-y divide-[var(--theme-border-secondary)]"
                       renderItem={(download) => {
                         const totalBytes = download.totalBytes;
-                        const cachePercent =
-                          totalBytes > 0 ? (download.cacheHitBytes / totalBytes) * 100 : 0;
+                        const cachePercent = cacheHitPercent(download.cacheHitBytes, totalBytes);
                         const associations = getAssociations(download.id);
 
                         return (
@@ -1835,49 +1804,6 @@ const NormalView: React.FC<NormalViewProps> = ({
     />
   );
 
-  const renderDownloadCard = (download: Download) => {
-    const totalBytes = download.totalBytes;
-
-    const fakeGroup = {
-      id: `individual-${download.id}`,
-      name: download.gameName || getServiceDisplayName(download.service),
-      type: 'game' as const,
-      service: download.service,
-      downloads: [download],
-      totalBytes: totalBytes,
-      totalDownloaded: totalBytes,
-      cacheHitBytes: download.cacheHitBytes,
-      cacheMissBytes: download.cacheMissBytes,
-      clientsSet: new Set([download.clientIp]),
-      firstSeen: download.startTimeUtc,
-      lastSeen: download.startTimeUtc,
-      count: 1
-    };
-
-    return renderGroupCard(fakeGroup);
-  };
-
-  const toGroup = (item: Download | DownloadGroup): DownloadGroup => {
-    if ('downloads' in item) return item as DownloadGroup;
-    const download = item as Download;
-    const totalBytes = download.totalBytes;
-    return {
-      id: `individual-${download.id}`,
-      name: download.gameName || getServiceDisplayName(download.service),
-      type: 'game' as const,
-      service: download.service,
-      downloads: [download],
-      totalBytes: totalBytes,
-      totalDownloaded: totalBytes,
-      cacheHitBytes: download.cacheHitBytes,
-      cacheMissBytes: download.cacheMissBytes,
-      clientsSet: new Set([download.clientIp]),
-      firstSeen: download.startTimeUtc,
-      lastSeen: download.startTimeUtc,
-      count: 1
-    };
-  };
-
   // Card Grid Layout mode
   if (cardGridLayout) {
     const gridSizeClass =
@@ -2032,9 +1958,7 @@ const NormalView: React.FC<NormalViewProps> = ({
               >
                 {row.kind === 'header'
                   ? renderSectionHeader(row.variant)
-                  : 'downloads' in row.item
-                    ? renderGroupCard(row.item as DownloadGroup)
-                    : renderDownloadCard(row.item as Download)}
+                  : renderGroupCard(toGroup(row.item))}
               </div>
             );
           })}
@@ -2049,9 +1973,7 @@ const NormalView: React.FC<NormalViewProps> = ({
         <React.Fragment key={row.id}>
           {row.kind === 'header'
             ? renderSectionHeader(row.variant)
-            : 'downloads' in row.item
-              ? renderGroupCard(row.item as DownloadGroup)
-              : renderDownloadCard(row.item as Download)}
+            : renderGroupCard(toGroup(row.item))}
         </React.Fragment>
       ))}
     </div>

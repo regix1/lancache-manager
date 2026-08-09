@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Calendar, Clock } from 'lucide-react';
+import { Calendar, Clock } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { useTimezone } from '@contexts/useTimezone';
+import { getDaysInMonth, getFirstDayOfMonth } from '@utils/calendar';
 import { formatTimestamp } from '@utils/dateTimeFormat';
-import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
+import CalendarNavigation from './CalendarNavigation';
 
 interface DateTimePickerProps {
   value: Date | null;
@@ -25,7 +26,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
   minDate
 }) => {
   const { t } = useTranslation();
-  const { use24HourFormat, useLocalTimezone } = useTimezone();
+  const { use24HourFormat } = useTimezone();
   const resolvedTitle = title || t('common.dateTimePicker.title');
 
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -39,30 +40,10 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
     return h >= 12 ? 'PM' : 'AM';
   });
 
-  const getDaysInMonth = (date: Date): number => {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  };
-
-  const getFirstDayOfMonth = (date: Date): number => {
-    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
-  };
-
   const handleDateClick = (day: number) => {
     const newDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
     newDate.setHours(hours, minutes, 0, 0);
     setSelectedDate(newDate);
-  };
-
-  const changeMonth = (increment: number) => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + increment, 1));
-  };
-
-  const changeYear = (year: number) => {
-    setCurrentMonth(new Date(year, currentMonth.getMonth(), 1));
-  };
-
-  const changeToMonth = (month: number) => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), month, 1));
   };
 
   const handleHourChange = (hour: number) => {
@@ -96,8 +77,6 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
 
   // The dropdowns and the segmented control speak strings; these keep the numeric
   // handlers above typed instead of widening them to accept a raw option value.
-  const handleMonthSelect = (option: string): void => changeToMonth(Number(option));
-  const handleYearSelect = (option: string): void => changeYear(Number(option));
   const handleHourSelect = (option: string): void => handleHourChange(Number(option));
   const handleMinuteSelect = (option: string): void => handleMinuteChange(Number(option));
   const handleAmPmSelect = (option: string): void =>
@@ -120,16 +99,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
   const currentYear = new Date().getFullYear();
   const startYear = currentYear - 5;
   const endYear = currentYear + 5;
-  const yearOptions: DropdownOption[] = Array.from({ length: endYear - startYear + 1 }, (_, i) => {
-    const year = startYear + i;
-    return { value: String(year), label: String(year) };
-  });
-
   const monthNames = t('common.dateTimePicker.months', { returnObjects: true }) as string[];
-  const monthOptions: DropdownOption[] = monthNames.map((month, index) => ({
-    value: String(index),
-    label: month
-  }));
 
   const weekDays = t('common.dateTimePicker.weekDays', { returnObjects: true }) as string[];
   const amLabel = t('common.dateTimePicker.am');
@@ -144,13 +114,16 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
     );
   };
 
+  // This picker collects a wall-clock date and time: handleDateClick builds the value from the
+  // cell's own (year, month, day) plus the hour and minute below it, and isSelectedDate and
+  // isBeforeMinDate read it back the same way. Today is taken from the same calendar, so a
+  // display setting that renders other timestamps on another clock cannot move the ring. [39]
   const isToday = (day: number): boolean => {
-    const timezone = getEffectiveTimezone(useLocalTimezone);
-    const todayParts = getDateInTimezone(new Date(), timezone);
+    const now = new Date();
     return (
-      currentMonth.getFullYear() === todayParts.year &&
-      currentMonth.getMonth() === todayParts.month &&
-      day === todayParts.day
+      currentMonth.getFullYear() === now.getFullYear() &&
+      currentMonth.getMonth() === now.getMonth() &&
+      day === now.getDate()
     );
   };
 
@@ -223,10 +196,14 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
     return `${h.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}${suffix}`;
   };
 
-  // The time half comes from the pickers above, so only the date half is formatted here
+  // The time half comes from the pickers above, so only the date half is formatted here.
+  // It has to name the day whose cell is highlighted, and that cell was built in the browser's
+  // own calendar, so both clock preferences are opted out of here: rendering the same instant on
+  // the UTC or the server clock can print the day before the one the user just clicked. [39]
   const formatDate = (): string =>
     formatTimestamp(selectedDate, {
-      useLocalTimezone,
+      useLocalTimezone: true,
+      useUtc: false,
       use24Hour: use24HourFormat,
       forceYear: false,
       style: 'dateOnly'
@@ -245,59 +222,13 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
       size="md"
     >
       <div>
-        {/* Month/Year Navigation */}
-        <div className="mb-4 flex items-center justify-between">
-          {/* Every control in this modal is md: it is the only size where Button,
-              EnhancedDropdown and SegmentedControl are all 40px, since the dropdown trigger's
-              sm is 34px against the other two's 32px. Below the phone breakpoint the trigger
-              takes a 44px touch floor, so the rest follow it up rather than the trigger being
-              pulled down off it: min-h-11 on the buttons, h-11 on the segmented control, whose
-              size class sets a fixed height instead of a minimum. */}
-          <Button
-            variant="filled"
-            color="gray"
-            size="md"
-            className="max-sm:min-h-11"
-            onClick={() => changeMonth(-1)}
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </Button>
-
-          <div className="flex items-center gap-2">
-            <EnhancedDropdown
-              options={monthOptions}
-              value={String(currentMonth.getMonth())}
-              onChange={handleMonthSelect}
-              variant="button"
-              size="md"
-              maxHeight="200px"
-              dropdownWidth="w-40"
-              className="w-[104px] sm:w-[128px]"
-            />
-
-            <EnhancedDropdown
-              options={yearOptions}
-              value={String(currentMonth.getFullYear())}
-              onChange={handleYearSelect}
-              variant="button"
-              size="md"
-              alignRight
-              maxHeight="200px"
-              dropdownWidth="w-28"
-              className="w-[76px] sm:w-[92px]"
-            />
-          </div>
-
-          <Button
-            variant="filled"
-            color="gray"
-            size="md"
-            className="max-sm:min-h-11"
-            onClick={() => changeMonth(1)}
-          >
-            <ChevronRight className="w-5 h-5" />
-          </Button>
-        </div>
+        <CalendarNavigation
+          currentMonth={currentMonth}
+          startYear={startYear}
+          endYear={endYear}
+          monthNames={monthNames}
+          onChange={setCurrentMonth}
+        />
 
         {/* Week Days Header */}
         <div className="grid grid-cols-7 gap-1 mb-2">

@@ -78,12 +78,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                     </Tooltip>
                   )}
                   {showStaleData && (
-                    <Tooltip
-                      content={t(
-                        'status.staleDataTooltip',
-                        'Connected. Part of the dashboard did not refresh and is showing the last known values.'
-                      )}
-                    >
+                    <Tooltip content={t('status.staleDataTooltip')}>
                       <div className="flex items-center">
                         <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-warning)]"></div>
                       </div>

@@ -84,7 +84,7 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
     }
     return {
       status: 'error',
-      message: t('initialization.permissionsCheck.checkingFailed', 'Check failed'),
+      message: t('initialization.permissionsCheck.checkingFailed'),
       impact: t(`initialization.permissionsCheck.${impactKey}Impact`)
     };
   };
@@ -311,7 +311,7 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
           className="flex-1"
         >
           {isChecking && showForceContinue
-            ? t('initialization.permissionsCheck.continueAnyway', 'Continue anyway')
+            ? t('initialization.permissionsCheck.continueAnyway')
             : t('initialization.permissionsCheck.continue')}
         </Button>
       </div>
@@ -319,10 +319,7 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
       {timedOut && (
         <div className="p-3 rounded-lg bg-themed-warning">
           <p className="text-sm text-themed-warning">
-            {t(
-              'initialization.permissionsCheck.timeoutMessage',
-              'Permission checks timed out. You can continue and fix permissions later.'
-            )}
+            {t('initialization.permissionsCheck.timeoutMessage')}
           </p>
         </div>
       )}

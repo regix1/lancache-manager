@@ -40,6 +40,9 @@ public class CommandRequest
     [JsonPropertyName("type")]
     public string Type { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Arguments for the command. Null for the commands that take none, which is most of them.
+    /// </summary>
     [JsonPropertyName("parameters")]
     public Dictionary<string, string>? Parameters { get; set; }
 
@@ -55,15 +58,31 @@ public class CommandResponse
     [JsonPropertyName("success")]
     public bool Success { get; set; }
 
+    /// <summary>
+    /// Human-readable outcome text. Null when the daemon had nothing to say beyond
+    /// <see cref="Success"/>.
+    /// </summary>
     [JsonPropertyName("message")]
     public string? Message { get; set; }
 
+    /// <summary>
+    /// Why the command failed. Null on every successful response, and also null when a failing daemon
+    /// reported only a <see cref="Message"/>.
+    /// </summary>
     [JsonPropertyName("error")]
     public string? Error { get; set; }
 
+    /// <summary>
+    /// The command's result body, shaped by the command that was sent. Null for commands that return
+    /// nothing and for any command that failed.
+    /// </summary>
     [JsonPropertyName("data")]
     public object? Data { get; set; }
 
+    /// <summary>
+    /// True when the daemon refused the command because the session has not logged in yet. Null when
+    /// the daemon did not send the field at all, which is what older daemon images do.
+    /// </summary>
     [JsonPropertyName("requiresLogin")]
     public bool? RequiresLogin { get; set; }
 
@@ -89,12 +108,20 @@ public class DaemonStatus
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Detail accompanying <see cref="Status"/>, such as the reason a login failed. Null when the
+    /// status stands on its own.
+    /// </summary>
     [JsonPropertyName("message")]
     public string? Message { get; set; }
 
     [JsonPropertyName("timestamp")]
     public DateTime Timestamp { get; set; }
 
+    /// <summary>
+    /// Account name carried on an AuthState update rather than a status reply. Null on every status
+    /// that is not an AuthState update, and null while the session is not authenticated.
+    /// </summary>
     [JsonPropertyName("displayName")]
     public string? DisplayName { get; set; }
 
@@ -219,9 +246,17 @@ public class CredentialChallenge
     [JsonPropertyName("serverPublicKey")]
     public string ServerPublicKey { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The account address the challenge was sent to, shown so the user knows where to look for a
+    /// code. Null for every credential type that is not delivered by email.
+    /// </summary>
     [JsonPropertyName("email")]
     public string? Email { get; set; }
 
+    /// <summary>
+    /// Authorization URL the user opens and pastes the result back from (Epic's flow). Null for
+    /// credential types that do not use it.
+    /// </summary>
     [JsonPropertyName("authUrl")]
     public string? AuthUrl { get; set; }
 
@@ -323,6 +358,9 @@ public class PrefillResult
     [JsonPropertyName("success")]
     public bool Success { get; set; }
 
+    /// <summary>
+    /// Why the prefill failed. Null on every successful run.
+    /// </summary>
     [JsonPropertyName("errorMessage")]
     public string? ErrorMessage { get; set; }
 
@@ -341,6 +379,10 @@ public class ClearCacheResult
     [JsonPropertyName("success")]
     public bool Success { get; set; }
 
+    /// <summary>
+    /// What the daemon cleared, or why it could not. Null when the daemon returned only
+    /// <see cref="Success"/>.
+    /// </summary>
     [JsonPropertyName("message")]
     public string? Message { get; set; }
 }
@@ -363,6 +405,10 @@ public class AppStatus
     [JsonPropertyName("isUnsupportedOs")]
     public bool IsUnsupportedOs { get; set; }
 
+    /// <summary>
+    /// Why this app cannot be prefilled, for example that the account does not own it. Null whenever
+    /// the app is available.
+    /// </summary>
     [JsonPropertyName("unavailableReason")]
     public string? UnavailableReason { get; set; }
 }
@@ -375,6 +421,10 @@ public class SelectedAppsStatus
     [JsonPropertyName("totalDownloadSize")]
     public long TotalDownloadSize { get; set; }
 
+    /// <summary>
+    /// A note about the selection as a whole, such as apps that had to be skipped. Null when the
+    /// daemon had nothing to add.
+    /// </summary>
     [JsonPropertyName("message")]
     public string? Message { get; set; }
 }
@@ -384,6 +434,10 @@ public class CacheStatusResult
     [JsonPropertyName("apps")]
     public List<AppCacheStatus> Apps { get; set; } = new();
 
+    /// <summary>
+    /// A note about the cache check as a whole, such as apps it could not inspect. Null when every
+    /// requested app was checked without incident.
+    /// </summary>
     [JsonPropertyName("message")]
     public string? Message { get; set; }
 }

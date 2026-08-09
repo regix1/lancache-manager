@@ -215,9 +215,7 @@ export function PrefillCommandButtons({
               )}
             </div>
             <div className="cmd-split-estimate">
-              <span className="caps-label">
-                {t('prefill.settings.estimatedSize', 'Estimated size')}
-              </span>
+              <span className="caps-label">{t('prefill.settings.estimatedSize')}</span>
               <span className="tabular-nums">
                 {!hasSelection ? (
                   <span className="text-themed-muted">—</span>
@@ -290,9 +288,7 @@ export function PrefillCommandButtons({
           <div className="flex items-center justify-between gap-2 mb-3">
             <h3 className="caps-label">{t('prefill.sections.utilities')}</h3>
             {showClearCacheDb && !isGlobalDisabled && (
-              <SectionActionsMenu
-                label={t('prefill.sections.utilitiesActions', 'Utilities actions')}
-              >
+              <SectionActionsMenu label={t('prefill.sections.utilitiesActions')}>
                 {(close) => (
                   <ActionMenuDangerItem
                     onClick={() => {

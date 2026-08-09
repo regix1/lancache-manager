@@ -14,8 +14,17 @@ public class DepotJsonFileStatus
 {
     public bool Exists { get; set; }
     public string Path { get; set; } = string.Empty;
+
+    /// <summary>
+    /// When the PICS JSON file was last written. Null when <see cref="Exists"/> is false.
+    /// </summary>
     public DateTime? LastUpdated { get; set; }
     public int TotalMappings { get; set; }
+
+    /// <summary>
+    /// When the next scheduled crawl is due to refresh this file. Null when <see cref="Exists"/>
+    /// is false, since there is no prior crawl to schedule the next one from.
+    /// </summary>
     public DateTime? NextUpdateDue { get; set; }
     public bool NeedsUpdate { get; set; }
 }
@@ -39,9 +48,29 @@ public class DepotRebuildViabilityResponse
 {
     public bool Started { get; set; }
     public bool RequiresFullScan { get; set; }
+
+    /// <summary>
+    /// How many PICS changes behind the last checked baseline is. Null unless
+    /// <see cref="RequiresFullScan"/> is true.
+    /// </summary>
     public uint? ChangeGap { get; set; }
+
+    /// <summary>
+    /// Rough estimate of how many apps a full scan would need to process. Null unless
+    /// <see cref="RequiresFullScan"/> is true.
+    /// </summary>
     public int? EstimatedApps { get; set; }
+
+    /// <summary>
+    /// Human-readable explanation of why a full scan is required. Null unless
+    /// <see cref="RequiresFullScan"/> is true.
+    /// </summary>
     public string? Message { get; set; }
+
+    /// <summary>
+    /// The underlying viability-check failure, when the check itself could not complete (a Steam
+    /// connection or timeout error). Null when the check completed normally.
+    /// </summary>
     public string? ViabilityError { get; set; }
 }
 

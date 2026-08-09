@@ -1,6 +1,3 @@
-using LancacheManager.Core.Interfaces;
-using LancacheManager.Infrastructure.Utilities;
-
 namespace LancacheManager.Models;
 
 /// <summary>
@@ -34,6 +31,11 @@ public class DashboardStatsResponse
 public class DashboardPeriodStats
 {
     public string Duration { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Start of the queried period, mirrored from the request's startTime. Null when the request
+    /// carried no time filter, in which case Duration is "all" and the metrics cover every download.
+    /// </summary>
     public DateTime? Since { get; set; }
     public long BandwidthSaved { get; set; }
     public long AddedToCache { get; set; }
@@ -140,102 +142,6 @@ public class HourlyActivityItem
 }
 
 /// <summary>
-/// Response for cache growth data over time
-/// </summary>
-public class CacheGrowthResponse
-{
-    /// <summary>
-    /// Data points showing cache growth over time
-    /// </summary>
-    public List<CacheGrowthDataPoint> DataPoints { get; set; } = new();
-
-    /// <summary>
-    /// Current total cache size (used space)
-    /// </summary>
-    public long CurrentCacheSize { get; set; }
-
-    /// <summary>
-    /// Total cache capacity
-    /// </summary>
-    public long TotalCapacity { get; set; }
-
-    /// <summary>
-    /// Average daily growth in bytes
-    /// </summary>
-    public long AverageDailyGrowth { get; set; }
-
-    /// <summary>
-    /// Trend direction: up, down, or stable
-    /// </summary>
-    public string Trend { get; set; } = "stable";
-
-    /// <summary>
-    /// Percentage change over the period
-    /// </summary>
-    public double PercentChange { get; set; }
-
-    /// <summary>
-    /// Estimated days until cache is full (null if not growing or already full)
-    /// </summary>
-    public int? EstimatedDaysUntilFull { get; set; }
-
-    /// <summary>
-    /// Time period for this data
-    /// </summary>
-    public string Period { get; set; } = string.Empty;
-
-    /// <summary>
-    /// True if the actual cache size is less than cumulative downloads,
-    /// indicating data was deleted (cache was cleared/cleaned)
-    /// </summary>
-    public bool HasDataDeletion { get; set; }
-
-    /// <summary>
-    /// Estimated bytes that were deleted from cache
-    /// (difference between cumulative downloads and actual cache size)
-    /// </summary>
-    public long EstimatedBytesDeleted { get; set; }
-
-    /// <summary>
-    /// Net average daily growth (accounting for deletions)
-    /// Can be negative if cache is shrinking
-    /// </summary>
-    public long NetAverageDailyGrowth { get; set; }
-
-    /// <summary>
-    /// True if the cache was essentially cleared (very small relative to historical downloads).
-    /// When true, percentChange is not meaningful and growth rate shows download rate.
-    /// </summary>
-    public bool CacheWasCleared { get; set; }
-}
-
-/// <summary>
-/// Single data point for cache growth
-/// </summary>
-public class CacheGrowthDataPoint : IUtcMarkable
-{
-    /// <summary>
-    /// Timestamp for this data point
-    /// </summary>
-    public DateTime Timestamp { get; set; }
-
-    /// <summary>
-    /// Cumulative cache miss bytes (new data added) up to this point
-    /// </summary>
-    public long CumulativeCacheMissBytes { get; set; }
-
-    /// <summary>
-    /// Growth from previous data point
-    /// </summary>
-    public long GrowthFromPrevious { get; set; }
-
-    public void MarkDateTimesAsUtc()
-    {
-        Timestamp = Timestamp.AsUtc();
-    }
-}
-
-/// <summary>
 /// Response containing sparkline data for dashboard stat cards
 /// </summary>
 public class SparklineDataResponse
@@ -306,4 +212,63 @@ public class StatsExclusionsResponse
 {
     public List<string> Ips { get; set; } = new();
     public List<ClientExclusionRule> Rules { get; set; } = new();
+}
+
+/// <summary>
+/// Response for eviction settings (display mode, scan notifications, orphan pruning).
+/// </summary>
+public class EvictionSettingsResponse
+{
+    public string EvictedDataMode { get; set; } = string.Empty;
+    public bool EvictionScanNotifications { get; set; }
+    public bool PruneOrphanedDownloads { get; set; }
+}
+
+/// <summary>
+/// Response for a manually started eviction scan.
+/// </summary>
+public class EvictionScanStartedResponse
+{
+    /// <summary>
+    /// The started scan's operation id. Null when the scan could not start immediately and was
+    /// parked in the wait-queue instead (the queued-operation response is returned in that case).
+    /// </summary>
+    public Guid? OperationId { get; set; }
+}
+
+/// <summary>
+/// Response for clearing the evicted flag on every download.
+/// </summary>
+public class EvictionResetResponse
+{
+    public int Reset { get; set; }
+}
+
+/// <summary>
+/// Response for the eviction scan's current progress.
+/// </summary>
+public class EvictionScanStatusResponse
+{
+    public bool IsProcessing { get; set; }
+    public bool SilentMode { get; set; }
+    public bool ShowNotification { get; set; }
+    public OperationStatus Status { get; set; }
+    public double PercentComplete { get; set; }
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>
+    /// i18n key for the current progress stage. Null when no scan is currently running.
+    /// </summary>
+    public string? StageKey { get; set; }
+
+    /// <summary>
+    /// Placeholder values (e.g. totalProcessed/totalEstimate) for <see cref="StageKey"/>. Null when
+    /// no scan is currently running.
+    /// </summary>
+    public object? Context { get; set; }
+
+    /// <summary>
+    /// The running scan's operation id. Null when no scan is currently running.
+    /// </summary>
+    public Guid? OperationId { get; set; }
 }

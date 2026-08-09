@@ -271,9 +271,17 @@ public class CacheDomainsRefreshOutcome
 
 public class StatusCheckStateResponse
 {
+    /// <summary>
+    /// The most recently completed sweep, persisted so it survives restarts. Null before the first
+    /// sweep has ever completed.
+    /// </summary>
     public StatusCheckResult? LastResult { get; set; }
     public DomainsSource? DomainsSource { get; set; }
     public bool IsRunning { get; set; }
+
+    /// <summary>
+    /// The running sweep's operation id. Null when <see cref="IsRunning"/> is false.
+    /// </summary>
     public Guid? OperationId { get; set; }
 
     /// <summary>The persisted DNS resolver mode ("auto" | "bridge" | "host"). Default "auto".</summary>
@@ -294,6 +302,12 @@ public class TestDomainResponse
 {
     /// <summary>Carries the public-edge probe in <see cref="DomainCheckResult.EdgeProbe"/>.</summary>
     public DomainCheckResult Result { get; set; } = new();
+
+    /// <summary>
+    /// The lancache heartbeat probe for the domain's resolved address. Null when no resolved address
+    /// was a private/LAN IP, since probing a public address would turn this endpoint into a
+    /// server-side request proxy.
+    /// </summary>
     public HeartbeatResult? Heartbeat { get; set; }
 }
 

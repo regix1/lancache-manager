@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
 import HighlightGlow from '@components/ui/HighlightGlow';
-import LoadingSpinner from '@components/common/LoadingSpinner';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { type AuthMode } from '@services/auth.service';
 import SteamIntegrationCard from '../steam/SteamIntegrationCard';
 import GrafanaEndpoints from '../grafana/GrafanaEndpoints';
@@ -86,7 +86,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-blizzard)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.integrations.battlenetIntegration', 'Battle.net Integration')}
+            {t('management.sections.integrations.battlenetIntegration')}
           </h3>
         </div>
         <HighlightGlow enabled={highlightBattleNet} scrollIntoView>
@@ -99,7 +99,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-riot)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.integrations.riotIntegration', 'Riot Integration')}
+            {t('management.sections.integrations.riotIntegration')}
           </h3>
         </div>
         <RiotDaemonStatus onError={onError} />
@@ -110,7 +110,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-xbox)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.integrations.xboxIntegration', 'Xbox Integration')}
+            {t('management.sections.integrations.xboxIntegration')}
           </h3>
         </div>
         <HighlightGlow enabled={highlightXbox} scrollIntoView>
@@ -134,12 +134,11 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
         <Suspense
           fallback={
             <Card>
-              <div className="flex items-center justify-center gap-2 py-8">
-                <LoadingSpinner size="md" />
-                <span className="text-themed-muted">
-                  {t('management.sections.integrations.loadingEndpoints')}
-                </span>
-              </div>
+              <LoadingState
+                message={t('management.sections.integrations.loadingEndpoints')}
+                shape="rows"
+                rows={2}
+              />
             </Card>
           }
         >

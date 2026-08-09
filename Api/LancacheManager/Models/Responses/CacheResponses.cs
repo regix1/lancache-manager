@@ -6,8 +6,14 @@ namespace LancacheManager.Models;
 public class CacheOperationResponse
 {
     public string Message { get; set; } = string.Empty;
+
+    /// <summary>The started operation's id. Null only for the queued case, where the caller polls by name instead.</summary>
     public Guid? OperationId { get; set; }
+
+    /// <summary>The service this removal targeted. Null for an all-datasources or all-services operation.</summary>
     public string? ServiceName { get; set; }
+
+    /// <summary>The service this corruption removal targeted. Null for an all-services corruption removal.</summary>
     public string? Service { get; set; }
     public OperationStatus Status { get; set; } = OperationStatus.Running;
 }
@@ -24,7 +30,7 @@ public sealed class CorruptionDetectionStartResponse
 
 /// <summary>
 /// Generic response wrapper for active operations with IsProcessing flag.
-/// Use typed variants (ActiveGameRemovalsResponse, etc.) for strongly-typed Operations.
+/// Close a generic argument over it when a caller needs strongly-typed Operations.
 /// </summary>
 public class ActiveOperationsResponse<T>
 {
@@ -37,25 +43,6 @@ public class ActiveOperationsResponse<T>
 /// </summary>
 public class ActiveOperationsResponse : ActiveOperationsResponse<object>
 {
-}
-
-/// <summary>
-/// Response for removal status check
-/// </summary>
-public class RemovalStatusResponse
-{
-    public bool IsProcessing { get; set; }
-    public OperationStatus? Status { get; set; }
-    public string? Message { get; set; }
-    public Guid? OperationId { get; set; }
-    public int FilesDeleted { get; set; }
-    public long BytesFreed { get; set; }
-    public DateTime? StartedAt { get; set; }
-    public string? Error { get; set; }
-    public string? GameName { get; set; }
-    public string? ServiceName { get; set; }
-    public string? Service { get; set; }
-    public string? DetectionMethod { get; set; }
 }
 
 /// <summary>Recovery response for an active corruption detection operation.</summary>
@@ -196,10 +183,6 @@ public class CacheDeleteModeResponse
 /// <summary>
 /// Response for active corruption removals
 /// </summary>
-public class ActiveCorruptionRemovalsResponse : ActiveOperationsResponse<CorruptionRemovalInfo>
-{
-}
-
 public class CorruptionRemovalInfo
 {
     public string Service { get; set; } = string.Empty;
@@ -213,10 +196,6 @@ public class CorruptionRemovalInfo
 /// <summary>
 /// Response for active service removals
 /// </summary>
-public class ActiveServiceRemovalsResponse : ActiveOperationsResponse<ServiceRemovalInfo>
-{
-}
-
 public class ServiceRemovalInfo
 {
     public string ServiceName { get; set; } = string.Empty;
@@ -231,10 +210,6 @@ public class ServiceRemovalInfo
 /// <summary>
 /// Response for active game removals
 /// </summary>
-public class ActiveGameRemovalsResponse : ActiveOperationsResponse<GameRemovalInfo>
-{
-}
-
 public class GameRemovalInfo
 {
     public long? GameAppId { get; set; }
@@ -288,4 +263,49 @@ public class AllActiveRemovalsResponse
 public class RsyncAvailableResponse
 {
     public bool Available { get; set; }
+}
+
+/// <summary>
+/// Recovery response for the cache-size scan notification card. Reused for both the idle and
+/// actively-scanning states so the frontend polls one shape regardless of which it gets back.
+/// </summary>
+public class CacheSizeScanStatusResponse
+{
+    public bool IsProcessing { get; set; }
+    public bool ShowNotification { get; set; } = true;
+    public OperationStatus Status { get; set; } = OperationStatus.Completed;
+    public double PercentComplete { get; set; }
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>Localization key for the current stage. Null when <see cref="IsProcessing"/> is false.</summary>
+    public string? StageKey { get; set; }
+
+    /// <summary>Placeholder values for <see cref="StageKey"/>. Null when <see cref="IsProcessing"/> is false.</summary>
+    public Dictionary<string, object?>? Context { get; set; }
+
+    /// <summary>The active scan's operation id. Null when <see cref="IsProcessing"/> is false.</summary>
+    public Guid? OperationId { get; set; }
+}
+
+/// <summary>Response for DELETE /api/cache/evicted: the bulk eviction removal that was started.</summary>
+public class EvictionRemovalStartResponse
+{
+    public Guid OperationId { get; set; }
+}
+
+/// <summary>Response for DELETE /api/cache/evicted/{scope}: the scoped eviction removal that was started.</summary>
+public class EvictionRemovalEntityStartResponse
+{
+    public Guid OperationId { get; set; }
+    public string Scope { get; set; } = string.Empty;
+    public string Key { get; set; } = string.Empty;
+}
+
+/// <summary>Response for DELETE /api/cache/evicted/named/{service}/{gameName}: the named-game eviction removal that was started.</summary>
+public class EvictionRemovalNamedGameStartResponse
+{
+    public Guid OperationId { get; set; }
+    public string Scope { get; set; } = "named";
+    public string Service { get; set; } = string.Empty;
+    public string GameName { get; set; } = string.Empty;
 }

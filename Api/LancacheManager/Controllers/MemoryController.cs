@@ -24,12 +24,15 @@ public class MemoryController : ControllerBase
     }
 
     /// <summary>
-    /// Get current memory usage for debugging memory leaks
-    /// Requires API key authentication for security
+    /// Gets current memory usage for debugging memory leaks.
     /// </summary>
+    /// <remarks>
+    /// Requires API key authentication for security.
+    /// </remarks>
     /// <param name="forceGC">Optional: Force garbage collection before reading stats (use for diagnostics only)</param>
     [HttpGet]
-    public IActionResult GetMemoryStats([FromQuery] bool forceGC = false)
+    [ProducesResponseType(typeof(MemoryStatsResponse), StatusCodes.Status200OK)]
+    public ActionResult<MemoryStatsResponse> GetMemoryStats([FromQuery] bool forceGC = false)
     {
         if (forceGC)
         {

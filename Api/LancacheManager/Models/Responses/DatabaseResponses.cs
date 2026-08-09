@@ -31,13 +31,27 @@ public class DatabaseResetStatusResponse
 {
     public bool IsProcessing { get; set; }
     public OperationStatus? Status { get; set; }
+
+    /// <summary>Human-readable progress message. Null until the reset has produced its first progress snapshot.</summary>
     public string? Message { get; set; }
+
+    /// <summary>Percent complete, 0-100. Null until the reset has produced its first progress snapshot.</summary>
     public double? PercentComplete { get; set; }
+
+    /// <summary>The tracked operation's id. Null when <see cref="IsProcessing"/> is false.</summary>
     public Guid? OperationId { get; set; }
+
+    /// <summary>Localization key for the current stage. Null until the reset has produced its first progress snapshot.</summary>
     public string? StageKey { get; set; }
     public IReadOnlyDictionary<string, object?> Context { get; set; } = new Dictionary<string, object?>();
+
+    /// <summary>Tables cleared so far in a selected-tables reset. Null for a full-database reset or before the first progress snapshot.</summary>
     public int? TablesCleared { get; set; }
+
+    /// <summary>Total tables targeted by a selected-tables reset. Null for a full-database reset or before the first progress snapshot.</summary>
     public int? TotalTables { get; set; }
+
+    /// <summary>Files deleted so far. Null until the reset has produced its first progress snapshot.</summary>
     public int? FilesDeleted { get; set; }
 }
 
@@ -47,10 +61,20 @@ public class DatabaseResetStatusResponse
 public class DataImportStatusResponse
 {
     public bool IsProcessing { get; set; }
+
+    /// <summary>The tracked operation's status. Null when <see cref="IsProcessing"/> is false.</summary>
     public OperationStatus? Status { get; set; }
+
+    /// <summary>Human-readable progress message. Null when <see cref="IsProcessing"/> is false.</summary>
     public string? Message { get; set; }
+
+    /// <summary>Percent complete, 0-100. Null when <see cref="IsProcessing"/> is false.</summary>
     public double? PercentComplete { get; set; }
+
+    /// <summary>The tracked operation's id. Null when <see cref="IsProcessing"/> is false.</summary>
     public Guid? OperationId { get; set; }
+
+    /// <summary>Localization key for the current stage. Null when <see cref="IsProcessing"/> is false.</summary>
     public string? StageKey { get; set; }
     public IReadOnlyDictionary<string, object?> Context { get; set; } = new Dictionary<string, object?>();
 }
@@ -74,5 +98,7 @@ public class ConnectionValidationResponse
 {
     public bool Valid { get; set; }
     public string Message { get; set; } = string.Empty;
+
+    /// <summary>Row count read from the source database's Downloads table. Null when <see cref="Valid"/> is false.</summary>
     public int? RecordCount { get; set; }
 }

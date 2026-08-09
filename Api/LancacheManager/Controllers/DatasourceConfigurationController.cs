@@ -34,10 +34,15 @@ public class DatasourceConfigurationController : ControllerBase
     }
 
     /// <summary>
-    /// Sets a datasource cache-size override. Null, blank, or zero restores automatic detection.
+    /// Sets a datasource cache-size override.
     /// </summary>
+    /// <remarks>
+    /// Null, blank, or zero restores automatic detection.
+    /// </remarks>
+    /// <param name="datasourceName">Name of a configured datasource; an unknown name is a 404.</param>
     [HttpPut("{datasourceName}/cache-size")]
     [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(typeof(DatasourceCacheSizeResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<DatasourceCacheSizeResponse>> SetCacheSizeAsync(
         string datasourceName,
         [FromBody] SetDatasourceCacheSizeRequest request)

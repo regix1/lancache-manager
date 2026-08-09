@@ -47,7 +47,7 @@ public class ThemeController : ControllerBase
     /// Validates and sanitizes a theme ID from a request.
     /// Returns null with the sanitized themeId if valid, or an IActionResult error if invalid.
     /// </summary>
-    private (string? themeId, IActionResult? error) SanitizeThemeId(ThemePreferenceRequest? request)
+    private (string? themeId, ActionResult? error) SanitizeThemeId(ThemePreferenceRequest? request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
         {
@@ -104,9 +104,17 @@ public class ThemeController : ControllerBase
             $"'{themeId}' is a built-in theme. Rename the theme so it produces a different ID."));
     }
 
+    /// <summary>
+    /// Lists custom uploaded themes.
+    /// </summary>
+    /// <remarks>
+    /// Built-in themes are handled entirely by the frontend. Returns an empty list without creating
+    /// the themes directory when none has ever been uploaded, since this fires on nearly every page load.
+    /// </remarks>
     [HttpGet]
     [AllowAnonymous]
-    public async Task<IActionResult> GetThemesAsync()
+    [ProducesResponseType(typeof(List<ThemeInfo>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<ThemeInfo>>> GetThemesAsync()
     {
         var themes = new List<ThemeInfo>();
 
@@ -191,6 +199,13 @@ public class ThemeController : ControllerBase
         return Ok(themes);
     }
 
+    /// <summary>
+    /// Gets one theme's raw file contents.
+    /// </summary>
+    /// <remarks>
+    /// Returns TOML as <c>application/toml</c> text, or JSON as-is. No ProducesResponseType is
+    /// declared here because the body shape is the arbitrary theme file itself, not a fixed schema.
+    /// </remarks>
     [HttpGet("{id}")]
     [AllowAnonymous]
     public async Task<IActionResult> GetThemeAsync(string id)
@@ -221,10 +236,18 @@ public class ThemeController : ControllerBase
         return Ok(jsonTheme);
     }
 
+    /// <summary>
+    /// Uploads a custom TOML or JSON theme (max 1MB).
+    /// </summary>
+    /// <remarks>
+    /// Rejects filenames claiming a system theme ID, since the frontend resolves system themes
+    /// before asking the server and a same-ID file would be stored but never applied.
+    /// </remarks>
     [HttpPost("upload")]
     [Authorize(Policy = "AdminOnly")]
     [RequestSizeLimit(1_048_576)]
-    public async Task<IActionResult> UploadThemeAsync(IFormFile file)
+    [ProducesResponseType(typeof(ThemeUploadResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ThemeUploadResponse>> UploadThemeAsync(IFormFile file)
     {
         if (file == null || file.Length == 0)
         {
@@ -333,9 +356,17 @@ public class ThemeController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Deletes a custom theme's TOML and/or JSON file.
+    /// </summary>
+    /// <remarks>
+    /// System theme IDs are rejected unless a custom file happens to claim one, in which case that
+    /// file is removed like any other.
+    /// </remarks>
     [HttpDelete("{id}")]
     [Authorize(Policy = "AdminOnly")]
-    public IActionResult DeleteTheme(string id)
+    [ProducesResponseType(typeof(ThemeDeleteResponse), StatusCodes.Status200OK)]
+    public ActionResult<ThemeDeleteResponse> DeleteTheme(string id)
     {
         // Log the incoming request
         _logger.LogInformation($"Delete theme request received for ID: '{id}' from {HttpContext.Connection.RemoteIpAddress}");
@@ -475,9 +506,18 @@ public class ThemeController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Deletes every custom theme file.
+    /// </summary>
+    /// <remarks>
+    /// Includes one whose name happens to match a system theme ID (system themes have no file of
+    /// their own; a custom file claiming that name is treated like any other custom file). This is
+    /// a manual admin operation with no UI button.
+    /// </remarks>
     [HttpPost("cleanup")]
     [Authorize(Policy = "AdminOnly")]
-    public IActionResult CleanupThemes()
+    [ProducesResponseType(typeof(ThemeCleanupResponse), StatusCodes.Status200OK)]
+    public ActionResult<ThemeCleanupResponse> CleanupThemes()
     {
         var deletedThemes = new List<string>();
         var errors = new List<string>();
@@ -526,9 +566,14 @@ public class ThemeController : ControllerBase
     }
 
     // Default Guest Theme Endpoints
+
+    /// <summary>
+    /// Gets the theme new guest sessions start with by default.
+    /// </summary>
     [HttpGet("preferences/guest")]
     [AllowAnonymous]
-    public IActionResult GetDefaultGuestTheme()
+    [ProducesResponseType(typeof(ThemePreferenceResponse), StatusCodes.Status200OK)]
+    public ActionResult<ThemePreferenceResponse> GetDefaultGuestTheme()
     {
         var themeId = _stateRepository.GetDefaultGuestTheme() ?? "dark-default";
         _logger.LogInformation($"Retrieved default guest theme: {themeId}");
@@ -539,9 +584,16 @@ public class ThemeController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Sets the theme new guest sessions start with by default.
+    /// </summary>
+    /// <remarks>
+    /// Broadcasts the change so guests with no explicit theme selection of their own pick it up live.
+    /// </remarks>
     [HttpPut("preferences/guest")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> SetDefaultGuestThemeAsync([FromBody] ThemePreferenceRequest request)
+    [ProducesResponseType(typeof(ThemePreferenceResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ThemePreferenceResponse>> SetDefaultGuestThemeAsync([FromBody] ThemePreferenceRequest request)
     {
         var (themeId, error) = SanitizeThemeId(request);
         if (error != null) return error;

@@ -334,7 +334,6 @@ class ThemeService {
           // (rgba of the white surfaces above), which are invisible on light
           // backgrounds. Replace with slate-alpha tints that darken instead.
           skeletonBase: 'rgba(15, 23, 42, 0.06)', // Loading shimmer base
-          skeletonHighlight: 'rgba(15, 23, 42, 0.12)', // Loading shimmer sweep
           bgSecondaryStrong: 'rgba(148, 163, 184, 0.2)', // Hover tint on white pills/tabs
           bgTertiaryMuted: 'rgba(148, 163, 184, 0.1)', // Striped table rows
           bgTertiaryStrong: 'rgba(148, 163, 184, 0.16)', // Table row hover
@@ -1015,8 +1014,7 @@ class ThemeService {
 
       /* Fixed Colors */
       --theme-shadow-black: ${v('shadowBlack', 'rgba(0, 0, 0, 0.08)')};
-      --theme-skeleton-base: ${v('skeletonBase', 'rgba(255, 255, 255, 0.06)')};
-      --theme-skeleton-highlight: ${v('skeletonHighlight', 'rgba(255, 255, 255, 0.12)')};
+      --theme-skeleton-base: ${v('skeletonBase', rgba(textMuted, 0.08))};
       --theme-badge-white-subtle: ${v('badgeWhiteSubtle', 'rgba(255, 255, 255, 0.20)')};
       --theme-glint-white: ${v('glintWhite', 'rgba(255, 255, 255, 0.05)')};
 
@@ -1706,7 +1704,7 @@ class ThemeService {
   // Removed old API methods - now using preferencesService instead
 
   // Called after authentication to reload theme from server
-  async reloadThemeAfterAuth(): Promise<void> {
+  async reloadThemeAfterAuth(hasSession: boolean): Promise<void> {
     // Reload preferences from API and reinitialize local state
     const prefs = await preferencesService.loadPreferences();
     this.initializePreferences(prefs);
@@ -1737,8 +1735,10 @@ class ThemeService {
       const theme = await this.getTheme(localThemeId);
       if (theme) {
         this.applyTheme(theme);
-        // Save to API for future use
-        await preferencesService.setPreference('selectedTheme', localThemeId);
+        if (hasSession) {
+          // Save to API for future use
+          await preferencesService.setPreference('selectedTheme', localThemeId);
+        }
         return;
       }
     }
@@ -1777,6 +1777,13 @@ class ThemeService {
 
   clearOriginalThemeBeforePreview(): void {
     storage.removeItem('lancache_original_theme_before_preview');
+  }
+
+  async stopPreview(): Promise<void> {
+    const originalTheme = this.getOriginalThemeBeforePreview() || 'dark-default';
+    await this.setTheme(originalTheme);
+    this.clearPreviewTheme();
+    this.clearOriginalThemeBeforePreview();
   }
 }
 

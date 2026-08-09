@@ -1154,6 +1154,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<bool>("UseLocalTimezone")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("UseUtcTimezone")
+                        .HasColumnType("boolean");
+
                     b.HasKey("Id");
 
                     b.HasIndex("SessionId")

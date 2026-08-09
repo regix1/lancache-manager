@@ -13,7 +13,6 @@ import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Tooltip } from '@components/ui/Tooltip';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useClientHostnames } from '@contexts/useClientHostnames';
@@ -24,7 +23,11 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
 import LiveDownloadRows from '../downloads/LiveDownloadRows';
 import { useLiveDownloadPreviews } from '../downloads/useLiveDownloadPreviews';
-import { buildTrafficKey, filterLivePreviews } from '../downloads/liveDownloadPreviews';
+import {
+  buildTrafficKey,
+  filterLivePreviews,
+  isResolvedGameName
+} from '../downloads/liveDownloadPreviews';
 import { storage } from '@utils/storage';
 import { APP_EVENTS, STORAGE_KEYS } from '@utils/constants';
 import {
@@ -71,11 +74,10 @@ const ActiveDownloadItem: React.FC<{
     'downloading',
     fallbackActive
   );
-  const displayName =
-    game.gameName && game.gameName !== game.service && !game.gameName.match(/^Steam App \d+$/)
-      ? game.gameName
-      : game.gameName ||
-        (game.depotId ? `Depot ${game.depotId}` : getServiceDisplayName(game.service));
+  const displayName = isResolvedGameName(game.gameName, game.service)
+    ? game.gameName!
+    : game.gameName ||
+      (game.depotId ? `Depot ${game.depotId}` : getServiceDisplayName(game.service));
   return (
     <div className="rdl-row rdl-row-active">
       <div className="rdl-row-main">
@@ -151,9 +153,8 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
         clientInfo: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
         clientIp: null as string | null, // Multiple clients, no single IP
         count: item.count,
-        hasGameName: item.downloads.some(
-          (d: Download) =>
-            d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
+        hasGameName: item.downloads.some((d: Download) =>
+          isResolvedGameName(d.gameName, d.service)
         ),
         isEvicted: item.downloads.every((d: Download) => d.isEvicted),
         isPartiallyEvicted:
@@ -163,11 +164,10 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
       }
     : {
         service: item.service,
-        name:
-          item.gameName && item.gameName !== item.service && !item.gameName.match(/^Steam App \d+$/)
-            ? item.gameName
-            : item.gameName ||
-              (item.depotId ? `Depot ${item.depotId}` : getServiceDisplayName(item.service)),
+        name: isResolvedGameName(item.gameName, item.service)
+          ? item.gameName!
+          : item.gameName ||
+            (item.depotId ? `Depot ${item.depotId}` : getServiceDisplayName(item.service)),
         totalBytes: item.totalBytes,
         cacheHitPercent: item.cacheHitPercent,
         cacheHitBytes: item.cacheHitBytes,
@@ -175,10 +175,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
         clientInfo: item.clientIp, // Fallback for display
         clientIp: item.clientIp, // Single client IP for nickname lookup
         count: 1,
-        hasGameName:
-          item.gameName &&
-          item.gameName !== item.service &&
-          !item.gameName.match(/^Steam App \d+$/),
+        hasGameName: isResolvedGameName(item.gameName, item.service),
         isEvicted: item.isEvicted,
         isPartiallyEvicted: false,
         gameAppId: item.gameAppId ?? null
@@ -387,10 +384,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
         // Check if we have a valid game (either by appId or by name)
         const hasValidGameAppId = !!download.gameAppId;
-        const hasValidGameName =
-          download.gameName &&
-          download.gameName !== download.service &&
-          !download.gameName.match(/^Steam App \d+$/);
+        const hasValidGameName = isResolvedGameName(download.gameName, download.service);
 
         if (hasValidGameName) {
           // Only show as a named game when we have an actual resolved name
@@ -539,11 +533,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     const { groups, individuals } = createGroups(filteredDownloads);
 
     const filteredIndividuals = individuals.filter((download) => {
-      if (
-        download.gameName &&
-        download.gameName !== download.service &&
-        !download.gameName.match(/^Steam App \d+$/)
-      ) {
+      if (isResolvedGameName(download.gameName, download.service)) {
         return true;
       }
       if ((download.service ?? '').toLowerCase() !== 'steam') return true;
@@ -722,9 +712,36 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           <div className="rdl-list divided-list">
             {viewMode === 'active' ? (
               speedLoading ? (
-                <div className="rdl-loading">
-                  <LoadingSpinner size="md" />
-                  <span>{t('dashboard.downloadsPanel.emptyStates.loading')}</span>
+                <div role="status" aria-live="polite" aria-busy="true">
+                  <span className="sr-only">
+                    {t('dashboard.downloadsPanel.emptyStates.loading')}
+                  </span>
+                  <div className="flex flex-col gap-3 py-2" aria-hidden="true">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="rdl-row">
+                        <div className="rdl-row-main">
+                          <div className="rdl-active-indicator skeleton-shimmer rounded-full" />
+                          <div className="rdl-row-info">
+                            <div className="rdl-row-name">
+                              <div
+                                className={`skeleton-shimmer rounded h-3.5 ${i % 2 === 0 ? 'w-2/5' : 'w-1/2'}`}
+                              />
+                            </div>
+                            <div className="rdl-row-meta">
+                              <div className="skeleton-shimmer rounded h-4 w-14" />
+                              <div className="skeleton-shimmer rounded h-2.5 w-16" />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="rdl-row-stats">
+                          <div className="rdl-row-figures">
+                            <div className="skeleton-shimmer rounded h-3.5 w-12" />
+                            <div className="skeleton-shimmer rounded h-2.5 w-10" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : hasActiveDownloads && activeGames.length > 0 ? (
                 activeGames.map((game) => (

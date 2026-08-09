@@ -54,6 +54,10 @@
   en: Prometheus Metrics
   zh: Prometheus 指标
 
+- file: api-reference
+  en: API Reference
+  zh: API 参考
+
 - file: client-hostnames
   en: Client Hostnames
   zh: 客户端主机名

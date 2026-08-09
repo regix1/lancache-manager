@@ -30,7 +30,8 @@ import {
 import { useConfig } from '@contexts/useConfig';
 import { useAuth } from '@contexts/useAuth';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
-import { formatDateTime } from '@utils/formatters';
+import { useReaderClock } from '@hooks/useReaderClock';
+import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
 import { buildClientFilterOptions } from '@utils/clientFilterOptions';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -42,7 +43,7 @@ import { Pagination } from '@components/ui/Pagination';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ImageCacheContext } from '@components/common/ImageCacheContext';
-import LoadingSpinner from '@components/common/LoadingSpinner';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 
 // Import view components
@@ -55,6 +56,7 @@ import ActiveDownloadsView from './ActiveDownloadsView';
 import LiveDownloadRows from './LiveDownloadRows';
 import { useLiveDownloadPreviews } from './useLiveDownloadPreviews';
 import { filterLivePreviews } from './liveDownloadPreviews';
+import { cacheHitPercent } from './downloadGrouping';
 
 import type { Download, DownloadGroup } from '../../../types';
 import {
@@ -293,8 +295,14 @@ const detectActivePreset = (settings: {
   return 'custom';
 };
 
-// CSV conversion utilities
-const convertDownloadsToCSV = (downloads: Download[]): string => {
+// CSV conversion utilities.
+// The clock is passed in rather than read here: this helper sits outside the component and cannot
+// call a hook, and the module-level preference it would otherwise fall back on only catches up once
+// a save echoes back. An export taken in between would carry the clock the user just left.
+const convertDownloadsToCSV = (
+  downloads: Download[],
+  clock: Omit<TimestampSettings, 'style'>
+): string => {
   if (!downloads || downloads.length === 0) return '';
 
   // UTF-8 BOM for proper special character encoding (™, ®, etc.)
@@ -338,11 +346,12 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
       download.id,
       download.service,
       download.clientIp,
-      // Format timestamps using the formatDateTime utility (respects timezone preference).
       // Keep seconds here: this is a data file someone may sort or diff, and short downloads
       // start and end inside the same minute.
-      download.startTimeUtc ? formatDateTime(download.startTimeUtc, false, 'log') : '',
-      download.endTimeUtc ? formatDateTime(download.endTimeUtc, false, 'log') : '',
+      download.startTimeUtc
+        ? formatTimestamp(download.startTimeUtc, { ...clock, style: 'log' })
+        : '',
+      download.endTimeUtc ? formatTimestamp(download.endTimeUtc, { ...clock, style: 'log' }) : '',
       download.cacheHitBytes,
       download.cacheMissBytes,
       download.totalBytes,
@@ -376,6 +385,10 @@ const DownloadsTab: React.FC = () => {
   const { authMode } = useAuth();
   const isGuest = authMode === 'guest';
   const { on, off } = useSignalR();
+  // Read from context so an export started right after a clock change uses the clock the user is
+  // looking at, rather than the one the module-level preference is still holding.
+  const readerClock = useReaderClock();
+  const clock = useMemo(() => ({ ...readerClock, forceYear: false }), [readerClock]);
 
   // Active/Recent tab state
   const [activeTab, setActiveTab] = useState<'active' | 'recent'>('recent');
@@ -511,9 +524,7 @@ const DownloadsTab: React.FC = () => {
   // Mirrors settings.viewMode so handlePageChange can branch without being
   // recreated (and re-rendering memoized views) on every view-mode switch.
   const viewModeRef = useRef<ViewMode>('normal');
-  const pageChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressExpandScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fadeResetFrameRef = useRef<number | null>(null);
 
   const settingsRef = useRef<HTMLDivElement>(null);
   const retroViewRef = useRef<RetroViewHandle>(null);
@@ -670,7 +681,6 @@ const DownloadsTab: React.FC = () => {
 
   // Track previous view mode to detect changes
   const prevViewModeRef = useRef(settings.viewMode);
-  const [_isViewTransitioning, setIsViewTransitioning] = useState(false);
 
   // Effect to switch items per page when view mode changes
   useEffect(() => {
@@ -684,10 +694,6 @@ const DownloadsTab: React.FC = () => {
       if (newMode === 'normal') normalEverMounted.current = true;
       if (newMode === 'retro') retroEverMounted.current = true;
 
-      // Trigger opacity transition for view-mode switch
-      setIsViewTransitioning(true);
-      const timer = setTimeout(() => setIsViewTransitioning(false), 350);
-
       // When switching AWAY from retro, save current retro value and restore previous non-retro value
       if (prevMode === 'retro' && newMode !== 'retro') {
         // Restore the previously saved non-retro itemsPerPage
@@ -696,7 +702,7 @@ const DownloadsTab: React.FC = () => {
         if (settings.itemsPerPage !== restored) {
           setSettings((prev) => ({ ...prev, itemsPerPage: restored }));
         }
-        return () => clearTimeout(timer);
+        return;
       }
 
       prevViewModeRef.current = newMode;
@@ -733,8 +739,6 @@ const DownloadsTab: React.FC = () => {
       if (settings.itemsPerPage !== newItemsPerPage) {
         setSettings((prev) => ({ ...prev, itemsPerPage: newItemsPerPage }));
       }
-
-      return () => clearTimeout(timer);
     }
   }, [settings.viewMode, settings.itemsPerPage]);
 
@@ -1159,14 +1163,14 @@ const DownloadsTab: React.FC = () => {
         }
         case 'efficiency': {
           // Sort by cache hit percentage (highest first)
-          const aEfficiency = a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0;
-          const bEfficiency = b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0;
+          const aEfficiency = cacheHitPercent(a.cacheHitBytes, a.totalBytes);
+          const bEfficiency = cacheHitPercent(b.cacheHitBytes, b.totalBytes);
           return bEfficiency - aEfficiency;
         }
         case 'efficiency-low': {
           // Sort by cache hit percentage (lowest first)
-          const aEffLow = a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0;
-          const bEffLow = b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0;
+          const aEffLow = cacheHitPercent(a.cacheHitBytes, a.totalBytes);
+          const bEffLow = cacheHitPercent(b.cacheHitBytes, b.totalBytes);
           return aEffLow - bEffLow;
         }
         case 'sessions': {
@@ -1324,38 +1328,14 @@ const DownloadsTab: React.FC = () => {
   }, [currentPage]);
 
   useEffect(() => {
-    const nonRetroEl = nonRetroContentRef.current;
-    const retroEl = retroViewRef.current;
     return () => {
-      if (pageChangeTimeoutRef.current !== null) {
-        clearTimeout(pageChangeTimeoutRef.current);
-      }
       if (suppressExpandScrollTimeoutRef.current !== null) {
         clearTimeout(suppressExpandScrollTimeoutRef.current);
       }
-      if (fadeResetFrameRef.current !== null) {
-        cancelAnimationFrame(fadeResetFrameRef.current);
-      }
-      nonRetroEl?.classList.remove('page-fading');
-      retroEl?.setPageFading(false);
     };
   }, []);
 
-  const setContentFade = useCallback(
-    (fading: boolean) => {
-      if (settings.viewMode === 'retro') {
-        nonRetroContentRef.current?.classList.remove('page-fading');
-        retroViewRef.current?.setPageFading(fading);
-        return;
-      }
-
-      retroViewRef.current?.setPageFading(false);
-      nonRetroContentRef.current?.classList.toggle('page-fading', fading);
-    },
-    [settings.viewMode]
-  );
-
-  // Handle page changes with a DOM-only fade so the pagination bar doesn't repaint.
+  // Change client-side pages immediately while avoiding expansion-triggered scrolling.
   const handlePageChange = useCallback(
     (newPage: number) => {
       if (newPage === currentPageRef.current) return;
@@ -1369,38 +1349,21 @@ const DownloadsTab: React.FC = () => {
         return;
       }
 
-      if (pageChangeTimeoutRef.current !== null) {
-        clearTimeout(pageChangeTimeoutRef.current);
-      }
       if (suppressExpandScrollTimeoutRef.current !== null) {
         clearTimeout(suppressExpandScrollTimeoutRef.current);
       }
-      if (fadeResetFrameRef.current !== null) {
-        cancelAnimationFrame(fadeResetFrameRef.current);
-        fadeResetFrameRef.current = null;
-      }
 
-      // Suppress scroll-into-view on newly mounted items during page transition.
+      // Suppress scroll-into-view on newly mounted items during page changes.
       setSuppressExpandScroll(true);
       suppressExpandScrollTimeoutRef.current = setTimeout(() => {
         setSuppressExpandScroll(false);
         suppressExpandScrollTimeoutRef.current = null;
       }, 600);
 
-      setContentFade(true);
-
-      pageChangeTimeoutRef.current = setTimeout(() => {
-        currentPageRef.current = newPage;
-        setCurrentPage(newPage);
-        pageChangeTimeoutRef.current = null;
-
-        fadeResetFrameRef.current = requestAnimationFrame(() => {
-          setContentFade(false);
-          fadeResetFrameRef.current = null;
-        });
-      }, 150);
+      currentPageRef.current = newPage;
+      setCurrentPage(newPage);
     },
-    [setContentFade, setCurrentPage]
+    [setCurrentPage]
   );
 
   const handleExport = (format: 'json' | 'csv') => {
@@ -1424,7 +1387,7 @@ const DownloadsTab: React.FC = () => {
               )
             : (itemsForExport as Download[]);
 
-        content = convertDownloadsToCSV(downloadsForExport);
+        content = convertDownloadsToCSV(downloadsForExport, clock);
         filename = `${baseFilename}.csv`;
         mimeType = 'text/csv;charset=utf-8';
       } else {
@@ -1491,15 +1454,16 @@ const DownloadsTab: React.FC = () => {
   // they come from the speed snapshot, not from the recorded data being loaded.
   if (loading) {
     return (
-      <div className="space-y-4 animate-fade-in">
+      <div className="space-y-4 animate-fade-in" role="status" aria-live="polite" aria-busy="true">
+        <span className="sr-only">{t('common.loading')}</span>
         <LiveDownloadRows previews={visibleLivePreviews} variant="downloads" />
         {/* Skeleton Controls */}
-        <Card padding="sm" className="animate-pulse">
+        <Card padding="sm">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap gap-2">
-              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded w-full sm:w-40"></div>
-              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded flex-1 sm:flex-initial sm:w-32 min-w-0"></div>
-              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded flex-1 sm:flex-initial sm:w-40 min-w-0"></div>
+              <div className="h-10 rounded w-full sm:w-40 skeleton-shimmer" />
+              <div className="h-10 rounded flex-1 sm:flex-initial sm:w-32 min-w-0 skeleton-shimmer" />
+              <div className="h-10 rounded flex-1 sm:flex-initial sm:w-40 min-w-0 skeleton-shimmer" />
             </div>
           </div>
         </Card>
@@ -1507,17 +1471,13 @@ const DownloadsTab: React.FC = () => {
         {/* Skeleton Content */}
         <div className="space-y-2">
           {[1, 2, 3, 4, 5].map((i) => (
-            <div
-              key={i}
-              className="h-16 bg-[var(--theme-bg-secondary)] rounded animate-pulse"
-              style={{ animationDelay: `${i * 100}ms` }}
-            >
+            <div key={i} className="h-16 bg-[var(--theme-bg-secondary)] rounded" aria-hidden="true">
               <div className="p-3 flex items-center gap-3">
-                <div className="h-6 w-16 bg-[var(--theme-bg-tertiary)] rounded"></div>
-                <div className="h-4 bg-[var(--theme-bg-tertiary)] rounded flex-1 max-w-[200px]"></div>
+                <div className="h-6 w-16 rounded skeleton-shimmer" />
+                <div className="h-4 rounded flex-1 max-w-[200px] skeleton-shimmer" />
                 <div className="ml-auto flex gap-3">
-                  <div className="h-4 w-20 bg-[var(--theme-bg-tertiary)] rounded"></div>
-                  <div className="h-4 w-12 bg-[var(--theme-bg-tertiary)] rounded"></div>
+                  <div className="h-4 w-20 rounded skeleton-shimmer" />
+                  <div className="h-4 w-12 rounded skeleton-shimmer" />
                 </div>
               </div>
             </div>
@@ -1665,7 +1625,7 @@ const DownloadsTab: React.FC = () => {
                       {
                         value: 'card',
                         icon: <LayoutGrid />,
-                        tooltip: t('downloads.tab.view.card', 'Card')
+                        tooltip: t('downloads.tab.view.card')
                       },
                       {
                         value: 'normal',
@@ -1765,7 +1725,7 @@ const DownloadsTab: React.FC = () => {
                       { value: 'compact', label: t('downloads.tab.view.compact'), icon: <List /> },
                       {
                         value: 'card',
-                        label: t('downloads.tab.view.card', 'Card'),
+                        label: t('downloads.tab.view.card'),
                         icon: <LayoutGrid />
                       },
                       { value: 'normal', label: t('downloads.tab.view.normal'), icon: <Grid3x3 /> },
@@ -2185,8 +2145,8 @@ const DownloadsTab: React.FC = () => {
               {retroEverMounted.current && (
                 <Suspense
                   fallback={
-                    <div className="flex justify-center py-8">
-                      <LoadingSpinner inline size="lg" />
+                    <div className="py-4">
+                      <LoadingState shape="table" rows={5} />
                     </div>
                   }
                 >

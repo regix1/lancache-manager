@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useMediaQuery } from '@hooks/useMediaQuery';
 import { APP_EVENTS } from '@utils/constants';
 import { clampToViewport } from '@utils/viewportClamp';
 
@@ -34,7 +35,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const [show, setShow] = useState(false);
   const [x, setX] = useState(0);
   const [y, setY] = useState(0);
-  const [isMobile, setIsMobile] = useState(false);
+  const isMobile = useMediaQuery('(max-width: 767px)');
   const [globallyDisabled, setGloballyDisabled] = useState(
     document.documentElement.getAttribute('data-disable-tooltips') === 'true'
   );
@@ -53,17 +54,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
     };
     window.addEventListener(APP_EVENTS.TOOLTIPS_CHANGE, handleTooltipsChange);
     return () => window.removeEventListener(APP_EVENTS.TOOLTIPS_CHANGE, handleTooltipsChange);
-  }, []);
-
-  // Detect mobile viewport - use touch behavior instead of hover
-  useEffect(() => {
-    const checkMobile = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile((prev) => (prev === mobile ? prev : mobile));
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   // Only disable if globally disabled (not on mobile - we use touch there)
@@ -342,10 +332,14 @@ const EdgeTooltip: React.FC<{
   // A long value like a filesystem path is a single unbreakable word, so the max-width caps the
   // box while the text paints straight through it and off the screen. break-words splits a word
   // only when it cannot fit on its own line, so ordinary prose is left exactly as it was. [21]
+  //
+  // z-300 is the top of the overlay scale, above the drawer (200/201) and the dropdown panels
+  // (250/251). Those panels are opaque, so at the old 90 a tooltip on a menu row landed behind
+  // the menu. .tooltip-overlay in user.css carries the same value. [13]
   return (
     <div
       ref={ref}
-      className={`fixed z-[90] max-w-[min(448px,calc(100vw-24px))] break-words px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md tooltip-edge ${contentClassName}`}
+      className={`fixed z-[300] max-w-[min(448px,calc(100vw-24px))] break-words px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md tooltip-edge ${contentClassName}`}
       style={{
         left: pos?.x ?? 0,
         top: pos?.y ?? 0,
@@ -363,7 +357,7 @@ const EdgeTooltip: React.FC<{
 };
 
 export const CacheInfoTooltip: React.FC = () => {
-  const [isMobile, setIsMobile] = useState(false);
+  const isMobile = useMediaQuery('(max-width: 767px)');
   const [globallyDisabled, setGloballyDisabled] = useState(
     document.documentElement.getAttribute('data-disable-tooltips') === 'true'
   );
@@ -376,16 +370,6 @@ export const CacheInfoTooltip: React.FC = () => {
     };
     window.addEventListener(APP_EVENTS.TOOLTIPS_CHANGE, handleTooltipsChange);
     return () => window.removeEventListener(APP_EVENTS.TOOLTIPS_CHANGE, handleTooltipsChange);
-  }, []);
-
-  useEffect(() => {
-    const checkMobile = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile((prev) => (prev === mobile ? prev : mobile));
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   const tooltipsDisabled = globallyDisabled || isMobile;

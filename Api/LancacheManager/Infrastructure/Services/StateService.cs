@@ -100,13 +100,18 @@ public class StateService : IStateService
 
         // Default guest preferences
         public bool DefaultGuestUseLocalTimezone { get; set; } = false;
+        public bool DefaultGuestUseUtcTimezone { get; set; } = false;
         public bool DefaultGuestUse24HourFormat { get; set; } = true;
         public bool DefaultGuestSharpCorners { get; set; } = false;
         public bool DefaultGuestDisableTooltips { get; set; } = false;
         public bool DefaultGuestShowDatasourceLabels { get; set; } = true;
 
         // Allowed time formats for guests
-        public List<string> AllowedTimeFormats { get; set; } = new() { "server-24h", "server-12h", "local-24h", "local-12h" };
+        public List<string> AllowedTimeFormats { get; set; } = new(TimeFormats.All);
+
+        // Marks that the one-time offer of "utc" to installs that predate it has run. Persisted so a
+        // restart never reruns it and cannot put "utc" back after an admin removes it on purpose.
+        public bool UtcTimeFormatMigrated { get; set; } = false;
 
         // Guest prefill permissions
         public bool GuestPrefillEnabledByDefault { get; set; } = false;
@@ -328,7 +333,8 @@ public class StateService : IStateService
             var loadedState = _cachedState!;
             var anchorsSeeded = SeedInitialFirstRunAnchors(loadedState, DateTime.UtcNow);
             var notificationModeMigrated = MigrateEvictionNotificationsToServiceMode(loadedState);
-            if ((anchorsSeeded || notificationModeMigrated) && canPersistScheduledPrefillInit && !loadedWithSectionRecovery)
+            var utcTimeFormatMigrated = MigrateAllowedTimeFormatsForUtc(loadedState);
+            if ((anchorsSeeded || notificationModeMigrated || utcTimeFormatMigrated) && canPersistScheduledPrefillInit && !loadedWithSectionRecovery)
             {
                 SaveState(loadedState);
             }
@@ -1328,6 +1334,43 @@ public class StateService : IStateService
     }
 
     /// <summary>
+    /// The clock formats an install could hold before the UTC clock existed. Written out rather than
+    /// derived from <see cref="TimeFormats.All"/> because it is a historical value, not a second copy of
+    /// the current list: deriving it would quietly change what counts as an untouched install the next
+    /// time a format is added.
+    /// </summary>
+    private static readonly string[] _timeFormatsBeforeUtc =
+        { "server-24h", "server-12h", "local-24h", "local-12h" };
+
+    /// <summary>
+    /// One-time migration: offer "utc" to an install that predates it. The allowed list is written back on
+    /// every save, so an install created before the UTC clock keeps its four-item list forever and the load
+    /// path's default never applies - no guest there can pick UTC until an admin re-saves the list by hand.
+    /// Acts only when the stored list is exactly those four, the one value an install that never narrowed
+    /// the choice can hold; an admin who picked a shorter list is left alone, because a stored list cannot
+    /// say whether UTC was excluded deliberately.
+    /// Gated on <see cref="AppState.UtcTimeFormatMigrated"/> rather than on the list's contents, so an admin
+    /// who later removes "utc" on purpose does not find it back after the next restart. Returns true when
+    /// the state changed, so the caller can persist the marker (and any added format).
+    /// </summary>
+    private static bool MigrateAllowedTimeFormatsForUtc(AppState state)
+    {
+        if (state.UtcTimeFormatMigrated)
+        {
+            return false;
+        }
+
+        if (state.AllowedTimeFormats.Count == _timeFormatsBeforeUtc.Length &&
+            _timeFormatsBeforeUtc.All(format => state.AllowedTimeFormats.Contains(format)))
+        {
+            state.AllowedTimeFormats.Add("utc");
+        }
+
+        state.UtcTimeFormatMigrated = true;
+        return true;
+    }
+
+    /// <summary>
     /// Anchors the initial first-run for each enabled service that has no last-run key yet and runs on
     /// either a positive interval or a custom schedule, stamping it to <paramref name="nowUtc"/> so the
     /// next poll schedules it one interval (or one occurrence) out instead of running it immediately.
@@ -1794,11 +1837,14 @@ public class StateService : IStateService
             GuestRefreshRateLocked = persisted.GuestRefreshRateLocked,
             // Default guest preferences
             DefaultGuestUseLocalTimezone = persisted.DefaultGuestUseLocalTimezone,
+            DefaultGuestUseUtcTimezone = persisted.DefaultGuestUseUtcTimezone,
             DefaultGuestUse24HourFormat = persisted.DefaultGuestUse24HourFormat,
             DefaultGuestSharpCorners = persisted.DefaultGuestSharpCorners,
             DefaultGuestDisableTooltips = persisted.DefaultGuestDisableTooltips,
             DefaultGuestShowDatasourceLabels = persisted.DefaultGuestShowDatasourceLabels,
-            AllowedTimeFormats = persisted.AllowedTimeFormats ?? new List<string> { "server-24h", "server-12h", "local-24h", "local-12h" },
+            AllowedTimeFormats = persisted.AllowedTimeFormats ?? new List<string>(TimeFormats.All),
+            // Restore the marker so the one-time UTC offer never reruns after a restart.
+            UtcTimeFormatMigrated = persisted.UtcTimeFormatMigrated,
             // Guest prefill permissions
             GuestPrefillEnabledByDefault = persisted.GuestPrefillEnabledByDefault,
             GuestPrefillDurationHours = persisted.GuestPrefillDurationHours,
@@ -1912,11 +1958,14 @@ public class StateService : IStateService
             GuestRefreshRateLocked = state.GuestRefreshRateLocked,
             // Default guest preferences
             DefaultGuestUseLocalTimezone = state.DefaultGuestUseLocalTimezone,
+            DefaultGuestUseUtcTimezone = state.DefaultGuestUseUtcTimezone,
             DefaultGuestUse24HourFormat = state.DefaultGuestUse24HourFormat,
             DefaultGuestSharpCorners = state.DefaultGuestSharpCorners,
             DefaultGuestDisableTooltips = state.DefaultGuestDisableTooltips,
             DefaultGuestShowDatasourceLabels = state.DefaultGuestShowDatasourceLabels,
             AllowedTimeFormats = state.AllowedTimeFormats,
+            // Persist the marker so a restart never reruns the one-time UTC offer.
+            UtcTimeFormatMigrated = state.UtcTimeFormatMigrated,
             // Guest prefill permissions
             GuestPrefillEnabledByDefault = state.GuestPrefillEnabledByDefault,
             GuestPrefillDurationHours = state.GuestPrefillDurationHours,

@@ -658,3 +658,157 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
     public Task ShutdownAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
 }
+
+internal abstract class TestDaemonClientBase : IDaemonClient
+{
+    public event Func<CredentialChallenge, Task>? OnCredentialChallenge { add { } remove { } }
+    public event Func<DaemonStatus, Task>? OnStatusUpdate { add { } remove { } }
+    public event Func<SocketPrefillProgress, Task>? OnProgressUpdate { add { } remove { } }
+    public event Func<string, Task>? OnError { add { } remove { } }
+    public event Func<Task>? OnDisconnected { add { } remove { } }
+
+    public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Unexpected GetStatusAsync in this scenario.");
+
+    public Task<CommandResponse> SendCommandAsync(
+        string type, Dictionary<string, string>? parameters = null, TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException($"Unexpected SendCommandAsync({type}) in this test.");
+
+    public Task<CredentialChallenge?> StartLoginAsync(
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Unexpected StartLoginAsync in an erase-on-stop scenario.");
+
+    public Task ProvideCredentialAsync(
+        CredentialChallenge challenge,
+        string credential,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<CredentialChallenge?> GetAutoLoginChallengeAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<bool> ProvideAutoLoginAsync(
+        string sessionId,
+        string username,
+        string refreshToken,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<bool> ProvideEpicAutoLoginAsync(
+        string sessionId,
+        string refreshToken,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<bool> ProvideXboxAutoLoginAsync(
+        string sessionId,
+        string refreshToken,
+        string deviceKeyPkcs8,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<CredentialChallenge?> WaitForChallengeAsync(
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task CancelLoginAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public abstract Task<bool> LogoutAsync(CancellationToken cancellationToken = default);
+
+    public virtual async Task<LogoutOutcome> LogoutWithReasonAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var success = await LogoutAsync(cancellationToken);
+        return new LogoutOutcome(success, RequiresLogin: false);
+    }
+
+    public Task CancelPrefillAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<PrefillResult> PrefillAsync(
+        bool all = false,
+        bool recent = false,
+        bool recentlyPurchased = false,
+        int? top = null,
+        bool force = false,
+        List<string>? operatingSystems = null,
+        int? maxConcurrency = null,
+        List<CachedDepotInput>? cachedDepots = null,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<ClearCacheResult> GetCacheInfoAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(
+        List<string>? operatingSystems = null,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<CacheStatusResult> CheckCacheStatusAsync(
+        List<CachedDepotInput> cachedDepots,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task ShutdownAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public virtual void ClearPendingChallenges() { }
+
+    public virtual Task DrainEventsAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public virtual void Dispose() { }
+}
+
+internal sealed class ScriptedLogoutDaemonClient : TestDaemonClientBase
+{
+    private readonly bool _succeeds;
+
+    public ScriptedLogoutDaemonClient(bool succeeds)
+    {
+        _succeeds = succeeds;
+    }
+
+    public int LogoutCallCount { get; private set; }
+
+    public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+    {
+        LogoutCallCount++;
+        return Task.FromResult(_succeeds);
+    }
+}
+
+internal sealed class ThrowingLogoutDaemonClient : TestDaemonClientBase
+{
+    public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Simulated daemon logout round-trip failure.");
+}
+
+internal sealed class PreLoginRejectionDaemonClient : TestDaemonClientBase
+{
+    public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public override Task<LogoutOutcome> LogoutWithReasonAsync(
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(new LogoutOutcome(false, RequiresLogin: true));
+}

@@ -36,8 +36,15 @@ public class GcController : ControllerBase
         _scheduleRegistry = scheduleRegistry;
     }
 
+    /// <summary>
+    /// Gets the current garbage collection settings.
+    /// </summary>
+    /// <remarks>
+    /// Includes whether automatic collection is enabled and the memory threshold that triggers it.
+    /// </remarks>
     [HttpGet("settings")]
-    public IActionResult GetSettings()
+    [ProducesResponseType(typeof(GcSettingsResponse), StatusCodes.Status200OK)]
+    public ActionResult<GcSettingsResponse> GetSettings()
     {
         var settings = _gcSettingsService.GetSettings();
         return Ok(new GcSettingsResponse
@@ -47,8 +54,17 @@ public class GcController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Updates the garbage collection settings.
+    /// </summary>
+    /// <remarks>
+    /// Prefers the <c>Enabled</c> flag; falls back to the legacy <c>Aggressiveness</c> string for
+    /// one release of backward compatibility with older frontends that have not switched to the
+    /// boolean field yet.
+    /// </remarks>
     [HttpPut("settings")]
-    public async Task<IActionResult> UpdateSettingsAsync([FromBody] UpdateGcSettingsRequest request)
+    [ProducesResponseType(typeof(GcSettingsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<GcSettingsResponse>> UpdateSettingsAsync([FromBody] UpdateGcSettingsRequest request)
     {
         if (request.MemoryThresholdMB < 512 || request.MemoryThresholdMB > 32768)
         {
@@ -98,8 +114,16 @@ public class GcController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Manually triggers an immediate garbage collection.
+    /// </summary>
+    /// <remarks>
+    /// Subject to a 5-second cooldown between triggers so repeat clicks cannot force
+    /// back-to-back collections.
+    /// </remarks>
     [HttpPost("trigger")]
-    public IActionResult TriggerGc()
+    [ProducesResponseType(typeof(GcTriggerResponse), StatusCodes.Status200OK)]
+    public ActionResult<GcTriggerResponse> TriggerGc()
     {
         var now = DateTime.UtcNow;
         var cooldownPeriod = TimeSpan.FromSeconds(5);

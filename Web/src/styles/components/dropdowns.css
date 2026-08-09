@@ -177,6 +177,19 @@
     border-color: var(--theme-border-focus) !important;
   }
 
+  /* The border above already carries the focus colour, so the shared ring is pulled
+     inside to sit against it rather than standing 2px clear as a second ring. */
+  .ed-trigger:focus-visible,
+  .ed-option:focus-visible,
+  .ed-submenu-option:focus-visible {
+    outline: 2px solid var(--theme-border-focus);
+    outline-offset: -2px;
+  }
+
+  .msd-trigger:focus-visible {
+    outline-offset: -2px;
+  }
+
   .calendar-nav .ed-trigger {
     border-color: var(--theme-border-secondary);
     color: var(--theme-text-primary);

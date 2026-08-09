@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { resolveDatasources } from '../src/utils/datasources.ts';
 import { getNginxReopenGate } from '../src/utils/nginxReopenAvailability.ts';
 
 const localeMessages = await Promise.all(
@@ -23,6 +24,43 @@ const datasource = (overrides) => ({
   layout: 'monolithic',
   nginxReopenAvailable: true,
   ...overrides
+});
+
+test('resolves the legacy flat config as one monolithic datasource without nginx reopen', () => {
+  assert.deepEqual(
+    resolveDatasources({
+      dataSources: [],
+      cachePath: '/legacy-cache',
+      logsPath: '/legacy-logs',
+      cacheWritable: false,
+      logsWritable: true
+    }),
+    [
+      {
+        name: 'default',
+        cachePath: '/legacy-cache',
+        logsPath: '/legacy-logs',
+        cacheWritable: false,
+        logsWritable: true,
+        enabled: true,
+        layout: 'monolithic',
+        nginxReopenAvailable: false
+      }
+    ]
+  );
+});
+
+test('preserves a non-empty configured datasource list', () => {
+  const configured = [datasource({ name: 'configured' })];
+  const resolved = resolveDatasources({
+    dataSources: configured,
+    cachePath: '/legacy-cache',
+    logsPath: '/legacy-logs',
+    cacheWritable: false,
+    logsWritable: false
+  });
+
+  assert.strictEqual(resolved, configured);
 });
 
 test('enables destructive actions when nginx reopen is available', () => {
@@ -120,22 +158,55 @@ test('uses the legacy Docker fallback when an unavailable datasource has no hint
   });
 });
 
+// Each hint names one remedy, and that remedy must describe its own fix without
+// bleeding into the other two. The block also holds the alert heading, which is
+// not a remedy, so the keys are read through the gate instead of a fixed list.
+const remedyRules = {
+  grantSignalPrivilege: {
+    required: [/CAP_KILL/],
+    forbidden: [/pid: host|docker\.sock/i]
+  },
+  enablePidHost: {
+    required: [/pid: host/, /CAP_KILL/],
+    forbidden: [/docker\.sock/i]
+  },
+  mountDockerSocket: {
+    required: [/docker\.sock/i],
+    forbidden: [/pid: host|CAP_KILL/]
+  }
+};
+
+const messagePrefix = 'management.nginxReopen.';
+
+const remedyKeyForHint = (hint) => {
+  const { messageKey } = getNginxReopenGate([
+    datasource({ nginxReopenAvailable: false, nginxReopenHint: hint })
+  ]);
+  assert.equal(typeof messageKey, 'string', `hint ${hint} has no remedy`);
+  assert.ok(messageKey.startsWith(messagePrefix), `remedy for ${hint} is outside the block`);
+  return messageKey.slice(messagePrefix.length);
+};
+
 test('locales contain one matching remedy per hint and stay in parity', () => {
   assert.deepEqual(Object.keys(localeMessages[0]).sort(), Object.keys(localeMessages[1]).sort());
 
+  const hints = Object.keys(remedyRules);
+  const remedyKeys = hints.map(remedyKeyForHint);
+  assert.equal(new Set(remedyKeys).size, hints.length, 'two hints share one remedy');
+
   for (const messages of localeMessages) {
-    assert.deepEqual(Object.keys(messages).sort(), [
-      'dockerUnavailable',
-      'enablePidHost',
-      'grantSignalPrivilege'
-    ]);
-    assert.match(messages.grantSignalPrivilege, /CAP_KILL/);
-    assert.doesNotMatch(messages.grantSignalPrivilege, /pid: host|docker\.sock/i);
-    assert.match(messages.enablePidHost, /pid: host/);
-    assert.match(messages.enablePidHost, /CAP_KILL/);
-    assert.doesNotMatch(messages.enablePidHost, /docker\.sock/i);
-    assert.match(messages.dockerUnavailable, /docker\.sock/i);
-    assert.doesNotMatch(messages.dockerUnavailable, /pid: host|CAP_KILL/);
+    hints.forEach((hint, index) => {
+      const key = remedyKeys[index];
+      const message = messages[key];
+      assert.equal(typeof message, 'string', `${key} is missing from a locale`);
+      assert.notEqual(message.trim(), '', `${key} is empty in a locale`);
+      for (const pattern of remedyRules[hint].required) {
+        assert.match(message, pattern);
+      }
+      for (const pattern of remedyRules[hint].forbidden) {
+        assert.doesNotMatch(message, pattern);
+      }
+    });
   }
 });
 

@@ -381,7 +381,26 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
         surface="well"
       >
         {listLoading && entries === null && !listError ? (
-          <LoadingState message={t('management.corruption.history.loading')} />
+          <div role="status" aria-live="polite" aria-busy="true">
+            <span className="sr-only">{t('management.corruption.history.loading')}</span>
+            <div className="mgmt-list divided-list" aria-hidden="true">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="mgmt-row flex-wrap">
+                  <div className="mgmt-row__body">
+                    <div
+                      className={`skeleton-shimmer rounded h-3.5 ${i % 2 === 0 ? 'w-2/5' : 'w-1/2'}`}
+                    />
+                    <div className="skeleton-shimmer rounded h-3 w-3/5 mt-1.5" />
+                  </div>
+                  <div className="mgmt-row__actions mgmt-corruption-actions flex-wrap justify-end">
+                    <div className="skeleton-shimmer rounded-full h-5 w-16" />
+                    <div className="skeleton-shimmer rounded h-7 w-14" />
+                    <div className="skeleton-shimmer rounded h-7 w-24" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         ) : listError ? (
           <Alert color="red">
             <div className="flex flex-wrap items-center justify-between gap-3">

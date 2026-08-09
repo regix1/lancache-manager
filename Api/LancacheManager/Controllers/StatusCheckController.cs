@@ -27,7 +27,15 @@ public class StatusCheckController : ControllerBase
         _domainsService = domainsService;
     }
 
+    /// <summary>
+    /// Gets the current Status Check state.
+    /// </summary>
+    /// <remarks>
+    /// Includes the last completed sweep, where the cache-domains list came from, whether a sweep
+    /// is running, and the persisted DNS resolver mode.
+    /// </remarks>
     [HttpGet("")]
+    [ProducesResponseType(typeof(StatusCheckStateResponse), StatusCodes.Status200OK)]
     public ActionResult<StatusCheckStateResponse> GetState()
     {
         return Ok(new StatusCheckStateResponse
@@ -40,7 +48,11 @@ public class StatusCheckController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Persists which DNS resolver a Status Check sweep uses to resolve cache-domains entries.
+    /// </summary>
     [HttpPost("resolver-mode")]
+    [ProducesResponseType(typeof(SetResolverModeResponse), StatusCodes.Status200OK)]
     public ActionResult<SetResolverModeResponse> SetResolverMode([FromBody] SetResolverModeRequest request)
     {
         if (!StatusCheckResolverModes.IsValid(request.Mode))
@@ -52,7 +64,15 @@ public class StatusCheckController : ControllerBase
         return Ok(new SetResolverModeResponse { ResolverMode = request.Mode });
     }
 
+    /// <summary>
+    /// Starts a full Status Check sweep of every cache-domains entry.
+    /// </summary>
+    /// <remarks>
+    /// Rejects the request when a sweep is already running rather than queuing one, since the
+    /// frontend polls <see cref="GetState"/> for progress.
+    /// </remarks>
     [HttpPost("run")]
+    [ProducesResponseType(typeof(RunStatusCheckResponse), StatusCodes.Status202Accepted)]
     public ActionResult Run()
     {
         var operationId = _statusCheckService.StartSweep();
@@ -64,7 +84,16 @@ public class StatusCheckController : ControllerBase
         return Accepted(new RunStatusCheckResponse { OperationId = operationId.Value });
     }
 
+    /// <summary>
+    /// Runs an ad hoc resolution and heartbeat test against a single hostname.
+    /// </summary>
+    /// <remarks>
+    /// Runs outside the regular sweep and backs the test-a-domain dropdown. Wildcard cache-domains
+    /// entries (<c>*.example.com</c>) are valid input; the sweep's probe-label substitution happens
+    /// service-side.
+    /// </remarks>
     [HttpPost("test-domain")]
+    [ProducesResponseType(typeof(TestDomainResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<TestDomainResponse>> TestDomainAsync(
         [FromBody] TestDomainRequest request, CancellationToken cancellationToken)
     {
@@ -86,8 +115,16 @@ public class StatusCheckController : ControllerBase
         return Ok(new TestDomainResponse { Result = result, Heartbeat = heartbeat });
     }
 
+    /// <summary>
+    /// Forces a re-fetch of the cache-domains list from its configured source.
+    /// </summary>
+    /// <remarks>
+    /// Runs instead of waiting for the periodic refresh. Rejected when the source is blocked
+    /// (e.g. NOFETCH with no cached copy).
+    /// </remarks>
     [HttpPost("refresh-domains")]
-    public async Task<ActionResult> RefreshDomainsAsync(CancellationToken cancellationToken)
+    [ProducesResponseType(typeof(RefreshDomainsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<RefreshDomainsResponse>> RefreshDomainsAsync(CancellationToken cancellationToken)
     {
         var outcome = await _domainsService.RefreshDomainsAsync(cancellationToken);
         if (!outcome.Success)
@@ -103,7 +140,14 @@ public class StatusCheckController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Gets the cache-domains list backing the test-a-domain dropdown.
+    /// </summary>
+    /// <remarks>
+    /// Reads from cache without forcing a refresh.
+    /// </remarks>
     [HttpGet("domains")]
+    [ProducesResponseType(typeof(GetDomainsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<GetDomainsResponse>> GetDomainsAsync(CancellationToken cancellationToken)
     {
         var domains = await _domainsService.GetDomainsAsync(forceRefresh: false, cancellationToken);

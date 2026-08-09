@@ -9,8 +9,7 @@ import type {
   ServiceDetectionSummary,
   SparklineDataResponse,
   HourlyActivityResponse,
-  CacheSnapshotResponse,
-  CacheGrowthResponse
+  CacheSnapshotResponse
 } from '../../types';
 
 export interface DashboardBatchResponse {
@@ -23,7 +22,6 @@ export interface DashboardBatchResponse {
   sparklines: SparklineDataResponse | null;
   hourlyActivity: HourlyActivityResponse | null;
   cacheSnapshot: CacheSnapshotResponse | null;
-  cacheGrowth: CacheGrowthResponse | null;
 }
 
 /**
@@ -78,7 +76,6 @@ interface DashboardDataContextType {
   sparklines: SparklineDataResponse | null;
   hourlyActivity: HourlyActivityResponse | null;
   cacheSnapshot: CacheSnapshotResponse | null;
-  cacheGrowth: CacheGrowthResponse | null;
 
   // Loading & Error states
   loading: boolean;

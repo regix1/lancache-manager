@@ -1,4 +1,12 @@
-import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useLayoutEffect,
+  useCallback
+} from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +16,7 @@ import { getEventColorVar } from '@utils/eventColors';
 import { clampToViewport } from '@utils/viewportClamp';
 import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 import { useAnchorFollow, readAnchorRect, type AnchorRect } from '@hooks/useAnchorFollow';
+import { useTextTruncation } from '@hooks/useTextTruncation';
 
 /**
  * Menu placement in DOCUMENT coordinates (the menu is `position: absolute` in a
@@ -184,6 +193,17 @@ interface IconComponentProps {
   style?: React.CSSProperties;
 }
 
+/**
+ * Whether a row can be chosen outright. A divider is a heading, a disabled row is refusing, and a
+ * row with a submenu opens that submenu rather than settling on a value, so the keyboard walks
+ * past all three.
+ */
+function isSelectableOption(option: DropdownOption): boolean {
+  return (
+    option.value !== 'divider' && !option.disabled && !(option.submenu && option.submenu.length > 0)
+  );
+}
+
 export interface SubmenuOption {
   value: string;
   label: string;
@@ -243,6 +263,11 @@ interface EnhancedDropdownProps {
    * than any of these three values, so it isn't pinned to them.
    */
   size?: 'sm' | 'md' | 'lg';
+  /**
+   * Puts a filter box at the top of the menu. Worth it once the list is long enough that
+   * scrolling it is worse than typing; a short menu reads faster without one.
+   */
+  searchable?: boolean;
 }
 
 export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
@@ -266,10 +291,14 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   cleanStyle = false,
   maxHeight,
   variant = 'card',
-  size = 'md'
+  size = 'md',
+  searchable = false
 }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  /** The row the arrow keys are on, so Enter takes what the reader is looking at. */
+  const [activeValue, setActiveValue] = useState<string | null>(null);
   const { present, closing } = useExitPresence(isOpen, DROPDOWN_EXIT_MS);
   const [dropdownStyle, setDropdownStyle] = useState<{ animation: string }>({ animation: '' });
   const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition | null>(null);
@@ -278,16 +307,84 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  /** The row the arrow keys are on, held so it can be scrolled back into view as they move. */
+  const activeRowRef = useRef<HTMLButtonElement | null>(null);
   /** The option row the open submenu hangs off, so it can be re-measured as the menu moves. */
   const submenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   /** Side the menu is currently opened on (null while closed). Feeds the flip hysteresis. */
   const upwardRef = useRef<boolean | null>(null);
+  // The menu is portalled to <body>, so it is not a DOM descendant of the trigger and a reader has
+  // no structural way to connect the two. The ids below are what carry that relationship instead:
+  // aria-controls names the list, aria-activedescendant names the row the arrow keys are on while
+  // focus stays on either the trigger or the search box. React's generated ids contain colons,
+  // which are legal in an id attribute but not in a CSS selector, so they are stripped the same
+  // way ContentPathRow does.
+  const dropdownId = useId().replace(/:/g, '');
+  const listboxId = `${dropdownId}-listbox`;
+  const optionId = (value: string): string => `${dropdownId}-option-${encodeURIComponent(value)}`;
 
   const selectedOption =
     options.find((opt) => opt.value === value) ||
     (value.includes(':')
       ? options.find((opt) => opt.submenu && value.startsWith(opt.value + ':'))
       : undefined);
+  const selectedValue = selectedOption?.value ?? null;
+
+  /**
+   * What the menu shows for the current filter, and the options untouched when there is none.
+   * A search flattens the submenus: an entry that only exists inside "Europe" cannot be reached
+   * by a search that can just match the region row, so a matching child is offered directly. It
+   * still selects as "Europe:Europe/Berlin", exactly as it would have from the submenu, so a
+   * caller reads one shape whichever way it was picked.
+   */
+  const visibleOptions = useMemo((): DropdownOption[] => {
+    const term = searchable ? searchTerm.trim().toLowerCase() : '';
+    if (term.length === 0) return options;
+    const matches = (...fields: (string | undefined)[]): boolean =>
+      fields.some((field) => field !== undefined && field.toLowerCase().includes(term));
+    const found: DropdownOption[] = [];
+    for (const option of options) {
+      if (option.value === 'divider') continue;
+      if (!option.submenu || option.submenu.length === 0) {
+        if (matches(option.label, option.description, option.value)) found.push(option);
+        continue;
+      }
+      // A region whose own name matches offers everything under it; otherwise only the
+      // entries that match themselves.
+      const wholeGroup = matches(option.label, option.description);
+      for (const entry of option.submenu) {
+        if (!wholeGroup && !matches(entry.label, entry.description, entry.value)) continue;
+        found.push({
+          value: `${option.value}:${entry.value}`,
+          label: entry.label,
+          description: option.label
+        });
+      }
+    }
+    return found;
+  }, [options, searchTerm, searchable]);
+
+  /** The rows the arrow keys can land on, in the order they are drawn. */
+  const selectableValues = useMemo(
+    (): string[] => visibleOptions.filter(isSelectableOption).map((option) => option.value),
+    [visibleOptions]
+  );
+
+  /**
+   * Where each row sits in the list and how long the list is. A filter rewrites both, and the count
+   * is the only way a reader learns that typing another letter cut the list from twelve rows to one:
+   * the rows scroll past silently otherwise. Dividers are headings rather than choices, so they are
+   * not counted.
+   */
+  const optionPositions = useMemo((): Map<string, number> => {
+    const positions = new Map<string, number>();
+    for (const option of visibleOptions) {
+      if (option.value === 'divider') continue;
+      positions.set(option.value, positions.size + 1);
+    }
+    return positions;
+  }, [visibleOptions]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -296,8 +393,32 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       setExpandedSubmenu(null);
       setSubmenuPosition(null);
       submenuTriggerRef.current = null;
+      // A filter only ever describes the menu that is open, so the next opening starts whole.
+      setSearchTerm('');
+      setActiveValue(null);
     }
   }, [isOpen]);
+
+  // Every composite focus owner names a real row while its list is open. Search keeps its
+  // established first-match fallback; a trigger-owned list starts on the selected row so arrow
+  // movement is preview-only until Enter, Space, or a click commits it.
+  useEffect(() => {
+    if (!isOpen) return;
+    const fallback =
+      !searchable && selectedValue !== null && selectableValues.includes(selectedValue)
+        ? selectedValue
+        : (selectableValues[0] ?? null);
+    setActiveValue((current) =>
+      current !== null && selectableValues.includes(current) ? current : fallback
+    );
+  }, [isOpen, searchable, selectableValues, selectedValue]);
+
+  // A row arrowed past the bottom of the panel has to be brought back, and the panel is its own
+  // scroll box rather than the page's, so the row asks its nearest scrolling ancestor.
+  useEffect(() => {
+    if (activeValue === null) return;
+    activeRowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [activeValue]);
 
   // Clear the cached position only after the exit animation has unmounted the
   // menu, so `closing` renders keep their coordinates and the exit is stable.
@@ -408,6 +529,14 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     applyMenuGeometry(readAnchorRect(buttonRef.current), true);
   }, [isOpen, applyMenuGeometry]);
 
+  // Filtering shortens the menu, and a menu opened upward is placed by subtracting its height
+  // from the trigger, so every change in the row count has to be re-measured or the panel drifts
+  // away from the button as the user types. Not an entrance, so the keyframe is left alone.
+  useLayoutEffect(() => {
+    if (!isOpen || !buttonRef.current) return;
+    applyMenuGeometry(readAnchorRect(buttonRef.current), false);
+  }, [visibleOptions.length, isOpen, applyMenuGeometry]);
+
   // The parent menu's coordinates are state-driven. Measure the submenu row only
   // after React has committed those coordinates, while still correcting the
   // separately portalled submenu before the browser paints.
@@ -476,12 +605,79 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     };
   }, [isOpen]);
 
+  const openDropdown = useCallback((): void => {
+    if (disabled) return;
+    const trigger = buttonRef.current;
+    if (trigger) {
+      // Seed the menu from an estimated size so it has coordinates to render at; the layout
+      // effect corrects it from the measured box before paint.
+      const geometry = computeMenuGeometry(readAnchorRect(trigger));
+      upwardRef.current = geometry.upward;
+      setDropdownPosition({
+        top: geometry.top,
+        left: geometry.left,
+        width: geometry.width
+      });
+      setDropdownStyle({
+        animation: `${geometry.upward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
+      });
+    }
+    setIsOpen(true);
+  }, [computeMenuGeometry, disabled]);
+
   const handleSelect = useCallback(
     (optionValue: string) => {
       onChange(optionValue);
       setIsOpen(false);
     },
     [onChange]
+  );
+
+  const moveActive = useCallback(
+    (step: 1 | -1): void => {
+      if (selectableValues.length === 0) return;
+      setActiveValue((current) => {
+        const at =
+          current !== null
+            ? selectableValues.indexOf(current)
+            : searchable
+              ? -1
+              : selectedValue !== null
+                ? selectableValues.indexOf(selectedValue)
+                : -1;
+        // Stops at each end rather than wrapping: a four-hundred-row list wrapping from the top
+        // to the bottom loses the reader's place entirely.
+        const next = Math.min(Math.max(at + step, 0), selectableValues.length - 1);
+        return selectableValues[next];
+      });
+    },
+    [searchable, selectableValues, selectedValue]
+  );
+
+  /**
+   * The keyboard path through a filtered menu. Focus stays in the box being typed into, so the
+   * arrows move a highlighted row rather than focus itself, and Enter takes that row. Without it
+   * a list long enough to want a filter can only be reached by typing until one row is left and
+   * hoping it is the right one.
+   */
+  const handleSearchKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>): void => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (selectableValues.length === 0) return;
+        event.preventDefault();
+        moveActive(event.key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
+      if (event.key !== 'Enter') return;
+      const chosen =
+        activeValue !== null && selectableValues.includes(activeValue)
+          ? activeValue
+          : selectableValues[0];
+      if (chosen === undefined) return;
+      event.preventDefault();
+      handleSelect(chosen);
+    },
+    [activeValue, handleSelect, moveActive, selectableValues]
   );
 
   const handleSubmenuToggle = useCallback(
@@ -501,6 +697,40 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     [expandedSubmenu]
   );
 
+  const handleTriggerKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>): void => {
+      if (searchable || disabled) return;
+
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (selectableValues.length === 0) return;
+        event.preventDefault();
+        if (!isOpen) openDropdown();
+        moveActive(event.key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
+
+      if (!isOpen || (event.key !== 'Enter' && event.key !== ' ')) return;
+      const chosen =
+        activeValue !== null && selectableValues.includes(activeValue)
+          ? activeValue
+          : selectableValues[0];
+      if (chosen === undefined) return;
+      // Prevent the button's synthesized click from immediately toggling the menu after selection.
+      event.preventDefault();
+      handleSelect(chosen);
+    },
+    [
+      activeValue,
+      disabled,
+      handleSelect,
+      isOpen,
+      moveActive,
+      openDropdown,
+      searchable,
+      selectableValues
+    ]
+  );
+
   const displayLabel = customTriggerLabel
     ? customTriggerLabel
     : selectedOption
@@ -511,6 +741,12 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       : placeholder || t('ui.dropdown.selectOption');
   const TriggerIcon = TriggerIconOverride ?? selectedOption?.icon;
   const resolvedAriaLabel = triggerAriaLabel || displayLabel;
+  // The trigger is a fixed-width control and the label is clipped to fit it, so the label
+  // is measured to decide whether a hover box has anything to add. A label that fits reads
+  // the same in the tooltip as it does on the button; a clipped one has no other way to be
+  // read. Re-measured on every width change, since the same name fits at one window size
+  // and not at the next.
+  const { ref: labelRef, isTruncated: isLabelTruncated } = useTextTruncation(displayLabel);
   // Size → explicit trigger height (height matrix in the `size` prop doc above). `items-center`
   // on the button centers the icon/label/chevron within it, same as Button/SegmentedControl.
   const triggerSizeClass = size === 'sm' ? 'h-[34px]' : size === 'lg' ? 'h-[42px]' : 'h-10';
@@ -532,31 +768,26 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
           e.stopPropagation();
           if (disabled) return;
           if (!isOpen) {
-            if (buttonRef.current) {
-              // Seed the menu from an estimated size so it has coordinates to
-              // render at; the layout effect corrects it from the measured box
-              // before paint.
-              const geometry = computeMenuGeometry(readAnchorRect(buttonRef.current));
-              upwardRef.current = geometry.upward;
-              setDropdownPosition({
-                top: geometry.top,
-                left: geometry.left,
-                width: geometry.width
-              });
-              setDropdownStyle({
-                animation: `${geometry.upward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
-              });
-            }
-            setIsOpen(true);
+            openDropdown();
           } else {
             setIsOpen(false);
           }
         }}
+        onKeyDown={handleTriggerKeyDown}
         onTouchEnd={(e) => {
           e.stopPropagation();
         }}
         disabled={disabled}
+        role="combobox"
         aria-label={resolvedAriaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={listboxId}
+        aria-activedescendant={
+          !searchable && isOpen && activeValue !== null && optionPositions.has(activeValue)
+            ? optionId(activeValue)
+            : undefined
+        }
         className={`ed-trigger w-full px-3 ${triggerSizeClass} themed-border-radius-sm border text-left flex items-center justify-between text-sm text-themed-primary ${
           variant === 'button' ? 'bg-themed-surface hover:bg-themed-surface-hover' : 'themed-card'
         } ${
@@ -574,8 +805,17 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
             <TriggerIcon className="flex-shrink-0 text-[var(--theme-primary)]" size={16} />
           )}
           {!iconOnly && (
-            <Tooltip content={displayLabel} position="top" className="min-w-0">
-              <span className={compactMode ? 'block font-medium' : 'block truncate'}>
+            // The Tooltip stays mounted whether or not it has anything to say. Adding and
+            // removing it would move the label between a wrapped div and a direct flex item,
+            // and a flex item's automatic minimum width stops it shrinking, so the label
+            // would measure as untruncated the moment the tooltip came off and then flicker
+            // between the two states.
+            <Tooltip
+              content={isLabelTruncated ? displayLabel : null}
+              position="top"
+              className="min-w-0"
+            >
+              <span ref={labelRef} className={compactMode ? 'block font-medium' : 'block truncate'}>
                 {displayLabel}
               </span>
             </Tooltip>
@@ -616,6 +856,46 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
               </div>
             )}
 
+            {searchable && (
+              <div className="px-2 py-2 border-b border-themed-primary bg-themed-secondary">
+                {/* The box that holds focus is the one that owns the list: the arrow keys move a
+                    highlight through rows the caret never enters, so the row Enter would take is
+                    named here by id rather than by focus. */}
+                <input
+                  ref={searchInputRef}
+                  autoFocus
+                  type="text"
+                  role="searchbox"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder={t('common.search')}
+                  aria-label={t('common.search')}
+                  aria-autocomplete="list"
+                  aria-controls={listboxId}
+                  aria-activedescendant={
+                    activeValue !== null && optionPositions.has(activeValue)
+                      ? optionId(activeValue)
+                      : undefined
+                  }
+                  className="themed-input control-h-md w-full px-3 text-sm"
+                />
+              </div>
+            )}
+
+            {searchable && (
+              <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+                {visibleOptions.length === 0
+                  ? t('ui.dropdown.noMatches')
+                  : t('ui.pagination.itemRange', {
+                      start: 1,
+                      end: visibleOptions.length,
+                      total: visibleOptions.length,
+                      label: t('ui.pagination.items')
+                    })}
+              </div>
+            )}
+
             <CustomScrollbar
               maxHeight={cleanStyle ? 'none' : maxHeight || '280px'}
               variant="float"
@@ -623,72 +903,74 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
             >
               {/* No vertical padding: the first/last option's highlight must reach the
                   panel edge, where the rounded overflow clip finishes the corners. */}
-              <div>
-                {options.map((option) =>
+              <div id={listboxId} role="listbox" aria-label={resolvedAriaLabel}>
+                {searchable && visibleOptions.length === 0 && (
+                  <div className="px-3 py-3 text-sm text-themed-muted">
+                    {t('ui.dropdown.noMatches')}
+                  </div>
+                )}
+                {visibleOptions.map((option) =>
                   option.value === 'divider' ? (
-                    <Tooltip
+                    <div
                       key={option.value}
-                      content={option.label}
-                      position="top"
-                      className="block"
+                      role="separator"
+                      className="px-3 py-2 text-xs font-medium border-t border-themed-primary mt-1 mb-1 truncate text-themed-muted bg-themed-tertiary"
                     >
-                      <div className="px-3 py-2 text-xs font-medium border-t border-themed-primary mt-1 mb-1 truncate text-themed-muted bg-themed-tertiary">
-                        {option.label}
-                      </div>
-                    </Tooltip>
+                      {option.label}
+                    </div>
                   ) : option.submenu && option.submenu.length > 0 ? (
                     <React.Fragment key={option.value}>
-                      <Tooltip
-                        content={option.description || option.label}
-                        position="top"
-                        className="w-full"
+                      <button
+                        type="button"
+                        id={optionId(option.value)}
+                        role="option"
+                        aria-selected={value.startsWith(option.value + ':')}
+                        aria-expanded={expandedSubmenu === option.value}
+                        aria-setsize={optionPositions.size}
+                        aria-posinset={optionPositions.get(option.value)}
+                        onClick={(e) => handleSubmenuToggle(option.value, e.currentTarget)}
+                        className={`ed-option w-full ${compactMode ? 'px-2 py-1 text-xs' : 'px-3 py-2.5 text-sm'} text-left cursor-pointer ${value.startsWith(option.value + ':') || expandedSubmenu === option.value ? 'ed-option-selected' : ''}`}
                       >
-                        <button
-                          type="button"
-                          onClick={(e) => handleSubmenuToggle(option.value, e.currentTarget)}
-                          className={`ed-option w-full ${compactMode ? 'px-2 py-1 text-xs' : 'px-3 py-2.5 text-sm'} text-left cursor-pointer ${value.startsWith(option.value + ':') || expandedSubmenu === option.value ? 'ed-option-selected' : ''}`}
-                        >
-                          <div className="flex items-start gap-3">
-                            {!cleanStyle && option.icon && (
-                              <option.icon
-                                className={`flex-shrink-0 mt-0.5 ${
-                                  value.startsWith(option.value + ':')
-                                    ? 'text-[var(--theme-selected-text)]'
-                                    : 'text-themed-secondary'
-                                }`}
-                                size={16}
-                              />
-                            )}
-                            <div className="flex flex-col flex-1 min-w-0">
-                              <span
-                                className={`font-medium truncate ${value.startsWith(option.value + ':') ? 'text-[var(--theme-selected-text)]' : 'text-themed-primary'}`}
-                              >
-                                {option.label}
-                              </span>
-                              {option.description && (
-                                <span className="text-xs mt-0.5 leading-relaxed text-themed-secondary">
-                                  {option.description}
-                                </span>
-                              )}
-                            </div>
-                            {option.rightLabel && (
-                              <span
-                                className={`flex-shrink-0 text-xs font-medium ${
-                                  value.startsWith(option.value + ':')
-                                    ? 'text-[var(--theme-selected-text)]'
-                                    : 'text-themed-secondary'
-                                }`}
-                              >
-                                {option.rightLabel}
-                              </span>
-                            )}
-                            <ChevronRight
+                        <div className="flex items-start gap-3">
+                          {!cleanStyle && option.icon && (
+                            <option.icon
+                              className={`flex-shrink-0 mt-0.5 ${
+                                value.startsWith(option.value + ':')
+                                  ? 'text-[var(--theme-selected-text)]'
+                                  : 'text-themed-secondary'
+                              }`}
                               size={16}
-                              className={`flex-shrink-0 mt-0.5 transition-transform duration-200 text-themed-muted ${expandedSubmenu === option.value ? (submenuPosition?.openLeft ? '-rotate-90' : 'rotate-90') : ''}`}
                             />
+                          )}
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span
+                              className={`font-medium truncate ${value.startsWith(option.value + ':') ? 'text-[var(--theme-selected-text)]' : 'text-themed-primary'}`}
+                            >
+                              {option.label}
+                            </span>
+                            {option.description && (
+                              <span className="text-xs mt-0.5 leading-relaxed text-themed-secondary">
+                                {option.description}
+                              </span>
+                            )}
                           </div>
-                        </button>
-                      </Tooltip>
+                          {option.rightLabel && (
+                            <span
+                              className={`flex-shrink-0 text-xs font-medium ${
+                                value.startsWith(option.value + ':')
+                                  ? 'text-[var(--theme-selected-text)]'
+                                  : 'text-themed-secondary'
+                              }`}
+                            >
+                              {option.rightLabel}
+                            </span>
+                          )}
+                          <ChevronRight
+                            size={16}
+                            className={`flex-shrink-0 mt-0.5 transition-transform duration-200 text-themed-muted ${expandedSubmenu === option.value ? (submenuPosition?.openLeft ? '-rotate-90' : 'rotate-90') : ''}`}
+                          />
+                        </div>
+                      </button>
 
                       {expandedSubmenu === option.value &&
                         submenuPosition &&
@@ -707,14 +989,19 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                               </div>
                             )}
                             <CustomScrollbar maxHeight="240px" variant="float" radius="none">
-                              <div>
-                                {option.submenu.map((subItem) => {
+                              <div role="listbox" aria-label={option.submenuTitle || option.label}>
+                                {option.submenu.map((subItem, subIndex) => {
                                   const isSubSelected =
                                     value === `${option.value}:${subItem.value}`;
                                   return (
                                     <button
                                       key={subItem.value}
                                       type="button"
+                                      id={optionId(`${option.value}:${subItem.value}`)}
+                                      role="option"
+                                      aria-selected={isSubSelected}
+                                      aria-setsize={option.submenu?.length}
+                                      aria-posinset={subIndex + 1}
                                       onClick={() =>
                                         handleSelect(`${option.value}:${subItem.value}`)
                                       }
@@ -736,15 +1023,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                       )}
                                       <div className="flex-1 min-w-0 text-left">
                                         <div className="flex items-center gap-1.5">
-                                          <Tooltip
-                                            content={subItem.label}
-                                            position="top"
-                                            className="min-w-0"
-                                          >
-                                            <span className="block font-medium truncate">
-                                              {subItem.label}
-                                            </span>
-                                          </Tooltip>
+                                          <span className="block min-w-0 font-medium truncate">
+                                            {subItem.label}
+                                          </span>
                                           {subItem.badge && (
                                             <span
                                               className="px-1.5 py-0.5 text-[10px] rounded-full font-medium"
@@ -763,17 +1044,11 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                           )}
                                         </div>
                                         {subItem.description && (
-                                          <Tooltip
-                                            content={subItem.description}
-                                            position="top"
-                                            className="block min-w-0"
+                                          <div
+                                            className={`text-xs truncate ${isSubSelected ? 'text-white/70' : 'text-themed-muted'}`}
                                           >
-                                            <div
-                                              className={`text-xs truncate ${isSubSelected ? 'text-white/70' : 'text-themed-muted'}`}
-                                            >
-                                              {subItem.description}
-                                            </div>
-                                          </Tooltip>
+                                            {subItem.description}
+                                          </div>
                                         )}
                                       </div>
                                       {isSubSelected && (
@@ -795,12 +1070,22 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                     <React.Fragment key={option.value}>
                       {(() => {
                         const isSelected = option.value === value;
+                        // The row the arrow keys are on. The selected row's own fill wins where
+                        // the two land together, which is the state they start in.
+                        const isActive = option.value === activeValue;
                         const buttonContent = (
                           <button
                             type="button"
+                            ref={isActive ? activeRowRef : undefined}
+                            id={optionId(option.value)}
+                            role="option"
+                            aria-selected={isSelected}
+                            aria-disabled={option.disabled}
+                            aria-setsize={optionPositions.size}
+                            aria-posinset={optionPositions.get(option.value)}
                             onClick={() => !option.disabled && handleSelect(option.value)}
                             disabled={option.disabled}
-                            className={`ed-option w-full ${compactMode ? 'px-2 py-1 text-xs' : 'px-3 py-2.5 text-sm'} text-left ${option.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'} ${isSelected ? 'ed-option-selected' : ''}`}
+                            className={`ed-option w-full ${compactMode ? 'px-2 py-1 text-xs' : 'px-3 py-2.5 text-sm'} text-left ${option.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'} ${isSelected ? 'ed-option-selected' : isActive ? 'bg-themed-hover' : ''}`}
                           >
                             <div className={`flex items-start ${compactMode ? 'gap-2' : 'gap-3'}`}>
                               {!cleanStyle && option.icon && (
@@ -837,10 +1122,15 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                             </div>
                           </button>
                         );
-                        return (
-                          <Tooltip content={option.tooltip || option.label} className="w-full">
+                        // Only an explicit `tooltip` earns a hover box. Falling back to the label
+                        // put the row's own heading in a box on top of the row, and the menu sits
+                        // above the tooltip layer, so every row but the first hid it anyway.
+                        return option.tooltip ? (
+                          <Tooltip content={option.tooltip} className="w-full">
                             {buttonContent}
                           </Tooltip>
+                        ) : (
+                          buttonContent
                         );
                       })()}
                     </React.Fragment>

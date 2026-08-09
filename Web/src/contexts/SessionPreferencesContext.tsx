@@ -4,32 +4,31 @@ import { useAuth } from './useAuth';
 import ApiService from '@services/api.service';
 import type {
   UserPreferencesUpdatedEvent,
-  DefaultGuestThemeChangedEvent
+  DefaultGuestThemeChangedEvent,
+  DefaultGuestPreferencesChangedEvent,
+  AllowedTimeFormatsChangedEvent
 } from './SignalRContext/types';
-import { getCorrectedTimezone } from '@utils/pendingPreferences';
+import { preferPendingTimezone } from '@utils/pendingPreferences';
 import {
+  applyGuestClockChanges,
   DEFAULT_GUEST_PREFERENCE_KEYS,
+  shouldApplyGuestClockChange,
   shouldApplyGuestDefaultChange
 } from '@utils/guestDefaultPreferenceGate';
-import { getCachedDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
+import {
+  applyAllowedTimeFormatsChange,
+  applyDefaultGuestPreferencesChange,
+  getCachedDefaultGuestPreferences,
+  type DefaultGuestPreferences
+} from '@hooks/useDefaultGuestPreferences';
 import { SessionPreferencesContext } from './SessionPreferencesContext.types';
 import { APP_EVENTS } from '@utils/constants';
-import type { UserPreferences } from '@/types/userPreferences';
-
-const DEFAULT_PREFERENCES: UserPreferences = {
-  selectedTheme: null,
-  sharpCorners: false,
-  disableFocusOutlines: true,
-  disableTooltips: false,
-  picsAlwaysVisible: false,
-  disableStickyNotifications: false,
-  useLocalTimezone: false,
-  use24HourFormat: true,
-  showDatasourceLabels: true,
-  refreshRate: null,
-  refreshRateLocked: null,
-  allowedTimeFormats: null
-};
+import {
+  CLOCK_KEYS,
+  DEFAULT_PREFERENCES,
+  type ClockPreferences,
+  type UserPreferences
+} from '@/types/userPreferences';
 
 export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }> = ({
   children
@@ -40,6 +39,9 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   const failedIds = useRef<Set<string>>(new Set());
   const preferencesRef = useRef<Record<string, UserPreferences>>({});
   const initialLoadDone = useRef(false);
+  const pendingDefaultClocks = useRef<
+    Map<string, { clock: ClockPreferences; previousClock: ClockPreferences }[]>
+  >(new Map());
 
   const { on, off } = useSignalR();
   const { isAdmin, hasSession, sessionId: authSessionId, isLoading: authLoading } = useAuth();
@@ -90,6 +92,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
           );
           failedIds.current.add(sessionId);
           loadedIds.current.add(sessionId);
+          pendingDefaultClocks.current.delete(sessionId);
           return;
         }
 
@@ -99,6 +102,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
             `[SessionPreferencesContext] HTTP ${response.status} for session ${sessionId}`
           );
           loadedIds.current.add(sessionId);
+          pendingDefaultClocks.current.delete(sessionId);
           return;
         }
 
@@ -112,13 +116,23 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
           disableStickyNotifications: prefs.disableStickyNotifications ?? false,
           showDatasourceLabels: prefs.showDatasourceLabels ?? true,
           useLocalTimezone: prefs.useLocalTimezone ?? false,
+          useUtcTimezone: prefs.useUtcTimezone ?? false,
           use24HourFormat: prefs.use24HourFormat ?? true,
           refreshRate: prefs.refreshRate ?? null,
           refreshRateLocked: prefs.refreshRateLocked ?? null,
           allowedTimeFormats: prefs.allowedTimeFormats ?? null
         };
 
-        setPreferences((prev) => ({ ...prev, [sessionId]: normalizedPrefs }));
+        const pendingClocks = pendingDefaultClocks.current.get(sessionId) ?? [];
+        const settledPrefs = applyGuestClockChanges(normalizedPrefs, pendingClocks);
+        pendingDefaultClocks.current.delete(sessionId);
+
+        // Keep the ref and loaded marker in step with the state write. A SignalR callback can run after
+        // this function returns but before React commits the update; it must see the settled preferences
+        // rather than conclude that the event arrived before the load. [4]
+        const updated = { ...preferencesRef.current, [sessionId]: settledPrefs };
+        preferencesRef.current = updated;
+        setPreferences(updated);
         loadedIds.current.add(sessionId);
       } catch (err) {
         // Background per-session load (also used to load OTHER users' preferences for admin
@@ -127,6 +141,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         console.error('[SessionPreferencesContext] Failed to load session preferences:', err);
         // Mark as loaded to prevent infinite retries on network errors
         loadedIds.current.add(sessionId);
+        pendingDefaultClocks.current.delete(sessionId);
       } finally {
         loadingIds.current.delete(sessionId);
       }
@@ -153,6 +168,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   useEffect(() => {
     if (!hasSession) {
       initialLoadDone.current = false;
+      pendingDefaultClocks.current.clear();
     }
   }, [hasSession]);
 
@@ -164,11 +180,16 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
 
       // For the current session, correct stale values from SignalR race conditions
       const incomingUseLocal = newPrefs.useLocalTimezone;
+      const incomingUseUtc = newPrefs.useUtcTimezone ?? false;
       const incomingUse24Hour = newPrefs.use24HourFormat;
 
-      const { useLocal: useLocalTimezone, use24Hour: use24HourFormat } = isCurrentSession
-        ? getCorrectedTimezone(incomingUseLocal, incomingUse24Hour)
-        : { useLocal: incomingUseLocal, use24Hour: incomingUse24Hour };
+      const {
+        useLocal: useLocalTimezone,
+        useUtc: useUtcTimezone,
+        use24Hour: use24HourFormat
+      } = isCurrentSession
+        ? preferPendingTimezone(incomingUseLocal, incomingUseUtc, incomingUse24Hour)
+        : { useLocal: incomingUseLocal, useUtc: incomingUseUtc, use24Hour: incomingUse24Hour };
 
       const normalizedPrefs: UserPreferences = {
         selectedTheme: newPrefs.selectedTheme || null,
@@ -179,6 +200,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         disableStickyNotifications: newPrefs.disableStickyNotifications,
         showDatasourceLabels: newPrefs.showDatasourceLabels,
         useLocalTimezone,
+        useUtcTimezone,
         use24HourFormat,
         refreshRate: newPrefs.refreshRate ?? null,
         refreshRateLocked: newPrefs.refreshRateLocked ?? null,
@@ -193,6 +215,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       if (isCurrentSession) {
         const keysToCheck: (keyof UserPreferences)[] = [
           'useLocalTimezone',
+          'useUtcTimezone',
           'use24HourFormat',
           'selectedTheme',
           'sharpCorners',
@@ -280,8 +303,14 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     []
   );
 
-  const setOptimisticPreference = useCallback(
-    <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
+  /**
+   * Write one or more of the current session's preferences in a single update. The clock is three
+   * columns that only mean something together, so it is written through here rather than as three
+   * calls: three calls put a render's worth of "UTC on, 12-hour face" between the first and the last.
+   * [3]
+   */
+  const applyOptimisticPreferences = useCallback(
+    (changes: Partial<UserPreferences>) => {
       // Session identity is cookie-based, use the current session ID from getCurrentSessionId
       const sessionId = getCurrentSessionId();
       if (!sessionId) return;
@@ -289,7 +318,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       setPreferences((prev) => {
         const updated = {
           ...prev,
-          [sessionId]: { ...(prev[sessionId] || DEFAULT_PREFERENCES), [key]: value }
+          [sessionId]: { ...(prev[sessionId] || DEFAULT_PREFERENCES), ...changes }
         };
         // Update ref immediately so SignalR handler sees the new value
         preferencesRef.current = updated;
@@ -297,6 +326,13 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       });
     },
     [getCurrentSessionId]
+  );
+
+  const setOptimisticPreference = useCallback(
+    <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
+      applyOptimisticPreferences({ [key]: value });
+    },
+    [applyOptimisticPreferences]
   );
 
   const dispatchPreferenceChanged = useCallback((key: string, value: unknown) => {
@@ -321,7 +357,9 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       const currentPrefs = isGuestWithLoadedPrefs();
       if (!currentPrefs) return;
 
-      const previousDefaults = getCachedDefaultGuestPreferences();
+      // The theme decision reads only whether this session picked a theme of its own, never the
+      // snapshot, so how old the cached defaults are cannot change the answer here.
+      const previousDefaults: DefaultGuestPreferences = getCachedDefaultGuestPreferences();
       if (!shouldApplyGuestDefaultChange('selectedTheme', currentPrefs, previousDefaults)) return;
 
       setOptimisticPreference('selectedTheme', null);
@@ -330,32 +368,75 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     [isGuestWithLoadedPrefs, setOptimisticPreference, dispatchPreferenceChanged]
   );
 
+  /**
+   * A guest inherits a new default clock only if it was still reading the old one, and that is one
+   * decision about three columns rather than three decisions about one column each: a guest that
+   * chose UTC itself while the default moved from server-12h to local-24h matches the old default on
+   * use24HourFormat alone, and taking that field on its own would leave it on a clock nobody picked.
+   * [3][4]
+   */
+  const applyDefaultGuestClock = useCallback(
+    (currentPrefs: UserPreferences, previousClock: ClockPreferences, clock: ClockPreferences) => {
+      if (!shouldApplyGuestClockChange(currentPrefs, previousClock)) return;
+
+      applyOptimisticPreferences(clock);
+      CLOCK_KEYS.forEach((key) => dispatchPreferenceChanged(key, clock[key]));
+    },
+    [applyOptimisticPreferences, dispatchPreferenceChanged]
+  );
+
   const handleDefaultGuestPreferencesChanged = useCallback(
-    (data: { key: string; value: boolean }) => {
-      if (!DEFAULT_GUEST_PREFERENCE_KEYS.has(data.key)) return;
+    (data: DefaultGuestPreferencesChangedEvent) => {
+      // Fold the broadcast into the shared defaults first and keep what they were: this is the only
+      // subscriber that moves them, so `previous` is the snapshot every decision below needs and no
+      // other listener can have advanced it. [4]
+      const { previous } = applyDefaultGuestPreferencesChange(data);
 
       const currentPrefs = isGuestWithLoadedPrefs();
-      if (!currentPrefs) return;
+      if (!currentPrefs) {
+        if (data.key === 'clock' && !isAdmin && hasSession) {
+          const sessionId = getCurrentSessionId();
+          if (sessionId && !loadedIds.current.has(sessionId)) {
+            const pending = pendingDefaultClocks.current.get(sessionId) ?? [];
+            pending.push(data);
+            pendingDefaultClocks.current.set(sessionId, pending);
+          }
+        }
+        return;
+      }
 
-      const previousDefaults = getCachedDefaultGuestPreferences();
-      if (!shouldApplyGuestDefaultChange(data.key, currentPrefs, previousDefaults)) return;
+      if (data.key === 'clock') {
+        // The server captured previousClock under the same lock as the write, so it names the tuple
+        // this change replaced even when two admin clients change the clock back to back.
+        applyDefaultGuestClock(currentPrefs, data.previousClock, data.clock);
+        return;
+      }
 
-      setOptimisticPreference(
-        data.key as keyof UserPreferences,
-        data.value as UserPreferences[keyof UserPreferences]
-      );
+      if (!DEFAULT_GUEST_PREFERENCE_KEYS.has(data.key)) return;
+      if (!shouldApplyGuestDefaultChange(data.key, currentPrefs, previous)) return;
+
+      setOptimisticPreference(data.key, data.value);
       dispatchPreferenceChanged(data.key, data.value);
     },
-    [isGuestWithLoadedPrefs, setOptimisticPreference, dispatchPreferenceChanged]
+    [
+      applyDefaultGuestClock,
+      isGuestWithLoadedPrefs,
+      setOptimisticPreference,
+      dispatchPreferenceChanged,
+      isAdmin,
+      hasSession,
+      getCurrentSessionId
+    ]
   );
 
   const handleAllowedTimeFormatsChanged = useCallback(
-    (data: { formats: string[] }) => {
+    (data: AllowedTimeFormatsChangedEvent) => {
+      const { previous } = applyAllowedTimeFormatsChange(data);
+
       const currentPrefs = isGuestWithLoadedPrefs();
       if (!currentPrefs) return;
 
-      const previousDefaults = getCachedDefaultGuestPreferences();
-      if (!shouldApplyGuestDefaultChange('allowedTimeFormats', currentPrefs, previousDefaults)) {
+      if (!shouldApplyGuestDefaultChange('allowedTimeFormats', currentPrefs, previous)) {
         return;
       }
 

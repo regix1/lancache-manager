@@ -56,10 +56,11 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/logs - Get log information
+    /// Returns the resolved logs directory path and whether it currently exists on disk.
     /// </summary>
     [HttpGet]
-    public IActionResult GetLogInfo()
+    [ProducesResponseType(typeof(LogInfoResponse), StatusCodes.Status200OK)]
+    public ActionResult<LogInfoResponse> GetLogInfo()
     {
         var logsPath = _pathResolver.GetLogsDirectory();
         return Ok(new LogInfoResponse
@@ -70,10 +71,11 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/logs/service-counts - Get log entry counts by service (aggregated from all datasources)
+    /// Gets log entry counts by service, aggregated from all datasources.
     /// </summary>
     [HttpGet("service-counts")]
-    public async Task<IActionResult> GetServiceCountsAsync()
+    [ProducesResponseType(typeof(Dictionary<string, ulong>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<Dictionary<string, ulong>>> GetServiceCountsAsync()
     {
         var datasources = _datasourceService.GetDatasources();
         var aggregatedCounts = new Dictionary<string, ulong>();
@@ -96,24 +98,25 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/logs/service-counts/by-datasource - Get log entry counts by service, grouped by datasource
+    /// Gets log entry counts by service, grouped by datasource.
     /// </summary>
     [HttpGet("service-counts/by-datasource")]
-    public async Task<IActionResult> GetServiceCountsByDatasourceAsync()
+    [ProducesResponseType(typeof(List<DatasourceServiceCountsResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<DatasourceServiceCountsResponse>>> GetServiceCountsByDatasourceAsync()
     {
         var datasources = _datasourceService.GetDatasources();
-        var result = new List<object>();
+        var result = new List<DatasourceServiceCountsResponse>();
 
         foreach (var ds in datasources)
         {
             var counts = await GetServiceCountsForDatasourceAsync(ds);
-            result.Add(new
+            result.Add(new DatasourceServiceCountsResponse
             {
-                datasource = ds.Name,
-                logsPath = ds.LogPath,
-                logsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath),
-                enabled = ds.Enabled,
-                serviceCounts = counts ?? new Dictionary<string, ulong>()
+                Datasource = ds.Name,
+                LogsPath = ds.LogPath,
+                LogsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath),
+                Enabled = ds.Enabled,
+                ServiceCounts = counts ?? new Dictionary<string, ulong>()
             });
         }
 
@@ -154,21 +157,14 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/logs/entries-count - Get total count of log entries in database
+    /// Updates the log position, resetting to the beginning or end.
     /// </summary>
-    [HttpGet("entries-count")]
-    public IActionResult GetEntriesCount()
-    {
-        // Delegate to DatabaseController's endpoint for consistency
-        return Ok(new MessageResponse { Message = "Use GET /api/database/log-entries-count instead" });
-    }
-
-    /// <summary>
-    /// PATCH /api/logs/position - Update log position (reset to beginning or end)
-    /// RESTful: PATCH is proper method for partial updates
-    /// Request body: { "position": 0 } to reset to beginning, { "position": null } to reset to end
-    /// </summary>
+    /// <remarks>
+    /// PATCH is the proper method for partial updates. Request body: { "position": 0 } to reset
+    /// to beginning, { "position": null } to reset to end.
+    /// </remarks>
     [HttpPatch("position")]
+    [ProducesResponseType(typeof(LogPositionResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> ResetLogPositionAsync(
         [FromBody] UpdateLogPositionRequest? request,
         CancellationToken cancellationToken = default)
@@ -180,14 +176,19 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/logs/positions - Get log positions for all datasources
+    /// Gets log positions for all datasources.
     /// </summary>
+    /// <remarks>
+    /// Returns, per datasource, the current read position, total line count, and the ingest
+    /// diagnostic counters (unparsed lines, encoding errors, missing sources) from the last run.
+    /// </remarks>
     [HttpGet("positions")]
+    [ProducesResponseType(typeof(List<DatasourceLogPositionResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetLogPositionsAsync(
         CancellationToken cancellationToken = default)
     {
         var datasources = _datasourceService.GetDatasources();
-        var positions = new List<object>();
+        var positions = new List<DatasourceLogPositionResponse>();
 
         foreach (var ds in datasources)
         {
@@ -214,25 +215,25 @@ public class LogsController : ControllerBase
             var diagnostics = _stateRepository.GetLogIngestDiagnostics(ds.Name);
             var sourcePositions = _stateRepository.GetLogSourcePositions(ds.Name);
 
-            positions.Add(new
+            positions.Add(new DatasourceLogPositionResponse
             {
-                datasource = ds.Name,
-                position,
-                totalLines,
-                totalLinesPartial,
-                logPath = ds.LogPath,
-                enabled = ds.Enabled,
-                layout = ds.Layout,
-                sourceCount = ds.LogSourceStems.Count,
-                sourcePositions,
-                unparsedLines = diagnostics?.UnparsedLines ?? 0,
-                hintlessHttpDetailedLines = diagnostics?.HintlessHttpDetailedLines ?? 0,
-                invalidEncodingLines = diagnostics?.InvalidEncodingLines ?? 0,
-                skippedFallbackLines = diagnostics?.SkippedFallbackLines ?? 0,
-                incompleteFinalRecords = diagnostics?.IncompleteFinalRecords ?? 0,
-                filesWithErrors = diagnostics?.FilesWithErrors ?? new List<string>(),
-                lastRunTerminalStatus = diagnostics?.TerminalStatus ?? string.Empty,
-                missingSourcesMessage = diagnostics?.MissingSourcesMessage
+                Datasource = ds.Name,
+                Position = position,
+                TotalLines = totalLines,
+                TotalLinesPartial = totalLinesPartial,
+                LogPath = ds.LogPath,
+                Enabled = ds.Enabled,
+                Layout = ds.Layout,
+                SourceCount = ds.LogSourceStems.Count,
+                SourcePositions = sourcePositions,
+                UnparsedLines = diagnostics?.UnparsedLines ?? 0,
+                HintlessHttpDetailedLines = diagnostics?.HintlessHttpDetailedLines ?? 0,
+                InvalidEncodingLines = diagnostics?.InvalidEncodingLines ?? 0,
+                SkippedFallbackLines = diagnostics?.SkippedFallbackLines ?? 0,
+                IncompleteFinalRecords = diagnostics?.IncompleteFinalRecords ?? 0,
+                FilesWithErrors = diagnostics?.FilesWithErrors ?? new List<string>(),
+                LastRunTerminalStatus = diagnostics?.TerminalStatus ?? string.Empty,
+                MissingSourcesMessage = diagnostics?.MissingSourcesMessage
             });
         }
 
@@ -240,9 +241,14 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// PATCH /api/logs/position/{datasourceName} - Reset position for a specific datasource
+    /// Resets the log position for a specific datasource.
     /// </summary>
+    /// <remarks>
+    /// Same beginning/end semantics as the all-datasources variant, scoped to one datasource.
+    /// Returns 404 if the datasource name is not configured.
+    /// </remarks>
     [HttpPatch("position/{datasourceName}")]
+    [ProducesResponseType(typeof(LogPositionResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> ResetDatasourceLogPositionAsync(
         string datasourceName,
         [FromBody] UpdateLogPositionRequest? request,
@@ -261,11 +267,15 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/logs/process - Start processing logs from current position (all datasources)
-    /// Note: POST is acceptable here as this starts an asynchronous operation
-    /// Uses the position set by PUT /api/logs/position endpoint (top or bottom)
+    /// Starts processing logs from the current position for all datasources.
     /// </summary>
+    /// <remarks>
+    /// POST is acceptable here since this starts an asynchronous operation. Uses the position
+    /// set by the PUT /api/logs/position endpoint (top or bottom).
+    /// </remarks>
     [HttpPost("process")]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ProcessAllLogsAsync(CancellationToken cancellationToken = default)
     {
         await _logProcessingStartLock.WaitAsync(cancellationToken);
@@ -320,9 +330,15 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/logs/process/{datasourceName} - Start processing logs for a specific datasource
+    /// Starts processing logs for a specific datasource.
     /// </summary>
+    /// <remarks>
+    /// Uses the position saved for this datasource. Returns 404 if the datasource name is not
+    /// configured; conflicting requests are parked in the wait queue rather than rejected.
+    /// </remarks>
     [HttpPost("process/{datasourceName}")]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ProcessDatasourceLogsAsync(string datasourceName, CancellationToken cancellationToken = default)
     {
         var datasource = _datasourceService.GetDatasource(datasourceName);
@@ -390,10 +406,15 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/logs/process/status - Get log processing status
+    /// Gets the log processing status.
     /// </summary>
+    /// <remarks>
+    /// A snapshot of the current or most recent run's progress, for clients that poll instead
+    /// of relying on the SignalR processing-progress events.
+    /// </remarks>
     [HttpGet("process/status")]
-    public IActionResult GetProcessingStatus()
+    [ProducesResponseType(typeof(LogProcessingStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<LogProcessingStatusResponse> GetProcessingStatus()
     {
         var status = _rustLogProcessorService.GetStatus();
         return Ok(status);
@@ -484,104 +505,16 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// Checks that at least one logs directory across all datasources is writable.
-    /// Returns a BadRequest IActionResult with a PUID/PGID error message if none are writable, or null if at least one is writable.
-    /// Also emits a warning if some (but not all) datasources are read-only.
+    /// Removes logs for a specific service from a specific datasource.
     /// </summary>
-    private BadRequestObjectResult? EnsureWritable(string operationDescription)
-    {
-        var datasources = _datasourceService.GetDatasources();
-        var writableDatasources = datasources
-            .Where(ds => _pathResolver.IsDirectoryWritable(ds.LogPath))
-            .ToList();
-
-        if (writableDatasources.Count == 0)
-        {
-            var errorMessage = $"Cannot {operationDescription}: all logs directories are read-only. " +
-                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
-
-            _logger.LogWarning("[{Operation}] Permission check failed: {Error}", operationDescription, errorMessage);
-            return BadRequest(ApiResponse.Error(errorMessage));
-        }
-
-        var readOnlyCount = datasources.Count - writableDatasources.Count;
-        if (readOnlyCount > 0)
-        {
-            _logger.LogWarning(
-                "[{Operation}] {ReadOnlyCount} of {TotalCount} datasources are read-only and will be skipped",
-                operationDescription, readOnlyCount, datasources.Count);
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// DELETE /api/logs/services/{service} - Remove logs for specific service (from all datasources)
-    /// RESTful: DELETE is proper method for removing resources, service name in path
-    /// </summary>
-    [HttpDelete("services/{service}")]
-    public async Task<IActionResult> RemoveServiceLogsAsync(string service, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(service))
-        {
-            return BadRequest(ApiResponse.Invalid("Service name is required"));
-        }
-
-        // CRITICAL: Check write permissions BEFORE starting the operation
-        // This removes logs from all datasources, so we need at least one writable datasource
-        var permissionError = EnsureWritable($"remove service logs for '{service}'");
-        if (permissionError != null)
-            return permissionError;
-
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        Task<Guid?> StartLogRemovalAsync() => _rustLogRemovalService.StartRemovalInBackgroundAsync(service);
-
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.LogRemoval,
-            ConflictScope.Service(service),
-            cancellationToken);
-        if (conflict != null)
-        {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.LogRemoval, ConflictScope.Service(service), $"Log Removal ({service})",
-                StartLogRemovalAsync, cancellationToken));
-        }
-
-        var operationId = await StartLogRemovalAsync();
-
-        if (!operationId.HasValue)
-        {
-            var raceConflict = await _conflictChecker.CheckAsync(
-                OperationType.LogRemoval,
-                ConflictScope.Service(service),
-                cancellationToken);
-            if (raceConflict != null)
-            {
-                // Race: removal began between our check and the start - park it.
-                return Accepted(await _operationQueue.EnqueueAsync(
-                    OperationType.LogRemoval, ConflictScope.Service(service), $"Log Removal ({service})",
-                    StartLogRemovalAsync, cancellationToken));
-            }
-
-            return StatusCode(500, new ErrorResponse { Error = $"Failed to remove logs for service '{service}'" });
-        }
-
-        _logger.LogInformation("Started log removal for service: {Service} (Operation: {OperationId})", service, operationId.Value);
-
-        return Accepted(new LogRemovalStartResponse
-        {
-            Message = $"Started log removal for service: {service}",
-            Service = service,
-            OperationId = operationId.Value,
-            Status = OperationStatus.Running
-        });
-    }
-
-    /// <summary>
-    /// DELETE /api/logs/datasources/{datasourceName}/services/{service} - Remove logs for specific service from a specific datasource
-    /// </summary>
+    /// <remarks>
+    /// Deletes the matching log entries for the service via the Rust removal worker.
+    /// Conflicting requests for the same service are parked in the wait queue rather than
+    /// rejected.
+    /// </remarks>
     [HttpDelete("datasources/{datasourceName}/services/{service}")]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(LogRemovalStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveServiceLogsFromDatasourceAsync(string datasourceName, string service, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(service))
@@ -648,10 +581,13 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/logs/datasources/{datasourceName}/file - Delete the entire access.log file for a datasource
-    /// This is a destructive operation that removes all log history for the datasource
+    /// Deletes the entire access.log file for a datasource.
     /// </summary>
+    /// <remarks>
+    /// This is a destructive operation that removes all log history for the datasource.
+    /// </remarks>
     [HttpDelete("datasources/{datasourceName}/file")]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> DeleteLogFileAsync(
         string datasourceName,
         CancellationToken cancellationToken = default)
@@ -711,10 +647,15 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/logs/remove/status - Get status of log removal operation
+    /// Gets the status of a log removal operation.
     /// </summary>
+    /// <remarks>
+    /// A recovery endpoint for the active (or most recent) service log removal, used to rebuild
+    /// the progress card on page reload instead of relying only on the SignalR events.
+    /// </remarks>
     [HttpGet("remove/status")]
-    public IActionResult GetRemovalStatus()
+    [ProducesResponseType(typeof(LogRemovalStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<LogRemovalStatusResponse> GetRemovalStatus()
     {
         var status = _rustLogRemovalService.GetRemovalStatus();
         return Ok(status);

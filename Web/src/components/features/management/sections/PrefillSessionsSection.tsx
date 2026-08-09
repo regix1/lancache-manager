@@ -56,6 +56,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { cleanIpAddress } from '@components/features/user/types';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { LoadingState } from '@components/ui/ManagerCard';
 import StatusDot from '@components/common/StatusDot';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { usePersistentPrefillContainerSignalR } from '@components/features/management/schedules/scheduled-prefill/usePersistentPrefillContainerSignalR';
@@ -63,8 +64,7 @@ import type {
   DaemonSessionCreatedEvent,
   DaemonSessionUpdatedEvent,
   DaemonSessionTerminatedEvent,
-  PrefillHistoryUpdatedEvent,
-  EpicPrefillHistoryUpdatedEvent
+  PrefillHistoryUpdatedEvent
 } from '@contexts/SignalRContext/types';
 import './PrefillSessionsSection.css';
 
@@ -498,7 +498,7 @@ const SessionCard: React.FC<{
                       color="gray"
                       size="sm"
                       onClick={() => setMenuOpen((prev) => !prev)}
-                      aria-label={t('common.moreActions', 'More actions')}
+                      aria-label={t('common.moreActions')}
                       className="btn-icon-square btn-icon-square--sm pointer-target-44"
                     >
                       <MoreVertical className="w-4 h-4" />
@@ -854,6 +854,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const [sessions, setSessions] = useState<PrefillSessionDto[]>([]);
   const [activeSessions, setActiveSessions] = useState<DaemonSessionDto[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(true);
+  const [hasLoadedSessions, setHasLoadedSessions] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [totalCount, setTotalCount] = useState(0);
@@ -913,27 +914,23 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         ip: sessionsRes.lastPrefillCacheIp ?? null,
         source: sessionsRes.lastPrefillCacheIpSource ?? null
       });
+      setHasLoadedSessions(true);
 
       // Pre-fetch history for all sessions
-      const historyPromises = sessionsRes.sessions.map(async (session) => {
+      const historySessionIds = [
+        ...sessionsRes.sessions.map((session) => session.sessionId),
+        ...activeRes.map((session) => session.id)
+      ];
+      const historyPromises = historySessionIds.map(async (sessionId) => {
         try {
-          const history = await ApiService.getPrefillSessionHistory(session.sessionId);
-          return { sessionId: session.sessionId, history };
+          const history = await ApiService.getPrefillSessionHistory(sessionId);
+          return { sessionId, history };
         } catch {
-          return { sessionId: session.sessionId, history: [] };
+          return { sessionId, history: [] };
         }
       });
 
-      const activeHistoryPromises = activeRes.map(async (session) => {
-        try {
-          const history = await ApiService.getPrefillSessionHistory(session.id);
-          return { sessionId: session.id, history };
-        } catch {
-          return { sessionId: session.id, history: [] };
-        }
-      });
-
-      Promise.all([...historyPromises, ...activeHistoryPromises]).then((results) => {
+      Promise.all(historyPromises).then((results) => {
         const newHistoryData: Record<string, PrefillHistoryEntryDto[]> = {};
         results.forEach(({ sessionId, history }) => {
           newHistoryData[sessionId] = history;
@@ -1079,33 +1076,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       }
     };
 
-    const handleEpicPrefillHistoryUpdated = async (event: EpicPrefillHistoryUpdatedEvent) => {
-      try {
-        const history = await ApiService.getPrefillSessionHistory(event.sessionId);
-        setHistoryData((prev) => ({ ...prev, [event.sessionId]: history }));
-      } catch {
-        // Ignore errors in SignalR handler
-      }
-    };
-
-    const handleBattleNetPrefillHistoryUpdated = async (event: PrefillHistoryUpdatedEvent) => {
-      try {
-        const history = await ApiService.getPrefillSessionHistory(event.sessionId);
-        setHistoryData((prev) => ({ ...prev, [event.sessionId]: history }));
-      } catch {
-        // Ignore errors in SignalR handler
-      }
-    };
-
-    const handleRiotPrefillHistoryUpdated = async (event: PrefillHistoryUpdatedEvent) => {
-      try {
-        const history = await ApiService.getPrefillSessionHistory(event.sessionId);
-        setHistoryData((prev) => ({ ...prev, [event.sessionId]: history }));
-      } catch {
-        // Ignore errors in SignalR handler
-      }
-    };
-
     on('DaemonSessionCreated', handleSessionCreated);
     on('DaemonSessionUpdated', handleSessionUpdated);
     on('DaemonSessionTerminated', handleSessionTerminated);
@@ -1113,15 +1083,15 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     on('EpicDaemonSessionCreated', handleSessionCreated);
     on('EpicDaemonSessionUpdated', handleSessionUpdated);
     on('EpicDaemonSessionTerminated', handleSessionTerminated);
-    on('EpicPrefillHistoryUpdated', handleEpicPrefillHistoryUpdated);
+    on('EpicPrefillHistoryUpdated', handlePrefillHistoryUpdated);
     on('BattleNetDaemonSessionCreated', handleSessionCreated);
     on('BattleNetDaemonSessionUpdated', handleSessionUpdated);
     on('BattleNetDaemonSessionTerminated', handleSessionTerminated);
-    on('BattleNetPrefillHistoryUpdated', handleBattleNetPrefillHistoryUpdated);
+    on('BattleNetPrefillHistoryUpdated', handlePrefillHistoryUpdated);
     on('RiotDaemonSessionCreated', handleSessionCreated);
     on('RiotDaemonSessionUpdated', handleSessionUpdated);
     on('RiotDaemonSessionTerminated', handleSessionTerminated);
-    on('RiotPrefillHistoryUpdated', handleRiotPrefillHistoryUpdated);
+    on('RiotPrefillHistoryUpdated', handlePrefillHistoryUpdated);
     on('XboxDaemonSessionCreated', handleSessionCreated);
     on('XboxDaemonSessionUpdated', handleSessionUpdated);
     on('XboxDaemonSessionTerminated', handleSessionTerminated);
@@ -1134,15 +1104,15 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       off('EpicDaemonSessionCreated', handleSessionCreated);
       off('EpicDaemonSessionUpdated', handleSessionUpdated);
       off('EpicDaemonSessionTerminated', handleSessionTerminated);
-      off('EpicPrefillHistoryUpdated', handleEpicPrefillHistoryUpdated);
+      off('EpicPrefillHistoryUpdated', handlePrefillHistoryUpdated);
       off('BattleNetDaemonSessionCreated', handleSessionCreated);
       off('BattleNetDaemonSessionUpdated', handleSessionUpdated);
       off('BattleNetDaemonSessionTerminated', handleSessionTerminated);
-      off('BattleNetPrefillHistoryUpdated', handleBattleNetPrefillHistoryUpdated);
+      off('BattleNetPrefillHistoryUpdated', handlePrefillHistoryUpdated);
       off('RiotDaemonSessionCreated', handleSessionCreated);
       off('RiotDaemonSessionUpdated', handleSessionUpdated);
       off('RiotDaemonSessionTerminated', handleSessionTerminated);
-      off('RiotPrefillHistoryUpdated', handleRiotPrefillHistoryUpdated);
+      off('RiotPrefillHistoryUpdated', handlePrefillHistoryUpdated);
       off('XboxDaemonSessionCreated', handleSessionCreated);
       off('XboxDaemonSessionUpdated', handleSessionUpdated);
       off('XboxDaemonSessionTerminated', handleSessionTerminated);
@@ -1330,7 +1300,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             onToggle={() => setLiveSessionsExpanded(!liveSessionsExpanded)}
             badge={
               <SectionHeaderActions>
-                <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+                <SectionActionsMenu label={t('management.actions.menuLabel')}>
                   {(close) => (
                     <>
                       <ActionMenuItem
@@ -1366,10 +1336,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               </SectionHeaderActions>
             }
           >
-            {loadingSessions ? (
-              <div className="prefill-loading-state">
-                <LoadingSpinner inline size="lg" className="text-themed-muted" />
-                <span>{t('management.prefillSessions.loadingSessions')}</span>
+            {loadingSessions && !hasLoadedSessions ? (
+              <div className="w-full">
+                <LoadingState
+                  message={t('management.prefillSessions.loadingSessions')}
+                  shape="rows"
+                  rows={4}
+                />
               </div>
             ) : sessionsError && guestActiveSessions.length === 0 ? (
               <PrefillErrorBlock
@@ -1428,9 +1401,12 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             onToggle={() => setPersistentExpanded(!persistentExpanded)}
           >
             {loadingPersistent && persistentContainers.length === 0 ? (
-              <div className="prefill-loading-state">
-                <LoadingSpinner inline size="lg" className="text-themed-muted" />
-                <span>{t('management.prefillSessions.persistentSessions.loading')}</span>
+              <div className="w-full">
+                <LoadingState
+                  message={t('management.prefillSessions.persistentSessions.loading')}
+                  shape="cards"
+                  rows={3}
+                />
               </div>
             ) : persistentError && persistentContainers.length === 0 ? (
               <PrefillErrorBlock
@@ -1548,10 +1524,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 dropdownWidth="140px"
               />
             </div>
-            {loadingSessions ? (
-              <div className="prefill-loading-state">
-                <LoadingSpinner inline size="lg" className="text-themed-muted" />
-                <span>{t('management.prefillSessions.loading')}</span>
+            {loadingSessions && !hasLoadedSessions ? (
+              <div className="w-full">
+                <LoadingState
+                  message={t('management.prefillSessions.loading')}
+                  shape="rows"
+                  rows={5}
+                />
               </div>
             ) : sessionsError && sessions.length === 0 ? (
               <PrefillErrorBlock
@@ -1611,7 +1590,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                       totalItems={totalCount}
                       itemsPerPage={pageSize}
                       onPageChange={setPage}
-                      itemLabel={t('management.prefillSessions.labels.sessions', 'sessions')}
+                      itemLabel={t('management.prefillSessions.labels.sessions')}
                     />
                   </div>
                 )}
@@ -1644,9 +1623,12 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             }
           >
             {loadingBans && !hasVisibleBans ? (
-              <div className="prefill-loading-state">
-                <LoadingSpinner inline size="lg" className="text-themed-muted" />
-                <span>{t('management.prefillSessions.bannedUsers.loadingBans')}</span>
+              <div className="w-full">
+                <LoadingState
+                  message={t('management.prefillSessions.bannedUsers.loadingBans')}
+                  shape="rows"
+                  rows={3}
+                />
               </div>
             ) : bansError && !hasVisibleBans ? (
               <PrefillErrorBlock

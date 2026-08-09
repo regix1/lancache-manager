@@ -4,8 +4,6 @@ import {
   Users,
   Trash2,
   Network,
-  Globe,
-  MapPin,
   Edit,
   Lock,
   Unlock,
@@ -37,7 +35,7 @@ import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import StatusDot from '@components/common/StatusDot';
 import { ActionMenuItem, ActionMenuDivider, ActionMenuDangerItem } from '@components/ui/ActionMenu';
-import { EmptyState } from '@components/ui/ManagerCard';
+import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
 import '../management/managementSectionContent.css';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
@@ -59,6 +57,7 @@ import {
   type PrefillServiceConfig
 } from '@components/features/prefill/hooks/prefillServiceConfig';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
+import { TIME_SETTING_VALUES } from '@contexts/TimezoneContext.types';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useUserPresence } from '@contexts/UserPresenceContext/useUserPresence';
 import { storage } from '@utils/storage';
@@ -76,6 +75,8 @@ import {
   showToast,
   parseUserAgent
 } from './types';
+import { getTimeFormatOptions, guestTimeFormatKeys } from './timeFormatOptions';
+import { getThreadOptions } from './threadOptions';
 
 // ============================================================
 // Local storage / page-size helpers (not exported — Fast Refresh)
@@ -316,32 +317,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   >(null);
 
   // Dropdown options
-  const timeFormatOptions = [
-    {
-      value: 'server-24h',
-      label: t('user.guest.timeFormats.server24h.label'),
-      description: t('user.guest.timeFormats.server24h.description'),
-      icon: Globe
-    },
-    {
-      value: 'server-12h',
-      label: t('user.guest.timeFormats.server12h.label'),
-      description: t('user.guest.timeFormats.server12h.description'),
-      icon: Globe
-    },
-    {
-      value: 'local-24h',
-      label: t('user.guest.timeFormats.local24h.label'),
-      description: t('user.guest.timeFormats.local24h.description'),
-      icon: MapPin
-    },
-    {
-      value: 'local-12h',
-      label: t('user.guest.timeFormats.local12h.label'),
-      description: t('user.guest.timeFormats.local12h.description'),
-      icon: MapPin
-    }
-  ];
+  const timeFormatOptions = getTimeFormatOptions(t, guestTimeFormatKeys);
 
   const translatedRefreshRateOptions = refreshRateOptions.map((option) => ({
     ...option,
@@ -510,6 +486,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         disableStickyNotifications: prefs.disableStickyNotifications,
         showDatasourceLabels: prefs.showDatasourceLabels,
         useLocalTimezone: prefs.useLocalTimezone,
+        useUtcTimezone: prefs.useUtcTimezone,
         use24HourFormat: prefs.use24HourFormat,
         refreshRate: prefs.refreshRate ?? null,
         refreshRateLocked: prefs.refreshRateLocked ?? null,
@@ -764,16 +741,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
 
     if (hours > 0) {
-      return t(
-        'activeSessions.prefill.status.hoursMinutesRemaining',
-        '{{hours}}h {{minutes}}m remaining',
-        {
-          hours,
-          minutes
-        }
-      );
+      return t('activeSessions.prefill.status.hoursMinutesRemaining', {
+        hours,
+        minutes
+      });
     }
-    return t('activeSessions.prefill.status.minutesRemaining', '{{minutes}}m remaining', {
+    return t('activeSessions.prefill.status.minutesRemaining', {
       minutes
     });
   };
@@ -781,19 +754,17 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // i18n relative time for the row's last-seen meta (module getRelativeTime is
   // English-only; this threads t so the copy is translatable).
   const formatRelativeTime = (dateString: string | null): string => {
-    if (!dateString) return t('activeSessions.relative.never', 'Never');
+    if (!dateString) return t('activeSessions.relative.never');
     const now = new Date();
     const date = parseUtcDate(dateString);
     const diffSecs = Math.floor((now.getTime() - date.getTime()) / 1000);
-    if (diffSecs < 60) return t('activeSessions.relative.justNow', 'Just now');
+    if (diffSecs < 60) return t('activeSessions.relative.justNow');
     const diffMins = Math.floor(diffSecs / 60);
-    if (diffMins < 60)
-      return t('activeSessions.relative.minutesAgo', '{{count}}m ago', { count: diffMins });
+    if (diffMins < 60) return t('activeSessions.relative.minutesAgo', { count: diffMins });
     const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24)
-      return t('activeSessions.relative.hoursAgo', '{{count}}h ago', { count: diffHours });
+    if (diffHours < 24) return t('activeSessions.relative.hoursAgo', { count: diffHours });
     const diffDays = Math.floor(diffHours / 24);
-    return t('activeSessions.relative.daysAgo', '{{count}}d ago', { count: diffDays });
+    return t('activeSessions.relative.daysAgo', { count: diffDays });
   };
 
   type SessionStatus = 'active' | 'away' | 'inactive';
@@ -831,9 +802,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   };
 
   const getFilterLabel = (filter: SessionFilter): string => {
-    if (filter === 'all') return t('activeSessions.filters.all', 'All');
-    if (filter === 'admin') return t('activeSessions.filters.admin', 'Admin');
-    return t('activeSessions.filters.guest', 'Guest');
+    if (filter === 'all') return t('activeSessions.filters.all');
+    if (filter === 'admin') return t('activeSessions.filters.admin');
+    return t('activeSessions.filters.guest');
   };
 
   // ============================================================
@@ -1001,10 +972,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     const themeName = prefs?.selectedTheme
       ? availableThemes.find((th: ThemeOption) => th.id === prefs.selectedTheme)?.name ||
         prefs.selectedTheme
-      : t('activeSessions.preferencesModal.defaultThemeShort', 'Default');
-    const timezoneLabel = prefs?.useLocalTimezone
-      ? t('activeSessions.labels.local', 'Local')
-      : t('activeSessions.labels.server', 'Server');
+      : t('activeSessions.preferencesModal.defaultThemeShort');
+    // UTC is a third clock rather than a variation on local-vs-server, so it is tested first;
+    // a two-way ternary reports every UTC session as being on the server's clock.
+    const timezoneLabel = prefs?.useUtcTimezone
+      ? t('activeSessions.labels.utc')
+      : prefs?.useLocalTimezone
+        ? t('activeSessions.labels.local')
+        : t('activeSessions.labels.server');
 
     const flag = countryCodeToFlag(session.countryCode);
     const location = formatLocation(session.city, session.regionName, session.countryName);
@@ -1046,9 +1021,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   : t('activeSessions.labels.guestBadge')}
               </span>
               {session.isCurrentSession && (
-                <span className="session-you">
-                  ({t('activeSessions.currentSessionShort', 'you')})
-                </span>
+                <span className="session-you">({t('activeSessions.currentSessionShort')})</span>
               )}
             </div>
             <div className="mgmt-row__meta session-row__meta">
@@ -1141,7 +1114,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 {session.publicIpAddress && (
                   <div className="mgmt-stat">
                     <span className="mgmt-stat__label caps-label caps-label--sm">
-                      {t('activeSessions.labels.publicIp', 'Public IP')}
+                      {t('activeSessions.labels.publicIp')}
                     </span>
                     <span className="mgmt-stat__value">
                       {cleanIpAddress(session.publicIpAddress)}
@@ -1151,7 +1124,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 {location && (
                   <div className="mgmt-stat">
                     <span className="mgmt-stat__label caps-label caps-label--sm">
-                      {t('activeSessions.labels.location', 'Location')}
+                      {t('activeSessions.labels.location')}
                     </span>
                     <span className="mgmt-stat__value">
                       {flag && <span aria-hidden="true">{flag} </span>}
@@ -1162,7 +1135,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 {session.ispName && (
                   <div className="mgmt-stat">
                     <span className="mgmt-stat__label caps-label caps-label--sm">
-                      {t('activeSessions.labels.isp', 'ISP')}
+                      {t('activeSessions.labels.isp')}
                     </span>
                     <span className="mgmt-stat__value">{session.ispName}</span>
                   </div>
@@ -1170,7 +1143,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 {session.timezone && (
                   <div className="mgmt-stat">
                     <span className="mgmt-stat__label caps-label caps-label--sm">
-                      {t('activeSessions.labels.timezoneHeading', 'Timezone')}
+                      {t('activeSessions.labels.timezoneHeading')}
                     </span>
                     <span className="mgmt-stat__value">{session.timezone}</span>
                   </div>
@@ -1178,7 +1151,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 {session.browserLanguage && (
                   <div className="mgmt-stat">
                     <span className="mgmt-stat__label caps-label caps-label--sm">
-                      {t('activeSessions.labels.language', 'Language')}
+                      {t('activeSessions.labels.language')}
                     </span>
                     <span className="mgmt-stat__value">{session.browserLanguage}</span>
                   </div>
@@ -1186,7 +1159,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 {session.screenResolution && (
                   <div className="mgmt-stat">
                     <span className="mgmt-stat__label caps-label caps-label--sm">
-                      {t('activeSessions.labels.screen', 'Screen')}
+                      {t('activeSessions.labels.screen')}
                     </span>
                     <span className="mgmt-stat__value">{session.screenResolution}</span>
                   </div>
@@ -1196,25 +1169,23 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
             {!session.isRevoked && !session.isExpired && (
               <div className="space-y-2">
-                <p className="mgmt-subhead caps-label">
-                  {t('activeSessions.labels.preferences', 'Preferences')}
-                </p>
+                <p className="mgmt-subhead caps-label">{t('activeSessions.labels.preferences')}</p>
                 {isLoadingPrefs ? (
                   <div className="flex items-center gap-2 text-xs text-themed-muted">
                     <LoadingSpinner inline size="xs" />
-                    {t('activeSessions.preferencesModal.loading', 'Loading preferences...')}
+                    {t('activeSessions.preferencesModal.loading')}
                   </div>
                 ) : prefs ? (
                   <div className="mgmt-stat-grid">
                     <div className="mgmt-stat">
                       <span className="mgmt-stat__label caps-label caps-label--sm">
-                        {t('activeSessions.labels.theme', 'Theme')}
+                        {t('activeSessions.labels.theme')}
                       </span>
                       <span className="mgmt-stat__value">{themeName}</span>
                     </div>
                     <div className="mgmt-stat">
                       <span className="mgmt-stat__label caps-label caps-label--sm">
-                        {t('activeSessions.labels.timezoneHeading', 'Timezone')}
+                        {t('activeSessions.labels.timezoneHeading')}
                       </span>
                       <span className="mgmt-stat__value">{timezoneLabel}</span>
                     </div>
@@ -1245,9 +1216,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
             {guest && !session.isRevoked && !session.isExpired && (
               <div className="space-y-2">
-                <p className="mgmt-subhead caps-label">
-                  {t('activeSessions.prefill.title', 'Prefill Access')}
-                </p>
+                <p className="mgmt-subhead caps-label">{t('activeSessions.prefill.title')}</p>
                 <div className="session-prefill-readout">
                   {PREFILL_SERVICES.map((service: PrefillServiceConfig) => {
                     const ServiceIcon = service.icon;
@@ -1277,7 +1246,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   <FormattedTimestamp timestamp={session.createdAt} />
                 </span>
                 <span className="caps-label caps-label--wide dash-readout-label">
-                  {t('activeSessions.labels.createdShort', 'Created')}
+                  {t('activeSessions.labels.createdShort')}
                 </span>
               </div>
               <div className="dash-readout-item">
@@ -1285,23 +1254,23 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   {session.lastSeenAt ? (
                     <FormattedTimestamp timestamp={session.lastSeenAt} />
                   ) : (
-                    t('activeSessions.labels.never', 'Never')
+                    t('activeSessions.labels.never')
                   )}
                 </span>
                 <span className="caps-label caps-label--wide dash-readout-label">
-                  {t('activeSessions.labels.lastSeenShort', 'Last Seen')}
+                  {t('activeSessions.labels.lastSeenShort')}
                 </span>
               </div>
               <div className="dash-readout-item">
                 <span className="dash-readout-value">
                   {admin ? (
-                    t('activeSessions.labels.never', 'Never')
+                    t('activeSessions.labels.never')
                   ) : (
                     <FormattedTimestamp timestamp={session.expiresAt} />
                   )}
                 </span>
                 <span className="caps-label caps-label--wide dash-readout-label">
-                  {t('activeSessions.labels.expires', 'Expires')}
+                  {t('activeSessions.labels.expires')}
                 </span>
               </div>
               {session.revokedAt && (
@@ -1310,7 +1279,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     <FormattedTimestamp timestamp={session.revokedAt} />
                   </span>
                   <span className="caps-label caps-label--wide dash-readout-label">
-                    {t('activeSessions.labels.revokedShort', 'Revoked')}
+                    {t('activeSessions.labels.revokedShort')}
                   </span>
                 </div>
               )}
@@ -1454,10 +1423,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     ? t('activeSessions.toggle.locked')
                     : t('activeSessions.toggle.unlocked')}
                 </SectionHeaderChip>
-                <SectionActionsMenu
-                  label={t('management.actions.menuLabel', 'Actions')}
-                  width="w-56"
-                >
+                <SectionActionsMenu label={t('management.actions.menuLabel')} width="w-56">
                   {(close) => (
                     <>
                       <ActionMenuItem
@@ -1467,7 +1433,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                           setShowBulkResetConfirm(true);
                         }}
                       >
-                        {t('user.bulkActions.buttons.reset', 'Reset All to Defaults')}
+                        {t('user.bulkActions.buttons.reset')}
                       </ActionMenuItem>
                       <ActionMenuDivider />
                       <ActionMenuDangerItem
@@ -1477,7 +1443,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                           setShowClearGuestsConfirm(true);
                         }}
                       >
-                        {t('user.bulkActions.buttons.clear', 'Clear All Guest Sessions')}
+                        {t('user.bulkActions.buttons.clear')}
                       </ActionMenuDangerItem>
                     </>
                   )}
@@ -1579,10 +1545,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               </div>
 
               {loading && (
-                <div className="text-center py-12">
-                  <LoadingSpinner inline size="xl" className="mx-auto text-themed-accent" />
-                  <p className="text-sm mt-3 text-themed-muted">{t('activeSessions.loading')}</p>
-                </div>
+                <LoadingState message={t('activeSessions.loading')} shape="list" rows={4} />
               )}
 
               {!loading && activeSessions.length === 0 && (
@@ -1602,11 +1565,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <EmptyState
                   variant="panel"
                   icon={Users}
-                  title={t('activeSessions.empty.filteredTitle', 'No matching sessions')}
-                  subtitle={t(
-                    'activeSessions.empty.filtered',
-                    'No sessions match the selected filter.'
-                  )}
+                  title={t('activeSessions.empty.filteredTitle')}
+                  subtitle={t('activeSessions.empty.filtered')}
                 />
               )}
 
@@ -1823,12 +1783,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           )}
 
           {loadingPreferences && (
-            <div className="text-center py-8">
-              <LoadingSpinner inline size="xl" className="mx-auto text-themed-muted" />
-              <p className="text-sm mt-2 text-themed-secondary">
-                {t('activeSessions.preferencesModal.loading')}
-              </p>
-            </div>
+            <LoadingState
+              message={t('activeSessions.preferencesModal.loading')}
+              shape="fields"
+              rows={4}
+            />
           )}
 
           {!loadingPreferences && editingPreferences && (
@@ -1940,26 +1899,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       )}
                       <div>
                         <p className="text-sm text-themed-primary">
-                          {t(
-                            'activeSessions.preferencesModal.refreshLock.allow',
-                            'Allow guest to change rate'
-                          )}
+                          {t('activeSessions.preferencesModal.refreshLock.allow')}
                         </p>
                         <p className="text-xs text-themed-muted">
                           {editingPreferences.refreshRateLocked === null
-                            ? t(
-                                'activeSessions.preferencesModal.refreshLock.usingDefault',
-                                'Using global default'
-                              )
+                            ? t('activeSessions.preferencesModal.refreshLock.usingDefault')
                             : editingPreferences.refreshRateLocked
-                              ? t(
-                                  'activeSessions.preferencesModal.refreshLock.locked',
-                                  'Locked for this guest'
-                                )
-                              : t(
-                                  'activeSessions.preferencesModal.refreshLock.unlocked',
-                                  'Unlocked for this guest'
-                                )}
+                              ? t('activeSessions.preferencesModal.refreshLock.locked')
+                              : t('activeSessions.preferencesModal.refreshLock.unlocked')}
                         </p>
                       </div>
                     </div>
@@ -2065,16 +2012,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               {editingSession &&
                 isGuestSession(editingSession) &&
                 (() => {
-                  const THREAD_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256];
-                  const threadOptions = [
-                    { value: '', label: t('user.guest.prefill.maxThreads.noLimit') },
-                    ...THREAD_VALUES.map((n: number) => ({
-                      value: String(n),
-                      label: t('user.guest.prefill.maxThreads.threadsCount', '{{count}} threads', {
-                        count: n
-                      })
-                    }))
-                  ];
+                  const threadOptions = getThreadOptions(t);
                   const threadLimitServices: ThreadLimitService[] = [
                     {
                       key: 'steamMaxThreadCount',
@@ -2277,11 +2215,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     </label>
                     {(() => {
                       const currentFormats = editingPreferences.allowedTimeFormats;
-                      const defaultFormats = defaultGuestPrefs.allowedTimeFormats ?? [
-                        'server-24h',
-                        'server-12h',
-                        'local-24h',
-                        'local-12h'
+                      const defaultFormats: string[] = defaultGuestPrefs.allowedTimeFormats ?? [
+                        ...TIME_SETTING_VALUES
                       ];
                       const isUsingDefault =
                         !currentFormats ||
@@ -2307,27 +2242,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     })()}
                   </div>
                   <MultiSelectDropdown
-                    options={timeFormatOptions.map(
-                      (opt: {
-                        value: string;
-                        label: string;
-                        description: string;
-                        icon: typeof Globe;
-                      }) => ({
-                        value: opt.value,
-                        label: opt.label,
-                        description: opt.description,
-                        icon: opt.icon
-                      })
-                    )}
+                    options={timeFormatOptions}
                     values={
                       editingPreferences.allowedTimeFormats ??
-                      defaultGuestPrefs.allowedTimeFormats ?? [
-                        'server-24h',
-                        'server-12h',
-                        'local-24h',
-                        'local-12h'
-                      ]
+                      defaultGuestPrefs.allowedTimeFormats ?? [...TIME_SETTING_VALUES]
                     }
                     onChange={(formats: string[]) =>
                       setEditingPreferences({

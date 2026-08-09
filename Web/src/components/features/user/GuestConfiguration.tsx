@@ -10,6 +10,7 @@ import { SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
 import ApiService from '@services/api.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import type { DefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import {
@@ -19,44 +20,31 @@ import {
   type PrefillServiceConfig
 } from '@components/features/prefill/hooks/prefillServiceConfig';
 import type { GameServiceId } from '@/types/gameService';
+import type { ClockPreferences } from '@/types/userPreferences';
+import type { DefaultGuestPreferencesChangedEvent } from '@contexts/SignalRContext/types';
+import { TIME_SETTING_VALUES, type TimeSettingValue } from '@contexts/TimezoneContext.types';
+import { clockFromTimeSetting, timeSettingFromClock } from '@utils/pendingPreferences';
 import { type ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
 import AccessSecurityCard from './AccessSecurityCard';
 import PrefillServicePanel from './PrefillServicePanel';
 import AppearanceDisplayCard from './AppearanceDisplayCard';
+import {
+  toGuestPrefillConfig,
+  type GuestPrefillConfig,
+  type GuestPrefillConfigResponse
+} from './guestPrefillConfig';
+import { getThreadOptions } from './threadOptions';
 import '@components/features/management/managementSectionContent.css';
 import './user-settings.css';
 
-type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
-
-/** Guest default prefill permissions for one service. */
-interface GuestPrefillConfig {
-  enabledByDefault: boolean;
-  durationHours: number;
-  maxThreadCount: number | null;
-}
-
-interface DefaultGuestPreferences {
-  useLocalTimezone: boolean;
-  use24HourFormat: boolean;
-  sharpCorners: boolean;
-  disableTooltips: boolean;
-  showDatasourceLabels: boolean;
-  allowedTimeFormats: string[];
-}
-
 interface DefaultGuestPreferencesResponse {
   useLocalTimezone: boolean;
+  useUtcTimezone?: boolean;
   use24HourFormat: boolean;
   sharpCorners: boolean;
   disableTooltips: boolean;
   showDatasourceLabels: boolean;
   allowedTimeFormats?: string[];
-}
-
-interface GuestPrefillConfigResponse {
-  enabledByDefault: boolean;
-  durationHours: number;
-  maxThreadCount?: number | null;
 }
 
 interface GuestConfigurationProps {
@@ -96,11 +84,12 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const { authMode } = useAuth();
   const [defaultGuestPreferences, setDefaultGuestPreferences] = useState<DefaultGuestPreferences>({
     useLocalTimezone: false,
+    useUtcTimezone: false,
     use24HourFormat: true,
     sharpCorners: false,
     disableTooltips: false,
     showDatasourceLabels: true,
-    allowedTimeFormats: ['server-24h', 'server-12h', 'local-24h', 'local-12h']
+    allowedTimeFormats: [...TIME_SETTING_VALUES]
   });
   const [loadingDefaultPrefs, setLoadingDefaultPrefs] = useState(false);
   const [updatingDefaultPref, setUpdatingDefaultPref] = useState<string | null>(null);
@@ -155,40 +144,28 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     setPrefillServiceExpanded(prefillServiceRecord<boolean>(() => next));
   };
 
-  // Helper to update default time format based on a format value
+  // Helper to update default time format based on a format value.
+  //
+  // One request, because the three flags are one clock. Sent as three they commit separately: a
+  // sibling that fails, or an admin on another tab writing between two of them, leaves the stored
+  // default naming a clock nobody picked, and the next guest session seeds from it. [3]
   const updateDefaultTimeFormat = async (format: TimeSettingValue) => {
-    const newUseLocal = format.startsWith('local');
-    const newUse24Hour = format.endsWith('24h');
+    const response = await fetch(
+      '/api/system/default-guest-preferences/clock',
+      ApiService.getJsonFetchOptions(clockFromTimeSetting(format), { method: 'PATCH' })
+    );
 
-    const [localResponse, formatResponse] = await Promise.all([
-      fetch(
-        '/api/system/default-guest-preferences/useLocalTimezone',
-        ApiService.getJsonFetchOptions({ value: newUseLocal }, { method: 'PATCH' })
-      ),
-      fetch(
-        '/api/system/default-guest-preferences/use24HourFormat',
-        ApiService.getJsonFetchOptions({ value: newUse24Hour }, { method: 'PATCH' })
-      )
-    ]);
-
-    if (localResponse.ok && formatResponse.ok) {
-      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
-        ...prev,
-        useLocalTimezone: newUseLocal,
-        use24HourFormat: newUse24Hour
-      }));
+    if (response.ok) {
+      // The server normalizes before storing, so the stored clock is read back off the reply rather
+      // than assumed from what was sent.
+      const { clock } = (await response.json()) as { clock: ClockPreferences };
+      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({ ...prev, ...clock }));
     }
   };
 
-  // Get current default time format from the two boolean settings
-  const getCurrentDefaultFormat = (): TimeSettingValue => {
-    const isLocal = defaultGuestPreferences.useLocalTimezone;
-    const is24h = defaultGuestPreferences.use24HourFormat;
-    if (isLocal && is24h) return 'local-24h';
-    if (isLocal && !is24h) return 'local-12h';
-    if (!isLocal && is24h) return 'server-24h';
-    return 'server-12h';
-  };
+  // Get current default time format from the boolean settings behind it.
+  const getCurrentDefaultFormat = (): TimeSettingValue =>
+    timeSettingFromClock(defaultGuestPreferences);
 
   const translatedDurationOptions = durationOptions.map(
     (option: { value: string; label: string }) => ({
@@ -207,14 +184,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     { value: '2', label: t('user.guest.prefillDurationOptions.2') },
     { value: '3', label: t('user.guest.prefillDurationOptions.3') }
   ];
-  const THREAD_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256];
-  const maxThreadOptions = [
-    { value: '', label: t('user.guest.prefill.maxThreads.noLimit') },
-    ...THREAD_VALUES.map((n: number) => ({
-      value: String(n),
-      label: t('user.guest.prefill.maxThreads.threadsCount', { count: n })
-    }))
-  ];
+  const maxThreadOptions = getThreadOptions(t);
   const preferenceLabels: Record<string, string> = {
     sharpCorners: t('user.guest.preferences.sharpCorners.label'),
     disableTooltips: t('user.guest.preferences.disableTooltips.label'),
@@ -232,16 +202,12 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         const data = (await response.json()) as DefaultGuestPreferencesResponse;
         setDefaultGuestPreferences({
           useLocalTimezone: data.useLocalTimezone,
+          useUtcTimezone: data.useUtcTimezone ?? false,
           use24HourFormat: data.use24HourFormat,
           sharpCorners: data.sharpCorners,
           disableTooltips: data.disableTooltips,
           showDatasourceLabels: data.showDatasourceLabels,
-          allowedTimeFormats: data.allowedTimeFormats ?? [
-            'server-24h',
-            'server-12h',
-            'local-24h',
-            'local-12h'
-          ]
+          allowedTimeFormats: data.allowedTimeFormats ?? [...TIME_SETTING_VALUES]
         });
       }
     } catch (err) {
@@ -287,11 +253,10 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   };
 
   const handleDefaultGuestPreferencesChanged = useCallback(
-    (data: { key: string; value: boolean }) => {
-      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
-        ...prev,
-        [data.key]: data.value
-      }));
+    (data: DefaultGuestPreferencesChangedEvent) => {
+      setDefaultGuestPreferences((prev: DefaultGuestPreferences) =>
+        data.key === 'clock' ? { ...prev, ...data.clock } : { ...prev, [data.key]: data.value }
+      );
     },
     []
   );
@@ -373,11 +338,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         const data = (await configResponse.json()) as GuestPrefillConfigResponse;
         setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
           ...prev,
-          [service.id]: {
-            enabledByDefault: data.enabledByDefault,
-            durationHours: data.durationHours,
-            maxThreadCount: service.supportsMaxThreads ? (data.maxThreadCount ?? null) : null
-          }
+          [service.id]: toGuestPrefillConfig(service, data)
         }));
       }
     } catch (err) {
@@ -418,11 +379,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         const data = (await response.json()) as GuestPrefillConfigResponse;
         setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
           ...prev,
-          [service.id]: {
-            enabledByDefault: data.enabledByDefault,
-            durationHours: data.durationHours,
-            maxThreadCount: service.supportsMaxThreads ? (data.maxThreadCount ?? null) : null
-          }
+          [service.id]: toGuestPrefillConfig(service, data)
         }));
         showToast('success', t('user.guest.prefill.updated'));
       } else {
@@ -545,7 +502,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
           count={enabledPrefillCount}
           badge={
             <SectionHeaderActions>
-              <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+              <SectionActionsMenu label={t('management.actions.menuLabel')}>
                 {(close) => (
                   <ActionMenuItem
                     icon={

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Security.Claims;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
@@ -20,14 +21,18 @@ namespace LancacheManager.Tests;
 /// of their choosing, which is why the endpoint accepts a session or the API key and nothing else.
 ///
 /// The screen that calls it appears only while the database is unreachable, so no session can exist
-/// there and the API key is the credential that has to keep working. The last test is the one that
-/// proves the gate did not close that door: with a valid key the request reaches the endpoint's own
+/// there and the API key is the credential that has to keep working. NoSessionButTheRealApiKey proves
+/// the gate did not close that door: with a valid key the request reaches the endpoint's own
 /// connection check instead of being turned away at the front.
 ///
-/// The last three cover what a caller who is past the credential check is still not allowed to
-/// write, since the username and password in that file are read back by entrypoint.sh and by every
-/// Rust binary. Those rules live in one place now and both setup endpoints call them, so these also
-/// stand as the check that the shared copy still says what the embedded endpoint used to say alone.
+/// The username and password tests cover what a caller who is past the credential check is still not
+/// allowed to write, since both are read back out of that file by entrypoint.sh and by every Rust
+/// binary. Those rules live in one place now and both setup endpoints call them, so these also stand
+/// as the check that the shared copy still says what the embedded endpoint used to say alone.
+///
+/// The two AnAuthenticatedCaller tests cover which principals count as proof. A session is accepted
+/// only while authentication is enabled, because turning that flag off makes every request arrive
+/// looking authenticated and would otherwise open this endpoint to anyone who can reach the port.
 ///
 /// The controller is exercised directly rather than through the pipeline, so the returned
 /// <see cref="ObjectResult"/> carries the same status and body in every hosting environment.
@@ -36,6 +41,8 @@ public class ExternalDatabaseSetupGateTests : IDisposable
 {
     private readonly string _root;
     private readonly ApiKeyService _apiKeyService;
+    private readonly IPathResolver _pathResolver;
+    private readonly AuthenticationHelper _authenticationHelper;
     private readonly SetupController _controller;
 
     public ExternalDatabaseSetupGateTests()
@@ -50,23 +57,37 @@ public class ExternalDatabaseSetupGateTests : IDisposable
             })
             .Build();
 
-        var pathResolver = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
-        ((PathResolverProxy)(object)pathResolver).Root = _root;
+        _pathResolver = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+        ((PathResolverProxy)(object)_pathResolver).Root = _root;
 
         _apiKeyService = new ApiKeyService(
             NullLogger<ApiKeyService>.Instance,
             configuration,
-            pathResolver);
+            _pathResolver);
 
-        var authenticationHelper = new AuthenticationHelper(
+        _authenticationHelper = new AuthenticationHelper(
             _apiKeyService,
             NullLogger<AuthenticationHelper>.Instance);
 
-        _controller = new SetupController(
+        _controller = CreateController(authenticationEnabled: true);
+    }
+
+    private SetupController CreateController(bool authenticationEnabled)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:ApiKeyPath"] = Path.Combine(_root, "api_key.txt"),
+                ["Security:EnableAuthentication"] = authenticationEnabled ? "true" : "false"
+            })
+            .Build();
+
+        return new SetupController(
             NullLogger<SetupController>.Instance,
-            pathResolver,
+            _pathResolver,
             dbContextFactory: null!,
-            authenticationHelper)
+            _authenticationHelper,
+            configuration)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -77,7 +98,7 @@ public class ExternalDatabaseSetupGateTests : IDisposable
     {
         var result = await _controller.SetExternalCredentialsAsync(ConnectionRequest());
 
-        var response = Assert.IsType<ObjectResult>(result);
+        var response = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status401Unauthorized, response.StatusCode);
         Assert.Equal("API key required", ErrorOf(response));
         Assert.False(File.Exists(Path.Combine(_root, "postgres-credentials.json")));
@@ -90,7 +111,7 @@ public class ExternalDatabaseSetupGateTests : IDisposable
 
         var result = await _controller.SetExternalCredentialsAsync(ConnectionRequest());
 
-        var response = Assert.IsType<ObjectResult>(result);
+        var response = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status403Forbidden, response.StatusCode);
         Assert.Equal("Invalid API key", ErrorOf(response));
         Assert.False(File.Exists(Path.Combine(_root, "postgres-credentials.json")));
@@ -101,7 +122,7 @@ public class ExternalDatabaseSetupGateTests : IDisposable
     {
         _controller.HttpContext.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
 
-        var result = await PostInExternalModeAsync(ConnectionRequest());
+        var result = await PostInExternalModeAsync(_controller, ConnectionRequest());
 
         // Port 1 on loopback refuses the connection, so this is the endpoint's own reply about the
         // server it was asked to reach, which it can only produce once the caller is past the
@@ -123,7 +144,7 @@ public class ExternalDatabaseSetupGateTests : IDisposable
         var request = ConnectionRequest();
         request.Username = "lancache\"; $(id); \"";
 
-        var result = await PostInExternalModeAsync(request);
+        var result = await PostInExternalModeAsync(_controller, request);
 
         var response = Assert.IsType<BadRequestObjectResult>(result);
         Assert.Equal(
@@ -139,7 +160,7 @@ public class ExternalDatabaseSetupGateTests : IDisposable
         var request = ConnectionRequest();
         request.Password = "short";
 
-        var result = await PostInExternalModeAsync(request);
+        var result = await PostInExternalModeAsync(_controller, request);
 
         var response = Assert.IsType<BadRequestObjectResult>(result);
         Assert.Equal("Password must be at least 8 characters", ErrorOf(response));
@@ -153,7 +174,7 @@ public class ExternalDatabaseSetupGateTests : IDisposable
         var request = ConnectionRequest();
         request.Password = "PassWord";
 
-        var result = await PostInExternalModeAsync(request);
+        var result = await PostInExternalModeAsync(_controller, request);
 
         var response = Assert.IsType<BadRequestObjectResult>(result);
         Assert.Equal(
@@ -163,16 +184,59 @@ public class ExternalDatabaseSetupGateTests : IDisposable
     }
 
     /// <summary>
+    /// Turning Security:EnableAuthentication off opens every authorization policy and gives each
+    /// request an admin session, so a caller who presented nothing at all arrives here looking
+    /// authenticated. Accepting that would hand the connection file to anyone who can reach the port,
+    /// which is the whole reason the endpoint is gated, so the key is the only proof in that state.
+    /// </summary>
+    [Fact]
+    public async Task AnAuthenticatedCallerWithNoApiKeyWhileAuthenticationIsDisabled_IsRejected()
+    {
+        var controller = CreateController(authenticationEnabled: false);
+        controller.HttpContext.User = new ClaimsPrincipal(
+            new ClaimsIdentity(new[] { new Claim(ClaimTypes.Role, "admin") }, "Session"));
+        Assert.True(controller.HttpContext.User.Identity?.IsAuthenticated);
+
+        var result = await PostInExternalModeAsync(controller, ConnectionRequest());
+
+        var response = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status401Unauthorized, response.StatusCode);
+        Assert.Equal("API key required", ErrorOf(response));
+        Assert.False(File.Exists(Path.Combine(_root, "postgres-credentials.json")));
+    }
+
+    /// <summary>
+    /// The same caller with authentication left on is the session case the endpoint is meant to
+    /// accept, so the rule above turns away the disabled-auth principal and nothing else.
+    /// </summary>
+    [Fact]
+    public async Task AnAuthenticatedCallerWithNoApiKeyWhileAuthenticationIsEnabled_ReachesTheConnectionCheck()
+    {
+        _controller.HttpContext.User = new ClaimsPrincipal(
+            new ClaimsIdentity(new[] { new Claim(ClaimTypes.Role, "admin") }, "Session"));
+
+        var result = await PostInExternalModeAsync(_controller, ConnectionRequest());
+
+        var response = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.StartsWith("Could not connect to 127.0.0.1:1/lancache", ErrorOf(response));
+    }
+
+    /// <summary>
     /// The endpoint refuses outright unless POSTGRES_MODE says external, so every test that needs to
     /// get past that line runs inside this, which puts the variable back afterwards.
     /// </summary>
-    private async Task<IActionResult> PostInExternalModeAsync(SetExternalDbCredentialsRequest request)
+    private static async Task<IActionResult> PostInExternalModeAsync(
+        SetupController controller,
+        SetExternalDbCredentialsRequest request)
     {
         var previousMode = Environment.GetEnvironmentVariable("POSTGRES_MODE");
         Environment.SetEnvironmentVariable("POSTGRES_MODE", "external");
         try
         {
-            return await _controller.SetExternalCredentialsAsync(request);
+            var response = await controller.SetExternalCredentialsAsync(request);
+            // Every branch of SetExternalCredentialsAsync returns via Ok()/BadRequest()/StatusCode(),
+            // never a bare value, so .Result is always populated.
+            return response.Result!;
         }
         finally
         {

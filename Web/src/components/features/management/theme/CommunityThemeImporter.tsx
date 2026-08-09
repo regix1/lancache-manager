@@ -436,7 +436,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
   const headerActions = (
     <SectionHeaderActions>
-      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+      <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>
             {communityThemes.length > 0 && (

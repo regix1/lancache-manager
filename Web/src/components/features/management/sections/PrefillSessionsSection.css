@@ -655,9 +655,11 @@
   border-color: var(--theme-border-focus);
 }
 
-/* Outline from shared .focus-ring; the border-color shift is the input-specific extra. */
+/* Outline from shared .focus-ring; the border-color shift is the input-specific extra.
+   Inset so that border and ring touch instead of reading as two rings. */
 .prefill-input:focus-visible {
   border-color: var(--theme-border-focus);
+  outline-offset: -2px;
 }
 
 .prefill-input::placeholder {

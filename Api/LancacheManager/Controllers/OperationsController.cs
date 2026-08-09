@@ -30,44 +30,48 @@ public class OperationsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/operations/{id}
-    ///
+    /// Gets the status of a single tracked operation.
+    /// </summary>
+    /// <remarks>
     /// Lightweight liveness/progress probe for a single tracked operation, usable by API
     /// consumers that cannot subscribe to SignalR.
     ///
     /// Returns 200 with { id, active, percentComplete, message }. active=false means the
     /// operation is no longer tracked (completed, failed, cancelled, or never existed).
-    /// </summary>
+    /// </remarks>
     [HttpGet("{id}")]
-    public IActionResult GetOperationStatus(Guid id)
+    [ProducesResponseType(typeof(OperationStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<OperationStatusResponse> GetOperationStatus(Guid id)
     {
         var op = _operationTracker.GetActiveOperations().FirstOrDefault(o => o.Id == id);
         if (op == null)
         {
-            return Ok(new { id, active = false, percentComplete = 100.0, message = (string?)null });
+            return Ok(new OperationStatusResponse { Id = id, Active = false, PercentComplete = 100.0, Message = null });
         }
 
-        return Ok(new { id, active = true, percentComplete = op.PercentComplete, message = op.Message });
+        return Ok(new OperationStatusResponse { Id = id, Active = true, PercentComplete = op.PercentComplete, Message = op.Message });
     }
 
     /// <summary>
-    /// GET /api/operations/waiting
-    ///
-    /// Lists operations parked in the wait-queue (status Waiting). Recovery endpoint for the
-    /// purple waiting cards: page refresh re-creates them from this list. Queued ops do not
-    /// survive an app restart (in-memory queue), so after a restart this list is empty by design.
+    /// Lists operations parked in the wait queue.
     /// </summary>
+    /// <remarks>
+    /// Recovery endpoint for the purple waiting cards: page refresh re-creates them from this
+    /// list. Queued ops do not survive an app restart (in-memory queue), so after a restart this
+    /// list is empty by design.
+    /// </remarks>
     [HttpGet("waiting")]
-    public IActionResult GetWaitingOperations()
+    [ProducesResponseType(typeof(List<WaitingOperationResponse>), StatusCodes.Status200OK)]
+    public ActionResult<List<WaitingOperationResponse>> GetWaitingOperations()
     {
         var waiting = _operationTracker.GetWaitingOperations()
             .OrderBy(op => op.StartedAt)
-            .Select(op => new
+            .Select(op => new WaitingOperationResponse
             {
-                operationId = op.Id,
-                operationType = op.Type.ToWireString(),
-                name = op.Name,
-                blockedByName = _operationQueue.GetWaitingBlockerName(op.Id)
+                OperationId = op.Id,
+                OperationType = op.Type.ToWireString(),
+                Name = op.Name,
+                BlockedByName = _operationQueue.GetWaitingBlockerName(op.Id)
             })
             .ToList();
 
@@ -75,14 +79,18 @@ public class OperationsController : ControllerBase
     }
 
     /// <summary>
-    /// Aggressively cancels a running operation: kills any associated process tree, then cancels the token.
-    /// Idempotent — returns 200 OK if already cancelling (re-attempts process kill).
-    /// A cancel that arrives after the operation finished is also 200, because the caller's intent is
-    /// satisfied, but it carries <c>alreadyFinished: true</c> so the browser can drop the stale card
-    /// instead of waiting for a cancellation that will never arrive.
+    /// Cancels a running operation.
     /// </summary>
+    /// <remarks>
+    /// Aggressively cancels a running operation: kills any associated process tree, then cancels
+    /// the token. Idempotent — returns 200 OK if already cancelling (re-attempts process kill).
+    /// A cancel that arrives after the operation finished is also 200, because the caller's
+    /// intent is satisfied, but it carries <c>alreadyFinished: true</c> so the browser can drop
+    /// the stale card instead of waiting for a cancellation that will never arrive.
+    /// </remarks>
     [HttpPost("{id}/cancel")]
-    public IActionResult CancelOperation(Guid id)
+    [ProducesResponseType(typeof(OperationCancelResponse), StatusCodes.Status200OK)]
+    public ActionResult<OperationCancelResponse> CancelOperation(Guid id)
     {
         var operation = _operationTracker.GetOperation(id);
         if (operation == null)
@@ -95,21 +103,21 @@ public class OperationsController : ControllerBase
             switch (_cancellationService.Cancel(id))
             {
                 case OperationCancelResult.Requested:
-                    return Ok(new
+                    return Ok(new OperationCancelResponse
                     {
-                        message = "Cancellation requested (process kill + token cancel)",
-                        operationId = id,
-                        status = operation.Status,
-                        alreadyFinished = false
+                        Message = "Cancellation requested (process kill + token cancel)",
+                        OperationId = id,
+                        Status = operation.Status,
+                        AlreadyFinished = false
                     });
 
                 case OperationCancelResult.AlreadyFinished:
-                    return Ok(new
+                    return Ok(new OperationCancelResponse
                     {
-                        message = "Operation already finished",
-                        operationId = id,
-                        status = operation.Status,
-                        alreadyFinished = true
+                        Message = "Operation already finished",
+                        OperationId = id,
+                        Status = operation.Status,
+                        AlreadyFinished = true
                     });
 
                 default:
@@ -123,23 +131,26 @@ public class OperationsController : ControllerBase
             // P2-C: the operation completed concurrently (its CTS was disposed / state nulled) between
             // the lookup above and the cancel. The op is already terminal, so the user's intent is
             // satisfied — report success instead of leaking an unhandled 500.
-            return Ok(new
+            return Ok(new OperationCancelResponse
             {
-                message = "Operation already completed",
-                operationId = id,
-                status = OperationStatus.Completed,
-                alreadyFinished = true
+                Message = "Operation already completed",
+                OperationId = id,
+                Status = OperationStatus.Completed,
+                AlreadyFinished = true
             });
         }
     }
 
     /// <summary>
-    /// Force-kills a running operation when cancel alone does not unblock the UI. This is the only
-    /// force-kill surface for every operation type: kill process tree → wait → SignalR completion →
-    /// tracker cleanup (which runs the owning service's OnTerminalCleanup).
+    /// Force-kills a running operation when cancel alone does not unblock the UI.
     /// </summary>
+    /// <remarks>
+    /// This is the only force-kill surface for every operation type: kill process tree → wait →
+    /// SignalR completion → tracker cleanup (which runs the owning service's OnTerminalCleanup).
+    /// </remarks>
     [HttpPost("{id}/force-kill")]
-    public async Task<IActionResult> ForceKillAsync(Guid id)
+    [ProducesResponseType(typeof(OperationForceKillResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<OperationForceKillResponse>> ForceKillAsync(Guid id)
     {
         try
         {
@@ -149,18 +160,17 @@ public class OperationsController : ControllerBase
                 return NotFound(ApiResponse.Error("Operation not found or already completed"));
             }
 
-            return Ok(new { message = "Operation force killed", operationId = id });
+            return Ok(new OperationForceKillResponse { Message = "Operation force killed", OperationId = id });
         }
         catch (Exception ex) when (ex is ObjectDisposedException or NullReferenceException)
         {
             // P2-C parity with the cancel endpoint: the operation completed concurrently (its CTS /
             // Process was disposed or state nulled) during the force kill. The op is already terminal,
             // so the user's intent is satisfied — report success instead of leaking an unhandled 500.
-            return Ok(new
+            return Ok(new OperationForceKillResponse
             {
-                message = "Operation already completed",
-                operationId = id,
-                status = OperationStatus.Completed
+                Message = "Operation already completed",
+                OperationId = id
             });
         }
     }

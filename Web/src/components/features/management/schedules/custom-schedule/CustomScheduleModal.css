@@ -11,6 +11,19 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Cancel and Save stay put and the form scrolls under them. With the advanced drawer open
+   the form runs only a little past the modal at most window heights, so a footer that
+   scrolled with it spent nearly that whole range half cut off against the modal's bottom
+   edge - the buttons were reachable, but only after scrolling to the very last pixel. */
+.custom-schedule-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .custom-schedule-alert {
@@ -152,7 +165,21 @@
   color: var(--theme-error-text);
 }
 
+/* The label and the zone the rows below are written in, on one line. The zone is data, not a
+   second heading, so it stays out of the caps treatment beside it. */
+.custom-schedule-runs-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.5rem;
+}
+
 .caps-label.custom-schedule-runs-label {
+  color: var(--theme-text-muted);
+}
+
+.custom-schedule-runs-zone {
+  font-size: var(--font-size-xs);
   color: var(--theme-text-muted);
 }
 
@@ -219,6 +246,16 @@
   padding-top: 0.5rem;
 }
 
+/* The field's own label with the reset beside it, so the button sits with the thing it resets
+   rather than at the bottom of the drawer next to Cancel and Save, where it would read as a
+   third way of leaving the modal. */
+.custom-schedule-advanced-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 /* One box per cron position plus the readout, on a single wrapping row. The boxes hold at
    most a short list or step, so they are sized to their content rather than sharing the
    width evenly with the readout, which is a sentence-length value. */
@@ -250,51 +287,54 @@
   line-height: 1.2;
 }
 
-/* The readout the user asked for: what the expression on the left actually comes out as, on
-   whichever clock face the modal is set to. It sits on the same baseline as the boxes. */
-/* Sized to its own content rather than given an even share, so the five boxes keep their
-   width and the readout still lands on the same line as them at desktop width. It wraps
-   underneath on a phone, which is the right place for it there. */
-.custom-schedule-cron-readout {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  justify-content: flex-end;
-  flex: 1 1 auto;
-  min-width: 4.5rem;
-  padding-bottom: 0.5rem;
-}
-
-.custom-schedule-cron-time {
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  line-height: 1.25rem;
-  color: var(--theme-text-primary);
-}
-
 /* Compounds both classes so the error border outranks .themed-input:focus, which would
    otherwise repaint the border while the field with the mistake in it is being typed into. */
 .themed-input.custom-schedule-cron-input.has-error {
   border-color: var(--theme-error);
 }
 
-/* CollapsibleRegion animates its height, which needs overflow:hidden on the inner box
-   (collapsible.css:17), so a ring drawn outside an element's edge is cut off along the
-   bottom. .focus-ring--inset is the shared answer for a flush edge, but it and
-   .themed-input:focus-visible both land at 0,1,1 and set a different offset, which would
-   leave bundle order to decide. Compounding the two classes settles it at 0,2,1. */
-.themed-input.focus-ring--inset:focus-visible {
-  outline-offset: -2px;
-}
-
-/* The zone line and the clock face read as one statement about how to read the times above,
-   so they share a row and split to two lines only when the row runs out of width. */
+/* The zone picker and the clock face read as one statement about how to read the times above,
+   so they share a row and split to two lines only when the row runs out of width. Aligned along
+   the bottom, because the two controls carry labels of their own and only the controls
+   themselves have to line up with each other. */
 .custom-schedule-clock-row {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.5rem 0.75rem;
+}
+
+/* The zone takes the slack in the row: a zone id is far longer than "24h / 12h" and is the one
+   of the two that has to stay readable. */
+.custom-schedule-zone {
+  flex: 1 1 15rem;
+}
+
+.custom-schedule-clock-field {
+  flex: 0 0 auto;
+}
+
+/* Both halves of the clock face take the same width. Unlike the AM/PM control below, this one
+   sits at its natural width instead of spanning a track, so fullWidth on its own cannot even
+   them out: with nothing but its own content to size against, each segment's text width becomes
+   its floor and "24h" comes out wider than "12h" (48.1px against 44.8px measured), putting the
+   divider off centre. Equal columns settle it at any width and in any language, because an
+   auto-sized grid gives every fr column the width of the widest one. */
+.segmented-control-container.custom-schedule-clock {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+/* Below 640px dropdowns.css releases the trigger's explicit height so its padding can drive a
+   44px touch target, which leaves it four pixels taller than the 40px control beside it. The
+   clock face takes the same height there rather than the row rendering as two mismatched
+   halves, and keeps the touch minimum with it. */
+@media (max-width: 639.98px) {
+  .segmented-control-container.custom-schedule-clock {
+    height: 44px;
+  }
 }
 
 .custom-schedule-footer {

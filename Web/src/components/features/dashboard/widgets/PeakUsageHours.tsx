@@ -7,7 +7,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/useTimezone';
 import { useHourlyActivity } from '@contexts/DashboardDataContext/hooks';
-import { getCurrentHour } from '@utils/timezone';
+import { getCurrentHour, getDayBoundsInTimezone, getServerTimezone } from '@utils/timezone';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { EmptyState } from '@components/ui/ManagerCard';
@@ -25,15 +25,18 @@ interface PeakUsageHoursProps {
  */
 const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = false }) => {
   const { t } = useTranslation();
-  const { use24HourFormat, useLocalTimezone } = useTimezone();
+  const { use24HourFormat } = useTimezone();
 
   // Consume hourly activity data from batched context
   const { hourlyActivity: displayData, loading, error, refetch } = useHourlyActivity();
 
-  // Get current hour based on timezone preference
-  const currentHour = useMemo(() => {
-    return getCurrentHour(useLocalTimezone);
-  }, [useLocalTimezone]);
+  // Every hour on this widget is read on the server's clock, because that is the clock the backend
+  // grouped the buckets on: it counts each download into the hour it recorded for it. Following
+  // the reader's own UTC/local choice for the marker instead highlights a bucket that was filled
+  // at a different hour. The 12/24-hour preference below is a different question and still the
+  // reader's. Recomputed each render rather than memoized, so the marker follows the clock as the
+  // widget refreshes instead of freezing at the hour the page loaded. [8]
+  const currentHour = getCurrentHour(false, false);
 
   // Check if today is within the period range
   const isTodayInRange = useMemo(() => {
@@ -43,8 +46,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     if (!displayData.periodStart && !displayData.periodEnd) return true;
 
     const now = Math.floor(Date.now() / 1000);
-    const todayStart = Math.floor(new Date().setHours(0, 0, 0, 0) / 1000);
-    const todayEnd = Math.floor(new Date().setHours(23, 59, 59, 999) / 1000);
+    // Today on the server's clock as well. The browser's own calendar day begins at a different
+    // moment, which around a boundary reports a period as missing today when it does contain it.
+    const today = getDayBoundsInTimezone(new Date(), getServerTimezone());
+    const todayStart = Math.floor(today.start.getTime() / 1000);
+    const todayEnd = Math.floor(today.end.getTime() / 1000);
 
     // Check if today overlaps with the period
     const periodStart = displayData.periodStart ?? 0;

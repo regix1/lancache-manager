@@ -246,21 +246,6 @@ public class SetCacheDeleteModeRequest
     public CacheDeleteMode DeleteMode { get; set; } = CacheDeleteMode.Preserve;
 }
 
-public class SetCrawlIntervalRequest
-{
-    public int IntervalHours { get; set; }
-}
-
-public class SetScanModeRequest
-{
-    /// <summary>
-    /// Scan mode. Accepts <see cref="DepotScanMode.Incremental"/> or <see cref="DepotScanMode.Full"/>.
-    /// <see cref="DepotScanMode.Github"/> is rejected by the endpoint (use the /depots/rebuild/config/mode
-    /// endpoint for GitHub mode since it requires a different downstream wiring).
-    /// </summary>
-    public DepotScanMode Mode { get; set; } = DepotScanMode.Incremental;
-}
-
 public class SetRefreshRateRequest
 {
     public string RefreshRate { get; set; } = string.Empty;

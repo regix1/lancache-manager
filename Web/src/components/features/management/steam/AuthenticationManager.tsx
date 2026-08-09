@@ -204,7 +204,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   };
 
   if (authChecking) {
-    return <LoadingState message={t('management.auth.checkingStatus')} rows={1} />;
+    return <LoadingState message={t('management.auth.checkingStatus')} shape="settings" rows={1} />;
   }
 
   // When authentication is disabled via Security:EnableAuthentication, the auth

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Palette, Lock, Unlock, Globe, MapPin, Monitor } from 'lucide-react';
+import { Palette, Lock, Unlock, Monitor } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
@@ -9,6 +9,7 @@ import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { getTimeFormatOptions, guestTimeFormatKeys } from './timeFormatOptions';
 
 interface AppearanceDisplayCardProps {
   // Theme
@@ -75,32 +76,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
     label: theme.name
   }));
 
-  const timeFormatOptions = [
-    {
-      value: 'server-24h',
-      label: t('user.guest.timeFormats.server24h.label'),
-      description: t('user.guest.timeFormats.server24h.description'),
-      icon: Globe
-    },
-    {
-      value: 'server-12h',
-      label: t('user.guest.timeFormats.server12h.label'),
-      description: t('user.guest.timeFormats.server12h.description'),
-      icon: Globe
-    },
-    {
-      value: 'local-24h',
-      label: t('user.guest.timeFormats.local24h.label'),
-      description: t('user.guest.timeFormats.local24h.description'),
-      icon: MapPin
-    },
-    {
-      value: 'local-12h',
-      label: t('user.guest.timeFormats.local12h.label'),
-      description: t('user.guest.timeFormats.local12h.description'),
-      icon: MapPin
-    }
-  ];
+  const timeFormatOptions = getTimeFormatOptions(t, guestTimeFormatKeys);
 
   const onOffOptions = (): [
     { value: string; label: string },

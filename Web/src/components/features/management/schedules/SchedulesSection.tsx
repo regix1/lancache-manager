@@ -13,6 +13,7 @@ import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { HelpPopover, HelpNote, HelpSection } from '@components/ui/HelpPopover';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { LoadingState } from '@components/ui/ManagerCard';
 import ApiService, { type IncrementalViabilityCheck } from '@services/api.service';
 import { ApiError } from '@services/apiError';
 import { useNotifications } from '@contexts/notifications';
@@ -261,7 +262,10 @@ const DepotScheduleModeDropdown = memo(function DepotScheduleModeDropdown({
 /** Nothing is requested until the user asks, so idle is the state this starts and stays in. */
 type IncrementalCheckState =
   | { phase: 'idle' }
-  | { phase: 'checking' }
+  // Carries the answer already on screen, if there is one. A checking phase that held nothing
+  // pulled the result panel out of the open accordion on every press and put it back when the
+  // reply landed, which reads as the accordion closing and reopening.
+  | { phase: 'checking'; previous: IncrementalViabilityCheck | null }
   | { phase: 'answered'; check: IncrementalViabilityCheck }
   | { phase: 'failed' };
 
@@ -294,6 +298,7 @@ const formatIncrementalEstimate = (value: number): string =>
 
 interface DepotIncrementalCheckProps {
   isDisabled: boolean;
+  mode: DepotScheduledScanMode;
 }
 
 // Asking Steam what an incremental scan would do opens a real Steam connection whenever the
@@ -301,17 +306,54 @@ interface DepotIncrementalCheckProps {
 // else: no mount effect, no dropdown open, no render path reaches it. Inside that hour the server
 // replays its cached answer, so looking a second time costs nothing.
 const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
-  isDisabled
+  isDisabled,
+  mode
 }: DepotIncrementalCheckProps) {
   const { t } = useTranslation();
   const [state, setState] = useState<IncrementalCheckState>({ phase: 'idle' });
 
+  // Which request the row is currently willing to accept an answer from. Keeping the last
+  // answer visible means the dismiss button is now on screen while a request is out, so a reply
+  // that lands after the panel was closed has to be dropped rather than reopening it.
+  const currentRequest = useRef(0);
+
+  // Drops a verdict about one scan mode when the row switches to another, the same job a
+  // key on this component used to do. It is an effect and not a key because the mode is
+  // derived from live progress data: any refresh that momentarily reports a different value
+  // remounted this row inside an open accordion, and the panel losing a child and getting it
+  // back reads as it closing and reopening. Guarded on the previous value so a refresh
+  // carrying the same mode leaves an answer on screen. The request counter moves with the
+  // mode, since a reply still on its way was asked about the mode that has just been left and
+  // would otherwise land in the cleared panel as though it described the new one.
+  const checkedMode = useRef(mode);
+  useEffect(() => {
+    if (checkedMode.current === mode) {
+      return;
+    }
+    checkedMode.current = mode;
+    currentRequest.current += 1;
+    setState({ phase: 'idle' });
+  }, [mode]);
+
   const runCheck = useCallback(async (): Promise<void> => {
-    setState({ phase: 'checking' });
+    const request = currentRequest.current + 1;
+    currentRequest.current = request;
+    // The answer already on screen stays there until the new one replaces it in place, so a
+    // second press never changes the height of the panel this row sits in.
+    setState((prev) => ({
+      phase: 'checking',
+      previous: prev.phase === 'answered' ? prev.check : null
+    }));
     try {
       const check = await ApiService.checkIncrementalViability();
+      if (currentRequest.current !== request) {
+        return;
+      }
       setState({ phase: 'answered', check });
     } catch {
+      if (currentRequest.current !== request) {
+        return;
+      }
       // The request itself never reached an answer, which is a different thing from Steam being
       // unreachable, so it gets its own sentence rather than borrowing the Steam one.
       setState({ phase: 'failed' });
@@ -324,17 +366,23 @@ const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
 
   // Back to idle, which is the state the row starts in, so the Check button is live again and
   // the next press fetches a fresh answer rather than replaying the one that was just closed.
+  // Bumping the request counter retires any reply still on its way, which would otherwise put
+  // the panel back after it was closed.
   const handleDismiss = useCallback((): void => {
+    currentRequest.current += 1;
     setState({ phase: 'idle' });
   }, []);
 
   const isChecking = state.phase === 'checking';
-  const check = state.phase === 'answered' ? state.check : null;
+  // The previous answer counts as the one to show while a new one is on its way, so the panel
+  // holds its size across a press instead of emptying and refilling.
+  const check =
+    state.phase === 'answered' ? state.check : state.phase === 'checking' ? state.previous : null;
   const outcome = check ? getIncrementalCheckOutcome(check) : null;
 
   // The same control closes the answer and the "check did not finish" note, so it is written
-  // once here. It only ever renders on a panel that is already on screen, which is why nothing
-  // has to cancel a request: the button does not exist while one is out.
+  // once here. It can be pressed while a request is out, since the previous answer stays on
+  // screen through a re-check - handleDismiss retires the reply rather than cancelling it.
   const dismissButton = (
     <button
       type="button"
@@ -371,20 +419,24 @@ const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
           </HelpPopover>
         </span>
         <div className="schedule-detail-control">
-          {/* Content width, not the full control column: five letters do not need 19rem. The
-              CSS floor clears the longer loading label so the button keeps one size while the
-              request is out instead of snapping narrower when the answer lands. */}
+          {/* Full control column, like every other control in this panel, so the rows line up
+              down one edge. The rest matches Run Now on the scheduled-prefill card: the label
+              stays put and stableWidth overlays the spinner on it, so a Steam call that takes
+              seconds does not swap the text and resize the button under the pointer. Loading is
+              not repeated in disabled - Button already blocks a second press while it spins, and
+              hand-toggling disabled for an in-flight request is what flashed every control on
+              this card to the greyed-out look (see the note on isDisabled below). */}
           <Button
+            type="button"
             variant="subtle"
             size="sm"
-            className="incremental-check-button"
+            fullWidth
+            stableWidth
             onClick={handleCheck}
-            disabled={isDisabled || isChecking}
+            disabled={isDisabled}
             loading={isChecking}
           >
-            {isChecking
-              ? t('management.schedules.services.depotMapping.checkingIncremental')
-              : t('management.schedules.services.depotMapping.checkIncremental')}
+            {t('management.schedules.services.depotMapping.checkIncremental')}
           </Button>
         </div>
       </div>
@@ -858,6 +910,38 @@ const ScheduleRow = memo(function ScheduleRow({
             <p className="schedule-detail-summary">
               {t(`management.schedules.services.${service.key}.summary`)}
             </p>
+
+            {/* First of the settings: it answers whether this task runs at all outside its
+            interval, which is read before any question about how a run behaves. */}
+            {hasStartupToggle && (
+              <div className="schedule-detail-row">
+                <span className="schedule-detail-label">
+                  {t('management.schedules.runOnStartup')}
+                </span>
+                <div className="schedule-detail-control">
+                  <ToggleSwitch
+                    options={[
+                      {
+                        value: 'false',
+                        label: t('management.schedules.toggleOff'),
+                        activeColor: 'default'
+                      },
+                      {
+                        value: 'true',
+                        label: t('management.schedules.toggleOn'),
+                        activeColor: 'success'
+                      }
+                    ]}
+                    value={service.runOnStartup ? 'true' : 'false'}
+                    onChange={handleRunOnStartupChange}
+                    disabled={isDisabled}
+                    title={t('management.schedules.runOnStartupTooltip')}
+                    size="sm"
+                  />
+                </div>
+              </div>
+            )}
+
             {isDepotMapping && (
               <div className="schedule-detail-row">
                 <Tooltip
@@ -887,12 +971,11 @@ const ScheduleRow = memo(function ScheduleRow({
             {/* Sits under the mode control because it answers the question that control asks:
             what an incremental run would actually do this time. It is information on request,
             not a gate - the mode dropdown decides what can run from facts that cost nothing.
-            Keyed on the mode so picking a different one drops the answer instead of leaving a
-            verdict about incremental scanning sitting under a control that no longer says
-            incremental. Only a real change of value remounts, so a refresh reporting the same
-            mode leaves the answer alone. */}
+            The mode is a prop, never a key: it is derived from live progress data, so keying on
+            it let an unrelated refresh remount this row inside the open accordion. Dropping a
+            stale verdict is handled inside the component instead. */}
             {isDepotMapping && (
-              <DepotIncrementalCheck key={depotScheduledMode} isDisabled={isDisabled} />
+              <DepotIncrementalCheck isDisabled={isDisabled} mode={depotScheduledMode} />
             )}
 
             {/* Only while the server still reports a skipped scan, so the row goes back to its
@@ -911,35 +994,6 @@ const ScheduleRow = memo(function ScheduleRow({
                   <Button variant="subtle" size="sm" fullWidth onClick={handleShowFullScanPrompt}>
                     {t('management.schedules.services.depotMapping.showFullScanPrompt')}
                   </Button>
-                </div>
-              </div>
-            )}
-
-            {hasStartupToggle && (
-              <div className="schedule-detail-row">
-                <span className="schedule-detail-label">
-                  {t('management.schedules.runOnStartup')}
-                </span>
-                <div className="schedule-detail-control">
-                  <ToggleSwitch
-                    options={[
-                      {
-                        value: 'false',
-                        label: t('management.schedules.toggleOff'),
-                        activeColor: 'default'
-                      },
-                      {
-                        value: 'true',
-                        label: t('management.schedules.toggleOn'),
-                        activeColor: 'success'
-                      }
-                    ]}
-                    value={service.runOnStartup ? 'true' : 'false'}
-                    onChange={handleRunOnStartupChange}
-                    disabled={isDisabled}
-                    title={t('management.schedules.runOnStartupTooltip')}
-                    size="sm"
-                  />
                 </div>
               </div>
             )}
@@ -1448,6 +1502,14 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     [depotScanModeAvailability, updateProgress, refreshProgress, addNotification, t]
   );
 
+  const flashAll = useCallback(() => {
+    const flashed = Object.fromEntries(
+      schedules.map((schedule) => [schedule.key, 'subtle' as const])
+    );
+    setCompletedKeys(flashed);
+    setTimeout(() => setCompletedKeys({}), 1400);
+  }, [schedules]);
+
   const handleResetDefaults = useCallback(async () => {
     setResetting(true);
     try {
@@ -1461,12 +1523,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         details: { notificationType: 'success' }
       });
 
-      // Flash every row to confirm reset - subtle variant since they all glow at
-      // once. The 1400ms reset just re-arms the trigger; the glow itself ends on its
-      // own animationend.
-      const flashed = Object.fromEntries(schedules.map((s) => [s.key, 'subtle' as const]));
-      setCompletedKeys(flashed);
-      setTimeout(() => setCompletedKeys({}), 1400);
+      flashAll();
     } catch {
       addNotification({
         type: 'generic',
@@ -1477,7 +1534,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     } finally {
       setResetting(false);
     }
-  }, [fetchSchedules, schedules, addNotification, t]);
+  }, [fetchSchedules, flashAll, addNotification, t]);
 
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
@@ -1502,11 +1559,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         details: { notificationType: 'success' }
       });
 
-      // Flash every row to acknowledge - same subtle variant as reset since the
-      // entire list lights up at once.
-      const flashed = Object.fromEntries(schedules.map((s) => [s.key, 'subtle' as const]));
-      setCompletedKeys(flashed);
-      setTimeout(() => setCompletedKeys({}), 1400);
+      flashAll();
     } catch {
       addNotification({
         type: 'generic',
@@ -1517,7 +1570,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     } finally {
       setRunningAll(false);
     }
-  }, [fetchSchedules, schedules, addNotification, t]);
+  }, [fetchSchedules, flashAll, addNotification, t]);
 
   const handleRunNow = useCallback(
     async (key: string) => {
@@ -1574,7 +1627,9 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   if (isLoading) {
     return (
       <div className="management-section animate-fade-in schedules-loading">
-        <LoadingSpinner size="lg" />
+        <div className="w-full">
+          <LoadingState shape="schedule" rows={5} />
+        </div>
       </div>
     );
   }

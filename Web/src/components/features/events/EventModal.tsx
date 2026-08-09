@@ -4,10 +4,9 @@ import { CalendarDays, Trash2, Calendar, Check, BarChart3 } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { useEvents } from '@contexts/useEvents';
-import { useTimezone } from '@contexts/useTimezone';
+import { useReaderClock } from '@hooks/useReaderClock';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { formatTimestamp, type TimestampSettings } from '@utils/dateTimeFormat';
-import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';
 import DateTimePicker from '@components/common/DateTimePicker';
 import { getErrorMessage } from '@utils/error';
@@ -26,7 +25,7 @@ const COLOR_INDEXES = [1, 2, 3, 4, 5, 6, 7, 8];
 const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   const { t } = useTranslation();
   const { createEvent, updateEvent, deleteEvent } = useEvents();
-  const { use24HourFormat, useLocalTimezone } = useTimezone();
+  const clock = useReaderClock();
   const { setTimeRange, setSelectedEventIds } = useTimeFilter();
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -34,9 +33,12 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   const [error, setError] = useState<string | null>(null);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
-  const timezone = getEffectiveTimezone(useLocalTimezone);
-  const todayParts = getDateInTimezone(new Date(), timezone);
-  const todayMinDate = new Date(todayParts.year, todayParts.month, todayParts.day, 0, 0, 0, 0);
+  // The floor the two DateTimePickers below are given. They compare it against cells they build
+  // in the browser's own calendar, so it is midnight of the browser's today. Taking the day from
+  // a display timezone instead lands the floor on the neighbouring day, which either lets an
+  // event be created that has already started or makes today unselectable. [40]
+  const todayMinDate = new Date();
+  todayMinDate.setHours(0, 0, 0, 0);
 
   // Form state - using Date objects now
   const [name, setName] = useState(event?.name || '');
@@ -66,29 +68,20 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
   // Format date/time for display
   const formatDateTime = (date: Date): string => {
-    const settings: TimestampSettings = {
-      useLocalTimezone,
-      use24Hour: use24HourFormat,
-      forceYear: false
-    };
+    const settings: TimestampSettings = { ...clock, forceYear: false };
     const dateStr = formatTimestamp(date, { ...settings, style: 'dateOnly' });
     const timeStr = formatTimestamp(date, { ...settings, style: 'timeOnly' });
     return t('events.modal.dateAt', { date: dateStr, time: timeStr });
   };
 
-  const isBeforeToday = useCallback(
-    (date: Date): boolean => {
-      const dateParts = getDateInTimezone(date, timezone);
-      if (dateParts.year !== todayParts.year) {
-        return dateParts.year < todayParts.year;
-      }
-      if (dateParts.month !== todayParts.month) {
-        return dateParts.month < todayParts.month;
-      }
-      return dateParts.day < todayParts.day;
-    },
-    [timezone, todayParts]
-  );
+  // Same floor the pickers enforce, so the form cannot reject a date the calendar offered.
+  // Read at call time rather than closed over, which keeps this callback stable and keeps a
+  // modal left open across midnight from checking against yesterday. [40]
+  const isBeforeToday = useCallback((date: Date): boolean => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    return date < startOfToday;
+  }, []);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {

@@ -23,6 +23,7 @@ public class ApiKeysController : ControllerBase
     private readonly SteamAuthStorageService _steamAuthStorage;
     private readonly StateService _stateService;
     private readonly IConfiguration _configuration;
+    private readonly AuthenticationHelper _authenticationHelper;
     private readonly ILogger<ApiKeysController> _logger;
 
     public ApiKeysController(
@@ -31,6 +32,7 @@ public class ApiKeysController : ControllerBase
         SteamAuthStorageService steamAuthStorage,
         StateService stateService,
         IConfiguration configuration,
+        AuthenticationHelper authenticationHelper,
         ILogger<ApiKeysController> logger)
     {
         _apiKeyService = apiKeyService;
@@ -38,14 +40,20 @@ public class ApiKeysController : ControllerBase
         _steamAuthStorage = steamAuthStorage;
         _stateService = stateService;
         _configuration = configuration;
+        _authenticationHelper = authenticationHelper;
         _logger = logger;
     }
 
     /// <summary>
-    /// GET /api/api-keys/status - Check API key type
+    /// Reports whether the request's API key is a valid admin key.
     /// </summary>
+    /// <remarks>
+    /// Does not echo the key itself back. Has no UI caller today; it exists as a standalone check
+    /// an API key holder can run before trying the key against another endpoint.
+    /// </remarks>
     [HttpGet("status")]
-    public IActionResult GetStatus()
+    [ProducesResponseType(typeof(ApiKeyStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<ApiKeyStatusResponse> GetStatus()
     {
         var apiKey = Request.Headers["X-Api-Key"].FirstOrDefault();
 
@@ -70,14 +78,29 @@ public class ApiKeysController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/api-keys/regenerate - Regenerate the API key
-    /// RESTful: POST is acceptable for operations that create new resources/states
-    /// SECURITY: This logs out all Steam sessions and revokes all device registrations
+    /// Regenerates the admin API key.
     /// </summary>
+    /// <remarks>
+    /// This logs out all Steam sessions and revokes all device registrations. When authentication
+    /// is disabled, the current API key is still required so an open authorization policy cannot
+    /// rotate the credential that protects database recovery.
+    /// </remarks>
     [HttpPost("regenerate")]
     [EnableRateLimiting("auth")]
+    [ProducesResponseType(typeof(ApiKeyRegenerateResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> RegenerateApiKeyAsync()
     {
+        if (!_configuration.GetValue<bool>("Security:EnableAuthentication", true))
+        {
+            var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
+            if (!apiKeyResult.IsAuthenticated)
+            {
+                return StatusCode(
+                    apiKeyResult.StatusCode,
+                    ApiResponse.Error(apiKeyResult.ErrorMessage ?? "API key required"));
+            }
+        }
+
         // SECURITY: Clear ALL Steam-related data when API key is regenerated
         var steamWasAuthenticated = _stateService.GetSteamAuthMode() == SteamAuthMode.Authenticated;
         var hadSteamWebApiKey = !string.IsNullOrWhiteSpace(_steamAuthStorage.GetAuthData().SteamApiKey);
@@ -100,11 +123,11 @@ public class ApiKeysController : ControllerBase
             steamWasAuthenticated ? "Logged out" : "Cleared",
             hadSteamWebApiKey ? "Removed" : "None");
 
-        return Ok(new
+        return Ok(new ApiKeyRegenerateResponse
         {
-            success = true,
-            message = "API key regenerated successfully.",
-            warning = "Check container logs for the new API key."
+            Success = true,
+            Message = "API key regenerated successfully.",
+            Warning = "Check container logs for the new API key."
         });
     }
 }

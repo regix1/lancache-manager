@@ -209,8 +209,20 @@ public class StatsController : ControllerBase
     }
 
 
+    /// <summary>
+    /// Gets per-client traffic totals ranked by total bytes.
+    /// </summary>
+    /// <remarks>
+    /// Client-group members are folded together into one row, with an optional event filter.
+    /// Hidden and stats-excluded clients are dropped unless <paramref name="includeExcluded"/> is set.
+    /// </remarks>
+    /// <param name="includeExcluded">
+    /// Skips the hidden/stats-excluded client filters when true. Client management passes this so
+    /// admins can still pick any known client even while it is excluded from normal stats.
+    /// </param>
     [HttpGet("clients")]
-    public async Task<IActionResult> GetClientsAsync(
+    [ProducesResponseType(typeof(List<ClientStatsWithGroup>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<ClientStatsWithGroup>>> GetClientsAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] int? limit = null,
@@ -283,8 +295,15 @@ public class StatsController : ControllerBase
         return Ok(allStats);
     }
 
+    /// <summary>
+    /// Gets the current stats exclusion settings.
+    /// </summary>
+    /// <remarks>
+    /// Returns the legacy stats-excluded-only IP list plus the full mode-aware rule set (hide vs exclude).
+    /// </remarks>
     [HttpGet("exclusions")]
-    public IActionResult GetExcludedClients()
+    [ProducesResponseType(typeof(StatsExclusionsResponse), StatusCodes.Status200OK)]
+    public ActionResult<StatsExclusionsResponse> GetExcludedClients()
     {
         return Ok(new StatsExclusionsResponse
         {
@@ -293,9 +312,17 @@ public class StatsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Replaces the stats exclusion rules.
+    /// </summary>
+    /// <remarks>
+    /// Accepts the mode-aware rule set when provided, falling back to the legacy IP-only list
+    /// otherwise, so older clients keep working.
+    /// </remarks>
     [HttpPut("exclusions")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> UpdateExcludedClientsAsync([FromBody] UpdateStatsExclusionsRequest request)
+    [ProducesResponseType(typeof(StatsExclusionsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<StatsExclusionsResponse>> UpdateExcludedClientsAsync([FromBody] UpdateStatsExclusionsRequest request)
     {
         // Prefer mode-aware rules when provided; fall back to the legacy ips-only payload.
         if (request.Rules != null)
@@ -341,18 +368,40 @@ public class StatsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Gets the current eviction settings.
+    /// </summary>
+    /// <remarks>
+    /// Includes the evicted-data display mode, whether eviction scans notify, and whether
+    /// orphaned downloads are pruned.
+    /// </remarks>
     [HttpGet("eviction")]
-    public IActionResult GetEvictionSettings()
+    [ProducesResponseType(typeof(EvictionSettingsResponse), StatusCodes.Status200OK)]
+    public ActionResult<EvictionSettingsResponse> GetEvictionSettings()
     {
         var evictedDataMode = _stateRepository.GetEvictedDataMode();
         var evictionScanNotifications = _stateRepository.GetEvictionScanNotifications();
         var pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads();
-        return Ok(new { evictedDataMode, evictionScanNotifications, pruneOrphanedDownloads });
+        return Ok(new EvictionSettingsResponse
+        {
+            EvictedDataMode = evictedDataMode,
+            EvictionScanNotifications = evictionScanNotifications,
+            PruneOrphanedDownloads = pruneOrphanedDownloads
+        });
     }
 
+    /// <summary>
+    /// Updates the eviction settings.
+    /// </summary>
+    /// <remarks>
+    /// EvictedDataMode is optional so the Schedules page can save just the toggles without knowing
+    /// (or touching) the current display mode. Switching to Remove mode auto-starts a destructive
+    /// bulk eviction removal, parked in the wait-queue on conflict rather than rejected outright.
+    /// </remarks>
     [HttpPut("eviction")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> UpdateEvictionSettingsAsync([FromBody] UpdateEvictionSettingsRequest request)
+    [ProducesResponseType(typeof(EvictionSettingsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<EvictionSettingsResponse>> UpdateEvictionSettingsAsync([FromBody] UpdateEvictionSettingsRequest request)
     {
         // EvictedDataMode is optional: the Schedules page saves only the toggles and
         // must not touch (or have to know) the current display mode.
@@ -437,12 +486,25 @@ public class StatsController : ControllerBase
             return Accepted(new { evictedDataMode = _stateRepository.GetEvictedDataMode(), evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads(), operationId });
         }
 
-        return Ok(new { evictedDataMode = _stateRepository.GetEvictedDataMode(), evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads() });
+        return Ok(new EvictionSettingsResponse
+        {
+            EvictedDataMode = _stateRepository.GetEvictedDataMode(),
+            EvictionScanNotifications = _stateRepository.GetEvictionScanNotifications(),
+            PruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads()
+        });
     }
 
+    /// <summary>
+    /// Manually starts an eviction scan.
+    /// </summary>
+    /// <remarks>
+    /// Requires every datasource to have one unambiguous cache-key scheme, since the scan needs it
+    /// to identify evictable entries. A conflicting scan is parked in the wait-queue rather than rejected.
+    /// </remarks>
     [HttpPost("eviction/reconcile")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> ReconcileAsync(CancellationToken cancellationToken)
+    [ProducesResponseType(typeof(EvictionScanStartedResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<EvictionScanStartedResponse>> ReconcileAsync(CancellationToken cancellationToken)
     {
         // The eviction scan requires one unambiguous key scheme across every datasource;
         // reject mixed or unknown evidence before the scan, which also revalidates.
@@ -475,44 +537,59 @@ public class StatsController : ControllerBase
                 StartManualScanAsync, cancellationToken));
         }
 
-        return Ok(new { operationId });
+        return Ok(new EvictionScanStartedResponse { OperationId = operationId });
     }
 
+    /// <summary>
+    /// Clears the evicted flag on every download.
+    /// </summary>
+    /// <remarks>
+    /// Undoes the effect of eviction removal without touching the cache itself.
+    /// </remarks>
     [HttpPost("eviction/reset")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> ResetEvictionsAsync(CancellationToken ct)
+    [ProducesResponseType(typeof(EvictionResetResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<EvictionResetResponse>> ResetEvictionsAsync(CancellationToken ct)
     {
         var resetCount = await _context.Downloads
             .Where(d => d.IsEvicted)
             .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, false), ct);
 
         await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new { reason = "eviction-reset" });
-        return Ok(new { reset = resetCount });
+        return Ok(new EvictionResetResponse { Reset = resetCount });
     }
 
+    /// <summary>
+    /// Gets the running eviction scan's progress.
+    /// </summary>
+    /// <remarks>
+    /// Returns an idle/completed snapshot when none is running. Replaces the old polling-status
+    /// pattern for every other surface; this one is kept because the Schedules page still polls it directly.
+    /// </remarks>
     [HttpGet("eviction/scan/status")]
-    public IActionResult EvictionScanStatus()
+    [ProducesResponseType(typeof(EvictionScanStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<EvictionScanStatusResponse> EvictionScanStatus()
     {
         var activeScan = _operationTracker.GetActiveOperations(OperationType.EvictionScan).FirstOrDefault();
         var silentMode = activeScan != null ? _reconciliationService.CurrentScanIsSilent : false;
         if (activeScan == null)
         {
-            return Ok(new
+            return Ok(new EvictionScanStatusResponse
             {
-                isProcessing = false,
-                silentMode,
+                IsProcessing = false,
+                SilentMode = silentMode,
                 // Display flag mirror of silentMode: the recovery config skips resurrecting a card
                 // whose run is display-silent (scanSilent). No scan active → nothing to skip.
-                showNotification = !silentMode,
-                status = OperationStatus.Completed,
-                percentComplete = 0.0,
-                message = string.Empty,
-                // stageKey/context mirror the SignalR EvictionScanProgress shape so the recovery
+                ShowNotification = !silentMode,
+                Status = OperationStatus.Completed,
+                PercentComplete = 0.0,
+                Message = string.Empty,
+                // StageKey/Context mirror the SignalR EvictionScanProgress shape so the recovery
                 // config (RECOVERY_CONFIGS.evictionScan.createNotification) can render the live stage
                 // label instead of the generic "Scanning..." fallback. No scan active → null.
-                stageKey = (string?)null,
-                context = (object?)null,
-                operationId = (string?)null
+                StageKey = null,
+                Context = null,
+                OperationId = null
             });
         }
 
@@ -523,23 +600,31 @@ public class StatsController : ControllerBase
         // totalEstimate) for placeholder-bearing keys like signalr.evictionScan.progress.
         var stageKey = string.IsNullOrWhiteSpace(activeScan.Message) ? null : activeScan.Message;
 
-        return Ok(new
+        return Ok(new EvictionScanStatusResponse
         {
-            isProcessing = true,
-            silentMode,
+            IsProcessing = true,
+            SilentMode = silentMode,
             // Display flag mirror of silentMode so a refresh cannot resurrect a silent run's card.
-            showNotification = !silentMode,
-            status = activeScan.Status,
-            percentComplete = activeScan.PercentComplete,
-            message = stageKey ?? "Scanning for evictable cache entries...",
-            stageKey,
-            context = _reconciliationService.CurrentScanProgressContext,
-            operationId = activeScan.Id
+            ShowNotification = !silentMode,
+            Status = activeScan.Status,
+            PercentComplete = activeScan.PercentComplete,
+            Message = stageKey ?? "Scanning for evictable cache entries...",
+            StageKey = stageKey,
+            Context = _reconciliationService.CurrentScanProgressContext,
+            OperationId = activeScan.Id
         });
     }
 
+    /// <summary>
+    /// Gets per-service traffic totals for the given period.
+    /// </summary>
+    /// <remarks>
+    /// Aggregated live from Downloads, not the cached ServiceStats table, which caused values to
+    /// fluctuate against the dashboard.
+    /// </remarks>
     [HttpGet("services")]
-    public async Task<IActionResult> GetServicesAsync([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] long? eventId = null, CancellationToken ct = default)
+    [ProducesResponseType(typeof(List<ServiceStats>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<ServiceStats>>> GetServicesAsync([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] long? eventId = null, CancellationToken ct = default)
     {
         // Parse event IDs
         var eventIdList = ParseEventId(eventId);
@@ -607,8 +692,17 @@ public class StatsController : ControllerBase
         return Ok(serviceStats.WithUtcMarking());
     }
 
+    /// <summary>
+    /// Gets the dashboard summary.
+    /// </summary>
+    /// <remarks>
+    /// Includes all-time totals, current status, and period-specific metrics plus a per-service
+    /// breakdown for the requested window. All-time totals ignore the event filter, so they always
+    /// represent overall system stats regardless of which event is selected.
+    /// </remarks>
     [HttpGet("dashboard")]
-    public async Task<IActionResult> DashboardStatsAsync(
+    [ProducesResponseType(typeof(DashboardStatsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DashboardStatsResponse>> DashboardStatsAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] long? eventId = null,
@@ -817,11 +911,14 @@ public class StatsController : ControllerBase
     }
 
     /// <summary>
-    /// Get historical cache size snapshot for a time range.
-    /// Returns estimated used space based on periodic snapshots.
+    /// Gets the historical cache size snapshot for a time range.
     /// </summary>
+    /// <remarks>
+    /// Returns estimated used space based on periodic snapshots.
+    /// </remarks>
     [HttpGet("cache-snapshot")]
-    public async Task<IActionResult> CacheSnapshotAsync(
+    [ProducesResponseType(typeof(CacheSnapshotResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CacheSnapshotResponse>> CacheSnapshotAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
     {

@@ -34,7 +34,7 @@ public sealed class BattleNetMappingLifecycleTests
             new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         var service = new BattleNetMappingService(
-            new InMemoryDbContextFactory(options),
+            new TestDbContextFactory(options),
             notifications,
             tracker,
             NullLogger<BattleNetMappingService>.Instance);
@@ -71,15 +71,6 @@ public sealed class BattleNetMappingLifecycleTests
                 item.EventName is SignalREvents.BattleNetMappingStarted
                     or SignalREvents.BattleNetMappingProgress
                     or SignalREvents.BattleNetMappingComplete));
-    }
-
-    private sealed class InMemoryDbContextFactory(DbContextOptions<AppDbContext> options)
-        : IDbContextFactory<AppDbContext>
-    {
-        public AppDbContext CreateDbContext() => new(options);
-
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new AppDbContext(options));
     }
 
     private sealed record CapturedEvent(string EventName, object? Payload);

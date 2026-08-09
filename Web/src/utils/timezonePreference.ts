@@ -1,6 +1,6 @@
 /**
  * Global timezone preference state
- * This allows formatDateTime to access the preference without circular dependencies
+ * This allows getEffectiveTimezone to access the preference without circular dependencies
  */
 
 import { createGlobalPreference } from './globalPreference';

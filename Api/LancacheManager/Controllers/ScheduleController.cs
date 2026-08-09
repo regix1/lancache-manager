@@ -22,6 +22,7 @@ public class ScheduleController : ControllerBase
     /// Returns all registered service schedules.
     /// </summary>
     [HttpGet("")]
+    [ProducesResponseType(typeof(IReadOnlyList<ServiceScheduleInfo>), StatusCodes.Status200OK)]
     public ActionResult<IReadOnlyList<ServiceScheduleInfo>> GetAll()
     {
         return Ok(_registry.GetAll());
@@ -31,6 +32,7 @@ public class ScheduleController : ControllerBase
     /// Returns a single service schedule by its key.
     /// </summary>
     [HttpGet("{serviceKey}")]
+    [ProducesResponseType(typeof(ServiceScheduleInfo), StatusCodes.Status200OK)]
     public ActionResult<ServiceScheduleInfo> GetByKey(string serviceKey)
     {
         var info = _registry.Get(serviceKey);
@@ -60,9 +62,11 @@ public class ScheduleController : ControllerBase
     }
 
     /// <summary>
-    /// Sets the custom schedule that decides when the service runs, or clears it by sending a null
-    /// schedule so the service goes back to its interval.
+    /// Sets the custom schedule that decides when the service runs.
     /// </summary>
+    /// <remarks>
+    /// Send a null schedule to clear it, which returns the service to its interval.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPut("{serviceKey}/customSchedule")]
     public async Task<ActionResult> SetCustomScheduleAsync(string serviceKey, [FromBody] UpdateScheduleCustomScheduleRequest request)
@@ -138,12 +142,15 @@ public class ScheduleController : ControllerBase
     }
 
     /// <summary>
-    /// Updates how the service's run notifications render in the notification bar (full card vs a
-    /// condensed status line). Unlike notification mode this is pure UI display state that no service
-    /// behavior reads, so it carries no SupportsNotifications-style capability gate - every known
-    /// service key is accepted, including scheduledPrefill (whose notification MODE is per-platform
-    /// and therefore rejected above, but whose display mode is card-level).
+    /// Updates how the service's run notifications render in the notification bar.
     /// </summary>
+    /// <remarks>
+    /// Full card vs a condensed status line. Unlike notification mode this is pure UI display
+    /// state that no service behavior reads, so it carries no SupportsNotifications-style
+    /// capability gate - every known service key is accepted, including scheduledPrefill (whose
+    /// notification MODE is per-platform and therefore rejected above, but whose display mode is
+    /// card-level).
+    /// </remarks>
     [HttpPut("{serviceKey}/notificationDisplayMode")]
     [Authorize(Policy = "AdminOnly")]
     public async Task<ActionResult> SetNotificationDisplayModeAsync(string serviceKey, [FromBody] NotificationDisplayMode mode)
@@ -160,11 +167,15 @@ public class ScheduleController : ControllerBase
     }
 
     /// <summary>
-    /// Returns the live run status for a service, used by the notification recovery pipeline to
-    /// rehydrate an in-progress card after a page refresh. Read-only, so it stays <see cref="AuthorizeAttribute"/>
-    /// (guest-readable) rather than AdminOnly, matching the other recovery status endpoints.
+    /// Returns the live run status for a service.
     /// </summary>
+    /// <remarks>
+    /// Used by the notification recovery pipeline to rehydrate an in-progress card after a page
+    /// refresh. Read-only, so it stays <see cref="AuthorizeAttribute"/> (guest-readable) rather
+    /// than AdminOnly, matching the other recovery status endpoints.
+    /// </remarks>
     [HttpGet("{serviceKey}/run-status")]
+    [ProducesResponseType(typeof(ScheduleRunStatus), StatusCodes.Status200OK)]
     public ActionResult<ScheduleRunStatus> GetRunStatus(string serviceKey)
     {
         var status = _registry.GetRunStatus(serviceKey);
@@ -177,12 +188,15 @@ public class ScheduleController : ControllerBase
     }
 
     /// <summary>
-    /// Triggers an immediate run of the service, bypassing the scheduled interval. Reports whether
-    /// this call actually armed a new run or collided with one already in progress, so a repeated
-    /// click can be told apart from a real start.
+    /// Triggers an immediate run of the service, bypassing the scheduled interval.
     /// </summary>
+    /// <remarks>
+    /// Reports whether this call actually armed a new run or collided with one already in
+    /// progress, so a repeated click can be told apart from a real start.
+    /// </remarks>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("{serviceKey}/run")]
+    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<ActionResult<QueuedOperationResponse>> TriggerRunAsync(string serviceKey)
     {
         var info = _registry.Get(serviceKey);
@@ -233,6 +247,7 @@ public class ScheduleController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("run-all")]
+    [ProducesResponseType(typeof(TriggerAllResponse), StatusCodes.Status202Accepted)]
     public async Task<ActionResult<TriggerAllResponse>> TriggerAllAsync()
     {
         var (triggeredCount, alreadyRunningCount) = await _registry.TriggerAllAsync();

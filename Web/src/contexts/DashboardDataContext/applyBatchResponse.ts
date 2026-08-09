@@ -6,8 +6,7 @@ import type {
   Download,
   SparklineDataResponse,
   HourlyActivityResponse,
-  CacheSnapshotResponse,
-  CacheGrowthResponse
+  CacheSnapshotResponse
 } from '../../types';
 import type { DashboardBatchResponse } from './types';
 
@@ -25,7 +24,6 @@ export interface DashboardSlices {
   sparklines: SparklineDataResponse | null;
   hourlyActivity: HourlyActivityResponse | null;
   cacheSnapshot: CacheSnapshotResponse | null;
-  cacheGrowth: CacheGrowthResponse | null;
 }
 
 interface ApplyBatchMeta {
@@ -101,8 +99,7 @@ export function applyDashboardBatchResponse(
       prev.hourlyActivity,
       null
     ),
-    cacheSnapshot: resolveSection('cacheSnapshot', batch.cacheSnapshot, prev.cacheSnapshot, null),
-    cacheGrowth: resolveSection('cacheGrowth', batch.cacheGrowth, prev.cacheGrowth, null)
+    cacheSnapshot: resolveSection('cacheSnapshot', batch.cacheSnapshot, prev.cacheSnapshot, null)
   };
 
   return { next, hadPartialFailure: failedSectionKeys.length > 0, failedSectionKeys };
