@@ -29,7 +29,7 @@ CONTENT = SITE / "content"
 ASSETS = SITE / "assets"
 NAV = SITE / "nav.yml"
 BASE_CONFIG = SITE / "mkdocs.base.yml"
-IMAGES = REPO / "docs" / "images"
+IMAGES = SITE / "images"
 OUT = SITE / "generated"
 DOCS = OUT / "docs"
 
