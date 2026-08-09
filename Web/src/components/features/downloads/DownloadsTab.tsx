@@ -645,6 +645,16 @@ const DownloadsTab: React.FC = () => {
   const normalEverMounted = useRef(settings.viewMode === 'normal');
   const retroEverMounted = useRef(settings.viewMode === 'retro');
 
+  // The refs above are written from an effect, which runs after the render that switched
+  // the view and does not schedule another one. Reading them alone therefore left the
+  // newly selected view empty until an unrelated state change repainted the page. Treat
+  // the active view as mounted in the same render that selects it, and keep the refs for
+  // the views the user has already been to so switching back stays instant.
+  const showCompactView = compactEverMounted.current || settings.viewMode === 'compact';
+  const showCardView = cardEverMounted.current || settings.viewMode === 'card';
+  const showNormalView = normalEverMounted.current || settings.viewMode === 'normal';
+  const showRetroView = retroEverMounted.current || settings.viewMode === 'retro';
+
   // Effect to save settings to localStorage
   useEffect(() => {
     storage.setItem(STORAGE_KEYS.HIDE_METADATA, settings.hideMetadata.toString());
@@ -2142,7 +2152,7 @@ const DownloadsTab: React.FC = () => {
               className="space-y-4"
               style={{ display: settings.viewMode === 'retro' ? 'block' : 'none' }}
             >
-              {retroEverMounted.current && (
+              {showRetroView && (
                 <Suspense
                   fallback={
                     <div className="py-4">
@@ -2191,7 +2201,7 @@ const DownloadsTab: React.FC = () => {
             >
               {/* Content based on view mode with display:none pattern for instant switching */}
               <div style={{ display: settings.viewMode === 'compact' ? 'block' : 'none' }}>
-                {compactEverMounted.current && (
+                {showCompactView && (
                   <CompactView
                     items={itemsToDisplay as (Download | DownloadGroup)[]}
                     expandedItem={expandedItem}
@@ -2209,7 +2219,7 @@ const DownloadsTab: React.FC = () => {
               </div>
 
               <div style={{ display: settings.viewMode === 'card' ? 'block' : 'none' }}>
-                {cardEverMounted.current && (
+                {showCardView && (
                   <NormalView
                     items={itemsToDisplay as (Download | DownloadGroup)[]}
                     expandedItem={expandedItem}
@@ -2233,7 +2243,7 @@ const DownloadsTab: React.FC = () => {
               </div>
 
               <div style={{ display: settings.viewMode === 'normal' ? 'block' : 'none' }}>
-                {normalEverMounted.current && (
+                {showNormalView && (
                   <NormalView
                     items={itemsToDisplay as (Download | DownloadGroup)[]}
                     expandedItem={expandedItem}
