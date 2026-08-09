@@ -1126,6 +1126,34 @@ app.UseStaticFiles(new StaticFileOptions
     }
 });
 
+// A browser opening /scalar without a session gets a bare 401 and renders a blank page,
+// because the session handler answers every unauthenticated request that way for the SPA's
+// benefit. Send navigations to the app root instead, where the sign-in screen lives, and
+// leave the 401 in place for callers that did not ask for HTML so scripts still see it.
+// This has to sit before UseAuthorization: that middleware writes the 401 and stops, so
+// anything registered after it never runs on a failed authorization. The redirect is
+// relative, which keeps it correct behind whatever host port the deployment publishes.
+app.Use(async (context, next) =>
+{
+    await next();
+
+    if (context.Response.StatusCode != StatusCodes.Status401Unauthorized ||
+        context.Response.HasStarted ||
+        !HttpMethods.IsGet(context.Request.Method) ||
+        !context.Request.Path.StartsWithSegments("/scalar"))
+    {
+        return;
+    }
+
+    var wantsHtml = context.Request.Headers.Accept
+        .Any(value => value is not null && value.Contains("text/html", StringComparison.OrdinalIgnoreCase));
+
+    if (wantsHtml)
+    {
+        context.Response.Redirect("/");
+    }
+});
+
 app.UseRouting();
 
 // Rate limiting - must be after routing to access endpoint metadata
