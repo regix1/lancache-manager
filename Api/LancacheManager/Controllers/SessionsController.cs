@@ -67,6 +67,7 @@ public class SessionsController : ControllerBase
             Sessions = activeDtos,
             Count = activeDtos.Count,
             AdminCount = activeDtos.Count(s => s.SessionType == SessionType.Admin),
+            UserCount = activeDtos.Count(s => s.SessionType == SessionType.User),
             GuestCount = activeDtos.Count(s => s.SessionType == SessionType.Guest),
             Pagination = new SessionListPage
             {
@@ -81,12 +82,12 @@ public class SessionsController : ControllerBase
 
     private static SessionDto ToDto(UserSession s, Guid? currentSessionId, DateTime now)
     {
-        var isAdmin = s.SessionType == SessionType.Admin;
-        var steamPrefillEnabled = isAdmin || (s.SteamPrefillExpiresAtUtc != null && s.SteamPrefillExpiresAtUtc > now);
-        var epicPrefillEnabled = isAdmin || (s.EpicPrefillExpiresAtUtc != null && s.EpicPrefillExpiresAtUtc > now);
-        var battlenetPrefillEnabled = isAdmin || (s.BattleNetPrefillExpiresAtUtc != null && s.BattleNetPrefillExpiresAtUtc > now);
-        var riotPrefillEnabled = isAdmin || (s.RiotPrefillExpiresAtUtc != null && s.RiotPrefillExpiresAtUtc > now);
-        var xboxPrefillEnabled = isAdmin || (s.XboxPrefillExpiresAtUtc != null && s.XboxPrefillExpiresAtUtc > now);
+        var isAccountHolder = s.SessionType.IsAccountHolder();
+        var steamPrefillEnabled = isAccountHolder || (s.SteamPrefillExpiresAtUtc != null && s.SteamPrefillExpiresAtUtc > now);
+        var epicPrefillEnabled = isAccountHolder || (s.EpicPrefillExpiresAtUtc != null && s.EpicPrefillExpiresAtUtc > now);
+        var battlenetPrefillEnabled = isAccountHolder || (s.BattleNetPrefillExpiresAtUtc != null && s.BattleNetPrefillExpiresAtUtc > now);
+        var riotPrefillEnabled = isAccountHolder || (s.RiotPrefillExpiresAtUtc != null && s.RiotPrefillExpiresAtUtc > now);
+        var xboxPrefillEnabled = isAccountHolder || (s.XboxPrefillExpiresAtUtc != null && s.XboxPrefillExpiresAtUtc > now);
 
         return new SessionDto
         {
@@ -103,19 +104,19 @@ public class SessionsController : ControllerBase
             RevokedAt = s.RevokedAtUtc.HasValue ? DateTime.SpecifyKind(s.RevokedAtUtc.Value, DateTimeKind.Utc) : (DateTime?)null,
             PrefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled || riotPrefillEnabled || xboxPrefillEnabled,
             SteamPrefillEnabled = steamPrefillEnabled,
-            SteamPrefillExpiresAt = !isAdmin && s.SteamPrefillExpiresAtUtc > now
+            SteamPrefillExpiresAt = !isAccountHolder && s.SteamPrefillExpiresAtUtc > now
                 ? DateTime.SpecifyKind(s.SteamPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
             EpicPrefillEnabled = epicPrefillEnabled,
-            EpicPrefillExpiresAt = !isAdmin && s.EpicPrefillExpiresAtUtc > now
+            EpicPrefillExpiresAt = !isAccountHolder && s.EpicPrefillExpiresAtUtc > now
                 ? DateTime.SpecifyKind(s.EpicPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
             BattlenetPrefillEnabled = battlenetPrefillEnabled,
-            BattlenetPrefillExpiresAt = !isAdmin && s.BattleNetPrefillExpiresAtUtc > now
+            BattlenetPrefillExpiresAt = !isAccountHolder && s.BattleNetPrefillExpiresAtUtc > now
                 ? DateTime.SpecifyKind(s.BattleNetPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
             RiotPrefillEnabled = riotPrefillEnabled,
-            RiotPrefillExpiresAt = !isAdmin && s.RiotPrefillExpiresAtUtc > now
+            RiotPrefillExpiresAt = !isAccountHolder && s.RiotPrefillExpiresAtUtc > now
                 ? DateTime.SpecifyKind(s.RiotPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
             XboxPrefillEnabled = xboxPrefillEnabled,
-            XboxPrefillExpiresAt = !isAdmin && s.XboxPrefillExpiresAtUtc > now
+            XboxPrefillExpiresAt = !isAccountHolder && s.XboxPrefillExpiresAtUtc > now
                 ? DateTime.SpecifyKind(s.XboxPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
             PublicIpAddress = s.PublicIpAddress,
             CountryCode = s.CountryCode,
@@ -192,22 +193,22 @@ public class SessionsController : ControllerBase
     /// Updates the caller's own dashboard refresh rate preference.
     /// </summary>
     /// <remarks>
-    /// The owning session may always change its own rate; an admin may change anyone's. Guests
-    /// are blocked while the admin has locked the global guest refresh rate.
+    /// The owning session may always change its own rate; an account holder may change anyone's.
+    /// Guests are blocked while the admin has locked the global guest refresh rate.
     /// </remarks>
     [HttpPatch("{id:guid}/refresh-rate")]
     [ProducesResponseType(typeof(StateUpdateResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<StateUpdateResponse>> UpdateRefreshRateAsync(Guid id, [FromBody] RefreshRateRequest request)
     {
         var callerSession = HttpContext.GetUserSession();
-        var isAdmin = callerSession?.SessionType == SessionType.Admin;
+        var isAccountHolder = callerSession?.SessionType.IsAccountHolder() == true;
 
-        // Only the owning session or an admin may update refresh rate
-        if (!isAdmin && callerSession?.Id != id)
+        // Only the owning session or an account holder may update refresh rate
+        if (!isAccountHolder && callerSession?.Id != id)
             return Forbid();
 
         // Guests cannot change their refresh rate when the global lock is active
-        if (!isAdmin && _stateService.GetGuestRefreshRateLocked())
+        if (!isAccountHolder && _stateService.GetGuestRefreshRateLocked())
             throw new ForbiddenException("Refresh rate changes are locked by the administrator");
 
         using var scope = _scopeFactory.CreateScope();

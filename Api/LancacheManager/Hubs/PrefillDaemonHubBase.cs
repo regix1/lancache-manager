@@ -58,9 +58,9 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
         }
 
         var session = await _sessionService.ValidateSessionAsync(rawToken);
-        var isAdmin = session?.SessionType == SessionType.Admin;
+        var isAccountHolder = session?.SessionType.IsAccountHolder() == true;
         var hasPrefillAccess = session != null && GetPrefillExpiry(session) != null && GetPrefillExpiry(session) > DateTime.UtcNow;
-        if (session == null || (!isAdmin && !hasPrefillAccess))
+        if (session == null || (!isAccountHolder && !hasPrefillAccess))
         {
             _logger.LogWarning("{Hub} hub connection rejected - no prefill access: {ConnectionId}",
                 HubDisplayName, Context.ConnectionId);
@@ -110,9 +110,10 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
             var ipAddress = httpContext?.Connection.RemoteIpAddress?.ToString();
             var userAgent = httpContext?.Request.Headers["User-Agent"].FirstOrDefault();
 
-            // Resolve admin vs guest so guest/temporary containers get the manager-enforced lifetime
-            // cap. Re-validate from the cookie token (mirrors OnConnectedAsync); a session that cannot
-            // be resolved is treated as a guest so the cap is applied conservatively.
+            // Resolve the session type so guest/temporary containers get the manager-enforced lifetime
+            // cap; only a guest is capped (PrefillDaemonServiceBase.cs:1633, 1815). Re-validate from the
+            // cookie token (mirrors OnConnectedAsync); a session that cannot be resolved is treated as a
+            // guest so the cap is applied conservatively. [14]
             var rawToken = httpContext != null ? Security.SessionService.TokenFromCookie(httpContext) : null;
             var userSession = string.IsNullOrEmpty(rawToken) ? null : await _sessionService.ValidateSessionAsync(rawToken);
             var sessionType = userSession == null ? SessionType.Guest : userSession.SessionType;

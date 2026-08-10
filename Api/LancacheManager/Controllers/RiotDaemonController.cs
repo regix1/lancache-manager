@@ -38,7 +38,7 @@ public class RiotDaemonController : DaemonControllerBase<RiotDaemonService>
 
     protected override int? ResolveThreadLimit(UserSession session)
     {
-        if (session.SessionType == SessionType.Admin) return null;
+        if (session.SessionType.IsAccountHolder()) return null;
         return _stateService.GetDefaultGuestMaxThreadCount();
     }
 }

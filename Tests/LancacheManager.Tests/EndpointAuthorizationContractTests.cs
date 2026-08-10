@@ -418,6 +418,12 @@ public sealed class EndpointAuthorizationContractTests
                 $"Anonymous request to '{path}' returned {(int)response.StatusCode} {response.StatusCode}: {body}");
         }
 
+        // The host boots an unfinished installation, and a guest session is refused there because a
+        // guest cannot complete the wizard. What this test needs is a guest session, not an
+        // unfinished install, so setup is marked complete first. It writes to the temporary data
+        // directory the host isolates, which is why the isolation check above still holds.
+        host.Application.Services.GetRequiredService<IStateService>().SetSetupCompleted(true);
+
         using var guestResponse = await guestClient.PostAsync("/api/auth/guest", null);
         Assert.Equal(System.Net.HttpStatusCode.OK, guestResponse.StatusCode);
 

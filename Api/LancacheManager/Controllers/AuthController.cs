@@ -93,7 +93,7 @@ public class AuthController : ControllerBase
 
         if (session != null)
         {
-            if (session.SessionType == SessionType.Admin)
+            if (session.SessionType.IsAccountHolder())
             {
                 steamPrefillEnabled = true;
                 epicPrefillEnabled = true;
@@ -128,11 +128,23 @@ public class AuthController : ControllerBase
         // Backward-compat: prefillEnabled is true if any service is active
         var prefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled || riotPrefillEnabled || xboxPrefillEnabled;
 
-        // Token rotation: provide a fresh token for SignalR accessTokenFactory (mobile support)
+        // Token rotation: provide a fresh token for SignalR accessTokenFactory (mobile support).
+        // Not for a caller carrying the key: SessionAuthenticationHandler resolves a session for it only
+        // while authentication is enabled and the header is present (SessionAuthenticationHandler.cs:65-67),
+        // that is one session every key caller shares (SessionService.cs:50), and no copy of its token is
+        // kept (SessionService.cs:342-345). Rotating it writes a cookie for that shared session
+        // (SessionService.cs:759) and retires the token the previous caller was handed, so a key caller
+        // would leave here holding a credential belonging to all of them that the next status call breaks.
+        // The key authenticates each of its requests on its own. With authentication disabled the header is
+        // never read and the session is the shared one whose cookie the browser runs on, so that path keeps
+        // rotating. [11]
         string? token = null;
         if (session != null)
         {
-            var rotatedToken = await _sessionService.RotateSessionTokenAsync(session, HttpContext);
+            var authenticatedWithApiKey = authenticationEnabled && Request.Headers.ContainsKey("X-Api-Key");
+            var rotatedToken = authenticatedWithApiKey
+                ? null
+                : await _sessionService.RotateSessionTokenAsync(session, HttpContext);
             token = rotatedToken ?? SessionService.TokenFromCookie(HttpContext);
         }
 
@@ -227,9 +239,13 @@ public class AuthController : ControllerBase
     /// <remarks>
     /// For each prefill service enabled by default, grants that service's guest-prefill access
     /// immediately so the guest does not have to ask an admin to turn it on. Rejected when guest
-    /// access is turned off.
+    /// access is turned off, and while setup is unfinished.
+    ///
+    /// Rate limited because it is the one endpoint that writes rows for a caller who presented
+    /// nothing: each call inserts a session and up to five prefill grants.
     /// </remarks>
     [AllowAnonymous]
+    [EnableRateLimiting("auth")]
     [HttpPost("guest")]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<LoginResponse>> StartGuestAsync()
@@ -237,6 +253,15 @@ public class AuthController : ControllerBase
         if (!_sessionService.IsGuestAccessEnabled())
         {
             throw new ForbiddenException("Guest access is disabled");
+        }
+
+        // An unfinished installation serves the setup wizard and nothing else, and a guest cannot
+        // finish it: the wizard's saves are admin-gated and it offers no way out. A guest session
+        // handed out in that state leaves the caller looking at a screen that refuses everything, so
+        // the session is refused instead. [7]
+        if (!_stateService.GetSetupCompleted())
+        {
+            throw new ForbiddenException("Setup is not complete");
         }
 
         var result = await _sessionService.CreateGuestSessionAsync(HttpContext);

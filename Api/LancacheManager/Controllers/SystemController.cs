@@ -79,6 +79,12 @@ public class SystemController : ControllerBase
     [ProducesResponseType(typeof(SystemConfigResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SystemConfigResponse>> GetConfigAsync()
     {
+        // Where the cache, the logs and the data directory live is told to a caller who has signed in
+        // and to nobody else. The app loads this response before any session exists, so the route stays
+        // anonymous and only the filesystem layout and its writability are withheld. Read once into a
+        // local because the datasource projection below runs its branches concurrently. [5]
+        var isSignedIn = User.Identity?.IsAuthenticated == true;
+
         var datasources = _datasourceService.GetDatasources();
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
         var cacheSizeResolutions = (await _cacheManagementService.GetDatasourceCacheSizeResolutionsAsync())
@@ -98,10 +104,10 @@ public class SystemController : ControllerBase
             return new DatasourceInfoDto
             {
                 Name = ds.Name,
-                CachePath = ds.CachePath,
-                LogsPath = ds.LogPath,
-                CacheWritable = ds.CacheWritable,
-                LogsWritable = ds.LogsWritable,
+                CachePath = isSignedIn ? ds.CachePath : string.Empty,
+                LogsPath = isSignedIn ? ds.LogPath : string.Empty,
+                CacheWritable = isSignedIn && ds.CacheWritable,
+                LogsWritable = isSignedIn && ds.LogsWritable,
                 Enabled = ds.Enabled,
                 CacheSizeOverrideBytes = cacheSize.OverrideBytes,
                 ResolvedCacheSizeBytes = cacheSize.ResolvedBytes,
@@ -123,15 +129,15 @@ public class SystemController : ControllerBase
         return Ok(new SystemConfigResponse
         {
             // Use first datasource paths for backward compatibility, or fall back to PathResolver
-            CachePath = defaultDatasource?.CachePath ?? _pathResolver.GetCacheDirectory(),
-            LogsPath = defaultDatasource?.LogPath ?? _pathResolver.GetLogsDirectory(),
-            DataPath = _pathResolver.GetDataDirectory(),
+            CachePath = isSignedIn ? (defaultDatasource?.CachePath ?? _pathResolver.GetCacheDirectory()) : string.Empty,
+            LogsPath = isSignedIn ? (defaultDatasource?.LogPath ?? _pathResolver.GetLogsDirectory()) : string.Empty,
+            DataPath = isSignedIn ? _pathResolver.GetDataDirectory() : string.Empty,
             CacheDeleteMode = _cacheClearingService.GetDeleteMode(),
             SteamAuthMode = _stateService.GetSteamAuthMode() ?? SteamAuthMode.Anonymous,
             TimeZone = ServerTimeZone.IanaId(_configuration),
             // Use cached permission flags maintained by DirectoryPermissionMonitor.
-            CacheWritable = defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable(),
-            LogsWritable = defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsWritable(),
+            CacheWritable = isSignedIn && (defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable()),
+            LogsWritable = isSignedIn && (defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsWritable()),
             // Include all datasources with their layout + capability evidence.
             DataSources = datasourceDtos.ToList()
         });
@@ -209,77 +215,86 @@ public class SystemController : ControllerBase
             ? !(hasEnvPassword && hasEnvHost) && !hasCredentialsFile
             : !hasEnvPassword && !hasCredentialsFile;
 
-        // Surface the configured external-mode target for the info screen, without
-        // ever exposing the password. Pulls from env first; falls back to the
-        // credentials file when the UI was used to enter creds.
         string? postgresHost = null;
         int? postgresPort = null;
-        string? postgresDatabase = Environment.GetEnvironmentVariable("POSTGRES_DB");
-        string? postgresUser = Environment.GetEnvironmentVariable("POSTGRES_USER");
+        string? postgresDatabase = null;
+        string? postgresUser = null;
 
-        if (mode == "external")
+        // Where the database lives is told to a caller who has signed in and to nobody else. The
+        // completion answer above is read before any session exists, so it stays anonymous while
+        // the connection target does not. [4]
+        if (User.Identity?.IsAuthenticated == true)
         {
-            postgresHost = Environment.GetEnvironmentVariable("POSTGRES_HOST");
-            var envPort = Environment.GetEnvironmentVariable("POSTGRES_PORT");
-            if (int.TryParse(envPort, out var parsedPort))
-                postgresPort = parsedPort;
+            // Surface the configured external-mode target for the info screen, without
+            // ever exposing the password. Pulls from env first; falls back to the
+            // credentials file when the UI was used to enter creds.
+            postgresDatabase = Environment.GetEnvironmentVariable("POSTGRES_DB");
+            postgresUser = Environment.GetEnvironmentVariable("POSTGRES_USER");
 
-            if ((string.IsNullOrEmpty(postgresHost) || postgresPort is null || string.IsNullOrEmpty(postgresDatabase))
-                && hasCredentialsFile)
+            if (mode == "external")
             {
-                try
+                postgresHost = Environment.GetEnvironmentVariable("POSTGRES_HOST");
+                var envPort = Environment.GetEnvironmentVariable("POSTGRES_PORT");
+                if (int.TryParse(envPort, out var parsedPort))
+                    postgresPort = parsedPort;
+
+                if ((string.IsNullOrEmpty(postgresHost) || postgresPort is null || string.IsNullOrEmpty(postgresDatabase))
+                    && hasCredentialsFile)
                 {
-                    var json = System.IO.File.ReadAllText(credentialsFilePath);
-                    using var doc = System.Text.Json.JsonDocument.Parse(json);
-                    var root = doc.RootElement;
-                    if (string.IsNullOrEmpty(postgresHost) && root.TryGetProperty("host", out var hostElement))
-                        postgresHost = hostElement.GetString();
-                    if (postgresPort is null && root.TryGetProperty("port", out var portElement))
+                    try
                     {
-                        postgresPort = portElement.ValueKind == System.Text.Json.JsonValueKind.Number
-                            ? portElement.GetInt32()
-                            : (int.TryParse(portElement.GetString(), out var p) ? p : null);
+                        var json = System.IO.File.ReadAllText(credentialsFilePath);
+                        using var doc = System.Text.Json.JsonDocument.Parse(json);
+                        var root = doc.RootElement;
+                        if (string.IsNullOrEmpty(postgresHost) && root.TryGetProperty("host", out var hostElement))
+                            postgresHost = hostElement.GetString();
+                        if (postgresPort is null && root.TryGetProperty("port", out var portElement))
+                        {
+                            postgresPort = portElement.ValueKind == System.Text.Json.JsonValueKind.Number
+                                ? portElement.GetInt32()
+                                : (int.TryParse(portElement.GetString(), out var p) ? p : null);
+                        }
+                        if (string.IsNullOrEmpty(postgresDatabase) && root.TryGetProperty("database", out var dbElement))
+                            postgresDatabase = dbElement.GetString();
+                        if (string.IsNullOrEmpty(postgresUser) && root.TryGetProperty("username", out var userElement))
+                            postgresUser = userElement.GetString();
                     }
-                    if (string.IsNullOrEmpty(postgresDatabase) && root.TryGetProperty("database", out var dbElement))
-                        postgresDatabase = dbElement.GetString();
-                    if (string.IsNullOrEmpty(postgresUser) && root.TryGetProperty("username", out var userElement))
-                        postgresUser = userElement.GetString();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Postgres credentials file {Path} is unreadable or malformed, so the setup screen falls back to the environment variables and shows less detail",
-                        credentialsFilePath);
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Postgres credentials file {Path} is unreadable or malformed, so the setup screen falls back to the environment variables and shows less detail",
+                            credentialsFilePath);
+                    }
                 }
             }
-        }
-        else if (!needsPostgresCredentials)
-        {
-            // Embedded mode with credentials configured: surface socket path for the info screen.
-            postgresHost = "/var/run/postgresql";
-            postgresPort = null;
-            if (string.IsNullOrEmpty(postgresDatabase))
-                postgresDatabase = "lancache";
-            if (string.IsNullOrEmpty(postgresUser))
-                postgresUser = "lancache";
-
-            if (hasCredentialsFile)
+            else if (!needsPostgresCredentials)
             {
-                try
+                // Embedded mode with credentials configured: surface socket path for the info screen.
+                postgresHost = "/var/run/postgresql";
+                postgresPort = null;
+                if (string.IsNullOrEmpty(postgresDatabase))
+                    postgresDatabase = "lancache";
+                if (string.IsNullOrEmpty(postgresUser))
+                    postgresUser = "lancache";
+
+                if (hasCredentialsFile)
                 {
-                    var json = System.IO.File.ReadAllText(credentialsFilePath);
-                    using var doc = System.Text.Json.JsonDocument.Parse(json);
-                    var root = doc.RootElement;
-                    if (string.IsNullOrEmpty(postgresDatabase) && root.TryGetProperty("database", out var dbElement))
-                        postgresDatabase = dbElement.GetString();
-                    if (string.IsNullOrEmpty(postgresUser) && root.TryGetProperty("username", out var userElement))
-                        postgresUser = userElement.GetString();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Postgres credentials file {Path} is unreadable or malformed, so the setup screen falls back to the embedded defaults and shows less detail",
-                        credentialsFilePath);
+                    try
+                    {
+                        var json = System.IO.File.ReadAllText(credentialsFilePath);
+                        using var doc = System.Text.Json.JsonDocument.Parse(json);
+                        var root = doc.RootElement;
+                        if (string.IsNullOrEmpty(postgresDatabase) && root.TryGetProperty("database", out var dbElement))
+                            postgresDatabase = dbElement.GetString();
+                        if (string.IsNullOrEmpty(postgresUser) && root.TryGetProperty("username", out var userElement))
+                            postgresUser = userElement.GetString();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Postgres credentials file {Path} is unreadable or malformed, so the setup screen falls back to the embedded defaults and shows less detail",
+                            credentialsFilePath);
+                    }
                 }
             }
         }
@@ -859,7 +874,7 @@ public class SystemController : ControllerBase
     {
         var session = GetSession();
         if (session == null) return null;
-        if (session.SessionType == SessionType.Admin) return null;
+        if (session.SessionType.IsAccountHolder()) return null;
 
         // Guest: check per-user override first, then system default
         var prefs = _userPreferencesService.GetPreferences(session.Id);
@@ -870,7 +885,7 @@ public class SystemController : ControllerBase
     {
         var session = GetSession();
         if (session == null) return null;
-        if (session.SessionType == SessionType.Admin) return null;
+        if (session.SessionType.IsAccountHolder()) return null;
 
         // Guest: check per-user override first, then system default
         var prefs = _userPreferencesService.GetPreferences(session.Id);

@@ -33,8 +33,8 @@ public class DownloadHub : Hub
     }
 
     /// <summary>
-    /// Called by admin clients to explicitly join the AdminGroup.
-    /// Validates that the caller's session has the admin session type before allowing join.
+    /// Called by account-holder clients to explicitly join the AdminGroup.
+    /// Validates that the caller's session is backed by an account before allowing join.
     /// </summary>
     public async Task JoinAuthenticatedGroupAsync()
     {
@@ -48,9 +48,9 @@ public class DownloadHub : Hub
         }
 
         var session = await _sessionService.ValidateSessionAsync(rawToken);
-        if (session == null || session.SessionType != SessionType.Admin)
+        if (session == null || !session.SessionType.IsAccountHolder())
         {
-            _logger.LogWarning("SignalR JoinAuthenticatedGroupAsync rejected - not admin: ConnectionId={ConnectionId}, SessionType={SessionType}",
+            _logger.LogWarning("SignalR JoinAuthenticatedGroupAsync rejected - no account behind the session: ConnectionId={ConnectionId}, SessionType={SessionType}",
                 Context.ConnectionId, session?.SessionType.ToString() ?? "none");
             return;
         }
@@ -77,7 +77,7 @@ public class DownloadHub : Hub
                 // Add to appropriate groups
                 await Groups.AddToGroupAsync(Context.ConnectionId, AuthenticatedUsersGroup);
 
-                if (session.SessionType == SessionType.Admin)
+                if (session.SessionType.IsAccountHolder())
                 {
                     await Groups.AddToGroupAsync(Context.ConnectionId, AdminGroup);
                 }
@@ -95,7 +95,7 @@ public class DownloadHub : Hub
                 try
                 {
                     var activity = await _activityRegistry.GetSnapshotAsync();
-                    var visibleActivity = session.SessionType == SessionType.Admin
+                    var visibleActivity = session.SessionType.IsAccountHolder()
                         ? activity
                         : ActivityRegistry.ToGuestVisibleSnapshot(activity);
                     await Clients.Caller.SendAsync(SignalREvents.ActivityUpdated, visibleActivity);

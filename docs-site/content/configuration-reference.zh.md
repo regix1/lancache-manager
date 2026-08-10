@@ -47,7 +47,7 @@
 | `Security__RequireAuthForMetrics` | `false` | `/metrics` 端点是否需要 API 密钥。管理 → 集成中的 UI 开关设置后会覆盖此值。 |
 | `Security__AllowedOrigins` | （空） | 逗号分隔的 CORS 允许列表。为空则允许所有来源。 |
 | `Security__ApiKeyPath` | `/data/security/api_key.txt` | 覆盖管理员 API 密钥的读写文件路径。当你从 `/data` 之外绑定挂载密钥时很有用。 |
-| `Security__KnownProxyNetworks` | （空） | 用于 `X-Forwarded-For` 的可信代理网络 CIDR 列表，逗号分隔（例如 `172.16.0.0/12,10.0.0.0/8`）。当 nginx、Traefik 或其他反向代理位于管理器前面时设置此项，客户端 IP 才能被正确报告。回环地址始终受信任。 |
+| `Security__KnownProxyNetworks` | （空） | 用于 `X-Forwarded-For` 的可信代理网络 CIDR 列表，逗号分隔（例如 `172.16.0.0/12,10.0.0.0/8`）。当 nginx、Traefik 或其他反向代理位于管理器前面时设置此项，客户端 IP 才能被正确报告。回环地址始终受信任。如果代理位于另一台主机或另一个容器上而此项留空，登录限流会把所有客户端都算在代理的地址上，此时一个人反复输错密码就会把其他所有人锁在门外一分钟。 |
 | `Security__TrustAllProxies` | `false` | 无条件信任每一个上游代理。方便本地开发使用。**切勿在暴露于公网的主机上启用**——任何人都能伪造客户端 IP。 |
 | `Security__ForceSecureCookies` | `false` | 即使请求未被识别为 HTTPS，也强制在会话 Cookie 上加 `Secure` 标志。在 TLS 终止型反向代理后运行时启用。 |
 

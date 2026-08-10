@@ -210,7 +210,7 @@ const AppContent: React.FC = () => {
   }, [signalR, showFullScanRequiredModal, authMode, wasModalDismissed]);
 
   // Set server timezone from config context (guaranteed non-null)
-  const { config } = useConfig();
+  const { config, refreshConfig } = useConfig();
   useEffect(() => {
     if (config.timeZone) {
       setServerTimezone(config.timeZone);
@@ -510,7 +510,17 @@ const AppContent: React.FC = () => {
 
   // Show login page if not authenticated
   if (!checkingAuth && authMode === 'unauthenticated' && authenticationEnabled !== false) {
-    return <AuthenticationModal onAuthComplete={refreshAuth} />;
+    // The config fetched for this screen came back without the cache, logs and data paths, because
+    // it was requested with no session. ConfigProvider sits above AuthProvider and signing in does
+    // not remount it, so the paths only arrive if the response is asked for again here. [5]
+    return (
+      <AuthenticationModal
+        onAuthComplete={() => {
+          void refreshAuth();
+          void refreshConfig();
+        }}
+      />
+    );
   }
 
   // Show loading while checking initial status

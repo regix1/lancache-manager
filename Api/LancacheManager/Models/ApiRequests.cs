@@ -315,3 +315,20 @@ public class ThemePreferenceRequest
 }
 
 #endregion
+
+#region Account Requests
+
+/// <summary>
+/// The username and password submitted when an account's password is set. Bound as the request body
+/// so that AccountCredentialsRequestValidator runs against it: ValidationFilter resolves the
+/// validator from the runtime type of the action argument (ValidationFilter.cs:23), so an endpoint
+/// that binds its own request type gets no password rules.
+/// </summary>
+public class AccountCredentialsRequest
+{
+    public string Username { get; set; } = string.Empty;
+
+    public string Password { get; set; } = string.Empty;
+}
+
+#endregion

@@ -24,7 +24,7 @@ using Microsoft.AspNetCore.SignalR; // HubOptions.AddFilter<T>() extension for t
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using OpenTelemetry.Metrics;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Caching.Memory;
@@ -553,6 +553,10 @@ builder.Services.AddHttpClient("SteamImages", client =>
 builder.Services.AddSingleton<ApiKeyService>();
 builder.Services.AddScoped<AuthenticationHelper>();
 builder.Services.AddScoped<SessionService>();
+// Singleton: it holds no per-request state and takes only the pooled IDbContextFactory and a logger,
+// both of which are singletons themselves. Scoped would also make it uninjectable into ApiKeyService,
+// which is a singleton and owns the key rotation this records. [29e]
+builder.Services.AddSingleton<IdentityAuditService>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.UserPreferencesService>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.GeoIpService>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.PublicIpLookupService>();
@@ -561,6 +565,25 @@ builder.Services.AddSingleton<LancacheManager.Core.Services.PublicIpLookupServic
 builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
     .AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(
         SessionAuthenticationHandler.SchemeName, null);
+
+// Password hashing for accounts. Microsoft.Extensions.Identity.Core ships inside the
+// Microsoft.AspNetCore.App shared framework, so PasswordHasher<T> needs no package reference.
+// AddIdentity is deliberately not called: it sets DefaultAuthenticateScheme, DefaultChallengeScheme
+// and DefaultSignInScheme, which would take the default away from the Session scheme registered
+// above and change what every [Authorize] in the application means. [21][23]
+builder.Services.Configure<Microsoft.AspNetCore.Identity.PasswordHasherOptions>(options =>
+{
+    // Both values match the framework defaults today. They are written out anyway because they decide
+    // the format every stored hash is written in, and a framework that changed either one underneath
+    // us would silently start writing a different format. IterationCount is read only in IdentityV3,
+    // which is PBKDF2-HMAC-SHA512; 220,000 is OWASP's figure for that function against the 100,000
+    // the framework defaults to. [22]
+    options.CompatibilityMode = Microsoft.AspNetCore.Identity.PasswordHasherCompatibilityMode.IdentityV3;
+    options.IterationCount = 220_000;
+});
+builder.Services.AddSingleton<
+    Microsoft.AspNetCore.Identity.IPasswordHasher<UserAccount>,
+    Microsoft.AspNetCore.Identity.PasswordHasher<UserAccount>>();
 
 // Authorization policies
 var authEnabled = builder.Configuration.GetValue<bool>("Security:EnableAuthentication", true);
@@ -608,8 +631,11 @@ builder.Services.AddAuthorization(options =>
         .RequireAuthenticatedUser()
         .Build();
 
+    // Both claim values an account holder can present. CreateTicket lowercases the session type
+    // (SessionAuthenticationHandler.cs:162), and a user is answered like an admin everywhere
+    // (SessionTypeExtensions.cs:13). A guest presents "guest" and is still refused. [12]
     options.AddPolicy("AdminOnly", policy =>
-        policy.RequireClaim("SessionType", "admin"));
+        policy.RequireClaim("SessionType", "admin", "user"));
 
     options.AddPolicy("GuestAllowed", policy =>
         policy.RequireAuthenticatedUser());
@@ -856,23 +882,43 @@ builder.Services.AddOpenTelemetry()
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    
-    // Rate limit for authentication endpoints (login, device registration)
-    options.AddFixedWindowLimiter("auth", config =>
-    {
-        config.PermitLimit = 5;           // 5 attempts
-        config.Window = TimeSpan.FromMinutes(1); // per minute
-        config.QueueLimit = 0;            // No queuing, reject immediately
-    });
-    
+
+    // Rate limit for authentication endpoints (login, guest sessions, key regeneration, setup repair)
+    options.AddPolicy("auth", context => CallerWindow(context, permitLimit: 5, TimeSpan.FromMinutes(1)));
+
     // Rate limit for Steam auth (more lenient due to 2FA flows)
-    options.AddFixedWindowLimiter("steam-auth", config =>
-    {
-        config.PermitLimit = 10;          // 10 attempts
-        config.Window = TimeSpan.FromMinutes(5); // per 5 minutes
-        config.QueueLimit = 0;
-    });
+    options.AddPolicy("steam-auth", context => CallerWindow(context, permitLimit: 10, TimeSpan.FromMinutes(5)));
 });
+
+// One window per caller address. A window with no partition key is a single bucket for the whole
+// installation, so five wrong logins from anywhere at all hold the login endpoint shut for every
+// other user until the minute is out.
+//
+// Which address that is comes from the forwarded-headers configuration above: UseForwardedHeaders
+// runs before the limiter, so RemoteIpAddress is the client address out of X-Forwarded-For when the
+// immediate peer is a trusted proxy, and the peer's own address when it is not. The default trusts
+// loopback only, so a reverse proxy on another host or in another container is not trusted and
+// everything it forwards arrives as that one proxy address, sharing a single window again.
+// Security:KnownProxyNetworks is the setting that fixes it.
+//
+// Kestrel reports no remote address at all for a request that arrived over a Unix socket. Those
+// requests are not throttled, rather than sharing one window with every other address-less caller,
+// which would be the same lockout once more; reaching that socket already means access to the
+// host. [3]
+static RateLimitPartition<string> CallerWindow(HttpContext context, int permitLimit, TimeSpan window)
+{
+    if (context.Connection.RemoteIpAddress is not { } address)
+    {
+        return RateLimitPartition.GetNoLimiter(string.Empty);
+    }
+
+    return RateLimitPartition.GetFixedWindowLimiter(address.ToString(), _ => new FixedWindowRateLimiterOptions
+    {
+        PermitLimit = permitLimit,
+        Window = window,
+        QueueLimit = 0
+    });
+}
 
 // Configure logging
 builder.Logging.ClearProviders();
@@ -944,7 +990,8 @@ else
     app.Logger.LogInformation(
         "ForwardedHeaders: trusting loopback proxies only. " +
         "If running behind nginx/Traefik on a different IP (Docker bridge, LAN), set Security:KnownProxyNetworks " +
-        "(e.g. \"172.16.0.0/12,10.0.0.0/8\") so cookies are correctly marked Secure on HTTPS.");
+        "(e.g. \"172.16.0.0/12,10.0.0.0/8\") so cookies are correctly marked Secure on HTTPS and the sign-in rate " +
+        "limit sees each client instead of counting everyone against the proxy's address.");
 }
 
 // IMPORTANT: Apply database migrations FIRST before any service tries to access the database

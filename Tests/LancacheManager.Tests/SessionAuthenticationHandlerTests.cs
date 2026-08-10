@@ -21,6 +21,9 @@ namespace LancacheManager.Tests;
 /// from under the cache that hands it out, and it can be asked for over and over while the database is
 /// unreachable.
 /// </summary>
+// Shares the process-wide auth-disabled session (SessionService.cs:44) with DisabledAuthenticationAccessTests,
+// which is already in this collection, so it runs where that class cannot run beside it.
+[Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class SessionAuthenticationHandlerTests
 {
     [Fact]

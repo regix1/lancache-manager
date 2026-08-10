@@ -17,6 +17,17 @@ public class UserSession
     /// </summary>
     public SessionType SessionType { get; set; }
 
+    /// <summary>
+    /// The account this session signed in as. Null for the three kinds of session that are created
+    /// without one: a guest session, the shared session an <c>X-Api-Key</c> caller runs as, and the
+    /// shared session created while authentication is disabled.
+    ///
+    /// Deliberately a plain id rather than a foreign key, for the same reason
+    /// <see cref="IdentityAuditEntry"/> holds plain ids: deleting an account must leave its session
+    /// rows behind so they can be rejected, not take them with it. [29]
+    /// </summary>
+    public Guid? AccountId { get; set; }
+
     public string IpAddress { get; set; } = string.Empty;
     public string UserAgent { get; set; } = string.Empty;
 

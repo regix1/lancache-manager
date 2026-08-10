@@ -76,6 +76,7 @@ public class ApiKeyService
             try
             {
                 File.WriteAllText(_apiKeyPath, _apiKey);
+                RestrictKeyFileToOwner();
                 _logger.LogInformation("Generated and saved new API key to {Path}", _apiKeyPath);
             }
             catch (Exception ex)
@@ -131,6 +132,7 @@ public class ApiKeyService
             try
             {
                 File.WriteAllText(_apiKeyPath, _apiKey);
+                RestrictKeyFileToOwner();
                 _logger.LogInformation("Generated and saved regenerated API key to {Path}", _apiKeyPath);
             }
             catch (Exception ex)
@@ -139,6 +141,20 @@ public class ApiKeyService
             }
 
             return (oldKey, newKey);
+        }
+    }
+
+    /// <summary>
+    /// Cuts the key file down to the account that runs the app. Anyone who can read it is an admin
+    /// on this installation, and the container's umask decides otherwise by default. Windows has no
+    /// one-call equivalent, so there the file keeps the permissions it inherits from the data
+    /// directory. [8]
+    /// </summary>
+    private void RestrictKeyFileToOwner()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(_apiKeyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
     }
 

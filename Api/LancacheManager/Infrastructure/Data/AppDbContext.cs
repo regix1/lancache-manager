@@ -16,8 +16,10 @@ public class AppDbContext : DbContext
     public DbSet<CachedDetectionSummary> CachedDetectionSummaries { get; set; }
     public DbSet<CachedCorruptionScan> CachedCorruptionScans { get; set; }
     public DbSet<CachedCorruptionDetection> CachedCorruptionDetections { get; set; }
+    public DbSet<UserAccount> UserAccounts { get; set; }
     public DbSet<UserSession> UserSessions { get; set; }
     public DbSet<UserPreferences> UserPreferences { get; set; }
+    public DbSet<IdentityAuditEntry> IdentityAuditEntries { get; set; }
     public DbSet<Event> Events { get; set; }
     public DbSet<EventDownload> EventDownloads { get; set; }
     public DbSet<ClientGroup> ClientGroups { get; set; }
@@ -199,6 +201,49 @@ public class AppDbContext : DbContext
             .HasDatabaseName("IX_CachedCorruptionDetections_Scan_Service_Datasource")
             .IsUnique();
 
+        // UserAccount - citext gives the username column case-insensitive equality, which is what
+        // makes the unique index below reject a second "Admin" once "admin" exists. PostgreSQL has
+        // no case-insensitive uniqueness on a plain text column.
+        modelBuilder.HasPostgresExtension("citext");
+
+        modelBuilder.Entity<UserAccount>()
+            .Property(a => a.Username)
+            .HasColumnType("citext");
+
+        // Two names differing only in case are one person to a login lookup. [19b]
+        modelBuilder.Entity<UserAccount>()
+            .HasIndex(a => a.Username)
+            .HasDatabaseName("IX_UserAccounts_Username")
+            .IsUnique();
+
+        // At most one main admin. A partial unique index is what makes creating the first account
+        // atomic: two simultaneous requests both setting IsMainAdmin cannot both commit, where a
+        // unique username alone would let two different names through.
+        modelBuilder.Entity<UserAccount>()
+            .HasIndex(a => a.IsMainAdmin)
+            .HasDatabaseName("IX_UserAccounts_IsMainAdmin")
+            .HasFilter("\"IsMainAdmin\"")
+            .IsUnique();
+
+        // Persist Role the same way UserSession persists SessionType, so the account row and the
+        // session it mints store the identical string.
+        modelBuilder.Entity<UserAccount>()
+            .Property(a => a.Role)
+            .HasConversion(new Converters.LowercaseStringEnumConverter<SessionType>());
+
+        // IdentityAuditEntry - store the event as its name, the way the other status enums on
+        // append-only tables are stored, so a row stays readable after a member is added.
+        modelBuilder.Entity<IdentityAuditEntry>()
+            .Property(e => e.Event)
+            .HasConversion<string>();
+
+        // The timestamp index the other append-only tables carry (IX_BannedPrefillUsers_BannedAtUtc,
+        // IX_PrefillHistoryEntries_StartedAtUtc). Nothing deletes from this one, so it only grows,
+        // and adding the index later means rebuilding it over every row written until then.
+        modelBuilder.Entity<IdentityAuditEntry>()
+            .HasIndex(e => e.PerformedAtUtc)
+            .HasDatabaseName("IX_IdentityAuditEntries_PerformedAtUtc");
+
         // UserSession - persist SessionType enum as LOWERCASE string (existing rows use "admin"/"guest").
         modelBuilder.Entity<UserSession>()
             .Property(s => s.SessionType)
@@ -209,6 +254,12 @@ public class AppDbContext : DbContext
             .HasIndex(s => s.SessionTokenHash)
             .HasDatabaseName("IX_UserSessions_SessionTokenHash")
             .IsUnique();
+
+        // Validating a cookie matches either hash in one OR, so leaving this column unindexed made
+        // every authenticated request scan the whole session table. [9]
+        modelBuilder.Entity<UserSession>()
+            .HasIndex(s => s.PreviousSessionTokenHash)
+            .HasDatabaseName("IX_UserSessions_PreviousSessionTokenHash");
 
         modelBuilder.Entity<UserSession>()
             .HasIndex(s => s.SessionType)
@@ -221,6 +272,14 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<UserSession>()
             .HasIndex(s => s.IsRevoked)
             .HasDatabaseName("IX_UserSessions_IsRevoked");
+
+        // Revoking an account's sessions selects them by account, and this table gains a row per login,
+        // so the lookup is indexed for the same reason IX_UserSessions_PreviousSessionTokenHash is.
+        // No foreign key on the column: cascading a delete would remove the very sessions that have to
+        // survive it to be rejected. [28]
+        modelBuilder.Entity<UserSession>()
+            .HasIndex(s => s.AccountId)
+            .HasDatabaseName("IX_UserSessions_AccountId");
 
         // UserPreferences configuration
         modelBuilder.Entity<UserPreferences>()

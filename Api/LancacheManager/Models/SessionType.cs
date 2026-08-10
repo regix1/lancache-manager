@@ -4,8 +4,8 @@ using System.Text.Json.Serialization;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// User session type (admin vs guest).
-/// Serialized as lowercase strings on the wire ("admin", "guest") to preserve
+/// User session type (admin, user or guest).
+/// Serialized as lowercase strings on the wire ("admin", "user", "guest") to preserve
 /// the pre-existing JSON contract with the frontend (auth.service.ts checks
 /// <c>sessionType === 'admin'</c> / <c>'guest'</c>) and the persisted DB column
 /// (see <c>LowercaseStringEnumConverter&lt;SessionType&gt;</c> in AppDbContext).
@@ -14,12 +14,13 @@ namespace LancacheManager.Models;
 /// We must use the generic <see cref="JsonStringEnumConverter{TEnum}"/> with an
 /// explicit <see cref="JsonNamingPolicy.CamelCase"/> - the non-generic
 /// <c>JsonStringEnumConverter</c> ignores the globally-configured naming policy
-/// and would emit PascalCase ("Admin"/"Guest"), breaking the frontend.
+/// and would emit PascalCase ("Admin"/"User"/"Guest"), breaking the frontend.
 /// </remarks>
 [JsonConverter(typeof(SessionTypeJsonConverter))]
 public enum SessionType
 {
     Admin,
+    User,
     Guest
 }
 

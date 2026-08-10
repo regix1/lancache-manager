@@ -44,14 +44,22 @@ public class SessionService
     private static (Guid SessionId, string RawToken)? _authDisabledAdminSession;
     private static readonly SemaphoreSlim _authDisabledAdminLock = new(1, 1);
 
-    // While the database cannot be reached, every request that arrives without a usable cookie lands on
-    // the shared session and repeats the same failing read/create and the same error line. One outage then
-    // costs a database round trip per request and fills the log with copies of a single fault. The first
-    // failure is still reported in full; the ones inside the next few seconds are refused before the
-    // database is touched. The gate is cleared by the first attempt after it rather than by a timer, so
-    // the service comes back on its own once the database does. [14]
-    private static readonly TimeSpan _authDisabledRetryDelay = TimeSpan.FromSeconds(5);
+    // Process-wide cache of the single session every X-Api-Key caller runs as, static for the same reason
+    // as the pair above. Only the id is kept: the key authenticates each request on its own, so nothing
+    // asks this session for a token and no copy of one is left behind. [11]
+    private static Guid? _apiKeySession;
+    private static readonly SemaphoreSlim _apiKeySessionLock = new(1, 1);
+
+    // While the database cannot be reached, every request that resolves a shared session - a cookie-less
+    // one while authentication is disabled, or one carrying only the key - repeats the same failing
+    // read/create and the same error line. One outage then costs a database round trip per request and
+    // fills the log with copies of a single fault. The first failure is still reported in full; the ones
+    // inside the next few seconds are refused before the database is touched. The gate is cleared by the
+    // first attempt after it rather than by a timer, so the service comes back on its own once the
+    // database does. [14]
+    private static readonly TimeSpan _sharedSessionRetryDelay = TimeSpan.FromSeconds(5);
     private static DateTime _authDisabledRetryAfterUtc = DateTime.MinValue;
+    private static DateTime _apiKeySessionRetryAfterUtc = DateTime.MinValue;
 
     public SessionService(
         IDbContextFactory<AppDbContext> dbContextFactory,
@@ -93,6 +101,20 @@ public class SessionService
             return null;
         }
 
+        var (rawToken, session) = await PersistAdminSessionAsync(httpContext);
+
+        _logger.LogInformation("Created admin session {SessionId} for IP {IP}", session.Id, session.IpAddress);
+        return (rawToken, session);
+    }
+
+    /// <summary>
+    /// Writes one admin session row and reports its presence. The three callers differ only in what they
+    /// log and what they cache afterwards, so the row is built in one place: an admin session always
+    /// carries <see cref="SessionType.Admin"/> and the never-expires sentinel, and stores the hash of a
+    /// freshly generated token.
+    /// </summary>
+    private async Task<(string RawToken, UserSession Session)> PersistAdminSessionAsync(HttpContext httpContext)
+    {
         var (rawToken, tokenHash) = GenerateSessionToken();
 
         var session = new UserSession
@@ -112,7 +134,6 @@ public class SessionService
         context.UserSessions.Add(session);
         await context.SaveChangesAsync();
 
-        _logger.LogInformation("Created admin session {SessionId} for IP {IP}", session.Id, session.IpAddress);
         await ReportSessionPresenceAsync(session.Id, true);
         return (rawToken, session);
     }
@@ -137,7 +158,7 @@ public class SessionService
     /// against the database on every call, so an admin revoking it simply triggers a fresh one.
     ///
     /// Returns null when the database could not answer, so the caller carries on unauthenticated
-    /// instead of failing outright. Repeated attempts inside <see cref="_authDisabledRetryDelay"/> of a
+    /// instead of failing outright. Repeated attempts inside <see cref="_sharedSessionRetryDelay"/> of a
     /// failure are refused without touching the database. [14]
     /// </summary>
     public async Task<(string RawToken, UserSession Session)?> GetOrCreateAuthDisabledAdminSessionAsync(HttpContext httpContext)
@@ -176,31 +197,13 @@ public class SessionService
                     return reused.Value;
                 }
 
-                var (rawToken, tokenHash) = GenerateSessionToken();
-
-                var session = new UserSession
-                {
-                    Id = Guid.NewGuid(),
-                    SessionTokenHash = tokenHash,
-                    SessionType = SessionType.Admin,
-                    IpAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-                    UserAgent = httpContext.Request.Headers.UserAgent.ToString(),
-                    CreatedAtUtc = DateTime.UtcNow,
-                    ExpiresAtUtc = _adminNeverExpiresUtc,
-                    LastSeenAtUtc = DateTime.UtcNow,
-                    IsRevoked = false
-                };
-
-                using var context = _dbContextFactory.CreateDbContext();
-                context.UserSessions.Add(session);
-                await context.SaveChangesAsync();
+                var (rawToken, session) = await PersistAdminSessionAsync(httpContext);
 
                 _authDisabledAdminSession = (session.Id, rawToken);
                 _authDisabledRetryAfterUtc = DateTime.MinValue;
                 _logger.LogInformation(
                     "Created shared auth-disabled admin session {SessionId} (Security:EnableAuthentication=false)",
                     session.Id);
-                await ReportSessionPresenceAsync(session.Id, true);
                 return (rawToken, session);
             }
             catch (Exception ex)
@@ -209,7 +212,7 @@ public class SessionService
                 // reached apart from any other provider fault, and every one of them leaves this request
                 // with no session either way. The first report carries the exception in full so the cause
                 // is not lost; the ones held off behind it say only that they were skipped. [14]
-                var retryAt = DateTime.UtcNow + _authDisabledRetryDelay;
+                var retryAt = DateTime.UtcNow + _sharedSessionRetryDelay;
                 _authDisabledRetryAfterUtc = retryAt;
                 _logger.LogError(
                     ex,
@@ -266,13 +269,104 @@ public class SessionService
             return null;
         }
 
-        var existing = await GetSessionByIdAsync(cached.Value.SessionId);
-        if (existing == null || existing.IsRevoked || existing.ExpiresAtUtc <= DateTime.UtcNow)
+        var existing = await GetLiveSessionAsync(cached.Value.SessionId);
+        if (existing == null)
         {
             return null;
         }
 
         return (cached.Value.RawToken, existing);
+    }
+
+    /// <summary>
+    /// Returns the stored session only while it is still usable as a credential, else null. Both shared
+    /// sessions are held by id across requests, and a revoked or expired row must not be handed back out:
+    /// rotating the API key revokes every session, and an admin can revoke a shared one by hand.
+    /// </summary>
+    private async Task<UserSession?> GetLiveSessionAsync(Guid sessionId)
+    {
+        var session = await GetSessionByIdAsync(sessionId);
+        return session == null || session.IsRevoked || session.ExpiresAtUtc <= DateTime.UtcNow
+            ? null
+            : session;
+    }
+
+    /// <summary>
+    /// Returns the session an <c>X-Api-Key</c> caller runs as, creating it once on first use. Without one
+    /// the key path authenticates as an admin while carrying no session at all, so
+    /// <c>GetUserSession()</c> answers null and <c>GetRequiredSessionId()</c> throws. A fabricated id is
+    /// no better: <c>UserPreferences.SessionId</c> is a foreign key to <c>UserSession.Id</c>, so an id
+    /// with no row behind it fails that write instead of the read. [11]
+    ///
+    /// One session is reused for every key-authenticated request, because authentication runs on every
+    /// request and minting per call would add a row per scrape for anything polling with the header. The
+    /// cached session is revalidated against the database on each call, so rotating the key - which
+    /// revokes every session - or revoking this one by hand simply produces a fresh one.
+    ///
+    /// Returns null when the key does not match or the database could not answer, leaving the caller to
+    /// carry on as it did before this session existed. Repeated attempts inside
+    /// <see cref="_sharedSessionRetryDelay"/> of a failure are refused without touching the database.
+    /// </summary>
+    public async Task<UserSession?> GetOrCreateApiKeySessionAsync(string apiKey, HttpContext httpContext)
+    {
+        // The request handler checks the key before calling this. Checking it here too keeps the method
+        // from being a way to obtain an admin session without one, which is the same reason the
+        // auth-disabled sibling refuses to run while authentication is enabled.
+        if (!_apiKeyService.ValidateApiKey(apiKey))
+        {
+            return null;
+        }
+
+        // Serialized for the same reason as the auth-disabled session: a request that passed the hold-off
+        // before waiting must check it again once the request ahead of it records a failure.
+        await _apiKeySessionLock.WaitAsync();
+        try
+        {
+            var heldOffUntil = _apiKeySessionRetryAfterUtc;
+            if (DateTime.UtcNow < heldOffUntil)
+            {
+                _logger.LogDebug(
+                    "Skipped the shared API key session: the last attempt failed and the next one is not due until {RetryAt}",
+                    heldOffUntil);
+                return null;
+            }
+
+            try
+            {
+                if (_apiKeySession is { } cachedId && await GetLiveSessionAsync(cachedId) is { } reused)
+                {
+                    _apiKeySessionRetryAfterUtc = DateTime.MinValue;
+                    return reused;
+                }
+
+                // The raw token is dropped rather than stored or returned. The key is what authenticates
+                // each request, so no caller needs the token, and leaving no copy of it means this
+                // session cannot be picked up as a cookie by anyone who has not presented the key.
+                var (_, session) = await PersistAdminSessionAsync(httpContext);
+
+                _apiKeySession = session.Id;
+                _apiKeySessionRetryAfterUtc = DateTime.MinValue;
+                _logger.LogInformation("Created shared API key session {SessionId}", session.Id);
+                return session;
+            }
+            catch (Exception ex)
+            {
+                // Deliberately catching everything, as the auth-disabled path does: nothing in the stack
+                // tells a server that cannot be reached apart from any other provider fault, and every one
+                // of them leaves this request without a session either way.
+                var retryAt = DateTime.UtcNow + _sharedSessionRetryDelay;
+                _apiKeySessionRetryAfterUtc = retryAt;
+                _logger.LogError(
+                    ex,
+                    "Could not resolve the shared session used by API key callers; the next attempt is held off until {RetryAt}",
+                    retryAt);
+                return null;
+            }
+        }
+        finally
+        {
+            _apiKeySessionLock.Release();
+        }
     }
 
     public async Task<(string RawToken, UserSession Session)?> CreateGuestSessionAsync(HttpContext httpContext)
@@ -360,6 +454,35 @@ public class SessionService
         if (session.ExpiresAtUtc <= now)
             return null;
 
+        // Revoking an account's sessions is a separate write from deleting or disabling the account row,
+        // so a fault between them leaves a live session pointing at an account that is gone or switched
+        // off. Rejecting it here logs that session out instead of leaving it running with the role the
+        // account had. The two cases return the same thing but say different things in the log, because
+        // an operator chasing a locked-out person needs to know whether the row is missing or the flag
+        // is set. The lookup only runs for a session that has an account: a guest, an API-key and an
+        // auth-disabled session all leave AccountId null and reach none of it. [29]
+        if (session.AccountId is { } accountId)
+        {
+            var isDisabled = await context.UserAccounts
+                .Where(a => a.Id == accountId)
+                .Select(a => (bool?)a.IsDisabled)
+                .FirstOrDefaultAsync();
+
+            if (isDisabled is null)
+            {
+                _logger.LogWarning(
+                    "Rejected session {SessionId}: account {AccountId} no longer exists", session.Id, accountId);
+                return null;
+            }
+
+            if (isDisabled.Value)
+            {
+                _logger.LogWarning(
+                    "Rejected session {SessionId}: account {AccountId} is disabled", session.Id, accountId);
+                return null;
+            }
+        }
+
         // Backfill: pre-existing admin sessions created before the never-expires change
         // still have a 30-day expiry. Bump them on the first validated request so the
         // UI no longer shows a countdown for them.
@@ -392,6 +515,37 @@ public class SessionService
         _logger.LogInformation("Revoked session {SessionId}", sessionId);
         await ReportSessionPresenceAsync(sessionId, false);
         return true;
+    }
+
+    /// <summary>
+    /// Revokes every live session belonging to an account. The session carries its own copy of the role,
+    /// so changing an account's role, disabling it or deleting it without this leaves the person signed
+    /// in with the role they had until they log out, and an admin session never expires. [28]
+    /// </summary>
+    public async Task<int> RevokeAccountSessionsAsync(Guid accountId)
+    {
+        var now = DateTime.UtcNow;
+        using var context = _dbContextFactory.CreateDbContext();
+        var sessionIds = await context.UserSessions
+            .Where(s => s.AccountId == accountId && !s.IsRevoked && s.ExpiresAtUtc > now)
+            .Select(s => s.Id)
+            .ToListAsync();
+
+        // Each id goes through the single revoke path rather than a bulk update, so every one of these
+        // sessions is logged and has its presence cleared exactly as a hand-revoked session is. A row
+        // deleted between the two queries - ClearAllSessionsAsync empties the table when the API key is
+        // regenerated - answers false and is not counted.
+        var revoked = 0;
+        foreach (var sessionId in sessionIds)
+        {
+            if (await RevokeSessionAsync(sessionId))
+            {
+                revoked++;
+            }
+        }
+
+        _logger.LogInformation("Revoked {Count} sessions for account {AccountId}", revoked, accountId);
+        return revoked;
     }
 
     public async Task<bool> DeleteSessionAsync(Guid sessionId)

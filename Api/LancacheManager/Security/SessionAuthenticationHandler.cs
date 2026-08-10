@@ -19,6 +19,8 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
         (PrefillPlatform.Xbox, "XboxPrefillActive")
     ];
 
+    private bool _invalidKeysThrottled;
+
     public SessionAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
@@ -65,12 +67,38 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             && Context.Request.Headers.ContainsKey("X-Api-Key"))
         {
             var authenticationHelper = Context.RequestServices.GetRequiredService<AuthenticationHelper>();
-            if (!authenticationHelper.ValidateApiKey(Context).IsAuthenticated)
+            var apiKeyResult = authenticationHelper.ValidateApiKey(Context);
+            if (!apiKeyResult.IsAuthenticated)
             {
+                // A wrong key is answered 401 by the challenge below, like any other failed
+                // authentication. Once the caller's address has spent its budget of wrong keys the
+                // helper says so, and that has to reach the response or a flood looks exactly like a
+                // single mistyped key. [9b]
+                _invalidKeysThrottled = apiKeyResult.StatusCode == StatusCodes.Status429TooManyRequests;
                 return AuthenticateResult.Fail("Invalid API key");
             }
 
-            return AuthenticateResult.Success(CreateTicket(Guid.Empty, SessionType.Admin));
+            // The key path carried no session at all until now, so the caller was an admin to the
+            // policies and nobody to GetUserSession(), and GetRequiredSessionId() threw. One session is
+            // resolved for the whole process rather than minted per request: the key is checked on
+            // every request that carries the header, so anything polling with it would otherwise add a
+            // row per request. Read the header the same way AuthenticationHelper.ExtractApiKey does,
+            // taking the first value: joining several into one string would have the check above
+            // accept a request that sends the header twice and the resolve below refuse it. [11]
+            var keySession = await sessionService.GetOrCreateApiKeySessionAsync(
+                Context.Request.Headers["X-Api-Key"].FirstOrDefault() ?? string.Empty, Context);
+            if (keySession == null)
+            {
+                // The key is right but no session came back, which means the database did not answer.
+                // Same reasoning as the two branches around this one: the request keeps the
+                // authentication its key earned rather than losing it to an outage, and it is left
+                // exactly as it was before this session existed - no session in Items, so nothing here
+                // stands in for a row the database could not confirm.
+                return AuthenticateResult.Success(CreateTicket(Guid.Empty, SessionType.Admin));
+            }
+
+            Context.Items["Session"] = keySession;
+            return AuthenticateResult.Success(CreateTicket(keySession.Id, keySession.SessionType));
         }
 
         // With authentication turned off the frontend is told it is an admin and starts writing
@@ -150,8 +178,9 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
 
     private AuthenticationTicket CreateTicket(Guid sessionId, SessionType sessionType, UserSession? session = null)
     {
-        // NOTE: Claim values are lowercase strings ("admin"/"guest") to match existing
-        // AuthorizationPolicy.RequireClaim("SessionType", "admin") in Program.cs and legacy cookies.
+        // NOTE: Claim values are lowercase strings ("admin"/"user"/"guest") to match existing
+        // AuthorizationPolicy.RequireClaim("SessionType", "admin", "user") in Program.cs and legacy
+        // cookies.
         var sessionTypeClaim = sessionType.ToString().ToLowerInvariant();
         var claims = new List<Claim>
         {
@@ -160,12 +189,24 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             new("SessionType", sessionTypeClaim),
         };
 
-        // Add prefill access claims: admins always have access, guests need valid expiry
+        // The account behind the session, for the endpoints that answer questions about the caller's
+        // own account rather than about its session. The claim is absent rather than empty for the
+        // three kinds of session created without one, which UserSession.AccountId lists, so a reader
+        // that finds it never has to check it for a placeholder. The session type above is that
+        // account's role: it is copied onto the session row when the account signs in, and
+        // SessionService.RevokeAccountSessionsAsync exists so that changing the role ends the
+        // sessions carrying the old copy instead of leaving it to go stale. [25]
+        if (session?.AccountId is { } accountId)
+        {
+            claims.Add(new Claim("AccountId", accountId.ToString()));
+        }
+
+        // Add prefill access claims: account holders always have access, guests need valid expiry
         if (session != null)
         {
             foreach (var (platform, claimType) in _prefillClaims)
             {
-                if (sessionType == SessionType.Admin
+                if (sessionType.IsAccountHolder()
                     || (SessionService.GetPrefillExpiresAt(session, platform) is { } expiresAtUtc
                         && expiresAtUtc > DateTime.UtcNow))
                 {
@@ -188,7 +229,9 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
     protected override Task HandleChallengeAsync(AuthenticationProperties properties)
     {
         Logger.LogDebug("AuthenticationScheme: {Scheme} was challenged.", Scheme.Name);
-        Context.Response.StatusCode = 401;
+        Context.Response.StatusCode = _invalidKeysThrottled
+            ? StatusCodes.Status429TooManyRequests
+            : StatusCodes.Status401Unauthorized;
         return Task.CompletedTask;
     }
 }

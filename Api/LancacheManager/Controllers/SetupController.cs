@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System.Buffers;
 using System.Text.Json;
@@ -91,6 +92,7 @@ public class SetupController : ControllerBase
     /// enabled.
     /// </remarks>
     [AllowAnonymous]
+    [EnableRateLimiting("auth")]
     [HttpPost("credentials")]
     [ProducesResponseType(typeof(SetupCredentialsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SetupCredentialsResponse>> SetCredentialsAsync([FromBody] SetupCredentialsRequest request)
@@ -253,6 +255,7 @@ public class SetupController : ControllerBase
     /// enabled.
     /// </remarks>
     [AllowAnonymous]
+    [EnableRateLimiting("auth")]
     [HttpPost("external")]
     [ProducesResponseType(typeof(SetExternalDbCredentialsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SetExternalDbCredentialsResponse>> SetExternalCredentialsAsync([FromBody] SetExternalDbCredentialsRequest request)

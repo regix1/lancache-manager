@@ -20,6 +20,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                 .HasAnnotation("ProductVersion", "10.0.5")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("LancacheManager.Models.BannedPrefillUser", b =>
@@ -761,6 +762,38 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("GameImages");
                 });
 
+            modelBuilder.Entity("LancacheManager.Models.IdentityAuditEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Event")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("PerformedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("PerformedByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PerformedBySessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TargetAccountId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PerformedAtUtc")
+                        .HasDatabaseName("IX_IdentityAuditEntries_PerformedAtUtc");
+
+                    b.ToTable("IdentityAuditEntries");
+                });
+
             modelBuilder.Entity("LancacheManager.Models.LogEntryRecord", b =>
                 {
                     b.Property<long>("Id")
@@ -1098,6 +1131,50 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("SteamDepotMappings");
                 });
 
+            modelBuilder.Entity("LancacheManager.Models.UserAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDisabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsMainAdmin")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastLoginAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("citext");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsMainAdmin")
+                        .IsUnique()
+                        .HasDatabaseName("IX_UserAccounts_IsMainAdmin")
+                        .HasFilter("\"IsMainAdmin\"");
+
+                    b.HasIndex("Username")
+                        .IsUnique()
+                        .HasDatabaseName("IX_UserAccounts_Username");
+
+                    b.ToTable("UserAccounts");
+                });
+
             modelBuilder.Entity("LancacheManager.Models.UserPreferences", b =>
                 {
                     b.Property<long>("Id")
@@ -1170,6 +1247,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AccountId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTime?>("BattleNetPrefillExpiresAtUtc")
@@ -1253,11 +1333,17 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AccountId")
+                        .HasDatabaseName("IX_UserSessions_AccountId");
+
                     b.HasIndex("ExpiresAtUtc")
                         .HasDatabaseName("IX_UserSessions_ExpiresAtUtc");
 
                     b.HasIndex("IsRevoked")
                         .HasDatabaseName("IX_UserSessions_IsRevoked");
+
+                    b.HasIndex("PreviousSessionTokenHash")
+                        .HasDatabaseName("IX_UserSessions_PreviousSessionTokenHash");
 
                     b.HasIndex("SessionTokenHash")
                         .IsUnique()

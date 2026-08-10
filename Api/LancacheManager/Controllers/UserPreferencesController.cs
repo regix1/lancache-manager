@@ -85,7 +85,7 @@ public class UserPreferencesController : ControllerBase
         var stored = await _preferencesService.SavePreferencesAsync(
             sessionId,
             preferences,
-            preserveAdminFields: session.SessionType != SessionType.Admin);
+            preserveAdminFields: !session.SessionType.IsAccountHolder());
         if (stored != null)
         {
             RedactForBroadcast(stored, session);
@@ -100,12 +100,12 @@ public class UserPreferencesController : ControllerBase
     /// Takes the admin-only columns off preferences that are about to be announced on behalf of a guest.
     /// The stored row carries them whoever last wrote it, and this announcement reaches every connected
     /// client rather than only the session it names, so one guest's own save would otherwise hand its
-    /// allowed formats, refresh lock and thread caps to everyone. An admin write is left whole: the admin
-    /// screens are the ones that set those values and need to see them land. [2]
+    /// allowed formats, refresh lock and thread caps to everyone. An account holder's write is left
+    /// whole: those screens are the ones that set the values and need to see them land. [2]
     /// </summary>
     private static void RedactForBroadcast(UserPreferencesDto stored, UserSession session)
     {
-        if (session.SessionType != SessionType.Admin)
+        if (!session.SessionType.IsAccountHolder())
         {
             UserPreferencesService.RedactAdminFields(stored);
         }
@@ -134,7 +134,7 @@ public class UserPreferencesController : ControllerBase
             return BadRequest(new MessageResponse { Success = false, Message = "Invalid preference key" });
 
         // Guests cannot write admin-only preference keys
-        if (session.SessionType != SessionType.Admin && UserPreferencesService.IsAdminOnlyKey(preferenceKey))
+        if (!session.SessionType.IsAccountHolder() && UserPreferencesService.IsAdminOnlyKey(preferenceKey))
             return Forbid();
 
         var preferences = await _preferencesService.UpdatePreferenceAsync(sessionId, preferenceKey, value);
