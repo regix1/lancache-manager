@@ -100,6 +100,23 @@ public class AuthController : ControllerBase
         try { hasDataLoaded = _stateService.HasDataLoaded(); }
         catch (Exception ex) { _logger.LogWarning(ex, "Failed to check if data has been loaded"); }
 
+        // Nothing copies IsMainAdmin onto the session row, so the account row is what answers it. Only an
+        // account-backed session reaches the query: a guest, an API-key caller and the
+        // disabled-authentication session all leave AccountId null (UserSession.cs:29). [58]
+        var isMainAdmin = false;
+        if (session?.AccountId is { } accountId)
+        {
+            try
+            {
+                using var context = _dbContextFactory.CreateDbContext();
+                isMainAdmin = await context.UserAccounts
+                    .Where(a => a.Id == accountId)
+                    .Select(a => a.IsMainAdmin)
+                    .FirstOrDefaultAsync();
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to check if the session's account is the main admin"); }
+        }
+
         // Determine per-service prefill access
         var steamPrefillEnabled = false;
         DateTime? steamPrefillExpiresAt = null;
@@ -178,6 +195,11 @@ public class AuthController : ControllerBase
             SessionType = !authenticationEnabled ? Models.SessionType.Admin : session?.SessionType,
             SessionId = session?.Id,
             ExpiresAt = session != null ? DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc) : (DateTime?)null,
+            AccountId = session?.AccountId,
+            // With authentication disabled the session is the shared minted one, which has no account
+            // row, and that caller may create admins anyway, so it is told it holds the rights the
+            // server will actually grant it rather than being shown a screen it cannot use. [58]
+            IsMainAdmin = !authenticationEnabled || isMainAdmin,
             HasData = hasData,
             HasBeenInitialized = hasBeenInitialized,
             HasDataLoaded = hasDataLoaded,

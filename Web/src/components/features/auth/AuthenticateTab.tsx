@@ -15,6 +15,8 @@ const AuthenticateTab: React.FC = () => {
   const { addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
   const [apiKey, setApiKey] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   const notifySuccess = (message: string) => {
@@ -35,7 +37,7 @@ const AuthenticateTab: React.FC = () => {
     setLoading(true);
 
     try {
-      const result = await authService.login(apiKey);
+      const result = await authService.login(apiKey, username.trim(), password);
 
       if (result.success) {
         notifySuccess(t('auth.success'));
@@ -43,6 +45,8 @@ const AuthenticateTab: React.FC = () => {
         await refreshAuth();
         // Clear input
         setApiKey('');
+        setUsername('');
+        setPassword('');
 
         // Give user a moment to see success message before redirect happens
         setTimeout(() => {
@@ -55,6 +59,14 @@ const AuthenticateTab: React.FC = () => {
       notifyError(t('auth.errors.failed'), err, { logLabel: 'Authentication error' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const credentialsFilled = apiKey.trim() !== '' && username.trim() !== '' && password !== '';
+
+  const handleCredentialKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && credentialsFilled && !loading) {
+      handleAuthenticate();
     }
   };
 
@@ -83,9 +95,38 @@ const AuthenticateTab: React.FC = () => {
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleAuthenticate()}
+                  onKeyDown={handleCredentialKeyDown}
                   placeholder={t('auth.form.placeholder')}
                   className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted bg-themed-secondary border border-themed rounded-lg"
+                  autoComplete="off"
+                  disabled={loading}
+                />
+              </div>
+
+              <div>
+                <label className="form-field-label">{t('modals.auth.labels.username')}</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  onKeyDown={handleCredentialKeyDown}
+                  placeholder={t('modals.auth.placeholders.enterUsername')}
+                  className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted bg-themed-secondary border border-themed rounded-lg"
+                  autoComplete="username"
+                  disabled={loading}
+                />
+              </div>
+
+              <div>
+                <label className="form-field-label">{t('modals.auth.labels.password')}</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={handleCredentialKeyDown}
+                  placeholder={t('modals.auth.placeholders.enterPassword')}
+                  className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted bg-themed-secondary border border-themed rounded-lg"
+                  autoComplete="current-password"
                   disabled={loading}
                 />
               </div>
@@ -97,7 +138,7 @@ const AuthenticateTab: React.FC = () => {
                 leftSection={<Lock className="w-4 h-4" />}
                 onClick={handleAuthenticate}
                 loading={loading}
-                disabled={!apiKey.trim() || loading}
+                disabled={!credentialsFilled || loading}
                 className="w-full sm:w-auto"
               >
                 {t('auth.form.submit')}

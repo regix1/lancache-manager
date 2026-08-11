@@ -19,6 +19,7 @@
     "test:prune-event-ids": "node --test scripts/test-prune-missing-event-ids.mjs",
     "test:i18n-cap": "node --test scripts/test-i18n-candidate-cap.mjs",
     "test:admin-account-gate": "node --test scripts/test-admin-account-gate.mjs",
+    "test:account-holder-access": "node --test scripts/test-account-holder-access.mjs",
     "test:server-stage-keys": "node --test scripts/test-server-stage-keys.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "knip": "knip",

@@ -39,7 +39,7 @@ import { EmptyState, LoadingState } from '@components/ui/ManagerCard';
 import '../management/managementSectionContent.css';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
-import authService from '@services/auth.service';
+import authService, { isAccountHolder } from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
@@ -199,8 +199,11 @@ interface ActiveSessionsProps {
 // Pure Helper Functions
 // ============================================================
 
+// An account session, whichever role it holds. A user signs in against an account and gets the same
+// access an admin does, so it belongs in the same count, the same filter and the same badge; only a
+// guest is listed apart.
 const isAdminSession = (session: Session): boolean => {
-  return session.sessionType === 'admin';
+  return isAccountHolder(session.sessionType ?? null);
 };
 
 const isGuestSession = (session: Session): boolean => {

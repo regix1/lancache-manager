@@ -14,6 +14,18 @@ public class AuthStatusResponse
 
     /// <summary>When the current session expires. Null when <see cref="IsAuthenticated"/> is false.</summary>
     public DateTime? ExpiresAt { get; set; }
+
+    /// <summary>
+    /// The account the current session signed in as. Null for a guest, an API-key caller and the
+    /// disabled-authentication session, none of which have an account row (UserSession.cs:29).
+    /// </summary>
+    public Guid? AccountId { get; set; }
+
+    /// <summary>
+    /// True when the caller is the main admin, the one account that cannot be deleted, disabled or
+    /// demoted and the only one that may create further admins.
+    /// </summary>
+    public bool IsMainAdmin { get; set; }
     public bool HasData { get; set; }
     public bool HasBeenInitialized { get; set; }
     public bool HasDataLoaded { get; set; }

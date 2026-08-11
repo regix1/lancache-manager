@@ -94,6 +94,7 @@ public sealed class EndpointAuthorizationContractTests
 
     private static readonly HashSet<string> AdminControllers = new(StringComparer.Ordinal)
     {
+        "AccountsController",
         "ApiKeysController",
         "DataMigrationController",
         "DatabaseController",
@@ -923,6 +924,7 @@ public sealed class EndpointAuthorizationContractTests
     {
         return controller switch
         {
+            "AccountsController" => ["AccountsController.GetAccounts", "AccountsController.GetAccount", "AccountsController.CreateAccount", "AccountsController.EditAccount", "AccountsController.SetRole", "AccountsController.SetDisabled", "AccountsController.DeleteAccount"],
             "ApiKeysController" => ["ApiKeysController.GetStatus", "ApiKeysController.RegenerateApiKey"],
             "DataMigrationController" => ["DataMigrationController.ImportLancacheManager", "DataMigrationController.GetImportStatus", "DataMigrationController.ValidateConnection"],
             "DatabaseController" => ["DatabaseController.ResetDatabase", "DatabaseController.ResetSelectedTables", "DatabaseController.GetDatabaseResetStatus", "DatabaseController.GetLogCount"],

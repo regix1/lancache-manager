@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { UserPlus, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { UserPlus, Eye, EyeOff, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { useSetupStatus } from '@contexts/useSetupStatus';
@@ -223,6 +223,25 @@ export const AdminAccountStep: React.FC = () => {
           {t('initialization.adminAccount.description')}
         </p>
       </div>
+
+      {/* The session cookie is only marked Secure on an HTTPS request, because forcing it on a
+          plain-HTTP LAN deployment would stop the browser sending it at all. That was a fair trade
+          while the only credential was an API key typed once; a password typed on every sign-in
+          crosses the same network. isSecureContext is the browser's own answer, so a loopback
+          address during setup is not warned about. [72b] */}
+      {!window.isSecureContext && (
+        <div className="p-3 rounded-lg flex items-start gap-3 bg-themed-warning">
+          <AlertTriangle className="w-5 h-5 flex-shrink-0 icon-warning" />
+          <div>
+            <p className="text-sm font-medium text-themed-warning">
+              {t('initialization.adminAccount.insecureConnection.title')}
+            </p>
+            <p className="text-xs mt-1 text-themed-warning">
+              {t('initialization.adminAccount.insecureConnection.description')}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Username Input */}
       <div>

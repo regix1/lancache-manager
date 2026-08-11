@@ -8,9 +8,15 @@ interface AuthContextType {
   sessionType: SessionType | null;
   sessionId: string | null;
   sessionExpiresAt: string | null;
+  accountId: string | null;
+  isMainAdmin: boolean;
   authenticationEnabled: boolean;
   isLoading: boolean;
-  login: (apiKey: string) => Promise<{ success: boolean; message?: string }>;
+  login: (
+    apiKey: string,
+    username: string,
+    password: string
+  ) => Promise<{ success: boolean; message?: string }>;
   startGuestSession: () => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;

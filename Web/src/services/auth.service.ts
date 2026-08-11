@@ -3,7 +3,15 @@ import { getApiUrl } from '@utils/constants';
 import { hasRecentUserInteraction } from '@utils/userInteractionTracker';
 
 export type AuthMode = 'authenticated' | 'guest' | 'unauthenticated';
-export type SessionType = 'admin' | 'guest';
+export type SessionType = 'admin' | 'user' | 'guest';
+
+/**
+ * Admin and user sessions both sign in as an account and have the same access; a guest has neither.
+ * Mirrors SessionTypeExtensions.IsAccountHolder on the server.
+ */
+export function isAccountHolder(sessionType: SessionType | null): boolean {
+  return sessionType === 'admin' || sessionType === 'user';
+}
 
 interface AuthStatusResponse {
   isAuthenticated: boolean;
@@ -11,6 +19,8 @@ interface AuthStatusResponse {
   sessionType: SessionType | null;
   sessionId: string | null;
   expiresAt: string | null;
+  accountId: string | null;
+  isMainAdmin: boolean;
   hasData: boolean;
   hasBeenInitialized: boolean;
   hasDataLoaded: boolean;
@@ -33,7 +43,7 @@ interface AuthStatusResponse {
 
 interface LoginResponse {
   success: boolean;
-  sessionType: string;
+  sessionType: SessionType;
   expiresAt: string;
   token?: string;
   error?: string;
@@ -77,7 +87,7 @@ class AuthService {
       this.sessionId = data.sessionId;
       this.authChecked = true;
 
-      if (data.isAuthenticated && data.sessionType === 'admin') {
+      if (data.isAuthenticated && isAccountHolder(data.sessionType)) {
         this.authMode = 'authenticated';
       } else if (data.isAuthenticated && data.sessionType === 'guest') {
         this.authMode = 'guest';
@@ -113,6 +123,8 @@ class AuthService {
         sessionType: null,
         sessionId: null,
         expiresAt: null,
+        accountId: null,
+        isMainAdmin: false,
         hasData: false,
         hasBeenInitialized: false,
         hasDataLoaded: false,
@@ -136,13 +148,17 @@ class AuthService {
     }
   }
 
-  async login(apiKey: string): Promise<{ success: boolean; message?: string }> {
+  async login(
+    apiKey: string,
+    username: string,
+    password: string
+  ): Promise<{ success: boolean; message?: string }> {
     try {
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ apiKey })
+        body: JSON.stringify({ apiKey, username, password })
       });
 
       if (!response.ok) {
@@ -160,7 +176,8 @@ class AuthService {
       if (data.success) {
         this.isAuthenticated = true;
         this.authMode = 'authenticated';
-        this.sessionType = 'admin';
+        // The role comes from the account that signed in, so a user session is not recorded as admin.
+        this.sessionType = data.sessionType;
         this.sessionToken = data.token || null;
       }
 

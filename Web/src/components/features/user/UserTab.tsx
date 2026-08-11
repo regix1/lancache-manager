@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Users, Settings2 } from 'lucide-react';
+import { Users, Settings2, UserCog } from 'lucide-react';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import { useErrorHandler } from '@hooks/useErrorHandler';
@@ -9,6 +9,7 @@ import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { AccordionGroupProvider } from '@components/ui/AccordionGroupProvider';
 import ActiveSessions from './ActiveSessions';
 import GuestConfiguration from './GuestConfiguration';
+import UserAccounts from './UserAccounts';
 import { type Session, type SessionFilter, type ThemeOption, showToast } from './types';
 
 const UserTab: React.FC = () => {
@@ -29,7 +30,7 @@ const UserTab: React.FC = () => {
   const [guestRefreshRateLocked, setGuestRefreshRateLocked] = useState<boolean>(true);
   const [updatingGuestRefreshRateLock, setUpdatingGuestRefreshRateLock] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'sessions' | 'defaults'>('sessions');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'accounts' | 'defaults'>('sessions');
   const [activeFilter, setActiveFilter] = useState<SessionFilter>('all');
 
   const loadGuestDuration = async () => {
@@ -222,6 +223,7 @@ const UserTab: React.FC = () => {
       <SegmentedControl
         options={[
           { value: 'sessions', label: t('user.tabs.sessions'), icon: <Users /> },
+          { value: 'accounts', label: t('user.tabs.accounts'), icon: <UserCog /> },
           {
             value: 'defaults',
             label: t('user.tabs.guestDefaults'),
@@ -229,7 +231,7 @@ const UserTab: React.FC = () => {
           }
         ]}
         value={activeTab}
-        onChange={(value: string) => setActiveTab(value as 'sessions' | 'defaults')}
+        onChange={(value: string) => setActiveTab(value as 'sessions' | 'accounts' | 'defaults')}
         size="md"
         showLabels="responsive"
         fullWidth
@@ -257,6 +259,12 @@ const UserTab: React.FC = () => {
               activeFilter={activeFilter}
               onFilterChange={setActiveFilter}
             />
+          </div>
+        )}
+
+        {activeTab === 'accounts' && (
+          <div className="user-tab-content">
+            <UserAccounts />
           </div>
         )}
 

@@ -825,7 +825,65 @@
   "user": {
     "tabs": {
       "sessions": "Sessions",
-      "guestDefaults": "Guest Defaults"
+      "guestDefaults": "Guest Defaults",
+      "accounts": "Accounts"
+    },
+    "accounts": {
+      "title": "User Accounts",
+      "loading": "Loading accounts...",
+      "paginationLabel": "accounts",
+      "mainAdmin": "Main Admin",
+      "neverSignedIn": "Never",
+      "columns": {
+        "username": "Username",
+        "role": "Role",
+        "status": "Status",
+        "created": "Created",
+        "lastSignIn": "Last Sign-In",
+        "actions": "Actions"
+      },
+      "roles": {
+        "admin": "Administrator",
+        "user": "User"
+      },
+      "status": {
+        "active": "Active",
+        "disabled": "Disabled"
+      },
+      "actions": {
+        "create": "Create Account",
+        "promote": "Make Administrator",
+        "demote": "Make User",
+        "enable": "Enable",
+        "disable": "Disable"
+      },
+      "empty": {
+        "title": "No accounts yet",
+        "subtitle": "Accounts you create will appear here"
+      },
+      "form": {
+        "createTitle": "Create Account",
+        "editTitle": "Edit {{username}}",
+        "username": "Username",
+        "password": "Password",
+        "newPassword": "New Password",
+        "passwordHint": "Leave this blank to keep the current password.",
+        "role": "Role",
+        "adminRoleReserved": "Only the account that owns this installation can grant the administrator role."
+      },
+      "confirm": {
+        "deleteTitle": "Delete Account",
+        "deleteBody": "Delete {{username}}? Their sessions end straight away and this cannot be undone.",
+        "roleTitle": "Change Account Role",
+        "roleLabel": "Change Role",
+        "roleBody": "Give {{username}} the {{role}} role? Their sessions end straight away."
+      },
+      "errors": {
+        "load": "Failed to load accounts",
+        "disabled": "Failed to update the account status",
+        "delete": "Failed to delete the account",
+        "role": "Failed to change the account role"
+      }
     },
     "stats": {
       "total": "total",
@@ -4880,11 +4938,15 @@
     "auth": {
       "labels": {
         "apiKey": "API Key",
-        "or": "OR"
+        "or": "OR",
+        "username": "Username",
+        "password": "Password"
       },
       "placeholders": {
         "waitForReset": "Please wait for reset to complete...",
-        "enterApiKey": "Enter your API key here..."
+        "enterApiKey": "Enter your API key here...",
+        "enterUsername": "Enter your username",
+        "enterPassword": "Enter your password"
       },
       "actions": {
         "pleaseWait": "Please Wait...",
@@ -4916,6 +4978,10 @@
       "help": {
         "title": "Where to find your API key:",
         "description": "The API key was displayed when you first started the server. Check your server logs for \"API Key:\" or look in the data/security/api_key.txt file."
+      },
+      "keyRotated": {
+        "title": "Has the API key been regenerated?",
+        "description": "Regenerating the key signs everyone out and the old key stops working. If someone regenerated it, ask them for the new key and sign in with that."
       },
       "errors": {
         "apiKeyRequired": "API key is required",
@@ -6491,6 +6557,10 @@
       "submitting": "Creating account...",
       "createdHeading": "Account Created",
       "createdDescription": "Sign in with this username and password from now on. Continuing...",
+      "insecureConnection": {
+        "title": "This connection is not encrypted",
+        "description": "The password you set here travels across the network in the clear, and so does every sign-in after it. Put this site behind HTTPS before anyone connects from another machine."
+      },
       "errors": {
         "usernameRequired": "Username is required",
         "usernameTooLong": "Username cannot exceed 64 characters",
@@ -7140,6 +7210,14 @@
       "claimWindowClosed": "The window for creating the first account has closed. Restart the application to reopen it.",
       "accountExists": "An account already exists on this installation.",
       "mainAdminNotFound": "No main administrator account is registered under that name."
+    },
+    "accounts": {
+      "notFound": "No such account.",
+      "mainAdminProtected": "The account that owns this installation cannot be changed here.",
+      "adminRoleRequiresMainAdmin": "Only the account that owns this installation can grant the administrator role.",
+      "roleNotAssignable": "An account can hold the administrator or the user role.",
+      "usernameTaken": "That username is already taken.",
+      "credentialsRejected": "The username or password does not meet the requirements."
     },
     "conflict": {
       "duplicate": "Operation already in progress for this item.",

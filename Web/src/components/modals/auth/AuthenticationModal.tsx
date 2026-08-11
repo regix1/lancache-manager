@@ -27,7 +27,7 @@ interface AuthenticationModalProps {
 const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   onAuthComplete,
   title = 'Authentication Required',
-  subtitle = 'Please enter your API key to continue',
+  subtitle = 'Please sign in with your API key, username and password',
   allowGuestMode = true
 }) => {
   const { t } = useTranslation();
@@ -35,8 +35,13 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const { guestDurationHours, guestModeLocked: contextGuestModeLocked } = useGuestConfig();
   const { on, off } = useSignalR();
   const [apiKey, setApiKey] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  // Set only when the server refuses the credentials, never when guest mode fails or the network
+  // does, because it decides whether the rotation notice is shown. [72]
+  const [signInRefused, setSignInRefused] = useState(false);
   const [dataAvailable, setDataAvailable] = useState(false);
   const [checkingDataAvailability, setCheckingDataAvailability] = useState(false);
 
@@ -156,20 +161,30 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
     setAuthenticating(true);
     setAuthError(null);
+    setSignInRefused(false);
 
     try {
       // Use AuthContext login which awaits fetchAuth() to fully settle state
       // before returning, ensuring all downstream contexts react properly
-      const result = await authLogin(apiKey);
+      const result = await authLogin(apiKey, username.trim(), password);
       if (result.success) {
         onAuthComplete();
       } else {
         setAuthError(result.message || t('modals.auth.errors.authenticationFailed'));
+        setSignInRefused(true);
       }
     } catch (error: unknown) {
       setAuthError(getErrorMessage(error) || t('modals.auth.errors.authenticationFailed'));
     } finally {
       setAuthenticating(false);
+    }
+  };
+
+  const credentialsFilled = apiKey.trim() !== '' && username.trim() !== '' && password !== '';
+
+  const handleCredentialKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && credentialsFilled && !resetStatus.isResetting) {
+      handleAuthenticate();
     }
   };
 
@@ -289,7 +304,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
             )}
           </p>
 
-          {/* API Key Form */}
+          {/* Credentials Form */}
           <div className="space-y-4">
             <div>
               <label className="form-field-label">{t('modals.auth.labels.apiKey')}</label>
@@ -297,19 +312,44 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                 type="text"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && apiKey.trim() && !resetStatus.isResetting) {
-                    handleAuthenticate();
-                  }
-                }}
+                onKeyDown={handleCredentialKeyDown}
                 placeholder={
                   resetStatus.isResetting
                     ? t('modals.auth.placeholders.waitForReset')
                     : t('modals.auth.placeholders.enterApiKey')
                 }
                 className="w-full p-3 text-sm themed-input"
+                autoComplete="off"
                 disabled={authenticating || resetStatus.isResetting}
                 autoFocus={!resetStatus.isResetting}
+              />
+            </div>
+
+            <div>
+              <label className="form-field-label">{t('modals.auth.labels.username')}</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={handleCredentialKeyDown}
+                placeholder={t('modals.auth.placeholders.enterUsername')}
+                className="w-full p-3 text-sm themed-input"
+                autoComplete="username"
+                disabled={authenticating || resetStatus.isResetting}
+              />
+            </div>
+
+            <div>
+              <label className="form-field-label">{t('modals.auth.labels.password')}</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={handleCredentialKeyDown}
+                placeholder={t('modals.auth.placeholders.enterPassword')}
+                className="w-full p-3 text-sm themed-input"
+                autoComplete="current-password"
+                disabled={authenticating || resetStatus.isResetting}
               />
             </div>
 
@@ -321,7 +361,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                   authenticating ? <LoadingSpinner inline size="sm" /> : <Key className="w-4 h-4" />
                 }
                 onClick={handleAuthenticate}
-                disabled={authenticating || !apiKey.trim() || resetStatus.isResetting}
+                disabled={authenticating || !credentialsFilled || resetStatus.isResetting}
                 fullWidth
               >
                 {resetStatus.isResetting
@@ -383,6 +423,20 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           {authError && (
             <div className="mt-4 p-4 rounded-lg border bg-error border-error text-error-text">
               <p className="text-sm">{authError}</p>
+            </div>
+          )}
+
+          {/* Rotating the API key ends every session at once, so after a rotation everyone arrives
+              here together and reads the refusal above as a wrong password. The server answers every
+              sign-in failure identically on purpose, so the key cannot be named as the cause - it is
+              named as the possibility, in copy of its own. [72] */}
+          {signInRefused && (
+            <div className="mt-4 p-4 rounded-lg border bg-warning border-warning text-warning-text">
+              <p className="text-sm">
+                <strong>{t('modals.auth.keyRotated.title')}</strong>
+                <br />
+                {t('modals.auth.keyRotated.description')}
+              </p>
             </div>
           )}
         </div>

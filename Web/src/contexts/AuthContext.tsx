@@ -1,5 +1,9 @@
 import React, { useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
-import authService, { type AuthMode, type SessionType } from '@services/auth.service';
+import authService, {
+  isAccountHolder,
+  type AuthMode,
+  type SessionType
+} from '@services/auth.service';
 import { useSignalR } from './SignalRContext/useSignalR';
 import type { ShowToastEvent } from './SignalRContext/types';
 import { isAbortError } from '@utils/error';
@@ -14,6 +18,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [sessionType, setSessionType] = useState<SessionType | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(null);
+  const [isMainAdmin, setIsMainAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [sessionExpiresAt, setSessionExpiresAt] = useState<string | null>(null);
   const [authenticationEnabled, setAuthenticationEnabled] = useState(true);
@@ -29,7 +35,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [xboxPrefillExpiresAt, setXboxPrefillExpiresAt] = useState<string | null>(null);
   const signalR = useSignalR();
 
-  // Derive isAdmin and hasSession from authMode
+  // Derive isAdmin and hasSession from authMode. A user session is authenticated too and reaches
+  // everything an admin does, so isAdmin covers both; sessionType tells them apart where it matters. [59]
   const isAdmin = authMode === 'authenticated';
   const hasSession = authMode !== 'unauthenticated';
 
@@ -62,6 +69,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setAuthenticationEnabled(data.authenticationEnabled);
       setSessionType(data.sessionType);
       setSessionId(data.sessionId);
+      setAccountId(data.accountId);
+      setIsMainAdmin(data.isMainAdmin);
       setSessionExpiresAt(data.expiresAt);
       setSteamPrefillEnabled(data.steamPrefillEnabled ?? data.prefillEnabled);
       setSteamPrefillExpiresAt(data.steamPrefillExpiresAt ?? data.prefillExpiresAt);
@@ -74,7 +83,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setXboxPrefillEnabled(data.xboxPrefillEnabled);
       setXboxPrefillExpiresAt(data.xboxPrefillExpiresAt ?? null);
 
-      if (data.isAuthenticated && data.sessionType === 'admin') {
+      if (data.isAuthenticated && isAccountHolder(data.sessionType)) {
         setAuthMode('authenticated');
       } else if (data.isAuthenticated && data.sessionType === 'guest') {
         setAuthMode('guest');
@@ -104,6 +113,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setAuthMode('unauthenticated');
       setSessionType(null);
       setSessionId(null);
+      setAccountId(null);
+      setIsMainAdmin(false);
       setSessionExpiresAt(null);
       setSteamPrefillEnabled(false);
       setSteamPrefillExpiresAt(null);
@@ -126,8 +137,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, [fetchAuth]);
 
   const login = useCallback(
-    async (apiKey: string) => {
-      const result = await authService.login(apiKey);
+    async (apiKey: string, username: string, password: string) => {
+      const result = await authService.login(apiKey, username, password);
       if (result.success) {
         await fetchAuth();
       }
@@ -149,6 +160,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setAuthMode('unauthenticated');
     setSessionType(null);
     setSessionId(null);
+    setAccountId(null);
+    setIsMainAdmin(false);
     setSessionExpiresAt(null);
     setSteamPrefillEnabled(false);
     setSteamPrefillExpiresAt(null);
@@ -194,6 +207,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setAuthMode('unauthenticated');
       setSessionType(null);
       setSessionId(null);
+      setAccountId(null);
+      setIsMainAdmin(false);
       setSessionExpiresAt(null);
       setSteamPrefillEnabled(false);
       setSteamPrefillExpiresAt(null);
@@ -327,6 +342,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         sessionType,
         sessionId,
         sessionExpiresAt,
+        accountId,
+        isMainAdmin,
         authenticationEnabled,
         isLoading,
         login,

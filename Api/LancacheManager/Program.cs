@@ -99,6 +99,7 @@ var documentedDomains = new (string Name, string Description)[]
 var documentedDomainByController = new Dictionary<string, string>(StringComparer.Ordinal)
 {
     ["AccountSetup"] = "Access",
+    ["Accounts"] = "Access",
     ["ApiKeys"] = "Access",
     ["Auth"] = "Access",
     ["Sessions"] = "Access",

@@ -825,7 +825,65 @@
   "user": {
     "tabs": {
       "sessions": "会话",
-      "guestDefaults": "访客默认设置"
+      "guestDefaults": "访客默认设置",
+      "accounts": "账户"
+    },
+    "accounts": {
+      "title": "用户账户",
+      "loading": "加载账户中...",
+      "paginationLabel": "个账户",
+      "mainAdmin": "主管理员",
+      "neverSignedIn": "从未登录",
+      "columns": {
+        "username": "用户名",
+        "role": "角色",
+        "status": "状态",
+        "created": "创建时间",
+        "lastSignIn": "上次登录",
+        "actions": "操作"
+      },
+      "roles": {
+        "admin": "管理员",
+        "user": "用户"
+      },
+      "status": {
+        "active": "活跃",
+        "disabled": "已禁用"
+      },
+      "actions": {
+        "create": "创建账户",
+        "promote": "设为管理员",
+        "demote": "设为普通用户",
+        "enable": "启用",
+        "disable": "禁用"
+      },
+      "empty": {
+        "title": "暂无账户",
+        "subtitle": "您创建的账户将显示在此处"
+      },
+      "form": {
+        "createTitle": "创建账户",
+        "editTitle": "编辑 {{username}}",
+        "username": "用户名",
+        "password": "密码",
+        "newPassword": "新密码",
+        "passwordHint": "留空则保留当前密码。",
+        "role": "角色",
+        "adminRoleReserved": "只有拥有此安装的账户才能授予管理员角色。"
+      },
+      "confirm": {
+        "deleteTitle": "删除账户",
+        "deleteBody": "确定要删除 {{username}} 吗？其会话将立即结束，且此操作无法撤销。",
+        "roleTitle": "更改账户角色",
+        "roleLabel": "更改角色",
+        "roleBody": "确定要将 {{username}} 设为{{role}}角色吗？其会话将立即结束。"
+      },
+      "errors": {
+        "load": "加载账户失败",
+        "disabled": "更新账户状态失败",
+        "delete": "删除账户失败",
+        "role": "更改账户角色失败"
+      }
     },
     "stats": {
       "total": "总计",
@@ -4880,11 +4938,15 @@
     "auth": {
       "labels": {
         "apiKey": "API 密钥",
-        "or": "或"
+        "or": "或",
+        "username": "用户名",
+        "password": "密码"
       },
       "placeholders": {
         "waitForReset": "请等待重置完成...",
-        "enterApiKey": "在此输入您的 API 密钥..."
+        "enterApiKey": "在此输入您的 API 密钥...",
+        "enterUsername": "输入您的用户名",
+        "enterPassword": "输入您的密码"
       },
       "actions": {
         "pleaseWait": "请稍候...",
@@ -4916,6 +4978,10 @@
       "help": {
         "title": "如何找到您的 API 密钥：",
         "description": "API 密钥在您首次启动服务器时显示。请在服务器日志中查找 \"API Key:\" 或查看 data/security/api_key.txt 文件。"
+      },
+      "keyRotated": {
+        "title": "API 密钥是否已重新生成？",
+        "description": "重新生成密钥会让所有人退出登录，旧密钥随即失效。如果有人重新生成了密钥，请向其索取新密钥后再登录。"
       },
       "errors": {
         "apiKeyRequired": "API 密钥是必需的",
@@ -6457,6 +6523,10 @@
       "submitting": "创建账户中...",
       "createdHeading": "账户已创建",
       "createdDescription": "今后请使用此用户名和密码登录。正在继续...",
+      "insecureConnection": {
+        "title": "此连接未加密",
+        "description": "您在此设置的密码会以明文形式在网络上传输，之后的每次登录同样如此。在他人从其他设备连接之前，请为本站点启用 HTTPS。"
+      },
       "errors": {
         "usernameRequired": "用户名是必需的",
         "usernameTooLong": "用户名不能超过 64 个字符",
@@ -7106,6 +7176,14 @@
       "claimWindowClosed": "创建首个账户的时间窗口已关闭。请重启应用程序以重新打开。",
       "accountExists": "此安装上已存在账户。",
       "mainAdminNotFound": "没有以该名称注册的主管理员账户。"
+    },
+    "accounts": {
+      "notFound": "找不到该账户。",
+      "mainAdminProtected": "无法在此更改拥有此安装的账户。",
+      "adminRoleRequiresMainAdmin": "只有拥有此安装的账户才能授予管理员角色。",
+      "roleNotAssignable": "账户只能拥有管理员或用户角色。",
+      "usernameTaken": "该用户名已被占用。",
+      "credentialsRejected": "用户名或密码不符合要求。"
     },
     "conflict": {
       "duplicate": "此项目已有操作正在进行。",

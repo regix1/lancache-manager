@@ -28,6 +28,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   const [authChecking, setAuthChecking] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [apiKey, setApiKey] = useState('');
+  // The Steam login username arrives from useSteamAuth above, so the account username needs its
+  // own name here.
+  const [accountUsername, setAccountUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [hasData, setHasData] = useState(false);
@@ -117,6 +121,12 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     }
   };
 
+  const clearCredentials = () => {
+    setApiKey('');
+    setAccountUsername('');
+    setPassword('');
+  };
+
   const handleAuthenticate = async () => {
     if (!apiKey.trim()) {
       setAuthError('Please enter an API key');
@@ -127,7 +137,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     setAuthError('');
 
     try {
-      const result = await authService.login(apiKey);
+      const result = await authService.login(apiKey, accountUsername.trim(), password);
 
       if (result.success) {
         // Refresh auth context
@@ -135,7 +145,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
 
         // Close modal and clear
         setShowAuthModal(false);
-        setApiKey('');
+        clearCredentials();
         onSuccess?.('Authentication successful! You can now use management features.');
       } else {
         setAuthError(result.message || t('modals.steamAuth.errors.authenticationFailed'));
@@ -148,11 +158,20 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     }
   };
 
+  const credentialsFilled =
+    apiKey.trim() !== '' && accountUsername.trim() !== '' && password !== '';
+
+  const handleCredentialKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && credentialsFilled && !authLoading) {
+      handleAuthenticate();
+    }
+  };
+
   const handleStartGuestMode = async () => {
     await authService.startGuestSession();
     await refreshAuth();
     setShowAuthModal(false);
-    setApiKey('');
+    clearCredentials();
     setAuthError('');
     onSuccess?.(
       `Guest mode activated! You have ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''} to view data before re-authentication is required.`
@@ -354,7 +373,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
         opened={showAuthModal}
         onClose={() => {
           setShowAuthModal(false);
-          setApiKey('');
+          clearCredentials();
           setAuthError('');
         }}
         title={
@@ -381,9 +400,38 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleAuthenticate()}
+              onKeyDown={handleCredentialKeyDown}
               placeholder="lm_xxxxxxxxxxxxxxxxxxxxx"
-              className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted focus:outline-none"
+              className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted"
+              autoComplete="off"
+              disabled={authLoading}
+            />
+          </div>
+
+          <div>
+            <label className="form-field-label">{t('modals.auth.labels.username')}</label>
+            <input
+              type="text"
+              value={accountUsername}
+              onChange={(e) => setAccountUsername(e.target.value)}
+              onKeyDown={handleCredentialKeyDown}
+              placeholder={t('modals.auth.placeholders.enterUsername')}
+              className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted"
+              autoComplete="username"
+              disabled={authLoading}
+            />
+          </div>
+
+          <div>
+            <label className="form-field-label">{t('modals.auth.labels.password')}</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={handleCredentialKeyDown}
+              placeholder={t('modals.auth.placeholders.enterPassword')}
+              className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted"
+              autoComplete="current-password"
               disabled={authLoading}
             />
           </div>
@@ -417,7 +465,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 variant="default"
                 onClick={() => {
                   setShowAuthModal(false);
-                  setApiKey('');
+                  clearCredentials();
                   setAuthError('');
                 }}
                 disabled={authLoading}
@@ -442,7 +490,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
               color="green"
               onClick={handleAuthenticate}
               loading={authLoading}
-              disabled={!apiKey.trim()}
+              disabled={!credentialsFilled}
             >
               {authMode === 'guest'
                 ? t('management.auth.modal.upgradeToFullAccess')
