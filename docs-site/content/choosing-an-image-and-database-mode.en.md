@@ -89,6 +89,22 @@ volumes:
 
 **Pointing at a remote or managed Postgres?** Set `POSTGRES_HOST` to its hostname, drop the `lancache-db` service, drop `depends_on`, and skip the named volume.
 
+**What rights does the database user need?** It has to own the database or hold `CREATE` on it. The schema installs the `citext` extension, and PostgreSQL only lets a role install an extension when it holds `CREATE` on the database itself. `CREATE` on schema `public` is not enough, and it is the natural thing to grant, because PostgreSQL 15 stopped granting it by default. The sidecar example above already satisfies this, since the `postgres` image makes `POSTGRES_USER` the owner of `POSTGRES_DB`. On a server you did not create the role on, grant it:
+
+```sql
+GRANT CREATE ON DATABASE lancache TO lancache;
+```
+
+No superuser is involved: `citext` has been a trusted extension since PostgreSQL 13. If you cannot change your own role's rights, a database administrator can install the extension for you instead, and then the app's role needs nothing extra:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS citext;
+```
+
+Some managed services allow-list which extensions may be installed at all. On Azure Database for PostgreSQL flexible server, `citext` has to be added to the `azure.extensions` server parameter before either statement above works, whatever the role's rights are.
+
+Get this wrong and the app does not start rather than warning you. Database setup runs before the web server opens a port, so the process ends there, Docker's restart policy brings it straight back into the same failure, and the browser gets a refused connection instead of a setup page. The log line is `Database initialization failed`, with PostgreSQL's own `permission denied to create extension "citext"` underneath it.
+
 **Set `POSTGRES_MODE=external` but left the connection vars unset?** The app boots in setup-only mode and shows a UI form. Credentials submitted there are saved to `/data/config/postgres-credentials.json`; you'll be asked to restart the container so the new connection takes effect.
 
 **Already running embedded and want to switch?** Your existing data does not move on its own - the automatic migration only covers the old SQLite database, not embedded Postgres. Dump and restore it by hand first: see [Migrate Embedded to External PostgreSQL](https://github.com/regix1/lancache-manager/blob/main/docs/external-postgres-migration.md).

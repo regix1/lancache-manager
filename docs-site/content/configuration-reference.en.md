@@ -32,7 +32,7 @@ The mode decision and full compose examples live in [Choosing an Image and Datab
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POSTGRES_MODE` | `embedded` | `embedded` or `external`. |
-| `POSTGRES_USER` | `lancache` | PostgreSQL username. Both modes. |
+| `POSTGRES_USER` | `lancache` | PostgreSQL username. Both modes. In external mode this role must own the database or hold `CREATE` on it, because the schema installs the `citext` extension - see [Choosing an Image and Database Mode](choosing-an-image-and-database-mode.md#image-variants). |
 | `POSTGRES_PASSWORD` | - | PostgreSQL password. In embedded mode the UI shows a setup page if this is unset. In external mode it must be set (or entered via the UI fallback before the app can connect). |
 | `POSTGRES_HOST` | - | **External mode only.** Hostname or IP of the Postgres server. |
 | `POSTGRES_PORT` | `5432` | **External mode only.** |

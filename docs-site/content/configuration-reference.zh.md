@@ -32,7 +32,7 @@
 | 变量 | 默认值 | 描述 |
 |----------|---------|-------------|
 | `POSTGRES_MODE` | `embedded` | `embedded` 或 `external`。 |
-| `POSTGRES_USER` | `lancache` | PostgreSQL 用户名。两种模式均适用。 |
+| `POSTGRES_USER` | `lancache` | PostgreSQL 用户名。两种模式均适用。外部模式下，该角色必须是数据库属主或对数据库拥有 `CREATE` 权限，因为表结构会安装 `citext` 扩展，详见[选择镜像与数据库模式](choosing-an-image-and-database-mode.md#image-variants)。 |
 | `POSTGRES_PASSWORD` | - | PostgreSQL 密码。内嵌模式下若未设置，UI 会显示设置页面；外部模式下必须设置（或在应用连接前通过 UI 后备表单输入）。 |
 | `POSTGRES_HOST` | - | **仅外部模式。** Postgres 服务器的主机名或 IP。 |
 | `POSTGRES_PORT` | `5432` | **仅外部模式。** |

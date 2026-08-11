@@ -89,6 +89,22 @@ volumes:
 
 **要连接远程或托管的 Postgres？** 把 `POSTGRES_HOST` 设置为它的主机名，删除 `lancache-db` 服务，删除 `depends_on`，并省略命名数据卷。
 
+**数据库用户需要什么权限？** 它必须是该数据库的属主，或者对该数据库拥有 `CREATE` 权限。表结构会安装 `citext` 扩展，而 PostgreSQL 只允许对数据库本身拥有 `CREATE` 权限的角色安装扩展。只在 schema `public` 上授予 `CREATE` 是不够的，而这恰恰是最容易想到的授权方式，因为从 PostgreSQL 15 起它不再被默认授予。上面的 sidecar 示例已经满足这一点，因为 `postgres` 镜像会让 `POSTGRES_USER` 成为 `POSTGRES_DB` 的属主。如果这个角色不是你自己建的，请这样授权：
+
+```sql
+GRANT CREATE ON DATABASE lancache TO lancache;
+```
+
+这跟超级用户无关：从 PostgreSQL 13 起，`citext` 就是受信任（trusted）扩展。如果你无法修改自己角色的权限，也可以请数据库管理员先把扩展装好，之后应用所用的角色就不需要任何额外权限：
+
+```sql
+CREATE EXTENSION IF NOT EXISTS citext;
+```
+
+有些托管服务还会对允许安装的扩展设置白名单。在 Azure Database for PostgreSQL 灵活服务器上，无论角色有什么权限，都必须先把 `citext` 加入 `azure.extensions` 服务器参数，上面两条语句才会生效。
+
+弄错了不是给个警告，而是应用根本起不来。数据库初始化在 Web 服务器监听端口之前运行，进程会在那里结束，Docker 的重启策略又把它带回同样的失败，浏览器拿到的是连接被拒绝而不是设置页面。日志里是 `Database initialization failed`，下面跟着 PostgreSQL 自己的 `permission denied to create extension "citext"`。
+
 **设置了 `POSTGRES_MODE=external` 但没设置连接变量？** 应用会以仅设置模式启动，并显示一个 UI 表单。在那里提交的凭据会保存到 `/data/config/postgres-credentials.json`；系统会提示你重启容器以让新连接生效。
 
 **已经在用内置数据库，想切换过去？** 现有数据不会自动迁移——自动迁移只覆盖旧的 SQLite 数据库，不包括内置 Postgres。请先手动导出并恢复：参见[从内置迁移到外部 PostgreSQL](https://github.com/regix1/lancache-manager/blob/main/docs/external-postgres-migration.md)。
