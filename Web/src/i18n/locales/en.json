@@ -41,8 +41,8 @@
         "title": "Docker Not Available",
         "description": "The Prefill feature requires Docker access to create and manage containers.",
         "helpLinux": "On Linux, add the following volume mount to your docker-compose.yml or Docker run command and restart the container:",
-        "helpWindows": "On Windows, ensure Docker Desktop is running and the LanCache Manager container has access to the Docker daemon.",
-        "helpGeneric": "Please ensure Docker is properly configured and the LanCache Manager container has access to create containers."
+        "helpWindows": "On Windows, ensure Docker Desktop is running and the LANCache Manager container has access to the Docker daemon.",
+        "helpGeneric": "Please ensure Docker is properly configured and the LANCache Manager container has access to create containers."
       },
       "accessDenied": {
         "title": "Access Denied",
@@ -434,7 +434,7 @@
       "installable": "Installable",
       "installableHint": "Ready to use",
       "dependencies": "Dependencies",
-      "dependenciesHint": "Used by LANcache Manager",
+      "dependenciesHint": "Used by LANCache Manager",
       "fork": "Fork",
       "supportTitle": "Support Development",
       "supportSubtitle": "Buy me a coffee",
@@ -1590,7 +1590,7 @@
         },
         "empty": {
           "title": "No Downloads Yet",
-          "description": "Download activity will appear here once your Lancache starts serving content."
+          "description": "Download activity will appear here once your LANCache starts serving content."
         }
       },
       "badges": {
@@ -3036,7 +3036,7 @@
         "importTypes": {
           "title": "Options",
           "lancacheManager": {
-            "description": "Restore from a Lancache Manager database backup"
+            "description": "Restore from a LANCache Manager database backup"
           }
         },
         "compatibility": {
@@ -4091,7 +4091,7 @@
       },
       "regenerateModal": {
         "title": "Regenerate API Key",
-        "message": "Regenerating the API key will immediately log out all connected devices and guests, requiring everyone to re-authenticate with the new key.",
+        "message": "Regenerating the API key deletes every other user account and immediately logs out all connected devices and guests. Your own account keeps its username and password, so you sign back in with those and the new key.",
         "important": "Important:"
       },
       "rotatedModal": {
@@ -4574,8 +4574,8 @@
       "primaryDomainNotConfigured": "This is the primary CDN domain for this service. Configure lancache-dns to point this to your cache server IP for downloads to be cached.",
       "optionalDomainNotConfigured": "This domain is optional. As long as the primary domain is configured, prefill will work correctly.",
       "hostNetworkingHint": "If Steam login hangs or times out, set Prefill__LancacheIp to your lancache server's IP - this fixes most DNS-related issues without changing network mode. As a fallback, try Prefill__NetworkMode=bridge in your docker-compose.yml.",
-      "lancacheIpInjected": "Lancache server: {{ip}} (direct, DNS-independent)",
-      "lancacheIpDetected": "Lancache server: {{ip}} (auto-detected via {{source}}, heartbeat verified)",
+      "lancacheIpInjected": "LANCache server: {{ip}} (direct, DNS-independent)",
+      "lancacheIpDetected": "LANCache server: {{ip}} (auto-detected via {{source}}, heartbeat verified)",
       "lancacheSourceDetected": "network scan",
       "lancacheSourceDns": "lancache DNS",
       "lancacheSourceDockerInspect": "Docker inspect",
@@ -6292,7 +6292,7 @@
       "cacheImpact": "Cannot clear cache or remove games",
       "logsImpact": "Cannot remove log entries",
       "cacheNotFound": "Directory will be created when cache data is generated",
-      "logsNotFound": "Create the logs directory and point it to your Lancache logs",
+      "logsNotFound": "Create the logs directory and point it to your LANCache logs",
       "dockerImpact": "Cannot signal container restart after log rotation",
       "allGood": "All permissions verified. You have full access to all features.",
       "hasWarnings": "Some features may be limited. You can still proceed.",

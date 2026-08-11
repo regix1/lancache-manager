@@ -22,8 +22,11 @@ namespace LancacheManager.Tests;
 /// What rotating the installation's API key does to the people signed in with it. Every session was
 /// opened against the key that has just stopped being valid, so every one of them ends, guests
 /// included, and the answer the caller receives is the last thing that reaches them on that session:
-/// it has to carry the key they need to get back in. The accounts themselves are left alone, which
-/// is what "sign in again" means.
+/// it has to carry the key they need to get back in.
+///
+/// With authentication on it is also how the owner takes the installation back, so every account but
+/// the one that owns it goes with the sessions. That row is left exactly as it was, because signing
+/// back in with the username and password it already had is what the rotation is for.
 /// </summary>
 // The two shared sessions are held in process-wide statics that this class resets, so it runs in the
 // collection that already serializes the classes touching them.
@@ -59,9 +62,9 @@ public sealed class ApiKeyRotationTests : IDisposable
     }
 
     /// <summary>
-    /// The three kinds of session a running installation holds all end together, and the account
-    /// behind the signed-in one is still there afterwards and can open a fresh session with the key
-    /// the rotation handed back.
+    /// The three kinds of session a running installation holds all end together, the account behind
+    /// the signed-in one goes with them, and the key the rotation handed back opens a fresh session
+    /// while the old one no longer does.
     /// </summary>
     [Fact]
     public async Task RotationEndsTheAdminTheUserAndTheGuestSession()
@@ -86,10 +89,105 @@ public sealed class ApiKeyRotationTests : IDisposable
         Assert.Null(await sessions.ValidateSessionAsync(guest!.Value.RawToken));
 
         await using var context = database.Factory.CreateDbContext();
-        Assert.True(await context.UserAccounts.AnyAsync(a => a.Id == accountId));
+        Assert.False(await context.UserAccounts.AnyAsync(a => a.Id == accountId));
+        Assert.True(await context.UserAccounts.AnyAsync(a => a.Id == owner.Session.AccountId));
 
         Assert.Null(await sessions.CreateAdminSessionAsync(oldKey, new DefaultHttpContext()));
         Assert.NotNull(await sessions.CreateAdminSessionAsync(response.ApiKey, new DefaultHttpContext()));
+    }
+
+    /// <summary>
+    /// Two other accounts go and the owner's row stays, with the username and the password hash it
+    /// already had. Reading the hash is the point of the assertion: the owner signs back in with what
+    /// they already know plus the new key, so a rotation that reset the password would be the wrong
+    /// behaviour even though the row survived.
+    /// </summary>
+    [Fact]
+    public async Task RotationRemovesEveryAccountExceptTheOneThatOwnsTheInstallation()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var sessions = NewSessionService(database.Factory, authenticationEnabled: true);
+        var owner = await SignedInAsMainAdminAsync(sessions, database.Factory);
+        await SeedAccountAsync(database.Factory, "alice");
+        await SeedAccountAsync(database.Factory, "bob");
+
+        UserAccount before;
+        await using (var seeded = database.Factory.CreateDbContext())
+        {
+            Assert.Equal(3, await seeded.UserAccounts.CountAsync());
+            before = await seeded.UserAccounts.SingleAsync(a => a.IsMainAdmin);
+        }
+
+        await RotateAsync(NewController(
+            database.Factory, sessions, NewAuditService(database.Factory), RequestFor(owner.Session)));
+
+        await using var context = database.Factory.CreateDbContext();
+        var remaining = Assert.Single(await context.UserAccounts.ToListAsync());
+
+        Assert.Equal(before.Id, remaining.Id);
+        Assert.Equal(before.Username, remaining.Username);
+        Assert.Equal(before.PasswordHash, remaining.PasswordHash);
+        Assert.False(remaining.IsDisabled);
+    }
+
+    /// <summary>
+    /// Each removed account is recorded against the session and the account that rotated the key, the
+    /// way every other deletion path records one. Accounts that disappear with nothing written down
+    /// leave the owner unable to tell a rotation from a database fault.
+    /// </summary>
+    [Fact]
+    public async Task EveryAccountRemovedByARotationIsRecorded()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var sessions = NewSessionService(database.Factory, authenticationEnabled: true);
+        var owner = await SignedInAsMainAdminAsync(sessions, database.Factory);
+        var alice = await SeedAccountAsync(database.Factory, "alice");
+        var bob = await SeedAccountAsync(database.Factory, "bob");
+
+        await RotateAsync(NewController(
+            database.Factory, sessions, NewAuditService(database.Factory), RequestFor(owner.Session)));
+
+        await using var context = database.Factory.CreateDbContext();
+        var removals = await context.IdentityAuditEntries
+            .Where(e => e.Event == IdentityAuditEvent.AccountDeleted)
+            .ToListAsync();
+
+        Assert.Equal(2, removals.Count);
+        Assert.Contains(removals, e => e.TargetAccountId == alice);
+        Assert.Contains(removals, e => e.TargetAccountId == bob);
+        Assert.All(removals, e =>
+        {
+            Assert.Equal(owner.Session.AccountId, e.PerformedByAccountId);
+            Assert.Equal(owner.Session.Id, e.PerformedBySessionId);
+        });
+    }
+
+    /// <summary>
+    /// The other branch. With authentication off the caller has presented the key and nothing else and
+    /// is nobody in particular, so the accounts on the installation are not theirs to remove. The key
+    /// still rotates.
+    /// </summary>
+    [Fact]
+    public async Task RotationByAKeyCallerLeavesTheAccountsAlone()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var sessions = NewSessionService(database.Factory, authenticationEnabled: false);
+        var accountId = await SeedAccountAsync(database.Factory, "alice");
+        var oldKey = _apiKeyService.GetApiKey();
+
+        var request = new DefaultHttpContext();
+        request.Request.Headers["X-Api-Key"] = oldKey;
+        var response = await RotateAsync(NewController(
+            database.Factory, sessions, NewAuditService(database.Factory), request,
+            authenticationEnabled: false));
+
+        Assert.NotEqual(oldKey, response.ApiKey);
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.True(await context.UserAccounts.AnyAsync(a => a.Id == accountId));
+        Assert.Empty(await context.IdentityAuditEntries
+            .Where(e => e.Event == IdentityAuditEvent.AccountDeleted)
+            .ToListAsync());
     }
 
     /// <summary>
@@ -300,6 +398,64 @@ public sealed class ApiKeyRotationTests : IDisposable
         // last thing this caller was told and the key had to travel in it.
         using var afterwards = await client.GetAsync("/api/sessions");
         Assert.Equal(HttpStatusCode.Unauthorized, afterwards.StatusCode);
+
+        await ClearAccountsAsync(host);
+    }
+
+    /// <summary>
+    /// The owner's way back in, over HTTP on the running application: rotate, then sign in again with
+    /// the username and password the account already had plus the key the rotation handed back. This
+    /// is the requirement the whole change exists for, so it is asserted rather than read off the
+    /// account row, and the other account is gone by then.
+    /// </summary>
+    [Fact]
+    public async Task TheOwnerSignsBackInWithTheSameCredentialsAfterRotating()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+
+        var apiKeyService = host.Application.Services.GetRequiredService<ApiKeyService>();
+        var oldKey = apiKeyService.GetApiKey();
+        var owner = await ClaimInstallationAsync(host, oldKey);
+        var other = await host.NewAccountAsync();
+
+        using var client = host.Application.CreateClient(
+            new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await EndpointAuthorizationHost.PrimeAntiforgeryAsync(client);
+        using (var login = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new LoginRequest { ApiKey = oldKey, Username = owner.Username, Password = owner.Password }))
+        {
+            Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        }
+
+        await EndpointAuthorizationHost.PrimeAntiforgeryAsync(client);
+        using var rotated = await client.PostAsync("/api/api-keys/regenerate", null);
+        Assert.Equal(HttpStatusCode.OK, rotated.StatusCode);
+
+        var body = await rotated.Content.ReadFromJsonAsync<ApiKeyRegenerateResponse>();
+        Assert.NotNull(body);
+
+        // A client of its own, because the one above was signed out by the request it made.
+        using var returning = host.Application.CreateClient(
+            new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await EndpointAuthorizationHost.PrimeAntiforgeryAsync(returning);
+        using (var signedBackIn = await returning.PostAsJsonAsync(
+            "/api/auth/login",
+            new LoginRequest { ApiKey = body!.ApiKey, Username = owner.Username, Password = owner.Password }))
+        {
+            Assert.Equal(HttpStatusCode.OK, signedBackIn.StatusCode);
+        }
+
+        // Read rather than signed in with: sign-in spends one of the five permits a caller address
+        // gets in a minute, and this test has already spent four of them.
+        var dbContextFactory = host.Application.Services
+            .GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using (var context = await dbContextFactory.CreateDbContextAsync())
+        {
+            Assert.False(await context.UserAccounts.AnyAsync(a => a.Username == other.Username));
+        }
 
         await ClearAccountsAsync(host);
     }

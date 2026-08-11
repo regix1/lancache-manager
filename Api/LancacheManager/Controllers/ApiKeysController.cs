@@ -106,13 +106,18 @@ public class ApiKeysController : ControllerBase
     /// so an ordinary administrator holding it could lock the rest of them out. The check reads the
     /// caller's stored account row, because the claim on the cookie says "admin" for every
     /// administrator and a check that read it would admit all of them.
+    ///
+    /// With authentication on it is also how the owner takes the installation back: every other
+    /// account is deleted along with the sessions, and the owning account keeps its username and
+    /// password so it signs back in with those and the new key.
     /// </remarks>
     [HttpPost("regenerate")]
     [EnableRateLimiting("auth")]
     [ProducesResponseType(typeof(ApiKeyRegenerateResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> RegenerateApiKeyAsync()
     {
-        if (!_configuration.GetValue<bool>("Security:EnableAuthentication", true))
+        var authenticationEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
+        if (!authenticationEnabled)
         {
             var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
             if (!apiKeyResult.IsAuthenticated)
@@ -190,9 +195,34 @@ public class ApiKeysController : ControllerBase
         // new key.
         var endedSessions = await _sessionService.ClearAllSessionsAsync();
 
+        // The sessions are already gone, so these rows take nothing live with them. Only the branch
+        // above that identified the caller as the owning account does this: on the other branch the
+        // caller has presented nothing but the key and is nobody in particular, and deleting other
+        // people's accounts is a wider power than rotating a credential.
+        var removedAccounts = 0;
+        if (authenticationEnabled)
+        {
+            await using var accounts = await _dbContextFactory.CreateDbContextAsync();
+            var otherAccounts = await accounts.UserAccounts.Where(a => !a.IsMainAdmin).ToListAsync();
+            accounts.UserAccounts.RemoveRange(otherAccounts);
+            await accounts.SaveChangesAsync();
+
+            foreach (var removed in otherAccounts)
+            {
+                await _identityAuditService.RecordAsync(
+                    IdentityAuditEvent.AccountDeleted,
+                    session?.AccountId,
+                    session?.Id,
+                    removed.Id);
+            }
+
+            removedAccounts = otherAccounts.Count;
+        }
+
         _logger.LogWarning(
-            "API key regenerated | Sessions ended: {EndedSessions} | Steam PICS: {SteamLogout} | Steam Web API Key: {WebApiKey}",
+            "API key regenerated | Sessions ended: {EndedSessions} | Accounts removed: {RemovedAccounts} | Steam PICS: {SteamLogout} | Steam Web API Key: {WebApiKey}",
             endedSessions,
+            removedAccounts,
             steamWasAuthenticated ? "Logged out" : "Cleared",
             hadSteamWebApiKey ? "Removed" : "None");
 

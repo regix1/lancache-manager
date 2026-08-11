@@ -41,8 +41,8 @@
         "title": "Docker 不可用",
         "description": "预填充功能需要 Docker 访问权限来创建和管理容器。",
         "helpLinux": "在 Linux 上，将以下卷挂载添加到 docker-compose.yml 或 Docker run 命令中，然后重新启动容器：",
-        "helpWindows": "在 Windows 上，请确保 Docker Desktop 正在运行，且 LanCache Manager 容器能够访问 Docker 守护进程。",
-        "helpGeneric": "请确保 Docker 已正确配置，且 LanCache Manager 容器有权创建容器。"
+        "helpWindows": "在 Windows 上，请确保 Docker Desktop 正在运行，且 LANCache Manager 容器能够访问 Docker 守护进程。",
+        "helpGeneric": "请确保 Docker 已正确配置，且 LANCache Manager 容器有权创建容器。"
       },
       "accessDenied": {
         "title": "拒绝访问",
@@ -434,7 +434,7 @@
       "installable": "可安装",
       "installableHint": "开箱即用",
       "dependencies": "依赖项目",
-      "dependenciesHint": "供 LANcache Manager 使用",
+      "dependenciesHint": "供 LANCache Manager 使用",
       "fork": "复刻",
       "supportTitle": "支持开发",
       "supportSubtitle": "请我喝杯咖啡",
@@ -1590,7 +1590,7 @@
         },
         "empty": {
           "title": "暂无下载",
-          "description": "一旦您的 Lancache 开始提供内容，下载活动将显示在此处。"
+          "description": "一旦您的 LANCache 开始提供内容，下载活动将显示在此处。"
         }
       },
       "badges": {
@@ -3036,7 +3036,7 @@
         "importTypes": {
           "title": "选项",
           "lancacheManager": {
-            "description": "从 Lancache Manager 数据库备份恢复"
+            "description": "从 LANCache Manager 数据库备份恢复"
           }
         },
         "compatibility": {
@@ -4091,7 +4091,7 @@
       },
       "regenerateModal": {
         "title": "重新生成 API 密钥",
-        "message": "重新生成 API 密钥将立即登出所有已连接的设备和访客，要求所有人使用新密钥重新进行身份验证。",
+        "message": "重新生成 API 密钥将删除其他所有用户账户，并立即登出所有已连接的设备和访客。您自己的账户会保留用户名和密码，请使用它们和新密钥重新登录。",
         "important": "重要提示："
       },
       "rotatedModal": {
@@ -4574,8 +4574,8 @@
       "primaryDomainNotConfigured": "这是此服务的主要 CDN 域名。配置 lancache-dns 将其指向您的缓存服务器 IP 以使下载被缓存。",
       "optionalDomainNotConfigured": "此域名是可选的。只要主域名已配置，预填充将正常工作。",
       "hostNetworkingHint": "如果 Steam 登录挂起或超时，将 Prefill__LancacheIp 设置为您的 lancache 服务器 IP - 这可以在不更改网络模式的情况下修复大多数 DNS 相关问题。作为备选方案，请在 docker-compose.yml 中尝试 Prefill__NetworkMode=bridge。",
-      "lancacheIpInjected": "Lancache 服务器：{{ip}}（直接，与 DNS 无关）",
-      "lancacheIpDetected": "Lancache 服务器：{{ip}}（通过{{source}}自动检测，心跳已验证）",
+      "lancacheIpInjected": "LANCache 服务器：{{ip}}（直接，与 DNS 无关）",
+      "lancacheIpDetected": "LANCache 服务器：{{ip}}（通过{{source}}自动检测，心跳已验证）",
       "lancacheSourceDetected": "网络扫描",
       "lancacheSourceDns": "lancache DNS",
       "lancacheSourceDockerInspect": "Docker inspect",
@@ -6258,7 +6258,7 @@
       "cacheImpact": "无法清除缓存或删除游戏",
       "logsImpact": "无法删除日志条目",
       "cacheNotFound": "目录将在生成缓存数据时创建",
-      "logsNotFound": "创建日志目录并将其指向您的 Lancache 日志",
+      "logsNotFound": "创建日志目录并将其指向您的 LANCache 日志",
       "dockerImpact": "无法在日志轮转后通知容器重启",
       "allGood": "所有权限已验证。您拥有所有功能的完全访问权限。",
       "hasWarnings": "某些功能可能受限。您仍可以继续。",
