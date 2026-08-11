@@ -8,6 +8,7 @@ import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
 import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import { getErrorMessage } from '@utils/error';
 
 const AuthenticateTab: React.FC = () => {
   const { t } = useTranslation();
@@ -18,6 +19,10 @@ const AuthenticateTab: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  // Shown on the form itself. A refusal used to go only to a notification, which on a phone is
+  // gone before it is read and on this screen never appeared at all, so a wrong password looked
+  // like a button that did nothing.
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const notifySuccess = (message: string) => {
     addNotification({
@@ -30,16 +35,18 @@ const AuthenticateTab: React.FC = () => {
 
   const handleAuthenticate = async () => {
     if (!apiKey.trim()) {
-      notifyError(t('auth.errors.missingKey'));
+      setAuthError(t('auth.errors.missingKey'));
       return;
     }
 
     setLoading(true);
+    setAuthError(null);
 
     try {
       const result = await authService.login(apiKey, username.trim(), password);
 
       if (result.success) {
+        setAuthError(null);
         notifySuccess(t('auth.success'));
         // Refresh auth context
         await refreshAuth();
@@ -53,9 +60,13 @@ const AuthenticateTab: React.FC = () => {
           window.location.reload();
         }, 1500);
       } else {
-        notifyError(result.message || t('auth.errors.failed'));
+        // The server answers every credential refusal the same way on purpose, so this names all
+        // three fields rather than the one that was wrong. Telling them apart is what lets somebody
+        // work out which usernames exist.
+        setAuthError(result.message || t('auth.errors.failed'));
       }
     } catch (err: unknown) {
+      setAuthError(getErrorMessage(err) || t('auth.errors.failed'));
       notifyError(t('auth.errors.failed'), err, { logLabel: 'Authentication error' });
     } finally {
       setLoading(false);
@@ -130,6 +141,8 @@ const AuthenticateTab: React.FC = () => {
                   disabled={loading}
                 />
               </div>
+
+              {authError && <Alert color="red">{authError}</Alert>}
 
               <Button
                 variant="filled"
