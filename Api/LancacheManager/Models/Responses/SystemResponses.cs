@@ -207,6 +207,14 @@ public class SetupStatusResponse
     public bool NeedsPostgresCredentials { get; set; }
 
     /// <summary>
+    /// Whether this installation has at least one account. Null when the account table could not be
+    /// read, which is the state an installation with no working database is in. Answered without a
+    /// session, because the app reads it before one exists to decide whether the setup wizard has to
+    /// open at account creation. [37c]
+    /// </summary>
+    public bool? AccountExists { get; set; }
+
+    /// <summary>
     /// The wizard step in progress. Null once setup has completed, or before the wizard has recorded
     /// a step.
     /// </summary>

@@ -8,7 +8,7 @@ namespace LancacheManager.Models;
 /// Serialized as kebab-case strings on the wire ("database-setup", "external-db-form",
 /// "external-db-confirm", "permissions-check", "import-historical-data", "platform-setup",
 /// "steam-api-key", "steam-auth", "depot-init", "pics-progress", "epic-auth",
-/// "log-processing", "depot-mapping", "xbox-auth")
+/// "log-processing", "depot-mapping", "xbox-auth", "admin-account")
 /// to preserve the pre-existing JSON contract with the frontend and persisted state.
 /// </summary>
 [JsonConverter(typeof(SetupStepJsonConverter))]
@@ -30,7 +30,8 @@ public enum SetupStep
     EpicAuth,
     LogProcessing,
     DepotMapping,
-    XboxAuth
+    XboxAuth,
+    AdminAccount
 }
 
 /// <summary>
@@ -87,6 +88,7 @@ public static class SetupStepExtensions
         SetupStep.LogProcessing => "log-processing",
         SetupStep.DepotMapping => "depot-mapping",
         SetupStep.XboxAuth => "xbox-auth",
+        SetupStep.AdminAccount => "admin-account",
         SetupStep.Unknown => "unknown",
         _ => step.ToString().ToLowerInvariant()
     };
@@ -118,6 +120,7 @@ public static class SetupStepExtensions
             "log-processing" => SetupStep.LogProcessing,
             "depot-mapping" => SetupStep.DepotMapping,
             "xbox-auth" => SetupStep.XboxAuth,
+            "admin-account" => SetupStep.AdminAccount,
             "unknown" => SetupStep.Unknown,
             _ => null
         };

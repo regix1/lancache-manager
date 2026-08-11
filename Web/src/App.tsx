@@ -21,6 +21,7 @@ import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequired
 import ApiService from '@services/api.service';
 import { useConfig } from '@contexts/useConfig';
 import { setServerTimezone } from '@utils/timezone';
+import { isAdminAccountRequired } from '@utils/adminAccountSetup';
 import { isAbortError } from '@utils/error';
 import { ApiError } from '@services/apiError';
 import themeService from '@services/theme.service';
@@ -120,8 +121,15 @@ const AppContent: React.FC = () => {
   // Security:EnableAuthentication. Disabling auth only suppresses the login prompt
   // (see the AuthenticationModal gate below), not genuine setup work — otherwise a
   // fresh external-Postgres install with no env credentials would be stranded.
+  // An installation that finished setup before accounts existed still has to create one, and the
+  // upgrade revoked the sessions it had, so the wizard is the only screen that can get it there.
+  const adminAccountRequired = isAdminAccountRequired({
+    setupCompleted: setupStatus?.isCompleted === true,
+    authenticationEnabled,
+    accountExists: setupStatus?.accountExists ?? null
+  });
   const shouldShowInitializationFlow =
-    !setupCompleted || Boolean(setupStatus?.needsPostgresCredentials);
+    !setupCompleted || Boolean(setupStatus?.needsPostgresCredentials) || adminAccountRequired;
 
   // Switch away from auth-required tabs if auth is lost
   useEffect(() => {
@@ -508,8 +516,16 @@ const AppContent: React.FC = () => {
     );
   };
 
-  // Show login page if not authenticated
-  if (!checkingAuth && authMode === 'unauthenticated' && authenticationEnabled !== false) {
+  // Show login page if not authenticated. An installation that still needs its first account is the
+  // one case where this screen cannot be passed - there is nothing to sign in with - so it goes to
+  // the wizard below instead. A fresh install never reaches that branch, because it has not
+  // completed setup and keeps signing in with the API key first.
+  if (
+    !checkingAuth &&
+    authMode === 'unauthenticated' &&
+    authenticationEnabled !== false &&
+    !adminAccountRequired
+  ) {
     // The config fetched for this screen came back without the cache, logs and data paths, because
     // it was requested with no session. ConfigProvider sits above AuthProvider and signing in does
     // not remount it, so the paths only arrive if the response is asked for again here. [5]

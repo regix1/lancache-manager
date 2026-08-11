@@ -27,7 +27,8 @@ public sealed class RateLimitCoverageContractTests
         ["SetupController.SetCredentials"] = "auth",
         ["SetupController.SetExternalCredentials"] = "auth",
         ["ApiKeysController.RegenerateApiKey"] = "auth",
-        ["SteamAuthController.Login"] = "steam-auth"
+        ["SteamAuthController.Login"] = "steam-auth",
+        ["AccountSetupController.CreateFirstAdmin"] = "auth"
     };
 
     /// <summary>
@@ -137,6 +138,38 @@ public sealed class RateLimitCoverageContractTests
             host.Application.Server, "10.0.3.1", "GET", "/api/system/permissions", apiKey: "not-the-key");
         var other = await SendAsync(
             host.Application.Server, "10.0.3.2", "GET", "/api/system/permissions", apiKey: "not-the-key");
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, throttled);
+        Assert.Equal(StatusCodes.Status401Unauthorized, other);
+    }
+
+    /// <summary>
+    /// Creating the first account is anonymous and takes the API key, and the claim window it sits
+    /// behind is measured in minutes. Without a limiter one address can spend that whole window
+    /// guessing, so the window is not on its own the defence. [43c]
+    /// </summary>
+    [Fact]
+    public async Task FirstAdminCreationIsThrottledPerCallerAddress()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var client = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(client);
+
+        const string body = """{"apiKey":"not-the-key","username":"operator","password":"Correct-Horse-9"}""";
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var refused = await SendAsync(
+                host.Application.Server, "10.0.4.1", "POST", "/api/account-setup/first-admin", body: body);
+
+            Assert.Equal(StatusCodes.Status401Unauthorized, refused);
+        }
+
+        var throttled = await SendAsync(
+            host.Application.Server, "10.0.4.1", "POST", "/api/account-setup/first-admin", body: body);
+        var other = await SendAsync(
+            host.Application.Server, "10.0.4.2", "POST", "/api/account-setup/first-admin", body: body);
 
         Assert.Equal(StatusCodes.Status429TooManyRequests, throttled);
         Assert.Equal(StatusCodes.Status401Unauthorized, other);

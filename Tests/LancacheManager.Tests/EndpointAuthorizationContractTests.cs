@@ -62,6 +62,7 @@ public sealed class EndpointAuthorizationContractTests
 
     private static readonly HashSet<string> PublicActions = new(StringComparer.Ordinal)
     {
+        "AccountSetupController.CreateFirstAdmin",
         "AuthController.GetStatus",
         "AuthController.Login",
         "AuthController.StartGuest",

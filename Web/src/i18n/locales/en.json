@@ -6472,6 +6472,41 @@
       "back": "Back",
       "connecting": "Connecting..."
     },
+    "adminAccount": {
+      "heading": "Administrator Account",
+      "description": "Create the account you will sign in with. It is the main administrator and cannot be deleted or demoted later.",
+      "usernameLabel": "Username",
+      "usernamePlaceholder": "Choose a username",
+      "passwordLabel": "Password",
+      "passwordPlaceholder": "At least 12 characters",
+      "confirmPasswordLabel": "Confirm Password",
+      "confirmPasswordPlaceholder": "Confirm your password",
+      "apiKeyLabel": "Primary API key",
+      "apiKeyPlaceholder": "Enter the primary API key",
+      "apiKeyHint": "The key is printed in the container log and stored at /data/security/api_key.txt. It proves you own this installation, so nobody else can claim the first account.",
+      "strengthWeak": "Weak",
+      "strengthMedium": "Medium",
+      "strengthStrong": "Strong",
+      "submit": "Create Account",
+      "submitting": "Creating account...",
+      "createdHeading": "Account Created",
+      "createdDescription": "Sign in with this username and password from now on. Continuing...",
+      "errors": {
+        "usernameRequired": "Username is required",
+        "usernameTooLong": "Username cannot exceed 64 characters",
+        "passwordRequired": "Password is required",
+        "passwordTooShort": "Password must be at least 12 characters",
+        "passwordTooLong": "Password cannot exceed 256 characters",
+        "passwordCharacterClasses": "Password must use at least three of: lowercase letters, uppercase letters, digits, and other characters",
+        "passwordSameAsUsername": "Password cannot be the same as the username",
+        "confirmPasswordRequired": "Please confirm your password",
+        "passwordsDoNotMatch": "Passwords do not match",
+        "apiKeyRequired": "Primary API key is required",
+        "tooManyAttempts": "Too many attempts. Wait a minute and try again.",
+        "createFailed": "Failed to create the account. Please try again.",
+        "network": "Network error. Please check your connection."
+      }
+    },
     "modal": {
       "setupWizard": "Setup Wizard",
       "goBack": "Go back",
@@ -6489,7 +6524,8 @@
         "depotMapping": "Depot Mapping",
         "platformSetup": "Platform Setup",
         "epicAuthentication": "Epic Authentication",
-        "xboxAuthentication": "Xbox Authentication"
+        "xboxAuthentication": "Xbox Authentication",
+        "adminAccount": "Administrator Account"
       },
       "errors": {
         "picsStatusCheckFailed": "Couldn't check Steam depot data status. You can continue, but progress may not display correctly.",

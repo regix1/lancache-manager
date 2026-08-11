@@ -3,11 +3,13 @@ using LancacheManager.Models.ApiRequests;
 using LancacheManager.Configuration;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Middleware;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using LancacheManager.Core.Services.SteamKit2;
 
 
@@ -34,6 +36,7 @@ public class SystemController : ControllerBase
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly CacheManagementService _cacheManagementService;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
 
     // Names the clock change inside DefaultGuestPreferencesChanged, alongside the single-field keys the
     // same event has always carried. A listener reads this to know the payload holds a whole clock and
@@ -52,7 +55,8 @@ public class SystemController : ControllerBase
         UserPreferencesService userPreferencesService,
         DatasourceCapabilityService capabilityService,
         NginxLogRotationService nginxLogRotationService,
-        CacheManagementService cacheManagementService)
+        CacheManagementService cacheManagementService,
+        IDbContextFactory<AppDbContext> dbContextFactory)
     {
         _capabilityService = capabilityService;
         _stateService = stateService;
@@ -66,6 +70,7 @@ public class SystemController : ControllerBase
         _userPreferencesService = userPreferencesService;
         _nginxLogRotationService = nginxLogRotationService;
         _cacheManagementService = cacheManagementService;
+        _dbContextFactory = dbContextFactory;
     }
 
     /// <summary>
@@ -215,6 +220,26 @@ public class SystemController : ControllerBase
             ? !(hasEnvPassword && hasEnvHost) && !hasCredentialsFile
             : !hasEnvPassword && !hasCredentialsFile;
 
+        // Answered outside the signed-in block below on purpose: the app reads this response before
+        // any session exists, and an installation upgrading from a build that had no accounts owns
+        // none, so a flag only a signed-in caller could see would be invisible exactly when it
+        // decides whether the wizard opens at account creation. An unreachable database leaves it
+        // unknown rather than failing the response, because this is also the route a broken install
+        // reads to find its way to the credentials step, and answering "no account" there would send
+        // it to a step that cannot save. [37c]
+        bool? accountExists;
+        try
+        {
+            using var context = _dbContextFactory.CreateDbContext();
+            accountExists = context.UserAccounts.Any();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Could not read the accounts table, so the setup status reports an unknown account state");
+            accountExists = null;
+        }
+
         string? postgresHost = null;
         int? postgresPort = null;
         string? postgresDatabase = null;
@@ -305,6 +330,7 @@ public class SystemController : ControllerBase
             HasProcessedLogs = hasProcessedLogs,
             SetupCompleted = isCompleted, // For backward compatibility
             NeedsPostgresCredentials = needsPostgresCredentials,
+            AccountExists = accountExists,
             CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
             DataSourceChoice = state.DataSourceChoice?.ToWireString(),
             CompletedPlatforms = state.CompletedPlatforms,

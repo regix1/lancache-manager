@@ -6438,6 +6438,41 @@
       "back": "返回",
       "connecting": "连接中..."
     },
+    "adminAccount": {
+      "heading": "管理员账户",
+      "description": "创建您用于登录的账户。它是主管理员账户，之后无法删除，也无法降级。",
+      "usernameLabel": "用户名",
+      "usernamePlaceholder": "请设置一个用户名",
+      "passwordLabel": "密码",
+      "passwordPlaceholder": "至少 12 个字符",
+      "confirmPasswordLabel": "确认密码",
+      "confirmPasswordPlaceholder": "请再次输入密码",
+      "apiKeyLabel": "主 API 密钥",
+      "apiKeyPlaceholder": "输入主 API 密钥",
+      "apiKeyHint": "该密钥会打印在容器日志中，并保存在 /data/security/api_key.txt。它用于证明本次安装归您所有，因此他人无法抢先创建第一个账户。",
+      "strengthWeak": "弱",
+      "strengthMedium": "中",
+      "strengthStrong": "强",
+      "submit": "创建账户",
+      "submitting": "创建账户中...",
+      "createdHeading": "账户已创建",
+      "createdDescription": "今后请使用此用户名和密码登录。正在继续...",
+      "errors": {
+        "usernameRequired": "用户名是必需的",
+        "usernameTooLong": "用户名不能超过 64 个字符",
+        "passwordRequired": "密码是必需的",
+        "passwordTooShort": "密码至少需要 12 个字符",
+        "passwordTooLong": "密码不能超过 256 个字符",
+        "passwordCharacterClasses": "密码必须至少包含以下四类中的三类：小写字母、大写字母、数字和其他字符",
+        "passwordSameAsUsername": "密码不能与用户名相同",
+        "confirmPasswordRequired": "请确认您的密码",
+        "passwordsDoNotMatch": "两次输入的密码不一致",
+        "apiKeyRequired": "主 API 密钥是必需的",
+        "tooManyAttempts": "尝试次数过多。请等待一分钟后重试。",
+        "createFailed": "创建账户失败。请重试。",
+        "network": "网络错误。请检查您的网络连接。"
+      }
+    },
     "modal": {
       "setupWizard": "设置向导",
       "goBack": "返回",
@@ -6455,7 +6490,8 @@
         "depotMapping": "仓库映射",
         "platformSetup": "平台设置",
         "epicAuthentication": "Epic 认证",
-        "xboxAuthentication": "Xbox 认证"
+        "xboxAuthentication": "Xbox 认证",
+        "adminAccount": "管理员账户"
       },
       "errors": {
         "picsStatusCheckFailed": "无法检查 Steam 仓库数据状态。您可以继续,但进度可能无法正确显示。",

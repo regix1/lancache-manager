@@ -2,10 +2,12 @@ using System.Reflection;
 using System.Security.Claims;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using static LancacheManager.Tests.StateTestMethods;
@@ -25,6 +27,10 @@ namespace LancacheManager.Tests;
 /// identity, the completion answer is not, and a signed-in caller still gets both. The third test is
 /// the one that keeps this a split rather than a deletion, since the wizard's confirmation screen
 /// reads all four fields.
+///
+/// Whether the installation owns an account belongs to the same anonymous half, and for the same
+/// reason: an installation upgraded from a build that had no accounts has none, and every session it
+/// had was revoked on that first start, so nothing about it can be learned from a signed-in caller.
 ///
 /// The controller is exercised directly rather than through the pipeline, so the returned
 /// <see cref="ObjectResult"/> carries the same body in every hosting environment.
@@ -51,7 +57,13 @@ public sealed class SetupStatusVisibilityTests : IDisposable
             """{"host":"db.lan","port":5433,"database":"lancache","username":"lancache"}""");
 
         _stateService = CreateStateService(_root);
-        _controller = new SystemController(
+        // The three original tests say nothing about accounts, so they run against a database that
+        // cannot be opened - which also proves the route still answers when one is not there.
+        _controller = NewController(new ThrowingDbContextFactory());
+    }
+
+    private SystemController NewController(IDbContextFactory<AppDbContext> dbContextFactory) =>
+        new SystemController(
             _stateService,
             new ConfigurationBuilder().Build(),
             NullLogger<SystemController>.Instance,
@@ -63,11 +75,11 @@ public sealed class SetupStatusVisibilityTests : IDisposable
             userPreferencesService: null!,
             capabilityService: null!,
             nginxLogRotationService: null!,
-            cacheManagementService: null!)
+            cacheManagementService: null!,
+            dbContextFactory)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
-    }
 
     public void Dispose()
     {
@@ -113,9 +125,84 @@ public sealed class SetupStatusVisibilityTests : IDisposable
         Assert.NotNull(body.PostgresUser);
     }
 
-    private SetupStatusResponse ReadSetupStatus()
+    /// <summary>
+    /// The upgrade, as an installation actually arrives at it: setup finished long ago, people were
+    /// signed in, and the account table the new build introduced is empty. Sessions are seeded so the
+    /// answer cannot come from "somebody is signed in", which is the shortcut that would report an
+    /// account here and leave the installation on a sign-in screen it cannot pass. [37b]
+    /// </summary>
+    [Fact]
+    public async Task AnInstallationUpgradedWithLiveSessionsAndNoAccounts_SaysItHasNoAccount()
     {
-        var result = _controller.GetSetupStatus();
+        _stateService.SetSetupCompleted(true);
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            seed.UserSessions.Add(NewSession());
+            seed.UserSessions.Add(NewSession());
+            await seed.SaveChangesAsync();
+        }
+
+        var body = ReadSetupStatus(database.Factory);
+
+        Assert.True(body.IsCompleted);
+        Assert.False(body.AccountExists);
+    }
+
+    [Fact]
+    public async Task AnInstallationWithAnAccount_SaysSo()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            seed.UserAccounts.Add(new UserAccount
+            {
+                Id = Guid.NewGuid(),
+                Username = "admin",
+                PasswordHash = "hash",
+                Role = SessionType.Admin,
+                IsMainAdmin = true,
+                CreatedAtUtc = DateTime.UtcNow
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var body = ReadSetupStatus(database.Factory);
+
+        Assert.True(body.AccountExists);
+    }
+
+    /// <summary>
+    /// This route is what an installation with no working database reads to find its way to the
+    /// credentials step, so an unreadable account table has to leave the answer unknown rather than
+    /// fail the response or claim there is no account. [37c]
+    /// </summary>
+    [Fact]
+    public void AnUnreadableAccountTable_LeavesTheAnswerUnknown()
+    {
+        var body = ReadSetupStatus();
+
+        Assert.Null(body.AccountExists);
+    }
+
+    private static UserSession NewSession() => new()
+    {
+        Id = Guid.NewGuid(),
+        SessionTokenHash = Guid.NewGuid().ToString("N"),
+        SessionType = SessionType.Admin,
+        CreatedAtUtc = DateTime.UtcNow,
+        ExpiresAtUtc = DateTime.UtcNow.AddDays(1),
+        LastSeenAtUtc = DateTime.UtcNow
+    };
+
+    private SetupStatusResponse ReadSetupStatus() => ReadSetupStatus(_controller);
+
+    private SetupStatusResponse ReadSetupStatus(IDbContextFactory<AppDbContext> dbContextFactory) =>
+        ReadSetupStatus(NewController(dbContextFactory));
+
+    private static SetupStatusResponse ReadSetupStatus(SystemController controller)
+    {
+        var result = controller.GetSetupStatus();
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         return Assert.IsType<SetupStatusResponse>(ok.Value);
     }

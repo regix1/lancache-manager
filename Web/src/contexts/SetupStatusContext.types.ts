@@ -12,6 +12,8 @@ export interface SetupStatus {
   isCompleted: boolean;
   hasProcessedLogs: boolean;
   needsPostgresCredentials: boolean;
+  /** Whether any account exists. Null when the server could not read the account table. */
+  accountExists: boolean | null;
   currentSetupStep: string | null;
   dataSourceChoice: string | null;
   completedPlatforms: string | null;

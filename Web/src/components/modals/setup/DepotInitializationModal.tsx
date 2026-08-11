@@ -18,7 +18,8 @@ import {
   SteamPicsAuthStep,
   DepotInitStep,
   PicsProgressStep,
-  LogProcessingStep
+  LogProcessingStep,
+  AdminAccountStep
 } from '../../initialization/steps';
 
 interface DepotInitializationModalProps {
@@ -160,6 +161,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
             onProcessingStateChange={setBackButtonDisabled}
           />
         );
+
+      // The step takes no completion callback: an installation reaches it only because no account
+      // exists, so re-reading the setup status is what ends it, and the step does that itself.
+      case 'admin-account':
+        return <AdminAccountStep />;
 
       default:
         return null;

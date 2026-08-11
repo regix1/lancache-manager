@@ -11,3 +11,4 @@ export { SteamPicsAuthStep } from './SteamPicsAuthStep';
 export { DepotInitStep } from './DepotInitStep';
 export { PicsProgressStep } from './PicsProgressStep';
 export { LogProcessingStep } from './LogProcessingStep';
+export { AdminAccountStep } from './AdminAccountStep';

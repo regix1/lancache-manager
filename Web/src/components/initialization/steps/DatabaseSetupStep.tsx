@@ -5,6 +5,7 @@ import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
 import { getErrorMessage } from '@utils/error';
+import { getPasswordStrength } from './passwordStrength';
 
 interface DatabaseSetupStepProps {
   onSetupComplete: () => void;
@@ -50,22 +51,6 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [setupSuccess, setSetupSuccess] = useState(false);
 
-  const getPasswordStrength = useCallback((password: string): 'weak' | 'medium' | 'strong' => {
-    const hasUppercase = /[A-Z]/.test(password);
-    const hasLowercase = /[a-z]/.test(password);
-    const hasNumbers = /[0-9]/.test(password);
-    const hasSymbols = /[^A-Za-z0-9]/.test(password);
-    const hasMixedCase = hasUppercase && hasLowercase;
-    const hasNumbersOrSymbols = hasNumbers || hasSymbols;
-
-    if (password.length >= 15 && hasMixedCase && hasNumbersOrSymbols) {
-      return 'strong';
-    }
-    if (password.length >= 10 && (hasMixedCase || hasNumbers)) {
-      return 'medium';
-    }
-    return 'weak';
-  }, []);
   const passwordStrength = form.password ? getPasswordStrength(form.password) : null;
 
   const validateForm = useCallback((): boolean => {

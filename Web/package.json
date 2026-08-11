@@ -18,6 +18,7 @@
     "test:apply-dashboard-batch": "node --test scripts/test-apply-dashboard-batch.mjs",
     "test:prune-event-ids": "node --test scripts/test-prune-missing-event-ids.mjs",
     "test:i18n-cap": "node --test scripts/test-i18n-candidate-cap.mjs",
+    "test:admin-account-gate": "node --test scripts/test-admin-account-gate.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "knip": "knip",
     "knip:fix": "knip --fix --fix-type exports,types --format",

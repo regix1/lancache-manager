@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { useSetupStatus } from '@contexts/useSetupStatus';
+import { useAuth } from '@contexts/useAuth';
+import { isAdminAccountRequired } from '@utils/adminAccountSetup';
 import { useErrorHandler } from './useErrorHandler';
 import type { SetupStatus } from '@contexts/SetupStatusContext.types';
 import type { PicsStatus } from '@/types';
@@ -19,7 +21,8 @@ export type InitStep =
   | 'pics-progress'
   | 'epic-auth'
   | 'xbox-auth'
-  | 'log-processing';
+  | 'log-processing'
+  | 'admin-account';
 
 type DataSourceChoice = 'github' | 'steam' | 'epic' | 'xbox' | 'skip' | null;
 
@@ -145,7 +148,8 @@ const buildStepInfoMap = (
     'pics-progress',
     'epic-auth',
     'xbox-auth',
-    'log-processing'
+    'log-processing',
+    'admin-account'
   ];
 
   const titles: Record<InitStep, string> = {
@@ -161,7 +165,8 @@ const buildStepInfoMap = (
     'pics-progress': t('initialization.modal.stepTitles.picsDataProgress'),
     'epic-auth': t('initialization.modal.stepTitles.epicAuthentication'),
     'xbox-auth': t('initialization.modal.stepTitles.xboxAuthentication'),
-    'log-processing': t('initialization.modal.stepTitles.logProcessing')
+    'log-processing': t('initialization.modal.stepTitles.logProcessing'),
+    'admin-account': t('initialization.modal.stepTitles.adminAccount')
   };
 
   const result = {} as Record<InitStep, StepInfo>;
@@ -210,7 +215,16 @@ function resolveStepForPostgresMode(step: InitStep, setupStatus: SetupStatus): I
   return step;
 }
 
-function resolveInitialStep(setupStatus: SetupStatus | null): InitStep {
+function resolveInitialStep(
+  setupStatus: SetupStatus | null,
+  adminAccountRequired: boolean
+): InitStep {
+  // Replaying database setup on an installation that has been serving traffic would be its own
+  // outage, and the account is the only thing it is missing. [37b]
+  if (adminAccountRequired) {
+    return 'admin-account';
+  }
+
   if (!setupStatus) {
     return 'database-setup';
   }
@@ -256,6 +270,13 @@ export function useInitializationFlow({
     markSetupCompleted: markSetupCompletedLocally,
     updateWizardState
   } = useSetupStatus();
+  const { authenticationEnabled } = useAuth();
+
+  const adminAccountRequired = isAdminAccountRequired({
+    setupCompleted: setupStatus?.isCompleted === true,
+    authenticationEnabled,
+    accountExists: setupStatus?.accountExists ?? null
+  });
 
   // Track whether we've done the initial hydration from server state
   const hydratedRef = useRef(false);
@@ -269,7 +290,9 @@ export function useInitializationFlow({
   const lastPersistedPlatforms = useRef<string | null>(null);
 
   // --- State ---
-  const [currentStep, setCurrentStep] = useState<InitStep>(() => resolveInitialStep(setupStatus));
+  const [currentStep, setCurrentStep] = useState<InitStep>(() =>
+    resolveInitialStep(setupStatus, adminAccountRequired)
+  );
 
   const [dataSourceChoice, setDataSourceChoice] = useState<DataSourceChoice>(() => {
     if (setupStatus?.dataSourceChoice) {
@@ -394,6 +417,19 @@ export function useInitializationFlow({
   useEffect(() => {
     const checkSetupStatus = async (): Promise<void> => {
       try {
+        // An installation reopened only to create its first account has finished setup, so the
+        // completion check below would close the wizard again before it rendered. It has no wizard
+        // state to resume either, and no session: PATCH /api/system/setup requires one
+        // (SystemController.cs:341), so the last-persisted values are primed here to keep the
+        // persistence effects from retrying a write that can only 401. The step itself was already
+        // chosen by resolveInitialStep. [37b]
+        if (adminAccountRequired) {
+          lastPersistedStep.current = 'admin-account';
+          lastPersistedDataSource.current = null;
+          lastPersistedPlatforms.current = JSON.stringify(completedPlatforms);
+          return;
+        }
+
         // Refresh to get latest server-side wizard state
         await refreshSetupStatus();
         const setupData = await ApiService.getSetupStatus();
@@ -666,11 +702,19 @@ export function useInitializationFlow({
 
   // --- Computed ---
   // When setup was already completed (e.g. SQLite migration) and only the credentials
-  // step is needed, show "1 of 1" instead of "1 of 5".
+  // step is needed, show "1 of 1" instead of "1 of 5". The account step on an installation
+  // that upgraded into needing one is the same shape: one step, not a position in the first-run
+  // flow it finished long ago.
   const credentialsOnly = setupStatus?.isCompleted && setupStatus?.needsPostgresCredentials;
-  const stepInfo = credentialsOnly
-    ? { number: 1, total: 1, title: buildStepInfoMap(t, dataSourceChoice)['database-setup'].title }
-    : buildStepInfoMap(t, dataSourceChoice)[currentStep];
+  const stepInfo = adminAccountRequired
+    ? { number: 1, total: 1, title: buildStepInfoMap(t, dataSourceChoice)['admin-account'].title }
+    : credentialsOnly
+      ? {
+          number: 1,
+          total: 1,
+          title: buildStepInfoMap(t, dataSourceChoice)['database-setup'].title
+        }
+      : buildStepInfoMap(t, dataSourceChoice)[currentStep];
 
   return {
     currentStep,

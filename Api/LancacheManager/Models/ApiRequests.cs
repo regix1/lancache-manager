@@ -329,6 +329,15 @@ public class AccountCredentialsRequest
     public string Username { get; set; } = string.Empty;
 
     public string Password { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The installation's API key, read by the endpoints that run before any account exists and so
+    /// cannot be reached with a session. It travels in the body rather than the X-Api-Key header
+    /// because the header path authorizes ordinary routes today and is being narrowed; a body field
+    /// is the endpoint's own check and is unaffected by that. Endpoints reached with a session
+    /// ignore it. [32][35]
+    /// </summary>
+    public string ApiKey { get; set; } = string.Empty;
 }
 
 #endregion

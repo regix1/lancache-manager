@@ -107,7 +107,8 @@ public sealed class SystemConfigVisibilityTests : IDisposable
             userPreferencesService: null!,
             capabilityService,
             nginxLogRotationService,
-            cacheManagementService)
+            cacheManagementService,
+            dbContextFactory: null!)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

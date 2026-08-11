@@ -98,6 +98,7 @@ var documentedDomains = new (string Name, string Description)[]
 // here; documented non-controller endpoints belong to System.
 var documentedDomainByController = new Dictionary<string, string>(StringComparer.Ordinal)
 {
+    ["AccountSetup"] = "Access",
     ["ApiKeys"] = "Access",
     ["Auth"] = "Access",
     ["Sessions"] = "Access",
@@ -557,6 +558,11 @@ builder.Services.AddScoped<SessionService>();
 // both of which are singletons themselves. Scoped would also make it uninjectable into ApiKeyService,
 // which is a singleton and owns the key rotation this records. [29e]
 builder.Services.AddSingleton<IdentityAuditService>();
+// Hosted so the host constructs it at startup: the window it opens is measured from that moment,
+// and a singleton built on first injection would instead start the clock at the first request.
+builder.Services.AddSingletonHostedService<AccountClaimWindow>();
+// Reads UserAccounts and writes UserSessions, so it only runs where there is a schema to read.
+builder.Services.AddDatabaseBackedHostedService<FirstAdminSessionResetService>(databaseAvailable);
 builder.Services.AddSingleton<LancacheManager.Core.Services.UserPreferencesService>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.GeoIpService>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.PublicIpLookupService>();
