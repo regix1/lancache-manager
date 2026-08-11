@@ -71,7 +71,8 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     [HttpGet("status")]
     [ProducesResponseType(typeof(AuthStatusResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<AuthStatusResponse>> GetStatusAsync()
+    public async Task<ActionResult<AuthStatusResponse>> GetStatusAsync(
+        [FromServices] AntiforgeryToken antiforgeryToken)
     {
         Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
         Response.Headers["Pragma"] = "no-cache";
@@ -182,6 +183,14 @@ public class AuthController : ControllerBase
         {
             await _sessionService.RotateSessionTokenAsync(session, HttpContext);
         }
+
+        // The browser also leaves here holding the antiforgery token for whoever this request resolved
+        // to. This is the call the client makes on load and again after every sign-in, guest start and
+        // sign-out, which is exactly the set of moments the caller changes and the previous token stops
+        // matching. Issued for an anonymous caller too, because signing in is itself a POST and needs
+        // one. Rotating the session token above does not weaken this: the token here is not the cookie
+        // that was just refreshed, and no rotation hands out a value that would pass without it.
+        antiforgeryToken.Issue(HttpContext);
 
         // authenticationEnabled was resolved above (it gates the admin-session mint). When disabled,
         // the minted session makes IsAuthenticated/SessionType below resolve to a real admin session.

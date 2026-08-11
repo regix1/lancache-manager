@@ -399,6 +399,33 @@ public sealed class RateLimitCoverageContractTests
     /// Sends one request through the whole pipeline with the caller's address set, which the test
     /// host leaves null and the limiter partitions on.
     /// </summary>
+    /// <summary>
+    /// The antiforgery cookies and token the status endpoint hands out, which is where the page gets
+    /// them. The status call is not on a limiter, so taking them costs the caller none of its permits.
+    /// </summary>
+    private static async Task<(string Cookies, string Token)> AntiforgeryAsync(
+        TestServer server,
+        string callerAddress)
+    {
+        var context = await server.SendAsync(request =>
+        {
+            request.Connection.RemoteIpAddress = IPAddress.Parse(callerAddress);
+            request.Request.Method = "GET";
+            request.Request.Scheme = "http";
+            request.Request.Host = new HostString("localhost");
+            request.Request.Path = "/api/auth/status";
+        });
+
+        var issued = context.Response.Headers.SetCookie
+            .Select(header => (header ?? string.Empty).Split(';')[0])
+            .ToArray();
+
+        var prefix = $"{AntiforgeryToken.CookieName}=";
+        var token = issued.First(cookie => cookie.StartsWith(prefix, StringComparison.Ordinal));
+
+        return (string.Join("; ", issued), Uri.UnescapeDataString(token[prefix.Length..]));
+    }
+
     private static async Task<int> SendAsync(
         TestServer server,
         string callerAddress,
@@ -407,6 +434,12 @@ public sealed class RateLimitCoverageContractTests
         string? body = null,
         string? apiKey = null)
     {
+        // A request that changes something is refused without the antiforgery token, and that refusal
+        // comes before the endpoint's own answer, so without this every assertion below would be
+        // measuring the token check rather than the limiter. A real client holds the pair from the
+        // status call its page makes on load; this takes it the same way.
+        var antiforgery = await AntiforgeryAsync(server, callerAddress);
+
         var context = await server.SendAsync(request =>
         {
             request.Connection.RemoteIpAddress = IPAddress.Parse(callerAddress);
@@ -414,6 +447,8 @@ public sealed class RateLimitCoverageContractTests
             request.Request.Scheme = "http";
             request.Request.Host = new HostString("localhost");
             request.Request.Path = path;
+            request.Request.Headers.Cookie = antiforgery.Cookies;
+            request.Request.Headers[AntiforgeryToken.HeaderName] = antiforgery.Token;
 
             if (apiKey != null)
             {

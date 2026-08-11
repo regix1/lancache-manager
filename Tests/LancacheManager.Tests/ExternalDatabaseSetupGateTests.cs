@@ -4,9 +4,11 @@ using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
 using LancacheManager.Security;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -33,12 +35,27 @@ namespace LancacheManager.Tests;
 /// The two AnAuthenticatedCaller tests cover which principals count as proof. A session is accepted
 /// only while authentication is enabled, because turning that flag off makes every request arrive
 /// looking authenticated and would otherwise open this endpoint to anyone who can reach the port.
+/// A session that is accepted is still only cookies, which a browser attaches to whatever caused the
+/// request, so that caller is then asked for the antiforgery token; the key caller is not, which is
+/// what keeps the repair path open. AntiforgeryTokenTests covers the same pair over the real pipeline,
+/// where a token can actually be issued and sent back.
 ///
 /// The controller is exercised directly rather than through the pipeline, so the returned
 /// <see cref="ObjectResult"/> carries the same status and body in every hosting environment.
 /// </summary>
 public class ExternalDatabaseSetupGateTests : IDisposable
 {
+    /// <summary>
+    /// The framework's own antiforgery service, so the session case is checked the way the app checks
+    /// it. A request built here carries no token, which is the state the check exists to refuse.
+    /// </summary>
+    private static readonly IAntiforgery _antiforgery = new ServiceCollection()
+        .AddLogging()
+        .AddDataProtection().Services
+        .AddAntiforgery()
+        .BuildServiceProvider()
+        .GetRequiredService<IAntiforgery>();
+
     private readonly string _root;
     private readonly ApiKeyService _apiKeyService;
     private readonly IPathResolver _pathResolver;
@@ -87,7 +104,8 @@ public class ExternalDatabaseSetupGateTests : IDisposable
             _pathResolver,
             dbContextFactory: null!,
             _authenticationHelper,
-            configuration)
+            configuration,
+            _antiforgery)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -207,10 +225,14 @@ public class ExternalDatabaseSetupGateTests : IDisposable
 
     /// <summary>
     /// The same caller with authentication left on is the session case the endpoint is meant to
-    /// accept, so the rule above turns away the disabled-auth principal and nothing else.
+    /// accept, so the rule above turns away the disabled-auth principal and nothing else. It gets as
+    /// far as the antiforgery check and no further: a session is a cookie the browser attaches to a
+    /// request another origin caused, so this caller has to prove it can read this origin's cookies
+    /// before anything is written. The key caller above never sees this check, which is what keeps
+    /// the repair path open. [77k]
     /// </summary>
     [Fact]
-    public async Task AnAuthenticatedCallerWithNoApiKeyWhileAuthenticationIsEnabled_ReachesTheConnectionCheck()
+    public async Task AnAuthenticatedCallerWithNoApiKeyWhileAuthenticationIsEnabled_IsAskedForTheAntiforgeryToken()
     {
         _controller.HttpContext.User = new ClaimsPrincipal(
             new ClaimsIdentity(new[] { new Claim(ClaimTypes.Role, "admin") }, "Session"));
@@ -218,7 +240,8 @@ public class ExternalDatabaseSetupGateTests : IDisposable
         var result = await PostInExternalModeAsync(_controller, ConnectionRequest());
 
         var response = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.StartsWith("Could not connect to 127.0.0.1:1/lancache", ErrorOf(response));
+        Assert.Equal(AntiforgeryToken.MissingTokenMessage, ErrorOf(response));
+        Assert.False(File.Exists(Path.Combine(_root, "postgres-credentials.json")));
     }
 
     /// <summary>

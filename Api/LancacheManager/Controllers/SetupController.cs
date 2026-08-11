@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -26,19 +27,22 @@ public class SetupController : ControllerBase
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly AuthenticationHelper _authenticationHelper;
     private readonly IConfiguration _configuration;
+    private readonly IAntiforgery _antiforgery;
 
     public SetupController(
         ILogger<SetupController> logger,
         IPathResolver pathResolver,
         IDbContextFactory<AppDbContext> dbContextFactory,
         AuthenticationHelper authenticationHelper,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IAntiforgery antiforgery)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _dbContextFactory = dbContextFactory;
         _authenticationHelper = authenticationHelper;
         _configuration = configuration;
+        _antiforgery = antiforgery;
     }
 
     /// <summary>
@@ -55,20 +59,33 @@ public class SetupController : ControllerBase
     /// them unusable in exactly the broken-install case they exist to repair. The key lives in a file
     /// and is validated without touching the database.
     ///
+    /// The key is read from the request (the X-Api-Key header, or Authorization: Bearer) and is
+    /// checked first, so a caller carrying one is answered exactly as it always was and the bootstrap
+    /// and repair paths keep working with no session and no antiforgery token. A caller admitted on a
+    /// session instead is holding nothing but cookies, which a browser attaches to a request another
+    /// origin caused, so that caller is asked for the antiforgery token like every other write. Both
+    /// endpoints opt out of the global check (Infrastructure/Filters/AntiforgeryFilter.cs) because the
+    /// opt-out is per route and cannot tell the two callers apart. [77k]
+    ///
     /// Returns null when the caller may proceed. [36]
     /// </summary>
-    private ObjectResult? RequireApiKey()
+    private async Task<ObjectResult?> RequireApiKeyAsync()
     {
-        var authenticationEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
-        if (authenticationEnabled && User.Identity?.IsAuthenticated == true)
-        {
-            return null;
-        }
-
         var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
         if (apiKeyResult.IsAuthenticated)
         {
             return null;
+        }
+
+        var authenticationEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
+        if (authenticationEnabled && User.Identity?.IsAuthenticated == true)
+        {
+            if (await _antiforgery.IsRequestValidAsync(HttpContext))
+            {
+                return null;
+            }
+
+            return BadRequest(ApiResponse.Error(AntiforgeryToken.MissingTokenMessage));
         }
 
         return StatusCode(
@@ -80,24 +97,31 @@ public class SetupController : ControllerBase
     /// Sets the embedded PostgreSQL password.
     /// </summary>
     /// <remarks>
-    /// Anonymous at the routing layer but never open: a session is accepted when the caller has
-    /// one, and the API key otherwise. A session cannot be created while the database is
-    /// unreachable, because logging in writes a row to UserSessions, so requiring one made this
-    /// endpoint unusable in exactly the broken-install case it exists to repair. The API key lives
-    /// in a file and is validated without touching the database, which makes it the only proof of
-    /// possession left during an outage. It stays gated because the statement below runs
-    /// ALTER USER against a role that was created WITH SUPERUSER.
+    /// Anonymous at the routing layer but never open: the API key is checked first, and a session
+    /// is consulted only when no valid key was presented, and then only together with the
+    /// antiforgery token. A session cannot be created while the database is unreachable, because
+    /// logging in writes a row to UserSessions, so requiring one made this endpoint unusable in
+    /// exactly the broken-install case it exists to repair. The API key lives in a file and is
+    /// validated without touching the database, which makes it the only proof of possession left
+    /// during an outage. It stays gated because the statement below runs ALTER USER against a role
+    /// that was created WITH SUPERUSER.
     ///
-    /// See <see cref="RequireApiKey"/> for why the session is only accepted while authentication is
-    /// enabled.
+    /// See <see cref="RequireApiKeyAsync"/> for why the session is only accepted while authentication
+    /// is enabled, and for the antiforgery token the session caller is asked for.
     /// </remarks>
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
+    // Out of the global antiforgery check so the API key on its own still reaches a repair endpoint
+    // that has to work when the database is down and no session or token can exist. The key is read
+    // from the request headers, and a page on another origin can set neither those nor read the key.
+    // The check is not dropped for the session caller: this endpoint also accepts one, and
+    // RequireApiKeyAsync asks that caller for the token, which the opt-out cannot do per route. [77k]
+    [IgnoreAntiforgeryToken]
     [HttpPost("credentials")]
     [ProducesResponseType(typeof(SetupCredentialsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SetupCredentialsResponse>> SetCredentialsAsync([FromBody] SetupCredentialsRequest request)
     {
-        var denied = RequireApiKey();
+        var denied = await RequireApiKeyAsync();
         if (denied != null)
         {
             return denied;
@@ -243,24 +267,30 @@ public class SetupController : ControllerBase
     /// POSTGRES_MODE=external is set but no env-var connection details were provided - the user
     /// supplies them via the wizard and then restarts the container.
     ///
-    /// Gated the same way as SetCredentialsAsync: a session when the caller has one, the API key
-    /// otherwise. What this writes is the connection every process in the container rebuilds its
-    /// database settings from on the next start, so leaving it open would let anyone who can reach
-    /// the port repoint the whole installation at a database of their choosing.
+    /// Gated the same way as SetCredentialsAsync: the API key first, and a session only when no
+    /// valid key was presented and the antiforgery token comes with it. What this writes is the
+    /// connection every process in the container rebuilds its database settings from on the next
+    /// start, so leaving it open would let anyone who can reach the port repoint the whole
+    /// installation at a database of their choosing.
     ///
     /// The API key is what keeps this reachable at all. External mode without credentials boots
     /// with no database (see Program.cs), so no session can be created or validated in the state
     /// this screen appears in, while the key is a file that is read without touching the database.
-    /// See <see cref="RequireApiKey"/> for why the session is only accepted while authentication is
-    /// enabled.
+    /// See <see cref="RequireApiKeyAsync"/> for why the session is only accepted while authentication
+    /// is enabled, and for the antiforgery token the session caller is asked for.
     /// </remarks>
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
+    // Out of the global antiforgery check for the same reason as the credentials endpoint above: the
+    // key in the request headers is the proof, and this runs in the state where there is no database
+    // to hold a session. The session caller it also accepts is asked for the token inside
+    // RequireApiKeyAsync. [77k]
+    [IgnoreAntiforgeryToken]
     [HttpPost("external")]
     [ProducesResponseType(typeof(SetExternalDbCredentialsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SetExternalDbCredentialsResponse>> SetExternalCredentialsAsync([FromBody] SetExternalDbCredentialsRequest request)
     {
-        var denied = RequireApiKey();
+        var denied = await RequireApiKeyAsync();
         if (denied != null)
         {
             return denied;

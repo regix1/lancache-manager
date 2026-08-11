@@ -1,4 +1,5 @@
 import { assertOk, type ApiErrorData } from './apiError';
+import { antiforgeryHeaders } from '@utils/antiforgery';
 import { getApiUrl } from '@utils/constants';
 import { hasRecentUserInteraction } from '@utils/userInteractionTracker';
 
@@ -141,9 +142,16 @@ class AuthService {
     password: string
   ): Promise<{ success: boolean; message?: string }> {
     try {
+      // The antiforgery token the server issues belongs to whoever asked for it, so one left over
+      // from a session that has since ended - signed out, revoked by an admin, expired - is refused
+      // here rather than at the call the user is actually making. Reading the status first is what
+      // makes the token match the caller the server is about to see, and it is the same call the
+      // page already makes on load, so this only does real work when the caller has changed.
+      await this.checkAuth();
+
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...antiforgeryHeaders() },
         credentials: 'include',
         body: JSON.stringify({ apiKey, username, password })
       });
@@ -176,8 +184,13 @@ class AuthService {
 
   async startGuestSession(): Promise<{ success: boolean; message?: string }> {
     try {
+      // Same reason as login above: a guest whose session was cleared still holds that session's
+      // antiforgery token, and starting another one is a POST that would be refused for it.
+      await this.checkAuth();
+
       const response = await fetch(`${API_URL}/api/auth/guest`, {
         method: 'POST',
+        headers: antiforgeryHeaders(),
         credentials: 'include'
       });
 
@@ -208,6 +221,7 @@ class AuthService {
     try {
       await fetch(`${API_URL}/api/auth/logout`, {
         method: 'POST',
+        headers: antiforgeryHeaders(),
         credentials: 'include'
       });
     } catch (error: unknown) {

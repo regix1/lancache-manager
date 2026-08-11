@@ -21,6 +21,7 @@
     "test:admin-account-gate": "node --test scripts/test-admin-account-gate.mjs",
     "test:account-holder-access": "node --test scripts/test-account-holder-access.mjs",
     "test:server-stage-keys": "node --test scripts/test-server-stage-keys.mjs",
+    "test:antiforgery-header": "node --test scripts/test-antiforgery-header.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "knip": "knip",
     "knip:fix": "knip --fix --fix-type exports,types --format",

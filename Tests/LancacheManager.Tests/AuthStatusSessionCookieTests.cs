@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -28,6 +29,20 @@ namespace LancacheManager.Tests;
 public sealed class AuthStatusSessionCookieTests : IDisposable
 {
     private const string CookieName = "LancacheManager.Session";
+
+    /// <summary>
+    /// The status endpoint also hands out the antiforgery token, which needs the framework's own
+    /// antiforgery services rather than the null stand-in the unexercised dependencies get. Nothing
+    /// here reads the token; it is the real one so the call under test runs the way it runs in the app.
+    /// </summary>
+    private static readonly AntiforgeryToken _antiforgeryToken = new ServiceCollection()
+        .AddLogging()
+        .AddDataProtection().Services
+        .AddAntiforgery()
+        .AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
+        .AddSingleton<AntiforgeryToken>()
+        .BuildServiceProvider()
+        .GetRequiredService<AntiforgeryToken>();
 
     private readonly string _root;
     private readonly ApiKeyService _apiKeyService;
@@ -223,7 +238,7 @@ public sealed class AuthStatusSessionCookieTests : IDisposable
             ControllerContext = new ControllerContext { HttpContext = context }
         };
 
-        var result = await controller.GetStatusAsync();
+        var result = await controller.GetStatusAsync(_antiforgeryToken);
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         return Assert.IsType<AuthStatusResponse>(ok.Value);
     }

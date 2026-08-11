@@ -674,6 +674,35 @@ builder.Services.AddAuthorization(options =>
             context.User.HasClaim("XboxPrefillActive", "true")));
 });
 
+// Antiforgery. The session cookie is SameSite=Lax (SessionService.cs:808), and Lax still sends a
+// cookie less than about two minutes old on a cross-site POST. Every GET /api/auth/status rotates the
+// session token and writes the cookie again (AuthController.cs:183), which resets that age, so on a
+// session somebody is actually using the window never closes on its own. What closes it is a value
+// the page has to read from one cookie and send back in a header, because a page served by another
+// origin can do neither.
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = AntiforgeryToken.HeaderName;
+
+    // The framework's own cookie holds the other half of the pair and nothing reads it from script,
+    // so it keeps the default HttpOnly. Its Secure flag follows the same rule as the session cookie:
+    // set on a real HTTPS request, or always when the deployment opts in behind a TLS-terminating
+    // proxy, so plain HTTP LAN installations keep working.
+    options.Cookie.SecurePolicy = builder.Configuration.GetValue<bool>("Security:ForceSecureCookies")
+        ? CookieSecurePolicy.Always
+        : CookieSecurePolicy.SameAsRequest;
+});
+builder.Services.AddSingleton<AntiforgeryToken>();
+
+// One filter covers every controller. Not registered when Security:EnableAuthentication is false:
+// that setting means the installation has no access control, so this must not become the one thing
+// still turning callers away.
+if (authEnabled)
+{
+    builder.Services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(options =>
+        options.Filters.Add<AntiforgeryFilter>());
+}
+
 // Register SignalR connection tracking service for targeted messaging
 builder.Services.AddSingleton<LancacheManager.Core.Services.ConnectionTrackingService>();
 

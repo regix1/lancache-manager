@@ -46,7 +46,10 @@ public sealed class DisabledAuthKeyGateTests : IDisposable
             pathResolver: null!,
             dbContextFactory: null!,
             authenticationHelper: _authenticationHelper,
-            configuration: _configuration)
+            configuration: _configuration,
+            // Never reached: with authentication disabled the key is the only proof and the token
+            // check belongs to the session case, which this configuration refuses outright.
+            antiforgery: null!)
         {
             ControllerContext = new ControllerContext { HttpContext = AuthenticatedContext() }
         };

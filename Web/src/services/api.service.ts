@@ -1,3 +1,4 @@
+import { antiforgeryHeaders } from '../utils/antiforgery';
 import { API_BASE } from '../utils/constants';
 import { isAbortError } from '../utils/error';
 import { hasRecentUserInteraction } from '../utils/userInteractionTracker';
@@ -323,6 +324,10 @@ class ApiService {
         // sit open and visible on an unattended screen while its own SignalR-triggered background
         // refetches keep firing, and Page Visibility alone can't tell those two cases apart.
         'X-User-Active': hasRecentUserInteraction(120_000) ? 'true' : 'false',
+        // Sent on reads as well as writes: the server only checks it on the verbs that change
+        // something, and this is the one place every request through the service is built, so
+        // splitting it by method here would only add a branch that decides nothing.
+        ...antiforgeryHeaders(),
         ...(options.headers || {})
       }
     };

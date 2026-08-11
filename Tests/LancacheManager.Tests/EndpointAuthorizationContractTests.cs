@@ -526,6 +526,9 @@ public sealed class EndpointAuthorizationContractTests
         // directory the host isolates, which is why the isolation check above still holds.
         host.Application.Services.GetRequiredService<IStateService>().SetSetupCompleted(true);
 
+        // Starting a guest session changes something, so it carries the antiforgery token a browser
+        // would already hold from the status call the page makes before showing the sign-in screen.
+        await EndpointAuthorizationHost.PrimeAntiforgeryAsync(guestClient);
         using var guestResponse = await guestClient.PostAsync("/api/auth/guest", null);
         Assert.Equal(System.Net.HttpStatusCode.OK, guestResponse.StatusCode);
 
@@ -1334,10 +1337,18 @@ internal sealed class EndpointAuthorizationHost : IDisposable
         {
             var apiKey = Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
             var (username, password) = await NewAccountAsync();
+
+            // Signing in is itself a request that changes something, so it needs the antiforgery token
+            // a browser would already be holding from the status call the page makes on load.
+            await PrimeAntiforgeryAsync(client);
             using var loginResponse = await client.PostAsJsonAsync(
                 "/api/auth/login",
                 new LoginRequest { ApiKey = apiKey, Username = username, Password = password });
             Assert.Equal(System.Net.HttpStatusCode.OK, loginResponse.StatusCode);
+
+            // The token belongs to the caller it was issued to, and the caller has just changed from
+            // nobody to this account, so the one taken above no longer matches.
+            await PrimeAntiforgeryAsync(client);
 
             return client;
         }
@@ -1346,6 +1357,39 @@ internal sealed class EndpointAuthorizationHost : IDisposable
             client.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Reads the status endpoint and puts the antiforgery token it answers with on the client, which is
+    /// what the page does with the cookie the same call writes. Every request that changes something is
+    /// refused without it, and the token is tied to the caller it was issued to, so this runs again
+    /// after anything that changes who the client is.
+    /// </summary>
+    public static async Task PrimeAntiforgeryAsync(HttpClient client)
+    {
+        using var status = await client.GetAsync("/api/auth/status");
+        Assert.True(
+            status.StatusCode == System.Net.HttpStatusCode.OK,
+            $"GET /api/auth/status answered {(int)status.StatusCode}: {await status.Content.ReadAsStringAsync()}");
+
+        var token = AntiforgeryTokenFrom(status);
+        client.DefaultRequestHeaders.Remove(AntiforgeryToken.HeaderName);
+        client.DefaultRequestHeaders.Add(AntiforgeryToken.HeaderName, token);
+    }
+
+    /// <summary>
+    /// The antiforgery token out of a response's Set-Cookie headers, the way script reads it out of
+    /// document.cookie.
+    /// </summary>
+    public static string AntiforgeryTokenFrom(HttpResponseMessage response)
+    {
+        var prefix = $"{AntiforgeryToken.CookieName}=";
+        var cookie = response.Headers.TryGetValues("Set-Cookie", out var values)
+            ? values.FirstOrDefault(value => value.StartsWith(prefix, StringComparison.Ordinal))
+            : null;
+
+        Assert.NotNull(cookie);
+        return Uri.UnescapeDataString(cookie!.Substring(prefix.Length).Split(';')[0]);
     }
 
     /// <summary>

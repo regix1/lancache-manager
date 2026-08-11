@@ -56,6 +56,10 @@ public class AccountSetupController : ControllerBase
     /// </remarks>
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
+    // No antiforgery token, because there is nothing here to forge. The API key in the body is the
+    // proof, and a page on another origin can neither read it nor guess it. Requiring a token would
+    // instead break the first-run claim on an installation that has no account to sign in as yet.
+    [IgnoreAntiforgeryToken]
     [HttpPost("first-admin")]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> CreateFirstAdminAsync([FromBody] AccountCredentialsRequest request)
@@ -166,6 +170,9 @@ public class AccountSetupController : ControllerBase
     /// </remarks>
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
+    // Same reason as first-admin above, and the same consequence: this is the way back in when the
+    // password is lost, so it has to work when nothing else does.
+    [IgnoreAntiforgeryToken]
     [HttpPost("recover-main-admin")]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> RecoverMainAdminPasswordAsync(
