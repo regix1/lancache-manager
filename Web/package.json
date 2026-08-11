@@ -80,6 +80,10 @@
     ],
     "src/**/*.{css,json}": [
       "prettier --write"
+    ],
+    "scripts/**/*.mjs": [
+      "eslint --fix",
+      "prettier --write"
     ]
   }
 }

@@ -61,11 +61,7 @@ const PRODUCT_NAME_RUN_TOGETHER = /(?<![/\\.])LancacheManager(?![A-Za-z0-9_./\\:
  * editing this text, which would be overwritten on the next generation anyway.
  */
 const OPENAPI_DOCUMENT_TITLE = /^ \| v/;
-const PROSE_PATH_PREFIXES = [
-  'docs-site/content/',
-  'docs-site/assets/',
-  'Web/src/i18n/locales/',
-];
+const PROSE_PATH_PREFIXES = ['docs-site/content/', 'docs-site/assets/', 'Web/src/i18n/locales/'];
 
 /** Put this on a line whose spelling is deliberate and the line is skipped. */
 const IGNORE_MARKER = 'brand-spelling-ok';
