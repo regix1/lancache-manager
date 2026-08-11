@@ -81,7 +81,7 @@ class PreferencesService {
 
     // A second value for the same key waits behind the request already out rather than being
     // dropped for it, so the server ends on the value picked last and the caller is told what
-    // happened to its own value instead of the earlier one's. [21]
+    // happened to its own value instead of the earlier one's.
     const send = inFlight
       ? inFlight.then(() => this.sendPreference(keyStr, value))
       : this.sendPreference(keyStr, value);
@@ -104,7 +104,7 @@ class PreferencesService {
    * They share the in-flight map with the per-key path, so a second click still waits behind the
    * request already out and the server ends on the clock picked last. What the single request buys is
    * that the three columns commit together: no second click can be applied between two writes of the
-   * first and leave the row naming a clock nobody chose. [63]
+   * first and leave the row naming a clock nobody chose.
    */
   async setClockPreferences(clock: ClockPreferences): Promise<boolean> {
     const inFlight = CLOCK_KEYS.map((key) => this.pendingUpdates.get(key)).filter(

@@ -61,7 +61,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   // Every day here is a calendar day on the reader's clock, and the value handed out is the moment
   // that day begins there. The grid, the range labels and the event presets then all name the same
   // day. Reaching for setHours instead reads the browser's own calendar, which within the offset
-  // of midnight is a different day from the one on screen. [7]
+  // of midnight is a different day from the one on screen.
   const dayStartOf = (date: Date): number => {
     const { year, month, day } = getDateInTimezone(date, readerZone);
     return getDayStartInTimezone(year, month, day, readerZone).getTime();
@@ -97,7 +97,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
   const handleEventPresetClick = (startUtc: string, endUtc: string) => {
     // This button's tooltip names the event's days on the reader's clock, so the range takes its
-    // bounds from that same clock. [7]
+    // bounds from that same clock.
     const { start } = getDayBoundsInTimezone(parseUtcDate(startUtc), readerZone);
     const { end } = getDayBoundsInTimezone(parseUtcDate(endUtc), readerZone);
     onStartDateChange(start);

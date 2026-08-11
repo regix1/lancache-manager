@@ -54,7 +54,7 @@ interface DefaultGuestPreferencesChange {
  * listener that reads the cache to answer "was the guest still on the old default" gets whichever
  * snapshot the hub's insertion-ordered handler set happened to leave it, which is a different answer
  * depending on which component mounted first. Returning both snapshots from the one call that moves
- * them is what makes the answer independent of that. [4]
+ * them is what makes the answer independent of that.
  */
 export const applyDefaultGuestPreferencesChange = (
   data: DefaultGuestPreferencesChangedEvent
@@ -116,7 +116,7 @@ export const useDefaultGuestPreferences = () => {
   // The broadcasts that move these defaults are received once, by SessionPreferencesProvider, which
   // folds them in through applyDefaultGuestPreferencesChange and wakes the subscription below. A
   // second subscription here would be a second writer of the same cache, and which of the two ran
-  // first would decide what the other one read. [4]
+  // first would decide what the other one read.
   useEffect(() => {
     // Subscribe to global updates
     const listener = () => setPrefs({ ...cachedPrefs });

@@ -14,7 +14,7 @@ interface ServiceFeatureListProps {
 
 /* The three feature bullets start collapsed on small viewports to keep each card's
    Start Session action above the fold; wider viewports always show them and hide the
-   toggle via CSS. [30] */
+   toggle via CSS. */
 function ServiceFeatureList({ items }: ServiceFeatureListProps) {
   const { t } = useTranslation();
   const isWideViewport = useMediaQuery('(min-width: 769px)');

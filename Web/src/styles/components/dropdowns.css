@@ -124,7 +124,7 @@
     /* The touch minimum lives here, next to the line that releases the height, so every dropdown
        gets it instead of each feature stylesheet adding it back one at a time. min-height is a
        separate property from the height above, so it raises the box without having to beat that
-       !important. [36]
+       !important.
        Scoped to the button, because a couple of read-only status indicators borrow .ed-trigger
        purely for its box model so they line up with the controls beside them. Growing those to a
        finger-sized target makes a thing you cannot press look like a button. */
@@ -133,7 +133,7 @@
     }
 
     /* The menu rows need it too: their whole box comes from padding utilities, which leaves them
-       under the minimum on their own. [36] */
+       under the minimum on their own. */
     .ed-option {
       min-height: 44px;
     }

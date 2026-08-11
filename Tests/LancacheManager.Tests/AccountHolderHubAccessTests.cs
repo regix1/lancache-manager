@@ -26,7 +26,6 @@ public sealed class AccountHolderHubAccessTests
 {
     /// <summary>
     /// A user joins the same download-hub group as an admin, and a guest still joins the guest group.
-    /// [13] [18]
     /// </summary>
     [Fact]
     public async Task TheDownloadHubPutsAUserInTheSameGroupAsAnAdminAndLeavesAGuestWhereItWas()
@@ -55,7 +54,7 @@ public sealed class AccountHolderHubAccessTests
     /// <summary>
     /// The snapshot a newly-connected client is seeded with is the same for a user as for an admin, and
     /// still trimmed for a guest. This is the second thing the download hub decides from the session type
-    /// and it is invisible to group membership. [13] [18]
+    /// and it is invisible to group membership.
     /// </summary>
     [Fact]
     public async Task TheDownloadHubSeedsAUserWithTheSameActivitySnapshotAsAnAdmin()
@@ -89,7 +88,7 @@ public sealed class AccountHolderHubAccessTests
 
     /// <summary>
     /// A caller with no session cookie is still refused by the download hub. That is the API-key caller,
-    /// which authenticates on a header the hub never reads. [18]
+    /// which authenticates on a header the hub never reads.
     /// </summary>
     [Fact]
     public async Task TheDownloadHubStillRefusesACallerWithNoSessionCookie()
@@ -108,7 +107,7 @@ public sealed class AccountHolderHubAccessTests
     /// <summary>
     /// A user is admitted to a prefill daemon hub on the same terms as an admin, and every other caller
     /// is admitted or refused exactly as before: a guest needs an unexpired grant, and a caller with no
-    /// cookie is refused. [14] [18]
+    /// cookie is refused.
     /// </summary>
     [Fact]
     public async Task ThePrefillDaemonHubAdmitsAUserOnTheSameTermsAsAnAdmin()

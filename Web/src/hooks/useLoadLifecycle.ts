@@ -86,7 +86,7 @@ export function useLoadLifecycle<T>(options: LoadLifecycleOptions<T>): LoadLifec
     // A timeout has to be told apart from a supersession: a timed-out load is the newest one and
     // must report a failure the viewer can retry, while a superseded one stays silent because its
     // replacement is already publishing. Carrying the timeout reason through keeps the rejection
-    // out of the cancel path as well. [53]
+    // out of the cancel path as well.
     let timedOut = false;
     const abortOnTimeout = (): void => {
       timedOut = true;
@@ -105,7 +105,7 @@ export function useLoadLifecycle<T>(options: LoadLifecycleOptions<T>): LoadLifec
         loadedAtRef.current = Date.now();
         settings.onLoaded(value);
         // A result that arrived heals whatever the last failure said, including one left behind
-        // by a load this one superseded. [36]
+        // by a load this one superseded.
         setError(null);
         loaded = true;
       }
@@ -118,7 +118,7 @@ export function useLoadLifecycle<T>(options: LoadLifecycleOptions<T>): LoadLifec
         // them; the next caller has to fetch again.
         loadedAtRef.current = 0;
         // Only the owner may report the failure: a load already replaced would otherwise put an
-        // error over the rows its replacement is about to publish. [36]
+        // error over the rows its replacement is about to publish.
         if (mountedRef.current) setError(getErrorMessage(err));
       }
       settings.onFailed(err, owned);

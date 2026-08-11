@@ -210,7 +210,7 @@ public class AppDbContext : DbContext
             .Property(a => a.Username)
             .HasColumnType("citext");
 
-        // Two names differing only in case are one person to a login lookup. [19b]
+        // Two names differing only in case are one person to a login lookup.
         modelBuilder.Entity<UserAccount>()
             .HasIndex(a => a.Username)
             .HasDatabaseName("IX_UserAccounts_Username")
@@ -256,7 +256,7 @@ public class AppDbContext : DbContext
             .IsUnique();
 
         // Validating a cookie matches either hash in one OR, so leaving this column unindexed made
-        // every authenticated request scan the whole session table. [9]
+        // every authenticated request scan the whole session table.
         modelBuilder.Entity<UserSession>()
             .HasIndex(s => s.PreviousSessionTokenHash)
             .HasDatabaseName("IX_UserSessions_PreviousSessionTokenHash");
@@ -276,7 +276,7 @@ public class AppDbContext : DbContext
         // Revoking an account's sessions selects them by account, and this table gains a row per login,
         // so the lookup is indexed for the same reason IX_UserSessions_PreviousSessionTokenHash is.
         // No foreign key on the column: cascading a delete would remove the very sessions that have to
-        // survive it to be rejected. [28]
+        // survive it to be rejected.
         modelBuilder.Entity<UserSession>()
             .HasIndex(s => s.AccountId)
             .HasDatabaseName("IX_UserSessions_AccountId");

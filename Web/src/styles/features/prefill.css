@@ -309,7 +309,7 @@
      section becomes a grid item, and the activity log is ordered directly after the
      progress card. This keeps live log lines within reach of the progress bar instead of
      below the whole command center. Wrapper margins are zeroed because the grid gap
-     already spaces the flattened items. [23] */
+     already spaces the flattened items. */
   @media (max-width: 1279.98px) {
     .prefill-layout--running .prefill-col-controls,
     .prefill-layout--running .prefill-col-log {

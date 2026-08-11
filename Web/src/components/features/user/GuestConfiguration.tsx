@@ -148,7 +148,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   //
   // One request, because the three flags are one clock. Sent as three they commit separately: a
   // sibling that fails, or an admin on another tab writing between two of them, leaves the stored
-  // default naming a clock nobody picked, and the next guest session seeds from it. [3]
+  // default naming a clock nobody picked, and the next guest session seeds from it.
   const updateDefaultTimeFormat = async (format: TimeSettingValue) => {
     const response = await fetch(
       '/api/system/default-guest-preferences/clock',

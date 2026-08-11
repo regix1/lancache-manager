@@ -16,7 +16,6 @@ namespace LancacheManager.Tests;
 /// authenticate as an admin on every route, which made it a password that is printed to the log at
 /// every start, cannot be revoked without rotating it for everybody, and leaves no session behind to
 /// see or to end. It now stands in for a session on the API reference and its document only.
-/// [73][74][75]
 /// </summary>
 // Boots the whole application and resolves the process-wide shared sessions, so it runs in the
 // collection that already serializes every class doing that.
@@ -29,7 +28,7 @@ public sealed class ApiKeyHeaderScopeTests
     /// The reads a guest lost in the same release, plus the two the API documentation gives as curl
     /// examples and the two a monitoring script is most likely to poll. A caller holding the real key
     /// and nothing else is answered 401 on all of them, and the same client is answered 200 on the
-    /// document, so the header did reach the server and the key in it is the right one. [73]
+    /// document, so the header did reach the server and the key in it is the right one.
     /// </summary>
     [Fact]
     public async Task OrdinaryRoutesRefuseACallerHoldingOnlyTheKey()
@@ -82,7 +81,7 @@ public sealed class ApiKeyHeaderScopeTests
     /// The two endpoints an operator reaches for when the database credentials are wrong read the key
     /// out of the header themselves, so they answer a caller that has no session and cannot get one.
     /// What comes back is each endpoint's own refusal of the empty body it was sent, which only a
-    /// caller that got all the way to the handler can be given. [74]
+    /// caller that got all the way to the handler can be given.
     /// </summary>
     [Fact]
     public async Task TheRepairEndpointsStillAnswerTheKeyCaller()
@@ -108,7 +107,7 @@ public sealed class ApiKeyHeaderScopeTests
     /// <summary>
     /// The metrics gate is its own middleware with its own setting, and it validates the header itself
     /// rather than reading a principal, so narrowing the handler leaves it exactly as it was: off, the
-    /// scrape is public; on, it takes the key in the header and refuses without it. [74]
+    /// scrape is public; on, it takes the key in the header and refuses without it.
     /// </summary>
     [Fact]
     public async Task MetricsStillHonoursItsOwnSetting()
@@ -144,7 +143,7 @@ public sealed class ApiKeyHeaderScopeTests
     /// no longer authorizing anything: claim the installation with the key in the request body, sign in
     /// with the key and those credentials, and reach a route that needs an account. Narrowing the header
     /// before this path existed would have left a scripted install with no way in at all, so the check
-    /// is the flow end to end rather than one endpoint's status code. [75]
+    /// is the flow end to end rather than one endpoint's status code.
     /// </summary>
     [Fact]
     public async Task AFreshInstallClaimsItselfAndSignsIn()

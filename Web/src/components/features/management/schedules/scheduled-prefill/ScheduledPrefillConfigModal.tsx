@@ -695,7 +695,7 @@ export function ScheduledPrefillConfigModal({
         // flight; if the probe's GET is served the challenge the daemon has not dropped yet,
         // applyPersistentLoginChallenge reads it as a brand new challenge and clears `dismissed`,
         // so the post-check below can no longer stop the modal from reopening on a login the user
-        // just cancelled. The close writes `dismissed` synchronously, so it is already true here. [21]
+        // just cancelled. The close writes `dismissed` synchronously, so it is already true here.
         if (isPersistentLoginDismissed(serviceId)) {
           continue;
         }
@@ -1227,7 +1227,7 @@ export function ScheduledPrefillConfigModal({
         if (!cancelled) {
           // Set AFTER the refresh, which clears this same field on success. Without it the logout
           // looks clean while the daemon is still holding a login challenge with no client
-          // watching it and no armed timeout. [22]
+          // watching it and no armed timeout.
           setPersistentError(t('prefill.persistent.cancelLoginFailed'));
         }
         return;

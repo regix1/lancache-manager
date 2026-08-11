@@ -113,7 +113,7 @@ public class ServiceEvictionGateTests
         };
 
     /// <summary>
-    /// Criterion 1 + 3: a service ABSENT from the scan results but with at least one
+    /// A service ABSENT from the scan results but with at least one
     /// non-evicted Download must NOT be flipped to IsEvicted. This is the wsus
     /// false-positive case. In this scan false-negative branch the last-known snapshot
     /// columns (CacheFilesFound / TotalSizeBytes) are deliberately PRESERVED, not zeroed:
@@ -158,7 +158,7 @@ public class ServiceEvictionGateTests
     }
 
     /// <summary>
-    /// Criterion 2: a service ABSENT from the scan results whose Downloads are ALL evicted
+    /// A service ABSENT from the scan results whose Downloads are ALL evicted
     /// must still be marked IsEvicted (no regression of legitimate eviction).
     /// </summary>
     [Fact]
@@ -194,7 +194,7 @@ public class ServiceEvictionGateTests
     }
 
     /// <summary>
-    /// Criterion 2 (no-live-Downloads sub-case): a service ABSENT from the scan with NO
+    /// The no-live-Downloads sub-case: a service ABSENT from the scan with NO
     /// Downloads at all has no live evidence, so it is still evicted (matches prior behaviour
     /// for the genuinely-gone case).
     /// </summary>
@@ -220,7 +220,7 @@ public class ServiceEvictionGateTests
     }
 
     /// <summary>
-    /// Criteria 5 + 7: a re-cached service is selected for self-heal by the Downloads-keyed
+    /// A re-cached service is selected for self-heal by the Downloads-keyed
     /// helper. The CachedServiceDetection is IsEvicted=true with a STALE CacheFilesFound=0
     /// snapshot, but a matching Download is now !IsEvicted. The old self-heal keyed off
     /// CacheFilesFound>0 and would have missed this; GetServicesToUnevictAsync keys off
@@ -252,7 +252,7 @@ public class ServiceEvictionGateTests
     }
 
     /// <summary>
-    /// Criterion 5 (negative): a service whose Downloads are all still evicted must NOT be
+    /// The negative case: a service whose Downloads are all still evicted must NOT be
     /// returned for self-heal (the helper must not over-clear).
     /// </summary>
     [Fact]
@@ -439,7 +439,7 @@ public class ServiceEvictionGateTests
     }
 
     /// <summary>
-    /// Criterion 2 (named-game, all-evicted sub-case — SERVICE-AGNOSTIC): a service whose
+    /// The named-game, all-evicted sub-case, SERVICE-AGNOSTIC: a service whose
     /// named-game Downloads are ALL evicted must still be marked Evicted - the fix must not make
     /// genuinely-gone services un-evictable. Parameterized to prove the eviction path has no
     /// per-service special-casing either.
@@ -478,7 +478,7 @@ public class ServiceEvictionGateTests
     }
 
     /// <summary>
-    /// Criterion 4: the new servicesWithLiveDownloads query (top-level Where/Select/Distinct
+    /// The servicesWithLiveDownloads query (top-level Where/Select/Distinct
     /// selecting the RAW Service string - lowercasing happens in C# with ToLowerInvariant() after
     /// materializing, to stay keyed consistently with existingDict/incomingByName) compiles through
     /// the Npgsql provider without opening a connection, so a translation regression (e.g. an

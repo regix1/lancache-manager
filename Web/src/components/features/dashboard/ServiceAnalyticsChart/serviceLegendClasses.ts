@@ -53,7 +53,7 @@ export interface FooterStats {
 /**
  * Build the 3 footer tiles for the active tab.
  *
- * Per-tab content (per acceptance criteria 11-16):
+ * Per-tab content:
  * - service:    Total Data | Services | Top Service (name + bytes)
  * - hit-ratio:  Total Data | Cache Hits (bytes) | Hit Rate
  * - bandwidth:  Bandwidth Saved (chartData.total) | Services | Avg Saved / Service

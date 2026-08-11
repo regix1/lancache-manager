@@ -36,7 +36,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   // The floor the two DateTimePickers below are given. They compare it against cells they build
   // in the browser's own calendar, so it is midnight of the browser's today. Taking the day from
   // a display timezone instead lands the floor on the neighbouring day, which either lets an
-  // event be created that has already started or makes today unselectable. [40]
+  // event be created that has already started or makes today unselectable.
   const todayMinDate = new Date();
   todayMinDate.setHours(0, 0, 0, 0);
 
@@ -76,7 +76,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
   // Same floor the pickers enforce, so the form cannot reject a date the calendar offered.
   // Read at call time rather than closed over, which keeps this callback stable and keeps a
-  // modal left open across midnight from checking against yesterday. [40]
+  // modal left open across midnight from checking against yesterday.
   const isBeforeToday = useCallback((date: Date): boolean => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);

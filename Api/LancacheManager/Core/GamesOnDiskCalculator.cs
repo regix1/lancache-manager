@@ -39,7 +39,7 @@ public static class GamesOnDiskCalculator
     /// Forwards to <see cref="GetDownloadGameKey"/>, which applies these same three branches to the
     /// <see cref="Download"/> column shape. Two hand-maintained copies of one rule cannot be kept
     /// identical by inspection, and they must return byte-identical keys for the same game or the
-    /// per-game download figures stop joining against the on-disk figures. [36]
+    /// per-game download figures stop joining against the on-disk figures.
     /// </summary>
     public static string GetGameKey(GameCacheInfo game) =>
         GetDownloadGameKey(game.GameAppId, game.EpicAppId, game.Service, game.GameName);

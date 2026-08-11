@@ -6,7 +6,7 @@ namespace LancacheManager.Validators;
 /// <summary>
 /// The rules an account's username and password have to pass. Discovered by
 /// AddValidatorsFromAssemblyContaining (Program.cs:83) and run by ValidationFilter (Program.cs:66),
-/// so binding <see cref="AccountCredentialsRequest"/> is the whole wiring. [26]
+/// so binding <see cref="AccountCredentialsRequest"/> is the whole wiring.
 /// </summary>
 public class AccountCredentialsRequestValidator : AbstractValidator<AccountCredentialsRequest>
 {

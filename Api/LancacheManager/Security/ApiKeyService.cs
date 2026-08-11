@@ -148,7 +148,7 @@ public class ApiKeyService
     /// Cuts the key file down to the account that runs the app. Anyone who can read it is an admin
     /// on this installation, and the container's umask decides otherwise by default. Windows has no
     /// one-call equivalent, so there the file keeps the permissions it inherits from the data
-    /// directory. [8]
+    /// directory.
     /// </summary>
     private void RestrictKeyFileToOwner()
     {

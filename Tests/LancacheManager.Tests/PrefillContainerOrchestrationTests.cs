@@ -31,7 +31,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
 
     private readonly List<string> _tempRoots = new();
 
-    // ============================ C-a ============================
+    // =============================================================
     // Mode-2 (KeepAcrossRestart): a persistent container left running by a graceful shutdown detach is
     // re-adopted on the next start with its login intact - no stop/kill/remove/logout, DB row back to Active.
     [Fact]
@@ -64,7 +64,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         daemon.Dispose();
     }
 
-    // ============================ C-e ============================
+    // =============================================================
     // Five services, ONE shared DB: each daemon re-adopts its own running container, and no daemon's
     // platform-scoped orphan sweep re-orphans a row another daemon already reactivated. Every row ends Active.
     [Fact]
@@ -116,7 +116,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         }
     }
 
-    // ============================ C-b ============================
+    // =============================================================
     // Mode-3 (FullPersistence) recreate after an outage: the vanished container is recreated and its new
     // session inherits the prior life's still-future validity window (does not silently extend it).
     [Fact]
@@ -152,7 +152,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         daemon.Dispose();
     }
 
-    // C-b (gate leg): driving the re-adopt directly with a STOPPED container present exercises the gate's
+    // Gate leg: driving the re-adopt directly with a STOPPED container present exercises the gate's
     // Recreate action (remove the dead target, then create), the branch cleanup would otherwise pre-empt.
     [Fact]
     public async Task ReadoptPersistentContainers_StoppedContainerPresent_RemovesTargetThenRecreates()
@@ -170,7 +170,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         daemon.Dispose();
     }
 
-    // ============================ C-c ============================
+    // =============================================================
     // Negatives: startup must NOT fabricate a persistent container.
     [Fact]
     public async Task StartAsync_DisabledService_DoesNotRecreate()
@@ -209,7 +209,7 @@ public sealed class PrefillContainerOrchestrationTests : IDisposable
         daemon.Dispose();
     }
 
-    // ============================ C-d ============================
+    // =============================================================
     // A docker create failure mid-recreate is swallowed (startup never aborts) and the dead session's DB
     // row stays non-Terminated, so the NEXT startup's zero-container retry arm recreates successfully.
     [Fact]

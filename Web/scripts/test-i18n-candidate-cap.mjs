@@ -9,7 +9,7 @@
  * which is exactly the state being guarded against; the validator has to fail
  * instead and say which cap it hit and where. The second check runs the same
  * shapes below the cap, so the first check can only be failing because of the
- * caps and not because a fixture key is missing. [15]
+ * caps and not because a fixture key is missing.
  *
  * Point I18N_VALIDATOR at another copy of the script to check that copy instead.
  */

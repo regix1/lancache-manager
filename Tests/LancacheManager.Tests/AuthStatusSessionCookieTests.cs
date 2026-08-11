@@ -174,7 +174,7 @@ public sealed class AuthStatusSessionCookieTests : IDisposable
     /// <summary>
     /// The cookie is HttpOnly so that script cannot read the session token. Answering the same token in
     /// the body of this response undoes that, so the body is checked for the token as a value rather than
-    /// for a field by name: a token that reappears under any name is the same leak. [77b]
+    /// for a field by name: a token that reappears under any name is the same leak.
     /// </summary>
     [Fact]
     public async Task CookieCaller_IsAnsweredABodyCarryingNoRawToken()

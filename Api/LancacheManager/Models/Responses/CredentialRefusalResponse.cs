@@ -3,7 +3,7 @@ namespace LancacheManager.Models;
 /// <summary>
 /// Refusal body for signing in and for changing your own password. <see cref="StageKey"/> is the i18n
 /// key the browser renders; <see cref="Error"/> is the English sentence a client that does not localize
-/// falls back to, so both travel on every refusal. [88][88d]
+/// falls back to, so both travel on every refusal.
 /// </summary>
 public class CredentialRefusalResponse
 {
@@ -11,7 +11,7 @@ public class CredentialRefusalResponse
     /// Every way a sign-in can fail: an unknown username, a wrong password, a wrong or missing API key,
     /// a disabled account, and an account with too many recent failures. One key rather than five,
     /// because a caller who can tell those apart can learn which usernames exist, which passwords are
-    /// half-right, and whether their guessing is working. [44]
+    /// half-right, and whether their guessing is working.
     /// </summary>
     public const string InvalidCredentials = "errors.login.invalidCredentials";
 

@@ -6,7 +6,7 @@ namespace LancacheManager.Security;
 
 /// <summary>
 /// Writes the identity audit trail. Adding a row is the only thing this does; nothing here updates
-/// or deletes one. [29e]
+/// or deletes one.
 /// </summary>
 public class IdentityAuditService
 {
@@ -24,13 +24,13 @@ public class IdentityAuditService
     /// <summary>
     /// Records one identity event, and never throws. The caller is in the middle of the operation
     /// being recorded, so a failure here is logged and swallowed: a login or a key rotation that
-    /// fails because the audit write failed turns a logging fault into an outage. [29d]
+    /// fails because the audit write failed turns a logging fault into an outage.
     ///
     /// The row goes on its own context rather than the caller's, so a failure leaves nothing tracked
     /// on the caller's context and commits nothing the caller had pending.
     ///
     /// Both actor arguments are nullable because a caller need not have either: a request carrying
-    /// only an API key is authenticated with no account and no session row behind it. [29c]
+    /// only an API key is authenticated with no account and no session row behind it.
     /// </summary>
     /// <param name="auditEvent">What happened.</param>
     /// <param name="performedByAccountId">The account that did it, or null.</param>

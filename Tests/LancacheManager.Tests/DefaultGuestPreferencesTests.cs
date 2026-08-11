@@ -37,7 +37,7 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
         }
     }
 
-    // D-1: one request carries the whole clock, and all three fields land. [3]
+    // D-1: one request carries the whole clock, and all three fields land.
     [Fact]
     public async Task ClockRequest_StoresAllThreeFields()
     {
@@ -60,7 +60,7 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
     }
 
     // D-2: UTC is a clock of its own, so choosing it settles the other two rather than leaving whatever was
-    // there. Nothing an admin can send may leave the three describing no option at all. [3]
+    // there. Nothing an admin can send may leave the three describing no option at all.
     [Fact]
     public async Task ChoosingUtc_SettlesTheOtherTwoBeforeAnythingIsStored()
     {
@@ -88,7 +88,7 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
 
     // D-3: one change, one announcement, carrying the clock that was replaced as well as the new one. A
     // listener holding a guest needs both to decide whether that guest still followed the default, and
-    // three announcements is what made the answer depend on which listener ran first. [3]
+    // three announcements is what made the answer depend on which listener ran first.
     [Fact]
     public async Task ClockChange_AnnouncesItselfOnceWithBothClocks()
     {
@@ -121,7 +121,7 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
     }
 
     // D-4: the single-field route can only ever carry one of the three, which is how a half-applied clock
-    // became visible and durable. Two admins changing the clock at once cannot reach it any more. [3]
+    // became visible and durable. Two admins changing the clock at once cannot reach it any more.
     [Theory]
     [InlineData("useUtcTimezone")]
     [InlineData("useLocalTimezone")]

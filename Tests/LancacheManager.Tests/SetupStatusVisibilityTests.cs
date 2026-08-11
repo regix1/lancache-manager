@@ -129,7 +129,7 @@ public sealed class SetupStatusVisibilityTests : IDisposable
     /// The upgrade, as an installation actually arrives at it: setup finished long ago, people were
     /// signed in, and the account table the new build introduced is empty. Sessions are seeded so the
     /// answer cannot come from "somebody is signed in", which is the shortcut that would report an
-    /// account here and leave the installation on a sign-in screen it cannot pass. [37b]
+    /// account here and leave the installation on a sign-in screen it cannot pass.
     /// </summary>
     [Fact]
     public async Task AnInstallationUpgradedWithLiveSessionsAndNoAccounts_SaysItHasNoAccount()
@@ -175,7 +175,7 @@ public sealed class SetupStatusVisibilityTests : IDisposable
     /// <summary>
     /// This route is what an installation with no working database reads to find its way to the
     /// credentials step, so an unreadable account table has to leave the answer unknown rather than
-    /// fail the response or claim there is no account. [37c]
+    /// fail the response or claim there is no account.
     /// </summary>
     [Fact]
     public void AnUnreadableAccountTable_LeavesTheAnswerUnknown()

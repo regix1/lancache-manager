@@ -212,7 +212,7 @@ public sealed class UserPreferencesServiceTests
 
     // P-8: a guest who logs in AFTER an admin changed the defaults gets them. Only the guests already
     // connected receive the broadcast, so without this a later arrival reads the built-in values however
-    // the admin set things. All six defaults travel, not only the clock ones. [5]
+    // the admin set things. All six defaults travel, not only the clock ones.
     [Fact]
     public async Task NewSession_TakesTheGuestDefaults()
     {
@@ -236,7 +236,7 @@ public sealed class UserPreferencesServiceTests
 
     // P-9: the other half of the same rule, and the one that would hurt. A session that already carries a
     // preferences row is the person's own saved choice, so seeding leaves every column exactly as it was
-    // instead of resetting people every time an admin touches a default. [6]
+    // instead of resetting people every time an admin touches a default.
     [Fact]
     public async Task SessionWithItsOwnPreferences_KeepsThem()
     {
@@ -285,7 +285,7 @@ public sealed class UserPreferencesServiceTests
     // P-11: the seed runs while a session is being created, so a write that cannot land must report
     // failure rather than throw. A login that fails because a cosmetic default could not be written
     // would be a far worse outcome than a guest seeing the built-in clock. The unknown session id makes
-    // the insert violate the foreign key, which is a real database failure rather than a stubbed one. [7]
+    // the insert violate the foreign key, which is a real database failure rather than a stubbed one.
     [Fact]
     public async Task SeedThatCannotBeWritten_ReportsFailureInsteadOfThrowing()
     {
@@ -404,7 +404,7 @@ public sealed class UserPreferencesServiceTests
     // P-10: the full save has the same first-write race as the per-key one. Two tabs saving a session's
     // preferences for the first time both find no row and both insert, and the unique index on SessionId
     // admits one. The loser must re-read and save onto the row that won rather than handing its caller an
-    // unhandled unique-key error. [12]
+    // unhandled unique-key error.
     [Fact]
     public async Task FullSaveRaceLoser_SavesOntoTheRowThatWon()
     {
@@ -443,7 +443,7 @@ public sealed class UserPreferencesServiceTests
     // P-11: the seed loses the same race whenever a session writes its own preferences while it is being
     // created. That is the outcome the method is built around, and its false return already says so, so it
     // is not a fault to report. Logging it as an error is what put a normal race in front of whoever reads
-    // the log looking for a real one. [13]
+    // the log looking for a real one.
     [Fact]
     public async Task SeedLosingTheRace_ReportsNoError()
     {
@@ -685,7 +685,7 @@ public sealed class UserPreferencesServiceTests
 /// <summary>
 /// Hands out contexts on some options a test already built, whichever provider those options name. Every
 /// test that needs a database needs exactly this and nothing more, so there is one of it rather than a
-/// private copy per test file. [17]
+/// private copy per test file.
 /// </summary>
 internal sealed class TestDbContextFactory(DbContextOptions<AppDbContext> options)
     : IDbContextFactory<AppDbContext>

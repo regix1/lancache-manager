@@ -30,7 +30,7 @@ export function useScheduleDisplayModes(): ScheduleDisplayModeMap {
   // Single freshness sequence shared by every writer below: each applied update bumps it, and a
   // fetch response only lands if the generation captured when the request was sent still matches
   // when it resolves. A GET snapshot resolving after newer data has already applied is discarded
-  // instead of rolling the map back to its pre-toggle state. [20]
+  // instead of rolling the map back to its pre-toggle state.
   const generationRef = useRef<number>(0);
 
   const applySchedules = useCallback((schedules: ServiceScheduleInfo[]): void => {

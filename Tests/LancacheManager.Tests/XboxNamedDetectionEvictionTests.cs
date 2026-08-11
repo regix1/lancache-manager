@@ -89,7 +89,7 @@ public class XboxNamedDetectionEvictionTests
         };
 
     // -----------------------------------------------------------------------------------------
-    // Criterion 2: identity key. Xbox flows through the named arm of GamesOnDiskCalculator.GetGameKey
+    // Identity key. Xbox flows through the named arm of GamesOnDiskCalculator.GetGameKey
     // (the public twin of the private GameCacheDetectionService.BuildGameIdentityKey, per its
     // docstring) producing `named:xbox<sep><name>` with NO new `xbox:` arm - byte-identical in shape
     // to Blizzard/Riot. No synthetic appId: a non-zero GameAppId would route to `steam:`.

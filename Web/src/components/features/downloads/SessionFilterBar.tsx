@@ -132,7 +132,7 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
   // surface and its x removes exactly that one filter. Each x also names the filter it clears in
   // full, because these labels are sentences and a verb put in front of one does not read as
   // anything a screen reader can act on. Each visible phrase is one key with the value interpolated,
-  // since a prefix glued to a translated value puts the words in English order. [54]
+  // since a prefix glued to a translated value puts the words in English order.
   if (filters.clientIps.length > 0) {
     filters.clientIps.forEach((ip: string) => {
       // The address is the user's own data, so it is interpolated verbatim and never looked up.

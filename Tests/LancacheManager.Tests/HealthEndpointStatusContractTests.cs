@@ -12,7 +12,7 @@ namespace LancacheManager.Tests;
 /// container unhealthy after three tries, and Swarm, a Kubernetes liveness probe or an autoheal
 /// sidecar restarts it before anyone can finish the wizard; a compose file using
 /// <c>depends_on: condition: service_healthy</c> waits forever. So the probed path reports the
-/// setup state in its body and keeps its status at 200. [32]
+/// setup state in its body and keeps its status at 200.
 /// </summary>
 public class HealthEndpointStatusContractTests
 {

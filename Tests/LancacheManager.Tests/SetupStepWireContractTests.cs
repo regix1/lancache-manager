@@ -23,7 +23,7 @@ namespace LancacheManager.Tests;
 /// write and the wizard step it could not record still renders, so the flow looks like it works.
 ///
 /// These tests read the client union out of the source file and drive both directions across it, so a
-/// step added on one side alone fails here rather than in a browser. [30, 31]
+/// step added on one side alone fails here rather than in a browser.
 /// </summary>
 public sealed class SetupStepWireContractTests : IDisposable
 {

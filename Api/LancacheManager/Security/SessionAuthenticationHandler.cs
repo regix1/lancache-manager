@@ -57,7 +57,7 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             // again would only hold the request open longer. Deliberately catching everything, too:
             // nothing in the stack distinguishes "server unreachable" from any other provider fault,
             // and ValidateSessionAsync takes no cancellation token, so nothing that arrives here is a
-            // cancelled request being misreported as a failure. [26]
+            // cancelled request being misreported as a failure.
             Logger.LogError(ex, "Could not reach the database to validate a session cookie; the request continues unauthenticated");
             return AuthenticateResult.NoResult();
         }
@@ -66,7 +66,7 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
         // nowhere else. Those two are read by client generators and by an operator who holds the key
         // and has no account yet: neither has a cookie jar, and neither can run the sign-in POST. On
         // every other route a key alone no longer authenticates, so a caller that sends only the
-        // header is answered like any other caller with no session. [73]
+        // header is answered like any other caller with no session.
         if (session == null
             && authenticationEnabled
             && Context.Request.Headers.ContainsKey("X-Api-Key")
@@ -80,7 +80,7 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
                 // A wrong key is answered 401 by the challenge below, like any other failed
                 // authentication. Once the caller's address has spent its budget of wrong keys the
                 // helper says so, and that has to reach the response or a flood looks exactly like a
-                // single mistyped key. [9b]
+                // single mistyped key.
                 _invalidKeysThrottled = apiKeyResult.StatusCode == StatusCodes.Status429TooManyRequests;
                 return AuthenticateResult.Fail("Invalid API key");
             }
@@ -92,7 +92,7 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             // the document would otherwise add a row per fetch. Read the header the same way
             // AuthenticationHelper.ExtractApiKey does, taking the first value: joining several into
             // one string would have the check above accept a request that sends the header twice and
-            // the resolve below refuse it. [11]
+            // the resolve below refuse it.
             var keySession = await sessionService.GetOrCreateApiKeySessionAsync(
                 Context.Request.Headers["X-Api-Key"].FirstOrDefault() ?? string.Empty, Context);
             if (keySession == null)
@@ -123,7 +123,7 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
                 // service reports the first such failure itself and holds the next attempts off for a
                 // few seconds. That keeps one outage from costing a database round trip and an error
                 // line on every anonymous request, while the request still carries on unauthenticated
-                // so the endpoints the error screens are built from stay reachable. [14]
+                // so the endpoints the error screens are built from stay reachable.
                 var shared = await sessionService.GetOrCreateAuthDisabledAdminSessionAsync(Context);
                 if (shared is { } resolved)
                 {
@@ -203,7 +203,7 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
         // that finds it never has to check it for a placeholder. The session type above is that
         // account's role: it is copied onto the session row when the account signs in, and
         // SessionService.RevokeAccountSessionsAsync exists so that changing the role ends the
-        // sessions carrying the old copy instead of leaving it to go stale. [25]
+        // sessions carrying the old copy instead of leaving it to go stale.
         if (session?.AccountId is { } accountId)
         {
             claims.Add(new Claim("AccountId", accountId.ToString()));

@@ -79,7 +79,7 @@ export function PrefillCommandButtons({
 
   // Clear Cache DB moves from a tile into the Utilities section menu; the auth gate is the
   // same filter the tile row used (isUserAuthenticated is wired to isAdmin at the call
-  // site), so non-admins get neither the tile nor the menu. [27]
+  // site), so non-admins get neither the tile nor the menu.
   const clearCacheDbCommand = UTILITY_COMMANDS.find(
     (cmd: CommandButton) => cmd.id === 'clear-cache-data'
   );

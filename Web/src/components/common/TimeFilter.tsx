@@ -54,7 +54,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
   // The date picker builds a custom range as two moments on the reader's clock, so the label reads
   // them back on it. Forcing the browser's calendar here instead names the day before whenever the
   // reader is on the server or UTC clock and the browser sits behind it. The date-only shape
-  // carries no time, so the 24-hour preference has nothing to act on. [7]
+  // carries no time, so the 24-hour preference has nothing to act on.
   const customRangeFormat = useMemo<TimestampSettings>(
     () => ({ ...eventClock, forceYear: false, style: 'dateOnly' }),
     [eventClock]

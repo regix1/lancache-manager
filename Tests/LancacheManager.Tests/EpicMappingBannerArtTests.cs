@@ -227,7 +227,7 @@ public class EpicMappingBannerArtTests
         public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
     }
 
-    // --- Prefill merge path: acceptance criterion 1 ---
+    // --- Prefill merge path ---
 
     [Fact]
     public async Task MergeOwnedGamesAsync_PersistsPickedArt_ForArtlessPrefillGame()
@@ -277,14 +277,13 @@ public class EpicMappingBannerArtTests
         Assert.Equal("https://cdn.epicgames.com/existing.jpg", mapping.ImageUrl);
     }
 
-    // --- Downloads propagation: acceptance criteria 8 and 9 ---
-    // No self-healing sweep exists (plan STEP 2d / acceptance criteria 3-4 were cancelled once
-    // the Steam fallback was dropped: EpicGameMapping stores no artwork entries, so a sweep with
-    // no Steam fallback would have had no art source at all and done nothing). Art-less rows heal
+    // --- Downloads propagation ---
+    // No self-healing sweep exists: EpicGameMapping stores no artwork entries, so a sweep with
+    // no Steam fallback would have had no art source at all and done nothing. Art-less rows heal
     // through the existing prefill merge instead - the daemon now returns artwork on every
     // owned-games fetch, so MergeOwnedGamesAsync_PersistsPickedArt_ForArtlessPrefillGame above
     // already covers that path. These two tests remain as regression pins on the existing
-    // PropagateGameImagesAsync, per acceptance criterion 8.
+    // PropagateGameImagesAsync.
 
     [Fact]
     public async Task PropagateGameImagesAsync_UpdatesMatchingDownloadImageUrl()

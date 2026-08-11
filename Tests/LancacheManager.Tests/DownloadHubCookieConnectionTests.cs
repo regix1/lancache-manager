@@ -16,14 +16,14 @@ namespace LancacheManager.Tests;
 /// The download hub carries every live update the app shows. It authenticates from the session cookie
 /// alone, and a connection it refuses fails silently: the page renders and then simply never updates, so
 /// nothing else in the suite notices. These run the real negotiate, transport and handshake against the
-/// application in process, then assert a server broadcast actually lands on each connection. [77c] [77e]
+/// application in process, then assert a server broadcast actually lands on each connection.
 /// </summary>
 [Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class DownloadHubCookieConnectionTests
 {
     /// <summary>
     /// An admin, a user and a guest each connect with nothing but the cookie and each receives a
-    /// broadcast sent to the group they were put in. [77e]
+    /// broadcast sent to the group they were put in.
     /// </summary>
     [Fact]
     public async Task AnAdminAUserAndAGuestEachReceiveABroadcastOverACookieOnlyConnection()
@@ -78,7 +78,7 @@ public sealed class DownloadHubCookieConnectionTests
 
     /// <summary>
     /// The same token that works in the cookie is refused in the query string, so it no longer has to
-    /// travel through proxy logs, access logs and browser history to reach the hub. [77c] [77f]
+    /// travel through proxy logs, access logs and browser history to reach the hub.
     /// </summary>
     [Fact]
     public async Task TheHubTakesTheTokenFromTheCookieAndRefusesItInTheQuery()

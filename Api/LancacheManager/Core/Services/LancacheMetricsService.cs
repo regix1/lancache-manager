@@ -104,7 +104,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     // How many games each per-game gauge reports. Read from state every cycle rather than mirrored
     // in a field, so the API and the collection loop can never disagree about it. The cap bounds
     // the number of SERIES, never the number of gauges: all registration happens in the constructor
-    // and cannot change at runtime. [32]
+    // and cannot change at runtime.
     private const int MinTopGameCount = 1;
     private const int MaxTopGameCount = 500;
 
@@ -468,7 +468,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // Gauges, and deliberately without the _total suffix their neighbours carry. Rows are
         // deleted from Downloads when a service stops appearing in the logs, so a per-game
         // cumulative figure can fall; a counter would report every such deletion as a reset and
-        // produce a fake rate() spike. [18]
+        // produce a fake rate() spike.
         _meter.CreateObservableGauge(
             "lancache_game_bytes",
             () => GameObserver(m => Interlocked.Read(ref m.TotalBytes)),
@@ -769,7 +769,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     /// honouring only the first leaves stats-only clients in the endpoint while the dashboard drops
     /// them. Composed in one place, matching DashboardBatchService and StatsController, so no query
     /// can be left out. Internal so the tests exercise this composition rather than a copy of
-    /// it. [28] [37]
+    /// it.
     /// </summary>
     internal static IQueryable<Download> ExcludedClientsRemoved(
         AppDbContext context,
@@ -982,7 +982,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
 
         // Same clock as the dashboard's hourly aggregate: the hour the server recorded for the
         // download, which is what StartTimeLocal holds. DateTime.Now below reads that clock too,
-        // so the current-hour count lands in the bucket it belongs to. [8]
+        // so the current-hour count lands in the bucket it belongs to.
         var hourlyActivity = await downloads
             .Where(d => d.StartTimeUtc >= sevenDaysAgo)
             .GroupBy(d => d.StartTimeLocal.Hour)
@@ -1078,11 +1078,11 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         // Last in the cycle and behind its own catch. Every query above is unguarded, so a failure
         // in the newest and most expensive one would otherwise abort the cycle and leave every
-        // metric that follows it stuck on its previous value with no error signal. [26]
+        // metric that follows it stuck on its previous value with no error signal.
         try
         {
             // The persisted cap is the source of truth so the setting survives a restart. Clamped
-            // on read because state.json is a plain file an operator can edit by hand. [32]
+            // on read because state.json is a plain file an operator can edit by hand.
             var topGameCount = Math.Clamp(stateService.GetTopGameCount(), MinTopGameCount, MaxTopGameCount);
 
             // Three groupings, each keyed on exactly the columns that define one game's identity,
@@ -1094,7 +1094,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             // game on its own and one id recorded under two service names would otherwise rank
             // twice on partial bytes. The named arm does key on service, because there the service
             // is half the identity. Rows carrying no game information at all are excluded: they do
-            // not belong in a per-game metric. [31]
+            // not belong in a per-game metric.
             //
             // The service aggregate is asserted non-null: Download.Service is a non-nullable column
             // and a group always holds at least one row, so the compiler's empty-sequence case
@@ -1126,7 +1126,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
                 .Select(g => new GameDownloadTotals
                 {
                     // One service name per id, chosen the same deterministic way the detection save
-                    // path chooses one, so the label cannot change with row visit order. [31]
+                    // path chooses one, so the label cannot change with row visit order.
                     Service = g.Min(d => d.Service.ToLower())!,
                     GameAppId = g.Key,
                     EpicAppId = null,
@@ -1194,7 +1194,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
                 .ToList();
 
             // A dropped game stops being reported entirely, so its series ends at its last real
-            // sample rather than at a zero it never served. [25]
+            // sample rather than at a zero it never served.
             var currentGames = topGames.Select(pair => pair.Key).ToHashSet();
             RemoveMissingKeys(_gameMetrics, currentGames);
 
@@ -1210,7 +1210,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
                 // The labels are built once here and go in before the holder is published, so a
                 // scrape landing between the insert and the first label write cannot emit a blank
                 // series. They are assigned again below because an existing game's recorded name
-                // can change between cycles. [34]
+                // can change between cycles.
                 var labels = GameLabels(row.Service, gameName, appId);
                 var metrics = _gameMetrics.GetOrAdd(pair.Key, _ => new GameMetrics
                 {
@@ -1289,7 +1289,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         {
             // Warning, not Debug: the default log level is Warning, so a Debug line prints nothing
             // at all and every per-game gauge keeps serving the previous cycle's numbers with no
-            // gap, including the timestamp gauge that exists to report staleness. [33]
+            // gap, including the timestamp gauge that exists to report staleness.
             _logger.LogWarning(ex, "Failed to update per-game metrics");
         }
     }
@@ -1308,7 +1308,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // figure agrees with the dashboard. Rows carrying no identity at all are dropped in SQL
         // rather than after the cut: with no app id, no Epic id and no name they all fold onto
         // one key the download arms can never produce, and publish as a single game named "0"
-        // with no partner series while taking a top-N slot from a real game. [35]
+        // with no partner series while taking a top-N slot from a real game.
         var gamesOnDisk = await context.CachedGameDetections
             .Where(g => !g.IsEvicted
                 && (g.GameAppId != 0
@@ -1360,7 +1360,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             // renamed since it was detected would otherwise be labelled one way here and
             // another way there. A game held only on disk has no partner series, so it falls
             // back to its own row, lowercased to match the download arms and reading a missing
-            // service as steam, which is what a NULL service column means. [29] [30]
+            // service as steam, which is what a NULL service column means.
             string service;
             string gameName;
             if (_gameMetrics.TryGetValue(pair.Key, out var downloadMetrics))
@@ -1376,7 +1376,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
 
             // Published with its labels already set, for the same reason the download holders
             // are, and re-assigned because an existing game's name can change between
-            // cycles. [34]
+            // cycles.
             var labels = GameLabels(service, gameName, appId);
             var metrics = _gameCacheMetrics.GetOrAdd(pair.Key, _ => new GameCacheMetrics
             {
@@ -1399,7 +1399,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     /// series at its last real sample; reporting a zero instead would be a real measurement,
     /// indistinguishable from an entity that genuinely served nothing. <c>Keys</c> on a
     /// <see cref="ConcurrentDictionary{TKey,TValue}"/> is already a snapshot, so it is enumerated
-    /// directly rather than copied again. [38]
+    /// directly rather than copied again.
     /// </summary>
     private static void RemoveMissingKeys<T>(ConcurrentDictionary<string, T> metrics, ICollection<string> currentKeys)
     {

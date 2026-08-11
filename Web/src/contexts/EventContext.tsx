@@ -132,7 +132,7 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
         // what kept an administrator's events on screen for the guest who replaced them, because a
         // guest's fetch of this endpoint is expected to fail, so the failure empties it whoever
         // asked. Only an authenticated reader is told about it; for a guest the rejection is the
-        // normal answer and not worth an error banner. [6]
+        // normal answer and not worth an error banner.
         setEvents([]);
         if (authMode === 'authenticated') {
           const message =
@@ -169,7 +169,7 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
       // Claiming a fresh id first is what retires the previous session's in-flight calls: they
       // fail the guard in refreshEvents when they land and write nothing. Without the reset the
       // provider keeps serving whatever the last session loaded, and hasLoadedRef keeps the loader
-      // suppressed for a session that has fetched nothing yet. [6]
+      // suppressed for a session that has fetched nothing yet.
       refreshRequestIdRef.current++;
       hasLoadedRef.current = false;
       setEvents([]);

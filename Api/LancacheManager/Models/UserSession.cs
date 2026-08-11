@@ -24,7 +24,7 @@ public class UserSession
     ///
     /// Deliberately a plain id rather than a foreign key, for the same reason
     /// <see cref="IdentityAuditEntry"/> holds plain ids: deleting an account must leave its session
-    /// rows behind so they can be rejected, not take them with it. [29]
+    /// rows behind so they can be rejected, not take them with it.
     /// </summary>
     public Guid? AccountId { get; set; }
 

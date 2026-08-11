@@ -83,7 +83,7 @@ public class DashboardCacheWarmerService : ScheduledBackgroundService
         {
             // A response with failed sections is never cached, so this warm left the first
             // user request on the cold path; give transient DB contention one chance to
-            // clear and warm again. [10]
+            // clear and warm again.
             _logger.LogWarning("Dashboard batch warm produced failed sections; retrying once");
             await Task.Delay(TimeSpan.FromSeconds(5), reporter.Token);
             response = await _batchService.GetBatchAsync(null, null, null, reporter.Token);

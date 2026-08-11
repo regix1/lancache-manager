@@ -248,7 +248,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
   // Read back out of the list on every render instead of copied when Edit was clicked, so the
   // dialog works from what the last reload said and a save cannot be built on a nickname that has
-  // moved on since. No id matches while creating, which is the null the dialog wants anyway. [41]
+  // moved on since. No id matches while creating, which is the null the dialog wants anyway.
   const editingGroup = useMemo(
     () => clientGroups.find((group) => group.id === editingGroupId) ?? null,
     [clientGroups, editingGroupId]
@@ -373,7 +373,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   // With the dialog fed by the live row, a nickname deleted from another tab leaves it holding
   // nothing, and it would quietly turn into the create form under whoever is typing in it. Close it
   // and say why, so the work that is about to be lost is not lost in silence. Before paint, or the
-  // create form is what the user sees for a frame. [41]
+  // create form is what the user sees for a frame.
   useLayoutEffect(() => {
     if (!isModalOpen || editingGroupId === null) return;
     if (clientGroups.some((group) => group.id === editingGroupId)) return;
@@ -527,7 +527,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                             </Tooltip>
                           </div>
                           {/* Both controls share one square footprint and stay visible, so touch
-                              and keyboard reach them without a hover first. [23] */}
+                              and keyboard reach them without a hover first. */}
                           <div className="mgmt-row__actions">
                             {isAdmin && (
                               <ActionMenu

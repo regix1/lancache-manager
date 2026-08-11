@@ -618,7 +618,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     <Card glassmorphism={glassmorphism} className="recent-downloads-panel">
       {/* Header: the title owns the first row and every control shares the second one, so this panel
           keeps the same two-row rhythm as the chart panel beside it and the two sets of rows land on
-          the same baselines. [37] */}
+          the same baselines. */}
       <div className="rdl-header">
         <h3 className="dash-panel-title">{t('dashboard.downloadsPanel.title')}</h3>
 

@@ -33,7 +33,7 @@ public sealed class AllowedTimeFormatsUtcTests : IDisposable
     }
 
     // U-1: the install everyone upgrading from is in - the four formats of the pre-UTC era, no marker.
-    // Loading it offers UTC, so a guest can pick it without an admin touching anything. [3]
+    // Loading it offers UTC, so a guest can pick it without an admin touching anything.
     [Fact]
     public void UpgradedInstall_IsOfferedUtc()
     {
@@ -46,7 +46,7 @@ public sealed class AllowedTimeFormatsUtcTests : IDisposable
     }
 
     // U-2: the marker is persisted, so a SECOND startup reading the same file does not run the offer
-    // again. Proven on the file rather than in memory, because a restart is the case that matters. [4]
+    // again. Proven on the file rather than in memory, because a restart is the case that matters.
     [Fact]
     public void SecondStartup_DoesNotRunTheOfferAgain()
     {
@@ -65,7 +65,7 @@ public sealed class AllowedTimeFormatsUtcTests : IDisposable
     }
 
     // U-3: an admin who narrowed the list to fewer formats is left alone. A stored list cannot say
-    // whether UTC was left out deliberately, so anything other than the untouched four is not touched. [4]
+    // whether UTC was left out deliberately, so anything other than the untouched four is not touched.
     [Fact]
     public void NarrowedList_IsLeftAsTheAdminSetIt()
     {

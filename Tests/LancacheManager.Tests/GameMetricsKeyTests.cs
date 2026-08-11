@@ -20,7 +20,7 @@ namespace LancacheManager.Tests;
 public class GameMetricsKeyTests
 {
     // -----------------------------------------------------------------------------------------
-    // The join contract: a download row and its detection row produce the same key. [10]
+    // The join contract: a download row and its detection row produce the same key.
     // -----------------------------------------------------------------------------------------
 
     [Theory]
@@ -85,7 +85,7 @@ public class GameMetricsKeyTests
         Assert.DoesNotContain("steam:", key, StringComparison.Ordinal);
 
         // Two named games in one service must not collapse into a single bucket, which is what
-        // keying them all on the app id alone would do. [11]
+        // keying them all on the app id alone would do.
         var sibling = GamesOnDiskCalculator.GetDownloadGameKey(null, null, service, gameName + " II");
         Assert.NotEqual(key, sibling);
     }
@@ -103,7 +103,7 @@ public class GameMetricsKeyTests
 
         // A download row can carry 0 rather than NULL for a named game. Testing only for NULL
         // would emit steam:0 here while the detection row emits named:blizzard, and the two
-        // figures for this game would never line up again. [12]
+        // figures for this game would never line up again.
         Assert.Equal("named:blizzard\u0001Diablo IV", key);
         Assert.NotEqual("steam:0", key);
         Assert.Equal(detectionKey, key);
@@ -122,7 +122,7 @@ public class GameMetricsKeyTests
 
         // A NULL name is not an empty name: `null != ""` is true, so the named branch still runs
         // and the name segment comes out empty. An IsNullOrEmpty test here would return steam:0
-        // and disagree with the detection side. [12]
+        // and disagree with the detection side.
         Assert.Equal("named:blizzard\u0001", key);
         Assert.NotEqual("steam:0", key);
         Assert.Equal(detectionKey, key);
@@ -176,7 +176,7 @@ public class GameMetricsKeyTests
     }
 
     // -----------------------------------------------------------------------------------------
-    // Identity-exact top-N: total each game before ranking it. [13]
+    // Identity-exact top-N: total each game before ranking it.
     // -----------------------------------------------------------------------------------------
 
     private sealed record GameBytesRow(string Service, long? GameAppId, string? EpicAppId, string? GameName, long TotalBytes);
@@ -269,7 +269,7 @@ public class GameMetricsKeyTests
 
         // Any fixed over-fetch reads the split game as several small rows and cuts them away
         // before the fold, so it reports the wrong second place and raises nothing. The number of
-        // rows a game splits into has no upper bound, so no multiplier makes this sound. [13]
+        // rows a game splits into has no upper bound, so no multiplier makes this sound.
         Assert.DoesNotContain(top, total => total.Key == "steam:99");
         Assert.Equal("steam:20", top[1].Key);
     }

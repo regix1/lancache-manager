@@ -65,7 +65,7 @@ public class ClientGroupsService : IClientGroupsService
 
         // Stamped from birth so every group a caller can hold a copy of carries one. A group whose
         // stamp is missing cannot be saved against a precondition, which would leave exactly the
-        // newest groups unprotected. [41]
+        // newest groups unprotected.
         group.UpdatedAtUtc = group.CreatedAtUtc;
 
         _context.ClientGroups.Add(group);
@@ -135,7 +135,7 @@ public class ClientGroupsService : IClientGroupsService
 
         // The unique index on ClientIp means an address another group holds cannot simply be inserted.
         // Reassigning it across groups is a separate decision with its own confirmation, so it is
-        // skipped and named back to the caller. [5]
+        // skipped and named back to the caller.
         var ownedElsewhere = addedIps.Count == 0
             ? new List<string>()
             : await _context.ClientGroupMembers
@@ -159,12 +159,12 @@ public class ClientGroupsService : IClientGroupsService
 
         // Membership is part of what a caller reads when it takes a copy of the group, so the stamp
         // has to move here too - otherwise two editors both hold a stamp that still looks current and
-        // the second one silently replaces the first one's addresses. [41]
+        // the second one silently replaces the first one's addresses.
         group.UpdatedAtUtc = StoredNow();
 
         // One save, so the removals and the insertions land together: EF Core wraps a single
         // SaveChanges in a transaction, and a half-applied membership would leave the group showing
-        // addresses the user removed alongside ones they never added. [4]
+        // addresses the user removed alongside ones they never added.
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(

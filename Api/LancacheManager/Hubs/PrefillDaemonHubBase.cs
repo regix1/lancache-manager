@@ -113,7 +113,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
             // Resolve the session type so guest/temporary containers get the manager-enforced lifetime
             // cap; only a guest is capped (PrefillDaemonServiceBase.cs:1633, 1815). Re-validate from the
             // cookie token (mirrors OnConnectedAsync); a session that cannot be resolved is treated as a
-            // guest so the cap is applied conservatively. [14]
+            // guest so the cap is applied conservatively.
             var rawToken = httpContext != null ? Security.SessionService.TokenFromCookie(httpContext) : null;
             var userSession = string.IsNullOrEmpty(rawToken) ? null : await _sessionService.ValidateSessionAsync(rawToken);
             var sessionType = userSession == null ? SessionType.Guest : userSession.SessionType;

@@ -32,7 +32,7 @@ const ROW_MODE_SEPARATE = 'separate';
 const SEARCH_DEBOUNCE_MS = 250;
 
 // 18rem = 288px = 8 rows at the 36px pick-row height. The picker scrolls and nothing
-// else, so this is the only thing bounding it. [14]
+// else, so this is the only thing bounding it.
 const PICKER_MAX_HEIGHT = '18rem';
 
 /** One i18n key per reason a name lookup came back with nothing, or null when nothing is to be
@@ -47,7 +47,7 @@ const lookupReasonKeys: Readonly<Record<ClientAddressLookupReason, string | null
 /**
  * What the name lookup last did. One value rather than a flag beside a message, so the button, the
  * line under it and the addresses it chose can never disagree about which name is being talked
- * about. [63]
+ * about.
  */
 type HostnameLookup =
   | { status: 'idle' }
@@ -64,7 +64,7 @@ interface PickerRow {
   /**
    * True for an address the install has no record of. It is offered because it was typed into the
    * box, not because anything has ever downloaded from it, so the row says so rather than sitting
-   * among the seen addresses looking identical to them. [63]
+   * among the seen addresses looking identical to them.
    */
   unseen: boolean;
 }
@@ -91,7 +91,7 @@ const matchAddresses = (
   // A whole address typed into the box asks for that address; it does not filter the ones already
   // listed. So it is offered first and offered even though nothing has been seen from it, which is
   // what lets a machine be named before it has ever downloaded anything. A pasted list works the
-  // same way, so a set of machines that are all still quiet gets named in one go. [63]
+  // same way, so a set of machines that are all still quiet gets named in one go.
   const typed = parseIpCandidates(search)
     .filter((ip) => isValidIpAddress(ip) && !knownIpSet.has(ip) && !currentMemberSet.has(ip))
     .filter((ip, index, all) => all.indexOf(ip) === index)
@@ -174,7 +174,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
    * The name each address was found under, so a chip for a machine that has never downloaded
    * anything reads as the machine rather than as a number nobody recognises. Kept here because a
    * forward lookup is the only thing that knows it: the reverse-name map is built from addresses
-   * the install has already seen. [63]
+   * the install has already seen.
    */
   const [lookupNames, setLookupNames] = useState<Record<string, string>>({});
 
@@ -199,7 +199,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   /**
    * The stamp of the copy this editing session is working from. Taken once when the session starts,
    * then moved forward by this session's own writes so a second Save is not turned down by the
-   * first one, and by a refusal so the retry is checked against what the server now holds. [41]
+   * first one, and by a refusal so the retry is checked against what the server now holds.
    */
   const expectedUpdatedAtRef = useRef<string | null>(null);
   /** Holds focus while a save disables the control the editor was on. */
@@ -304,7 +304,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
   // Where each offered address sits in `matchingRows`. Ranges are resolved and sliced in those
   // coordinates because `matchingRows` keeps the rows already chosen, while `pickerRows` drops a
-  // row the moment it is taken. [52]
+  // row the moment it is taken.
   const matchingIndexByAddress = useMemo(() => {
     const positions = new Map<string, number>();
     matchingRows.forEach((row, index) => positions.set(row.address, index));
@@ -321,9 +321,9 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
   // The range anchor is held by address, not by position: choosing a row takes it out of the
   // list, so an index kept from an earlier keystroke points at whichever row slid into that slot
-  // and extends the range over addresses the user never touched. [35]
+  // and extends the range over addresses the user never touched.
   // Looking it up in `pickerRows` removed it in the same commit that set it, which left the anchor
-  // permanently unresolved and every range silently reduced to a single toggle. [52]
+  // permanently unresolved and every range silently reduced to a single toggle.
   const anchorIndex = matchingIndexOf(lastTouchedAddress);
   // Exactly one row is reachable by Tab; the arrows move it from there. When the list
   // shrinks under the cursor and leaves it on an address another nickname owns, the
@@ -365,7 +365,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
   // Saving disables the search box and the submit button, and a browser blurs a control it
   // disables. The dialog only traps Tab while focus is on one of its descendants, so focus left on
-  // the document body would let the next Tab walk the page behind the modal. [55]
+  // the document body would let the next Tab walk the page behind the modal.
   useEffect(() => {
     if (!saving) return;
     const focused = document.activeElement;
@@ -472,7 +472,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   /**
    * Asks the network what a name resolves to and takes the addresses it gives back. This is the
    * other direction from the reverse names shown beside client addresses, and the one that works
-   * on a LAN whose DNS answers forward queries but publishes no reverse zone. [63]
+   * on a LAN whose DNS answers forward queries but publishes no reverse zone.
    */
   const handleLookupHostname = useCallback(async (): Promise<void> => {
     if (lookupCandidate === null) return;
@@ -611,7 +611,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
    * The debounce holds the filter back, so a key pressed inside that window would act on rows the
    * search text has already ruled out: Enter would take an address the user is not looking at, and
    * an arrow would focus a row that unmounts a moment later, dropping focus out of the dialog.
-   * Applying the typed text here settles the list first. Returns null when nothing was pending. [33]
+   * Applying the typed text here settles the list first. Returns null when nothing was pending.
    */
   const flushSearch = useCallback((): PickerRow[] | null => {
     if (searchInput === searchQuery) return null;
@@ -643,7 +643,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
         const flushed = flushSearch();
         if (flushed !== null) {
           // Those rows have not rendered yet, so focus is handed to the effect that runs once
-          // they have. [34]
+          // they have.
           pendingFocusRef.current = enabledIndexIn(
             flushed,
             step === 1 ? 0 : flushed.length - 1,
@@ -712,7 +712,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
         return;
       }
       // A nickname with no addresses renders a blank meta line in Management and drops off
-      // both stats surfaces, and the server does not refuse an empty list. [12]
+      // both stats surfaces, and the server does not refuse an empty list.
       if (pendingMemberIps.length === 0) {
         setError(t('modals.clientGroup.errors.needsOneAddress'));
         return;
@@ -724,7 +724,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           // The fields are written first and writing them moves the stamp, so this is the one
           // place the copy the session started from can still be compared against what the
           // server holds. A nickname someone else changed since is refused here, before this
-          // save can adopt their version of it. [41]
+          // save can adopt their version of it.
           const saved = await updateClientGroup(savedGroupId, {
             nickname: trimmedNickname,
             description: description.trim() || undefined,
@@ -739,9 +739,9 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           expectedUpdatedAtRef.current = saved.updatedAtUtc ?? null;
           if (removedIps.length > 0 || chosenList.length > 0) {
             // One request carries the whole desired membership, so a partial apply cannot
-            // leave earlier addresses committed with no way back. [3]
+            // leave earlier addresses committed with no way back.
             // Routed through the context so the saved membership reloads on its own instead of
-            // waiting for a socket echo that a disconnected tab never receives. [32]
+            // waiting for a socket echo that a disconnected tab never receives.
             const result = await setMembers(
               savedGroupId,
               pendingMemberIps,
@@ -750,7 +750,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             if (result.status === 'stale') {
               // The list is the whole membership, so saving it over a copy that moved would drop
               // whatever the other editor did with nothing to show for it. Take what the server
-              // now holds and let the editor look at their own pending changes again. [41]
+              // now holds and let the editor look at their own pending changes again.
               reseedFromServerCopy(result.currentGroup);
               setError(t('modals.clientGroup.errors.changedElsewhere'));
               return;
@@ -783,7 +783,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           if (created.status === 'rejected') {
             // Not one address could be taken, so the nickname was rolled back and there is
             // nothing on the server to edit: no id is kept, or the next Save would write to a
-            // group that does not exist. [42]
+            // group that does not exist.
             setChosenMany(rejected, false);
             setError(
               t('modals.clientGroup.errors.noAddressesAccepted', { addresses: rejected.join(', ') })
@@ -793,7 +793,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           if (rejected.length > 0) {
             setCreatedGroupId(created.id);
             // The dialog stays open on this one, and the next Save edits the nickname that now
-            // exists, so the session carries on from the copy the create handed back. [41]
+            // exists, so the session carries on from the copy the create handed back.
             expectedUpdatedAtRef.current = created.updatedAtUtc ?? null;
             setRejectedIps(rejected);
             setChosenMany(rejected, false);
@@ -852,7 +852,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     }
     // An install with an empty client list still has a working picker, because an address can be
     // typed straight into the box. The "nothing to choose from" state only stands while the box
-    // is not offering one. [63]
+    // is not offering one.
     if (addressableCount === 0 && matchingRows.length === 0) {
       return (
         <EmptyState

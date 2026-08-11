@@ -143,7 +143,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
     // Prefer the right of the swatch, fall back to its left. Neither side is
     // guaranteed to fit on a narrow screen, where a swatch close to the left edge
     // leaves less than the picker's width beside it, so the chosen edge is then
-    // pulled back onto the screen. [7]
+    // pulled back onto the screen.
     const desiredLeft =
       spaceOnRight > pickerWidth + 20
         ? rect.right + 8 // 8px gap to the right

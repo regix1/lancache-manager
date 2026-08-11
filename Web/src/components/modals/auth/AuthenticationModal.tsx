@@ -40,7 +40,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   // Set only when the server refuses the credentials, never when guest mode fails or the network
-  // does, because it decides whether the rotation notice is shown. [72]
+  // does, because it decides whether the rotation notice is shown.
   const [signInRefused, setSignInRefused] = useState(false);
   const [dataAvailable, setDataAvailable] = useState(false);
   const [checkingDataAvailability, setCheckingDataAvailability] = useState(false);
@@ -429,7 +429,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           {/* Rotating the API key ends every session at once, so after a rotation everyone arrives
               here together and reads the refusal above as a wrong password. The server answers every
               sign-in failure identically on purpose, so the key cannot be named as the cause - it is
-              named as the possibility, in copy of its own. [72] */}
+              named as the possibility, in copy of its own. */}
           {signInRefused && (
             <div className="mt-4 p-4 rounded-lg border bg-warning border-warning text-warning-text">
               <p className="text-sm">

@@ -117,7 +117,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
   // This picker collects a wall-clock date and time: handleDateClick builds the value from the
   // cell's own (year, month, day) plus the hour and minute below it, and isSelectedDate and
   // isBeforeMinDate read it back the same way. Today is taken from the same calendar, so a
-  // display setting that renders other timestamps on another clock cannot move the ring. [39]
+  // display setting that renders other timestamps on another clock cannot move the ring.
   const isToday = (day: number): boolean => {
     const now = new Date();
     return (
@@ -199,7 +199,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
   // The time half comes from the pickers above, so only the date half is formatted here.
   // It has to name the day whose cell is highlighted, and that cell was built in the browser's
   // own calendar, so both clock preferences are opted out of here: rendering the same instant on
-  // the UTC or the server clock can print the day before the one the user just clicked. [39]
+  // the UTC or the server clock can print the day before the one the user just clicked.
   const formatDate = (): string =>
     formatTimestamp(selectedDate, {
       useLocalTimezone: true,

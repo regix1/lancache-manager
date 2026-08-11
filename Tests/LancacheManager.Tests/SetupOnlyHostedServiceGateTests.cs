@@ -16,7 +16,7 @@ namespace LancacheManager.Tests;
 /// <c>ServiceScheduleRegistry</c> is constructed from.
 ///
 /// These build a bare <see cref="ServiceCollection"/> rather than the real host, so nothing here
-/// depends on a database, a configuration file or an environment. [31]
+/// depends on a database, a configuration file or an environment.
 /// </summary>
 public class SetupOnlyHostedServiceGateTests
 {

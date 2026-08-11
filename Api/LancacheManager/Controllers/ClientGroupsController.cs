@@ -17,7 +17,7 @@ namespace LancacheManager.Controllers;
 [ApiController]
 [Route("api/client-groups")]
 // The policy sits at class level so it also covers the list and by-id reads inherited from
-// CrudControllerBase, which EventsController inherits too and which stay guest-readable there. [52]
+// CrudControllerBase, which EventsController inherits too and which stay guest-readable there.
 [Authorize(Policy = "AccountHolder")]
 public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGroupDto, CreateClientGroupRequest, UpdateClientGroupRequest, long>
 {
@@ -160,13 +160,13 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         // An address the caller asked for that is not on the group afterwards did not make it - it is
         // already named by another group, or it was not an address. Naming it here is what stops a
         // group being created with fewer addresses than the user chose while the response reads as a
-        // clean success. [6]
+        // clean success.
         var rejectedIps = RejectedInitialIps(request.InitialIps, dto.MemberIps);
 
         // Not one of the addresses the caller chose could be taken, so keeping the group would leave a
         // nickname holding nothing they asked for behind a response that reads as a success. Removing
         // it puts them back where they started, with the addresses that blocked it named. A create
-        // that asked for no addresses is a different thing and still succeeds. [42]
+        // that asked for no addresses is a different thing and still succeeds.
         if (rejectedIps.Count > 0 && dto.MemberIps.Count == 0)
         {
             await _clientGroupsRepository.DeleteAsync(created.Id, ct);
@@ -221,7 +221,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         // The list is the whole membership, so saving one built from a copy someone else has since
         // changed erases their change with nothing to show for it. Handing the group back as it now
         // stands lets the caller start again from the current addresses without asking twice. A
-        // caller that sends no stamp is not tracking the version and saves as before. [41]
+        // caller that sends no stamp is not tracking the version and saves as before.
         if (request.ExpectedUpdatedAtUtc is { } expectedUpdatedAt && !IsUnchangedSince(group, expectedUpdatedAt))
         {
             return Conflict(new ClientGroupChangedResponse
@@ -247,7 +247,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         if (updated is null)
         {
             // A delete that landed between the save and this re-read leaves nothing to report,
-            // and a 500 would hide an outcome the caller can act on. [38]
+            // and a 500 would hide an outcome the caller can act on.
             return NotFound();
         }
 
@@ -255,7 +255,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
 
         // Membership decides how client stats rows are built in every time range, not just the live
         // one, so this goes out as a group update: the notification dispatch expires the whole
-        // dashboard batch before the event reaches any client, which a live-only expiry cannot do. [9]
+        // dashboard batch before the event reaches any client, which a live-only expiry cannot do.
         await _notifications.NotifyAllAsync(SignalREvents.ClientGroupUpdated, dto);
 
         return Ok(new SetMembersResponse { Group = dto, RejectedIps = rejectedIps });
@@ -298,7 +298,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         // write just produced. Checking it here, at the first write, is what lets it be compared
         // against the copy the editor started from. Handing the group back as it now stands lets the
         // caller start again from it without asking twice, and a caller that sends no stamp is not
-        // tracking the version and writes as before. [41]
+        // tracking the version and writes as before.
         if (request.ExpectedUpdatedAtUtc is { } expectedUpdatedAt && !IsUnchangedSince(group, expectedUpdatedAt))
         {
             return Conflict(new ClientGroupChangedResponse

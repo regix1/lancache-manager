@@ -9,7 +9,7 @@ namespace LancacheManager.Models;
 /// "utc" carries no 12/24 half because UTC has no 12-hour face worth offering, so it is one entry where
 /// the server and local clocks are two each. It lives here because the state defaults, the persisted
 /// defaults and the endpoint that validates an admin's choice all have to agree on it, and they drifted
-/// apart while each held its own copy. [8]
+/// apart while each held its own copy.
 /// </summary>
 public static class TimeFormats
 {

@@ -120,7 +120,7 @@ export function formatTimestamp(
     // A zone already settled on the UTC fallback skips straight to it. A schedule stores the zone
     // it fires in, and its preview formats up to 3700 candidate days per recompute, so retrying an
     // id this runtime rejects costs a thrown Intl construction and an identical warning per
-    // day. [11]
+    // day.
     if (isUnresolvableTimezone(targetTimezone)) {
       return date.toLocaleString(undefined, { ...formatOptions, timeZone: 'UTC' });
     }

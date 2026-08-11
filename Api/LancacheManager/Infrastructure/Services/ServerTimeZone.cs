@@ -9,7 +9,7 @@ namespace LancacheManager.Infrastructure.Services;
 /// actually resolve, and otherwise the machine's OWN zone. A flat "UTC" fallback is only true of a container started without
 /// TZ - it told a bare-metal install in New York that its server ran on UTC. The id always comes back in
 /// IANA form because that is what the browser and the schedule validator both read; a Windows machine
-/// names its zones differently and is translated here rather than at each reader. [13]
+/// names its zones differently and is translated here rather than at each reader.
 /// </summary>
 public static class ServerTimeZone
 {
@@ -17,7 +17,7 @@ public static class ServerTimeZone
     // have that zone, and this is asked on every status read and by every reader that formats a time, so a
     // name nothing resolves would otherwise pay that cost thousands of times over one long schedule
     // preview. Keyed on the configured text rather than held as a single answer, so two differently
-    // configured readers cannot be handed each other's zone. [11]
+    // configured readers cannot be handed each other's zone.
     private static readonly ConcurrentDictionary<string, string?> _configuredZones =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -42,12 +42,12 @@ public static class ServerTimeZone
     /// The IANA spelling of a configured zone id, or null when this runtime cannot find that zone at all.
     /// A name nothing resolves is worse than no name: it reaches every reader that formats a time and
     /// throws there instead, once per formatted instant. Settling it here means an unknown zone falls back
-    /// to the machine's own zone once, deterministically, rather than failing again at each reader. [11]
+    /// to the machine's own zone once, deterministically, rather than failing again at each reader.
     /// </summary>
     private static string? ResolvedConfiguredId(string zoneId)
     {
         // A configured id we cannot translate is kept as written: it is far more likely to be an IANA
-        // name this runtime simply does not map than a Windows name we should have caught. [12]
+        // name this runtime simply does not map than a Windows name we should have caught.
         var named = IanaId(zoneId, zoneId);
         return ScheduleTiming.ResolveTimeZone(named) is null ? null : named;
     }
@@ -72,14 +72,14 @@ public static class ServerTimeZone
     /// <summary>
     /// The IANA spelling of one zone id, falling back to <paramref name="whenUntranslatable"/> when this
     /// runtime cannot map it. Both the configured zone and the machine's own zone come through here so
-    /// they cannot end up disagreeing about how a zone is named. [1]
+    /// they cannot end up disagreeing about how a zone is named.
     /// </summary>
     public static string IanaId(string zoneId, string whenUntranslatable)
     {
         // UTC is spelled the same in both worlds and every reader parses it, but the translation
         // renames it to "Etc/UTC". A schedule stores the zone it was saved with and is compared to
         // this id by name, so the rename would make every schedule saved on a UTC server read as
-        // overriding a zone it names exactly. [65]
+        // overriding a zone it names exactly.
         if (string.Equals(zoneId, "UTC", StringComparison.OrdinalIgnoreCase))
         {
             return "UTC";

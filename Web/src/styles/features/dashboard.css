@@ -23,7 +23,7 @@
 
 /* One heading voice for the whole dashboard. The panel title is used by Downloads, Service
    Analytics, Peak Usage Hours, Cache Growth and Top Clients; the card title by the stat cards.
-   They share the same size, weight, case, tracking and colour, so they share one rule. [3] */
+   They share the same size, weight, case, tracking and colour, so they share one rule. */
 .dash-panel-title,
 .dash-card-title {
   margin: 0;
@@ -36,7 +36,7 @@
 
 /* An icon that sits inside the heading is part of the heading, so it is sized off the
    heading's own text instead of a fixed utility class. Anything that changes the title
-   size carries the icon with it. [33] */
+   size carries the icon with it. */
 .dash-panel-title svg {
   width: 1em;
   height: 1em;
@@ -48,7 +48,7 @@
    24px row the stat cards reserve for it still holds. Both title kinds are listed because they
    are one heading voice at one size, so their icons have to match. The glyph stops at 0.875rem
    rather than 1em because a question mark inside a circle loses its shape below that, unlike the
-   plain marks that sit inside the heading. [33] */
+   plain marks that sit inside the heading. */
 .dash-panel-title ~ button > svg,
 .dash-card-title ~ button > svg {
   width: 0.875rem;

@@ -1102,7 +1102,7 @@ public abstract class DaemonClientBase : IDaemonClient
     {
         // 10 minutes, same as get-cdn-info below: a session whose metadata cache is missing or predates
         // artwork support refetches the whole library one HTTPS call at a time, which on a few hundred
-        // owned titles runs well past the 5 minute default. [13]
+        // owned titles runs well past the 5 minute default.
         var response = await SendCommandAsync("get-owned-games",
             timeout: TimeSpan.FromMinutes(10),
             cancellationToken: cancellationToken);

@@ -83,8 +83,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
     // Don't connect without a session. The hub authenticates from the session cookie, which is
     // HttpOnly and so unreadable here, and this avoids repeated unauthenticated negotiate/handshake
-    // churn. checkAuth/login/logout keep isAuthenticated in step with whether that cookie names a
-    // live session.
+    // churn. checkAuth, login, logout and the session-revocation handlers in AuthContext keep
+    // isAuthenticated in step with whether that cookie names a live session.
     if (!authService.isAuthenticated) {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);

@@ -335,7 +335,7 @@ public class AccountCredentialsRequest
     /// cannot be reached with a session. It travels in the body rather than the X-Api-Key header
     /// because the header path has been narrowed to the two documentation routes and no longer
     /// authorizes anything else; a body field is the endpoint's own check and was unaffected by the
-    /// narrowing. Endpoints reached with a session ignore it. [32][35]
+    /// narrowing. Endpoints reached with a session ignore it.
     /// </summary>
     public string ApiKey { get; set; } = string.Empty;
 }

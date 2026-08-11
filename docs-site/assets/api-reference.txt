@@ -31,7 +31,7 @@ Sign in, sessions, API keys, and per-user settings.
 Access: requires a signed-in session
 
 Lists the accounts the caller may see: every account for an administrator, and every account
-that is not an administrator for a user. [63][66]
+that is not an administrator for a user.
 
 Response 200 (inline object): (no fields)
 
@@ -40,7 +40,7 @@ Response 200 (inline object): (no fields)
 Access: requires a signed-in session
 
 Reads one account, through the same query the list is built from. An account the caller may
-not see answers as one that does not exist. [64]
+not see answers as one that does not exist.
 
 Parameters: `id` (path): string
 Response 200 (`AccountResponse`): `id?: string`, `username?: string`, `role?: SessionType`, `isMainAdmin?: boolean`, `isDisabled?: boolean`, `createdAtUtc?: string`, `lastLoginAtUtc?: string?`

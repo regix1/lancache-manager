@@ -26,7 +26,7 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class ScheduledPrefillServiceTests
 {
-    // ---- Criterion 5: only genuine per-service failures report success:false ----
+    // ---- Only genuine per-service failures report success:false ----
 
     [Fact]
     public void EvaluateRunOutcome_ReportsSuccess_WhenServicesRanAndNoneFailed()
@@ -125,7 +125,7 @@ public class ScheduledPrefillServiceTests
         Assert.Equal(0d, ScheduledPrefillRunGates.ComputeServiceFraction(appsCompleted: 2, totalApps: 0));
     }
 
-    // ---- Criteria 3/4: saving a config anchors first-run so the next poll is NOT instant ----
+    // ---- Saving a config anchors first-run so the next poll is NOT instant ----
     // The reported bug end-to-end: SetScheduledPrefillConfig persisted the DTO but never wrote a
     // per-service last-run, so the next 1-minute poll saw null and ran the service immediately. This
     // exercises the REAL StateService save path over a throwaway temp state dir and asserts the anchor
@@ -405,7 +405,7 @@ public class ScheduledPrefillServiceTests
         public override bool IsDockerSocketAvailable() => false;
     }
 
-    // ---- Criterion 3: DI-boot smoke test for the auth-orchestrator rip-out ----
+    // ---- DI-boot smoke test for the auth-orchestrator rip-out ----
     // After removing the dead auth-orchestrator dependency from the ScheduledPrefillService
     // constructor and from Program.cs DI, the container must still build and the hosted service must
     // activate WITHOUT that (now deleted) dependency. ValidateOnBuild proves the constructor's

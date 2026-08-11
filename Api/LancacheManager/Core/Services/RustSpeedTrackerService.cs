@@ -372,7 +372,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                 // own, and nothing about that throws. Without a wait on this path the loop
                 // respawns the tracker as fast as a process can be started, so a child that dies
                 // immediately (an unreachable database, for example) burns a core and floods the
-                // log instead of backing off. [30]
+                // log instead of backing off.
                 consecutiveFailures = DateTime.UtcNow - startedAt >= _healthyRunDuration
                     ? 1
                     : consecutiveFailures + 1;

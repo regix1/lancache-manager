@@ -46,7 +46,7 @@ public class DashboardBatchService : IDashboardBatchService
     // constructing a Lazy is inert, and only the ONE instance that actually gets stored into the
     // dictionary ever has its factory invoked. Whichever caller observes the flight complete
     // (success or failure) retires it via the atomic key+value TryRemove, so a newer flight for
-    // the same key is never removed early and a cached failure is never replayed forever. [31]
+    // the same key is never removed early and a cached failure is never replayed forever.
     private readonly ConcurrentDictionary<string, Lazy<Task<DashboardBatchResponse>>> _inflight = new();
 
     public DashboardBatchService(
@@ -105,7 +105,7 @@ public class DashboardBatchService : IDashboardBatchService
         // other callers. Anything else - a foreign cancellation or an ordinary fault - retires
         // the entry (a Lazy with ExecutionAndPublication caches a thrown exception forever
         // otherwise) and either rethrows, if this caller owns the failed flight, or loops back
-        // to mint its own fresh attempt, bounding every caller to at most two awaited flights. [31]
+        // to mint its own fresh attempt, bounding every caller to at most two awaited flights.
         const int MaxContestedFlightAttempts = 2;
         var attempt = 0;
 
@@ -123,7 +123,7 @@ public class DashboardBatchService : IDashboardBatchService
                 // Continued contention kept handing this caller someone else's flight that
                 // then failed; stop contending for the shared slot and run this caller's own
                 // attempt directly, unregistered, so it is guaranteed to terminate instead of
-                // looping under pathological contention. [31]
+                // looping under pathological contention.
                 return await RunSingleFlightAsync(
                     cacheKey, startTime, endTime, eventIdList,
                     hiddenClientIps, statsExcludedOnlyIps, evictedMode,
@@ -157,7 +157,7 @@ public class DashboardBatchService : IDashboardBatchService
                 {
                     // This caller's own fresh flight failed; propagate directly instead of
                     // looping forever on a repeatable fault, matching the pre-single-flight
-                    // behavior where each waiter's own compute attempt threw straight up. [31]
+                    // behavior where each waiter's own compute attempt threw straight up.
                     throw;
                 }
                 // A flight this caller only joined ended for a reason other than its own
@@ -236,7 +236,7 @@ public class DashboardBatchService : IDashboardBatchService
             detectionCacheGeneration == Volatile.Read(ref _detectionCacheGeneration)
             && (!isLive || liveCacheGeneration == Volatile.Read(ref _liveCacheGeneration));
         // A response with a failed (null) section would otherwise be served as-is for the
-        // whole cache window; skipping the write makes the next request recompute. [5]
+        // whole cache window; skipping the write makes the next request recompute.
         if (generationsAreCurrent && !HasFailedSection(response))
         {
             _memoryCache.Set(cacheKey, response, cacheOptions);
@@ -248,7 +248,7 @@ public class DashboardBatchService : IDashboardBatchService
     /// <summary>
     /// Serves a cache hit. Cache file scan stats (totalFiles, cacheScanTimestampUtc) change
     /// independently of traffic aggregates, so mount + persisted scan are re-read on every
-    /// hit - onto a copy, because the cached instance is shared by concurrent requests. [7]
+    /// hit - onto a copy, because the cached instance is shared by concurrent requests.
     /// When the re-read fails, the copy keeps the cached section instead of reporting a
     /// failure for data the cache still holds; the entry expires within its window and the
     /// recompute path surfaces any persistent failure.
@@ -292,7 +292,7 @@ public class DashboardBatchService : IDashboardBatchService
     // ───────────────────── Sub-query implementations ─────────────────────
 
     // Deliberately takes no CancellationToken: the underlying call reads mount metadata and
-    // small persisted state files, not the database, and completes in milliseconds. [9]
+    // small persisted state files, not the database, and completes in milliseconds.
     private async Task<CacheInfo> GetCacheInfoAsync()
     {
         return await _cacheService.GetCacheInfoAsync();
@@ -342,7 +342,7 @@ public class DashboardBatchService : IDashboardBatchService
 
         // Empty unless the hostname lookup is on, in which case a row with no nickname is labelled
         // with the machine's own name instead of its address. Only the addresses that will be
-        // displayed are resolved, so the busiest clients are the ones that get names. [33]
+        // displayed are resolved, so the busiest clients are the ones that get names.
         var ipToHostname = (await _clientHostnameService.ResolveAsync(
             ClientStatsAggregationHelper.TopClientIpsByTraffic(ipAggregates, effectiveLimit), ct)).Hostnames;
 
@@ -764,7 +764,7 @@ public class DashboardBatchService : IDashboardBatchService
                 // Taken from the recorded instants rather than from the server-local dates above.
                 // A local calendar date stamped with a zero offset is out by the server's own
                 // offset, and the widget checks these bounds against the real start and end of
-                // today to decide whether to mark the current hour at all. [8]
+                // today to decide whether to mark the current hour at all.
                 var recorded = await query
                     .GroupBy(d => 1)
                     .Select(g => new
@@ -789,7 +789,7 @@ public class DashboardBatchService : IDashboardBatchService
         // Every hour this endpoint reports is the hour the server recorded for the download, which
         // is what StartTimeLocal holds. The widget reading it marks the current hour and checks
         // whether today is in range on that same clock; pairing a reader-chosen clock with these
-        // buckets highlights a bucket that was filled at a different hour. [8]
+        // buckets highlights a bucket that was filled at a different hour.
         var hourlyData = await filteredQuery
             .GroupBy(d => d.StartTimeLocal.Hour)
             .Select(g => new HourlyActivityItem
@@ -981,7 +981,7 @@ public class DashboardBatchService : IDashboardBatchService
         catch (Exception ex) when (IsCancellation(ex, ct))
         {
             // A cancelled request is not a failed sub-query; soft-nulling it here would let a
-            // client abort masquerade as missing data. [8]
+            // client abort masquerade as missing data.
             _logger.LogInformation("sub-query '{Name}' cancelled", name);
             throw new OperationCanceledException($"sub-query '{name}' was cancelled", ex, ct);
         }

@@ -85,7 +85,7 @@ public class GamesOnDiskCalculatorTests : IDisposable
         };
 
     // -----------------------------------------------------------------------------------------
-    // Criterion 6a: attribution against real on-disk files yields a present, positive keyed entry
+    // Attribution against real on-disk files yields a present, positive keyed entry
     // for the named branch, across all three named services (no per-service hardcoding).
     // -----------------------------------------------------------------------------------------
 
@@ -118,7 +118,7 @@ public class GamesOnDiskCalculatorTests : IDisposable
     }
 
     // -----------------------------------------------------------------------------------------
-    // Criterion 6b: reproducing round-trip test. Against the unfixed
+    // Reproducing round-trip test. Against the unfixed
     // RefreshDiskSummaryAsync (bare TryGetValue(...) ?? 0), this FAILS because TotalSizeBytes
     // is clobbered to 0. After the fix, a non-evicted game with CacheFilesFound > 0 whose paths
     // don't resolve on disk right now retains its persisted (Rust-computed) size.
@@ -290,7 +290,7 @@ public class GamesOnDiskCalculatorTests : IDisposable
     }
 
     // -----------------------------------------------------------------------------------------
-    // Criterion 6c: regression lock. Evicted rows still force-zero regardless of persisted size,
+    // Regression lock. Evicted rows still force-zero regardless of persisted size,
     // untouched by the retention guard.
     // -----------------------------------------------------------------------------------------
 

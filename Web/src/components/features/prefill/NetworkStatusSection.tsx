@@ -15,7 +15,7 @@ interface HintDetailsProps {
 }
 
 /* Long informational copy folds behind this disclosure so the check rows keep their
-   rhythm; warnings and errors always render in place instead. [21] */
+   rhythm; warnings and errors always render in place instead. */
 function HintDetails({ children }: HintDetailsProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);

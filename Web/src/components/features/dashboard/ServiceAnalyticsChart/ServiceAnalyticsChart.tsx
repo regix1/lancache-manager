@@ -40,7 +40,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     const hasBreakdownList = !isCompareTab;
     // Five labelled tabs do not fit a phone-width panel, so the view picker becomes a dropdown
     // below the same breakpoint the stylesheet uses. Swapped in JS rather than rendered twice
-    // and hidden, so only one picker exists in the accessibility tree. [31]
+    // and hidden, so only one picker exists in the accessibility tree.
     const isPhone = useMediaQuery('(max-width: 639.98px)');
 
     // Call onExpandedChange initially and when showList changes
@@ -266,7 +266,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
 
           {/* View picker first, then the actions. The Compare view has no breakdown list, so its
               toggle is not rendered at all, and the tab strip keeps the same left edge on all five
-              views. [27] The toggle carries the auto margin, so it and the service picker sit
+              views. The toggle carries the auto margin, so it and the service picker sit
               against the right edge once the header stacks and the row has room to spare. */}
           <div className="service-analytics-controls">
             {isPhone ? (

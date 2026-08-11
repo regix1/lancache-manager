@@ -18,12 +18,12 @@ public class IdentityAuditEntry
 
     /// <summary>
     /// The account that performed the event, or null when the caller has no account row. A request
-    /// carrying only an API key is authenticated without one. [29c]
+    /// carrying only an API key is authenticated without one.
     /// </summary>
     public Guid? PerformedByAccountId { get; set; }
 
     /// <summary>
-    /// The session the event was performed from, or null when the caller has no session row. [29c]
+    /// The session the event was performed from, or null when the caller has no session row.
     /// </summary>
     public Guid? PerformedBySessionId { get; set; }
 

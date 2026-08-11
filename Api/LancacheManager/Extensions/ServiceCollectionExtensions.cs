@@ -29,7 +29,7 @@ public static class ServiceCollectionExtensions
     /// only the hosted registration that starts the loop is withheld. Note that a service withheld
     /// here is also absent from the IEnumerable&lt;IHostedService&gt; that ServiceScheduleRegistry is
     /// built from, so it does not appear on the Schedules page until the restart that completing
-    /// setup already requires. [31]
+    /// setup already requires.
     /// </summary>
     public static IServiceCollection AddDatabaseBackedHostedService<T>(
         this IServiceCollection services,

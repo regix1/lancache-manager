@@ -174,7 +174,7 @@ public class ScheduleController : ControllerBase
     /// <remarks>
     /// Used by the notification recovery pipeline to rehydrate an in-progress card after a page
     /// refresh. It reports a run only an account holder can start or configure, so it carries the
-    /// same policy as the rest of the schedule surface rather than being readable by a guest. [52]
+    /// same policy as the rest of the schedule surface rather than being readable by a guest.
     /// </remarks>
     [HttpGet("{serviceKey}/run-status")]
     [Authorize(Policy = "AccountHolder")]

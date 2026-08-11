@@ -43,7 +43,7 @@ public sealed class AccountSessionLinkTests : IDisposable
 
     /// <summary>
     /// The whole point of the column: an account's live sessions can be found and revoked. Every account
-    /// write that changes an identity - the role, the disabled flag, the delete - goes through this. [28]
+    /// write that changes an identity - the role, the disabled flag, the delete - goes through this.
     /// </summary>
     [Fact]
     public async Task RevokingAnAccountsSessions_RevokesThatAccountsAndNoOthers()
@@ -76,7 +76,7 @@ public sealed class AccountSessionLinkTests : IDisposable
 
     /// <summary>
     /// The criterion is about what the next request carries, not about a column. A revoked session stops
-    /// validating, so the request after the change arrives with no session and no role at all. [28]
+    /// validating, so the request after the change arrives with no session and no role at all.
     /// </summary>
     [Fact]
     public async Task AfterTheAccountsSessionsAreRevoked_ItsTokenNoLongerValidates()
@@ -96,7 +96,7 @@ public sealed class AccountSessionLinkTests : IDisposable
     /// <summary>
     /// Revoking an account's sessions and deleting the account row are separate writes, so a fault between
     /// them leaves a live session pointing at an account that is gone. It has to be rejected rather than
-    /// carrying on with the role the deleted account had. [29]
+    /// carrying on with the role the deleted account had.
     /// </summary>
     [Fact]
     public async Task SessionWhoseAccountRowWasDeleted_IsRejected()
@@ -118,9 +118,9 @@ public sealed class AccountSessionLinkTests : IDisposable
     }
 
     /// <summary>
-    /// The dangerous failure for criterion 29 is a silent downgrade rather than a rejection: a deleted
+    /// The dangerous failure here is a silent downgrade rather than a rejection: a deleted
     /// admin who keeps a working guest session has been logged in, not logged out. Nothing on the reject
-    /// path may rewrite the session or mint a replacement. [29]
+    /// path may rewrite the session or mint a replacement.
     /// </summary>
     [Fact]
     public async Task SessionWhoseAccountRowWasDeleted_DoesNotBecomeAGuest()
@@ -150,7 +150,7 @@ public sealed class AccountSessionLinkTests : IDisposable
     /// A disable is expected to revoke the account's sessions, and RevokeAccountSessionsAsync is there to
     /// do it, but nothing outside these tests calls it yet. Validation reads the flag off the account row
     /// as well, so a session belonging to a disabled account stops working on its next request whether or
-    /// not the disable remembered to revoke it. [29]
+    /// not the disable remembered to revoke it.
     /// </summary>
     [Fact]
     public async Task SessionWhoseAccountWasDisabled_IsRejected()
@@ -174,7 +174,7 @@ public sealed class AccountSessionLinkTests : IDisposable
 
     /// <summary>
     /// The other half of the flag. An account that is present and not disabled has to keep validating, or
-    /// the rejection above would be reading the row rather than the flag. [29]
+    /// the rejection above would be reading the row rather than the flag.
     /// </summary>
     [Fact]
     public async Task SessionWhoseAccountIsEnabled_StillValidates()

@@ -371,7 +371,7 @@ public class CorruptionDetectionService
             var datasources = _datasourceService.GetDatasources();
             // The same answer /api/system/config publishes, so scan times read on the clock the rest of
             // the app shows. Reading TZ straight off the environment missed the TimeZone setting entirely
-            // and fell back to UTC on a bare-metal host that had neither. [13]
+            // and fell back to UTC on a bare-metal host that had neither.
             var timezone = ServerTimeZone.IanaId(_configuration);
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
             var scanStartedUtc = FormatScanStartedUtc(startedAtUtc);

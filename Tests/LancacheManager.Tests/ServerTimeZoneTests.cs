@@ -90,7 +90,7 @@ public sealed class ServerTimeZoneTests
     // T-9: a configured id no runtime can resolve is not passed on. Kept as written it reaches every reader
     // that formats a time and throws there instead, once per formatted instant, and a schedule preview walks
     // 3,700 days. The answer is the machine's own zone, which is what an install that configured nothing
-    // gets, and it must be resolvable. [11]
+    // gets, and it must be resolvable.
     [Fact]
     public void UnresolvableConfiguredZone_FallsBackToAZoneThisMachineHas()
     {

@@ -19,16 +19,16 @@ import type { Event } from '../../../types';
 // Gap between the anchor day column and the popover's near edge, preserved from
 // the original percentage-based offset.
 const EXPANDED_DAY_POPOVER_GAP_PX = 8;
-// Minimum distance from the viewport edge, matching the other popovers in this app. [18]
+// Minimum distance from the viewport edge, matching the other popovers in this app.
 const EXPANDED_DAY_POPOVER_GUTTER_PX = 12;
 // Pre-measurement guess, matching the className's max-w-[260px] below; the real
-// width is measured off the rendered node once it exists. [18]
+// width is measured off the rendered node once it exists.
 const EXPANDED_DAY_POPOVER_MAX_WIDTH_PX = 260;
 
 // Anchors the expanded-day popover near its day column, then clamps the result to
 // the viewport. `rowRect` and `viewportWidth` are viewport-space measurements; the
 // return value is converted back to the row-local `left` the absolutely positioned
-// popover needs, since it stays inside the week row rather than being portalled. [18]
+// popover needs, since it stays inside the week row rather than being portalled.
 function computeExpandedDayPopoverLeft(
   isRightSide: boolean,
   adjustedIndex: number,
@@ -190,7 +190,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
   // a click on a day the modal was still happily accepting. currentMonth is itself a browser-local
   // date, so both sides of the comparison speak the same calendar and the numbers compare directly.
   // getEventsForDay keeps binning events with getDateInTimezone in the display timezone, because
-  // that is what decides which cell an event belongs in. [62]
+  // that is what decides which cell an event belongs in.
   const isToday = (day: number): boolean => {
     const today = new Date();
 
@@ -367,7 +367,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
     useUtcTimezone
   ]);
 
-  // Reset the measured position when the popover closes, matching CalendarSettingsPopover. [18]
+  // Reset the measured position when the popover closes, matching CalendarSettingsPopover.
   useEffect(() => {
     if (expandedDay === null) {
       setPopoverLeft(null);
@@ -376,7 +376,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
 
   // Position the expanded-day popover before paint, anchored near its day column and
   // clamped to the viewport. Runs before the popover's actual width is known, so it
-  // uses the max-width guess; the effect below corrects it once the node is measured. [18]
+  // uses the max-width guess; the effect below corrects it once the node is measured.
   useLayoutEffect(() => {
     if (!expandedDay || !weekRowRef.current) return;
 
@@ -405,7 +405,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
   }, [expandedDay, weekRows, settings.showWeekNumbers]);
 
   // Re-measure once the popover has actually rendered, correcting the initial
-  // max-width guess for content that renders narrower than 260px. [18]
+  // max-width guess for content that renders narrower than 260px.
   useLayoutEffect(() => {
     if (!expandedDay || popoverLeft === null || !weekRowRef.current || !popoverRef.current) return;
 

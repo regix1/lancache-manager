@@ -17,7 +17,7 @@ namespace LancacheManager.Tests;
 /// <summary>
 /// What the authentication ticket carries, for the two callers whose ticket changed: a request holding
 /// only an X-Api-Key, which used to authenticate as an admin while carrying no session at all, and a
-/// session belonging to an account, whose ticket now names it. [11, 25]
+/// session belonging to an account, whose ticket now names it.
 /// </summary>
 // Shares the process-wide cached key session (SessionService.cs:50) with the other classes in this
 // collection, so it runs where they cannot run beside it.
@@ -51,7 +51,7 @@ public sealed class SessionTicketTests : IDisposable
 
     /// <summary>
     /// The half of the key path that was missing: the request now carries the session every hand-rolled
-    /// check reads, instead of being an admin to the policies and nobody to GetUserSession(). [11]
+    /// check reads, instead of being an admin to the policies and nobody to GetUserSession().
     /// </summary>
     [Fact]
     public async Task KeyOnlyRequest_CarriesASessionThatExistsInTheDatabase()
@@ -78,7 +78,7 @@ public sealed class SessionTicketTests : IDisposable
     /// ⭐The criterion is not "it stopped throwing". UserPreferences.SessionId is a foreign key to
     /// UserSession.Id, so an id that resolves to no row fails the first write the caller makes rather
     /// than the read that produced it. The id the key path hands out has to own a row; the two ids it
-    /// could have handed out instead must not be able to. [11]
+    /// could have handed out instead must not be able to.
     /// </summary>
     [Fact]
     public async Task OnlyASessionIdThatResolvesCanOwnAPreferencesRow()
@@ -98,7 +98,7 @@ public sealed class SessionTicketTests : IDisposable
     /// <summary>
     /// Authentication runs on every request, so the key branch runs on every request carrying the
     /// header. A scraper polling with the key would add a session row per scrape if the handler minted
-    /// one instead of resolving the shared one. [11]
+    /// one instead of resolving the shared one.
     /// </summary>
     [Fact]
     public async Task RepeatedKeyRequests_ReuseOneStoredSession()
@@ -122,7 +122,7 @@ public sealed class SessionTicketTests : IDisposable
     /// <summary>
     /// The input that reaches the null answer: the key is right and the database is not there. The
     /// request keeps the authentication its key earned, exactly as it did before a session was attached
-    /// to this path, rather than an outage turning a valid key into a 401. [11]
+    /// to this path, rather than an outage turning a valid key into a 401.
     /// </summary>
     [Fact]
     public async Task DatabaseThatCannotAnswer_LeavesTheKeyCallerAuthenticated()
@@ -138,7 +138,7 @@ public sealed class SessionTicketTests : IDisposable
     }
 
     /// <summary>
-    /// A wrong key is still refused, and refusing it must not leave a session behind. [11]
+    /// A wrong key is still refused, and refusing it must not leave a session behind.
     /// </summary>
     [Fact]
     public async Task WrongKey_IsRefusedAndAttachesNoSession()
@@ -159,7 +159,7 @@ public sealed class SessionTicketTests : IDisposable
     /// The right key on an ordinary route authenticates nobody. The header is how a script used to be
     /// an admin on all 271 routes, with no session behind it and nothing to revoke; it now reaches the
     /// API reference and its document only. No session row is written either, so the ordinary route
-    /// does not even resolve the shared key session on its way to refusing the caller. [73]
+    /// does not even resolve the shared key session on its way to refusing the caller.
     /// </summary>
     [Fact]
     public async Task KeyOnAnOrdinaryRoute_AuthenticatesNobody()
@@ -180,7 +180,7 @@ public sealed class SessionTicketTests : IDisposable
     /// <summary>
     /// The account behind the session reaches the ticket, and the session type is that account's role.
     /// A user is used rather than an admin because admin is the enum's zero value, so an id that never
-    /// arrived and a role that was never copied would both still read as admin. [25]
+    /// arrived and a role that was never copied would both still read as admin.
     /// </summary>
     [Fact]
     public async Task TicketForAnAccountSession_NamesTheAccountAndItsRole()
@@ -201,7 +201,7 @@ public sealed class SessionTicketTests : IDisposable
     /// <summary>
     /// A guest, an API-key caller and the disabled-authentication session all run without an account.
     /// The claim is absent for them rather than carrying a placeholder, so nothing downstream has to
-    /// know which value means "no account". [25]
+    /// know which value means "no account".
     /// </summary>
     [Fact]
     public async Task TicketForASessionWithNoAccount_CarriesNoAccountId()
@@ -284,7 +284,7 @@ public sealed class SessionTicketTests : IDisposable
 
             // The key authenticates on the API reference and its document and nowhere else, so the
             // facts about what the key path carries are asked on a path where the key path runs.
-            // The route that stays open is asserted below rather than assumed here. [73]
+            // The route that stays open is asserted below rather than assumed here.
             context.Request.Path = "/openapi/v1.json";
         }
 

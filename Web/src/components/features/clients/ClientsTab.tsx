@@ -144,7 +144,7 @@ const ClientsTab: React.FC = () => {
 
   // Both directions stay visible as one 40px control, so switching is one click and the
   // current direction reads off the toolbar without opening anything. The arrows are the
-  // control itself, and each segment carries its own tooltip for the name. [23]
+  // control itself, and each segment carries its own tooltip for the name.
   const directionOptions = useMemo(
     () => [
       {

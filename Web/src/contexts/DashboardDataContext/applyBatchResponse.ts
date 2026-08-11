@@ -51,7 +51,7 @@ export function buildRangeKey(startTime?: number, endTime?: number, eventId?: nu
  * Applies a batch response to the previous slices under the wire contract:
  * null = the sub-query failed server-side, while an empty collection or a
  * cacheSnapshot with hasData:false is a successful result (live mode returns
- * hasData:false rather than null) and always applies. [12]
+ * hasData:false rather than null) and always applies.
  *
  * A failed time-range-dependent section keeps the previous value only when the
  * fetch targets the same range as the displayed data; on a range change the

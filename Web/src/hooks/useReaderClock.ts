@@ -9,7 +9,7 @@ import type { ReaderClock } from '@utils/dateTimeFormat';
  * leaves the third to module state renders the clock the reader has just switched away from, and
  * then stops changing. `refreshKey` is a dependency for the same reason it is one in
  * useFormattedDateTime - a save that echoes the flags back unchanged still has to reach the
- * formatters. [17]
+ * formatters.
  */
 export const useReaderClock = (): ReaderClock => {
   const { useLocalTimezone, useUtcTimezone, use24HourFormat, refreshKey } = useTimezone();

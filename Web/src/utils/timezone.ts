@@ -60,7 +60,7 @@ export function getEffectiveTimezone(useLocalTimezone?: boolean, useUtc?: boolea
  * is stateless once built, so sharing one across calls is safe.
  *
  * Only a formatter that constructed successfully is stored. An id Intl rejects throws before the
- * write, so the failure is never cached and the caller's fallback still runs. [64]
+ * write, so the failure is never cached and the caller's fallback still runs.
  */
 const zoneFormatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -81,7 +81,7 @@ function formatterForTimezone(
  * Zone ids this runtime could not resolve. The fallback to UTC is decided once per id: the callers
  * below run in loops, and the custom schedule preview walks up to 3700 candidate days per recompute
  * on every keystroke, so retrying a bad id costs one thrown Intl construction and one identical
- * console warning per day. Recording the id keeps both at one for the life of the tab. [11]
+ * console warning per day. Recording the id keeps both at one for the life of the tab.
  */
 const unresolvableZones = new Set<string>();
 
@@ -113,7 +113,7 @@ export function canResolveTimezone(timezone: string): boolean {
  * Split a moment into parts in a named zone, degrading to UTC when the runtime does not know the
  * id. Intl throws on construction for an id it cannot resolve, and these two readers are called
  * straight from render bodies, so a zone spelled in a form the browser rejects would otherwise
- * take the page down where formatTimestamp merely warns and carries on. [22]
+ * take the page down where formatTimestamp merely warns and carries on.
  */
 function partsInTimezone(
   date: Date,

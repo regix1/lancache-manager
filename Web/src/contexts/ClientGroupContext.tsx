@@ -34,7 +34,7 @@ const CLIENT_GROUP_EVENTS: readonly SignalREventName[] = [
 /**
  * Every load builds a fresh array, so an unchanged list would still hand each consumer a new
  * identity and re-render every downloads row. Keeping the previous array when nothing moved holds
- * `getGroupForIp` and the provider value stable across a routine refetch. [13]
+ * `getGroupForIp` and the provider value stable across a routine refetch.
  */
 const sameClientGroups = (previous: ClientGroup[], next: ClientGroup[]): boolean => {
   if (previous.length !== next.length) return false;
@@ -70,7 +70,7 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
     onStarted: () => {
       loadStartedAtRef.current = Date.now();
       // Only a list that has never painted may be swapped for a spinner; every later load leaves
-      // the rows on screen. [11]
+      // the rows on screen.
       beginLoad(true);
     },
     onLoaded: (groups: ClientGroup[]) => {
@@ -199,7 +199,7 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
       const changedAt = Date.now();
       scheduleReload(() => {
         // A change made in this tab is already covered by the reload its own request fired, so
-        // its echo would fetch the same rows a second time. [10]
+        // its echo would fetch the same rows a second time.
         if (loadStartedAtRef.current > changedAt) return;
         void load(true);
       });

@@ -103,7 +103,7 @@ public class UserPreferencesService
             // A guest can send only its own fields. Existing administrator-owned columns are left
             // unmodified in the context that performs the write; for a first insert, redaction supplies
             // their empty values. Keeping this decision here closes the read-then-write window in the
-            // controller where an administrator could commit newer values between the two calls. [19]
+            // controller where an administrator could commit newer values between the two calls.
             RedactAdminFields(preferencesDto);
         }
 
@@ -112,7 +112,7 @@ public class UserPreferencesService
         // row the winner just created, so both callers are answered with what is stored instead of one
         // being handed an unhandled unique-key error. Npgsql does not treat a unique violation as
         // transient, so the connection retry policy never covers this. Same shape as the per-key write
-        // loop below. [12]
+        // loop below.
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var insertedNewRow = false;
@@ -212,11 +212,11 @@ public class UserPreferencesService
     /// session falls back to <see cref="UserPreferencesDto.Default"/>.
     ///
     /// A session that already has a row is left exactly as it is and the method reports false. That row is
-    /// the person's own saved choice, and a default must never overrule it. [6]
+    /// the person's own saved choice, and a default must never overrule it.
     ///
     /// Every failure is caught and logged rather than thrown. This runs while a session is being created,
     /// and a cosmetic default that could not be written must never be the reason a login fails: the guest
-    /// simply gets the built-in defaults, which is what happened before this existed. [7]
+    /// simply gets the built-in defaults, which is what happened before this existed.
     /// </summary>
     public async Task<bool> SeedGuestDefaultsAsync(Guid sessionId, UserPreferencesDto defaults)
     {
@@ -252,7 +252,7 @@ public class UserPreferencesService
             // The row this seed looked for was written between the check above and the save. That is the
             // outcome the false return already describes and the one the method is built around: the
             // session has preferences of its own and a default must not overrule them. Reporting it as an
-            // error made a normal race look like a fault worth investigating. [13]
+            // error made a normal race look like a fault worth investigating.
             _logger.LogDebug(
                 ex,
                 "Preferences row for session {SessionId} was created concurrently; guest defaults were left unapplied",
@@ -279,7 +279,7 @@ public class UserPreferencesService
     /// in the middle of an earlier one and leaves the row saying something neither caller asked for.
     ///
     /// Local is written first and UTC last. UTC is the one that reshapes its siblings, so writing it last
-    /// is what makes it outrank local when a caller sends both clocks on. [63]
+    /// is what makes it outrank local when a caller sends both clocks on.
     /// </summary>
     public Task<UserPreferencesDto?> UpdateClockPreferencesAsync(Guid sessionId, ClockPreferences clock)
         => ApplyPreferenceWritesAsync(sessionId, new[]
@@ -299,7 +299,7 @@ public class UserPreferencesService
         // Each one finds no row, each one inserts, and the unique index on SessionId lets exactly one of
         // them commit. A loser re-reads on a fresh context and updates the row the winner just wrote, so
         // the whole burst is kept instead of most of it being dropped. Npgsql does not treat a unique
-        // violation as transient, so the connection retry policy never covers this. [5]
+        // violation as transient, so the connection retry policy never covers this.
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var insertedNewRow = false;
@@ -398,7 +398,7 @@ public class UserPreferencesService
                 // The clock this request names outranks whatever is stored, so choosing local takes UTC
                 // off. Turning local OFF says nothing about the other two and deliberately leaves them
                 // alone: the three keys travel as separate requests, and reshaping on this one would
-                // overrule a 12-hour choice that arrived first. [11]
+                // overrule a 12-hour choice that arrived first.
                 if (preferences.UseLocalTimezone)
                 {
                     preferences.UseUtcTimezone = false;
@@ -443,7 +443,7 @@ public class UserPreferencesService
     /// has no 12-hour face worth offering. Three independent booleans hold a three-way choice, so without
     /// this the columns can say two things at once. It does nothing unless UTC is on, which is what keeps
     /// it safe to call from a per-key write: a request that turns UTC off must not reshape a 12-hour
-    /// choice that arrived ahead of it. [11]
+    /// choice that arrived ahead of it.
     /// </summary>
     private static void NormalizeClockPreferences(UserPreferences preferences)
     {
@@ -458,7 +458,7 @@ public class UserPreferencesService
 
     /// <summary>
     /// The same rule for a clock that is being chosen rather than stored, so the guest defaults an admin
-    /// picks and the per-session clock cannot disagree about what UTC means. [3]
+    /// picks and the per-session clock cannot disagree about what UTC means.
     /// </summary>
     public static void NormalizeClockPreferences(ClockPreferences clock)
     {

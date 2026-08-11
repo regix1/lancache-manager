@@ -108,7 +108,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
 
     // Takes back only this click's own optimistic values. A save can fail while the click after it is
     // already on the wire, and clearing the three keys outright would drop the newer click's values
-    // too. [61]
+    // too.
     const reportFailure = (error?: unknown): void => {
       dropPendingTimeSetting(typedValue);
       notifyError(t('common.timezoneSelector.errors.updateFailed'), error, {
@@ -121,7 +121,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
 
       // A rejected promise is not what a rejected save looks like here: the service reports failure
       // by resolving false. Left unread, the optimistic value simply expires and the control slides
-      // back to the old choice with nothing said. [20]
+      // back to the old choice with nothing said.
       if (!saved) {
         reportFailure();
       }

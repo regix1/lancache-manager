@@ -15,7 +15,7 @@ namespace LancacheManager.Security;
 ///
 /// State is per process and is not persisted: a restart clears every counter, which is the same
 /// tradeoff the rate limiter makes, and the operator who can restart the container can read the API
-/// key off disk anyway. [43]
+/// key off disk anyway.
 /// </summary>
 public class AccountLockout
 {
@@ -77,7 +77,7 @@ public class AccountLockout
     /// <summary>
     /// Records one failed password attempt against an account, whether it came from the login endpoint
     /// or from the current-password check on the change-password endpoint. Counting both is what stops
-    /// an attacker holding any live session from guessing against the endpoint that is not counted. [43b]
+    /// an attacker holding any live session from guessing against the endpoint that is not counted.
     /// </summary>
     public void RecordFailure(Guid accountId)
     {

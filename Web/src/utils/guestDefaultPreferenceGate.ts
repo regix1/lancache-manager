@@ -13,7 +13,7 @@ export const DEFAULT_GUEST_PREFERENCE_KEYS = new Set([
 
 // Every key in the Set above needs a field on both shapes below. The lookup casts through
 // `keyof`, so a missing field type-checks and silently reads whatever the caller happened to
-// pass, which is how a key with no declared type stops being checked at all. [19]
+// pass, which is how a key with no declared type stops being checked at all.
 interface DefaultGuestPreferencesSnapshot {
   useLocalTimezone: boolean;
   useUtcTimezone: boolean;

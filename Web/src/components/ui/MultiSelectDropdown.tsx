@@ -201,7 +201,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     // the document once the menu is absolutely positioned, not the viewport.
     const desiredTop = openUpward ? rect.top - 4 - dropdownHeight : rect.bottom + 4;
     // Flipping alone only buys the trigger's distance from the edge, so a menu taller
-    // than the room on the side it picked still hangs off the viewport. [8]
+    // than the room on the side it picked still hangs off the viewport.
     const top = clampToViewport(desiredTop, dropdownHeight, window.innerHeight, 8);
 
     setDropdownStyle({

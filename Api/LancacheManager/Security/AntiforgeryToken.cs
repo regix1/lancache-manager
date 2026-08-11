@@ -54,7 +54,7 @@ public class AntiforgeryToken
             // The page has to read this value to put it in a header, and a page served by another
             // origin can do neither: it cannot read this origin's cookies, so it cannot produce the
             // header, so the request it forges is refused. The session cookie beside it stays
-            // HttpOnly (SessionService.cs:806) because that one IS the credential. [77n]
+            // HttpOnly (SessionService.cs:806) because that one IS the credential.
             HttpOnly = false,
             // Same rule as the session cookie: marked Secure on a real HTTPS request, or whenever the
             // deployment opts in behind a TLS-terminating proxy, and left unmarked otherwise so plain

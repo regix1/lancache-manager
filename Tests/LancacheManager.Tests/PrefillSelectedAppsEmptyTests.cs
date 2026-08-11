@@ -15,7 +15,7 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// Saving an empty app selection is the UI's "clear selection" action and must be accepted, not
-/// rejected as a malformed request; only a missing/null AppIds list is a real 400 [4].
+/// rejected as a malformed request; only a missing/null AppIds list is a real 400.
 /// </summary>
 public class PrefillSelectedAppsEmptyTests
 {

@@ -33,7 +33,7 @@ pub async fn create_pool() -> Result<PgPool> {
 
 /// Describe where a connection points, for the failure message. Built from the typed fields
 /// rather than from the whole value, because `PgConnectOptions` keeps the password in a plain
-/// `Debug` field and printing it would leak the password into the log. [24]
+/// `Debug` field and printing it would leak the password into the log.
 fn describe_connection(options: &PgConnectOptions) -> String {
     let host = match options.get_socket() {
         Some(socket) => socket.display().to_string(),
@@ -55,7 +55,7 @@ fn describe_connection(options: &PgConnectOptions) -> String {
 ///
 /// Within 2 and 3, user, password and database come from env vars, then the credentials file,
 /// then the defaults. Host and port apply in external mode only, which is how the API resolves
-/// them too, so both halves of the app always reach the same server. [19]
+/// them too, so both halves of the app always reach the same server.
 fn build_connect_options() -> Result<PgConnectOptions> {
     if let Some(url) = env::var("DATABASE_URL").ok().filter(|s| !s.is_empty()) {
         return PgConnectOptions::from_str(&url).map_err(|e| {
@@ -67,7 +67,7 @@ fn build_connect_options() -> Result<PgConnectOptions> {
 
     // Every field goes in as a typed value, so a password containing `&`, `#`, `%`, `+`,
     // a space or a tab reaches the server exactly as typed instead of being re-parsed as
-    // further connection parameters. [23]
+    // further connection parameters.
     let mut options = PgConnectOptions::new()
         .username(&settings.username)
         .database(&settings.database);
@@ -79,7 +79,7 @@ fn build_connect_options() -> Result<PgConnectOptions> {
     if settings.external {
         // A Unix socket path here is a leftover from embedded mode rather than a configured
         // server. Connecting to it produces a restart loop against a socket nobody serves, so
-        // say what is missing instead. [20]
+        // say what is missing instead.
         let host = settings
             .host
             .as_deref()
@@ -128,7 +128,7 @@ fn resolve_postgres_settings() -> PostgresSettings {
     // through to the file rather than shadow it; a hand-edited file can carry `"username": ""`
     // just as easily, and taking that would authenticate as a role that does not exist instead
     // of as the default the entrypoint actually created. The API reads them the same way, and
-    // disagreeing would point the two halves of the app at different credentials. [21]
+    // disagreeing would point the two halves of the app at different credentials.
     let username = env::var("POSTGRES_USER")
         .ok()
         .filter(|s| !s.is_empty())

@@ -151,7 +151,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
   // Reports whether the choice actually stuck. The slider needs the answer: it has to stay on the
   // stop it was on when a save fails, or the next release of that same stop is read as a repeat
-  // and silently dropped [17]
+  // and silently dropped
   const handleThemeChange = async (themeId: string): Promise<boolean> => {
     if (authService.authMode === 'guest') {
       addNotification({
@@ -192,7 +192,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
 
   // The slider repaints on every stop it passes. Those passes are not choices, so this repaints
   // the page and notifies every live consumer without touching localStorage or the service's
-  // current theme - a drag interrupted by a reload has to come back on the saved theme [15]
+  // current theme - a drag interrupted by a reload has to come back on the saved theme
   const handleThemeScrub = useCallback((theme: Theme) => {
     themeService.applyTheme(theme, { persist: false });
   }, []);
@@ -768,7 +768,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                 {/* The slider holds every built-in, so listing them here as well would give the
                     same choice two controls. What is left is the community and custom themes, and
                     on an install with none of those there is nothing to choose between, so the
-                    picker is not rendered at all rather than opening onto an empty list [6] */}
+                    picker is not rendered at all rather than opening onto an empty list */}
                 {cardThemes.length > 0 && (
                   <div className="mt-3">
                     <EnhancedDropdown

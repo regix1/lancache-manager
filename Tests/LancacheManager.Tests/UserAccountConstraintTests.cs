@@ -13,7 +13,7 @@ public sealed class UserAccountConstraintTests
 {
     // Two accounts sharing a name make the login lookup return whichever row comes back first.
     // The SQLite store creates the unique index the model declares, so a refusal here is the store
-    // refusing the write, not code above it. [19b]
+    // refusing the write, not code above it.
     [Fact]
     public async Task SecondAccountWithTheSameUsername_IsRefusedByTheStore()
     {
@@ -33,7 +33,7 @@ public sealed class UserAccountConstraintTests
     }
 
     // A race to create the first account can carry two different usernames, which the username
-    // index lets through. This partial index is the one that makes the first account singular. [19b]
+    // index lets through. This partial index is the one that makes the first account singular.
     [Fact]
     public async Task SecondMainAdmin_IsRefusedByTheStore()
     {
@@ -75,7 +75,7 @@ public sealed class UserAccountConstraintTests
     // PostgreSQL gives no case-insensitive uniqueness on a text column, so the case half of the
     // constraint rides on the citext column type. The suite runs on SQLite, whose BINARY collation
     // would not reject "Admin" after "admin" whatever the column type says, so this asserts the
-    // schema the PostgreSQL provider emits instead of asserting an insert it cannot observe. [19b]
+    // schema the PostgreSQL provider emits instead of asserting an insert it cannot observe.
     [Fact]
     public void PostgresSchema_MakesUsernameCitextAndUnique()
     {
@@ -93,7 +93,7 @@ public sealed class UserAccountConstraintTests
     }
 
     // The account row is the source of truth for the role, so it has to survive a round trip in the
-    // same lowercase form UserSession stores. [19]
+    // same lowercase form UserSession stores.
     [Fact]
     public async Task RoleRoundTripsAsTheLowercaseString()
     {

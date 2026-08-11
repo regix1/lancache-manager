@@ -14,7 +14,7 @@ namespace LancacheManager.Tests;
 /// <summary>
 /// What Security:EnableAuthentication=false means: the installation has no access control. Every route
 /// answers a caller with no cookie and no claims, and those callers share one session rather than being
-/// handed one each - a cookie-less client would otherwise add a row to UserSessions per request. [27]
+/// handed one each - a cookie-less client would otherwise add a row to UserSessions per request.
 /// </summary>
 [Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class DisabledAuthenticationAccessTests

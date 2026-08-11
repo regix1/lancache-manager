@@ -473,7 +473,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         : anchor.bottom + MENU_GAP_PX;
       // The side is already chosen above, so this only pulls a menu that is taller
       // than the room on that side back onto the screen. It cannot change the side,
-      // which is what keeps chooseUpward's hysteresis intact. [9]
+      // which is what keeps chooseUpward's hysteresis intact.
       const top = clampToViewport(desiredTop, menuHeight, viewportHeight, VIEWPORT_PADDING_PX);
 
       return {

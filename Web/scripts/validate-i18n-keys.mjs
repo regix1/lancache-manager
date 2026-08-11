@@ -111,7 +111,7 @@ const MAX_CANDIDATES = 200;
 
 /**
  * Where a cap stopped the analysis short. A candidate that is dropped here is a
- * key nobody ever looks up, so the run has to say so rather than pass. [15]
+ * key nobody ever looks up, so the run has to say so rather than pass.
  */
 const cappedSites = [];
 const cappedSeen = new Set();

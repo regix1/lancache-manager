@@ -3534,7 +3534,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         // Epic's raw artwork entries only exist so the banner can be picked on this side; nothing in the
         // browser reads them, and a few hundred titles of them is hundreds of KB the page parses and
-        // throws away. Dropping them here rather than on the model keeps the socket read working. [14]
+        // throws away. Dropping them here rather than on the model keeps the socket read working.
         foreach (var game in games)
         {
             game.KeyImages = null;

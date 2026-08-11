@@ -7,7 +7,7 @@ import { createContext } from 'react';
  *
  * Anything that needs "every clock" reads this list. Spelling the five out again is how a sixth
  * clock reaches the selector but not the allowed-format defaults that decide whether it can be
- * picked. Callers that hand the list to a `string[]` field copy it with a spread. [17]
+ * picked. Callers that hand the list to a `string[]` field copy it with a spread.
  */
 export const TIME_SETTING_VALUES = [
   'server-24h',

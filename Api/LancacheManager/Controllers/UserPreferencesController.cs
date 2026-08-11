@@ -101,7 +101,7 @@ public class UserPreferencesController : ControllerBase
     /// The stored row carries them whoever last wrote it, and this announcement reaches every connected
     /// client rather than only the session it names, so one guest's own save would otherwise hand its
     /// allowed formats, refresh lock and thread caps to everyone. An account holder's write is left
-    /// whole: those screens are the ones that set the values and need to see them land. [2]
+    /// whole: those screens are the ones that set the values and need to see them land.
     /// </summary>
     private static void RedactForBroadcast(UserPreferencesDto stored, UserSession session)
     {
@@ -149,7 +149,7 @@ public class UserPreferencesController : ControllerBase
         // A bad key was already rejected at the ParseFromString check above, and a missing session at the
         // top, so the only way the service comes back empty here is that the write itself failed. Saying
         // "invalid preference key" a second time named the one cause that cannot apply, which is what kept
-        // a lost concurrent write looking like a client mistake. [6]
+        // a lost concurrent write looking like a client mistake.
         return StatusCode(500, new MessageResponse { Success = false, Message = "Error updating preference" });
     }
 

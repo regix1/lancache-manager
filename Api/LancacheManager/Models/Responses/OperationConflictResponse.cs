@@ -5,7 +5,7 @@ namespace LancacheManager.Models;
 /// <c>IOperationConflictChecker</c>. Replaces the ad-hoc <c>ConflictResponse</c> /
 /// <c>ErrorResponse</c> / anonymous shapes that previously varied across controllers.
 ///
-/// Field order mirrors the target contract in <c>plan/plan.md</c>.
+/// Field order is part of the contract callers read.
 /// Serialized with the global camelCase policy (see <c>Program.cs</c>).
 /// </summary>
 public sealed class OperationConflictResponse

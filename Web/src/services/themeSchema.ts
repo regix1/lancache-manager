@@ -25,13 +25,13 @@ const themeColorDefaults: Record<string, string> = {
   textSecondary: '#d1d5db',
   textMuted: '#9ca3af',
   // textAccent is left out on purpose: it is one step of the accent toward the page's own text,
-  // and normalizeThemeColors below reads which way that is off the palette. [18]
+  // and normalizeThemeColors below reads which way that is off the palette.
   textPlaceholder: '#6b7280',
 
   // ── Drag handle ──────────────────────────────────────────────────────
   dragHandleColor: '#6b7280',
   // The shipped themes do not agree on this one: six lighten the accent for the hover and three
-  // hover on the accent itself, so there is no step to compute and each theme states it. [18]
+  // hover on the accent itself, so there is no step to compute and each theme states it.
   dragHandleHover: '#60a5fa',
 
   // ── Borders ──────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ const themeColorDefaults: Record<string, string> = {
   navBg: '#1f2937',
   navBorder: '#374151',
   // navTabActive and navTabActiveBorder are left out on purpose: with no default here they
-  // follow each theme's primaryColor instead of freezing on this palette's blue. [18]
+  // follow each theme's primaryColor instead of freezing on this palette's blue.
   navTabInactive: '#9ca3af',
   navTabHover: '#ffffff',
   navMobileMenuBg: '#1f2937',
@@ -67,7 +67,7 @@ const themeColorDefaults: Record<string, string> = {
   info: '#3b82f6',
   // infoBg and infoText are left out on purpose. They are shades of info above, not of the accent:
   // all nine shipped themes draw this pair from their own info, and both derive below off info so
-  // the badge and the words on it cannot end up different hues. [18]
+  // the badge and the words on it cannot end up different hues.
   // Waiting/queued state (operation wait-queue cards). Purple on the default palette;
   // themes whose palettes clash with purple override with a distinct in-palette hue.
   waiting: '#a855f7',
@@ -81,7 +81,7 @@ const themeColorDefaults: Record<string, string> = {
   // No blizzardFaint / blizzardOnBorder / blizzardStrong here, and none for steam or epic:
   // normalizeThemeColors below fills those tints from each theme's own service color, but only
   // when the key is missing. A default here would win for every theme and freeze the tints on
-  // this palette's blue, whatever blizzardColor the theme actually sets. [13]
+  // this palette's blue, whatever blizzardColor the theme actually sets.
   blizzardColor: '#3b82f6',
   wsusColor: '#06b6d4',
   riotColor: '#d13639',
@@ -115,23 +115,23 @@ const themeColorDefaults: Record<string, string> = {
   cardBorder: '#4b5563',
   // buttonBg and buttonHover are both left out on purpose: buttonBg follows primaryColor and
   // buttonHover is darken(buttonBg) below, so recolouring a theme's accent moves the pair
-  // together. [18]
+  // together.
   buttonText: '#ffffff',
   inputBg: '#374151',
   inputBorder: '#4b5563',
 
   // ── Checkboxes ───────────────────────────────────────────────────────
-  // checkboxAccent is left out on purpose so it follows primaryColor. [18]
+  // checkboxAccent is left out on purpose so it follows primaryColor.
   checkboxBorder: '#4b5563',
   checkboxBg: '#1f2937',
   checkboxCheckmark: '#ffffff',
   checkboxShadow: 'none',
   // checkboxHoverShadow is left out on purpose: the ring below builds it from checkboxAccent,
-  // so only its 3px geometry is fixed and the colour follows the theme. [18]
+  // so only its 3px geometry is fixed and the colour follows the theme.
   checkboxHoverBg: '#374151',
 
   // ── Sliders ──────────────────────────────────────────────────────────
-  // sliderAccent and sliderThumb are left out on purpose so they follow primaryColor. [18]
+  // sliderAccent and sliderThumb are left out on purpose so they follow primaryColor.
   sliderTrack: '#374151',
 
   // ── Progress ─────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ const themeColorDefaults: Record<string, string> = {
   hitRateHighText: '#34d399',
   // The middle band of the hit-rate scale. Blue only because this palette's accent is blue: five
   // of the shipped themes make the middle band amber, between the green high band and the low
-  // one, which is the scale doing its job rather than following the accent. [18]
+  // one, which is the scale doing its job rather than following the accent.
   hitRateMediumBg: '#1e3a8a',
   hitRateMediumText: '#93c5fd',
   hitRateLowBg: '#44403c',
@@ -174,7 +174,7 @@ const themeColorDefaults: Record<string, string> = {
 
   // ── Chart colors ─────────────────────────────────────────────────────
   // chartColor1 is left out on purpose so it follows primaryColor: every shipped theme sets the
-  // first series to its own accent. [18]
+  // first series to its own accent.
   chartColor2: '#10b981',
   chartColor3: '#f59e0b',
   chartColor4: '#ef4444',
@@ -229,14 +229,14 @@ const themeColorDefaults: Record<string, string> = {
 
   // ── Sessions ─────────────────────────────────────────────────────────
   // userSessionColor and userSessionBg are left out on purpose: the signed-in marker is the
-  // accent, and its fill is that same colour at 15%. [18]
+  // accent, and its fill is that same colour at 15%.
   guestSessionColor: '#06b6d4',
   guestSessionBg: 'rgba(6, 182, 212, 0.15)',
   activeSessionColor: '#f97316',
   activeSessionBg: 'rgba(249, 115, 22, 0.15)',
 
   // ── Events ───────────────────────────────────────────────────────────
-  // eventColor1 is left out on purpose so it follows primaryColor, like chartColor1. [18]
+  // eventColor1 is left out on purpose so it follows primaryColor, like chartColor1.
   eventColor2: '#10b981',
   eventColor3: '#f59e0b',
   eventColor4: '#ef4444',
@@ -247,7 +247,7 @@ const themeColorDefaults: Record<string, string> = {
 
   // ── Fireworks / celebration ──────────────────────────────────────────
   // fireworkColor1 and fireworkRocketColor are left out on purpose so they follow
-  // primaryColor. [18]
+  // primaryColor.
   // fireworkColor2 is the second colour in the burst, not a shade of the first: four of the
   // shipped themes deliberately put a contrasting hue here so the two shells read apart.
   fireworkColor2: '#60a5fa',
@@ -258,7 +258,7 @@ const themeColorDefaults: Record<string, string> = {
   fireworkColor7: '#38bdf8',
   fireworkColor8: '#ffffff'
   // fireworkGlowColor is left out on purpose: the halo is a lighter shade of the rocket it
-  // surrounds, on a dark page and a light one alike, so it derives below without flipping. [18]
+  // surrounds, on a dark page and a light one alike, so it derives below without flipping.
 };
 
 // ---------------------------------------------------------------------------
@@ -330,7 +330,7 @@ export function hexToRgba(hex: string, opacity: number): string {
 // 2.3 - measured over every colour sharing the hue, not over a handful of
 // formulas. A lighter step is still far closer than the alternative it replaces,
 // which was one palette's blue frozen into every other theme.
-// Unreadable input gives mid grey, matching hexToRgba above. [18]
+// Unreadable input gives mid grey, matching hexToRgba above.
 // ---------------------------------------------------------------------------
 function scaleLightness(color: string, factor: number): string {
   const channels = readColorChannels(color);

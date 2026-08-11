@@ -3,7 +3,7 @@ namespace LancacheManager.Models;
 /// <summary>
 /// Refusal body for creating the account that owns the installation. <see cref="StageKey"/> is the
 /// i18n key the browser renders; <see cref="Error"/> is the English sentence a client that does not
-/// localize falls back to, so both travel on every refusal. [88][88d]
+/// localize falls back to, so both travel on every refusal.
 /// </summary>
 public class AccountSetupRefusalResponse
 {
@@ -22,7 +22,7 @@ public class AccountSetupRefusalResponse
     /// <summary>
     /// The name a password recovery was asked for does not belong to the main administrator, or the
     /// installation has no main administrator yet. One key for both, because recovery resets exactly
-    /// one account and everything else is the same refusal from the caller's side. [49c]
+    /// one account and everything else is the same refusal from the caller's side.
     /// </summary>
     public const string MainAdminNotFound = "errors.accountSetup.mainAdminNotFound";
 

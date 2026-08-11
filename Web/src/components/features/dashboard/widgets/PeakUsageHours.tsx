@@ -35,7 +35,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
   // the reader's own UTC/local choice for the marker instead highlights a bucket that was filled
   // at a different hour. The 12/24-hour preference below is a different question and still the
   // reader's. Recomputed each render rather than memoized, so the marker follows the clock as the
-  // widget refreshes instead of freezing at the hour the page loaded. [8]
+  // widget refreshes instead of freezing at the hour the page loaded.
   const currentHour = getCurrentHour(false, false);
 
   // Check if today is within the period range

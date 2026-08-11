@@ -46,7 +46,7 @@ public sealed class AccountHolderRouteAccessTests
     /// Every route the application authorizes reaches the same verdict for a user as for an admin. No
     /// route is skipped, so narrowing a policy back to admins alone fails here rather than passing by
     /// being left out of the comparison. A guest is refused on the same routes as before, which
-    /// <see cref="EndpointAuthorizationContractTests"/> asserts endpoint by endpoint. [12]
+    /// <see cref="EndpointAuthorizationContractTests"/> asserts endpoint by endpoint.
     /// </summary>
     [Fact]
     public async Task EveryRouteAnswersAUserExactlyAsItAnswersAnAdmin()
@@ -78,7 +78,7 @@ public sealed class AccountHolderRouteAccessTests
     /// <summary>
     /// The prefill routes are the ones the claim minting decides. A user carries the five
     /// <c>*PrefillActive</c> claims for the same reason an admin does, so it reaches the daemon routes an
-    /// admin reaches. [12]
+    /// admin reaches.
     /// </summary>
     [Fact]
     public async Task AUserCarriesTheSamePrefillClaimsAsAnAdmin()
@@ -105,7 +105,7 @@ public sealed class AccountHolderRouteAccessTests
 
     /// <summary>
     /// The two hand-rolled session-type checks that answer with a status code rather than a body: writing
-    /// an admin-only preference key, and changing a refresh rate the caller does not own. [12]
+    /// an admin-only preference key, and changing a refresh rate the caller does not own.
     /// </summary>
     [Fact]
     public async Task TheHandRolledSessionTypeChecksAnswerAUserExactlyAsTheyAnswerAnAdmin()
@@ -140,7 +140,7 @@ public sealed class AccountHolderRouteAccessTests
 
     /// <summary>
     /// The status body reports the same prefill access to a user as to an admin: the five enabled flags
-    /// and the five expiry values, which are what every screen reads. [12b]
+    /// and the five expiry values, which are what every screen reads.
     /// </summary>
     [Fact]
     public async Task TheAuthStatusBodyReportsTheSamePrefillAccessToAUserAsToAnAdmin()
@@ -162,7 +162,7 @@ public sealed class AccountHolderRouteAccessTests
 
     /// <summary>
     /// The sessions list reports the same prefill access on a user's row as on an admin's, and counts the
-    /// three session types rather than two. Each caller reads its own row from its own request. [12b] [16]
+    /// three session types rather than two. Each caller reads its own row from its own request.
     /// </summary>
     [Fact]
     public async Task TheSessionsListReportsAUserRowLikeAnAdminRowAndCountsThreeTypes()
@@ -196,7 +196,7 @@ public sealed class AccountHolderRouteAccessTests
     /// <summary>
     /// The client-list, cache-health and schedule reads are refused to a guest and answered to a user,
     /// and the LAN event reads stay open to a guest. One list drives both callers, so closing a read to a
-    /// guest without leaving it reachable by a user fails here rather than in the browser. [52][53][54]
+    /// guest without leaving it reachable by a user fails here rather than in the browser.
     /// </summary>
     [Fact]
     public async Task TheClosedReadsRefuseAGuestAndAnswerAUserWhileTheEventReadsStayOpen()
@@ -286,7 +286,7 @@ public sealed class AccountHolderRouteAccessTests
 
     /// <summary>
     /// The guest-config reads that used to answer anyone who could reach the port now need a session, and
-    /// a guest's session is enough for them. [55]
+    /// a guest's session is enough for them.
     /// </summary>
     [Fact]
     public async Task TheGuestConfigReadsNeedASessionAndAnswerAGuestThatHasOne()

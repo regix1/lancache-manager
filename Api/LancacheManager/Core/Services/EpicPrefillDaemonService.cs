@@ -129,7 +129,7 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
                     }
 
                     // The picked URL is the only part anything downstream reads, so the raw entries stop
-                    // here instead of riding along into the merge. [14]
+                    // here instead of riding along into the merge.
                     game.KeyImages = null;
                 }
 

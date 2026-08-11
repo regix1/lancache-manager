@@ -12,7 +12,7 @@ import ts from 'typescript';
  * The rotation notice is checked the same way. Rotating the API key ends every session at once, so the
  * people it signs out all arrive at this screen together and read a credential refusal as a wrong
  * password. The server answers every sign-in failure with one message on purpose, so the notice is the
- * only place the key gets named. [70][71][72]
+ * only place the key gets named.
  */
 
 const readWebSource = (relativePath) =>

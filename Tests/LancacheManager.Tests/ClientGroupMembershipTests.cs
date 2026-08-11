@@ -161,7 +161,7 @@ public sealed class ClientGroupMembershipTests
     public void AnUpdateWithoutARowModeFailsValidation()
     {
         // ApplyUpdate reads request.SeparateMemberRows!.Value, so validation is the only thing
-        // between an omitted field and a NullReferenceException. [7]
+        // between an omitted field and a NullReferenceException.
         var result = new UpdateClientGroupRequestValidator().Validate(new UpdateClientGroupRequest
         {
             Nickname = "Lab",
@@ -214,7 +214,7 @@ public sealed class ClientGroupMembershipTests
     public async Task SettingMembersToAnEmptyListEmptiesTheGroupAsync()
     {
         // The server treats the list as the whole truth, matching the per-address delete that has
-        // always allowed a group to reach zero. The modal is where a nickname is kept reachable. [12]
+        // always allowed a group to reach zero. The modal is where a nickname is kept reachable.
         using var connection = OpenSharedConnection();
         var options = SqliteOptions(connection);
 
@@ -344,7 +344,7 @@ public sealed class ClientGroupMembershipTests
     public async Task AMembershipSaveBuiltOnAStampTheGroupHasMovedPastIsTurnedDownAsync()
     {
         // The list replaces the whole membership, so a save built on a copy taken before someone else
-        // added an address deletes that address, and neither editor is ever told. [41]
+        // added an address deletes that address, and neither editor is ever told.
         using var connection = OpenSharedConnection();
         var options = SqliteOptions(connection);
         var stampTheEditorRead = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -441,7 +441,7 @@ public sealed class ClientGroupMembershipTests
     public async Task AMembershipSaveWithoutAStampGoesThroughAsync()
     {
         // Omitting the stamp is how a caller says it is not tracking the version, which is what keeps
-        // clients written before the stamp existed working. [41]
+        // clients written before the stamp existed working.
         using var connection = OpenSharedConnection();
         var options = SqliteOptions(connection);
 
@@ -479,7 +479,7 @@ public sealed class ClientGroupMembershipTests
     {
         // The whole submit, in the order the dialog performs it: fields first, addresses second, and
         // the second one carries the stamp the first one handed back. Because the field write moves
-        // the stamp, only a check on the FIELD write can still see what the other editor did. [41]
+        // the stamp, only a check on the FIELD write can still see what the other editor did.
         using var connection = OpenSharedConnection();
         var options = SqliteOptions(connection);
         var stampTheEditorRead = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -557,7 +557,7 @@ public sealed class ClientGroupMembershipTests
     public async Task AnEditSessionWithNoOneElseEditingSavesItsFieldsAndAddressesAsync()
     {
         // The same submit with nobody else involved has to land both writes. A guard that turns down
-        // the ordinary save is worse than the race it was added for. [41]
+        // the ordinary save is worse than the race it was added for.
         using var connection = OpenSharedConnection();
         var options = SqliteOptions(connection);
         var stampTheEditorRead = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -616,7 +616,7 @@ public sealed class ClientGroupMembershipTests
         // without re-reading the row. A stamp carrying those finer ticks can never match the stored
         // copy again, so the address save that follows it in the same submit would be turned down
         // and saving again would not clear it. SQLite keeps the finer ticks, so the resolution is
-        // asserted on the value itself rather than through a round trip. [41]
+        // asserted on the value itself rather than through a round trip.
         using var connection = OpenSharedConnection();
         var options = SqliteOptions(connection);
 
@@ -640,7 +640,7 @@ public sealed class ClientGroupMembershipTests
     public async Task AnUpdateWithoutAStampGoesThroughAsync()
     {
         // Omitting the stamp is how a caller says it is not tracking the version, which is what keeps
-        // clients written before the stamp existed working. [41]
+        // clients written before the stamp existed working.
         using var connection = OpenSharedConnection();
         var options = SqliteOptions(connection);
 
@@ -677,7 +677,7 @@ public sealed class ClientGroupMembershipTests
     public async Task ACreateThatCouldNotTakeASingleAddressLeavesNoGroupBehindAsync()
     {
         // The group commits before the addresses are attempted. Keeping it would leave a nickname
-        // holding nothing the user picked, and the modal has no way to save its way out of that. [42]
+        // holding nothing the user picked, and the modal has no way to save its way out of that.
         using var connection = OpenSharedConnection();
         var options = SqliteOptions(connection);
 
@@ -723,7 +723,7 @@ public sealed class ClientGroupMembershipTests
     public async Task ACreateThatAsksForNoAddressesStillMakesTheGroupAsync()
     {
         // A nickname with no addresses yet is a legitimate starting point, and it is not the
-        // all-rejected path. [42]
+        // all-rejected path.
         using var connection = OpenSharedConnection();
         var options = SqliteOptions(connection);
 
@@ -748,7 +748,7 @@ public sealed class ClientGroupMembershipTests
         // A membership write restructures client rows at 24h and 7d as well as live, and only the
         // all-cache bump can evict those keys - the live generation is pinned to 0 for a fixed range.
         // If ClientGroupUpdated ever leaves this branch, historical dashboard data goes stale and
-        // never self-heals. [9]
+        // never self-heals.
         var source = ReadSource("Infrastructure", "Services", "SignalRNotificationService.cs");
 
         var branchStart = source.IndexOf("SignalREvents.ClientGroupUpdated", StringComparison.Ordinal);
@@ -764,7 +764,7 @@ public sealed class ClientGroupMembershipTests
     public void TheCreateResponseCarriesEveryGroupField()
     {
         // CreateClientGroupResponse extends the group shape by hand, so a field added to the group
-        // would otherwise quietly stop appearing on the create response. [6]
+        // would otherwise quietly stop appearing on the create response.
         var source = ReadSource("Controllers", "ClientGroupsController.cs");
 
         foreach (var property in typeof(ClientGroupDto).GetProperties())

@@ -13,7 +13,7 @@ export function useCountdownTimer(nextRunUtc: string | null, isProcessing: boole
   // Seeded lazily rather than from 0. The effect below only runs after the first commit has
   // painted, so starting at 0 would paint one frame of "no time left" on a deadline that is
   // minutes away - and zero is the reading that is supposed to mean the attempt is genuinely
-  // over. [23]
+  // over.
   const [secondsRemaining, setSecondsRemaining] = useState<number>(calculateRemaining);
 
   useEffect(() => {

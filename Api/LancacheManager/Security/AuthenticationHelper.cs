@@ -22,7 +22,7 @@ public class AuthenticationHelper
     /// Kestrel reports no address at all only for a request that arrived over a Unix socket; those
     /// are not throttled, rather than sharing one window with every other address-less caller, which
     /// would let one bad script lock the rest of them out. Reaching that socket already means access
-    /// to the host. [9b]
+    /// to the host.
     /// </summary>
     private static readonly PartitionedRateLimiter<HttpContext> _invalidKeys =
         PartitionedRateLimiter.Create<HttpContext, string>(context =>

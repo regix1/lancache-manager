@@ -23,8 +23,7 @@ public interface IOperationConflictChecker
 }
 
 /// <summary>
-/// Concrete checker - implements the Phase 3 overlap matrix from
-/// <c>.cursor/plans/game_cache_eviction_cleanup_a228ef88.plan.md</c>.
+/// Concrete checker - implements the overlap matrix for cache eviction and cleanup.
 /// Policy-only: no disk / DB side effects. Uses the tracker as its sole source of state.
 /// </summary>
 public sealed class OperationConflictChecker : IOperationConflictChecker

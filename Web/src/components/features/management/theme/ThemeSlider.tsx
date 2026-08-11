@@ -8,18 +8,18 @@ interface ThemeSliderProps {
   stops: Theme[];
   activeThemeId: string;
   // The theme actually in force, which is often not one of the stops: a community or custom theme
-  // is applied from its own card and the slider still has to be able to put it back [16]
+  // is applied from its own card and the slider still has to be able to put it back
   activeTheme: Theme | null;
   disabled: boolean;
   onScrub: (theme: Theme) => void;
   // Resolves false when the choice could not be saved, so the control can stay where it was and
-  // let the same stop be released again [17]
+  // let the same stop be released again
   onCommit: (themeId: string) => Promise<boolean>;
 }
 
 // The input holds a fractional position between the stops so the thumb follows the pointer instead
 // of jumping. A thousandth of a stop is far under one pixel on the rendered track, so the travel
-// shows no stepping. [1]
+// shows no stepping.
 const VALUE_STEP = 0.001;
 
 // Long enough to read as travel, short enough that a release still feels immediate.
@@ -56,7 +56,7 @@ export const ThemeSlider: React.FC<ThemeSliderProps> = ({
   const stop = stops[nearestIndex];
   // The stop lookup only ever finds a built-in, so a community theme left the rollback empty and
   // an abandoned scrub stayed on screen. The active theme itself is the snapshot to restore; the
-  // stop is the fallback for the case where the parent cannot resolve it. [16]
+  // stop is the fallback for the case where the parent cannot resolve it.
   const committedTheme = activeTheme ?? (activeIndex >= 0 ? stops[activeIndex] : null);
 
   // A community or custom theme leaves activeIndex at -1, and the control must not claim a
@@ -66,13 +66,13 @@ export const ThemeSlider: React.FC<ThemeSliderProps> = ({
 
   // Repainting writes lancache_selected_theme, and loadSavedTheme prefers that key over the
   // server preference, so a move that never reaches a commit has to be undone or the next page
-  // load boots into a theme nobody chose [12]
+  // load boots into a theme nobody chose
   const scrubRef = useRef(onScrub);
   const pendingRestore = useRef<Theme | null>(null);
   const committedId = useRef(activeThemeId);
   // Pointer release, key release and blur can all land within the same save. Holding the id in
   // flight keeps the later two from starting a second one, now that committedId no longer moves
-  // until the save comes back [17]
+  // until the save comes back
   const committing = useRef<string | null>(null);
   const appliedIndex = useRef(activeIndex);
   const positionRef = useRef<number | null>(null);
@@ -200,7 +200,7 @@ export const ThemeSlider: React.FC<ThemeSliderProps> = ({
     committing.current = theme.meta.id;
     // A save that fails leaves the committed id and the rollback snapshot where they were, so
     // releasing this same stop again is a retry rather than a no-op, and walking away from the
-    // page still puts the old theme back [17]
+    // page still puts the old theme back
     const finishCommit = (saved: boolean): void => {
       committing.current = null;
       if (!saved) return;

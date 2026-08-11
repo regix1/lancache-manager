@@ -228,7 +228,7 @@ export const AdminAccountStep: React.FC = () => {
           plain-HTTP LAN deployment would stop the browser sending it at all. That was a fair trade
           while the only credential was an API key typed once; a password typed on every sign-in
           crosses the same network. isSecureContext is the browser's own answer, so a loopback
-          address during setup is not warned about. [72b] */}
+          address during setup is not warned about. */}
       {!window.isSecureContext && (
         <div className="p-3 rounded-lg flex items-start gap-3 bg-themed-warning">
           <AlertTriangle className="w-5 h-5 flex-shrink-0 icon-warning" />

@@ -904,7 +904,7 @@ export interface DefaultGuestThemeChangedEvent {
  * replaced: no single flag names a clock on its own, and a listener deciding whether an active
  * guest was still following the default has to be told what the default WAS. Reading that from a
  * shared cache instead makes the answer depend on which listener the hub happened to call first.
- * Every other default is one boolean and carries only its new value. [4]
+ * Every other default is one boolean and carries only its new value.
  */
 export type DefaultGuestPreferencesChangedEvent =
   | { key: 'clock'; clock: ClockPreferences; previousClock: ClockPreferences }
