@@ -74,9 +74,21 @@ const ResizeHandle: React.FC<{
 
 // --- Helpers ---
 
-function getAlignClass(align: 'left' | 'center' | 'right' | undefined, prefix: string): string {
-  if (align === 'center') return `${prefix}-center`;
-  if (align === 'right') return `${prefix}-right`;
+// Written out in full rather than built from a prefix. These rules live in `@layer components`, so
+// Tailwind keeps them only if it finds the class name in the source: a name assembled at runtime is
+// never seen by the content scan and the rule is dropped from the build, which left every centred
+// column rendering its cells left-aligned while its header looked correct.
+function getAlignClass(
+  align: 'left' | 'center' | 'right' | undefined,
+  kind: 'cell' | 'header'
+): string {
+  if (kind === 'header') {
+    if (align === 'center') return 'data-table-header-cell-center';
+    if (align === 'right') return 'data-table-header-cell-right';
+    return '';
+  }
+  if (align === 'center') return 'data-table-cell-center';
+  if (align === 'right') return 'data-table-cell-right';
   return '';
 }
 
@@ -334,7 +346,7 @@ function DataTableInner<T>(
     <div className={headerClasses} style={{ gridTemplateColumns: gridTemplate }} role="row">
       {columns.map((col: DataTableColumn<T>, index: number) => {
         const isLastColumn = index === columns.length - 1;
-        const alignClass = getAlignClass(col.align, 'data-table-header-cell');
+        const alignClass = getAlignClass(col.align, 'header');
         const cellClasses = [
           'data-table-header-cell',
           resizable && !isLastColumn ? 'data-table-header-cell-resizable' : '',
@@ -390,7 +402,7 @@ function DataTableInner<T>(
         {accent && <div className="data-table-row-accent" style={{ backgroundColor: accent }} />}
         <div className="data-table-row-grid" style={{ gridTemplateColumns: gridTemplate }}>
           {columns.map((col: DataTableColumn<T>) => {
-            const alignClass = getAlignClass(col.align, 'data-table-cell');
+            const alignClass = getAlignClass(col.align, 'cell');
             const cellClasses = ['data-table-cell', alignClass, col.cellClassName || '']
               .filter(Boolean)
               .join(' ');

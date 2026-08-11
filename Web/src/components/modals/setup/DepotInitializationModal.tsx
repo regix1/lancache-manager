@@ -183,9 +183,12 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
       />
 
       {/* Main Card */}
-      <div className="relative z-10 w-full max-w-4xl rounded-xl border overflow-hidden flex flex-col bg-themed-secondary border-themed-primary max-h-[calc(100vh-2rem)]">
+      {/* dvh, not vh: on a phone vh includes the space the browser's own chrome occupies, so the
+          card is sized taller than what the person can actually see and the last control sits under
+          the address bar. */}
+      <div className="relative z-10 w-full max-w-4xl rounded-xl border overflow-hidden flex flex-col bg-themed-secondary border-themed-primary max-h-[calc(100dvh-2rem)]">
         {/* Header */}
-        <div className="px-8 py-5 border-b flex items-center justify-between border-themed-secondary">
+        <div className="px-5 sm:px-8 py-4 sm:py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-3">
             {currentStep !== 'database-setup' &&
               currentStep !== 'external-db-form' &&
@@ -235,8 +238,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
           />
         </div>
 
-        {/* Content */}
-        <div className="p-8">
+        {/* Content. min-h-0 is what lets this shrink inside the flex column: without it a flex item
+            refuses to go below its content height, the card overflows its own max-height, and the
+            step's last control is clipped away with no way to scroll to it. */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-8">
           {syncError && (
             <div className="mb-4 p-3 rounded-lg bg-themed-error">
               <p className="text-sm text-themed-error">{syncError}</p>

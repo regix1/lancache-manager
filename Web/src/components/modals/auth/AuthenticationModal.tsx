@@ -5,6 +5,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
 import { useGuestConfig } from '@contexts/useGuestConfig';
+import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTranslation } from 'react-i18next';
 import { formatPercent } from '@utils/formatters';
@@ -31,8 +32,9 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   allowGuestMode = true
 }) => {
   const { t } = useTranslation();
-  const { startGuestSession: authStartGuest, login: authLogin } = useAuth();
+  const { startGuestSession: authStartGuest, login: authLogin, authenticationEnabled } = useAuth();
   const { guestDurationHours, guestModeLocked: contextGuestModeLocked } = useGuestConfig();
+  const { setupStatus } = useSetupStatus();
   const { on, off } = useSignalR();
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
@@ -50,6 +52,12 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
   // Use local state but sync with context
   const guestModeLocked = localGuestModeLocked;
+
+  // The server refuses a guest session while authentication is on and no account exists yet, so the
+  // button is never offered in that state. A null account flag is a database that could not be read,
+  // which the server answers the same way. With authentication off the installation is account-less
+  // on purpose, so the flag says nothing there and the button stays as it was.
+  const installationUnclaimed = authenticationEnabled && setupStatus?.accountExists !== true;
 
   // Database reset status
   const [resetStatus, setResetStatus] = useState<DatabaseResetStatus>({
@@ -138,8 +146,8 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
     try {
-      // Use the public auth status endpoint for this check.
-      // /api/system/setup requires a guest/admin session and will 401 before guest mode is started.
+      // Use the public auth status endpoint for this check. /api/system/setup is anonymous too, but
+      // it answers with setup progress rather than whether any download rows exist.
       const authCheck = await authService.checkAuth();
       const hasData = Boolean(authCheck.hasDataLoaded || authCheck.hasData);
       setDataAvailable(hasData);
@@ -229,17 +237,22 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       />
 
       {/* Main Card */}
-      <div className="relative z-10 w-full max-w-xl rounded-xl border overflow-hidden bg-themed-secondary border-themed-primary">
+      {/* dvh, not vh: on a phone vh includes the space the browser's own chrome occupies, so the
+          card is sized taller than what the person can actually see and the sign-in button sits
+          under the address bar. */}
+      <div className="relative z-10 w-full max-w-xl rounded-xl border overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] bg-themed-secondary border-themed-primary">
         {/* Header */}
-        <div className="px-8 py-5 border-b flex items-center justify-between border-themed-secondary">
+        <div className="px-5 sm:px-8 py-4 sm:py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />
             <span className="font-semibold text-themed-primary">{title}</span>
           </div>
         </div>
 
-        {/* Content */}
-        <div className="p-8">
+        {/* Content. min-h-0 is what lets this shrink inside the flex column: without it a flex item
+            refuses to go below its content height, the card overflows its own max-height, and the
+            sign-in button is clipped away with no way to scroll to it. */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-8">
           {/* Database Reset Status Banner */}
           {(resetStatus.isResetting || resetJustCompleted) && (
             <div
@@ -389,7 +402,8 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                       checkingDataAvailability ||
                       !dataAvailable ||
                       resetStatus.isResetting ||
-                      guestModeLocked
+                      guestModeLocked ||
+                      installationUnclaimed
                     }
                     fullWidth
                     title={

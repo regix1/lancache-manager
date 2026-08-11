@@ -181,12 +181,30 @@
     overflow: hidden;
   }
 
+  /* The header's centre rule carries justify-content as well, because a cell whose child is a flex
+     or block element (an icon button, for one) is not moved by text-align at all. Without the flex
+     pair here a centred column centres its header label and leaves its control sitting against the
+     left padding. */
   .data-table-cell-center {
     text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .data-table-cell-right {
     text-align: right;
+  }
+
+  /* A phone has no width to spare, and 1rem of padding on each side of every row is 32px that the
+     columns need more than the margins do. Halving it below the sm breakpoint is what lets a table
+     hold its columns instead of handing the reader a sideways scrollbar. */
+  @media (max-width: 639px) {
+    .data-table-header,
+    .data-table-row-grid {
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+    }
   }
 
   /* Striped rows */

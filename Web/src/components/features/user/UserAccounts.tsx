@@ -22,6 +22,7 @@ import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
+import { useMediaQuery } from '@hooks/useMediaQuery';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { getErrorMessage } from '@utils/error';
 import { API_BASE } from '@utils/constants';
@@ -44,6 +45,10 @@ const UserAccounts: React.FC = () => {
   const { t } = useTranslation();
   const { notifyError } = useErrorHandler();
   const { isMainAdmin, accountId } = useAuth();
+  // The six-column table needs 772px of column minimums, so on a phone it can only be reached by
+  // scrolling sideways and the badges and the row menu sit off the edge. Below the sm breakpoint the
+  // same rows are shown as three columns instead, which fits without any sideways scrolling.
+  const roomForFullTable = useMediaQuery('(min-width: 640px)');
 
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -181,7 +186,10 @@ const UserAccounts: React.FC = () => {
     {
       key: 'username',
       header: t('user.accounts.columns.username'),
-      width: 'minmax(160px, 2fr)',
+      // A zero floor on the narrow layout, so the three columns divide whatever width the phone has
+      // instead of holding a minimum that adds up to more than the screen and brings back the
+      // sideways scroll. The name truncates; the badges below wrap.
+      width: roomForFullTable ? 'minmax(160px, 2fr)' : 'minmax(0, 1fr)',
       render: (account: UserAccount) => (
         <span className="truncate text-themed-primary">{account.username}</span>
       )
@@ -189,9 +197,11 @@ const UserAccounts: React.FC = () => {
     {
       key: 'role',
       header: t('user.accounts.columns.role'),
-      width: 'minmax(150px, 1fr)',
+      width: roomForFullTable ? 'minmax(150px, 1fr)' : 'minmax(0, 1.3fr)',
+      // Wraps rather than sitting on one line: two badges plus the status badge do not fit a phone's
+      // column, and without wrapping the second one is clipped by the cell's own overflow.
       render: (account: UserAccount) => (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant={account.role === 'admin' ? 'info' : 'neutral'}>
             {account.role === 'admin'
               ? t('user.accounts.roles.admin')
@@ -200,44 +210,61 @@ const UserAccounts: React.FC = () => {
           {/* Names the rule behind the disabled row menu, so the greyed-out items read as
               deliberate rather than broken. */}
           {account.isMainAdmin && <Badge variant="warning">{t('user.accounts.mainAdmin')}</Badge>}
+          {/* The status column is one of the three dropped on a narrow screen, so its badge joins
+              this cell instead of the account's state leaving the screen altogether. */}
+          {!roomForFullTable && (
+            <Badge variant={account.isDisabled ? 'error' : 'success'}>
+              {account.isDisabled
+                ? t('user.accounts.status.disabled')
+                : t('user.accounts.status.active')}
+            </Badge>
+          )}
         </div>
       )
     },
-    {
-      key: 'status',
-      header: t('user.accounts.columns.status'),
-      width: 'minmax(110px, 1fr)',
-      render: (account: UserAccount) => (
-        <Badge variant={account.isDisabled ? 'error' : 'success'}>
-          {account.isDisabled
-            ? t('user.accounts.status.disabled')
-            : t('user.accounts.status.active')}
-        </Badge>
-      )
-    },
-    {
-      key: 'created',
-      header: t('user.accounts.columns.created'),
-      width: 'minmax(140px, 1fr)',
-      cellClassName: 'tabular-nums',
-      render: (account: UserAccount) => <FormattedTimestamp timestamp={account.createdAtUtc} />
-    },
-    {
-      key: 'lastLogin',
-      header: t('user.accounts.columns.lastSignIn'),
-      width: 'minmax(140px, 1fr)',
-      cellClassName: 'tabular-nums',
-      render: (account: UserAccount) =>
-        account.lastLoginAtUtc ? (
-          <FormattedTimestamp timestamp={account.lastLoginAtUtc} />
-        ) : (
-          <span className="text-themed-muted">{t('user.accounts.neverSignedIn')}</span>
-        )
-    },
+    ...(roomForFullTable
+      ? [
+          {
+            key: 'status',
+            header: t('user.accounts.columns.status'),
+            width: 'minmax(110px, 1fr)',
+            render: (account: UserAccount) => (
+              <Badge variant={account.isDisabled ? 'error' : 'success'}>
+                {account.isDisabled
+                  ? t('user.accounts.status.disabled')
+                  : t('user.accounts.status.active')}
+              </Badge>
+            )
+          },
+          {
+            key: 'created',
+            header: t('user.accounts.columns.created'),
+            width: 'minmax(140px, 1fr)',
+            cellClassName: 'tabular-nums',
+            render: (account: UserAccount) => (
+              <FormattedTimestamp timestamp={account.createdAtUtc} />
+            )
+          },
+          {
+            key: 'lastLogin',
+            header: t('user.accounts.columns.lastSignIn'),
+            width: 'minmax(140px, 1fr)',
+            cellClassName: 'tabular-nums',
+            render: (account: UserAccount) =>
+              account.lastLoginAtUtc ? (
+                <FormattedTimestamp timestamp={account.lastLoginAtUtc} />
+              ) : (
+                <span className="text-themed-muted">{t('user.accounts.neverSignedIn')}</span>
+              )
+          }
+        ]
+      : []),
     {
       key: 'actions',
       header: t('user.accounts.columns.actions'),
-      width: '72px',
+      // 64px, not less: the header word needs 61.6px with its padding, and a narrower column
+      // truncates it to "ACTIO...".
+      width: roomForFullTable ? '72px' : '64px',
       align: 'center',
       render: (account: UserAccount) => {
         // The installation's own account refuses every one of these on the server, and a promotion
