@@ -4,6 +4,13 @@ set -e
 ROOT="$(git rev-parse --show-toplevel)"
 
 cd "$ROOT/Web"
+
+# Runs before the slow gates so a one-word typo fails in a second rather than after a
+# full backend build. Covers every tracked file, not just the push, so text that predates
+# the rule is caught too.
+echo "pre-push: checking the LANCache spelling..."
+node scripts/validate-lancache-spelling.mjs
+
 echo "pre-push: running knip..."
 npm run knip
 

@@ -549,7 +549,7 @@ pub fn calculate_cache_path(
 }
 
 /// Calculate cache file path without byte range
-/// Lancache nginx cache key format: $cacheidentifier$uri (NO slice_range!)
+/// LANCache nginx cache key format: $cacheidentifier$uri (NO slice_range!)
 ///
 /// Cache key format: "{service}{url}"
 ///
@@ -573,7 +573,7 @@ pub fn calculate_cache_path_no_range(cache_dir: &Path, service: &str, url: &str)
 }
 
 /// Calculate cache file path for the `@noslice` location.
-/// Lancache nginx cache key format: `$cacheidentifier$uri::noslice` (literal `::noslice` suffix,
+/// LANCache nginx cache key format: `$cacheidentifier$uri::noslice` (literal `::noslice` suffix,
 /// NO byte range — `15_noslice.conf:51`). Mirrors `calculate_cache_path_no_range` exactly except
 /// for the trailing `::noslice`, so the produced filename matches the no-range/ranged forms in shape.
 ///

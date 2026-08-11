@@ -526,6 +526,10 @@ public sealed class EndpointAuthorizationContractTests
         // directory the host isolates, which is why the isolation check above still holds.
         host.Application.Services.GetRequiredService<IStateService>().SetSetupCompleted(true);
 
+        // And an installation with an owner, for the same reason: a guest session is refused while
+        // authentication is on and no account exists, and what this test needs is a guest session.
+        await host.NewAccountAsync();
+
         // Starting a guest session changes something, so it carries the antiforgery token a browser
         // would already hold from the status call the page makes before showing the sign-in screen.
         await EndpointAuthorizationHost.PrimeAntiforgeryAsync(guestClient);
@@ -575,7 +579,7 @@ public sealed class EndpointAuthorizationContractTests
         Assert.True(
             !string.IsNullOrWhiteSpace(schemeDescription),
             "The ApiKey scheme has no description telling the caller which key to enter.");
-        Assert.Contains("Lancache Manager", schemeDescription!, StringComparison.Ordinal);
+        Assert.Contains("LANCache Manager", schemeDescription!, StringComparison.Ordinal);
         Assert.Contains("No credential is prefilled.", schemeDescription!, StringComparison.Ordinal);
 
         var sessionScheme = document.GetProperty("components").GetProperty("securitySchemes").GetProperty("Session");

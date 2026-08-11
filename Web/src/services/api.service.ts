@@ -3764,7 +3764,7 @@ export interface NetworkDiagnostics {
   testedAt: string;
   /** True if container uses host networking - steam-prefill will detect lancache via localhost/gateway fallback */
   useHostNetworking?: boolean;
-  /** Lancache server IP injected via the LANCACHE_IP env var. Null when no cache IP was determined. */
+  /** LANCache server IP injected via the LANCACHE_IP env var. Null when no cache IP was determined. */
   lancacheIpInjected: string | null;
   /** How the injected IP was located: config | dockerInspect | envFile | detected | none. */
   lancacheIpSource?: string;

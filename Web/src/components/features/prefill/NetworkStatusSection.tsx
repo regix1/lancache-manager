@@ -139,7 +139,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
             <p className="caps-label prefill-network-well-title">
               {t('prefill.network.groupCacheRouting')}
             </p>
-            {/* Lancache IP injected (Prefill__LancacheIp) */}
+            {/* LANCache IP injected (Prefill__LancacheIp) */}
             {diagnostics.lancacheIpInjected ? (
               <div className="flex items-center gap-2 flex-wrap">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />

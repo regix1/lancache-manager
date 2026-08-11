@@ -21,7 +21,7 @@ public sealed class PrefillNetworkOptions
     public string? NetworkMode { get; init; }
 
     /// <summary>
-    /// Lancache server IP literal or hostname, forwarded to the daemon container as
+    /// LANCache server IP literal or hostname, forwarded to the daemon container as
     /// <c>LANCACHE_IP</c>. When set, the daemon ignores container DNS for CDN traffic
     /// and routes directly to this address with explicit Host headers.
     /// </summary>

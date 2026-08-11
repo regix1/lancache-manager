@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "tsc && vite build && npm run validate:notifications -- --dist",
     "preview": "vite preview",
-    "lint": "eslint . --max-warnings 0 && npm run validate:notifications && node scripts/validate-badges.mjs && npm run validate:i18n-keys",
+    "lint": "eslint . --max-warnings 0 && npm run validate:notifications && node scripts/validate-badges.mjs && npm run validate:i18n-keys && node scripts/validate-lancache-spelling.mjs",
     "lint:fix": "eslint . --fix",
     "test:nginx-reopen": "node --test scripts/test-nginx-reopen-availability.mjs",
     "test:live-previews": "node --test scripts/test-live-download-previews.mjs",

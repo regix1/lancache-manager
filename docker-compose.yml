@@ -304,7 +304,7 @@ services:
 #       - POSTGRES_DB=lancache
 #       - POSTGRES_USER=lancache
 #       - POSTGRES_PASSWORD=change-this-password
-#       # ... other LanCache/Security/Prefill env vars stay the same ...
+#       # ... other LanCache__/Security__/Prefill__ env vars stay the same ...
 #     depends_on:
 #       - lancache-db
 #

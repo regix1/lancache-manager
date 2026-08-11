@@ -155,7 +155,7 @@ builder.Services.AddOpenApi(options =>
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Header,
             Name = "X-Api-Key",
-            Description = "Enter the Lancache Manager API key. No credential is prefilled. It authorizes this reference and /openapi/v1.json only."
+            Description = "Enter the LANCache Manager API key. No credential is prefilled. It authorizes this reference and /openapi/v1.json only."
         };
         document.Components.SecuritySchemes["Session"] = new OpenApiSecurityScheme
         {

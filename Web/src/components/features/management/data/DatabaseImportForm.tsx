@@ -134,7 +134,7 @@ export function DatabaseImportForm({
 
   return (
     <div className={`database-import-form ${className}`}>
-      {/* Lancache Manager form */}
+      {/* LANCache Manager form */}
       <div className="database-import-form__postgres-fields">
         {!showRawConnectionString && (
           <>

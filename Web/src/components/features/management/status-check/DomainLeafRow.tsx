@@ -128,7 +128,7 @@ const DomainLeafRow: React.FC<DomainLeafRowProps> = ({ result }) => {
   }
 
   // The origin line answers the user's real question - "can this domain still be cached?" -
-  // instead of protocol trivia. Lancache only caches plain HTTP, so an origin that has gone
+  // instead of protocol trivia. LANCache only caches plain HTTP, so an origin that has gone
   // HTTPS-only means downloads bypass the cache no matter what DNS does. Protocol-level detail
   // stays in the tooltip (and the Test-a-domain drill-down).
   const edgeLabel = t(`${keys}.checks.edge`);

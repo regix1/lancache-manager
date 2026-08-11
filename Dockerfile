@@ -1,4 +1,4 @@
-# Multi-stage build for Lancache Manager with Rust processors
+# Multi-stage build for LANCache Manager with Rust processors
 # Supports: linux/amd64, linux/arm64
 
 ARG VERSION=1.2.0
@@ -125,10 +125,10 @@ ARG IMAGE_VARIANT=full
 WORKDIR /app
 
 # Metadata labels
-LABEL org.opencontainers.image.title="LanCache Manager"
-LABEL org.opencontainers.image.description="Modern monitoring interface for LanCache deployments"
+LABEL org.opencontainers.image.title="LANCache Manager"
+LABEL org.opencontainers.image.description="Modern monitoring interface for LANCache deployments"
 LABEL org.opencontainers.image.version="${VERSION}"
-LABEL org.opencontainers.image.vendor="LanCache Manager"
+LABEL org.opencontainers.image.vendor="LANCache Manager"
 LABEL org.opencontainers.image.source="https://github.com/regix1/lancache-manager"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL io.lancache-manager.variant="${IMAGE_VARIANT}"

@@ -422,7 +422,7 @@ interface GitHubRepo {
 
 const INSTALLABLE_REPOS: GitHubRepo[] = [
   {
-    name: 'LANcache Manager',
+    name: 'LANCache Manager',
     shortName: 'lancache-manager',
     url: 'https://github.com/regix1/lancache-manager',
     descriptionKey: 'nav.githubProjects.repos.lancacheManager',
@@ -440,7 +440,7 @@ const INSTALLABLE_REPOS: GitHubRepo[] = [
 
 const DEPENDENCY_REPOS: GitHubRepo[] = [
   {
-    name: 'LANcache Pics',
+    name: 'LANCache Pics',
     shortName: 'lancache-pics',
     url: 'https://github.com/regix1/lancache-pics',
     descriptionKey: 'nav.githubProjects.repos.lancachePics',

@@ -123,7 +123,7 @@ rustup-init.exe
 # Cache directory (root level only, not src/components/*/cache/)
 /cache/
 
-# Steam Lancache Prefill tool
+# Steam LANCache Prefill tool
 steam-lancache-prefill/
 
 # Rust build artifacts

@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LancacheManager.Core.Services;
 
 /// <summary>
-/// Service for collecting and exposing LanCache-specific metrics to Prometheus/Grafana
+/// Service for collecting and exposing LANCache-specific metrics to Prometheus/Grafana
 /// Uses OpenTelemetry Metrics API for instrumentation
 ///
 /// Metrics follow Prometheus naming conventions:
@@ -230,13 +230,13 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         _meter.CreateObservableGauge(
             "lancache_info",
             () => new Measurement<int>(1, new KeyValuePair<string, object?>("version", _version)),
-            description: "LanCache Manager information"
+            description: "LANCache Manager information"
         );
 
         _meter.CreateObservableGauge(
             "lancache_uptime_seconds",
             () => (long)_uptimeStopwatch.Elapsed.TotalSeconds,
-            description: "Time since LanCache Manager started"
+            description: "Time since LANCache Manager started"
         );
 
         _meter.CreateObservableGauge(
