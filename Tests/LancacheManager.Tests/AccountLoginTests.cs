@@ -2,6 +2,7 @@ using System.Reflection;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
@@ -233,12 +234,17 @@ public sealed class AccountLoginTests : IDisposable
     /// A guest still asks for nothing. The three-factor sign-in is the account door; the guest door is
     /// the one an anonymous visitor on the LAN uses and it did not move.
     /// </summary>
+    /// <remarks>
+    /// The installation has an owner, which is the normal state and the one the guest door is open in.
+    /// The two tests below it are the states where it is shut and where the question is not asked.
+    /// </remarks>
     [Fact]
     public async Task GuestSignInStillNeedsNoCredential()
     {
         await using var database = await TestDatabase.CreateAsync();
         var state = CreateStateService(_root);
         state.SetSetupCompleted(true);
+        await NewAccountAsync(database, "operator");
         var sign = NewSignIn(database, state);
 
         var result = await sign.Controller.StartGuestAsync();
@@ -251,6 +257,47 @@ public sealed class AccountLoginTests : IDisposable
         var stored = await context.UserSessions.SingleAsync();
         Assert.Equal(SessionType.Guest, stored.SessionType);
         Assert.Null(stored.AccountId);
+    }
+
+    /// <summary>
+    /// An installation that finished setup and has no account yet belongs to nobody, and a guest
+    /// session there reads its cache before its owner has signed in once. The refusal is the endpoint's
+    /// own, and no session row is left behind by the attempt.
+    /// </summary>
+    [Fact]
+    public async Task GuestSignInIsRefusedBeforeTheInstallationHasAnAccount()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var state = CreateStateService(_root);
+        state.SetSetupCompleted(true);
+        var sign = NewSignIn(database, state);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => sign.Controller.StartGuestAsync());
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Empty(await context.UserSessions.ToListAsync());
+    }
+
+    /// <summary>
+    /// An installation running with authentication off never has an account and never will, so the
+    /// account count says nothing about it and the guest door stays open. A refusal written without
+    /// this condition would shut that installation out of guest access permanently.
+    /// </summary>
+    [Fact]
+    public async Task GuestSignInWithAuthenticationDisabledNeedsNoAccount()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var state = CreateStateService(_root);
+        state.SetSetupCompleted(true);
+        var sign = NewSignIn(database, state, authenticationEnabled: false);
+
+        var result = await sign.Controller.StartGuestAsync();
+
+        var body = Assert.IsType<LoginResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(SessionType.Guest, body.SessionType);
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Empty(await context.UserAccounts.ToListAsync());
     }
 
     // --- The stored hash ----------------------------------------------------------------------
@@ -719,7 +766,8 @@ public sealed class AccountLoginTests : IDisposable
     private SignIn NewSignIn(
         TestDatabase database,
         StateService? stateService = null,
-        AccountLockout? lockout = null)
+        AccountLockout? lockout = null,
+        bool authenticationEnabled = true)
     {
         var sessions = new SessionService(
             database.Factory,
@@ -727,7 +775,7 @@ public sealed class AccountLoginTests : IDisposable
             NullLogger<SessionService>.Instance,
             stateService!,
             NewNotifications(),
-            _configuration);
+            authenticationEnabled ? _configuration : AuthenticationDisabled());
 
         var request = new DefaultHttpContext();
         var sharedLockout = lockout ?? new AccountLockout(NullLogger<AccountLockout>.Instance);
@@ -748,6 +796,19 @@ public sealed class AccountLoginTests : IDisposable
 
         return new SignIn(controller, request, sessions, sharedLockout);
     }
+
+    /// <summary>
+    /// The same settings the class is built on with authentication turned off, which is the one thing
+    /// the session service reads that changes what the guest door does.
+    /// </summary>
+    private IConfiguration AuthenticationDisabled() =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:ApiKeyPath"] = Path.Combine(_root, "api_key.txt"),
+                ["Security:EnableAuthentication"] = "false"
+            })
+            .Build();
 
     /// <summary>
     /// Signs in through the endpoint and publishes the resulting session the way the request handler

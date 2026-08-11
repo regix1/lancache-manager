@@ -523,6 +523,20 @@ public class AuthController : ControllerBase
             throw new ForbiddenException("Setup is not complete");
         }
 
+        // Nobody owns an installation that has authentication on and no account yet, so a guest
+        // session there reads the cache of an installation whose owner has not signed in once. The
+        // account count only decides this while authentication is on: an installation running with
+        // it off is account-less on purpose and always will be, and a bare no-account test would
+        // refuse guests there forever. FirstAdminSessionResetService guards itself the same way.
+        if (_sessionService.IsAuthenticationEnabled())
+        {
+            await using var context = await _dbContextFactory.CreateDbContextAsync();
+            if (!await context.UserAccounts.AnyAsync())
+            {
+                throw new ForbiddenException("No administrator account exists yet");
+            }
+        }
+
         var result = await _sessionService.CreateGuestSessionAsync(HttpContext);
         if (result == null)
         {
