@@ -189,7 +189,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
           <div className="flex items-center gap-3">
             {currentStep !== 'database-setup' &&
               currentStep !== 'external-db-form' &&
-              currentStep !== 'external-db-confirm' && (
+              currentStep !== 'external-db-confirm' &&
+              currentStep !== 'admin-account' && (
                 <Tooltip
                   content={
                     backButtonDisabled
