@@ -1,6 +1,6 @@
 # API 参考
 
-Web 界面完全构建在 LancacheManager 自身的 HTTP API 之上，因此凡是能点击完成的操作都可以脚本化。API 共有 283 个端点，分为六组。
+Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡是能点击完成的操作都可以脚本化。API 共有 283 个端点，分为六组。
 
 ## 把整套 API 交给 AI 助手
 
@@ -9,7 +9,7 @@ Web 界面完全构建在 LancacheManager 自身的 HTTP API 之上，因此凡�
 其中包含每个端点的请求方法、路径、认证要求、用途，以及请求和响应结构。把它粘贴到对话中，然后描述需求即可：
 
 ```text
-附件是 LANCache 监控工具 LancacheManager 的 API 参考。
+附件是 LANCache 监控工具 LANCache Manager 的 API 参考。
 我的实例地址是 http://cache.lan:8080，API 密钥、用户名和密码分别
 保存在环境变量 LANCACHE_KEY、LANCACHE_USER 和 LANCACHE_PASSWORD 中。
 请写一个 bash 脚本，为一组 app ID 启动 Steam 预填充，并等待其完成。

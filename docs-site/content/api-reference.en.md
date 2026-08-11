@@ -1,6 +1,6 @@
 # API Reference
 
-The web UI runs entirely on LancacheManager's own HTTP API, so anything you can click, you can script. There are 283 endpoints across six groups.
+The web UI runs entirely on LANCache Manager's own HTTP API, so anything you can click, you can script. There are 283 endpoints across six groups.
 
 ## Hand the whole API to an AI assistant
 
@@ -9,7 +9,7 @@ The web UI runs entirely on LancacheManager's own HTTP API, so anything you can 
 Every endpoint with its method, path, auth requirement, purpose, and request and response shapes. Paste it into a chat and ask for what you want:
 
 ```text
-Attached is the API reference for LancacheManager, a LANCache monitoring tool.
+Attached is the API reference for LANCache Manager, a LANCache monitoring tool.
 My instance is at http://cache.lan:8080. My API key, username and password are
 in the environment variables LANCACHE_KEY, LANCACHE_USER and LANCACHE_PASSWORD.
 Write me a bash script that starts a Steam prefill for a list of app IDs and

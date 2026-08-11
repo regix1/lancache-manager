@@ -44,6 +44,29 @@ const ALLOWED_CONTEXTS = [
   { after: /^\.NET/, reason: 'LanCache.NET, the upstream project' }
 ];
 
+/**
+ * The app's display name is "LANCache Manager". Running it together as LancacheManager
+ * is right in code and wrong in a sentence, and the published API reference had it in
+ * prose. Only the surfaces below are checked for it, never source files: in code
+ * "LancacheManager" is a namespace, a path segment in a test, the metrics meter name and
+ * the data-protection ApplicationName that session cookies are tied to, and a repo-wide
+ * version of this check flags 67 of those against 15 real ones.
+ */
+const PRODUCT_NAME_RUN_TOGETHER = /(?<![/\\.])LancacheManager(?![A-Za-z0-9_./\\:|;-])/g;
+
+/**
+ * "LancacheManager | v1" is the OpenAPI document title. Nothing declares it, so it is
+ * the .NET default taken from the assembly name, and the generated reference quotes it.
+ * Correcting it means setting an explicit title on the OpenAPI document rather than
+ * editing this text, which would be overwritten on the next generation anyway.
+ */
+const OPENAPI_DOCUMENT_TITLE = /^ \| v/;
+const PROSE_PATH_PREFIXES = [
+  'docs-site/content/',
+  'docs-site/assets/',
+  'Web/src/i18n/locales/',
+];
+
 /** Put this on a line whose spelling is deliberate and the line is skipped. */
 const IGNORE_MARKER = 'brand-spelling-ok';
 
@@ -96,6 +119,7 @@ function findWrongSpellings(filePath) {
 
   const hits = [];
   const lines = content.split('\n');
+  const isProse = PROSE_PATH_PREFIXES.some((prefix) => filePath.startsWith(prefix));
 
   for (let index = 0; index < lines.length; index += 1) {
     const text = lines[index];
@@ -115,11 +139,35 @@ function findWrongSpellings(filePath) {
           line: index + 1,
           column: match.index + 1,
           spelling: match[0],
+          correction: CORRECT_SPELLING,
           text: text.trim()
         });
       }
 
       match = WRONG_SPELLING_PATTERN.exec(text);
+    }
+
+    if (!isProse) {
+      continue;
+    }
+
+    PRODUCT_NAME_RUN_TOGETHER.lastIndex = 0;
+    let runTogether = PRODUCT_NAME_RUN_TOGETHER.exec(text);
+
+    while (runTogether !== null) {
+      const after = text.slice(runTogether.index + runTogether[0].length);
+
+      if (!OPENAPI_DOCUMENT_TITLE.test(after)) {
+        hits.push({
+          line: index + 1,
+          column: runTogether.index + 1,
+          spelling: runTogether[0],
+          correction: `${CORRECT_SPELLING} Manager`,
+          text: text.trim()
+        });
+      }
+
+      runTogether = PRODUCT_NAME_RUN_TOGETHER.exec(text);
     }
   }
 
@@ -139,7 +187,7 @@ function main() {
     console.error(`\n${filePath}`);
     for (const hit of hits) {
       total += 1;
-      console.error(`  ${hit.line}:${hit.column}  ${hit.spelling} -> ${CORRECT_SPELLING}`);
+      console.error(`  ${hit.line}:${hit.column}  ${hit.spelling} -> ${hit.correction}`);
       console.error(`            ${hit.text.slice(0, 100)}`);
     }
   }

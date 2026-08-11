@@ -3007,7 +3007,7 @@
     },
     "dataImporter": {
       "title": "Import Historical Data",
-      "subtitle": "Import from another LancacheManager database",
+      "subtitle": "Import from another LANCache Manager database",
       "options": {
         "batchSize": "Batch Size",
         "overwriteExisting": "Update existing records (merge mode)"

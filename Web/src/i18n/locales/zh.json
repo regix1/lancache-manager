@@ -3007,7 +3007,7 @@
     },
     "dataImporter": {
       "title": "导入历史数据",
-      "subtitle": "从另一个 LancacheManager 数据库导入",
+      "subtitle": "从另一个 LANCache Manager 数据库导入",
       "options": {
         "batchSize": "批处理大小",
         "overwriteExisting": "更新现有记录（合并模式）"

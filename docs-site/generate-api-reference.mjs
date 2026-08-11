@@ -95,10 +95,10 @@ function buildMarkdown(doc) {
   const total = [...byTag.values()].reduce((sum, ops) => sum + ops.length, 0);
 
   const out = [];
-  out.push('# LancacheManager API Reference');
+  out.push('# LANCache Manager API Reference');
   out.push('');
   out.push(
-    `Every HTTP endpoint LancacheManager serves: ${total} operations across ${sortedTags.length} groups, ` +
+    `Every HTTP endpoint LANCache Manager serves: ${total} operations across ${sortedTags.length} groups, ` +
       `generated from the OpenAPI document of \`${doc.info.title}\` version \`${doc.info.version}\`.`
   );
   out.push('');

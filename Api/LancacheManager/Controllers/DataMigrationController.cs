@@ -10,7 +10,7 @@ using Npgsql;
 namespace LancacheManager.Controllers;
 
 /// <summary>
-/// Controller for importing historical download data from another LancacheManager database.
+/// Controller for importing historical download data from another LANCache Manager database.
 /// </summary>
 [ApiController]
 [Route("api/migration")]
@@ -40,7 +40,7 @@ public class DataMigrationController : ControllerBase
     }
 
     /// <summary>
-    /// Imports historical download rows from another LancacheManager database.
+    /// Imports historical download rows from another LANCache Manager database.
     /// </summary>
     /// <remarks>
     /// Streams rows batch by batch, skipping or overwriting rows that already exist by
@@ -370,7 +370,7 @@ public class DataMigrationController : ControllerBase
     }
 
     /// <summary>
-    /// Reports whether a LancacheManager import is currently running.
+    /// Reports whether a LANCache Manager import is currently running.
     /// </summary>
     /// <remarks>
     /// Recovery endpoint for the import notification card. Also reports progress, so a page
@@ -405,7 +405,7 @@ public class DataMigrationController : ControllerBase
     }
 
     /// <summary>
-    /// Validates a connection string against a source LancacheManager database.
+    /// Validates a connection string against a source LANCache Manager database.
     /// </summary>
     /// <remarks>
     /// Confirms it has a Downloads table, so the import form can validate a connection before the
