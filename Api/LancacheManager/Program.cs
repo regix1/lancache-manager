@@ -148,18 +148,27 @@ builder.Services.AddOpenApi(options =>
     {
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
+        // The key opens this reference and the document behind it, and no endpoint in the
+        // document, so it is offered as a scheme here but never required by an operation.
         document.Components.SecuritySchemes["ApiKey"] = new OpenApiSecurityScheme
         {
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Header,
             Name = "X-Api-Key",
-            Description = "Enter the Lancache Manager API key. No credential is prefilled."
+            Description = "Enter the Lancache Manager API key. No credential is prefilled. It authorizes this reference and /openapi/v1.json only."
+        };
+        document.Components.SecuritySchemes["Session"] = new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.ApiKey,
+            In = ParameterLocation.Cookie,
+            Name = "LancacheManager.Session",
+            Description = "Sign in at POST /api/auth/login with an API key, a username and a password, then send the session cookie it returns."
         };
 
         document.Security ??= [];
         document.Security.Add(new OpenApiSecurityRequirement
         {
-            [new OpenApiSecuritySchemeReference("ApiKey", document)] = []
+            [new OpenApiSecuritySchemeReference("Session", document)] = []
         });
 
         // Replace the per-controller tags the document collects by default with the six
@@ -176,7 +185,7 @@ builder.Services.AddOpenApi(options =>
 
     options.AddOperationTransformer((operation, context, _) =>
     {
-        // An operation-level empty list overrides the document-level API key requirement,
+        // An operation-level empty list overrides the document-level session requirement,
         // so anonymous endpoints are not shown as locked. Everything else inherits it.
         if (context.Description.ActionDescriptor.EndpointMetadata?.OfType<IAllowAnonymous>().Any() == true)
         {

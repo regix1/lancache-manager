@@ -578,9 +578,37 @@ public sealed class EndpointAuthorizationContractTests
         Assert.Contains("Lancache Manager", schemeDescription!, StringComparison.Ordinal);
         Assert.Contains("No credential is prefilled.", schemeDescription!, StringComparison.Ordinal);
 
-        Assert.Contains(
+        var sessionScheme = document.GetProperty("components").GetProperty("securitySchemes").GetProperty("Session");
+        Assert.Equal("apiKey", sessionScheme.GetProperty("type").GetString());
+        Assert.Equal("cookie", sessionScheme.GetProperty("in").GetString());
+        Assert.Equal("LancacheManager.Session", sessionScheme.GetProperty("name").GetString());
+
+        // The key opens the reference and nothing behind it, so the document must ask every
+        // endpoint for the session cookie and must never advertise the header as a way in.
+        Assert.All(
             document.GetProperty("security").EnumerateArray(),
-            requirement => requirement.TryGetProperty("ApiKey", out _));
+            requirement =>
+            {
+                Assert.True(requirement.TryGetProperty("Session", out _));
+                Assert.False(requirement.TryGetProperty("ApiKey", out _));
+            });
+
+        foreach (var path in document.GetProperty("paths").EnumerateObject())
+        {
+            foreach (var operation in path.Value.EnumerateObject())
+            {
+                if (!operation.Value.TryGetProperty("security", out var operationSecurity))
+                {
+                    continue;
+                }
+
+                Assert.All(
+                    operationSecurity.EnumerateArray(),
+                    requirement => Assert.False(
+                        requirement.TryGetProperty("ApiKey", out _),
+                        $"{operation.Name.ToUpperInvariant()} {path.Name} tells the caller to send X-Api-Key, which no endpoint accepts as its credential."));
+            }
+        }
     }
 
     [Fact]
@@ -1267,6 +1295,16 @@ public sealed class EndpointAuthorizationContractTests
 
 internal sealed class EndpointAuthorizationHost : IDisposable
 {
+    /// <summary>
+    /// The database every host in this suite talks to. With no name set the connection string falls
+    /// back to the one in appsettings, which is the installation the developer runs, and these tests
+    /// create accounts, open sessions and clear accounts out again, so borrowing it takes real rows
+    /// with it. Naming a database of the suite's own is what keeps all of that off it.
+    /// </summary>
+    private const string DatabaseName = "lancache_endpoint_authorization_tests";
+
+    private static bool _databaseReady;
+
     private static readonly string[] EnvironmentVariables =
     [
         "POSTGRES_MODE",
@@ -1311,13 +1349,15 @@ internal sealed class EndpointAuthorizationHost : IDisposable
             Environment.SetEnvironmentVariable("POSTGRES_PASSWORD", null);
             Environment.SetEnvironmentVariable("POSTGRES_USER", null);
             Environment.SetEnvironmentVariable("POSTGRES_PORT", null);
-            Environment.SetEnvironmentVariable("POSTGRES_DB", null);
+            Environment.SetEnvironmentVariable("POSTGRES_DB", DatabaseName);
             Environment.SetEnvironmentVariable("LANCACHE_MANAGER_VERSION", "endpoint-authorization-test");
             Environment.SetEnvironmentVariable("Security__EnableAuthentication", authenticationEnabled.ToString());
             Directory.SetCurrentDirectory(_temporaryRoot);
 
             _application = new WebApplicationFactory<SetupController>()
                 .WithWebHostBuilder(builder => builder.UseContentRoot(apiRoot));
+
+            EnsureDatabase(_application);
         }
         catch
         {
@@ -1459,6 +1499,27 @@ internal sealed class EndpointAuthorizationHost : IDisposable
                 Directory.Delete(_temporaryRoot, recursive: true);
             }
         }
+    }
+
+    /// <summary>
+    /// Creates the suite's database and brings its schema up to date, the first time a host is built.
+    /// Startup does not do it here: external mode with no credentials is the setup-required state
+    /// these tests boot into, and that state skips migration by design, so nothing else would. The
+    /// classes that build a host all share one collection that runs on its own, so the first build is
+    /// the only one that finds the flag unset.
+    /// </summary>
+    private static void EnsureDatabase(WebApplicationFactory<SetupController> application)
+    {
+        if (_databaseReady)
+        {
+            return;
+        }
+
+        using var context = application.Services
+            .GetRequiredService<IDbContextFactory<AppDbContext>>()
+            .CreateDbContext();
+        context.Database.Migrate();
+        _databaseReady = true;
     }
 
     private void AssertRepositoryDataUnchanged()

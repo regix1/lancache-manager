@@ -62,9 +62,16 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             return AuthenticateResult.NoResult();
         }
 
+        // The key stands in for a session on the API reference and the document behind it, and
+        // nowhere else. Those two are read by client generators and by an operator who holds the key
+        // and has no account yet: neither has a cookie jar, and neither can run the sign-in POST. On
+        // every other route a key alone no longer authenticates, so a caller that sends only the
+        // header is answered like any other caller with no session. [73]
         if (session == null
             && authenticationEnabled
-            && Context.Request.Headers.ContainsKey("X-Api-Key"))
+            && Context.Request.Headers.ContainsKey("X-Api-Key")
+            && (Context.Request.Path.StartsWithSegments("/scalar")
+                || Context.Request.Path.StartsWithSegments("/openapi")))
         {
             var authenticationHelper = Context.RequestServices.GetRequiredService<AuthenticationHelper>();
             var apiKeyResult = authenticationHelper.ValidateApiKey(Context);
@@ -81,10 +88,11 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             // The key path carried no session at all until now, so the caller was an admin to the
             // policies and nobody to GetUserSession(), and GetRequiredSessionId() threw. One session is
             // resolved for the whole process rather than minted per request: the key is checked on
-            // every request that carries the header, so anything polling with it would otherwise add a
-            // row per request. Read the header the same way AuthenticationHelper.ExtractApiKey does,
-            // taking the first value: joining several into one string would have the check above
-            // accept a request that sends the header twice and the resolve below refuse it. [11]
+            // every request that carries the header to one of these two routes, so anything polling
+            // the document would otherwise add a row per fetch. Read the header the same way
+            // AuthenticationHelper.ExtractApiKey does, taking the first value: joining several into
+            // one string would have the check above accept a request that sends the header twice and
+            // the resolve below refuse it. [11]
             var keySession = await sessionService.GetOrCreateApiKeySessionAsync(
                 Context.Request.Headers["X-Api-Key"].FirstOrDefault() ?? string.Empty, Context);
             if (keySession == null)

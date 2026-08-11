@@ -127,9 +127,9 @@ public sealed class RateLimitCoverageContractTests
     }
 
     /// <summary>
-    /// The key is checked on every request that carries the header, which is every route rather than
-    /// the three the limiter attributes cover. Guessing 32 bytes of entropy is infeasible either way;
-    /// what this buys is that a flood is bounded and the failures are counted. [9b]
+    /// The key is checked on the documentation routes, which no limiter attribute covers because they
+    /// are mapped outside a controller. Guessing 32 bytes of entropy is infeasible either way; what
+    /// this buys is that a flood is bounded and the failures are counted. [9b][73]
     /// </summary>
     [Fact]
     public async Task InvalidApiKeysAreThrottledPerCallerAddress()
@@ -142,15 +142,15 @@ public sealed class RateLimitCoverageContractTests
         for (var attempt = 0; attempt < 10; attempt++)
         {
             var refused = await SendAsync(
-                host.Application.Server, "10.0.3.1", "GET", "/api/system/permissions", apiKey: "not-the-key");
+                host.Application.Server, "10.0.3.1", "GET", "/openapi/v1.json", apiKey: "not-the-key");
 
             Assert.Equal(StatusCodes.Status401Unauthorized, refused);
         }
 
         var throttled = await SendAsync(
-            host.Application.Server, "10.0.3.1", "GET", "/api/system/permissions", apiKey: "not-the-key");
+            host.Application.Server, "10.0.3.1", "GET", "/openapi/v1.json", apiKey: "not-the-key");
         var other = await SendAsync(
-            host.Application.Server, "10.0.3.2", "GET", "/api/system/permissions", apiKey: "not-the-key");
+            host.Application.Server, "10.0.3.2", "GET", "/openapi/v1.json", apiKey: "not-the-key");
 
         Assert.Equal(StatusCodes.Status429TooManyRequests, throttled);
         Assert.Equal(StatusCodes.Status401Unauthorized, other);

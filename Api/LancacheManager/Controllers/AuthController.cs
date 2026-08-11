@@ -170,14 +170,16 @@ public class AuthController : ControllerBase
         // Token rotation: the browser leaves here holding a fresh cookie, so a token that leaked from an
         // earlier response is short-lived rather than good for the life of the session.
         // Not for a caller carrying the key: SessionAuthenticationHandler resolves a session for it only
-        // while authentication is enabled and the header is present (SessionAuthenticationHandler.cs:65-67),
-        // that is one session every key caller shares (SessionService.cs:50), and no copy of its token is
-        // kept (SessionService.cs:342-345). Rotating it writes a cookie for that shared session
-        // (SessionService.cs:759) and retires the token the previous caller was handed, so a key caller
-        // would leave here holding a credential belonging to all of them that the next status call breaks.
-        // The key authenticates each of its requests on its own. With authentication disabled the header is
-        // never read and the session is the shared one whose cookie the browser runs on, so that path keeps
-        // rotating. [11]
+        // while authentication is enabled, the header is present and the path is /scalar or the OpenAPI
+        // document (SessionAuthenticationHandler.cs:70-74), that is one session every key caller shares
+        // (SessionService.cs:50), and no copy of its token is kept (SessionService.cs:358-361). Rotating
+        // it writes a cookie for that shared session (SessionService.cs:759) and retires the token the
+        // previous caller was handed, so a key caller would leave here holding a credential belonging to
+        // all of them that the next status call breaks. The key authenticates each of its requests on its
+        // own. The flag does not repeat the path test: off those two routes the header resolves no session
+        // at all, so the only caller it holds back from rotation is one that already carries a cookie and
+        // sends the header as well. With authentication disabled the header is never read and the session
+        // is the shared one whose cookie the browser runs on, so that path keeps rotating. [11]
         var authenticatedWithApiKey = authenticationEnabled && Request.Headers.ContainsKey("X-Api-Key");
         if (session != null && !authenticatedWithApiKey)
         {

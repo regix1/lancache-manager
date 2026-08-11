@@ -4,6 +4,7 @@
 - **A third role sits between admin and guest.** A user reaches every page and every action an admin does, with two differences: the account list shows them other users but not admins, and only the main admin can create an admin or promote anyone to one. A guest is still read-only, and reads a little less than it used to. See Upgrading below for the exact list.
 - **The main admin cannot be deleted, disabled, or demoted**, by anyone, including itself. Its row on the Accounts tab shows those actions greyed out rather than hiding them, so it is clear why they are unavailable.
 - **Rotating the API key ends every session, guests included.** The new key comes back in the response before your own session is cut, so read it and keep it. Everyone signs back in with the new key plus their own username and password. Account rows are untouched by a rotation. A refused sign-in now asks, in its own notice beside the refusal, whether somebody regenerated the key, so nobody spends an hour retyping a password that was always correct.
+- **The API key on its own is no longer a way into the API.** Sending `X-Api-Key` used to authenticate as an admin on every endpoint. It now works on the API reference at `/scalar` and the document behind it, and nowhere else. Scripts sign in and keep the session cookie instead. The exact list of what changes is under Upgrading.
 - **A forgotten main-admin password can be reset with the API key.** This app sends no email, so the key is the recovery path. `POST /api/account-setup/recover-main-admin` takes the key, the main admin's username and a new password in the request body. It changes the password and nothing else: it cannot change a role, cannot move the main-admin flag to somebody else, and cannot target any other account. It also ends the main admin's existing sessions, so a stolen session does not survive the reset.
 
 ## Upgrading
@@ -75,6 +76,48 @@ Twenty routes in total: thirteen that a guest can no longer read, and seven that
 `POST /api/auth/login` now needs `apiKey`, `username` and `password` in the body. A script that posts the key on its own gets the same refusal as a wrong password, and every failure mode returns the same message and the same status, so the response will not tell you which of the three was wrong.
 
 Anything that reads one of the twenty routes above has to sign in first, and for the thirteen a guest session is no longer enough.
+
+### The `X-Api-Key` header stops working on almost everything
+
+Read this one if you have a cron job, a monitoring check, or anything else that calls this API without a browser.
+
+Until now, sending `X-Api-Key` with a request authenticated you as an admin on every endpoint. From this release it works on exactly two:
+
+- `GET /scalar`, the interactive API reference
+- `GET /openapi/v1.json`, the document behind it
+
+Every other endpoint answers `401` to a request whose only credential is that header. If you poll something like `GET /api/cache`, `GET /api/dashboard/batch`, `GET /api/stats/clients`, `GET /api/downloads/with-associations` or `GET /api/system/schedules` with the key header, it stops answering the moment you upgrade. So do the two `curl` examples in the API reference documentation, which used the header against `/api/cache` and `/api/dashboard/batch`.
+
+Two calls about the key itself go with them, so mind these if you automate key handling: `GET /api/api-keys/status`, which tells you whether a key is valid, and `POST /api/api-keys/regenerate`, which rotates it. Both need a signed-in session now.
+
+The reason: the key is printed to the container log at every start, it is the same secret for everybody, and it left no session behind, so a key that got out could not be taken away from whoever had it without changing it for everyone. Signing in gives you a session that can be listed, revoked and audited.
+
+What to do instead, with an account created in the app:
+
+```bash
+# Take an antiforgery token first. Signing in changes something, so it needs one too.
+curl -c jar.txt http://cache.lan:8080/api/auth/status
+
+# Sign in once with the token out of the jar, and keep the cookies. All three fields are required.
+curl -b jar.txt -c jar.txt -X POST http://cache.lan:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -H "X-Antiforgery-Token: $(awk '/LancacheManager.Antiforgery/ {print $7}' jar.txt)" \
+  -d "{\"apiKey\":\"$LANCACHE_KEY\",\"username\":\"operator\",\"password\":\"$LANCACHE_PASSWORD\"}"
+
+# Then read with the cookie jar instead of the header.
+curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
+```
+
+Reads need nothing more than the jar. A request that changes something (`POST`, `PUT`, `PATCH`, `DELETE`) also needs an antiforgery token: call `GET /api/auth/status` with the same jar, take the value of the `LancacheManager.Antiforgery` cookie it sets, and send it back as an `X-Antiforgery-Token` header. That is why the sign-in above starts with the status call. The token belongs to the session it was issued to, and signing in gives you a new one, so call the status endpoint again before your first write.
+
+**Four calls still take the API key, and none of them changed.** They have to work before anyone can sign in:
+
+- `POST /api/setup/credentials` — key in the `X-Api-Key` header
+- `POST /api/setup/external` — key in the `X-Api-Key` header
+- `POST /api/account-setup/first-admin` — key in the request body
+- `POST /api/account-setup/recover-main-admin` — key in the request body
+
+**`/metrics` did not change either.** It has always had its own setting, `Security:RequireAuthForMetrics`, and when that is on it still takes the key in the `X-Api-Key` header. Prometheus scrapers need no change.
 
 ## Housekeeping
 

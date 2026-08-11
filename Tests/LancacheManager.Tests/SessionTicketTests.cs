@@ -156,6 +156,28 @@ public sealed class SessionTicketTests : IDisposable
     }
 
     /// <summary>
+    /// The right key on an ordinary route authenticates nobody. The header is how a script used to be
+    /// an admin on all 271 routes, with no session behind it and nothing to revoke; it now reaches the
+    /// API reference and its document only. No session row is written either, so the ordinary route
+    /// does not even resolve the shared key session on its way to refusing the caller. [73]
+    /// </summary>
+    [Fact]
+    public async Task KeyOnAnOrdinaryRoute_AuthenticatesNobody()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewSessionService(database.Factory);
+        var (handler, context) = await CreateHandlerAsync(service, _apiKeyService.GetApiKey());
+        context.Request.Path = "/api/system/permissions";
+
+        var result = await handler.AuthenticateAsync();
+
+        Assert.False(result.Succeeded);
+        Assert.False(context.Items.ContainsKey("Session"));
+        await using var stored = database.Factory.CreateDbContext();
+        Assert.Equal(0, await stored.UserSessions.CountAsync());
+    }
+
+    /// <summary>
     /// The account behind the session reaches the ticket, and the session type is that account's role.
     /// A user is used rather than an admin because admin is the enum's zero value, so an id that never
     /// arrived and a role that was never copied would both still read as admin. [25]
@@ -259,6 +281,11 @@ public sealed class SessionTicketTests : IDisposable
         if (apiKey != null)
         {
             context.Request.Headers["X-Api-Key"] = apiKey;
+
+            // The key authenticates on the API reference and its document and nowhere else, so the
+            // facts about what the key path carries are asked on a path where the key path runs.
+            // The route that stays open is asserted below rather than assumed here. [73]
+            context.Request.Path = "/openapi/v1.json";
         }
 
         if (rawToken != null)

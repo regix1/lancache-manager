@@ -62,10 +62,8 @@ function firstContentSchema(content) {
 }
 
 function operationAuth(operation, documentSecurity) {
-  if (Array.isArray(operation.security)) {
-    return operation.security.length === 0 ? 'public' : 'requires X-Api-Key';
-  }
-  return documentSecurity && documentSecurity.length > 0 ? 'requires X-Api-Key' : 'public';
+  const requirements = Array.isArray(operation.security) ? operation.security : documentSecurity;
+  return requirements && requirements.length > 0 ? 'requires a signed-in session' : 'public';
 }
 
 function shapeLine(label, described) {
@@ -108,7 +106,7 @@ function buildMarkdown(doc) {
     'This is a flattened summary meant to be read by a person or pasted into a chat with an ' +
       'AI assistant. It is not the OpenAPI document itself. A running instance serves the ' +
       'interactive reference at `/scalar` and the full machine-readable document at ' +
-      '`/openapi/v1.json`, both of which need an admin API key.'
+      '`/openapi/v1.json`, both of which take an admin session or the API key.'
   );
   out.push('');
   out.push('## Calling the API');
@@ -118,17 +116,25 @@ function buildMarkdown(doc) {
       '8080, so `http://<host>:8080`. A local development run uses `http://localhost:5000`.'
   );
   out.push(
-    '- Endpoints marked **requires X-Api-Key** need an `X-Api-Key: <your key>` header. ' +
-      'Endpoints marked **public** work without one, because they have to answer before a ' +
-      'caller has credentials (sign-in, guest configuration, setup, health).'
+    '- Endpoints marked **requires a signed-in session** need the `LancacheManager.Session` ' +
+      'cookie. Sign in once at `POST /api/auth/login`, which takes an API key, a username and a ' +
+      'password together, and send the cookie it returns on every later call. A call that changes ' +
+      'something (POST, PUT, PATCH, DELETE) also needs the value of the `LancacheManager.Antiforgery` ' +
+      'cookie sent back as an `X-Antiforgery-Token` header.'
+  );
+  out.push(
+    '- Endpoints marked **public** answer without a session, because they have to work before a ' +
+      'caller has one (sign-in, guest configuration, setup, health).'
+  );
+  out.push(
+    '- The `X-Api-Key` header on its own opens `/scalar` and `/openapi/v1.json` and nothing else. ' +
+      'Four setup endpoints read the key themselves: `POST /api/setup/credentials` and ' +
+      '`POST /api/setup/external` take it in the header, `POST /api/account-setup/first-admin` and ' +
+      '`POST /api/account-setup/recover-main-admin` take it in the request body.'
   );
   out.push(
     '- Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`, or from ' +
       'Management then Integrations inside the app.'
-  );
-  out.push(
-    '- A browser session cookie is accepted in place of the header, which is how the app calls ' +
-      'itself. Scripts and other API clients should send the header.'
   );
   out.push(
     '- Request and response shapes list top-level fields only, as `name: type`, with `?` marking ' +
