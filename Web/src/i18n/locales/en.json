@@ -4093,6 +4093,11 @@
         "title": "Regenerate API Key",
         "message": "Regenerating the API key will immediately log out all connected devices and guests, requiring everyone to re-authenticate with the new key.",
         "important": "Important:"
+      },
+      "rotatedModal": {
+        "title": "Your New API Key",
+        "message": "This is the only time this key is shown. Copy it now, because everyone has been signed out and signing back in needs it.",
+        "copied": "Copied!"
       }
     },
     "sessions": {},
@@ -7215,6 +7220,7 @@
       "notFound": "No such account.",
       "mainAdminProtected": "The account that owns this installation cannot be changed here.",
       "adminRoleRequiresMainAdmin": "Only the account that owns this installation can grant the administrator role.",
+      "selfProtected": "You cannot delete, disable or change the role of the account you are signed in as.",
       "roleNotAssignable": "An account can hold the administrator or the user role.",
       "usernameTaken": "That username is already taken.",
       "credentialsRejected": "The username or password does not meet the requirements."

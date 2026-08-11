@@ -44,7 +44,7 @@
 }
 
 /* Password recovery, collapsed behind a quiet disclosure. It applies a live password change,
-   so reaching it takes a deliberate click and a pasted API key rather than one stray tap. [44] */
+   so reaching it takes a deliberate click and a pasted API key rather than one stray tap. */
 .config-error-recovery {
   width: 100%;
   padding-top: 1rem;

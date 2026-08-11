@@ -220,8 +220,11 @@ function resolveInitialStep(
   adminAccountRequired: boolean
 ): InitStep {
   // Replaying database setup on an installation that has been serving traffic would be its own
-  // outage, and the account is the only thing it is missing. [37b]
-  if (adminAccountRequired) {
+  // outage, and the account is the only thing it is missing.
+  // Only an account table the server actually read and found empty sends the operator here. When
+  // the account state came back unknown the database is what the wizard has to sort out first,
+  // because the account row is stored in the database this step cannot reach.
+  if (adminAccountRequired && setupStatus?.accountExists === false) {
     return 'admin-account';
   }
 
@@ -273,9 +276,9 @@ export function useInitializationFlow({
   const { authenticationEnabled } = useAuth();
 
   const adminAccountRequired = isAdminAccountRequired({
-    setupCompleted: setupStatus?.isCompleted === true,
     authenticationEnabled,
-    accountExists: setupStatus?.accountExists ?? null
+    accountExists: setupStatus?.accountExists ?? null,
+    needsPostgresCredentials: setupStatus?.needsPostgresCredentials === true
   });
 
   // Track whether we've done the initial hydration from server state
@@ -422,7 +425,7 @@ export function useInitializationFlow({
         // state to resume either, and no session: PATCH /api/system/setup requires one
         // (SystemController.cs:341), so the last-persisted values are primed here to keep the
         // persistence effects from retrying a write that can only 401. The step itself was already
-        // chosen by resolveInitialStep. [37b]
+        // chosen by resolveInitialStep.
         if (adminAccountRequired) {
           lastPersistedStep.current = 'admin-account';
           lastPersistedDataSource.current = null;

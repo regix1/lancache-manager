@@ -28,8 +28,8 @@ public sealed class IdentityAuditServiceTests
         return events;
     }
 
-    // The nine events named in the scope of the trail. Pinned by name so that removing one, or
-    // renaming one out from under a caller, fails here rather than silently dropping a record. [29b]
+    // The events named in the scope of the trail. Pinned by name so that removing one, or renaming
+    // one out from under a caller, fails here rather than silently dropping a record.
     [Fact]
     public void EveryScopedIdentityEventHasAName()
     {
@@ -41,6 +41,7 @@ public sealed class IdentityAuditServiceTests
                 "AccountDisabled",
                 "AccountEnabled",
                 "RoleChanged",
+                "PasswordChanged",
                 "LoginSucceeded",
                 "LoginFailed",
                 "ApiKeyRotated",
@@ -49,7 +50,7 @@ public sealed class IdentityAuditServiceTests
             Enum.GetNames<IdentityAuditEvent>());
     }
 
-    // Every event writes one row carrying the actor, the target and the time. [29b]
+    // Every event writes one row carrying the actor, the target and the time.
     [Theory]
     [MemberData(nameof(EveryEvent))]
     public async Task RecordedEventKeepsTheActorTheTargetAndTheTime(IdentityAuditEvent auditEvent)
@@ -76,7 +77,7 @@ public sealed class IdentityAuditServiceTests
     }
 
     // A rotation carried out with only an API key has no account and no session behind it. The row
-    // has to exist with a null actor rather than the write throwing. [29c]
+    // has to exist with a null actor rather than the write throwing.
     [Fact]
     public async Task EventFromACallerWithNoAccountIsRecordedWithANullActor()
     {
@@ -95,7 +96,7 @@ public sealed class IdentityAuditServiceTests
     }
 
     // A logging fault must not become an outage: the write fails, the caller does not hear about
-    // it, and the operation being recorded finishes. [29d]
+    // it, and the operation being recorded finishes.
     [Fact]
     public async Task FailedWriteDoesNotReachTheCaller()
     {
@@ -114,7 +115,7 @@ public sealed class IdentityAuditServiceTests
 
     // The operation half of the same criterion. The account change is pending on the caller's own
     // context when the audit write fails; it still commits, and the caller's context is left with
-    // nothing of the writer's tracked on it. [29d]
+    // nothing of the writer's tracked on it.
     [Fact]
     public async Task OperationStillCommitsAfterAFailedWrite()
     {
@@ -151,7 +152,7 @@ public sealed class IdentityAuditServiceTests
     // the whole question: every other test in this class builds the writer by hand and passes while a
     // caller that injects it fails at startup. Asking the root provider twice also pins the lifetime -
     // a scoped registration cannot be resolved from the root, and a transient one would answer with two
-    // different instances. [29e]
+    // different instances.
     [Fact]
     public async Task WriterResolvesFromTheRunningApplication()
     {
@@ -164,7 +165,7 @@ public sealed class IdentityAuditServiceTests
             host.Application.Services.GetRequiredService<IdentityAuditService>());
     }
 
-    // Append-only means the writer offers one thing to do with the table. [29e]
+    // Append-only means the writer offers one thing to do with the table.
     [Fact]
     public void WriterOffersNoUpdateOrDeletePath()
     {

@@ -3,29 +3,37 @@ namespace LancacheManager.Models;
 /// <summary>
 /// Refusal body for the account-management endpoints. <see cref="StageKey"/> is the i18n key the
 /// browser renders; <see cref="Error"/> is the English sentence a client that does not localize falls
-/// back to, so both travel on every refusal. [88][88d]
+/// back to, so both travel on every refusal.
 /// </summary>
 public class AccountRefusalResponse
 {
     /// <summary>
     /// No account with that id is addressable by this caller. One key for "there is no such account"
     /// and for "there is one and you may not see it", because a user who could tell those apart would
-    /// learn which admin accounts exist by asking for ids until one answered differently. [63][64]
+    /// learn which admin accounts exist by asking for ids until one answered differently.
     /// </summary>
     public const string AccountNotFound = "errors.accounts.notFound";
 
     /// <summary>
     /// The account that owns the installation cannot be deleted, disabled, demoted or edited, by
     /// anybody. Closing delete alone leaves demotion, and closing all three leaves resetting its
-    /// password and signing in as it. [65]
+    /// password and signing in as it.
     /// </summary>
     public const string MainAdminProtected = "errors.accounts.mainAdminProtected";
 
     /// <summary>
     /// Only the account that owns the installation hands out the admin role, whether by creating an
-    /// account with it or by moving an existing account onto it. [66b]
+    /// account with it or by moving an existing account onto it.
     /// </summary>
     public const string AdminRoleRequiresMainAdmin = "errors.accounts.adminRoleRequiresMainAdmin";
+
+    /// <summary>
+    /// The caller's own account cannot be deleted, disabled or moved to another role. All three end
+    /// the caller's sessions, and none of them can be undone by the person who did it: only the
+    /// account that owns the installation creates accounts or grants the admin role. Renaming your
+    /// own account and changing your own password stay open.
+    /// </summary>
+    public const string SelfProtected = "errors.accounts.selfProtected";
 
     /// <summary>Guest is a session a visitor is handed, not a role an account can hold.</summary>
     public const string RoleNotAssignable = "errors.accounts.roleNotAssignable";

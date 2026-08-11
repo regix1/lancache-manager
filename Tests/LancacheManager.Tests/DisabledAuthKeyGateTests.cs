@@ -69,6 +69,9 @@ public sealed class DisabledAuthKeyGateTests : IDisposable
     {
         var originalKey = _apiKeyService.GetApiKey();
         var controller = new ApiKeysController(
+            // Never reached: the account row only decides who may rotate when authentication is on,
+            // and this configuration has it off.
+            dbContextFactory: null!,
             _apiKeyService,
             steamKit2Service: null!,
             steamAuthStorage: null!,

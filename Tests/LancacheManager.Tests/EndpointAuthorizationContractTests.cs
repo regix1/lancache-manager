@@ -69,7 +69,7 @@ public sealed class EndpointAuthorizationContractTests
         // Both account-setup routes are anonymous on purpose and read the API key from the request
         // body. Creating the first admin happens before any account exists to sign in as, and
         // recovering the main admin's password is the way back in when nobody can sign in at all, so
-        // an [Authorize] on either one would be a lockout rather than a guard. [49b][49f]
+        // an [Authorize] on either one would be a lockout rather than a guard.
         "AccountSetupController.CreateFirstAdmin",
         "AccountSetupController.RecoverMainAdminPassword",
         "AuthController.GetStatus",
@@ -308,7 +308,7 @@ public sealed class EndpointAuthorizationContractTests
     /// <c>Program.cs</c>, the array <c>Program.cs</c> walks when <c>Security:EnableAuthentication</c>
     /// is false, and <see cref="KnownPolicies"/>. A name missing from that array still compiles and
     /// still starts, and then every route carrying the policy answers 403 with authentication turned
-    /// off, because a named policy is not covered by the open Default/Fallback policies. [51]
+    /// off, because a named policy is not covered by the open Default/Fallback policies.
     /// </summary>
     [Fact]
     public void ThePolicyNamesAgreeAcrossTheirThreeLists()
@@ -359,7 +359,7 @@ public sealed class EndpointAuthorizationContractTests
     /// <summary>
     /// The policy is named for what it actually asks: whether the caller holds an account. Both account
     /// roles are admitted; a guest holds a session with no account behind it and is refused, as is a
-    /// caller with no session at all. [50]
+    /// caller with no session at all.
     /// </summary>
     [Fact]
     public async Task TheAccountHolderPolicyAdmitsBothAccountRolesAndRefusesAGuest()
@@ -786,8 +786,8 @@ public sealed class EndpointAuthorizationContractTests
             {
                 Assert.True(
                     security.ValueKind == JsonValueKind.Array && security.GetArrayLength() > 0,
-                    $"Protected operation '{identity}' drops the API key requirement.");
-                Assert.Contains(security.EnumerateArray(), requirement => requirement.TryGetProperty("ApiKey", out _));
+                    $"Protected operation '{identity}' declares an empty security list, which marks it as open to anyone.");
+                Assert.Contains(security.EnumerateArray(), requirement => requirement.TryGetProperty("Session", out _));
             }
 
             protectedChecked++;

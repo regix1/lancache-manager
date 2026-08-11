@@ -41,7 +41,7 @@ public class AccountSetupController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Anonymous at the routing layer and never open, the same shape the setup repair endpoints use
-    /// (SetupController.cs:94-104): there is no session to require, because this is what a person
+    /// through SetupController.RequireApiKeyAsync: there is no session to require, because this is what a person
     /// does before any account exists to sign in as, and it has to work whether authentication is
     /// enabled or not - an installation that ran with it off still needs a first account the day it
     /// is turned on.
@@ -49,10 +49,10 @@ public class AccountSetupController : ControllerBase
     /// What is required instead is the API key, and unlike the setup repair endpoints an
     /// authenticated caller is not accepted in its place: with no accounts yet, the only sessions
     /// that can exist are a guest's and an API-key caller's, and a guest must not be able to claim
-    /// the installation. [35]
+    /// the installation.
     ///
     /// The key comes out of the body rather than the X-Api-Key header so that narrowing the header
-    /// leaves this endpoint working. [32]
+    /// leaves this endpoint working.
     /// </remarks>
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
@@ -123,7 +123,7 @@ public class AccountSetupController : ControllerBase
             // insert can break (AppDbContext.cs:214-226), and both of them mean a request that
             // passed the same count check committed first. Re-reading is what separates that from a
             // write that failed for some other reason, which has to stay a 500 rather than be
-            // reported as an account that already exists. [37d]
+            // reported as an account that already exists.
             if (!await context.UserAccounts.AnyAsync())
             {
                 throw;
@@ -138,7 +138,7 @@ public class AccountSetupController : ControllerBase
         }
 
         // No actor: the caller proved the API key and has neither an account nor, necessarily, a
-        // session. [29c]
+        // session.
         await _identityAuditService.RecordAsync(
             IdentityAuditEvent.AccountCreated,
             performedByAccountId: null,
@@ -158,12 +158,12 @@ public class AccountSetupController : ControllerBase
     /// application sends no mail, so a forgotten password has no other way back: without this the
     /// installation is unreachable and the operator's only remedy is the database. The API key is
     /// what proves the caller owns the installation, read from the body rather than the X-Api-Key
-    /// header so that narrowing the header leaves this working. [49b][49f]
+    /// header so that narrowing the header leaves this working.
     ///
     /// It writes one column. The account is selected by the main-administrator flag rather than by
     /// anything the caller sends, and role and flag are read from the stored row and left alone, so
     /// there is no argument here that promotes anybody, unseats the main administrator, or reaches
-    /// another account. [49c]
+    /// another account.
     ///
     /// SessionService arrives on the action rather than the constructor because only this endpoint
     /// needs it, the way SessionsController.cs:313-314 takes its lookup services.
@@ -177,7 +177,8 @@ public class AccountSetupController : ControllerBase
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> RecoverMainAdminPasswordAsync(
         [FromBody] AccountCredentialsRequest request,
-        [FromServices] SessionService sessionService)
+        [FromServices] SessionService sessionService,
+        [FromServices] AccountLockout accountLockout)
     {
         if (!_apiKeyService.ValidateApiKey(request.ApiKey))
         {
@@ -217,10 +218,16 @@ public class AccountSetupController : ControllerBase
 
         // A password reached this endpoint because somebody lost it, which is also the shape of
         // somebody else having found it. Sessions it already opened would otherwise outlive the
-        // reset and keep the intruder signed in. [49e]
+        // reset and keep the intruder signed in.
         await sessionService.RevokeAccountSessionsAsync(account.Id);
 
-        // No actor: the caller proved the API key and has neither an account nor a session. [29c]
+        // Getting the password wrong enough times to lock the account is what sends an operator here,
+        // and the lock is a separate term from the password in the sign-in refusal, so a new password
+        // does not override it. Without this the operator is told "Password reset" and then refused
+        // with the same sentence a wrong password gets.
+        accountLockout.Clear(account.Id);
+
+        // No actor: the caller proved the API key and has neither an account nor a session.
         await _identityAuditService.RecordAsync(
             IdentityAuditEvent.MainAdminPasswordRecovered,
             performedByAccountId: null,

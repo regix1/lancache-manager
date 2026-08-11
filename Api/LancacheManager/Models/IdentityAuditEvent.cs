@@ -11,6 +11,7 @@ public enum IdentityAuditEvent
     AccountDisabled,
     AccountEnabled,
     RoleChanged,
+    PasswordChanged,
     LoginSucceeded,
     LoginFailed,
     ApiKeyRotated,

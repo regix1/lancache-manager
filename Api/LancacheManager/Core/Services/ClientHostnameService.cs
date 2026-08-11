@@ -37,7 +37,7 @@ public sealed class ClientHostnameService : IClientHostnameService
     /// <summary>
     /// How long a query that never got an answer is remembered, both in this service's cache and in
     /// the library's own. Far shorter than a name, because a resolver that was briefly unreachable
-    /// must not leave a whole client list unnamed for as long as a real answer stands. [31]
+    /// must not leave a whole client list unnamed for as long as a real answer stands.
     /// </summary>
     private static readonly TimeSpan _failedResultsCacheDuration = TimeSpan.FromMinutes(5);
 
@@ -119,7 +119,7 @@ public sealed class ClientHostnameService : IClientHostnameService
 
         // The toggle doubles as the recovery lever: an admin who publishes the missing reverse
         // records and flips it sees names straight away instead of waiting out answers that were
-        // remembered from before the network was fixed. [31]
+        // remembered from before the network was fixed.
         _cache.Clear();
     }
 
@@ -171,7 +171,7 @@ public sealed class ClientHostnameService : IClientHostnameService
             // on for whoever else is queued behind it rather than being cancelled by one caller
             // hanging up. Nothing awaits it once this wait is gone, so its failure is reported from
             // the task itself: a resolver that broke for a real reason must still say so at the
-            // moment someone is working out why names are missing. [32]
+            // moment someone is working out why names are missing.
             _ = detection.ContinueWith(
                 finished => _logger.LogWarning(
                     finished.Exception, "Could not determine which DNS server to use for reverse lookups"),
@@ -292,7 +292,7 @@ public sealed class ClientHostnameService : IClientHostnameService
     /// cache until something else asks for them, which on the first fetch after the lookup is turned
     /// on means the addresses stay bare until the page is reloaded by hand. Re-asking the cache
     /// attaches to the same in-flight query rather than starting another, and the one broadcast
-    /// covers the whole batch, so a long client list cannot turn into a stream of events. [64]
+    /// covers the whole batch, so a long client list cannot turn into a stream of events.
     /// </summary>
     private void AnnounceRemainingNames(List<string> pendingIps)
     {
@@ -371,7 +371,7 @@ public sealed class ClientHostnameService : IClientHostnameService
 
         // Which of the three silences this was decides whether the person typing should fix their
         // DNS, their spelling, or simply try again, so an empty list is never left to speak for
-        // itself. [31]
+        // itself.
         if (!queries.Any(query => query.Answered))
         {
             return new ClientAddressLookupOutcome(Array.Empty<string>(), ClientAddressLookupReason.ResolverTimeout);
@@ -442,9 +442,9 @@ public sealed class ClientHostnameService : IClientHostnameService
     /// One address's reverse name, or nothing when the network has no name for it, the query
     /// failed, or it timed out. Every caller shows the raw address in all three cases, but the
     /// outcome also records whether the question was answered, because a network that has no name
-    /// for a machine has settled the matter while a query that never got through has not. [31]
+    /// for a machine has settled the matter while a query that never got through has not.
     /// Internal so the window each outcome is remembered for can be observed in a cache a test can
-    /// outlast, rather than inferred from the classification alone. [60]
+    /// outlast, rather than inferred from the classification alone.
     /// </summary>
     internal async Task<HostnameLookupResult> LookupAsync(string clientIp)
     {
@@ -505,7 +505,7 @@ public sealed class ClientHostnameService : IClientHostnameService
         // name does not exist. A refusal, a server failure or a malformed exchange is the resolver
         // reporting on itself, and reading that as "this machine has no name" would blank the client
         // for as long as a real answer stands. Raising it puts it on the failed-query path, which is
-        // forgotten in minutes and asked again. [57]
+        // forgotten in minutes and asked again.
         var responseCode = response.Header.ResponseCode;
         if (responseCode != DnsHeaderResponseCode.NoError &&
             responseCode != DnsHeaderResponseCode.NotExistentDomain)
@@ -542,7 +542,7 @@ public sealed class ClientHostnameService : IClientHostnameService
         // of each other, and charging each waiter a detection budget it is not spending would fail
         // everyone who lost the race the moment detection took as long as the budget sized for it.
         // Failing to set up a resolver is not an answer about the address. Whoever holds the lock
-        // is already bounded below, so the wait is bounded too. [32]
+        // is already bounded below, so the wait is bounded too.
         await _resolverLock.WaitAsync(cancellationToken);
         try
         {
@@ -618,7 +618,7 @@ public sealed class ClientHostnameService : IClientHostnameService
 /// What one reverse lookup established: the name the network published, if any, and whether the
 /// question was answered at all. "This machine has no reverse record" is a settled fact about the
 /// network and stands for the full name window; "the query never got through" says nothing about
-/// the address and is forgotten quickly so the next refresh asks again. [31]
+/// the address and is forgotten quickly so the next refresh asks again.
 /// </summary>
 internal readonly record struct HostnameLookupResult(string? Hostname, bool Answered);
 
@@ -680,7 +680,7 @@ internal sealed class ClientHostnameCache
 
     /// <summary>
     /// Forgets every address, so a network that has just been given the reverse records it was
-    /// missing is asked again rather than answered from before the fix. [31]
+    /// missing is asked again rather than answered from before the fix.
     /// </summary>
     internal void Clear()
     {

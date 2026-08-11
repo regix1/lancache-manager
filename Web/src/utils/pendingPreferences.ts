@@ -100,7 +100,7 @@ export const clockFromTimeSetting = (value: TimeSettingValue): ClockPreferences 
  * Which time setting three stored flags name. The exact inverse of clockFromTimeSetting, and the
  * only place that answers the question: a second copy is how a control ends up naming one clock
  * while the flags behind it say another. UTC answers first, because the local/server pair says
- * nothing about which clock is actually being read while it is on. [17]
+ * nothing about which clock is actually being read while it is on.
  */
 export const timeSettingFromClock = (clock: ClockPreferences): TimeSettingValue => {
   if (clock.useUtcTimezone) return 'utc';
@@ -131,7 +131,7 @@ export const setPendingTimezone = (value: TimeSettingValue): void => {
  * A save fails while the click after it is already on the wire, and the three flags are only a clock
  * together, so this takes back all three or none. If any entry no longer holds this setting's flag a
  * newer click owns the set, and clearing it would snap the control back to a choice nobody is waiting
- * on while the newer save is still succeeding. [61]
+ * on while the newer save is still succeeding.
  */
 export const dropPendingTimezone = (value: TimeSettingValue): void => {
   const flags = clockFlags(value);
@@ -152,7 +152,7 @@ export const dropPendingTimezone = (value: TimeSettingValue): void => {
  * All three are settled together because they are written together. Each per-key save echoes back
  * a whole preferences object built from what its own request read, so an echo that raced the UTC
  * write still carries the old value for it; holding only two of the three lets that older value
- * straight through. [2]
+ * straight through.
  */
 export const preferPendingTimezone = (
   incomingUseLocal: boolean,

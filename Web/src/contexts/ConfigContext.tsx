@@ -38,7 +38,7 @@ const MIN_PASSWORD_LENGTH = 8;
  * password again from the only screen that still renders. The API key is the proof of
  * possession here because it is checked against a file, with no database access at all.
  * Collapsed by default and inert until a key is pasted, so it cannot be triggered by a
- * stray click on what is also the screen for an ordinary network blip. [43][44]
+ * stray click on what is also the screen for an ordinary network blip.
  */
 const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onSaved }) => {
   const { t } = useTranslation();

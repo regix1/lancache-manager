@@ -6,6 +6,8 @@ import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
+import { ApiKeyRotatedModal } from '@components/modals/auth/ApiKeyRotatedModal';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { useGuestConfig } from '@contexts/useGuestConfig';
 import { useAuth } from '@contexts/useAuth';
@@ -22,7 +24,7 @@ interface AuthenticationManagerProps {
 const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, onSuccess }) => {
   const { t } = useTranslation();
   const { guestDurationHours } = useGuestConfig();
-  const { authMode, refreshAuth, sessionExpiresAt, authenticationEnabled } = useAuth();
+  const { authMode, refreshAuth, sessionExpiresAt, authenticationEnabled, isMainAdmin } = useAuth();
   const { refreshSteamAuth, setSteamAuthMode, setUsername } = useSteamAuth();
   const { refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const [authChecking, setAuthChecking] = useState(true);
@@ -37,6 +39,12 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   const [hasData, setHasData] = useState(false);
   const [hasBeenInitialized, setHasBeenInitialized] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
+  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenerateError, setRegenerateError] = useState('');
+  // Held from the rotation's own answer. There is no second chance to read it: the request that
+  // produced it ended this session, so everything after it is answered 401.
+  const [rotatedKey, setRotatedKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (authMode !== 'guest' || !sessionExpiresAt) {
@@ -68,6 +76,14 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       return;
     }
 
+    // The rotation ended this session on purpose, and its answer carried the only copy of the new
+    // key. Opening the sign-in modal over that display would take the copy with it, so the detector
+    // stays quiet while the key is on screen and the dismiss handler lands on sign-in itself.
+    if (rotatedKey !== null) {
+      prevAuthMode.current = authMode;
+      return;
+    }
+
     // Don't show modal repeatedly - only once per logout
     if (hasShownRevocationModal.current && authMode === 'unauthenticated') {
       prevAuthMode.current = authMode;
@@ -94,7 +110,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
 
     // Update ref for next check
     prevAuthMode.current = authMode;
-  }, [authMode, authChecking, onError]);
+  }, [authMode, authChecking, onError, rotatedKey]);
 
   const checkAuth = async () => {
     setAuthChecking(true);
@@ -176,6 +192,39 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     onSuccess?.(
       `Guest mode activated! You have ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''} to view data before re-authentication is required.`
     );
+  };
+
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    setRegenerateError('');
+
+    try {
+      const response = await fetch(
+        '/api/api-keys/regenerate',
+        ApiService.getFetchOptions({ method: 'POST' })
+      );
+      const rotated = await ApiService.handleResponse<{ apiKey: string }>(response);
+
+      setShowRegenerateConfirm(false);
+      setRotatedKey(rotated.apiKey);
+    } catch (error: unknown) {
+      // Shown in the confirmation rather than as a toast: the refusal is about the button that was
+      // just pressed, and the dialog stays open to carry it.
+      setRegenerateError(getErrorMessage(error));
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  const handleRotatedKeyDismissed = async () => {
+    // The server ended this session when the key rotated, so this is the local half of the same
+    // logout the component already runs elsewhere. It happens before the key is cleared, so the
+    // unexpected-logout detector sees the change while it is still held off and the sign-in surface
+    // goes up because this handler puts it up, not because a 401 tripped something.
+    await authService.logout();
+    await refreshAuth();
+    setRotatedKey(null);
+    setShowAuthModal(true);
   };
 
   const handleLogout = async () => {
@@ -312,17 +361,37 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
             {authMode === 'authenticated' && (
-              <Button
-                variant="filled"
-                color="gray"
-                size="sm"
-                onClick={handleLogout}
-                loading={authLoading}
-                className="flex-1 sm:flex-none"
-              >
-                <span className="hidden sm:inline">{t('management.auth.logout')}</span>
-                <span className="sm:hidden">{t('management.auth.logout')}</span>
-              </Button>
+              <>
+                {/* Rotating signs everyone out and hands the new key to whoever asked, so only the
+                    account that owns the installation gets the control. The server refuses anyone
+                    else as well - a hidden button is a courtesy, not a permission. */}
+                {isMainAdmin && (
+                  <Button
+                    variant="filled"
+                    color="red"
+                    size="sm"
+                    onClick={() => {
+                      setRegenerateError('');
+                      setShowRegenerateConfirm(true);
+                    }}
+                    disabled={authLoading}
+                    className="flex-1 sm:flex-none"
+                  >
+                    {t('management.auth.regenerate')}
+                  </Button>
+                )}
+                <Button
+                  variant="filled"
+                  color="gray"
+                  size="sm"
+                  onClick={handleLogout}
+                  loading={authLoading}
+                  className="flex-1 sm:flex-none"
+                >
+                  <span className="hidden sm:inline">{t('management.auth.logout')}</span>
+                  <span className="sm:hidden">{t('management.auth.logout')}</span>
+                </Button>
+              </>
             )}
 
             {authMode === 'unauthenticated' && (
@@ -499,6 +568,27 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
           </div>
         </div>
       </Modal>
+
+      <ConfirmationModal
+        opened={showRegenerateConfirm}
+        onClose={() => setShowRegenerateConfirm(false)}
+        onConfirm={handleRegenerate}
+        loading={regenerating}
+        title={t('management.auth.regenerateModal.title')}
+      >
+        <p className="text-themed-secondary">
+          <span className="font-medium text-themed-primary">
+            {t('management.auth.regenerateModal.important')}
+          </span>{' '}
+          {t('management.auth.regenerateModal.message')}
+        </p>
+
+        {regenerateError && <Alert color="red">{regenerateError}</Alert>}
+      </ConfirmationModal>
+
+      {rotatedKey !== null && (
+        <ApiKeyRotatedModal opened apiKey={rotatedKey} onClose={handleRotatedKeyDismissed} />
+      )}
     </>
   );
 };

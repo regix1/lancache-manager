@@ -21,7 +21,7 @@
 
 /* ==============================================
  * COMPONENTS - Calendar day popover (expanded day events)
- * Only its measured left stays on the element; everything here is static [18]
+ * Only its measured left stays on the element; everything here is static
  * ============================================== */
 
 .calendar-day-popover {

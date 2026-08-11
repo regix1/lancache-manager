@@ -4093,6 +4093,11 @@
         "title": "重新生成 API 密钥",
         "message": "重新生成 API 密钥将立即登出所有已连接的设备和访客，要求所有人使用新密钥重新进行身份验证。",
         "important": "重要提示："
+      },
+      "rotatedModal": {
+        "title": "您的新 API 密钥",
+        "message": "此密钥仅显示这一次。请立即复制，因为所有人都已被登出，重新登录需要它。",
+        "copied": "已复制！"
       }
     },
     "sessions": {},
@@ -7181,6 +7186,7 @@
       "notFound": "找不到该账户。",
       "mainAdminProtected": "无法在此更改拥有此安装的账户。",
       "adminRoleRequiresMainAdmin": "只有拥有此安装的账户才能授予管理员角色。",
+      "selfProtected": "您无法删除、禁用或更改当前登录账户的角色。",
       "roleNotAssignable": "账户只能拥有管理员或用户角色。",
       "usernameTaken": "该用户名已被占用。",
       "credentialsRejected": "用户名或密码不符合要求。"

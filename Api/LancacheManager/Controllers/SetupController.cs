@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Buffers;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Security;
@@ -65,9 +66,15 @@ public class SetupController : ControllerBase
     /// session instead is holding nothing but cookies, which a browser attaches to a request another
     /// origin caused, so that caller is asked for the antiforgery token like every other write. Both
     /// endpoints opt out of the global check (Infrastructure/Filters/AntiforgeryFilter.cs) because the
-    /// opt-out is per route and cannot tell the two callers apart. [77k]
+    /// opt-out is per route and cannot tell the two callers apart.
     ///
-    /// Returns null when the caller may proceed. [36]
+    /// The session has to be an account holder's, not merely an authenticated one. A guest session is
+    /// authenticated, and anybody who can reach the port can start one and then read the antiforgery
+    /// token off the anonymous status endpoint, which would leave the two statements below reachable
+    /// with nothing proved at all. AccountSetupController accepts no session at all for the first-admin
+    /// endpoint, and shares the reason: a guest must not be able to claim the installation.
+    ///
+    /// Returns null when the caller may proceed.
     /// </summary>
     private async Task<ObjectResult?> RequireApiKeyAsync()
     {
@@ -78,7 +85,7 @@ public class SetupController : ControllerBase
         }
 
         var authenticationEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
-        if (authenticationEnabled && User.Identity?.IsAuthenticated == true)
+        if (authenticationEnabled && HttpContext.GetUserSession()?.SessionType.IsAccountHolder() == true)
         {
             if (await _antiforgery.IsRequestValidAsync(HttpContext))
             {
@@ -115,7 +122,7 @@ public class SetupController : ControllerBase
     // that has to work when the database is down and no session or token can exist. The key is read
     // from the request headers, and a page on another origin can set neither those nor read the key.
     // The check is not dropped for the session caller: this endpoint also accepts one, and
-    // RequireApiKeyAsync asks that caller for the token, which the opt-out cannot do per route. [77k]
+    // RequireApiKeyAsync asks that caller for the token, which the opt-out cannot do per route.
     [IgnoreAntiforgeryToken]
     [HttpPost("credentials")]
     [ProducesResponseType(typeof(SetupCredentialsResponse), StatusCodes.Status200OK)]
@@ -143,7 +150,7 @@ public class SetupController : ControllerBase
         // Connect with the settings the app resolved at startup, not the raw appsettings string.
         // Program.cs layers POSTGRES_USER and POSTGRES_DB over that base, so reading it back here
         // is what makes a custom role or database name reach the ALTER USER below instead of
-        // connecting as the appsettings default and failing with a role that does not exist. [35]
+        // connecting as the appsettings default and failing with a role that does not exist.
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
         var connectionSettings = new Npgsql.NpgsqlConnectionStringBuilder(
             dbContext.Database.GetConnectionString());
@@ -284,7 +291,7 @@ public class SetupController : ControllerBase
     // Out of the global antiforgery check for the same reason as the credentials endpoint above: the
     // key in the request headers is the proof, and this runs in the state where there is no database
     // to hold a session. The session caller it also accepts is asked for the token inside
-    // RequireApiKeyAsync. [77k]
+    // RequireApiKeyAsync.
     [IgnoreAntiforgeryToken]
     [HttpPost("external")]
     [ProducesResponseType(typeof(SetExternalDbCredentialsResponse), StatusCodes.Status200OK)]
@@ -316,7 +323,7 @@ public class SetupController : ControllerBase
         // name is persisted to the credentials file, and entrypoint.sh reads it back and interpolates
         // it into a shell command and an ALTER ROLE statement on the next start. Anything outside
         // letters, numbers and underscores would be running as the postgres superuser by then, so it
-        // must never reach the file. [38]
+        // must never reach the file.
         var username = (request.Username ?? string.Empty).Trim();
         var usernameProblem = CheckUsername(username);
         if (usernameProblem != null)
@@ -344,8 +351,21 @@ public class SetupController : ControllerBase
             await using var conn = new Npgsql.NpgsqlConnection(validationBuilder.ConnectionString);
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT 1";
-            await cmd.ExecuteScalarAsync();
+            // Asking whether the role can create proves the connection and the one right the schema
+            // needs, where SELECT 1 only proved the connection. The schema installs the citext
+            // extension, and PostgreSQL requires CREATE on the database itself for that - CREATE on
+            // schema public is not enough, and is the natural thing to grant since PostgreSQL 15
+            // stopped granting it by default. Refusing here leaves the operator on this page;
+            // accepting a role that cannot create means the next start throws in database
+            // initialization, before app.Run(), so the container restarts into the same failure with
+            // no page left to serve.
+            cmd.CommandText = "SELECT has_database_privilege(current_user, current_database(), 'CREATE')";
+            if (await cmd.ExecuteScalarAsync() is false)
+            {
+                return BadRequest(ApiResponse.Error(
+                    $"The role '{username}' cannot create objects in '{request.Database.Trim()}'",
+                    "The schema installs the citext extension, which PostgreSQL only allows for a role holding CREATE on the database. Grant it with GRANT CREATE ON DATABASE, or ask a database administrator to run CREATE EXTENSION citext in that database first."));
+            }
         }
         catch (Exception ex)
         {
@@ -423,7 +443,7 @@ public class SetupController : ControllerBase
     /// the embedded path it additionally has to be serialized into an ALTER USER ... PASSWORD '...'
     /// literal, where a backslash is not standard-conforming without E'' and a control character
     /// terminates the literal on some drivers. Both endpoints reject before anything is built or
-    /// written. [38]
+    /// written.
     /// </summary>
     private static string? CheckPassword(string password)
     {
@@ -450,7 +470,7 @@ public class SetupController : ControllerBase
     /// postgres-credentials.json, and entrypoint.sh reads it back on the next start and interpolates
     /// it into a shell command and an ALTER ROLE statement that runs with superuser rights. The
     /// embedded path also puts it through format('%I'), which is safe on its own but is not the only
-    /// place the value ends up. [38]
+    /// place the value ends up.
     /// </summary>
     private static string? CheckUsername(string username)
     {

@@ -151,6 +151,41 @@ public class ExternalDatabaseSetupGateTests : IDisposable
     }
 
     /// <summary>
+    /// The connection check has to prove the one right the schema needs, not only that the
+    /// credentials open a connection. The schema installs the citext extension, and PostgreSQL only
+    /// lets a role install it when that role holds CREATE on the database itself, so a role granted
+    /// CREATE on schema public alone connects here happily and then fails database initialization on
+    /// the next start, before the web server opens a port.
+    ///
+    /// There is no PostgreSQL server in this fixture to ask, and port 1 above refuses the connection
+    /// before any statement is sent, so this reads the statement the endpoint sends instead. It fails
+    /// if the check goes back to proving only that the connection opens.
+    /// </summary>
+    [Fact]
+    public void TheConnectionCheckAsksWhetherTheRoleCanCreate()
+    {
+        // Walked from the test binary rather than the current directory, which another collection's
+        // host moves to a temporary root that carries Api and Web directories of its own.
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null
+            && !(Directory.Exists(Path.Combine(directory.FullName, "Api"))
+                && Directory.Exists(Path.Combine(directory.FullName, "Web"))))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+
+        var source = File.ReadAllText(Path.Combine(
+            directory!.FullName, "Api", "LancacheManager", "Controllers", "SetupController.cs"));
+
+        Assert.Contains(
+            "SELECT has_database_privilege(current_user, current_database(), 'CREATE')",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// entrypoint.sh reads this username back out of postgres-credentials.json on the next start and
     /// interpolates it into a shell command and an ALTER ROLE statement that runs with superuser
     /// rights, so a name carrying shell or SQL syntax must never reach the file.
@@ -224,18 +259,19 @@ public class ExternalDatabaseSetupGateTests : IDisposable
     }
 
     /// <summary>
-    /// The same caller with authentication left on is the session case the endpoint is meant to
+    /// An account holder with authentication left on is the session case the endpoint is meant to
     /// accept, so the rule above turns away the disabled-auth principal and nothing else. It gets as
     /// far as the antiforgery check and no further: a session is a cookie the browser attaches to a
     /// request another origin caused, so this caller has to prove it can read this origin's cookies
     /// before anything is written. The key caller above never sees this check, which is what keeps
-    /// the repair path open. [77k]
+    /// the repair path open.
     /// </summary>
     [Fact]
     public async Task AnAuthenticatedCallerWithNoApiKeyWhileAuthenticationIsEnabled_IsAskedForTheAntiforgeryToken()
     {
-        _controller.HttpContext.User = new ClaimsPrincipal(
-            new ClaimsIdentity(new[] { new Claim(ClaimTypes.Role, "admin") }, "Session"));
+        // The session the authentication handler publishes, which is what the endpoint reads rather
+        // than the principal: a guest's principal is authenticated too and must not be admitted.
+        _controller.HttpContext.Items["Session"] = new UserSession { SessionType = SessionType.Admin };
 
         var result = await PostInExternalModeAsync(_controller, ConnectionRequest());
 

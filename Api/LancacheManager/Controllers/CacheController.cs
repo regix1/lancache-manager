@@ -194,7 +194,7 @@ public class CacheController : ControllerBase
     // deserialization; a PascalCase named type serializes identically over the wire but would
     // fail that reflection lookup. ProducesResponseType below documents the wire shape through a
     // real type that mirrors these exact fields without requiring the return value to literally
-    // be that type. [20]
+    // be that type.
     [ProducesResponseType(typeof(CacheSizeScanStatusResponse), StatusCodes.Status200OK)]
     public IActionResult GetCacheSizeScanStatus()
     {

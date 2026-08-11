@@ -38,12 +38,12 @@ const PAGE_SIZE = 10;
  * own session is entitled to. The one thing the screen does decide is what a control that is going
  * to be refused looks like: the account that owns the installation keeps its row menu, with the
  * items on it disabled, because a control that vanishes reads as a bug while a disabled one reads
- * as a rule. [69]
+ * as a rule.
  */
 const UserAccounts: React.FC = () => {
   const { t } = useTranslation();
   const { notifyError } = useErrorHandler();
-  const { isMainAdmin } = useAuth();
+  const { isMainAdmin, accountId } = useAuth();
 
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -198,7 +198,7 @@ const UserAccounts: React.FC = () => {
               : t('user.accounts.roles.user')}
           </Badge>
           {/* Names the rule behind the disabled row menu, so the greyed-out items read as
-              deliberate rather than broken. [69] */}
+              deliberate rather than broken. */}
           {account.isMainAdmin && <Badge variant="warning">{t('user.accounts.mainAdmin')}</Badge>}
         </div>
       )
@@ -241,10 +241,16 @@ const UserAccounts: React.FC = () => {
       align: 'center',
       render: (account: UserAccount) => {
         // The installation's own account refuses every one of these on the server, and a promotion
-        // is refused for anyone but the main administrator. Both are shown disabled. [69]
+        // is refused for anyone but the main administrator. Both are shown disabled.
         const owner = account.isMainAdmin;
         const busy = busyAccountId === account.id;
         const promoting = account.role !== 'admin';
+
+        // Deleting, disabling or moving your own account off its role all end your own sessions, and
+        // none of the three can be undone by the person who did it: creating an account and granting
+        // the admin role both belong to the account that owns the installation. Renaming yourself and
+        // setting your own password stay open, so Edit is not disabled here.
+        const yourself = account.id === accountId;
 
         return (
           <ActionMenu
@@ -286,7 +292,7 @@ const UserAccounts: React.FC = () => {
               {t('common.edit')}
             </ActionMenuItem>
             <ActionMenuItem
-              disabled={owner || busy || (promoting && !isMainAdmin)}
+              disabled={owner || yourself || busy || (promoting && !isMainAdmin)}
               onClick={() => {
                 setOpenMenuAccountId(null);
                 setConfirmation({ kind: 'role', account });
@@ -295,7 +301,7 @@ const UserAccounts: React.FC = () => {
               {promoting ? t('user.accounts.actions.promote') : t('user.accounts.actions.demote')}
             </ActionMenuItem>
             <ActionMenuItem
-              disabled={owner || busy}
+              disabled={owner || yourself || busy}
               onClick={() => {
                 setOpenMenuAccountId(null);
                 setDisabled(account, !account.isDisabled);
@@ -307,7 +313,7 @@ const UserAccounts: React.FC = () => {
             </ActionMenuItem>
             <ActionMenuDivider />
             <ActionMenuDangerItem
-              disabled={owner || busy}
+              disabled={owner || yourself || busy}
               onClick={() => {
                 setOpenMenuAccountId(null);
                 setConfirmation({ kind: 'delete', account });

@@ -46,7 +46,7 @@ public class SessionService
 
     // Process-wide cache of the single session every X-Api-Key caller runs as, static for the same reason
     // as the pair above. Only the id is kept: the key authenticates each request on its own, so nothing
-    // asks this session for a token and no copy of one is left behind. [11]
+    // asks this session for a token and no copy of one is left behind.
     private static Guid? _apiKeySession;
     private static readonly SemaphoreSlim _apiKeySessionLock = new(1, 1);
 
@@ -56,7 +56,7 @@ public class SessionService
     // fills the log with copies of a single fault. The first failure is still reported in full; the ones
     // inside the next few seconds are refused before the database is touched. The gate is cleared by the
     // first attempt after it rather than by a timer, so the service comes back on its own once the
-    // database does. [14]
+    // database does.
     private static readonly TimeSpan _sharedSessionRetryDelay = TimeSpan.FromSeconds(5);
     private static DateTime _authDisabledRetryAfterUtc = DateTime.MinValue;
     private static DateTime _apiKeySessionRetryAfterUtc = DateTime.MinValue;
@@ -103,7 +103,7 @@ public class SessionService
     /// The account that signed in, whose id and role the session row carries. Null for a caller that
     /// proved only the key and has no account: the three existing session shapes that work that way -
     /// a guest, an <c>X-Api-Key</c> caller and the session used while authentication is disabled - all
-    /// leave it null and stay administrators. [49g]
+    /// leave it null and stay administrators.
     /// </param>
     public async Task<(string RawToken, UserSession Session)?> CreateAdminSessionAsync(
         string apiKey, HttpContext httpContext, UserAccount? account = null)
@@ -176,7 +176,7 @@ public class SessionService
     ///
     /// Returns null when the database could not answer, so the caller carries on unauthenticated
     /// instead of failing outright. Repeated attempts inside <see cref="_sharedSessionRetryDelay"/> of a
-    /// failure are refused without touching the database. [14]
+    /// failure are refused without touching the database.
     /// </summary>
     public async Task<(string RawToken, UserSession Session)?> GetOrCreateAuthDisabledAdminSessionAsync(HttpContext httpContext)
     {
@@ -192,7 +192,7 @@ public class SessionService
         // Every database attempt is serialized. In particular, a request that passed the hold-off before
         // waiting must check it again after the request ahead of it records a failure. Keeping the failure
         // write inside this lock makes that handoff deterministic: the next waiter observes the hold-off
-        // before it can repeat the same database call. [14]
+        // before it can repeat the same database call.
         await _authDisabledAdminLock.WaitAsync();
         try
         {
@@ -228,7 +228,7 @@ public class SessionService
                 // Deliberately catching everything: nothing in the stack tells a server that cannot be
                 // reached apart from any other provider fault, and every one of them leaves this request
                 // with no session either way. The first report carries the exception in full so the cause
-                // is not lost; the ones held off behind it say only that they were skipped. [14]
+                // is not lost; the ones held off behind it say only that they were skipped.
                 var retryAt = DateTime.UtcNow + _sharedSessionRetryDelay;
                 _authDisabledRetryAfterUtc = retryAt;
                 _logger.LogError(
@@ -247,7 +247,7 @@ public class SessionService
     /// <summary>
     /// Keeps the cached shared auth-disabled token equal to the one now stored. Callers holding no cookie
     /// are handed this cached token, so leaving the rotated-away token here means they authenticate only
-    /// until the previous token's 30-second grace runs out and are rejected from then on. [1]
+    /// until the previous token's 30-second grace runs out and are rejected from then on.
     /// </summary>
     private static async Task ReplaceAuthDisabledAdminTokenAsync(Guid sessionId, string rawToken)
     {
@@ -312,7 +312,7 @@ public class SessionService
     /// the key path authenticates as an admin while carrying no session at all, so
     /// <c>GetUserSession()</c> answers null and <c>GetRequiredSessionId()</c> throws. A fabricated id is
     /// no better: <c>UserPreferences.SessionId</c> is a foreign key to <c>UserSession.Id</c>, so an id
-    /// with no row behind it fails that write instead of the read. [11]
+    /// with no row behind it fails that write instead of the read.
     ///
     /// One session is reused for every key-authenticated request, because authentication runs on every
     /// request and minting per call would add a row per scrape for anything polling with the header. The
@@ -422,7 +422,7 @@ public class SessionService
     /// <summary>
     /// Gives a brand-new guest session the defaults an admin chose, so someone logging in after the change
     /// sees it instead of the built-in values. The write is the preferences service's own and swallows its
-    /// failures there, so this can never stop a session being created or a login completing. [7]
+    /// failures there, so this can never stop a session being created or a login completing.
     /// </summary>
     private async Task SeedGuestDefaultsAsync(Guid sessionId)
     {
@@ -476,7 +476,7 @@ public class SessionService
         // account had. The two cases return the same thing but say different things in the log, because
         // an operator chasing a locked-out person needs to know whether the row is missing or the flag
         // is set. The lookup only runs for a session that has an account: a guest, an API-key and an
-        // auth-disabled session all leave AccountId null and reach none of it. [29]
+        // auth-disabled session all leave AccountId null and reach none of it.
         if (session.AccountId is { } accountId)
         {
             var isDisabled = await context.UserAccounts
@@ -536,14 +536,21 @@ public class SessionService
     /// <summary>
     /// Revokes every live session belonging to an account. The session carries its own copy of the role,
     /// so changing an account's role, disabling it or deleting it without this leaves the person signed
-    /// in with the role they had until they log out, and an admin session never expires. [28]
+    /// in with the role they had until they log out, and an admin session never expires.
+    ///
+    /// <paramref name="keepSessionId"/> names one session to leave alone. Changing your own password
+    /// passes the session the request arrived on, because signing somebody out of the screen they are
+    /// looking at is not what that endpoint is for; every other caller passes nothing.
     /// </summary>
-    public async Task<int> RevokeAccountSessionsAsync(Guid accountId)
+    public async Task<int> RevokeAccountSessionsAsync(Guid accountId, Guid? keepSessionId = null)
     {
         var now = DateTime.UtcNow;
         using var context = _dbContextFactory.CreateDbContext();
         var sessionIds = await context.UserSessions
-            .Where(s => s.AccountId == accountId && !s.IsRevoked && s.ExpiresAtUtc > now)
+            .Where(s => s.AccountId == accountId
+                && !s.IsRevoked
+                && s.ExpiresAtUtc > now
+                && (keepSessionId == null || s.Id != keepSessionId))
             .Select(s => s.Id)
             .ToListAsync();
 

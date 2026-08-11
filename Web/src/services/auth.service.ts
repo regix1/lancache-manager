@@ -57,6 +57,11 @@ class AuthService {
   public authMode: AuthMode = 'unauthenticated';
   public sessionType: SessionType | null = null;
   public sessionId: string | null = null;
+  // The sign-in screen shows the guest duration and offers the guest button to a visitor who has no
+  // session at all, and the guest config routes all require one, so both settings are kept from the
+  // status call instead. Until the first call answers they hold the same values the server ships.
+  public guestAccessEnabled = true;
+  public guestDurationHours = 6;
 
   async checkAuth(): Promise<AuthStatusResponse> {
     const controller = new AbortController();
@@ -84,6 +89,8 @@ class AuthService {
       this.sessionType = data.sessionType;
       this.sessionId = data.sessionId;
       this.authChecked = true;
+      this.guestAccessEnabled = data.guestAccessEnabled;
+      this.guestDurationHours = data.guestDurationHours;
 
       if (data.isAuthenticated && isAccountHolder(data.sessionType)) {
         this.authMode = 'authenticated';

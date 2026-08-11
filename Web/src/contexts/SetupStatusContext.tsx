@@ -12,7 +12,7 @@ interface SetupStatusProviderProps {
 
 // Used only when the status call fails and nothing has ever been read successfully, so the
 // wizard gate stays closed for a genuine first run. It must not claim credentials are needed:
-// a failed call is an absence of information, not evidence that setup is incomplete. [41]
+// a failed call is an absence of information, not evidence that setup is incomplete.
 const UNREAD_SETUP_STATUS: SetupStatus = {
   isCompleted: false,
   hasProcessedLogs: false,
@@ -88,7 +88,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
       } else {
         // A failed call carries no information about setup, so the last successful status is
         // kept and only a never-read status falls back. Overwriting it here is what re-showed
-        // the password wizard on a healthy install after any transient failure. [41][42]
+        // the password wizard on a healthy install after any transient failure.
         console.error(`[SetupStatus] /system/setup responded ${response.status}`);
         setSetupStatus((prev) => prev ?? UNREAD_SETUP_STATUS);
         announceStatusFetchFailure();
@@ -104,7 +104,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         announceStatusFetchFailure();
       }
       // Same reasoning as the non-OK branch: a timeout or a network error is an absence of
-      // information, not a reason to send a configured instance back to the wizard. [41][42]
+      // information, not a reason to send a configured instance back to the wizard.
       setSetupStatus((prev) => prev ?? UNREAD_SETUP_STATUS);
     } finally {
       clearTimeout(timeoutId);

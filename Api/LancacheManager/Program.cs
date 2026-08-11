@@ -472,7 +472,7 @@ if (string.IsNullOrEmpty(pgPassword) || (postgresMode == "external" && string.Is
         {
             // No logger exists this early in startup (the host is not built yet), so this uses the
             // same console warning as the proxy-network parse above. Staying silent here is what
-            // made an unreadable credentials file look identical to a first run. [34]
+            // made an unreadable credentials file look identical to a first run.
             Console.Error.WriteLine(
                 $"WARNING: Postgres credentials file '{configPath}' could not be read ({ex.Message}). Continuing without the stored credentials, so the setup page will ask for them again.");
         }
@@ -511,7 +511,7 @@ var externalCredsMissing = postgresMode == "external"
 // One rule for everything below that reads or writes the database: do not start database work when
 // there is no database. Migration is skipped in this mode, so the schema is absent as well as the
 // server. Applied at the hosted-service registrations and at the startup session clear, which are
-// the two places this process kicks off database work before a request ever arrives. [31]
+// the two places this process kicks off database work before a request ever arrives.
 var databaseAvailable = !externalCredsMissing;
 
 var dbConnectionString = connBuilder.ConnectionString
@@ -566,10 +566,10 @@ builder.Services.AddScoped<AuthenticationHelper>();
 builder.Services.AddScoped<SessionService>();
 // Singleton: it holds no per-request state and takes only the pooled IDbContextFactory and a logger,
 // both of which are singletons themselves. Scoped would also make it uninjectable into ApiKeyService,
-// which is a singleton and owns the key rotation this records. [29e]
+// which is a singleton and owns the key rotation this records.
 builder.Services.AddSingleton<IdentityAuditService>();
 // Singleton because the count has to be shared by every request: one per scope would reset on each
-// sign-in attempt and never reach the threshold. [43]
+// sign-in attempt and never reach the threshold.
 builder.Services.AddSingleton<AccountLockout>();
 // Hosted so the host constructs it at startup: the window it opens is measured from that moment,
 // and a singleton built on first injection would instead start the clock at the first request.
@@ -589,14 +589,14 @@ builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
 // Microsoft.AspNetCore.App shared framework, so PasswordHasher<T> needs no package reference.
 // AddIdentity is deliberately not called: it sets DefaultAuthenticateScheme, DefaultChallengeScheme
 // and DefaultSignInScheme, which would take the default away from the Session scheme registered
-// above and change what every [Authorize] in the application means. [21][23]
+// above and change what every [Authorize] in the application means.
 builder.Services.Configure<Microsoft.AspNetCore.Identity.PasswordHasherOptions>(options =>
 {
     // Both values match the framework defaults today. They are written out anyway because they decide
     // the format every stored hash is written in, and a framework that changed either one underneath
     // us would silently start writing a different format. IterationCount is read only in IdentityV3,
     // which is PBKDF2-HMAC-SHA512; 220,000 is OWASP's figure for that function against the 100,000
-    // the framework defaults to. [22]
+    // the framework defaults to.
     options.CompatibilityMode = Microsoft.AspNetCore.Identity.PasswordHasherCompatibilityMode.IdentityV3;
     options.IterationCount = 220_000;
 });
@@ -652,7 +652,7 @@ builder.Services.AddAuthorization(options =>
 
     // Both claim values an account holder can present. CreateTicket lowercases the session type
     // (SessionAuthenticationHandler.cs:162), and a user is answered like an admin everywhere
-    // (SessionTypeExtensions.cs:13). A guest presents "guest" and is still refused. [12]
+    // (SessionTypeExtensions.cs:13). A guest presents "guest" and is still refused.
     options.AddPolicy("AccountHolder", policy =>
         policy.RequireClaim("SessionType", "admin", "user"));
 
@@ -933,7 +933,7 @@ builder.Services.AddRateLimiter(options =>
 
     // A rejected request otherwise completes with no content at all, so a caller that reads the
     // response as JSON reads a parse failure instead of the reason it was refused. Set on the
-    // options rather than on a policy, so every policy registered here answers the same way. [87]
+    // options rather than on a policy, so every policy registered here answers the same way.
     options.OnRejected = async (context, cancellationToken) =>
     {
         // A fixed window reports how long is left before it reopens. A limiter that reports nothing
@@ -954,6 +954,12 @@ builder.Services.AddRateLimiter(options =>
     // Rate limit for authentication endpoints (login, guest sessions, key regeneration, setup repair)
     options.AddPolicy("auth", context => CallerWindow(context, permitLimit: 5, TimeSpan.FromMinutes(1)));
 
+    // Rate limit for account creation and editing. Its own budget rather than the auth one, because
+    // the window is partitioned on the caller address alone: an admin adding half a dozen accounts in
+    // a minute would otherwise spend the sign-in permits for that address, and behind a reverse proxy
+    // that is not on the trusted list every visitor arrives as the same address.
+    options.AddPolicy("accounts", context => CallerWindow(context, permitLimit: 10, TimeSpan.FromMinutes(1)));
+
     // Rate limit for Steam auth (more lenient due to 2FA flows)
     options.AddPolicy("steam-auth", context => CallerWindow(context, permitLimit: 10, TimeSpan.FromMinutes(5)));
 });
@@ -972,7 +978,7 @@ builder.Services.AddRateLimiter(options =>
 // Kestrel reports no remote address at all for a request that arrived over a Unix socket. Those
 // requests are not throttled, rather than sharing one window with every other address-less caller,
 // which would be the same lockout once more; reaching that socket already means access to the
-// host. [3]
+// host.
 static RateLimitPartition<string> CallerWindow(HttpContext context, int permitLimit, TimeSpan window)
 {
     if (context.Connection.RemoteIpAddress is not { } address)
@@ -1165,7 +1171,7 @@ apiKeyService.DisplayApiKey(app.Configuration);
 // so existing browser cookies cannot authenticate against the new key. The sessions being
 // cleared live in the database, and this call sits outside every try, so on a setup-only boot
 // an unguarded delete takes the process down before the user can reach the setup screen. No
-// database means there are no sessions to clear, which is the outcome rather than an error. [31]
+// database means there are no sessions to clear, which is the outcome rather than an error.
 if (apiKeyService.WasNewKeyGenerated && databaseAvailable)
 {
     using var startupScope = app.Services.CreateScope();
@@ -1338,7 +1344,7 @@ app.MapPrometheusScrapingEndpoint().AllowAnonymous();
 // and a non-2xx here gets it restarted by Swarm, a Kubernetes liveness probe or an autoheal
 // sidecar before anyone can finish the wizard. The setup state is reported in the body instead.
 // The flag is fixed for the life of the process, which matches the setup flow: credentials
-// submitted through the wizard only take effect on restart. [32]
+// submitted through the wizard only take effect on restart.
 app.MapGet("/health", () => Results.Ok(new HealthResponse
 {
     Status = externalCredsMissing ? "setup-required" : "healthy",

@@ -36,7 +36,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const signalR = useSignalR();
 
   // Derive isAdmin and hasSession from authMode. A user session is authenticated too and reaches
-  // everything an admin does, so isAdmin covers both; sessionType tells them apart where it matters. [59]
+  // everything an admin does, so isAdmin covers both; sessionType tells them apart where it matters.
   const isAdmin = authMode === 'authenticated';
   const hasSession = authMode !== 'unauthenticated';
 
@@ -220,6 +220,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setRiotPrefillExpiresAt(null);
       setXboxPrefillEnabled(false);
       setXboxPrefillExpiresAt(null);
+      // The service holds the copy the rest of the app reads, so a revoked session that only cleared
+      // this component would still report itself signed in and keep its live download feed until the
+      // page was reloaded. These are the four fields logout already resets (auth.service.ts:237-240).
+      // guestAccessEnabled and guestDurationHours stay as they are: they describe the installation
+      // rather than the session, and the sign-in screen this lands on shows them.
+      authService.isAuthenticated = false;
+      authService.authMode = 'unauthenticated';
+      authService.sessionType = null;
+      authService.sessionId = null;
+      notifyAuthSessionUpdated();
     };
 
     const handleSessionRevoked = (data: { sessionId: string; sessionType: string }) => {
@@ -280,7 +290,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       signalR.off('UserSessionsCleared', handleSessionsCleared);
       signalR.off('GuestPrefillPermissionChanged', handlePrefillPermissionChanged);
     };
-  }, [signalR]);
+  }, [signalR, notifyAuthSessionUpdated]);
 
   // Join the AuthenticatedUsersGroup when SignalR is connected and has a session (admin or guest).
   // Also refresh auth state on reconnect to pick up any changes missed while disconnected

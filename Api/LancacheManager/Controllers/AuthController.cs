@@ -103,7 +103,7 @@ public class AuthController : ControllerBase
 
         // Nothing copies IsMainAdmin onto the session row, so the account row is what answers it. Only an
         // account-backed session reaches the query: a guest, an API-key caller and the
-        // disabled-authentication session all leave AccountId null (UserSession.cs:29). [58]
+        // disabled-authentication session all leave AccountId null (UserSession.cs:29).
         var isMainAdmin = false;
         if (session?.AccountId is { } accountId)
         {
@@ -179,7 +179,7 @@ public class AuthController : ControllerBase
         // own. The flag does not repeat the path test: off those two routes the header resolves no session
         // at all, so the only caller it holds back from rotation is one that already carries a cookie and
         // sends the header as well. With authentication disabled the header is never read and the session
-        // is the shared one whose cookie the browser runs on, so that path keeps rotating. [11]
+        // is the shared one whose cookie the browser runs on, so that path keeps rotating.
         var authenticatedWithApiKey = authenticationEnabled && Request.Headers.ContainsKey("X-Api-Key");
         if (session != null && !authenticatedWithApiKey)
         {
@@ -206,7 +206,7 @@ public class AuthController : ControllerBase
             AccountId = session?.AccountId,
             // With authentication disabled the session is the shared minted one, which has no account
             // row, and that caller may create admins anyway, so it is told it holds the rights the
-            // server will actually grant it rather than being shown a screen it cannot use. [58]
+            // server will actually grant it rather than being shown a screen it cannot use.
             IsMainAdmin = !authenticationEnabled || isMainAdmin,
             HasData = hasData,
             HasBeenInitialized = hasBeenInitialized,
@@ -232,12 +232,12 @@ public class AuthController : ControllerBase
     /// </summary>
     /// <remarks>
     /// All three are required and all three are checked before anything is answered. The key alone
-    /// used to be a sign-in; it is now one of three things a caller has to hold. [38][39]
+    /// used to be a sign-in; it is now one of three things a caller has to hold.
     ///
     /// Every way this can fail is answered identically - the same status and the same body - because a
     /// caller who can tell them apart learns which usernames exist, which passwords are close, and
     /// whether their guessing is having an effect. That includes an account locked by too many recent
-    /// failures, which is the one that would otherwise confirm a username outright. [44]
+    /// failures, which is the one that would otherwise confirm a username outright.
     ///
     /// If the browser already held a guest session, that session is revoked first so the upgrade
     /// does not leave two live sessions for the same browser.
@@ -254,7 +254,7 @@ public class AuthController : ControllerBase
         // there is no account, so an unknown username costs the same PBKDF2 work as a real one. Skipping
         // it would answer in a few milliseconds instead of a few hundred, which is a username oracle
         // that no shared error message hides. This mirrors what ApiKeyService.ValidateApiKey:107-112
-        // does for a key of the wrong length. [44]
+        // does for a key of the wrong length.
         var password = VerifyPassword(account, request.Password);
         var passwordMatched = password is PasswordVerificationResult.Success
             or PasswordVerificationResult.SuccessRehashNeeded;
@@ -272,13 +272,13 @@ public class AuthController : ControllerBase
                 // caller who held the installation's key. An unknown username names nobody to count
                 // against, and a caller without the key is not making a credible attempt on this
                 // account - counting those would let anyone lock any account they can name, without
-                // ever holding the key. Both are the per-IP limiter's to bound instead. [43]
+                // ever holding the key. Both are the per-IP limiter's to bound instead.
                 _accountLockout.RecordFailure(account.Id);
             }
 
             _logger.LogWarning("Failed login attempt from {IP}", HttpContext.Connection.RemoteIpAddress);
 
-            // No session and, when the username was unknown, no account either. [29c]
+            // No session and, when the username was unknown, no account either.
             await _identityAuditService.RecordAsync(
                 IdentityAuditEvent.LoginFailed,
                 performedByAccountId: account?.Id,
@@ -331,7 +331,7 @@ public class AuthController : ControllerBase
             request.Password,
             rewriteHash: password == PasswordVerificationResult.SuccessRehashNeeded);
 
-        // The account is the actor and the target: it is the identity the event is about. [49h]
+        // The account is the actor and the target: it is the identity the event is about.
         await _identityAuditService.RecordAsync(
             IdentityAuditEvent.LoginSucceeded,
             performedByAccountId: account.Id,
@@ -364,10 +364,10 @@ public class AuthController : ControllerBase
     ///
     /// A wrong current password counts against the same per-account limit a failed sign-in does. Without
     /// that, an attacker holding any live session guesses here instead of at the sign-in screen and the
-    /// lockout never fires. [43b]
+    /// lockout never fires.
     ///
     /// The session's token is replaced on success and the one the caller arrived with stops working,
-    /// so a stolen cookie does not outlive the password it was obtained under. [46]
+    /// so a stolen cookie does not outlive the password it was obtained under.
     /// </remarks>
     [EnableRateLimiting("auth")]
     [HttpPost("password")]
@@ -377,7 +377,7 @@ public class AuthController : ControllerBase
         // [Authorize] answers a caller with no session at all, which is a 401 and no body. What reaches
         // here without an account is a session that has one of the two shapes that never had one: a
         // caller carrying only the API key, and the shared session used while authentication is
-        // disabled. Neither has a password to change. [47]
+        // disabled. Neither has a password to change.
         var session = HttpContext.GetUserSession();
         if (session?.AccountId is not { } accountId)
         {
@@ -396,7 +396,7 @@ public class AuthController : ControllerBase
         {
             // The account was deleted while this session was open. SessionService.ValidateSessionAsync
             // rejects such a session on its next request, so this is the same answer arriving here
-            // first rather than a state of its own. [29]
+            // first rather than a state of its own.
             return StatusCode(
                 StatusCodes.Status403Forbidden,
                 new CredentialRefusalResponse
@@ -433,7 +433,7 @@ public class AuthController : ControllerBase
         // The rules the account was created under, run against the replacement, so a password that
         // could not have been chosen at sign-up cannot be arrived at by changing to it. The single
         // validator is the one place those rules live, which is why this builds one rather than
-        // restating them. [26]
+        // restating them.
         var proposed = new AccountCredentialsRequestValidator().Validate(
             new AccountCredentialsRequest { Username = account.Username, Password = request.NewPassword });
         if (!proposed.IsValid)
@@ -450,9 +450,17 @@ public class AuthController : ControllerBase
 
         _accountLockout.Clear(accountId);
 
+        // Every other place a password is replaced ends the account's sessions
+        // (AccountsController.EditAccountAsync, AccountSetupController.RecoverMainAdminPasswordAsync),
+        // and this is the one a person reaches for when they believe somebody else knows the password.
+        // Rotating the caller's own token says nothing about the sessions the same account has open
+        // elsewhere, and an account holder's session does not expire. The caller's own is spared for
+        // the reason the rotation below is preferred to a revoke.
+        await _sessionService.RevokeAccountSessionsAsync(accountId, session.Id);
+
         // The session survives the change and gets a new token, rather than being revoked: signing the
         // person out of the screen they just used is not what changing a password is for. What must not
-        // survive is the token they arrived with, which was obtained under the old password. [46]
+        // survive is the token they arrived with, which was obtained under the old password.
         //
         // Rotation on its own does neither reliably. It declines while a previous rotation is inside
         // its 30-second grace period - and /api/auth/status rotates on a schedule, so that window is
@@ -470,6 +478,14 @@ public class AuthController : ControllerBase
             // the caller has to sign in again, which is what the missing row means anyway.
             _logger.LogWarning("Session {SessionId} was gone before its token could be replaced", session.Id);
         }
+
+        // The account is both the actor and the target, which is what tells this apart from the row an
+        // administrator setting somebody else's password writes.
+        await _identityAuditService.RecordAsync(
+            IdentityAuditEvent.PasswordChanged,
+            performedByAccountId: accountId,
+            performedBySessionId: session.Id,
+            targetAccountId: accountId);
 
         _logger.LogInformation("Password changed for account {AccountId}", accountId);
 
@@ -501,7 +517,7 @@ public class AuthController : ControllerBase
         // An unfinished installation serves the setup wizard and nothing else, and a guest cannot
         // finish it: the wizard's saves are admin-gated and it offers no way out. A guest session
         // handed out in that state leaves the caller looking at a screen that refuses everything, so
-        // the session is refused instead. [7]
+        // the session is refused instead.
         if (!_stateService.GetSetupCompleted())
         {
             throw new ForbiddenException("Setup is not complete");
@@ -611,8 +627,9 @@ public class AuthController : ControllerBase
     /// Returns whether guest mode is locked and the duration a new guest session would get.
     /// </summary>
     /// <remarks>
-    /// Requires a session. The login screen no longer reads it, so it advertises the guest-mode
-    /// settings to callers who already hold a session instead of to anyone at all. [55]
+    /// Requires a session, so the guest-mode settings reach callers who already hold one rather than
+    /// anyone who can reach the port. A caller with no session is answered 401 and gets neither value
+    /// from here.
     /// </remarks>
     [HttpGet("guest/status")]
     [ProducesResponseType(typeof(GuestStatusResponse), StatusCodes.Status200OK)]
@@ -632,7 +649,7 @@ public class AuthController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Any session may read it, a guest's included, so the guest onboarding screen shows these
-    /// settings once the visitor has signed in rather than to anyone who can reach the port. [55]
+    /// settings once the visitor has signed in rather than to anyone who can reach the port.
     /// </remarks>
     [HttpGet("guest/config")]
     [ProducesResponseType(typeof(GuestConfigResponse), StatusCodes.Status200OK)]
@@ -754,7 +771,7 @@ public class AuthController : ControllerBase
     /// <remarks>
     /// Also includes the Epic and Battle.net enabled flags that predate those services getting
     /// their own guest-prefill config endpoints below. Any session may read it, a guest's
-    /// included, once the visitor has signed in. [55]
+    /// included, once the visitor has signed in.
     /// </remarks>
     [HttpGet("guest/prefill/config")]
     [ProducesResponseType(typeof(GuestPrefillConfigResponse), StatusCodes.Status200OK)]
@@ -880,7 +897,7 @@ public class AuthController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Any session may read it, a guest's included, so the guest onboarding screen shows these
-    /// defaults once the visitor has signed in rather than to anyone who can reach the port. [55]
+    /// defaults once the visitor has signed in rather than to anyone who can reach the port.
     /// </remarks>
     [HttpGet("guest/epic-prefill/config")]
     [ProducesResponseType(typeof(EpicGuestPrefillConfigResponse), StatusCodes.Status200OK)]
@@ -962,7 +979,7 @@ public class AuthController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Any session may read it, a guest's included, so the guest onboarding screen shows these
-    /// defaults once the visitor has signed in rather than to anyone who can reach the port. [55]
+    /// defaults once the visitor has signed in rather than to anyone who can reach the port.
     /// </remarks>
     [HttpGet("guest/battlenet-prefill/config")]
     [ProducesResponseType(typeof(BattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
@@ -1040,7 +1057,7 @@ public class AuthController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Any session may read it, a guest's included, so the guest onboarding screen shows these
-    /// defaults once the visitor has signed in rather than to anyone who can reach the port. [55]
+    /// defaults once the visitor has signed in rather than to anyone who can reach the port.
     /// </remarks>
     [HttpGet("guest/riot-prefill/config")]
     [ProducesResponseType(typeof(BattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
@@ -1118,7 +1135,7 @@ public class AuthController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Any session may read it, a guest's included, so the guest onboarding screen shows these
-    /// defaults once the visitor has signed in rather than to anyone who can reach the port. [55]
+    /// defaults once the visitor has signed in rather than to anyone who can reach the port.
     /// </remarks>
     [HttpGet("guest/xbox-prefill/config")]
     [ProducesResponseType(typeof(EpicGuestPrefillConfigResponse), StatusCodes.Status200OK)]
@@ -1325,7 +1342,7 @@ public class AuthController : ControllerBase
     /// known one takes a few hundred, which tells a caller which usernames exist no matter how
     /// carefully the two are given the same message. Verifying against a hash nobody holds is what
     /// closes that, and it is the same move ApiKeyService.ValidateApiKey:107-112 makes for a key of
-    /// the wrong length. [44]
+    /// the wrong length.
     ///
     /// The stand-in hash is produced by the injected hasher so it carries the configured iteration
     /// count: the count is read out of the hash itself, so a cheaper one would be a cheaper compare
@@ -1352,7 +1369,6 @@ public class AuthController : ControllerBase
     /// One <c>SaveChangesAsync</c> covers both, so an installation whose hasher was stepped up cannot
     /// end up with a rewritten hash and no record of the sign-in, or the reverse. The rehash is the
     /// only moment the raw password is in hand, which is why it happens here rather than on a sweep.
-    /// [42]
     /// </remarks>
     private async Task StampSignInAsync(Guid accountId, string password, bool rewriteHash)
     {
@@ -1362,7 +1378,7 @@ public class AuthController : ControllerBase
         {
             // The account was deleted between the sign-in and this write. The session it just minted is
             // rejected on its next request by SessionService.ValidateSessionAsync, so there is nothing
-            // to stamp and nothing left to sign in as. [29]
+            // to stamp and nothing left to sign in as.
             return;
         }
 
@@ -1378,7 +1394,7 @@ public class AuthController : ControllerBase
     /// <summary>
     /// Ends the grace period a token rotation leaves behind, so the previous token stops working now
     /// rather than in thirty seconds. Only the password change needs this: everywhere else the grace
-    /// period is what keeps a caller's in-flight requests and open tabs alive. [46]
+    /// period is what keeps a caller's in-flight requests and open tabs alive.
     /// </summary>
     private static async Task EndPreviousTokenGraceAsync(AppDbContext context, Guid sessionId)
     {

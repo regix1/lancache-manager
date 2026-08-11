@@ -180,7 +180,7 @@ function createValueLabelPlugin(getTheme: () => DivergingBarTheme): Plugin<'bar'
  * Places the tooltip against its anchor and keeps it inside the viewport. The
  * box is measured in here rather than by the caller because its width and
  * height only settle once the hovered row's content is in the DOM, and the
- * chart's own handler runs before that content has been committed. [17]
+ * chart's own handler runs before that content has been committed.
  */
 function positionTooltip(el: HTMLDivElement, anchor: TooltipAnchor): void {
   const { anchorX, anchorY, isPositive } = anchor;
@@ -208,7 +208,7 @@ function positionTooltip(el: HTMLDivElement, anchor: TooltipAnchor): void {
 
   // Vertical clamp so the tooltip never spills above or below the viewport. The
   // transform centres the box on this coordinate, so the clamp runs on the top
-  // edge and the half height goes back on afterwards. [3]
+  // edge and the half height goes back on afterwards.
   const halfHeight = tooltipHeight / 2;
   const clampedY =
     clampToViewport(anchorY - halfHeight, tooltipHeight, viewportHeight, SAFE_MARGIN) + halfHeight;
@@ -216,7 +216,7 @@ function positionTooltip(el: HTMLDivElement, anchor: TooltipAnchor): void {
   // Horizontal clamp, mirroring clampedY above. Right placement sets the
   // box's left edge directly. Left placement below adds translate(-100%), so
   // this same coordinate is the box's right edge instead, and the clamp runs
-  // on the left edge with the width put back on afterwards. [7]
+  // on the left edge with the width put back on afterwards.
   const clampedX = placeOnRight
     ? clampToViewport(anchorX + TOOLTIP_GAP, tooltipWidth, viewportWidth, SAFE_MARGIN)
     : clampToViewport(
@@ -245,7 +245,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
   // the row's markup is React state and only reaches the DOM on the next commit,
   // so the width measured in the handler still belongs to the row before it.
   // Re-placing here runs after that commit and before the browser paints, which
-  // is the first moment the box can be measured at the size it will be drawn. [17]
+  // is the first moment the box can be measured at the size it will be drawn.
   useLayoutEffect(() => {
     const el = tooltipElRef.current;
     const anchor = anchorRef.current;

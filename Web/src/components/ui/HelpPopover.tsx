@@ -188,7 +188,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     // hang the last lines of help text off the screen with nothing to scroll.
     // The bottom edge has to clear the viewport padding, but the top edge is only
     // floored at 0 below, so a popover that just fits above its trigger keeps the
-    // position it had. Clamping inside the padded region expresses both ends. [2]
+    // position it had. Clamping inside the padded region expresses both ends.
     const y = opensBelow
       ? triggerRect.bottom + TRIGGER_GAP
       : clampToViewport(

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Security;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LancacheManager.Tests;
@@ -27,7 +28,7 @@ public sealed class AntiforgeryTokenTests
     /// <summary>
     /// A request that changes something is refused without the token and answered with it, on each of the
     /// four verbs the check applies to. Both halves run against the same routes so the token is the only
-    /// difference between them. [77h][77i]
+    /// difference between them.
     /// </summary>
     [Fact]
     public async Task TheVerbsThatChangeSomethingAreRefusedWithoutTheTokenAndAnsweredWithIt()
@@ -74,7 +75,7 @@ public sealed class AntiforgeryTokenTests
 
     /// <summary>
     /// A read never needs the token, so the protection costs nothing on the calls that make up most of
-    /// the traffic and cannot be what breaks a page that only displays things. [77i]
+    /// the traffic and cannot be what breaks a page that only displays things.
     ///
     /// GET is the only read verb this can measure. No controller in the application declares a HEAD or
     /// an OPTIONS action, so a request on either verb is answered 404 by the fallback route before any
@@ -99,7 +100,7 @@ public sealed class AntiforgeryTokenTests
     /// The rotation this whole phase exists for. Reading the status hands the caller a new session cookie,
     /// which resets the age SameSite=Lax measures, so the cookie is as fresh as it can be and the browser
     /// would send it cross-site. It still buys nothing: the very next request that changes something is
-    /// refused for want of the token. [77j]
+    /// refused for want of the token.
     /// </summary>
     [Fact]
     public async Task ARotatedSessionCookieStillDoesNotBuyARequestWithoutTheToken()
@@ -134,7 +135,7 @@ public sealed class AntiforgeryTokenTests
     ///
     /// Each is sent a wrong key and no token. The answer is the endpoint's own refusal of the key, which
     /// is only reachable once the request has got past the token check - that check answers 400 and never
-    /// runs the handler, which is what the last two requests here show. [77k]
+    /// runs the handler, which is what the last two requests here show.
     /// </summary>
     [Fact]
     public async Task TheKeyAuthenticatedRoutesAnswerWithoutATokenAndTheOthersDoNot()
@@ -177,7 +178,7 @@ public sealed class AntiforgeryTokenTests
     /// The repair endpoint with the real key, no session and no token: the bootstrap and repair path,
     /// which has to work in the state where there is no database to hold a session and nothing to
     /// issue a token. What comes back is the endpoint's own refusal of the request it was sent, which
-    /// only a caller that got all the way to the handler can be given. [77k]
+    /// only a caller that got all the way to the handler can be given.
     /// </summary>
     [Fact]
     public async Task TheRepairEndpointAnswersTheKeyCallerThatHasNoSessionAndNoToken()
@@ -206,7 +207,7 @@ public sealed class AntiforgeryTokenTests
     /// which a browser attaches to a request another origin caused, so it is asked for the token like
     /// every other write - and /api/setup/credentials runs ALTER USER against a role created WITH
     /// SUPERUSER, so a session on its own must never be enough. The last part is the same caller with
-    /// the token it read from this origin's cookie, which gets the handler's own answer. [77h][77k]
+    /// the token it read from this origin's cookie, which gets the handler's own answer.
     /// </summary>
     [Fact]
     public async Task TheRepairEndpointRefusesASessionThatHasNoKeyAndNoToken()
@@ -250,6 +251,86 @@ public sealed class AntiforgeryTokenTests
     }
 
     /// <summary>
+    /// A guest holding the token this origin issued it, at both setup repair routes. That is three
+    /// requests a visitor can make on a finished install without signing in, and /api/setup/credentials
+    /// runs ALTER USER against a role created WITH SUPERUSER with the role name taken from the request,
+    /// so the token must not be the last thing standing between a guest and that statement. The account
+    /// holder in the same shape still reaches the handler, which is what makes this a narrowing rather
+    /// than a closure.
+    /// </summary>
+    [Fact]
+    public async Task TheRepairEndpointsRefuseAGuestHoldingTheTokenAndStillAnswerAnAccountHolder()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+
+        using var guestClient = await GuestClientAsync(host);
+
+        using var guestCredentials = await guestClient.PostAsJsonAsync(
+            "/api/setup/credentials",
+            new SetupCredentialsRequest());
+        Assert.Equal(HttpStatusCode.Unauthorized, guestCredentials.StatusCode);
+
+        using var guestExternal = await guestClient.PostAsJsonAsync(
+            "/api/setup/external",
+            new SetExternalDbCredentialsRequest());
+        Assert.Equal(HttpStatusCode.Unauthorized, guestExternal.StatusCode);
+
+        using var accountHolder = await host.CreateAdminClientAsync();
+
+        // The handler's own answer, which only a caller admitted past the gate can be given.
+        using var answered = await accountHolder.PostAsJsonAsync(
+            "/api/setup/credentials",
+            new SetupCredentialsRequest());
+        Assert.Equal(HttpStatusCode.BadRequest, answered.StatusCode);
+    }
+
+    /// <summary>
+    /// A client carrying a real guest session and the token this origin issued it, which is everything a
+    /// visitor can hold without signing in. The session is minted through the service the guest sign-in
+    /// endpoint calls rather than through the endpoint, because that endpoint refuses while setup is
+    /// unfinished and every host in this suite is an unfinished install.
+    /// </summary>
+    private static async Task<HttpClient> GuestClientAsync(EndpointAuthorizationHost host)
+    {
+        var client = host.Application.CreateClient();
+
+        try
+        {
+            using var scope = host.Application.Services.CreateScope();
+            var sessions = scope.ServiceProvider.GetRequiredService<SessionService>();
+            var guest = await sessions.CreateGuestSessionAsync(new DefaultHttpContext());
+            Assert.NotNull(guest);
+
+            // Round-tripping the cookie through the writer keeps the cookie name out of this helper.
+            var cookieWriter = new DefaultHttpContext();
+            sessions.SetSessionCookie(cookieWriter, guest!.Value.RawToken, DateTime.UtcNow.AddDays(1));
+            client.DefaultRequestHeaders.Add(
+                "Cookie",
+                cookieWriter.Response.Headers.SetCookie.ToString().Split(';')[0]);
+
+            using var status = await client.GetAsync("/api/auth/status");
+            Assert.Equal(HttpStatusCode.OK, status.StatusCode);
+            client.DefaultRequestHeaders.Add(
+                AntiforgeryToken.HeaderName,
+                EndpointAuthorizationHost.AntiforgeryTokenFrom(status));
+
+            // A caller with no session at all is refused by the same two answers this client is used to
+            // measure, so the session has to be shown to be on the request before either means anything.
+            var reported = await status.Content.ReadFromJsonAsync<AuthStatusResponse>();
+            Assert.Equal(SessionType.Guest, reported?.SessionType);
+
+            return client;
+        }
+        catch
+        {
+            client.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Whether an answer from /api/setup/external came from the endpoint itself rather than the token
     /// check in front of it. Which of the two refusals it gives depends on POSTGRES_MODE: the host
     /// sets it to external, and an empty request then stops at the first missing field, while
@@ -263,7 +344,7 @@ public sealed class AntiforgeryTokenTests
 
     /// <summary>
     /// With authentication off the installation has no access control at all, so the token check must not
-    /// become the one thing still turning callers away. [77m]
+    /// become the one thing still turning callers away.
     /// </summary>
     [Fact]
     public async Task ARequestThatChangesSomethingIsAnsweredWhenAuthenticationIsOff()
@@ -282,7 +363,7 @@ public sealed class AntiforgeryTokenTests
     /// The token's cookie is readable by script and the session cookie is not, which looks the wrong way
     /// round and is not. Script has to read the token to put it in a header, and being able to read it is
     /// no help to another origin, which cannot read this origin's cookies at all. The session cookie is
-    /// the credential and stays out of reach. [77n]
+    /// the credential and stays out of reach.
     /// </summary>
     [Fact]
     public async Task TheTokenCookieIsReadableByScriptAndTheSessionCookieIsNot()

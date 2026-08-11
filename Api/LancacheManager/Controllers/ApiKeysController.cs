@@ -1,11 +1,13 @@
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using LancacheManager.Core.Services.SteamKit2;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 
 
 namespace LancacheManager.Controllers;
@@ -19,6 +21,7 @@ namespace LancacheManager.Controllers;
 [Authorize(Policy = "AccountHolder")]
 public class ApiKeysController : ControllerBase
 {
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly ApiKeyService _apiKeyService;
     private readonly SteamKit2Service _steamKit2Service;
     private readonly SteamAuthStorageService _steamAuthStorage;
@@ -30,6 +33,7 @@ public class ApiKeysController : ControllerBase
     private readonly ILogger<ApiKeysController> _logger;
 
     public ApiKeysController(
+        IDbContextFactory<AppDbContext> dbContextFactory,
         ApiKeyService apiKeyService,
         SteamKit2Service steamKit2Service,
         SteamAuthStorageService steamAuthStorage,
@@ -40,6 +44,7 @@ public class ApiKeysController : ControllerBase
         AuthenticationHelper authenticationHelper,
         ILogger<ApiKeysController> logger)
     {
+        _dbContextFactory = dbContextFactory;
         _apiKeyService = apiKeyService;
         _steamKit2Service = steamKit2Service;
         _steamAuthStorage = steamAuthStorage;
@@ -94,7 +99,13 @@ public class ApiKeysController : ControllerBase
     ///
     /// It also ends every signed-in session, the caller's own included, because each of them was
     /// opened against the key that has just stopped being valid. The new key travels in the response
-    /// so the caller can read it on the way out. [48][49]
+    /// so the caller can read it on the way out.
+    ///
+    /// With authentication on, the account that owns the installation is the only one that may ask
+    /// for it. Rotating signs every other person out and hands the new credential to whoever asked,
+    /// so an ordinary administrator holding it could lock the rest of them out. The check reads the
+    /// caller's stored account row, because the claim on the cookie says "admin" for every
+    /// administrator and a check that read it would admit all of them.
     /// </remarks>
     [HttpPost("regenerate")]
     [EnableRateLimiting("auth")]
@@ -109,6 +120,30 @@ public class ApiKeysController : ControllerBase
                 return StatusCode(
                     apiKeyResult.StatusCode,
                     ApiResponse.Error(apiKeyResult.ErrorMessage ?? "API key required"));
+            }
+        }
+        else
+        {
+            // A guest never reaches here, and neither does a caller holding only the key: with
+            // authentication on the header stands in for a session on the API reference alone
+            // (SessionAuthenticationHandler.cs:65-73). What is left is an account holder, and only
+            // one account row answers true.
+            var callerSession = HttpContext.GetUserSession();
+            var ownsInstallation = false;
+            if (callerSession?.AccountId is { } callerAccountId)
+            {
+                await using var accounts = await _dbContextFactory.CreateDbContextAsync();
+                ownsInstallation = await accounts.UserAccounts
+                    .Where(a => a.Id == callerAccountId)
+                    .Select(a => a.IsMainAdmin)
+                    .FirstOrDefaultAsync();
+            }
+
+            if (!ownsInstallation)
+            {
+                return StatusCode(
+                    StatusCodes.Status403Forbidden,
+                    ApiResponse.Error("Only the account that owns this installation can rotate the API key."));
             }
         }
 
@@ -132,7 +167,6 @@ public class ApiKeysController : ControllerBase
         // Built before anything is revoked. The caller signs in with the key, so the session making
         // this request is one of the ones about to end, and a rotation that only confirms itself
         // leaves that admin outside the screen that was going to show them the key they now need.
-        // [49]
         var response = new ApiKeyRegenerateResponse
         {
             Success = true,
@@ -143,7 +177,7 @@ public class ApiKeysController : ControllerBase
 
         // Read while the rows still exist. An X-Api-Key caller and a caller running with
         // authentication disabled both run as a shared session that belongs to no account, so the
-        // account half of the actor is null for them. [29c]
+        // account half of the actor is null for them.
         var session = HttpContext.GetUserSession();
         await _identityAuditService.RecordAsync(
             IdentityAuditEvent.ApiKeyRotated,
@@ -153,7 +187,7 @@ public class ApiKeysController : ControllerBase
 
         // Guests included: every one of these sessions was opened against the key that has just
         // stopped being valid. Only the session rows go, so every account can sign in again with the
-        // new key. [48]
+        // new key.
         var endedSessions = await _sessionService.ClearAllSessionsAsync();
 
         _logger.LogWarning(

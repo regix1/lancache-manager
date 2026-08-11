@@ -1,7 +1,6 @@
 using System.Reflection;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -19,7 +18,6 @@ namespace LancacheManager.Tests;
 /// <summary>
 /// Signing in with an API key, a username and a password; what happens when any one of them is wrong;
 /// the per-account limit on guessing; and changing your own password.
-/// [38][39][40][41][42][43][43b][44][45][46][47][49g][49h]
 /// </summary>
 public sealed class AccountLoginTests : IDisposable
 {
@@ -58,7 +56,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// All three together, and the session that comes back is the one CreateAdminSessionAsync writes:
     /// the never-expires sentinel it stamps on every admin session, and the cookie
-    /// SessionService.SetSessionCookie sets, with the flags it sets. [38]
+    /// SessionService.SetSessionCookie sets, with the flags it sets.
     /// </summary>
     [Fact]
     public async Task SignInWithKeyUsernameAndPasswordCreatesASession()
@@ -90,7 +88,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// The session the sign-in creates names the account it signed in as, which is the column every
     /// account write keys off when it revokes an identity's live sessions. Nothing wrote it before
-    /// this. [49g]
+    /// this.
     /// </summary>
     [Fact]
     public async Task SignInStampsTheAccountOnTheSession()
@@ -107,7 +105,7 @@ public sealed class AccountLoginTests : IDisposable
 
     /// <summary>
     /// The account's role is what the session carries, not the name of the method that writes it. A
-    /// user signs in to a user session. [49g]
+    /// user signs in to a user session.
     /// </summary>
     [Fact]
     public async Task SignInGivesAUserAccountAUserSession()
@@ -128,7 +126,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// One of the three missing or wrong is a refusal. The key on its own was a sign-in until this
     /// change, which is why the wrong-password case with a perfectly good key is the one that matters
-    /// most here. [39]
+    /// most here.
     /// </summary>
     [Theory]
     [InlineData("operator", "wrong-password", true)]
@@ -153,7 +151,7 @@ public sealed class AccountLoginTests : IDisposable
 
     /// <summary>
     /// An absent key is refused like a wrong one. Nothing about the request body distinguishes the two
-    /// callers, and the endpoint is reachable by anyone who can reach the port. [39]
+    /// callers, and the endpoint is reachable by anyone who can reach the port.
     /// </summary>
     [Fact]
     public async Task SignInIsRefusedWithNoKeyAtAll()
@@ -173,7 +171,7 @@ public sealed class AccountLoginTests : IDisposable
     /// Every way this fails answers the same status and the same body, so a caller cannot use the
     /// refusals to learn which usernames exist, whether a password was close, or whether an account is
     /// switched off. The locked case is in here too: telling somebody an account is locked confirms it
-    /// exists, which is the one thing the shared message is for. [44]
+    /// exists, which is the one thing the shared message is for.
     /// </summary>
     [Fact]
     public async Task EveryFailureAnswersIdentically()
@@ -206,7 +204,7 @@ public sealed class AccountLoginTests : IDisposable
 
     /// <summary>
     /// The key is checked by the one comparison that was written to be constant-time, and the
-    /// controller holds no second one of its own. [40]
+    /// controller holds no second one of its own.
     /// </summary>
     [Fact]
     public async Task TheKeyIsCheckedByTheExistingConstantTimeCompare()
@@ -233,7 +231,7 @@ public sealed class AccountLoginTests : IDisposable
 
     /// <summary>
     /// A guest still asks for nothing. The three-factor sign-in is the account door; the guest door is
-    /// the one an anonymous visitor on the LAN uses and it did not move. [41]
+    /// the one an anonymous visitor on the LAN uses and it did not move.
     /// </summary>
     [Fact]
     public async Task GuestSignInStillNeedsNoCredential()
@@ -260,7 +258,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// An installation whose iteration count was stepped up carries hashes written at the old one. The
     /// sign-in that verifies such a hash is the only moment the password is in hand, so that is when it
-    /// is written again at the new count - together with the last-login stamp, in one save. [42]
+    /// is written again at the new count - together with the last-login stamp, in one save.
     /// </summary>
     [Fact]
     public async Task SignInRewritesAHashStoredAtALowerIterationCount()
@@ -286,7 +284,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// The other half: a hash already written at the configured count is left exactly as it is, and the
     /// sign-in is still stamped. A rewrite every time would be work for nothing and would churn the row
-    /// on every request. [42]
+    /// on every request.
     /// </summary>
     [Fact]
     public async Task SignInLeavesACurrentHashAloneAndStillStampsTheLogin()
@@ -309,7 +307,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// Enough failures inside the window and the account stops accepting the right password. The limit
     /// follows the account rather than the caller, which is what the per-IP limiter cannot do: an
-    /// attack spread over many addresses passes that one untouched. [43]
+    /// attack spread over many addresses passes that one untouched.
     /// </summary>
     [Fact]
     public async Task EnoughFailedAttemptsLockTheAccount()
@@ -336,7 +334,7 @@ public sealed class AccountLoginTests : IDisposable
 
     /// <summary>
     /// And it locks that account only. A limit that anybody could trip against anybody else's name
-    /// would be a way to switch off any account you can name. [43]
+    /// would be a way to switch off any account you can name.
     /// </summary>
     [Fact]
     public async Task LockingOneAccountLeavesAnotherAlone()
@@ -359,7 +357,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// A wrong key cannot be attributed to anyone, so it must not count against the account whose name
     /// happened to be in the same request. Counting it would let anybody lock any account they can name
-    /// without ever holding the key. [43]
+    /// without ever holding the key.
     /// </summary>
     [Fact]
     public async Task AWrongKeyDoesNotCountAgainstTheAccount()
@@ -380,7 +378,7 @@ public sealed class AccountLoginTests : IDisposable
 
     /// <summary>
     /// Signing in successfully forgets the failures before it, so a run of mistypes followed by the
-    /// right password does not leave the account one mistake from being locked next week. [43]
+    /// right password does not leave the account one mistake from being locked next week.
     /// </summary>
     [Fact]
     public async Task ASuccessfulSignInForgetsTheFailuresBeforeIt()
@@ -411,7 +409,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// The bypass this closes: an attacker holding any live session guesses at the change-password
     /// endpoint instead of the sign-in screen. Both feed the same count, so the account locks either
-    /// way. [43b]
+    /// way.
     /// </summary>
     [Fact]
     public async Task WrongCurrentPasswordsOnTheChangeEndpointLockTheAccount()
@@ -441,7 +439,7 @@ public sealed class AccountLoginTests : IDisposable
     /// One count for the whole process, which is the part every other test here is blind to. They build
     /// the counter by hand and hand the same instance to both controllers, so a registration that gave
     /// each request its own would reset the count between attempts and never reach the limit - and all
-    /// of them would still pass while no account could be locked at all. [43][43b]
+    /// of them would still pass while no account could be locked at all.
     /// </summary>
     [Fact]
     public async Task TheCountIsSharedAcrossRequests()
@@ -458,7 +456,7 @@ public sealed class AccountLoginTests : IDisposable
 
     /// <summary>
     /// Switching an account off has to reach the sessions it already has, not only the sign-ins it has
-    /// not made yet. A session that outlived the disable is somebody still working. [45]
+    /// not made yet. A session that outlived the disable is somebody still working.
     /// </summary>
     [Fact]
     public async Task DisablingAnAccountStopsItsExistingSessions()
@@ -481,7 +479,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// The two Phase 2 guarantees, re-run against a session a real sign-in produced rather than one a
     /// test stamped by hand. Until the sign-in filled the column in, both of them were true only of
-    /// rows that never occurred. [49g]
+    /// rows that never occurred.
     /// </summary>
     [Fact]
     public async Task ASignedInSessionIsRevokedWithItsAccountAndRejectedWhenItIsDeleted()
@@ -511,7 +509,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// Changing the password replaces the session's token, and the one the caller arrived with stops
     /// working immediately rather than after the rotation grace period. A token obtained under the old
-    /// password does not outlive it. [46]
+    /// password does not outlive it.
     /// </summary>
     [Fact]
     public async Task ChangingThePasswordReplacesTheSessionToken()
@@ -535,7 +533,7 @@ public sealed class AccountLoginTests : IDisposable
 
     /// <summary>
     /// And the new password is the one that works afterwards, which is the part a token change would
-    /// otherwise hide. [46]
+    /// otherwise hide.
     /// </summary>
     [Fact]
     public async Task AfterAChangeTheNewPasswordSignsInAndTheOldOneDoesNot()
@@ -561,7 +559,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// A caller with a session but no account behind it is refused with an authorization status, not
     /// the 400 the preferences controller answers a session-less caller with. A caller with no session
-    /// at all never reaches the method: the controller carries [Authorize]. [47]
+    /// at all never reaches the method: the controller carries [Authorize].
     /// </summary>
     [Fact]
     public async Task ChangingThePasswordIsRefusedWhenTheSessionHasNoAccount()
@@ -581,8 +579,7 @@ public sealed class AccountLoginTests : IDisposable
 
     /// <summary>
     /// The endpoint carries [Authorize], which is what answers a caller holding no session at all, and
-    /// it is not [AllowAnonymous]. That is the difference between a 401 and the 400 criterion 47 names.
-    /// [47]
+    /// it is not [AllowAnonymous]. That is what separates a 401 here from a 400.
     /// </summary>
     [Fact]
     public void ChangingThePasswordRequiresAuthorization()
@@ -596,7 +593,7 @@ public sealed class AccountLoginTests : IDisposable
 
     /// <summary>
     /// A replacement password has to pass the rules an account is created under, or a password that
-    /// could not be chosen at sign-up could be arrived at by changing to it. [26]
+    /// could not be chosen at sign-up could be arrived at by changing to it.
     /// </summary>
     [Fact]
     public async Task AWeakReplacementPasswordIsRefused()
@@ -621,7 +618,7 @@ public sealed class AccountLoginTests : IDisposable
     // --- The audit trail ----------------------------------------------------------------------
 
     /// <summary>
-    /// A sign-in is recorded, with the account that made it and the session it produced. [49h]
+    /// A sign-in is recorded, with the account that made it and the session it produced.
     /// </summary>
     [Fact]
     public async Task ASuccessfulSignInIsRecorded()
@@ -644,7 +641,7 @@ public sealed class AccountLoginTests : IDisposable
     /// <summary>
     /// A refused sign-in is recorded too, and the actor columns stay empty when the caller has no
     /// account and no session to name. A row that could not be written for an anonymous caller would be
-    /// no record of the attempts that matter most. [49h][29c]
+    /// no record of the attempts that matter most.
     /// </summary>
     [Fact]
     public async Task ARefusedSignInIsRecordedWithWhateverActorThereWas()
@@ -671,7 +668,7 @@ public sealed class AccountLoginTests : IDisposable
 
     /// <summary>
     /// An audit trail that can refuse a sign-in turns a logging fault into an outage. Dropping the
-    /// table is what makes the write fail for real rather than being told it did. [29d]
+    /// table is what makes the write fail for real rather than being told it did.
     /// </summary>
     [Fact]
     public async Task ASignInStillSucceedsWhenTheAuditWriteFails()

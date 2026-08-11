@@ -6,13 +6,14 @@ import { transpile } from './transpile-module.mjs';
 import { isAdminAccountRequired } from '../src/utils/adminAccountSetup.ts';
 
 /**
- * An installation that has been running since before accounts existed reports setup as completed and
- * owns no account row, and starting the upgraded build revokes every session it had. The screens it
- * can reach are decided by three expressions in two files, and getting any one of them wrong strands
- * it on a sign-in form with nothing to sign in with.
+ * Two kinds of installation own no account row: a brand-new one, and one that has been running since
+ * before accounts existed, which reports setup as completed and had every session it held revoked by
+ * the upgrade. The screens either of them reaches are decided by a handful of expressions in two
+ * files and by the order App.tsx writes its branches in, and getting any one of those wrong strands
+ * the installation on a sign-in form with nothing to sign in with.
  *
- * So the expressions are read out of the product source and run, rather than copied here: a copy
- * would keep passing after someone edited the original.
+ * So the expressions and that order are read out of the product source and run, rather than copied
+ * here: a copy would keep passing after someone edited the original.
  */
 
 const readWebSource = (relativePath) =>
@@ -69,6 +70,21 @@ const signInConditions = collect(
 );
 assert.equal(signInConditions.length, 1, 'expected exactly one sign-in screen gate in App.tsx');
 const signInCondition = signInConditions[0].expression.getText(appFile);
+
+const wizardBranches = collect(
+  appFile,
+  (node) =>
+    ts.isIfStatement(node) && node.expression.getText(appFile) === 'shouldShowInitializationFlow'
+);
+assert.equal(wizardBranches.length, 1, 'expected exactly one wizard branch in App.tsx');
+
+/**
+ * App.tsx returns from the first of the two branches that matches, so knowing that both conditions
+ * are true says nothing about which screen the operator gets. Which one is written first is read
+ * out of the source for the same reason the conditions are: writing the order down here would keep
+ * passing after someone moved a branch.
+ */
+const signInComesFirst = signInConditions[0].pos < wizardBranches[0].pos;
 
 /**
  * `resolveInitialStep` and the two helpers it calls are plain declarations with no runtime imports,
@@ -142,35 +158,50 @@ const install = (overrides) => ({
   ...overrides
 });
 
-/** What the three product expressions do for one installation, with no session. */
+/** What the product's own expressions do for one installation, with no session. */
 const screensFor = (setupStatus, authenticationEnabled) => {
   const adminAccountRequired = isAdminAccountRequired({
-    setupCompleted: setupStatus.isCompleted === true,
     authenticationEnabled,
-    accountExists: setupStatus.accountExists ?? null
+    accountExists: setupStatus.accountExists ?? null,
+    needsPostgresCredentials: setupStatus.needsPostgresCredentials === true
   });
   const entryStep = resolveInitialStep(setupStatus, adminAccountRequired);
 
+  const wizard = evaluate(wizardCondition, {
+    setupCompleted: setupStatus.isCompleted,
+    setupStatus,
+    adminAccountRequired
+  });
+  const signIn = evaluate(signInCondition, {
+    checkingAuth: false,
+    checkingSetupStatus: false,
+    authMode: 'unauthenticated',
+    authenticationEnabled,
+    adminAccountRequired
+  });
+  const inSourceOrder = signInComesFirst
+    ? [
+        ['sign-in', signIn],
+        ['wizard', wizard]
+      ]
+    : [
+        ['wizard', wizard],
+        ['sign-in', signIn]
+      ];
+
   return {
     adminAccountRequired,
-    wizard: evaluate(wizardCondition, {
-      setupCompleted: setupStatus.isCompleted,
-      setupStatus,
-      adminAccountRequired
-    }),
-    signIn: evaluate(signInCondition, {
-      checkingAuth: false,
-      authMode: 'unauthenticated',
-      authenticationEnabled,
-      adminAccountRequired
-    }),
+    wizard,
+    signIn,
+    // The screen actually drawn, which is the earlier branch whenever both conditions hold.
+    screen: inSourceOrder.find(([, matches]) => matches)?.[0] ?? 'app',
     step: entryStep,
     // Null both when the switch has no arm for the step and when its arm returns null.
     stepComponent: componentByStep.get(entryStep) ?? null
   };
 };
 
-test('a fresh installation still signs in first and still starts the wizard at database setup', () => {
+test('a fresh installation creates its first account before it is asked to sign in', () => {
   const fresh = install({
     isCompleted: false,
     hasProcessedLogs: false,
@@ -180,11 +211,16 @@ test('a fresh installation still signs in first and still starts the wizard at d
 
   const screens = screensFor(fresh, true);
 
-  assert.equal(screens.adminAccountRequired, false);
-  assert.equal(screens.signIn, true);
+  // Nothing exists to sign in with here either: the account table is empty, so every username and
+  // password is refused and the operator has no way to create the account the form is asking for.
+  // The wizard has to come first, and it hands the operator back to the sign-in screen once the
+  // account is made.
+  assert.equal(screens.adminAccountRequired, true);
+  assert.equal(screens.signIn, false);
   assert.equal(screens.wizard, true);
-  assert.equal(screens.step, 'database-setup');
-  assert.equal(screens.stepComponent, 'DatabaseSetupStep');
+  assert.equal(screens.screen, 'wizard');
+  assert.equal(screens.step, 'admin-account');
+  assert.equal(screens.stepComponent, 'AdminAccountStep');
 });
 
 test('an upgraded installation with no account opens the wizard at the account step', () => {
@@ -195,10 +231,49 @@ test('an upgraded installation with no account opens the wizard at the account s
   assert.equal(screens.adminAccountRequired, true);
   assert.equal(screens.wizard, true);
   assert.equal(screens.signIn, false);
+  assert.equal(screens.screen, 'wizard');
   assert.equal(screens.step, 'admin-account');
   // Selecting the step is not the same as drawing it: without this arm the operator gets the wizard
   // chrome around an empty body.
   assert.equal(screens.stepComponent, 'AdminAccountStep');
+});
+
+test('an installation waiting for its database credentials opens the wizard at the database step', () => {
+  // External Postgres started before the connection details were supplied. The server cannot read
+  // the accounts table, so it reports the account state as unknown rather than as empty. Signing in
+  // is impossible for the same reason the table cannot be read, so the sign-in screen is a dead end
+  // and the wizard is the only screen that can take the credentials.
+  const awaitingCredentials = install({
+    isCompleted: false,
+    hasProcessedLogs: false,
+    needsPostgresCredentials: true,
+    accountExists: null,
+    mode: 'external'
+  });
+
+  const screens = screensFor(awaitingCredentials, true);
+
+  assert.equal(screens.adminAccountRequired, true);
+  assert.equal(screens.signIn, false);
+  assert.equal(screens.screen, 'wizard');
+  // The account row is stored in the database this step is about to configure, so the account step
+  // has to wait for it.
+  assert.equal(screens.step, 'external-db-form');
+  assert.equal(screens.stepComponent, 'ExternalDatabaseSetupStep');
+});
+
+test('an installation whose database password was deleted still signs in first', () => {
+  // The documented way to recover a forgotten embedded password is to delete the credentials file
+  // and restart. The embedded server stays reachable, so the account state is known and sign-in
+  // still works, and signing in is what carries a session into the database step. Sending this
+  // installation to the wizard instead would land it on a step it cannot submit.
+  const passwordForgotten = install({ needsPostgresCredentials: true });
+
+  const screens = screensFor(passwordForgotten, true);
+
+  assert.equal(screens.adminAccountRequired, false);
+  assert.equal(screens.signIn, true);
+  assert.equal(screens.screen, 'sign-in');
 });
 
 test('an installation running without authentication is left alone', () => {
@@ -219,11 +294,14 @@ test('an installation that already has an account is left alone', () => {
 });
 
 test('an unreadable account table leaves the installation on the sign-in screen', () => {
+  // The database went away but its connection details are still on disk, so the answer can arrive
+  // on its own. This installation belongs on sign-in and stays there.
   const screens = screensFor(install({ accountExists: null }), true);
 
   assert.equal(screens.adminAccountRequired, false);
   assert.equal(screens.wizard, false);
   assert.equal(screens.signIn, true);
+  assert.equal(screens.screen, 'sign-in');
 });
 
 test('a completed installation still reopens the wizard for missing database credentials', () => {

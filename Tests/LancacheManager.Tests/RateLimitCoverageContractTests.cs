@@ -22,7 +22,7 @@ public sealed class RateLimitCoverageContractTests
     /// <summary>
     /// Every route that checks a secret, or that any caller can reach without holding one, together
     /// with the limiter policy it runs on. This is the list the coverage rule is written against:
-    /// a route added to the application that belongs here and is missing fails the test below. [9d]
+    /// a route added to the application that belongs here and is missing fails the test below.
     /// </summary>
     private static readonly Dictionary<string, string> ThrottledActions = new(StringComparer.Ordinal)
     {
@@ -35,8 +35,8 @@ public sealed class RateLimitCoverageContractTests
         ["SteamAuthController.Login"] = "steam-auth",
         ["AccountSetupController.CreateFirstAdmin"] = "auth",
         ["AccountSetupController.RecoverMainAdminPassword"] = "auth",
-        ["AccountsController.CreateAccount"] = "auth",
-        ["AccountsController.EditAccount"] = "auth"
+        ["AccountsController.CreateAccount"] = "accounts",
+        ["AccountsController.EditAccount"] = "accounts"
     };
 
     /// <summary>
@@ -51,7 +51,7 @@ public sealed class RateLimitCoverageContractTests
     /// <summary>
     /// Five wrong keys from one address must not stop a different address signing in. A window with
     /// no partition key is one bucket for the whole installation, so any caller can hold the login
-    /// endpoint shut for everybody else. [3]
+    /// endpoint shut for everybody else.
     /// </summary>
     [Fact]
     public async Task OneAddressFailingLoginDoesNotThrottleAnother()
@@ -84,7 +84,7 @@ public sealed class RateLimitCoverageContractTests
 
     /// <summary>
     /// Each guest session writes a session row and up to five prefill grants, so the endpoint is a
-    /// row-insertion primitive for anyone who can reach the port. [6]
+    /// row-insertion primitive for anyone who can reach the port.
     /// </summary>
     [Fact]
     public async Task GuestSessionsAreThrottledPerCallerAddress()
@@ -111,7 +111,7 @@ public sealed class RateLimitCoverageContractTests
     /// <summary>
     /// The wizard is the only screen an unfinished installation serves and a guest cannot complete
     /// it, so a guest session handed out here strands the caller in a wizard that refuses every save
-    /// and cannot be dismissed. [7]
+    /// and cannot be dismissed.
     /// </summary>
     [Fact]
     public async Task GuestSessionsAreRefusedWhileSetupIsIncomplete()
@@ -129,7 +129,7 @@ public sealed class RateLimitCoverageContractTests
     /// <summary>
     /// The key is checked on the documentation routes, which no limiter attribute covers because they
     /// are mapped outside a controller. Guessing 32 bytes of entropy is infeasible either way; what
-    /// this buys is that a flood is bounded and the failures are counted. [9b][73]
+    /// this buys is that a flood is bounded and the failures are counted.
     /// </summary>
     [Fact]
     public async Task InvalidApiKeysAreThrottledPerCallerAddress()
@@ -159,7 +159,7 @@ public sealed class RateLimitCoverageContractTests
     /// <summary>
     /// Creating the first account is anonymous and takes the API key, and the claim window it sits
     /// behind is measured in minutes. Without a limiter one address can spend that whole window
-    /// guessing, so the window is not on its own the defence. [43c]
+    /// guessing, so the window is not on its own the defence.
     /// </summary>
     [Fact]
     public async Task FirstAdminCreationIsThrottledPerCallerAddress()
@@ -189,9 +189,48 @@ public sealed class RateLimitCoverageContractTests
     }
 
     /// <summary>
+    /// The account writes have a budget of their own. Every window is partitioned on the caller
+    /// address and nothing else, so while these two sat on the sign-in policy an administrator adding
+    /// half a dozen accounts inside a minute spent the sign-in permits for that address, and the next
+    /// sign-in from that machine was refused for the rest of the minute.
+    /// </summary>
+    [Fact]
+    public async Task AccountWritesDoNotSpendTheSignInBudget()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var client = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(client);
+
+        const string account = """{"username":"minted","password":"Correct-Horse-9","role":"user"}""";
+
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var written = await SendAsync(
+                host.Application.Server, "10.0.7.1", "POST", "/api/accounts", body: account);
+
+            Assert.NotEqual(StatusCodes.Status429TooManyRequests, written);
+        }
+
+        // The eleventh is refused, so the writes moved onto a second budget rather than off a limiter.
+        var throttled = await SendAsync(
+            host.Application.Server, "10.0.7.1", "POST", "/api/accounts", body: account);
+
+        var signIn = await SendAsync(
+            host.Application.Server,
+            "10.0.7.1",
+            "POST",
+            "/api/auth/login",
+            body: """{"apiKey":"not-the-key"}""");
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, throttled);
+        Assert.Equal(StatusCodes.Status401Unauthorized, signIn);
+    }
+
+    /// <summary>
     /// A refused request answers with the same JSON shape as every other refusal in this API. The
     /// limiter writes no body on its own, so a caller that reads the response as JSON reads a parse
-    /// failure where the reason should be. [87]
+    /// failure where the reason should be.
     /// </summary>
     [Fact]
     public async Task ThrottledRequestsAnswerWithAJsonBody()
@@ -228,7 +267,7 @@ public sealed class RateLimitCoverageContractTests
     /// <summary>
     /// The body is written once on the limiter options rather than on a policy, so the steam-auth
     /// policy answers exactly as the auth policy does and a policy added later inherits it without
-    /// anyone remembering to wire it up. [87b]
+    /// anyone remembering to wire it up.
     /// </summary>
     [Fact]
     public async Task EveryLimiterPolicyAnswersWithTheSameBody()
@@ -257,7 +296,7 @@ public sealed class RateLimitCoverageContractTests
     /// <summary>
     /// The writer sits on the limiter options rather than on a policy, and a limiter that reports no
     /// retry time leaves the header off instead of sending a guess the caller would wait on. Both
-    /// fixed windows registered today report one, so this is the only way to reach that path. [87]
+    /// fixed windows registered today report one, so this is the only way to reach that path.
     /// </summary>
     [Fact]
     public async Task ARefusalWithNoRetryTimeSendsNoRetryAfterHeader()
@@ -309,7 +348,7 @@ public sealed class RateLimitCoverageContractTests
     /// <summary>
     /// The coverage rule, as one test rather than one check per route: a route that takes a password
     /// or that any caller can reach without a session has to sit behind a per-address limiter, and
-    /// the routes already there have to stay there. [9d]
+    /// the routes already there have to stay there.
     /// </summary>
     [Fact]
     public async Task EveryRouteThatTakesASecretIsThrottled()

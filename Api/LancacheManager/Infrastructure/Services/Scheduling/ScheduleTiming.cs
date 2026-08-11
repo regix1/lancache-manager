@@ -179,7 +179,7 @@ public static class ScheduleTiming
 
     /// <summary>
     /// The zone this machine knows by that id, or null when it knows none. Shared with the reader that
-    /// names the server's own zone so a zone id means resolvable in exactly one place. [11]
+    /// names the server's own zone so a zone id means resolvable in exactly one place.
     /// </summary>
     public static TimeZoneInfo? ResolveTimeZone(string timeZoneId)
     {

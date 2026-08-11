@@ -1,24 +1,32 @@
 interface AdminAccountState {
-  /** Whether first-run setup has already finished on this installation. */
-  setupCompleted: boolean;
   /** The Security:EnableAuthentication flag as reported by the auth status route. */
   authenticationEnabled: boolean;
   /** Whether any account exists. Null when the server could not read the account table. */
   accountExists: boolean | null;
+  /** Whether the database connection details still have to be supplied through the wizard. */
+  needsPostgresCredentials: boolean;
 }
 
 /**
- * True when an installation that already finished setup has to be sent back into the wizard to
- * create its first account.
+ * True when an installation has to be sent into the wizard before it can be signed in to.
  *
- * Installations that ran before accounts existed have no account row and every session they had was
- * revoked on the upgrade, so the sign-in screen has nothing to sign in with and no way to reach
- * account creation. The answer is never derived from the setup-completion flag alone: an
- * installation running with authentication switched off is legitimately account-less and must be
- * left where it is, but the day its operator switches authentication on it needs account creation
- * for the same reason. An unknown account state is treated as "not now", which keeps a server that
- * cannot read its database on the behaviour it has today. [37b]
+ * A brand-new installation and one that has been running since before accounts existed both arrive
+ * here with no account row, and neither of them has anything to sign in with, so both need the
+ * wizard's account step. Whether setup has finished is deliberately not part of the answer: reading
+ * it would send a fresh installation to a sign-in form it cannot fill in. An installation running
+ * with authentication switched off is legitimately account-less and must be left where it is, but
+ * the day its operator switches authentication on it needs account creation for the same reason.
+ *
+ * An unknown account state usually means "not now", because the sign-in screen is where an
+ * installation whose database went away belongs: it kept its credentials, so the answer can still
+ * arrive. The exception is an installation whose credentials have not been supplied yet, which is
+ * the one state where signing in can never resolve the unknown, because there is no database to
+ * hold the account and no screen but the wizard that can point one out.
  */
 export function isAdminAccountRequired(state: AdminAccountState): boolean {
-  return state.setupCompleted && state.authenticationEnabled && state.accountExists === false;
+  return (
+    state.authenticationEnabled &&
+    (state.accountExists === false ||
+      (state.accountExists === null && state.needsPostgresCredentials))
+  );
 }

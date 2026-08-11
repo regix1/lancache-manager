@@ -8,11 +8,16 @@ namespace LancacheManager.Security;
 /// with no accounts still has live sessions in UserSessions, and their cookies keep working; the
 /// people holding them would carry on as administrators while the installation is waiting for its
 /// first account to be created. Nothing is deleted besides the sessions, because an installation
-/// with no accounts has nothing else to remove. [37]
+/// with no accounts has nothing else to remove.
 ///
 /// The condition is the account count alone, so it keeps holding rather than firing once: while no
 /// account exists the installation is unclaimed, and no session should outlive a restart into that
 /// state. The first account makes it a no-op from then on.
+///
+/// An installation running with Security:EnableAuthentication=false is left alone entirely. It is
+/// account-less by design and stays that way, so the count would never rise and this would clear its
+/// sessions on every start. The display preferences hang off the session row and cascade with it, so
+/// that would reset the theme, the clock and the refresh rate every time the container restarts.
 /// </summary>
 public class FirstAdminSessionResetService : IHostedService
 {
@@ -32,16 +37,23 @@ public class FirstAdminSessionResetService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        // SessionService is scoped, and this runs before any request has created a scope of its own.
+        // Program.cs:1109 resolves it the same way for the same reason.
+        using var scope = _scopeFactory.CreateScope();
+        var sessionService = scope.ServiceProvider.GetRequiredService<SessionService>();
+
+        if (!sessionService.IsAuthenticationEnabled())
+        {
+            return;
+        }
+
         await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         if (await context.UserAccounts.AnyAsync(cancellationToken))
         {
             return;
         }
 
-        // SessionService is scoped, and this runs before any request has created a scope of its own.
-        // Program.cs:1109 resolves it the same way for the same reason.
-        using var scope = _scopeFactory.CreateScope();
-        var cleared = await scope.ServiceProvider.GetRequiredService<SessionService>().ClearAllSessionsAsync();
+        var cleared = await sessionService.ClearAllSessionsAsync();
 
         if (cleared > 0)
         {

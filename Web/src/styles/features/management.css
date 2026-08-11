@@ -372,3 +372,18 @@
   font-size: var(--font-size-xs);
   color: var(--theme-text-muted);
 }
+
+/* The rotated API key, on the one screen that ever shows it. Compounds .well-surface for the
+   recessed panel and changes only what a secret meant to be read off the screen needs: `code` is
+   inline by default, so block is what gives it the padded box, and a key has no spaces to break at,
+   so a narrow dialog would otherwise push it straight out of that box. A single click selects the
+   whole key, because copying it by hand is the fallback when the clipboard is refused. */
+.rotated-api-key {
+  display: block;
+  padding: 0.75rem;
+  color: var(--theme-text-primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-md);
+  overflow-wrap: anywhere;
+  user-select: all;
+}

@@ -22,6 +22,8 @@
     "test:account-holder-access": "node --test scripts/test-account-holder-access.mjs",
     "test:server-stage-keys": "node --test scripts/test-server-stage-keys.mjs",
     "test:antiforgery-header": "node --test scripts/test-antiforgery-header.mjs",
+    "test:guest-sign-in-settings": "node --test scripts/test-guest-sign-in-settings.mjs",
+    "test:revoked-session": "node --test scripts/test-revoked-session.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "knip": "knip",
     "knip:fix": "knip --fix --fix-type exports,types --format",

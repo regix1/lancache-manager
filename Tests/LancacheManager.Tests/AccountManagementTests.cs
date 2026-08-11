@@ -1,5 +1,6 @@
+using System.Reflection;
 using LancacheManager.Controllers;
-using LancacheManager.Infrastructure.Data;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
@@ -19,7 +20,7 @@ namespace LancacheManager.Tests;
 /// Every caller below is built by seeding an account row with the role under test and a session that
 /// names it, rather than by taking an administrator's session and flipping the session row: the
 /// checks read the account row, so a caller whose row says something other than its session does
-/// would prove nothing about either. [63][64][65][66][66b][66c][66d][29b]
+/// would prove nothing about either.
 /// </summary>
 public sealed class AccountManagementTests : IDisposable
 {
@@ -36,7 +37,6 @@ public sealed class AccountManagementTests : IDisposable
 
     /// <summary>
     /// The list a user is answered carries the accounts that are not administrators and nothing else.
-    /// [63]
     /// </summary>
     [Fact]
     public async Task AUserIsAnsweredTheAccountListWithoutTheAdministrators()
@@ -57,7 +57,7 @@ public sealed class AccountManagementTests : IDisposable
 
     /// <summary>
     /// An administrator is answered everybody, the other administrators and the account that owns the
-    /// installation included. [66]
+    /// installation included.
     /// </summary>
     [Fact]
     public async Task AnAdministratorIsAnsweredEveryAccount()
@@ -79,7 +79,7 @@ public sealed class AccountManagementTests : IDisposable
     /// <summary>
     /// Every verb, not only the list. An account a user is not shown is also an account a user cannot
     /// name: leaving read, edit, disable, delete and set-role answering an id the list withholds would
-    /// make the withholding a display choice rather than a permission. [64]
+    /// make the withholding a display choice rather than a permission.
     /// </summary>
     [Fact]
     public async Task AUserCannotReachAnAdministratorAccountByItsId()
@@ -124,7 +124,7 @@ public sealed class AccountManagementTests : IDisposable
     /// exactly as it was afterwards.
     ///
     /// Closing delete on its own is worth nothing while demoting is open, and closing both is worth
-    /// nothing while the account can be disabled, so the three are one rule. [65]
+    /// nothing while the account can be disabled, so the three are one rule.
     /// </summary>
     [Fact]
     public async Task TheMainAdministratorCannotBeDeletedDisabledOrDemotedByAnybody()
@@ -173,11 +173,11 @@ public sealed class AccountManagementTests : IDisposable
     ///
     /// Promoting yourself runs through the same check as promoting anybody else, so it is attempted
     /// here rather than assumed: a rule that reads the caller's row needs no exception for the caller
-    /// being the target, and writing one is how self-promotion gets left open. [66b]
+    /// being the target, and writing one is how self-promotion gets left open.
     ///
     /// The owner's own promotion is the one attempt of the nine that is refused, because the account
     /// that owns the installation is refused every set-role, which is what stops it being demoted.
-    /// It already holds the role it is asking for. [65]
+    /// It already holds the role it is asking for.
     /// </summary>
     [Fact]
     public async Task OnlyTheMainAdministratorHandsOutTheAdministratorRole()
@@ -228,7 +228,7 @@ public sealed class AccountManagementTests : IDisposable
     /// The caller below carries an administrator session - the same session type and the same claim
     /// the account that owns the installation carries - and is refused, because the check reads the
     /// stored row and that row is not the main administrator's. A check written against the claim
-    /// would admit every administrator and the rule would mean nothing. [66c]
+    /// would admit every administrator and the rule would mean nothing.
     /// </summary>
     [Fact]
     public async Task TheAdministratorRoleCheckReadsTheCallersAccountRowRatherThanItsClaim()
@@ -251,7 +251,7 @@ public sealed class AccountManagementTests : IDisposable
     /// With authentication turned off there is no access control for this rule to contradict, so the
     /// shared session every anonymous caller runs on creates administrators. It has no account row,
     /// which is the state this whole file has to keep working for, and the account that owns the
-    /// installation is still protected from it. [66d][27d]
+    /// installation is still protected from it.
     /// </summary>
     [Fact]
     public async Task WithAuthenticationDisabledACallerWithNoAccountCreatesAdministrators()
@@ -275,7 +275,7 @@ public sealed class AccountManagementTests : IDisposable
             StatusOf(await controller.SetRoleAsync(owner.Id, new SetAccountRoleRequest { Role = SessionType.User })));
 
         // The caller proved nothing but the configuration: it has no account, so the actor half of the
-        // row is empty rather than the write throwing. [29c]
+        // row is empty rather than the write throwing.
         await using var context = database.Factory.CreateDbContext();
         var entry = await context.IdentityAuditEntries.SingleAsync();
         Assert.Equal(IdentityAuditEvent.AccountCreated, entry.Event);
@@ -287,7 +287,7 @@ public sealed class AccountManagementTests : IDisposable
     /// With authentication on, a caller holding only the API key still has no account row, and the
     /// role check answers that state from the setting rather than from a missing row: it manages
     /// accounts, and the way it reaches a first administrator is the create-first-admin endpoint
-    /// rather than a standing right to mint more here. [66d]
+    /// rather than a standing right to mint more here.
     /// </summary>
     [Fact]
     public async Task WithAuthenticationEnabledACallerWithNoAccountCannotCreateAnAdministrator()
@@ -308,8 +308,8 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// The five events this controller produces, which are the five criterion 29b was still waiting
-    /// on. Each one names the account it was done to and the caller that did it. [29b]
+    /// The five events this controller produces. Each one names the account it was done to and the
+    /// caller that did it.
     /// </summary>
     [Fact]
     public async Task TheFiveAccountEventsAreRecordedAgainstTheCallerAndTheTarget()
@@ -359,8 +359,138 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
+    /// Delete, disable and set-role, tried by an administrator on its own account. All three end the
+    /// caller's own sessions and none of them can be put back by the person who did it: re-creating
+    /// an account and granting the admin role both belong to the account that owns the installation.
+    ///
+    /// The same three verbs on somebody else's row are attempted afterwards, because a guard that
+    /// refused everybody would pass the first half of this test on its own.
+    /// </summary>
+    [Fact]
+    public async Task AnAccountCannotBeDeletedDisabledOrDemotedByItself()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.Admin);
+        var controller = await NewControllerAsync(database.Factory, caller);
+
+        var refusals = new (string Verb, ActionResult? Result)[]
+        {
+            ("delete", (await controller.DeleteAccountAsync(caller.Id)).Result),
+            ("disable", (await controller.SetDisabledAsync(
+                caller.Id, new SetAccountDisabledRequest { Disabled = true })).Result),
+            ("demote", (await controller.SetRoleAsync(
+                caller.Id, new SetAccountRoleRequest { Role = SessionType.User })).Result)
+        };
+
+        foreach (var (verb, result) in refusals)
+        {
+            var status = StatusOf(result);
+            Assert.True(
+                status == StatusCodes.Status403Forbidden,
+                $"An administrator was answered {status} when it tried to {verb} its own account, not 403.");
+            Assert.Equal(AccountRefusalResponse.SelfProtected, StageKeyOf(result));
+        }
+
+        var unchanged = await ReadAccountAsync(database, caller.Id);
+        Assert.Equal(SessionType.Admin, unchanged.Role);
+        Assert.False(unchanged.IsDisabled);
+
+        // Renaming and setting a password on your own account are what the three refusals must leave
+        // open: neither signs the caller out, and both are how a person maintains their own account.
+        var renamed = await controller.EditAccountAsync(
+            caller.Id, new EditAccountRequest { Username = "renamed-itself", Password = NewPassword });
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(renamed));
+        Assert.Equal("renamed-itself", (await ReadAccountAsync(database, caller.Id)).Username);
+
+        var demoted = await SeedAccountAsync(database.Factory, "third-admin", SessionType.Admin);
+        var disabled = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
+        var deleted = await SeedAccountAsync(database.Factory, "another-reader", SessionType.User);
+
+        Assert.Equal(
+            StatusCodes.Status200OK,
+            StatusOf(await controller.SetRoleAsync(demoted.Id, new SetAccountRoleRequest { Role = SessionType.User })));
+        Assert.Equal(
+            StatusCodes.Status200OK,
+            StatusOf(await controller.SetDisabledAsync(disabled.Id, new SetAccountDisabledRequest { Disabled = true })));
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(await controller.DeleteAccountAsync(deleted.Id)));
+    }
+
+    /// <summary>
+    /// An administrator replacing somebody else's password can sign in as that account afterwards, so
+    /// the row that says who did it is the only thing that answers "who could have been signed in as
+    /// this account". The actor and the target are different accounts, which is what separates this
+    /// from a person changing their own password.
+    /// </summary>
+    [Fact]
+    public async Task ReplacingAnotherAccountsPasswordIsRecordedAgainstTheAdministratorWhoDidIt()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var target = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
+        var session = await SeedSessionAsync(database.Factory, owner);
+        var controller = NewController(database.Factory, session);
+
+        // A rename on its own leaves the password alone, so it writes no row and the single entry
+        // read below is the one the password produced.
+        Assert.Equal(
+            StatusCodes.Status200OK,
+            StatusOf(await controller.EditAccountAsync(target.Id, new EditAccountRequest { Username = "renamed" })));
+
+        Assert.Equal(
+            StatusCodes.Status200OK,
+            StatusOf(await controller.EditAccountAsync(
+                target.Id, new EditAccountRequest { Username = "renamed", Password = NewPassword })));
+
+        await using var context = database.Factory.CreateDbContext();
+        var entry = await context.IdentityAuditEntries.SingleAsync();
+
+        Assert.Equal(IdentityAuditEvent.PasswordChanged, entry.Event);
+        Assert.Equal(owner.Id, entry.PerformedByAccountId);
+        Assert.Equal(session.Id, entry.PerformedBySessionId);
+        Assert.Equal(target.Id, entry.TargetAccountId);
+    }
+
+    /// <summary>
+    /// The other half of the same event. A person changing their own password is the actor and the
+    /// target, so the trail tells the two apart by comparing the two columns rather than by carrying
+    /// a second event.
+    /// </summary>
+    [Fact]
+    public async Task ChangingYourOwnPasswordIsRecordedAgainstTheAccountItself()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var account = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
+        var session = await SeedSessionAsync(database.Factory, account);
+
+        var configuration = NewConfiguration(authenticationEnabled: true);
+        var controller = NewAuthController(
+            database.Factory,
+            session,
+            new ApiKeyService(NullLogger<ApiKeyService>.Instance, configuration, pathResolver: null!),
+            new AccountLockout(NullLogger<AccountLockout>.Instance),
+            configuration);
+
+        var changed = await controller.ChangePasswordAsync(new ChangePasswordRequest
+        {
+            CurrentPassword = SeedPassword,
+            NewPassword = NewPassword
+        });
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(changed));
+
+        await using var context = database.Factory.CreateDbContext();
+        var entry = await context.IdentityAuditEntries.SingleAsync();
+
+        Assert.Equal(IdentityAuditEvent.PasswordChanged, entry.Event);
+        Assert.Equal(account.Id, entry.PerformedByAccountId);
+        Assert.Equal(session.Id, entry.PerformedBySessionId);
+        Assert.Equal(account.Id, entry.TargetAccountId);
+    }
+
+    /// <summary>
     /// An audit trail that can undo the change it is recording turns a logging fault into an account
-    /// that half exists. The account is created whether or not the row lands. [29d]
+    /// that half exists. The account is created whether or not the row lands.
     /// </summary>
     [Fact]
     public async Task AFailedAuditWriteStillLeavesTheAccountCreated()
@@ -386,7 +516,7 @@ public sealed class AccountManagementTests : IDisposable
     /// <summary>
     /// A session carries its own copy of the role and does not expire while it belongs to an account
     /// holder, so a change that leaves the sessions alone leaves the person with what they had until
-    /// they sign out. Changing the role, disabling the account and deleting it all end them. [28]
+    /// they sign out. Changing the role, disabling the account and deleting it all end them.
     /// </summary>
     [Fact]
     public async Task ChangingTheRoleDisablingAndDeletingAllEndTheAccountsSessions()
@@ -427,7 +557,7 @@ public sealed class AccountManagementTests : IDisposable
     /// <summary>
     /// The rules an account's credentials pass at setup are the rules they pass here, so a password
     /// that could not have been chosen for the first account cannot be arrived at by creating a
-    /// second one. Renaming without sending a password does not have to restate one. [26]
+    /// second one. Renaming without sending a password does not have to restate one.
     /// </summary>
     [Fact]
     public async Task CreatingAndEditingAnAccountRunTheStoredCredentialRules()
@@ -458,6 +588,51 @@ public sealed class AccountManagementTests : IDisposable
         Assert.Equal(owner.Id, (await ReadAccountAsync(database, owner.Id)).Id);
     }
 
+    /// <summary>
+    /// Somebody who locked themselves out is the reason an administrator sets a password for them, so
+    /// the count of failures has to go with the password that produced them. The lock and the password
+    /// are separate terms in the sign-in refusal, and both refusals read the same by design, so leaving
+    /// the count standing sends the person back to what looks like a wrong password.
+    /// </summary>
+    [Fact]
+    public async Task SettingAnAccountsPasswordLetsALockedOutAccountSignInAgain()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var target = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
+
+        var lockout = new AccountLockout(NullLogger<AccountLockout>.Instance);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            lockout.RecordFailure(target.Id);
+        }
+
+        Assert.True(lockout.IsLocked(target.Id));
+
+        var controller = NewController(
+            database.Factory,
+            await SeedSessionAsync(database.Factory, owner),
+            lockout: lockout);
+
+        var edited = await controller.EditAccountAsync(
+            target.Id,
+            new EditAccountRequest { Username = "reader", Password = NewPassword });
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(edited));
+
+        var configuration = NewConfiguration(authenticationEnabled: true);
+        var apiKeyService = new ApiKeyService(NullLogger<ApiKeyService>.Instance, configuration, pathResolver: null!);
+        var signIn = NewAuthController(database.Factory, caller: null, apiKeyService, lockout, configuration);
+
+        var signedIn = await signIn.LoginAsync(new LoginRequest
+        {
+            Username = "reader",
+            Password = NewPassword,
+            ApiKey = apiKeyService.GetApiKey()
+        });
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(signedIn));
+    }
+
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
     private async Task<AccountsController> NewControllerAsync(TestDbContextFactory factory, UserAccount caller)
@@ -469,7 +644,8 @@ public sealed class AccountManagementTests : IDisposable
         TestDbContextFactory factory,
         UserSession caller,
         bool authenticationEnabled = true,
-        IdentityAuditService? auditService = null)
+        IdentityAuditService? auditService = null,
+        AccountLockout? lockout = null)
     {
         var configuration = NewConfiguration(authenticationEnabled);
         var controller = new AccountsController(
@@ -483,7 +659,44 @@ public sealed class AccountManagementTests : IDisposable
                 signalR: null!,
                 configuration),
             auditService ?? new IdentityAuditService(factory, NullLogger<IdentityAuditService>.Instance),
+            lockout ?? new AccountLockout(NullLogger<AccountLockout>.Instance),
             NullLogger<AccountsController>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["Session"] = caller;
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+        return controller;
+    }
+
+    /// <summary>
+    /// The sign-in controller, built by hand for the same reason the account controller above is: the
+    /// two account rules these tests cross into, a lock cleared with a password and the row a password
+    /// change writes, are only observable through it. <paramref name="caller"/> is null for the sign-in
+    /// path, which reaches the controller with no session yet.
+    /// </summary>
+    private static AuthController NewAuthController(
+        TestDbContextFactory factory,
+        UserSession? caller,
+        ApiKeyService apiKeyService,
+        AccountLockout lockout,
+        IConfiguration configuration)
+    {
+        var controller = new AuthController(
+            new SessionService(
+                factory,
+                apiKeyService,
+                NullLogger<SessionService>.Instance,
+                stateService: null!,
+                signalR: DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                configuration),
+            NullLogger<AuthController>.Instance,
+            factory,
+            stateService: null!,
+            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            apiKeyService,
+            new PasswordHasher<UserAccount>(),
+            lockout,
+            new IdentityAuditService(factory, NullLogger<IdentityAuditService>.Instance));
 
         var httpContext = new DefaultHttpContext();
         httpContext.Items["Session"] = caller;

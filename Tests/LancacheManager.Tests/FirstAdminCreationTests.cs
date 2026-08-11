@@ -17,7 +17,7 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// Creating the account that owns the installation, and the two things that stop anyone else doing
-/// it first: the API key and the window the application opens at startup. [32][33][34][35][37][37d]
+/// it first: the API key and the window the application opens at startup.
 /// </summary>
 public sealed class FirstAdminCreationTests : IDisposable
 {
@@ -37,7 +37,7 @@ public sealed class FirstAdminCreationTests : IDisposable
 
     /// <summary>
     /// The account that owns the installation: the admin role and the main-admin flag, and a password
-    /// that verifies against what was submitted. [32]
+    /// that verifies against what was submitted.
     /// </summary>
     [Fact]
     public async Task CreateSucceedsWithTheKeyWhileTheWindowIsOpen()
@@ -62,7 +62,7 @@ public sealed class FirstAdminCreationTests : IDisposable
     /// <summary>
     /// An installation that already has somebody in it is not claimable, and saying so is a refusal
     /// rather than a stack trace: the second person through this endpoint is a normal event on a
-    /// shared network, not a fault. [33]
+    /// shared network, not a fault.
     /// </summary>
     [Fact]
     public async Task CreateIsRefusedOnceAnAccountExists()
@@ -83,7 +83,7 @@ public sealed class FirstAdminCreationTests : IDisposable
     /// <summary>
     /// The other way this installation turns out to be owned: the count found nothing and the insert
     /// found the row anyway. Same refusal as the count's, so it says the same thing rather than
-    /// leaving the operator to work out why one 409 reads differently from the other. [88]
+    /// leaving the operator to work out why one 409 reads differently from the other.
     ///
     /// Seeding from inside the save is what makes the order certain. Two live requests reach this
     /// handler by racing, which is why TwoSimultaneousCreatesLeaveExactlyOneAccount asserts the
@@ -119,7 +119,7 @@ public sealed class FirstAdminCreationTests : IDisposable
 
     /// <summary>
     /// A forgotten instance left running on a network stops being claimable, and the way back is a
-    /// restart, which is what the log line at startup tells the operator. [34]
+    /// restart, which is what the log line at startup tells the operator.
     /// </summary>
     [Fact]
     public async Task CreateIsRefusedOnceTheWindowHasClosed()
@@ -140,7 +140,7 @@ public sealed class FirstAdminCreationTests : IDisposable
 
     /// <summary>
     /// The other half of the window: a restart builds a new one, and it is open. The instance is what
-    /// holds the deadline, so this is the same thing the host does on the next start. [34]
+    /// holds the deadline, so this is the same thing the host does on the next start.
     /// </summary>
     [Fact]
     public async Task ARestartReopensTheWindow()
@@ -159,7 +159,7 @@ public sealed class FirstAdminCreationTests : IDisposable
 
     /// <summary>
     /// The window is the second lock, never the only one. Both an absent key and a wrong one are
-    /// refused, and are refused identically. [35]
+    /// refused, and are refused identically.
     /// </summary>
     [Theory]
     [InlineData("")]
@@ -206,7 +206,7 @@ public sealed class FirstAdminCreationTests : IDisposable
     /// UserAccountConstraintTests.SecondMainAdmin_IsRefusedByTheStore is that index on its own. Which
     /// of the two refusals the loser gets, the read or the index, depends on how far it got before the
     /// winner committed; both are a clean 409, which is why this asserts the outcome rather than the
-    /// route to it. [37d]
+    /// route to it.
     ///
     /// On its own file rather than the shared in-memory database because both requests need their own
     /// connection; the in-memory helper hands every context the same one.
@@ -246,7 +246,7 @@ public sealed class FirstAdminCreationTests : IDisposable
     /// <summary>
     /// The upgrade: a database carrying sessions from a version that had no accounts. Those cookies
     /// still authenticate, so the people holding them would carry on as administrators while the
-    /// installation waits for its first account. [37]
+    /// installation waits for its first account.
     /// </summary>
     [Fact]
     public async Task StartupClearsSessionsWhileNoAccountExists()
@@ -263,7 +263,7 @@ public sealed class FirstAdminCreationTests : IDisposable
 
     /// <summary>
     /// And it stops there. Once the installation has an account, a restart must not sign everybody
-    /// out. [37]
+    /// out.
     /// </summary>
     [Fact]
     public async Task StartupLeavesSessionsAloneOnceAnAccountExists()
@@ -277,6 +277,48 @@ public sealed class FirstAdminCreationTests : IDisposable
 
         await using var context = database.Factory.CreateDbContext();
         Assert.Single(context.UserSessions);
+    }
+
+    /// <summary>
+    /// And an installation running with authentication off is left alone. It never creates an account,
+    /// so the account count on its own would clear its sessions on every start, and the preferences
+    /// cascade off the session row (AppDbContext.cs:298-303) - the theme, the clock and the refresh
+    /// rate would go back to their defaults every restart.
+    /// </summary>
+    [Fact]
+    public async Task StartupLeavesSessionsAloneWhileAuthenticationIsDisabled()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var sessionId = Guid.NewGuid();
+        await using (var seedContext = database.Factory.CreateDbContext())
+        {
+            seedContext.UserSessions.Add(new UserSession
+            {
+                Id = sessionId,
+                SessionTokenHash = "hash",
+                SessionType = SessionType.Admin,
+                CreatedAtUtc = DateTime.UtcNow,
+                ExpiresAtUtc = DateTime.UtcNow.AddDays(1),
+                LastSeenAtUtc = DateTime.UtcNow
+            });
+            seedContext.UserPreferences.Add(new UserPreferences
+            {
+                SessionId = sessionId,
+                SelectedTheme = "midnight",
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await seedContext.SaveChangesAsync();
+        }
+
+        var sessionService = NewSessionService(
+            database.Factory,
+            NewConfiguration(authenticationEnabled: false));
+
+        await NewSessionResetService(database.Factory, sessionService).StartAsync(CancellationToken.None);
+
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Equal(sessionId, Assert.Single(context.UserSessions).Id);
+        Assert.Equal("midnight", Assert.Single(context.UserPreferences).SelectedTheme);
     }
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
@@ -320,14 +362,16 @@ public sealed class FirstAdminCreationTests : IDisposable
             new IdentityAuditService(dbContextFactory, NullLogger<IdentityAuditService>.Instance),
             NullLogger<AccountSetupController>.Instance);
 
-    private SessionService NewSessionService(IDbContextFactory<AppDbContext> dbContextFactory) =>
+    private SessionService NewSessionService(
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        IConfiguration? configuration = null) =>
         new(
             dbContextFactory,
             _apiKeyService,
             NullLogger<SessionService>.Instance,
             stateService: null!,
             signalR: null!,
-            _configuration);
+            configuration ?? _configuration);
 
     private static FirstAdminSessionResetService NewSessionResetService(
         IDbContextFactory<AppDbContext> dbContextFactory,

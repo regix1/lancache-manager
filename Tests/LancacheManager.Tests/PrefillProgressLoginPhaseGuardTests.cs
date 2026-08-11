@@ -36,7 +36,7 @@ namespace LancacheManager.Tests;
 public class PrefillProgressLoginPhaseGuardTests
 {
     /// <summary>
-    /// Reproducing test (acceptance criterion 1): a daemon error/failed/cancelled progress push arriving
+    /// Reproducing test: a daemon error/failed/cancelled progress push arriving
     /// while the session has never started prefilling must NOT transition it to a terminal state.
     /// </summary>
     [Theory]
@@ -74,7 +74,7 @@ public class PrefillProgressLoginPhaseGuardTests
     }
 
     /// <summary>
-    /// Companion regression test (acceptance criterion 2): the SAME error progress arriving while the
+    /// Companion regression test: the SAME error progress arriving while the
     /// session genuinely IS prefilling must still produce exactly one terminal Failed transition,
     /// unchanged from current behavior. Passes both before and after the fix, proving the guard is
     /// additive rather than a removal of real failure handling.

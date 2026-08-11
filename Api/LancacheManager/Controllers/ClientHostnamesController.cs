@@ -66,7 +66,7 @@ public class ClientHostnamesController : ControllerBase
 
         // Clients an admin hid or excluded from stats appear on no screen, so a name for one is a
         // reverse query that buys nothing and a slot taken from a machine that is on screen. The
-        // filters are the ones both client-stats surfaces apply. [34]
+        // filters are the ones both client-stats surfaces apply.
         var statsExcludedOnlyIps = _stateService.GetStatsExcludedOnlyClientIps();
         var query = _context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(_stateService.GetHiddenClientIps())

@@ -129,7 +129,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
 
         // Keep the ref and loaded marker in step with the state write. A SignalR callback can run after
         // this function returns but before React commits the update; it must see the settled preferences
-        // rather than conclude that the event arrived before the load. [4]
+        // rather than conclude that the event arrived before the load.
         const updated = { ...preferencesRef.current, [sessionId]: settledPrefs };
         preferencesRef.current = updated;
         setPreferences(updated);
@@ -307,7 +307,6 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
    * Write one or more of the current session's preferences in a single update. The clock is three
    * columns that only mean something together, so it is written through here rather than as three
    * calls: three calls put a render's worth of "UTC on, 12-hour face" between the first and the last.
-   * [3]
    */
   const applyOptimisticPreferences = useCallback(
     (changes: Partial<UserPreferences>) => {
@@ -373,7 +372,6 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
    * decision about three columns rather than three decisions about one column each: a guest that
    * chose UTC itself while the default moved from server-12h to local-24h matches the old default on
    * use24HourFormat alone, and taking that field on its own would leave it on a clock nobody picked.
-   * [3][4]
    */
   const applyDefaultGuestClock = useCallback(
     (currentPrefs: UserPreferences, previousClock: ClockPreferences, clock: ClockPreferences) => {
@@ -389,7 +387,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     (data: DefaultGuestPreferencesChangedEvent) => {
       // Fold the broadcast into the shared defaults first and keep what they were: this is the only
       // subscriber that moves them, so `previous` is the snapshot every decision below needs and no
-      // other listener can have advanced it. [4]
+      // other listener can have advanced it.
       const { previous } = applyDefaultGuestPreferencesChange(data);
 
       const currentPrefs = isGuestWithLoadedPrefs();

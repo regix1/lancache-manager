@@ -589,7 +589,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// succeeded. That fetch reports neither which of the three endpoints answered nor which file name
     /// it answered with, so BOTH halves of this URL are the preferred guess rather than the truth: an
     /// image that came from the capsule_616x353.jpg pass is still recorded as header.jpg. Whatever
-    /// re-reads the stored URL has to be able to fall through when it 404s. [18]
+    /// re-reads the stored URL has to be able to fall through when it 404s.
     /// </summary>
     internal static string GetSteamHeaderImageUrl(long appId)
         => GetSteamCdnImageUrl(_steamCdnEndpoints[0].Domain, _steamCdnEndpoints[0].BasePath, appId, "header.jpg");

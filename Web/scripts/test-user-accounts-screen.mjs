@@ -12,7 +12,7 @@ import ts from 'typescript';
  * The main-admin check resolves the local name bound to `account.isMainAdmin` and then requires
  * every reference to it to sit inside a `disabled=` attribute. That is what separates the two
  * possible readings: a screen that hides the actions would reference the same flag from a JSX
- * conditional instead, and this would go red. [67][68][69]
+ * conditional instead, and this would go red.
  */
 
 const readWebSource = (relativePath) =>
@@ -208,6 +208,66 @@ test("the installation's own account keeps its row actions, disabled [69]", () =
       `${ownerName} is read outside a disabled prop, which hides an action instead of disabling it`
     );
   }
+});
+
+test('the row you are signed in as cannot delete, disable or demote itself', () => {
+  // Deleting your own account cannot be undone from the browser at all, and demoting yourself cannot
+  // be undone by you: creating an account and granting the admin role both belong to the account that
+  // owns the installation. Renaming yourself and setting your own password are ordinary, so Edit is
+  // the one item that must stay live on your own row.
+  const render = columnRender(accountsFile, 'actions');
+
+  const fromUseAuth = collect(
+    accountsFile,
+    (node) =>
+      ts.isVariableDeclaration(node) &&
+      node.initializer !== undefined &&
+      node.initializer.getText() === 'useAuth()'
+  )[0];
+  assert.ok(fromUseAuth, 'the screen never calls useAuth');
+  assert.ok(
+    fromUseAuth.name.getText().includes('accountId'),
+    'the screen does not read accountId from useAuth, so it cannot know which row is yours'
+  );
+
+  const selfDeclaration = collect(
+    render,
+    (node) =>
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined &&
+      node.initializer.getText() === 'account.id === accountId'
+  )[0];
+  assert.ok(
+    selfDeclaration,
+    'the actions column never compares the row against the account the caller is signed in as'
+  );
+  const selfName = selfDeclaration.name.text;
+
+  const items = collect(
+    render,
+    (node) =>
+      (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) &&
+      ['ActionMenuItem', 'ActionMenuDangerItem'].includes(jsxTagName(node))
+  );
+  assert.equal(items.length, 4, `expected four row actions, found ${items.length}`);
+
+  const guarded = items.filter((item) => {
+    const disabled = jsxAttribute(item, 'disabled');
+    return Boolean(disabled) && disabled.initializer.getText().includes(selfName);
+  });
+
+  assert.equal(
+    guarded.length,
+    3,
+    `expected three actions to be disabled on your own row, found ${guarded.length}`
+  );
+
+  const open = items.filter((item) => !guarded.includes(item));
+  assert.ok(
+    open[0].getText().includes("t('common.edit')"),
+    'the one action left live on your own row is not Edit'
+  );
 });
 
 test('the account screen is a third segment of the user tab [67]', () => {

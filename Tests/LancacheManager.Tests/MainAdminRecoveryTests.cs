@@ -1,6 +1,8 @@
 using System.Net;
+using System.Reflection;
 using System.Text;
 using LancacheManager.Controllers;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -18,7 +20,7 @@ namespace LancacheManager.Tests;
 /// Getting back into an installation whose main administrator forgot the password. The main
 /// administrator cannot be deleted, disabled or demoted and there is no mail server, so the API key
 /// is the only remaining proof of ownership - and a reset that could do anything beyond the password
-/// would be a way around every one of those protections. [49b][49c][49d][49e][49f][49h]
+/// would be a way around every one of those protections.
 /// </summary>
 public sealed class MainAdminRecoveryTests : IDisposable
 {
@@ -39,7 +41,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
 
     /// <summary>
     /// The whole point: the password the caller sent is the one that works afterwards, and the
-    /// forgotten one no longer does. [49b]
+    /// forgotten one no longer does.
     /// </summary>
     [Fact]
     public async Task RecoverySetsTheNewPasswordAndRetiresTheOldOne()
@@ -59,7 +61,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
     /// <summary>
     /// The key is the whole of what stands between anyone who can reach the port and the account
     /// that owns the installation, so an absent key and a wrong one are both refused, and refused
-    /// the same way. [49d]
+    /// the same way.
     /// </summary>
     [Theory]
     [InlineData("")]
@@ -81,7 +83,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
     /// <summary>
     /// The key is read from the body and nowhere else. A correct key in the X-Api-Key header with
     /// nothing in the body is refused, which is what keeps this endpoint working on the day the
-    /// header path stops authorizing ordinary routes. [49f]
+    /// header path stops authorizing ordinary routes.
     /// </summary>
     [Fact]
     public async Task RecoveryDoesNotReadTheKeyFromTheHeader()
@@ -97,7 +99,8 @@ public sealed class MainAdminRecoveryTests : IDisposable
 
         var result = await controller.RecoverMainAdminPasswordAsync(
             NewRequest("owner", apiKey: string.Empty),
-            NewSessionService(database.Factory));
+            NewSessionService(database.Factory),
+            new AccountLockout(NullLogger<AccountLockout>.Instance));
 
         Assert.Equal(StatusCodes.Status401Unauthorized, StatusOf(result));
         Assert.Equal(AccountSetupRefusalResponse.ApiKeyRequired, StageKeyOf(result));
@@ -109,7 +112,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
     /// <summary>
     /// Naming somebody else does not reset somebody else, and does not quietly reset the main
     /// administrator either. Without this the endpoint is a way to take over any account on the
-    /// installation with the API key alone. [49c]
+    /// installation with the API key alone.
     /// </summary>
     [Fact]
     public async Task RecoveryCannotTargetAnAccountThatIsNotTheMainAdmin()
@@ -129,7 +132,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
 
     /// <summary>
     /// An installation whose first account has not been created yet has nothing to recover, and the
-    /// way in is the create endpoint rather than this one. [49c]
+    /// way in is the create endpoint rather than this one.
     /// </summary>
     [Fact]
     public async Task RecoveryIsRefusedWhileTheInstallationHasNoMainAdmin()
@@ -148,7 +151,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
     /// <summary>
     /// A password and nothing else. The role and the main-administrator flag survive the reset, and
     /// so does every other account: a recovery that could clear either would be a way around the
-    /// rule that the main administrator cannot be demoted. [49c]
+    /// rule that the main administrator cannot be demoted.
     /// </summary>
     [Fact]
     public async Task RecoveryChangesNothingButThePassword()
@@ -177,7 +180,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
     /// <summary>
     /// The other half of the same guarantee, from the input side: there is no field on the request
     /// that names a role or the main-administrator flag, so no body a caller can send reaches either
-    /// column. Adding one is the change this is here to stop passing unnoticed. [49c]
+    /// column. Adding one is the change this is here to stop passing unnoticed.
     /// </summary>
     [Fact]
     public void NothingOnTheRequestCanNameARoleOrTheMainAdminFlag()
@@ -197,7 +200,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
     /// <summary>
     /// A password is recovered because somebody lost it, which is the same shape as somebody else
     /// having found it. Sessions the old password already opened are ended, so the reset actually
-    /// takes the account back rather than adding a second way in beside the intruder's. [49e]
+    /// takes the account back rather than adding a second way in beside the intruder's.
     /// </summary>
     [Fact]
     public async Task RecoveryRevokesTheMainAdminsLiveSessions()
@@ -224,7 +227,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
 
     /// <summary>
     /// Resetting the owner's password with nothing but the installation key is the event an operator
-    /// most needs to find afterwards, whether they did it or somebody else did. [49h]
+    /// most needs to find afterwards, whether they did it or somebody else did.
     /// </summary>
     [Fact]
     public async Task RecoveryRecordsTheIdentityEvent()
@@ -245,14 +248,14 @@ public sealed class MainAdminRecoveryTests : IDisposable
         Assert.InRange(entry.PerformedAtUtc, before, DateTime.UtcNow);
 
         // The caller proved the API key. It has no account and no session, and the columns are
-        // nullable so that this records as a real event rather than throwing. [29c]
+        // nullable so that this records as a real event rather than throwing.
         Assert.Null(entry.PerformedByAccountId);
         Assert.Null(entry.PerformedBySessionId);
     }
 
     /// <summary>
     /// An audit trail that can block a recovery turns a logging fault into the lockout this endpoint
-    /// exists to end. The password is reset whether or not the row lands. [29d][49h]
+    /// exists to end. The password is reset whether or not the row lands.
     /// </summary>
     [Fact]
     public async Task AFailedAuditWriteStillLeavesThePasswordReset()
@@ -268,7 +271,8 @@ public sealed class MainAdminRecoveryTests : IDisposable
 
         var result = await controller.RecoverMainAdminPasswordAsync(
             NewRequest("owner", _apiKeyService.GetApiKey()),
-            NewSessionService(database.Factory));
+            NewSessionService(database.Factory),
+            new AccountLockout(NullLogger<AccountLockout>.Instance));
 
         Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
         Assert.Equal(PasswordVerificationResult.Success, Verify(await ReadAccountAsync(database, "owner"), NewPassword));
@@ -280,7 +284,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
     /// <summary>
     /// Nothing on this path reads Security:EnableAuthentication, and an installation running with it
     /// off is exactly the one whose operator has never typed the password and is most likely to have
-    /// lost it. [49f]
+    /// lost it.
     /// </summary>
     [Fact]
     public async Task RecoveryWorksWithAuthenticationDisabled()
@@ -294,17 +298,75 @@ public sealed class MainAdminRecoveryTests : IDisposable
 
         var result = await controller.RecoverMainAdminPasswordAsync(
             NewRequest("owner", apiKeyService.GetApiKey()),
-            NewSessionService(database.Factory, configuration, apiKeyService));
+            NewSessionService(database.Factory, configuration, apiKeyService),
+            new AccountLockout(NullLogger<AccountLockout>.Instance));
 
         Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
         Assert.Equal(PasswordVerificationResult.Success, Verify(await ReadAccountAsync(database, "owner"), NewPassword));
+    }
+
+    /// <summary>
+    /// Getting the password wrong five times is what sends an operator here, and those failures count
+    /// because counting them takes the API key the operator holds. The lock and the password are
+    /// separate terms in the sign-in refusal and both refusals read the same by design, so a recovery
+    /// that leaves the count standing answers "Password reset" and is then followed by a sign-in
+    /// refused as though the new password were wrong.
+    /// </summary>
+    [Fact]
+    public async Task RecoveryLetsALockedOutOwnerSignInStraightAway()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var owner = await SeedAccountAsync(database.Factory, "owner", mainAdmin: true);
+
+        var lockout = new AccountLockout(NullLogger<AccountLockout>.Instance);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            lockout.RecordFailure(owner.Id);
+        }
+
+        Assert.True(lockout.IsLocked(owner.Id));
+
+        var recovered = await NewController(database.Factory, _apiKeyService)
+            .RecoverMainAdminPasswordAsync(
+                NewRequest("owner", _apiKeyService.GetApiKey()),
+                NewSessionService(database.Factory),
+                lockout);
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(recovered));
+
+        var signIn = new AuthController(
+            NewSessionService(database.Factory),
+            NullLogger<AuthController>.Instance,
+            database.Factory,
+            stateService: null!,
+            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            _apiKeyService,
+            new PasswordHasher<UserAccount>(),
+            lockout,
+            new IdentityAuditService(database.Factory, NullLogger<IdentityAuditService>.Instance))
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var signedIn = await signIn.LoginAsync(new LoginRequest
+        {
+            Username = "owner",
+            Password = NewPassword,
+            ApiKey = _apiKeyService.GetApiKey()
+        });
+
+        Assert.Equal(
+            StatusCodes.Status200OK,
+            Assert.IsAssignableFrom<ObjectResult>(signedIn.Result).StatusCode);
     }
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
     private Task<ActionResult<MessageResponse>> RecoverAsync(TestDatabase database, AccountCredentialsRequest request) =>
         NewController(database.Factory, _apiKeyService)
-            .RecoverMainAdminPasswordAsync(request, NewSessionService(database.Factory));
+            .RecoverMainAdminPasswordAsync(
+                request,
+                NewSessionService(database.Factory),
+                new AccountLockout(NullLogger<AccountLockout>.Instance));
 
     private IConfiguration NewConfiguration(bool authenticationEnabled) =>
         new ConfigurationBuilder()
@@ -407,7 +469,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
 /// <summary>
 /// The limiter half of the same endpoint, which needs the whole application rather than a controller
 /// instance. Its own class so the tests above are not serialized behind every other test that boots
-/// a host. [49d]
+/// a host.
 /// </summary>
 [Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class MainAdminRecoveryThrottlingTests
@@ -415,7 +477,7 @@ public sealed class MainAdminRecoveryThrottlingTests
     /// <summary>
     /// Anonymous, and it takes the API key in the body, so one address can otherwise sit on it
     /// guessing for as long as it likes. Five wrong keys from one address is the limit, and a
-    /// different address is unaffected by them. [49d]
+    /// different address is unaffected by them.
     /// </summary>
     [Fact]
     public async Task RecoveryIsThrottledPerCallerAddress()

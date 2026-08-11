@@ -40,7 +40,7 @@ public class SystemController : ControllerBase
 
     // Names the clock change inside DefaultGuestPreferencesChanged, alongside the single-field keys the
     // same event has always carried. A listener reads this to know the payload holds a whole clock and
-    // the one it replaced rather than one field's new value. [3]
+    // the one it replaced rather than one field's new value.
     private const string DefaultGuestClockKey = "clock";
 
     public SystemController(
@@ -87,7 +87,7 @@ public class SystemController : ControllerBase
         // Where the cache, the logs and the data directory live is told to a caller who has signed in
         // and to nobody else. The app loads this response before any session exists, so the route stays
         // anonymous and only the filesystem layout and its writability are withheld. Read once into a
-        // local because the datasource projection below runs its branches concurrently. [5]
+        // local because the datasource projection below runs its branches concurrently.
         var isSignedIn = User.Identity?.IsAuthenticated == true;
 
         var datasources = _datasourceService.GetDatasources();
@@ -226,7 +226,7 @@ public class SystemController : ControllerBase
         // decides whether the wizard opens at account creation. An unreachable database leaves it
         // unknown rather than failing the response, because this is also the route a broken install
         // reads to find its way to the credentials step, and answering "no account" there would send
-        // it to a step that cannot save. [37c]
+        // it to a step that cannot save.
         bool? accountExists;
         try
         {
@@ -247,7 +247,7 @@ public class SystemController : ControllerBase
 
         // Where the database lives is told to a caller who has signed in and to nobody else. The
         // completion answer above is read before any session exists, so it stays anonymous while
-        // the connection target does not. [4]
+        // the connection target does not.
         if (User.Identity?.IsAuthenticated == true)
         {
             // Surface the configured external-mode target for the info screen, without
@@ -784,7 +784,7 @@ public class SystemController : ControllerBase
     {
         // The three clock fields are deliberately absent: between them they hold one choice, and this
         // route can only ever carry one of them, so accepting them here is what let a half-applied clock
-        // become visible and durable. They go through the clock route above. [3]
+        // become visible and durable. They go through the clock route above.
         var validKeys = new[] { "sharpCorners", "disableTooltips", "showDatasourceLabels" };
         if (!validKeys.Contains(key))
         {

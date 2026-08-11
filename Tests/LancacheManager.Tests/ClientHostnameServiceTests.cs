@@ -279,7 +279,7 @@ public sealed class ClientHostnameServiceTests
         // network has no name for this machine" — blanking the client for as long as a real answer
         // stands. Only the resolver answering, or stating the name does not exist, settles anything
         // about the address. Reaching the branch needs a resolver on the network, so it is pinned
-        // to the source here instead. [57]
+        // to the source here instead.
         var source = ReadSource("Core", "Services", "ClientHostnameService.cs");
 
         Assert.Contains(
@@ -299,7 +299,7 @@ public sealed class ClientHostnameServiceTests
         // nothing about the address at all. It has to be asked again within minutes rather than
         // standing as a definitive blank for as long as a name does. The windows below stand in for
         // the five and thirty minutes the service uses, so the one actually chosen is observed
-        // rather than inferred. [60]
+        // rather than inferred.
         var queries = 0;
         var service = CreateService(enabled: true, _ =>
         {
@@ -602,7 +602,7 @@ public sealed class ClientHostnameServiceTests
         // and finding the resolver is allowed longer than a whole batch is. The queries carry on and
         // warm the cache, so the only thing between the viewer and the names is being told they
         // arrived. One announcement covers the whole batch however many addresses were waiting,
-        // because a client list of any size must not become a stream of events. [64]
+        // because a client list of any size must not become a stream of events.
         var announced = new List<string>();
         var released = new TaskCompletionSource();
         var service = CreateService(

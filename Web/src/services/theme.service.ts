@@ -35,7 +35,7 @@ interface ApplyThemeOptions {
   // repaint. The theme slider repaints on every stop the thumb passes, and those passes are not
   // choices - with the keys written, a drag abandoned by a reload or a tab close comes back as the
   // saved theme, because loadSavedTheme prefers lancache_selected_theme over the server
-  // preference. Defaults to true so every existing caller keeps writing. [15]
+  // preference. Defaults to true so every existing caller keeps writing.
   persist?: boolean;
 }
 
@@ -591,17 +591,17 @@ class ThemeService {
           // both nested inside cards and directly on the bare page canvas.
           bgPrimary: '#181815', // Page canvas
           bgSecondary: '#32322f', // List rows, dropdown panels
-          bgTertiary: '#1f1f1c', // Recessed well - must stay darker than cardBg or wells invert [10]
+          bgTertiary: '#1f1f1c', // Recessed well - must stay darker than cardBg or wells invert
           bgHover: '#4e4e4b', // Row hover
           bgElevated: '#282825', // Drawer/modal/floating panel
-          bgSurface: '#3a3a37', // Control fill - kept well clear of bgTertiary so controls pop out of the well [11]
+          bgSurface: '#3a3a37', // Control fill - kept well clear of bgTertiary so controls pop out of the well
           bgSurfaceHover: '#464643', // Hover on surface elements
           bgSurfaceActive: '#565653', // Active/pressed surface elements
 
           // Text - Warm off-white; pure white glares against charcoal
           textPrimary: '#eaeae4',
           textSecondary: '#acaca6',
-          textMuted: '#94948e', // Also feeds --theme-icon-gray; 4.98:1 on cardBg, the lightest ground it sits on [14]
+          textMuted: '#94948e', // Also feeds --theme-icon-gray; 4.98:1 on cardBg, the lightest ground it sits on
           textAccent: '#7db3f7', // Links - one step lighter than the accent so they read as links
           textPlaceholder: '#74746e',
 
@@ -695,13 +695,13 @@ class ThemeService {
           blizzardColor: '#5d6bdc', // Royal blue rotated toward indigo; at Sony's hue it was only 7 L* away
           wsusColor: '#09a2be', // Same cyan a step down, so Steam's blue and Warframe's teal both clear it on lightness
           riotColor: '#d13639',
-          xboxColor: '#1a8c1a', // Xbox's #107c10 lifted six points of lightness at the same hue; the brand value itself reads 2.83:1 here [17]
+          xboxColor: '#1a8c1a', // Xbox's #107c10 lifted six points of lightness at the same hue; the brand value itself reads 2.83:1 here
           ubisoftColor: '#c6bdff', // Blue Ribbon pushed along the violet axis, then lifted clear of the grey placeholder
           gogColor: '#a05fb4', // GOG's true violet is far too dark to read on charcoal
           rockstarColor: '#fcaf17',
-          arenanetColor: '#6fa754', // Same green lifted 14 L*, then one more step so Xbox's green clears it [2]
+          arenanetColor: '#6fa754', // Same green lifted 14 L*, then one more step so Xbox's green clears it
           bsgColor: '#6e7b3a',
-          cityofheroesColor: '#4fd98a', // Moved out of the blues; it has no brand color and sat 6 degrees off Steam [18]
+          cityofheroesColor: '#4fd98a', // Moved out of the blues; it has no brand color and sat 6 degrees off Steam
           codColor: '#dd6f3a', // Ember orange lifted off 2.93:1, then shifted red of Nexus Mods' brand orange
           daybreakColor: '#fb8d90', // Same salmon lightened until it separates from EA's red on lightness
           frontierColor: '#ffdba7', // Pale sand at the same hue; Rockstar's gold and Nexus Mods' orange box it in on both sides
@@ -710,12 +710,12 @@ class ThemeService {
           nintendoColor: '#e4000f',
           pathofexileColor: '#9c7000', // Darker goldenrod, stepped down clear of Nexus Mods' orange and Wargaming's olive
           renegadexColor: '#4e7b82', // Slate turned cool; at its old blue-grey hue it tracked PlayStation's blue
-          sonyColor: '#3d8bd9', // PlayStation navy lightened from 1.41:1 [17]
+          sonyColor: '#3d8bd9', // PlayStation navy lightened from 1.41:1
           squareColor: '#c84455', // Deep red, lightened from 1.24:1 and moved off Riot's brand red
-          tesoColor: '#b95685', // Same wine, lightened from 1.23:1 and turned pink of Square Enix's red [17]
-          testColor: '#a1a1aa', // One step lighter on the same grey ramp, clear of renegadexColor [1]
+          tesoColor: '#b95685', // Same wine, lightened from 1.23:1 and turned pink of Square Enix's red
+          testColor: '#a1a1aa', // One step lighter on the same grey ramp, clear of renegadexColor
           warframeColor: '#1dd3d3',
-          wargamingColor: '#9d9a66' // Olive lifted from 2.01:1 and shifted clear of Path of Exile's gold [17]
+          wargamingColor: '#9d9a66' // Olive lifted from 2.01:1 and shifted clear of Path of Exile's gold
         })
       }
     ];
@@ -1436,12 +1436,12 @@ class ThemeService {
     // asks "is this theme in force right now" - the preference listener uses it to decide whether
     // a requested theme still needs applying, and the corner/outline toggles use it to repaint the
     // theme already on screen - so it follows the paint even during a scrub. It lives in memory
-    // and dies with the page, so it cannot survive a reload and cannot cause the bug below. [15]
+    // and dies with the page, so it cannot survive a reload and cannot cause the bug below.
     this.currentTheme = theme;
 
     // Everything above is what the page looks like right now; everything below is what it will
     // look like after the next reload. A non-persisting apply keeps the first and skips the
-    // second. [15]
+    // second.
     if (persist) {
       // Save theme preferences for all users (authenticated and guests)
       // Save the theme ID and CSS for instant loading on next page load (localStorage for caching)

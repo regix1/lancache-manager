@@ -96,7 +96,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         ? anchor.top - menuHeight - MENU_GAP_PX
         : anchor.bottom + MENU_GAP_PX;
       // Flipping alone only buys the trigger's distance from the edge, so a menu
-      // taller than the room on the side it picked still hangs off the viewport. [8]
+      // taller than the room on the side it picked still hangs off the viewport.
       const top = clampToViewport(desiredTop, menuHeight, viewportHeight, VIEWPORT_PADDING_PX);
 
       // Clamped against the viewport, returned in document coordinates: the menu is

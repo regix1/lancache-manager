@@ -331,11 +331,11 @@ const EdgeTooltip: React.FC<{
 
   // A long value like a filesystem path is a single unbreakable word, so the max-width caps the
   // box while the text paints straight through it and off the screen. break-words splits a word
-  // only when it cannot fit on its own line, so ordinary prose is left exactly as it was. [21]
+  // only when it cannot fit on its own line, so ordinary prose is left exactly as it was.
   //
   // z-300 is the top of the overlay scale, above the drawer (200/201) and the dropdown panels
   // (250/251). Those panels are opaque, so at the old 90 a tooltip on a menu row landed behind
-  // the menu. .tooltip-overlay in user.css carries the same value. [13]
+  // the menu. .tooltip-overlay in user.css carries the same value.
   return (
     <div
       ref={ref}

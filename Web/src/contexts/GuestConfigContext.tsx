@@ -1,41 +1,29 @@
 import React, { useEffect, useState, type ReactNode } from 'react';
+import authService from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { APP_EVENTS } from '@utils/constants';
 import { GuestConfigContext } from './GuestConfigContext.types';
-
-interface GuestConfigResponse {
-  isLocked: boolean;
-  durationHours?: number;
-}
 
 export const GuestConfigProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const signalR = useSignalR();
-  const [guestDurationHours, setGuestDurationHours] = useState<number>(6);
-  const [guestModeLocked, setGuestModeLocked] = useState<boolean>(false);
+  const [guestDurationHours, setGuestDurationHours] = useState<number>(
+    authService.guestDurationHours
+  );
+  const [guestModeLocked, setGuestModeLocked] = useState<boolean>(!authService.guestAccessEnabled);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch initial guest config from the public endpoint
+  // The sign-in screen shows both settings to a visitor who has no session, and the guest config
+  // routes all require one, so they come from the status call AuthProvider already makes on mount
+  // and repeats on every session change. AuthProvider announces each answer with this event.
   useEffect(() => {
-    const fetchGuestConfig = async () => {
-      try {
-        // Use the public auth status endpoint which doesn't require auth
-        const response = await fetch('/api/auth/guest/status');
-        if (response.ok) {
-          const data = (await response.json()) as GuestConfigResponse;
-          setGuestModeLocked(data.isLocked);
-          if (data.durationHours) {
-            setGuestDurationHours(data.durationHours);
-          }
-        }
-      } catch (err) {
-        // Background fetch on mount (public endpoint, no auth). Guest defaults (locked=false,
-        // 6h duration) already apply as safe fallbacks. Deliberately silent.
-        console.error('[GuestConfig] Failed to fetch guest config:', err);
-      } finally {
-        setIsLoading(false);
-      }
+    const applyAuthStatus = () => {
+      setGuestDurationHours(authService.guestDurationHours);
+      setGuestModeLocked(!authService.guestAccessEnabled);
+      setIsLoading(false);
     };
 
-    fetchGuestConfig();
+    window.addEventListener(APP_EVENTS.AUTH_SESSION_UPDATED, applyAuthStatus);
+    return () => window.removeEventListener(APP_EVENTS.AUTH_SESSION_UPDATED, applyAuthStatus);
   }, []);
 
   // Listen for real-time guest duration updates via SignalR
