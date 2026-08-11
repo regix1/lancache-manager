@@ -4097,7 +4097,8 @@
       "rotatedModal": {
         "title": "Your New API Key",
         "message": "This is the only time this key is shown. Copy it now, because everyone has been signed out and signing back in needs it.",
-        "copied": "Copied!"
+        "copied": "Copied!",
+        "copyFailed": "This browser would not let the page copy for you. Select the key above and copy it by hand before closing."
       }
     },
     "sessions": {},

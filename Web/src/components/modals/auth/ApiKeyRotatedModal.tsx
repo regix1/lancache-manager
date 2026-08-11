@@ -4,6 +4,7 @@ import { Key } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import { copyText } from '@utils/clipboard';
 
 interface ApiKeyRotatedModalProps {
   opened: boolean;
@@ -27,15 +28,17 @@ export const ApiKeyRotatedModal: React.FC<ApiKeyRotatedModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(apiKey);
-      setCopied(true);
+    // Says which of the two happened. A button that reports nothing on a page where the clipboard
+    // API is absent, which is every phone reaching this over plain http, reads as a dead control
+    // and this is the one showing of the key.
+    const ok = await copyText(apiKey);
+    setCopied(ok);
+    setCopyFailed(!ok);
+    if (ok) {
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard permission refused, or a page served over plain http where the API is absent. The
-      // key stays on screen to be selected by hand, which is the only other way to take it.
     }
   };
 
@@ -54,6 +57,8 @@ export const ApiKeyRotatedModal: React.FC<ApiKeyRotatedModalProps> = ({
         <Alert color="yellow">{t('management.auth.rotatedModal.message')}</Alert>
 
         <code className="well-surface rotated-api-key">{apiKey}</code>
+
+        {copyFailed && <Alert color="red">{t('management.auth.rotatedModal.copyFailed')}</Alert>}
 
         <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
           <Button variant="default" onClick={onClose} className="w-full sm:w-auto">

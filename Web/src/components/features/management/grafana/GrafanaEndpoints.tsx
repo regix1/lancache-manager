@@ -24,6 +24,7 @@ import { useNotifications } from '@contexts/notifications';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { getErrorMessage, isAbortError } from '@utils/error';
+import { copyText } from '@utils/clipboard';
 import type { MetricsSecurityResponse } from './GrafanaEndpoints.types';
 
 /**
@@ -293,36 +294,18 @@ const GrafanaEndpoints: React.FC = () => {
   };
 
   const copyToClipboard = async (text: string, endpoint: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
+    if (await copyText(text)) {
       setCopiedEndpoint(endpoint);
       setTimeout(() => setCopiedEndpoint(null), 2000);
-    } catch (_err) {
-      // Fallback for older browsers or when clipboard API fails
-      const textArea = document.createElement('textarea');
-      textArea.value = text;
-      textArea.style.position = 'fixed';
-      textArea.style.left = '-999999px';
-      textArea.style.top = '-999999px';
-      document.body.appendChild(textArea);
-      textArea.focus();
-      textArea.select();
-
-      try {
-        document.execCommand('copy');
-        setCopiedEndpoint(endpoint);
-        setTimeout(() => setCopiedEndpoint(null), 2000);
-      } catch (copyErr) {
-        // Legacy-clipboard-fallback failure: low-stakes UI action, no other visible cue either
-        // way. Silence is explicit rather than an accidental console.error.
-        notifyError(t('management.grafana.errors.copyFailed'), copyErr, {
-          silent: true,
-          logLabel: 'Failed to copy text'
-        });
-      } finally {
-        document.body.removeChild(textArea);
-      }
+      return;
     }
+
+    // Low-stakes UI action with no other visible cue either way, so this stays silent rather than
+    // becoming an accidental console.error.
+    notifyError(t('management.grafana.errors.copyFailed'), undefined, {
+      silent: true,
+      logLabel: 'Failed to copy text'
+    });
   };
 
   const apiBaseUrl = window.location.origin;

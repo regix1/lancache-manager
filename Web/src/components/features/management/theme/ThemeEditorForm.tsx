@@ -6,6 +6,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
 import { type ColorGroup } from './types';
+import { copyText } from '@utils/clipboard';
 
 interface ThemeEditorFormProps {
   themeData: Record<string, string | boolean>;
@@ -37,10 +38,13 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
     );
   };
 
-  const copyColor = (color: string) => {
-    navigator.clipboard.writeText(color);
-    setCopiedColor(color);
-    setTimeout(() => setCopiedColor(null), 2000);
+  const copyColor = async (color: string) => {
+    // Only claims the copy when it happened. The bare clipboard call this replaced threw on a page
+    // served over plain http, where the API does not exist, and still showed the copied tick.
+    if (await copyText(color)) {
+      setCopiedColor(color);
+      setTimeout(() => setCopiedColor(null), 2000);
+    }
   };
 
   // Translation helpers
