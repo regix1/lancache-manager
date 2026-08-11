@@ -9,11 +9,11 @@ namespace LancacheManager.Controllers;
 
 [ApiController]
 [Route("api/system/schedules/scheduledPrefill")]
-// Admin-only: scheduled prefill config is shared mutable state. Bare [Authorize] satisfies the
-// DefaultPolicy (RequireAuthenticatedUser), which a SessionType=guest session also satisfies. The
-// AdminOnly policy (RequireClaim "SessionType"=="admin") blocks guests, matching every other
-// admin-only shared-state controller (CacheController, PrefillAdminController, etc.).
-[Authorize(Policy = "AdminOnly")]
+// Account holders only: scheduled prefill config is shared mutable state. Bare [Authorize] satisfies
+// the DefaultPolicy (RequireAuthenticatedUser), which a SessionType=guest session also satisfies. The
+// AccountHolder policy (RequireClaim "SessionType" is "admin" or "user") blocks guests, matching every
+// other shared-state controller (CacheController, PrefillAdminController, etc.).
+[Authorize(Policy = "AccountHolder")]
 public class ScheduledPrefillConfigController : ControllerBase
 {
     private readonly IStateService _stateService;

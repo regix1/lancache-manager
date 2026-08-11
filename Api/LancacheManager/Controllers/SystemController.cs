@@ -345,7 +345,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// Gets whether GC management (the memory-threshold-triggered collection pass) is enabled.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("gc-management/status")]
     [ProducesResponseType(typeof(GcStatusResponse), StatusCodes.Status200OK)]
     public ActionResult<GcStatusResponse> GetGcStatus()
@@ -363,7 +363,7 @@ public class SystemController : ControllerBase
     /// <remarks>
     /// PATCH is the proper method here for partial updates. Request body: { "completed": true }.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPatch("setup")]
     [ProducesResponseType(typeof(SetupUpdateResponse), StatusCodes.Status200OK)]
     public ActionResult<SetupUpdateResponse> UpdateSetupStatus([FromBody] UpdateSetupStatusRequest request)
@@ -495,7 +495,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// Checks whether rsync is available.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("rsync/available")]
     [ProducesResponseType(typeof(RsyncAvailableResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<RsyncAvailableResponse>> IsRsyncAvailableAsync()
@@ -511,7 +511,7 @@ public class SystemController : ControllerBase
     /// PATCH is the proper method here for configuration updates. Request body:
     /// { "deleteMode": "preserve" | "full" | "rsync" }.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPatch("cache-delete-mode")]
     [ProducesResponseType(typeof(CacheDeleteModeResponse), StatusCodes.Status200OK)]
     public ActionResult<CacheDeleteModeResponse> SetCacheDeleteMode([FromBody] SetCacheDeleteModeRequest request)
@@ -548,7 +548,7 @@ public class SystemController : ControllerBase
     /// PATCH is the proper method here for configuration updates. Request body:
     /// { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPatch("refresh-rate")]
     [ProducesResponseType(typeof(RefreshRateResponse), StatusCodes.Status200OK)]
     public ActionResult<RefreshRateResponse> SetRefreshRate([FromBody] SetRefreshRateRequest request)
@@ -599,7 +599,7 @@ public class SystemController : ControllerBase
     /// PATCH is the proper method here for configuration updates. Request body:
     /// { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPatch("default-guest-refresh-rate")]
     [ProducesResponseType(typeof(RefreshRateResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<RefreshRateResponse>> SetDefaultGuestRefreshRateAsync([FromBody] SetRefreshRateRequest request)
@@ -638,7 +638,7 @@ public class SystemController : ControllerBase
     /// <remarks>
     /// Request body: { "locked": true | false }.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPatch("guest-refresh-rate-lock")]
     [ProducesResponseType(typeof(GuestRefreshRateLockResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<GuestRefreshRateLockResponse>> SetGuestRefreshRateLockAsync([FromBody] GuestRefreshRateLockRequest request)
@@ -684,7 +684,7 @@ public class SystemController : ControllerBase
     /// Sets which time formats guests are allowed to pick between, restricting the choices offered by
     /// the per-session clock preference.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPatch("default-guest-preferences/allowed-time-formats")]
     [ProducesResponseType(typeof(AllowedTimeFormatsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<AllowedTimeFormatsResponse>> SetAllowedTimeFormatsAsync([FromBody] SetAllowedTimeFormatsRequest request)
@@ -729,7 +729,7 @@ public class SystemController : ControllerBase
     /// cannot tell whether the guest it is holding still follows the default. The clock the admin
     /// replaced travels with the new one so it can.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPatch("default-guest-preferences/clock")]
     [ProducesResponseType(typeof(DefaultGuestClockResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> SetDefaultGuestClockAsync([FromBody] UserPreferencesService.ClockPreferences clock)
@@ -777,7 +777,7 @@ public class SystemController : ControllerBase
     /// The three clock fields are handled separately by <see cref="SetDefaultGuestClockAsync"/>
     /// since they must be written together.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPatch("default-guest-preferences/{key}")]
     [ProducesResponseType(typeof(DefaultGuestPreferenceResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> SetDefaultGuestPreferenceAsync(string key, [FromBody] SetBoolPreferenceRequest request)
@@ -854,7 +854,7 @@ public class SystemController : ControllerBase
     /// <remarks>
     /// Broadcasts the change so open prefill panels pick up the new defaults without a reload.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPatch("prefill-defaults")]
     [ProducesResponseType(typeof(PrefillDefaultsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<PrefillDefaultsResponse>> SetPrefillDefaultsAsync([FromBody] SetPrefillDefaultsRequest request)

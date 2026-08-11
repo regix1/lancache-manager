@@ -41,7 +41,7 @@ public class SessionsController : ControllerBase
     /// Active sessions (paginated), plus the full revoked/expired history unpaginated since it is
     /// only ever shown as a flat audit list.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet]
     [ProducesResponseType(typeof(SessionListResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SessionListResponse>> GetAllAsync([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
@@ -137,7 +137,7 @@ public class SessionsController : ControllerBase
     /// It can no longer authenticate, but its row (and history) is kept, unlike
     /// <see cref="DeleteAsync"/> which erases it outright.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPatch("{id:guid}/revoke")]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> RevokeAsync(Guid id)
@@ -166,7 +166,7 @@ public class SessionsController : ControllerBase
     /// <remarks>
     /// Unlike <see cref="RevokeAsync"/> which only blocks it from authenticating again.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> DeleteAsync(Guid id)
@@ -236,7 +236,7 @@ public class SessionsController : ControllerBase
     /// <remarks>
     /// Admin sessions are untouched.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("bulk/reset-to-defaults")]
     [ProducesResponseType(typeof(SessionResetResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SessionResetResponse>> ResetToDefaultsAsync()
@@ -279,7 +279,7 @@ public class SessionsController : ControllerBase
     /// Frees up their slots and forces a fresh session on next visit. Admin sessions are
     /// untouched.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("bulk/clear-guests")]
     [ProducesResponseType(typeof(SessionClearGuestsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SessionClearGuestsResponse>> ClearGuestsAsync()

@@ -140,7 +140,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Validation is handled automatically by FluentValidation (see CreateEventRequestValidator)
     /// </remarks>
     [HttpPost]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(Event), StatusCodes.Status201Created)]
     public override Task<IActionResult> CreateAsync([FromBody] CreateEventRequest request, CancellationToken ct = default)
         => base.CreateAsync(request, ct);
@@ -152,7 +152,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Validation is handled automatically by FluentValidation (see UpdateEventRequestValidator)
     /// </remarks>
     [HttpPut("{id:long}")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(Event), StatusCodes.Status200OK)]
     public override Task<IActionResult> UpdateAsync(long id, [FromBody] UpdateEventRequest request, CancellationToken ct = default)
         => base.UpdateAsync(id, request, ct);
@@ -161,7 +161,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Delete an event
     /// </summary>
     [HttpDelete("{id:long}")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public override Task<IActionResult> DeleteAsync(long id, CancellationToken ct = default)
         => base.DeleteAsync(id, ct);
@@ -183,7 +183,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Manually tag a download to an event
     /// </summary>
     [HttpPost("{eventId:long}/downloads/{downloadId:long}")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageOnlyResponse>> TagDownloadAsync(long eventId, long downloadId)
     {
@@ -201,7 +201,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Remove a download tag from an event
     /// </summary>
     [HttpDelete("{eventId:long}/downloads/{downloadId:long}")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> UntagDownloadAsync(long eventId, long downloadId)
     {

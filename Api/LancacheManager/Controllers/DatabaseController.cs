@@ -13,7 +13,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/database")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class DatabaseController : ControllerBase
 {
     private readonly DatabaseService _dbService;

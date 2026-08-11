@@ -244,7 +244,7 @@ public class ThemeController : ControllerBase
     /// before asking the server and a same-ID file would be stored but never applied.
     /// </remarks>
     [HttpPost("upload")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [RequestSizeLimit(1_048_576)]
     [ProducesResponseType(typeof(ThemeUploadResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ThemeUploadResponse>> UploadThemeAsync(IFormFile file)
@@ -364,7 +364,7 @@ public class ThemeController : ControllerBase
     /// file is removed like any other.
     /// </remarks>
     [HttpDelete("{id}")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(ThemeDeleteResponse), StatusCodes.Status200OK)]
     public ActionResult<ThemeDeleteResponse> DeleteTheme(string id)
     {
@@ -515,7 +515,7 @@ public class ThemeController : ControllerBase
     /// a manual admin operation with no UI button.
     /// </remarks>
     [HttpPost("cleanup")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(ThemeCleanupResponse), StatusCodes.Status200OK)]
     public ActionResult<ThemeCleanupResponse> CleanupThemes()
     {
@@ -591,7 +591,7 @@ public class ThemeController : ControllerBase
     /// Broadcasts the change so guests with no explicit theme selection of their own pick it up live.
     /// </remarks>
     [HttpPut("preferences/guest")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(ThemePreferenceResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ThemePreferenceResponse>> SetDefaultGuestThemeAsync([FromBody] ThemePreferenceRequest request)
     {

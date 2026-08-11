@@ -14,7 +14,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/steam-auth")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class SteamAuthController : ControllerBase
 {
     private readonly SteamKit2Service _steamKit2Service;

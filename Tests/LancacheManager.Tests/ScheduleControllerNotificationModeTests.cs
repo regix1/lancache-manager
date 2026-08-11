@@ -89,7 +89,7 @@ public class ScheduleControllerNotificationModeTests
         var authorize = method!
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
             .Cast<AuthorizeAttribute>()
-            .SingleOrDefault(a => a.Policy == "AdminOnly");
+            .SingleOrDefault(a => a.Policy == "AccountHolder");
 
         Assert.NotNull(authorize);
     }
@@ -148,7 +148,7 @@ public class ScheduleControllerNotificationModeTests
         var authorize = method!
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
             .Cast<AuthorizeAttribute>()
-            .SingleOrDefault(a => a.Policy == "AdminOnly");
+            .SingleOrDefault(a => a.Policy == "AccountHolder");
 
         Assert.NotNull(authorize);
     }

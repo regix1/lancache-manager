@@ -12,13 +12,13 @@ namespace LancacheManager.Controllers;
 /// Manages the cumulative, SHARED catalog of Xbox games discovered through user logins (an admin
 /// sees the union of all users' titles, by design - mirrors Epic's shared catalog model).
 ///
-/// AdminOnly read of the global mapping/catalog. Resolution is automatic (the Rust ingest + the
+/// AccountHolder read of the global mapping/catalog. Resolution is automatic (the Rust ingest + the
 /// RustLogProcessor post-pass + the xboxMapping schedule), so this controller only exposes the
 /// catalog read plus the manager-side login.
 /// </summary>
 [ApiController]
 [Route("api/xbox/game-mappings")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class XboxGameMappingController : ControllerBase
 {
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;

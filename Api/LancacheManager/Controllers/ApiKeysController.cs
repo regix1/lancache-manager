@@ -16,7 +16,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/api-keys")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class ApiKeysController : ControllerBase
 {
     private readonly ApiKeyService _apiKeyService;

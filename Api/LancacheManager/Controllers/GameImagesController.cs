@@ -192,7 +192,7 @@ public class GameImagesController : ControllerBase
     /// <summary>
     /// Clears the game image cache and optionally triggers an Epic image URL refresh.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("cache")]
     [ProducesResponseType(typeof(ImageCacheClearResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ImageCacheClearResponse>> ClearImageCacheAsync(CancellationToken cancellationToken = default)

@@ -16,7 +16,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/games")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class GamesController : ControllerBase
 {
     private readonly GameCacheDetectionService _gameCacheDetectionService;

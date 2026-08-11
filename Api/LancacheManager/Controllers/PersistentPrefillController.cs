@@ -19,7 +19,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/system/prefill/persistent")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class PersistentPrefillController : ControllerBase
 {
     private readonly IServiceProvider _serviceProvider;
@@ -277,11 +277,11 @@ public class PersistentPrefillController : ControllerBase
     /// Lists the owned games for the running persistent session of a platform.
     /// </summary>
     /// <remarks>
-    /// Also returns up-to-date cached app ids. This is the AdminOnly analogue of the user-scoped
+    /// Also returns up-to-date cached app ids. This is the AccountHolder analogue of the user-scoped
     /// <c>GET {service}/sessions/{id}/games</c> route: that route enforces
     /// <c>ValidateSessionOwnership</c> (session.UserId == caller), which always 403s for persistent
     /// system-owned sessions whose owner is the derived system user, not the admin's session id.
-    /// Bypassing ownership is safe here because the endpoint is <c>[Authorize(Policy = "AdminOnly")]</c>
+    /// Bypassing ownership is safe here because the endpoint is <c>[Authorize(Policy = "AccountHolder")]</c>
     /// and is hard-restricted to sessions whose <see cref="DaemonSession.IsPersistent"/> is true.
     /// Reuses the exact same daemon method the user route calls
     /// (<see cref="PrefillDaemonServiceBase.GetOwnedGamesAsync(string, CancellationToken)"/>) so there
@@ -494,10 +494,10 @@ public class PersistentPrefillController : ControllerBase
     /// Starts or resumes the interactive login flow for the running persistent session.
     /// </summary>
     /// <remarks>
-    /// Returns the initial credential challenge. AdminOnly analogue of the user route
+    /// Returns the initial credential challenge. AccountHolder analogue of the user route
     /// <c>POST {service}/sessions/{id}/login</c>, which enforces <c>ValidateSessionOwnership</c> and
     /// always 403s for system-owned persistent sessions. Safe to bypass ownership here because this
-    /// controller is <c>[Authorize(Policy = "AdminOnly")]</c> and hard-restricted to persistent
+    /// controller is <c>[Authorize(Policy = "AccountHolder")]</c> and hard-restricted to persistent
     /// sessions. Delegates to <see cref="PrefillDaemonServiceBase.StartLoginAsync(string, TimeSpan?, CancellationToken)"/>.
     /// </remarks>
     [HttpPost("login")]
@@ -595,7 +595,7 @@ public class PersistentPrefillController : ControllerBase
     /// Provides an encrypted credential in response to a login challenge.
     /// </summary>
     /// <remarks>
-    /// For the running persistent session. AdminOnly analogue of
+    /// For the running persistent session. AccountHolder analogue of
     /// <c>POST {service}/sessions/{id}/credential</c>. Reuses the user route's
     /// <see cref="ProvideCredentialRequest"/> payload (Challenge + Credential) and delegates to
     /// <see cref="PrefillDaemonServiceBase.ProvideCredentialAsync(string, CredentialChallenge, string, CancellationToken)"/>.
@@ -681,7 +681,7 @@ public class PersistentPrefillController : ControllerBase
     /// Polls for the next credential challenge or login state.
     /// </summary>
     /// <remarks>
-    /// Of the running persistent session. AdminOnly analogue of
+    /// Of the running persistent session. AccountHolder analogue of
     /// <c>GET {service}/sessions/{id}/challenge</c>. Delegates to
     /// <see cref="PrefillDaemonServiceBase.WaitForChallengeAsync(string, TimeSpan?, CancellationToken)"/>.
     /// </remarks>
@@ -727,7 +727,7 @@ public class PersistentPrefillController : ControllerBase
     /// Cancels a pending interactive login and resets auth state.
     /// </summary>
     /// <remarks>
-    /// For the running persistent session. AdminOnly analogue of the user cancel-login flow.
+    /// For the running persistent session. AccountHolder analogue of the user cancel-login flow.
     /// Delegates to <see cref="PrefillDaemonServiceBase.CancelLoginAsync(string, CancellationToken)"/>.
     /// </remarks>
     [HttpPost("cancel-login")]
@@ -769,7 +769,7 @@ public class PersistentPrefillController : ControllerBase
     /// Logs the running persistent session out in place.
     /// </summary>
     /// <remarks>
-    /// The daemon forgets its stored account without the container being restarted. AdminOnly
+    /// The daemon forgets its stored account without the container being restarted. AccountHolder
     /// analogue of the other persistent-session routes. Delegates to
     /// <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync(string, CancellationToken)"/>.
     /// When the attempt genuinely fails (daemon reports failure, or the round-trip throws),

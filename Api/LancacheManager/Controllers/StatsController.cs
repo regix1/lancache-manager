@@ -221,6 +221,7 @@ public class StatsController : ControllerBase
     /// admins can still pick any known client even while it is excluded from normal stats.
     /// </param>
     [HttpGet("clients")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(List<ClientStatsWithGroup>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<ClientStatsWithGroup>>> GetClientsAsync(
         [FromQuery] long? startTime = null,
@@ -302,6 +303,7 @@ public class StatsController : ControllerBase
     /// Returns the legacy stats-excluded-only IP list plus the full mode-aware rule set (hide vs exclude).
     /// </remarks>
     [HttpGet("exclusions")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(StatsExclusionsResponse), StatusCodes.Status200OK)]
     public ActionResult<StatsExclusionsResponse> GetExcludedClients()
     {
@@ -320,7 +322,7 @@ public class StatsController : ControllerBase
     /// otherwise, so older clients keep working.
     /// </remarks>
     [HttpPut("exclusions")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(StatsExclusionsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<StatsExclusionsResponse>> UpdateExcludedClientsAsync([FromBody] UpdateStatsExclusionsRequest request)
     {
@@ -376,6 +378,7 @@ public class StatsController : ControllerBase
     /// orphaned downloads are pruned.
     /// </remarks>
     [HttpGet("eviction")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(EvictionSettingsResponse), StatusCodes.Status200OK)]
     public ActionResult<EvictionSettingsResponse> GetEvictionSettings()
     {
@@ -399,7 +402,7 @@ public class StatsController : ControllerBase
     /// bulk eviction removal, parked in the wait-queue on conflict rather than rejected outright.
     /// </remarks>
     [HttpPut("eviction")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(EvictionSettingsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<EvictionSettingsResponse>> UpdateEvictionSettingsAsync([FromBody] UpdateEvictionSettingsRequest request)
     {
@@ -502,7 +505,7 @@ public class StatsController : ControllerBase
     /// to identify evictable entries. A conflicting scan is parked in the wait-queue rather than rejected.
     /// </remarks>
     [HttpPost("eviction/reconcile")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(EvictionScanStartedResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<EvictionScanStartedResponse>> ReconcileAsync(CancellationToken cancellationToken)
     {
@@ -547,7 +550,7 @@ public class StatsController : ControllerBase
     /// Undoes the effect of eviction removal without touching the cache itself.
     /// </remarks>
     [HttpPost("eviction/reset")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(EvictionResetResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<EvictionResetResponse>> ResetEvictionsAsync(CancellationToken ct)
     {
@@ -567,6 +570,7 @@ public class StatsController : ControllerBase
     /// pattern for every other surface; this one is kept because the Schedules page still polls it directly.
     /// </remarks>
     [HttpGet("eviction/scan/status")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(EvictionScanStatusResponse), StatusCodes.Status200OK)]
     public ActionResult<EvictionScanStatusResponse> EvictionScanStatus()
     {

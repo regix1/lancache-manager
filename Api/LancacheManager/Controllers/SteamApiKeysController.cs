@@ -12,7 +12,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/steam-api-keys")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class SteamApiKeysController : ControllerBase
 {
     private readonly SteamWebApiService _steamWebApiService;

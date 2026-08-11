@@ -16,7 +16,9 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/client-groups")]
-[Authorize]
+// The policy sits at class level so it also covers the list and by-id reads inherited from
+// CrudControllerBase, which EventsController inherits too and which stay guest-readable there. [52]
+[Authorize(Policy = "AccountHolder")]
 public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGroupDto, CreateClientGroupRequest, UpdateClientGroupRequest, long>
 {
     private readonly IClientGroupsService _clientGroupsRepository;
@@ -143,7 +145,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// silently dropped; if none of the requested addresses could be taken, the group is not kept.
     /// </remarks>
     [HttpPost]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(CreateClientGroupResponse), StatusCodes.Status201Created)]
     public override async Task<IActionResult> CreateAsync([FromBody] CreateClientGroupRequest request, CancellationToken ct = default)
     {
@@ -210,7 +212,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// entries it turned down instead of failing the whole save on one of them.
     /// </remarks>
     [HttpPut("{id:long}/members")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(SetMembersResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> SetMembersAsync(long id, [FromBody] SetMembersRequest request, CancellationToken ct = default)
     {
@@ -285,7 +287,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// editing a stale copy does not silently overwrite someone else's change.
     /// </remarks>
     [HttpPut("{id}")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(ClientGroupDto), StatusCodes.Status200OK)]
     public override async Task<IActionResult> UpdateAsync(long id, [FromBody] UpdateClientGroupRequest request, CancellationToken ct = default)
     {
@@ -317,7 +319,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// reporting individually.
     /// </remarks>
     [HttpDelete("{id}")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public override Task<IActionResult> DeleteAsync(long id, CancellationToken ct = default)
         => base.DeleteAsync(id, ct);

@@ -22,6 +22,7 @@ public class ScheduleController : ControllerBase
     /// Returns all registered service schedules.
     /// </summary>
     [HttpGet("")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(IReadOnlyList<ServiceScheduleInfo>), StatusCodes.Status200OK)]
     public ActionResult<IReadOnlyList<ServiceScheduleInfo>> GetAll()
     {
@@ -32,6 +33,7 @@ public class ScheduleController : ControllerBase
     /// Returns a single service schedule by its key.
     /// </summary>
     [HttpGet("{serviceKey}")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(ServiceScheduleInfo), StatusCodes.Status200OK)]
     public ActionResult<ServiceScheduleInfo> GetByKey(string serviceKey)
     {
@@ -46,7 +48,7 @@ public class ScheduleController : ControllerBase
     /// <summary>
     /// Updates the interval for a service schedule.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPut("{serviceKey}")]
     public async Task<ActionResult> SetIntervalAsync(string serviceKey, [FromBody] UpdateScheduleIntervalRequest request)
     {
@@ -67,7 +69,7 @@ public class ScheduleController : ControllerBase
     /// <remarks>
     /// Send a null schedule to clear it, which returns the service to its interval.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPut("{serviceKey}/customSchedule")]
     public async Task<ActionResult> SetCustomScheduleAsync(string serviceKey, [FromBody] UpdateScheduleCustomScheduleRequest request)
     {
@@ -100,7 +102,7 @@ public class ScheduleController : ControllerBase
     /// <summary>
     /// Updates whether the service runs at app startup.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPut("{serviceKey}/runOnStartup")]
     public async Task<ActionResult> SetRunOnStartupAsync(string serviceKey, [FromBody] UpdateScheduleRunOnStartupRequest request)
     {
@@ -119,7 +121,7 @@ public class ScheduleController : ControllerBase
     /// Updates how the service surfaces its run notifications.
     /// </summary>
     [HttpPut("{serviceKey}/notificationMode")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     public async Task<ActionResult> SetNotificationModeAsync(string serviceKey, [FromBody] NotificationMode mode)
     {
         var info = _registry.Get(serviceKey);
@@ -152,7 +154,7 @@ public class ScheduleController : ControllerBase
     /// card-level).
     /// </remarks>
     [HttpPut("{serviceKey}/notificationDisplayMode")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     public async Task<ActionResult> SetNotificationDisplayModeAsync(string serviceKey, [FromBody] NotificationDisplayMode mode)
     {
         var info = _registry.Get(serviceKey);
@@ -171,10 +173,11 @@ public class ScheduleController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Used by the notification recovery pipeline to rehydrate an in-progress card after a page
-    /// refresh. Read-only, so it stays <see cref="AuthorizeAttribute"/> (guest-readable) rather
-    /// than AdminOnly, matching the other recovery status endpoints.
+    /// refresh. It reports a run only an account holder can start or configure, so it carries the
+    /// same policy as the rest of the schedule surface rather than being readable by a guest. [52]
     /// </remarks>
     [HttpGet("{serviceKey}/run-status")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(ScheduleRunStatus), StatusCodes.Status200OK)]
     public ActionResult<ScheduleRunStatus> GetRunStatus(string serviceKey)
     {
@@ -194,7 +197,7 @@ public class ScheduleController : ControllerBase
     /// Reports whether this call actually armed a new run or collided with one already in
     /// progress, so a repeated click can be told apart from a real start.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("{serviceKey}/run")]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<ActionResult<QueuedOperationResponse>> TriggerRunAsync(string serviceKey)
@@ -233,7 +236,7 @@ public class ScheduleController : ControllerBase
     /// <summary>
     /// Resets all service schedules to their hardcoded defaults.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("reset")]
     public async Task<ActionResult> ResetToDefaultsAsync()
     {
@@ -245,7 +248,7 @@ public class ScheduleController : ControllerBase
     /// <summary>
     /// Triggers an immediate run of every registered service.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("run-all")]
     [ProducesResponseType(typeof(TriggerAllResponse), StatusCodes.Status202Accepted)]
     public async Task<ActionResult<TriggerAllResponse>> TriggerAllAsync()

@@ -47,7 +47,7 @@ public class DepotsController : ControllerBase
     /// <remarks>
     /// This is a proper resource status endpoint.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("status")]
     [Authorize]
     [ProducesResponseType(typeof(DepotFullStatusResponse), StatusCodes.Status200OK)]
@@ -91,7 +91,7 @@ public class DepotsController : ControllerBase
     /// requiresFullScan flag so a modal can be shown to the user. If incremental=false, the
     /// viability check is skipped and the endpoint proceeds directly to a full scan.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("rebuild")]
     [ProducesResponseType(typeof(DepotRebuildViabilityResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(DepotRebuildStartResponse), StatusCodes.Status202Accepted)]
@@ -161,7 +161,7 @@ public class DepotsController : ControllerBase
     /// <remarks>
     /// Progress is a sub-resource of the rebuild operation.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("rebuild/progress")]
     [ProducesResponseType(typeof(SteamPicsProgress), StatusCodes.Status200OK)]
     public ActionResult<SteamPicsProgress> GetRebuildProgress()
@@ -176,7 +176,7 @@ public class DepotsController : ControllerBase
     /// <remarks>
     /// DELETE is the proper method for cancelling or removing operations.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("rebuild")]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> CancelRebuildAsync()
@@ -199,7 +199,7 @@ public class DepotsController : ControllerBase
     /// <remarks>
     /// This is a query/check operation on the rebuild resource.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("rebuild/check-incremental")]
     [ProducesResponseType(typeof(IncrementalViabilityCheck), StatusCodes.Status200OK)]
     public async Task<ActionResult<IncrementalViabilityCheck>> CheckIncrementalAsync(CancellationToken cancellationToken)
@@ -215,7 +215,7 @@ public class DepotsController : ControllerBase
     /// POST is the proper method for importing or creating resources. The query parameter
     /// 'source' determines the import source: 'github' or 'local'.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("import")]
     [ProducesResponseType(typeof(DepotImportResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<DepotImportResponse>> ImportDepotMappingsAsync([FromQuery] string source, CancellationToken cancellationToken)
@@ -298,7 +298,7 @@ public class DepotsController : ControllerBase
     /// <remarks>
     /// PATCH is the proper method for applying updates to a resource collection.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPatch]
     [ProducesResponseType(typeof(DepotMappingApplyResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<DepotMappingApplyResponse>> ApplyDepotMappingsAsync(CancellationToken cancellationToken)
@@ -324,7 +324,7 @@ public class DepotsController : ControllerBase
     /// PUT is the proper method for updating configuration.
     /// </remarks>
     /// <param name="intervalHours">Interval in hours (supports fractional values like 0.00833 for 30 seconds). Use 0 to disable.</param>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPut("rebuild/config/interval")]
     [ProducesResponseType(typeof(CrawlIntervalResponse), StatusCodes.Status200OK)]
     public ActionResult<CrawlIntervalResponse> SetCrawlInterval([FromBody] double intervalHours)
@@ -375,7 +375,7 @@ public class DepotsController : ControllerBase
     /// mode that every scheduled run would have to skip.
     /// </remarks>
     /// <param name="mode">Mode value: true (incremental), false (full), or "github" (PICS updates only)</param>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPut("rebuild/config/mode")]
     [ProducesResponseType(typeof(CrawlModeResponse), StatusCodes.Status200OK)]
     public ActionResult<CrawlModeResponse> SetCrawlMode([FromBody] JsonElement mode)

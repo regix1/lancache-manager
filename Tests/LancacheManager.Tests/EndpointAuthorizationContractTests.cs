@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.SteamPrefill;
@@ -43,7 +44,7 @@ public sealed class EndpointAuthorizationContractTests
 
     private static readonly HashSet<string> KnownPolicies =
     [
-        "AdminOnly",
+        "AccountHolder",
         "GuestAllowed",
         "AnyPrefillAccess",
         .. PrefillClaims.Keys
@@ -75,13 +76,6 @@ public sealed class EndpointAuthorizationContractTests
         "AuthController.Login",
         "AuthController.StartGuest",
         "AuthController.Logout",
-        "AuthController.GetGuestStatus",
-        "AuthController.GetGuestConfig",
-        "AuthController.GetGuestPrefillConfig",
-        "AuthController.GetEpicPrefillConfig",
-        "AuthController.GetBattleNetPrefillConfig",
-        "AuthController.GetRiotPrefillConfig",
-        "AuthController.GetXboxPrefillConfig",
         "GameImagesController.GetHeaderImage",
         "GameImagesController.GetEpicHeaderImage",
         "GameImagesController.GetNameKeyedHeaderImage",
@@ -129,7 +123,9 @@ public sealed class EndpointAuthorizationContractTests
         "AuthController.SetRiotPrefillConfig",
         "AuthController.SetXboxPrefillConfig",
         "AuthController.ToggleGuestPrefill",
+        "CacheController.GetCacheInfo",
         "CacheController.GetCacheSize",
+        "CacheController.GetCacheSizeScanStatus",
         "CacheController.ClearAllCache",
         "CacheController.ClearDatasourceCache",
         "CacheController.GetActiveOperations",
@@ -147,10 +143,14 @@ public sealed class EndpointAuthorizationContractTests
         "CacheController.RemoveAllEvicted",
         "CacheController.RemoveEvictedForEntity",
         "CacheController.RemoveEvictedForNamedGame",
+        "ClientGroupsController.GetAll",
+        "ClientGroupsController.GetById",
+        "ClientGroupsController.GetMapping",
         "ClientGroupsController.Create",
         "ClientGroupsController.SetMembers",
         "ClientGroupsController.Update",
         "ClientGroupsController.Delete",
+        "ClientHostnamesController.GetHostnames",
         "ClientHostnamesController.ResolveAddresses",
         "ClientHostnamesController.SetEnabled",
         "DatasourceConfigurationController.SetCacheSize",
@@ -179,6 +179,9 @@ public sealed class EndpointAuthorizationContractTests
         "PrefillAdminController.BanByUsername",
         "PrefillAdminController.LiftBan",
         "PrefillAdminController.ClearAllCache",
+        "ScheduleController.GetAll",
+        "ScheduleController.GetByKey",
+        "ScheduleController.GetRunStatus",
         "ScheduleController.SetInterval",
         "ScheduleController.SetCustomSchedule",
         "ScheduleController.SetRunOnStartup",
@@ -192,6 +195,10 @@ public sealed class EndpointAuthorizationContractTests
         "SessionsController.Delete",
         "SessionsController.ResetToDefaults",
         "SessionsController.ClearGuests",
+        "StatsController.GetClients",
+        "StatsController.GetExcludedClients",
+        "StatsController.GetEvictionSettings",
+        "StatsController.EvictionScanStatus",
         "StatsController.UpdateExcludedClients",
         "StatsController.UpdateEvictionSettings",
         "StatsController.Reconcile",
@@ -294,6 +301,91 @@ public sealed class EndpointAuthorizationContractTests
         "NetworkDiagnostics",
         "DnsTestResult"
     ];
+
+    /// <summary>
+    /// The policy names live in three lists that have to stay identical: the definitions in
+    /// <c>Program.cs</c>, the array <c>Program.cs</c> walks when <c>Security:EnableAuthentication</c>
+    /// is false, and <see cref="KnownPolicies"/>. A name missing from that array still compiles and
+    /// still starts, and then every route carrying the policy answers 403 with authentication turned
+    /// off, because a named policy is not covered by the open Default/Fallback policies. [51]
+    /// </summary>
+    [Fact]
+    public void ThePolicyNamesAgreeAcrossTheirThreeLists()
+    {
+        var program = File.ReadAllText(Path.Combine(
+            EndpointAuthorizationHost.FindRepositoryRoot(), "Api", "LancacheManager", "Program.cs"));
+
+        var authorization = Regex.Match(
+            program,
+            @"builder\.Services\.AddAuthorization\(options =>\r?\n\{(?<body>.*?)\r?\n\}\);",
+            RegexOptions.Singleline,
+            TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            authorization.Success,
+            "the AddAuthorization block was not found in Program.cs - if it moved, point this test at "
+            + "its new home rather than deleting the check");
+
+        var body = authorization.Groups["body"].Value;
+
+        var openedWhenAuthenticationIsDisabled = Regex.Match(
+            body,
+            @"foreach \(var policyName in new\[\]\s*\{(?<names>[^}]*)\}\)",
+            RegexOptions.None,
+            TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            openedWhenAuthenticationIsDisabled.Success,
+            "the array of policy names opened when Security:EnableAuthentication is false was not found "
+            + "in Program.cs - if it moved, point this test at its new home rather than deleting the check");
+
+        var opened = PolicyNames(openedWhenAuthenticationIsDisabled.Groups["names"].Value, @"""(?<name>[^""]+)""");
+        var defined = PolicyNames(body, @"options\.AddPolicy\(""(?<name>[^""]+)""");
+        var known = KnownPolicies.OrderBy(name => name, StringComparer.Ordinal).ToArray();
+
+        Assert.True(
+            defined.SequenceEqual(known, StringComparer.Ordinal),
+            $"Program.cs defines [{string.Join(", ", defined)}] but {nameof(KnownPolicies)} lists "
+            + $"[{string.Join(", ", known)}]. Add the policy to both, or this contract stops covering it.");
+
+        Assert.True(
+            defined.SequenceEqual(opened, StringComparer.Ordinal),
+            $"Program.cs defines [{string.Join(", ", defined)}] but opens [{string.Join(", ", opened)}] "
+            + "when Security:EnableAuthentication is false. Every route carrying a policy missing from "
+            + "that array answers 403 with authentication turned off.");
+    }
+
+    /// <summary>
+    /// The policy is named for what it actually asks: whether the caller holds an account. Both account
+    /// roles are admitted; a guest holds a session with no account behind it and is refused, as is a
+    /// caller with no session at all. [50]
+    /// </summary>
+    [Fact]
+    public async Task TheAccountHolderPolicyAdmitsBothAccountRolesAndRefusesAGuest()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var client = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(client);
+
+        var services = host.Application.Services;
+        var policy = await RequiredPolicyAsync(services.GetRequiredService<IAuthorizationPolicyProvider>(), "AccountHolder");
+        var authorizationService = services.GetRequiredService<IAuthorizationService>();
+
+        Assert.True((await authorizationService.AuthorizeAsync(Principal(SessionType.Admin), null, policy)).Succeeded);
+        Assert.True((await authorizationService.AuthorizeAsync(Principal(SessionType.User), null, policy)).Succeeded);
+        Assert.False((await authorizationService.AuthorizeAsync(Principal(SessionType.Guest), null, policy)).Succeeded);
+        Assert.False((await authorizationService.AuthorizeAsync(Anonymous(), null, policy)).Succeeded);
+    }
+
+    private static string[] PolicyNames(string source, string pattern)
+    {
+        return Regex
+            .Matches(source, pattern, RegexOptions.None, TimeSpan.FromSeconds(5))
+            .Select(match => match.Groups["name"].Value)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+    }
 
     [Fact]
     public async Task RegisteredEndpointsHonorTheirAuthorizationMetadata()
@@ -918,7 +1010,7 @@ public sealed class EndpointAuthorizationContractTests
         {
             var documentationRoute = Assert.Single(routes, route => route.RoutePattern.RawText == routePattern);
             Assert.Equal(EndpointAccess.Admin, accessByEndpoint[documentationRoute]);
-            Assert.Contains("AdminOnly", documentationRoute.Metadata.GetOrderedMetadata<IAuthorizeData>().Select(item => item.Policy));
+            Assert.Contains("AccountHolder", documentationRoute.Metadata.GetOrderedMetadata<IAuthorizeData>().Select(item => item.Policy));
             Assert.Null(documentationRoute.Metadata.GetMetadata<IAllowAnonymous>());
         }
 
@@ -1004,12 +1096,12 @@ public sealed class EndpointAuthorizationContractTests
             .ToHashSet(StringComparer.Ordinal);
 
         var platformPrefill = policies.Overlaps(PrefillClaims.Keys);
-        if (policies.Contains("AdminOnly") && platformPrefill)
+        if (policies.Contains("AccountHolder") && platformPrefill)
         {
             return EndpointAccess.AdminPrefill;
         }
 
-        if (policies.Contains("AdminOnly"))
+        if (policies.Contains("AccountHolder"))
         {
             return EndpointAccess.Admin;
         }
@@ -1345,7 +1437,7 @@ internal sealed class EndpointAuthorizationHost : IDisposable
             .ToArray();
     }
 
-    private static string FindRepositoryRoot()
+    internal static string FindRepositoryRoot()
     {
         foreach (var startingDirectory in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
         {

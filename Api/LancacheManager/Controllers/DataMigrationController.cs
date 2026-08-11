@@ -14,7 +14,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/migration")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class DataMigrationController : ControllerBase
 {
     private static readonly SemaphoreSlim _importStartLock = new(1, 1);

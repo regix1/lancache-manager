@@ -15,7 +15,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/logs")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class LogsController : ControllerBase
 {
     private static readonly SemaphoreSlim _logProcessingStartLock = new(1, 1);

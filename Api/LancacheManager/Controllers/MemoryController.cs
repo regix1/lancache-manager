@@ -11,7 +11,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/memory")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class MemoryController : ControllerBase
 {
     private readonly IMemoryManager _memoryManager;

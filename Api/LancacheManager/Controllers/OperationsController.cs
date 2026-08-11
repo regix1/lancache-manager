@@ -12,7 +12,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/operations")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class OperationsController : ControllerBase
 {
     private readonly IUnifiedOperationTracker _operationTracker;

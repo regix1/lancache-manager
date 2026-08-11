@@ -74,7 +74,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Gets all prefill sessions (paginated).
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("sessions")]
     [ProducesResponseType(typeof(PrefillSessionsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<PrefillSessionsResponse>> GetSessionsAsync(
@@ -144,7 +144,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Gets all currently active (in-memory) sessions.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("sessions/active")]
     [ProducesResponseType(typeof(List<DaemonSessionDto>), StatusCodes.Status200OK)]
     public ActionResult<List<DaemonSessionDto>> GetActiveSessions()
@@ -162,7 +162,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Gets prefill history for a specific session.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("sessions/{sessionId}/history")]
     [ProducesResponseType(typeof(List<PrefillHistoryEntryDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<PrefillHistoryEntryDto>>> GetSessionHistoryAsync(string sessionId)
@@ -187,7 +187,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Terminates a specific session.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("sessions/{sessionId}/terminate")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageOnlyResponse>> TerminateAsync(
@@ -228,7 +228,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Terminates all active sessions.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("sessions/terminate-all")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageOnlyResponse>> TerminateAllAsync([FromBody] TerminateSessionRequest? request = null)
@@ -286,7 +286,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Gets all active bans.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("bans")]
     [ProducesResponseType(typeof(List<BannedPrefillUserDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<BannedPrefillUserDto>>> GetBansAsync([FromQuery] bool includeLifted = false)
@@ -318,7 +318,7 @@ public class PrefillAdminController : ControllerBase
     /// <remarks>
     /// Looks up the username from the session.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("bans/by-session/{sessionId}")]
     [ProducesResponseType(typeof(BannedPrefillUserDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<BannedPrefillUserDto>> BanBySessionAsync(
@@ -355,7 +355,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Bans a prefill user by username.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("bans")]
     [ProducesResponseType(typeof(BannedPrefillUserDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<BannedPrefillUserDto>> BanByUsernameAsync([FromBody] BanByUsernameRequest request)
@@ -384,7 +384,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Lifts a ban.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("bans/{banId}/lift")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageOnlyResponse>> LiftBanAsync(long banId)
@@ -432,7 +432,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Clears the entire prefill cache.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("cache")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageOnlyResponse>> ClearAllCacheAsync()

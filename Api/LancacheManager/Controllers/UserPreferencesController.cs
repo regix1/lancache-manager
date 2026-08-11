@@ -187,7 +187,7 @@ public class UserPreferencesController : ControllerBase
     /// <summary>
     /// Gets any session's preferences by ID (admin only), for the management screens.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("session/{sessionId}")]
     [ProducesResponseType(typeof(UserPreferencesDto), StatusCodes.Status200OK)]
     public ActionResult<UserPreferencesDto> GetForSession(Guid sessionId)
@@ -208,7 +208,7 @@ public class UserPreferencesController : ControllerBase
     /// Unlike <see cref="SavePreferencesAsync"/>, admin-only columns are not redacted since the
     /// caller is already an admin.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPut("session/{sessionId}")]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> SaveForSessionAsync(Guid sessionId, [FromBody] UserPreferencesDto preferences)

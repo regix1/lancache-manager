@@ -584,9 +584,9 @@ public class AuthController : ControllerBase
     /// Returns whether guest mode is locked and the duration a new guest session would get.
     /// </summary>
     /// <remarks>
-    /// Anonymous so the login screen can show this before the visitor has any session at all.
+    /// Requires a session. The login screen no longer reads it, so it advertises the guest-mode
+    /// settings to callers who already hold a session instead of to anyone at all. [55]
     /// </remarks>
-    [AllowAnonymous]
     [HttpGet("guest/status")]
     [ProducesResponseType(typeof(GuestStatusResponse), StatusCodes.Status200OK)]
     public ActionResult<GuestStatusResponse> GetGuestStatus()
@@ -604,9 +604,9 @@ public class AuthController : ControllerBase
     /// Returns the guest-mode duration and lock state, for the guest onboarding screen.
     /// </summary>
     /// <remarks>
-    /// Anonymous so it can be read before the visitor has any session.
+    /// Any session may read it, a guest's included, so the guest onboarding screen shows these
+    /// settings once the visitor has signed in rather than to anyone who can reach the port. [55]
     /// </remarks>
-    [AllowAnonymous]
     [HttpGet("guest/config")]
     [ProducesResponseType(typeof(GuestConfigResponse), StatusCodes.Status200OK)]
     public ActionResult<GuestConfigResponse> GetGuestConfig()
@@ -625,7 +625,7 @@ public class AuthController : ControllerBase
     /// Also reports whether the value came from a UI override or the environment/appsettings
     /// default.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("guest/config/duration")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     [ProducesResponseType(typeof(GuestDurationResponse), StatusCodes.Status200OK)]
@@ -647,7 +647,7 @@ public class AuthController : ControllerBase
     /// A null <c>DurationHours</c> clears the override and reverts to the environment/appsettings
     /// default; existing guest sessions keep whatever duration they were granted with.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("guest/config/duration")]
     [ProducesResponseType(typeof(GuestDurationResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<GuestDurationResponse>> SetGuestDurationAsync([FromBody] GuestDurationRequest request)
@@ -699,7 +699,7 @@ public class AuthController : ControllerBase
     /// <remarks>
     /// While locked, no new guest sessions can be started; existing guest sessions are unaffected.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("guest/config/lock")]
     [ProducesResponseType(typeof(GuestLockResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<GuestLockResponse>> SetGuestLockAsync([FromBody] GuestLockRequest request)
@@ -726,10 +726,9 @@ public class AuthController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Also includes the Epic and Battle.net enabled flags that predate those services getting
-    /// their own guest-prefill config endpoints below. Anonymous so the guest onboarding screen
-    /// can read it before the visitor has a session.
+    /// their own guest-prefill config endpoints below. Any session may read it, a guest's
+    /// included, once the visitor has signed in. [55]
     /// </remarks>
-    [AllowAnonymous]
     [HttpGet("guest/prefill/config")]
     [ProducesResponseType(typeof(GuestPrefillConfigResponse), StatusCodes.Status200OK)]
     public ActionResult<GuestPrefillConfigResponse> GetGuestPrefillConfig()
@@ -756,7 +755,7 @@ public class AuthController : ControllerBase
     /// service on that was off grants it immediately to every eligible active guest session
     /// instead of waiting for their next login.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("guest/prefill/config")]
     [ProducesResponseType(typeof(SetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SetGuestPrefillConfigResponse>> SetGuestPrefillConfigAsync([FromBody] GuestPrefillConfigRequest request)
@@ -853,9 +852,9 @@ public class AuthController : ControllerBase
     /// Returns the Epic guest-prefill defaults.
     /// </summary>
     /// <remarks>
-    /// Anonymous so the guest onboarding screen can read it before the visitor has a session.
+    /// Any session may read it, a guest's included, so the guest onboarding screen shows these
+    /// defaults once the visitor has signed in rather than to anyone who can reach the port. [55]
     /// </remarks>
-    [AllowAnonymous]
     [HttpGet("guest/epic-prefill/config")]
     [ProducesResponseType(typeof(EpicGuestPrefillConfigResponse), StatusCodes.Status200OK)]
     public ActionResult<EpicGuestPrefillConfigResponse> GetEpicPrefillConfig()
@@ -875,7 +874,7 @@ public class AuthController : ControllerBase
     /// Turning it on when it was off grants Epic prefill immediately to every eligible active
     /// guest session instead of waiting for their next login.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("guest/epic-prefill/config")]
     [ProducesResponseType(typeof(SetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SetGuestPrefillConfigResponse>> SetEpicPrefillConfigAsync([FromBody] EpicGuestPrefillConfigRequest request)
@@ -935,9 +934,9 @@ public class AuthController : ControllerBase
     /// Returns the Battle.net guest-prefill defaults.
     /// </summary>
     /// <remarks>
-    /// Anonymous so the guest onboarding screen can read it before the visitor has a session.
+    /// Any session may read it, a guest's included, so the guest onboarding screen shows these
+    /// defaults once the visitor has signed in rather than to anyone who can reach the port. [55]
     /// </remarks>
-    [AllowAnonymous]
     [HttpGet("guest/battlenet-prefill/config")]
     [ProducesResponseType(typeof(BattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
     public ActionResult<BattleNetGuestPrefillConfigResponse> GetBattleNetPrefillConfig()
@@ -956,7 +955,7 @@ public class AuthController : ControllerBase
     /// Turning it on when it was off grants Battle.net prefill immediately to every eligible
     /// active guest session instead of waiting for their next login.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("guest/battlenet-prefill/config")]
     [ProducesResponseType(typeof(SetBattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SetBattleNetGuestPrefillConfigResponse>> SetBattleNetPrefillConfigAsync([FromBody] BattleNetGuestPrefillConfigRequest request)
@@ -1013,9 +1012,9 @@ public class AuthController : ControllerBase
     /// Returns the Riot guest-prefill defaults.
     /// </summary>
     /// <remarks>
-    /// Anonymous so the guest onboarding screen can read it before the visitor has a session.
+    /// Any session may read it, a guest's included, so the guest onboarding screen shows these
+    /// defaults once the visitor has signed in rather than to anyone who can reach the port. [55]
     /// </remarks>
-    [AllowAnonymous]
     [HttpGet("guest/riot-prefill/config")]
     [ProducesResponseType(typeof(BattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
     public ActionResult<BattleNetGuestPrefillConfigResponse> GetRiotPrefillConfig()
@@ -1034,7 +1033,7 @@ public class AuthController : ControllerBase
     /// Turning it on when it was off grants Riot prefill immediately to every eligible active
     /// guest session instead of waiting for their next login.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("guest/riot-prefill/config")]
     [ProducesResponseType(typeof(SetBattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SetBattleNetGuestPrefillConfigResponse>> SetRiotPrefillConfigAsync([FromBody] RiotGuestPrefillConfigRequest request)
@@ -1091,9 +1090,9 @@ public class AuthController : ControllerBase
     /// Returns the Xbox guest-prefill defaults.
     /// </summary>
     /// <remarks>
-    /// Anonymous so the guest onboarding screen can read it before the visitor has a session.
+    /// Any session may read it, a guest's included, so the guest onboarding screen shows these
+    /// defaults once the visitor has signed in rather than to anyone who can reach the port. [55]
     /// </remarks>
-    [AllowAnonymous]
     [HttpGet("guest/xbox-prefill/config")]
     [ProducesResponseType(typeof(EpicGuestPrefillConfigResponse), StatusCodes.Status200OK)]
     public ActionResult<EpicGuestPrefillConfigResponse> GetXboxPrefillConfig()
@@ -1113,7 +1112,7 @@ public class AuthController : ControllerBase
     /// Turning it on when it was off grants Xbox prefill immediately to every eligible active
     /// guest session instead of waiting for their next login.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("guest/xbox-prefill/config")]
     [ProducesResponseType(typeof(SetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SetGuestPrefillConfigResponse>> SetXboxPrefillConfigAsync([FromBody] XboxGuestPrefillConfigRequest request)
@@ -1175,7 +1174,7 @@ public class AuthController : ControllerBase
     /// their grant to expire or changing the site-wide default.
     /// </remarks>
     /// <param name="service">"steam" (default) | "epic" | "battlenet" | "riot" | "xbox".</param>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("guest/prefill/toggle/{sessionId:guid}")]
     [ProducesResponseType(typeof(GuestPrefillToggleResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<GuestPrefillToggleResponse>> ToggleGuestPrefillAsync(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")

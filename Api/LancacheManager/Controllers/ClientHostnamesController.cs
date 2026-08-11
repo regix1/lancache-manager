@@ -55,6 +55,7 @@ public class ClientHostnamesController : ControllerBase
     /// <c>Enabled = false</c> with no lookups performed when the hostname service is switched off.
     /// </remarks>
     [HttpGet("")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(ClientHostnamesResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ClientHostnamesResponse>> GetHostnamesAsync(CancellationToken ct)
     {
@@ -111,7 +112,7 @@ public class ClientHostnamesController : ControllerBase
     /// out to the LAN's DNS server.
     /// </remarks>
     [HttpPost("resolve")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(ResolveClientAddressResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<ResolveClientAddressResponse>> ResolveAddressesAsync(
         [FromBody] ResolveClientAddressRequest request,
@@ -146,7 +147,7 @@ public class ClientHostnamesController : ControllerBase
     /// clears the ones it already showed.
     /// </remarks>
     [HttpPost("enabled")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(SetClientHostnameLookupResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SetClientHostnameLookupResponse>> SetEnabledAsync(
         [FromBody] SetClientHostnameLookupRequest request)

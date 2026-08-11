@@ -100,6 +100,7 @@ public class CacheController : ControllerBase
     /// filesystem statvfs call.
     /// </remarks>
     [HttpGet]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(CacheInfo), StatusCodes.Status200OK)]
     public async Task<ActionResult<CacheInfo>> GetCacheInfoAsync()
     {
@@ -117,7 +118,7 @@ public class CacheController : ControllerBase
     /// </remarks>
     /// <param name="datasource">When set, scopes the read to one datasource instead of the combined total; per-datasource reads are always computed live.</param>
     /// <param name="force">Starts a queued full rescan instead of reading the cached result. Ignored when <paramref name="datasource"/> is set.</param>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("size")]
     [Authorize]
     [ProducesResponseType(typeof(CacheSizeResponse), StatusCodes.Status200OK)]
@@ -186,6 +187,7 @@ public class CacheController : ControllerBase
     /// eviction scan.
     /// </remarks>
     [HttpGet("size/scan/status")]
+    [Authorize(Policy = "AccountHolder")]
     // Kept as an anonymous body with lowercase C# property names, not the usual named-type
     // pattern, because RecoveryStatusNotificationFlagTests reads these fields via direct
     // reflection on the returned object's own property names rather than through JSON
@@ -246,7 +248,7 @@ public class CacheController : ControllerBase
     /// writable, rather than failing partway through. A conflicting clear or reset is never
     /// rejected outright; it is parked on the wait queue and starts once the conflict clears.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
@@ -312,7 +314,7 @@ public class CacheController : ControllerBase
     /// directory is not writable. A conflicting clear or reset is never rejected outright; it is
     /// parked on the wait queue and starts once the conflict clears.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("datasources/{name}")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
@@ -382,7 +384,7 @@ public class CacheController : ControllerBase
     /// Covers both all-datasources and per-datasource clears, active or recently finished. Used
     /// for recovery so a page refresh mid-clear can resume showing progress.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("operations")]
     [ProducesResponseType(typeof(ActiveOperationsResponse), StatusCodes.Status200OK)]
     public IActionResult GetActiveOperations()
@@ -398,7 +400,7 @@ public class CacheController : ControllerBase
     /// <remarks>
     /// Returns immediately with cached results (if available) without running a new scan.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("corruption/cached")]
     [ProducesResponseType(typeof(CachedCorruptionResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetCachedCorruptionAsync(
@@ -459,7 +461,7 @@ public class CacheController : ControllerBase
     /// <remarks>
     /// History responses are explicitly read-only and never feed removal endpoints.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("corruption/history")]
     [ProducesResponseType(typeof(CorruptionScanHistoryResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetCorruptionHistoryAsync(
@@ -475,7 +477,7 @@ public class CacheController : ControllerBase
     /// <summary>
     /// Loads validated, read-only evidence for one retained snapshot and service.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("corruption/history/{scanId:guid}/services/{service}")]
     [ProducesResponseType(typeof(List<CorruptionCandidateResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetCorruptionHistoryDetailsAsync(
@@ -506,7 +508,7 @@ public class CacheController : ControllerBase
     /// <remarks>
     /// This never removes cache files or promotes older history.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("corruption/history/{scanId:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeleteCorruptionHistoryAsync(
@@ -568,7 +570,7 @@ public class CacheController : ControllerBase
     /// <remarks>
     /// Returns immediately with an operation ID. Results are sent via SignalR when complete.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpPost("corruption/detect")]
     [ProducesResponseType(typeof(CorruptionDetectionStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
@@ -638,7 +640,7 @@ public class CacheController : ControllerBase
     /// <summary>
     /// Returns the status of the active corruption detection operation.
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("corruption/detect/status")]
     [ProducesResponseType(typeof(CorruptionDetectionStatusResponse), StatusCodes.Status200OK)]
     public IActionResult GetCorruptionDetectionStatus()
@@ -688,7 +690,7 @@ public class CacheController : ControllerBase
     /// <remarks>
     /// Returns the exact stored candidates from the requested completed scan.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("services/{service}/corruption")]
     [ProducesResponseType(typeof(List<CorruptionCandidateResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetCorruptionDetailsAsync(
@@ -721,7 +723,7 @@ public class CacheController : ControllerBase
     /// since the scan.
     /// </remarks>
     /// <param name="candidateIds">Comma-separated candidate IDs to remove; omit to remove every candidate the scan found for this service.</param>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("services/{service}/corruption")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
@@ -861,7 +863,7 @@ public class CacheController : ControllerBase
     /// <remarks>
     /// Queries the cached corruption detection results and processes each service sequentially.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("corruption")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status202Accepted)]
@@ -1798,7 +1800,7 @@ public class CacheController : ControllerBase
     /// endpoints this is not scan-bound, it deletes everything currently cached for the service,
     /// corrupted or not.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("services/{name}")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
@@ -1973,7 +1975,7 @@ public class CacheController : ControllerBase
     /// SignalR events either, so listing them here would resurrect a notification card for a run
     /// that was never meant to show one.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpGet("removals/active")]
     [ProducesResponseType(typeof(AllActiveRemovalsResponse), StatusCodes.Status200OK)]
     public IActionResult GetAllActiveRemovals()
@@ -2090,7 +2092,7 @@ public class CacheController : ControllerBase
     /// Returns 202 Accepted with { operationId }. Returns 409 Conflict if another eviction
     /// removal is already in progress.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("evicted")]
     [ProducesResponseType(typeof(EvictionRemovalStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
@@ -2139,7 +2141,7 @@ public class CacheController : ControllerBase
     /// Returns 202 Accepted with { operationId, scope, key }. Returns 409 Conflict if a global
     /// eviction removal is already in progress.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("evicted/{scope}")]
     [ProducesResponseType(typeof(EvictionRemovalEntityStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
@@ -2280,7 +2282,7 @@ public class CacheController : ControllerBase
     /// Returns 202 Accepted with { operationId, scope = "named", service, gameName }. Returns 202
     /// Accepted with a queued operationId if a conflicting removal is already in progress.
     /// </remarks>
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [HttpDelete("evicted/named/{service}/{gameName}")]
     [ProducesResponseType(typeof(EvictionRemovalNamedGameStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]

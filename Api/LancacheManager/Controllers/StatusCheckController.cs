@@ -15,7 +15,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/status-check")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class StatusCheckController : ControllerBase
 {
     private readonly IStatusCheckService _statusCheckService;

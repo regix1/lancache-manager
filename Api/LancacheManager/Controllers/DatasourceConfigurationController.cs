@@ -41,7 +41,7 @@ public class DatasourceConfigurationController : ControllerBase
     /// </remarks>
     /// <param name="datasourceName">Name of a configured datasource; an unknown name is a 404.</param>
     [HttpPut("{datasourceName}/cache-size")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Policy = "AccountHolder")]
     [ProducesResponseType(typeof(DatasourceCacheSizeResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<DatasourceCacheSizeResponse>> SetCacheSizeAsync(
         string datasourceName,

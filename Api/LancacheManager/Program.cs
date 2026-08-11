@@ -611,12 +611,12 @@ builder.Services.AddAuthorization(options =>
 
         // Named policies registered via [Authorize(Policy = "...")] use RequireClaim/RequireAssertion
         // and are NOT covered by Default/FallbackPolicy. With auth disabled an anonymous caller has no
-        // SessionType/*PrefillActive claims, so every [Authorize(Policy="AdminOnly")] endpoint would
+        // SessionType/*PrefillActive claims, so every [Authorize(Policy="AccountHolder")] endpoint would
         // still 403. Open every named policy too so disabling auth truly grants access to ALL endpoints,
         // then return so the secure named-policy definitions below do NOT re-run and override these.
         foreach (var policyName in new[]
                  {
-                     "AdminOnly",
+                     "AccountHolder",
                      "GuestAllowed",
                      "SteamPrefillAccess",
                      "EpicPrefillAccess",
@@ -643,7 +643,7 @@ builder.Services.AddAuthorization(options =>
     // Both claim values an account holder can present. CreateTicket lowercases the session type
     // (SessionAuthenticationHandler.cs:162), and a user is answered like an admin everywhere
     // (SessionTypeExtensions.cs:13). A guest presents "guest" and is still refused. [12]
-    options.AddPolicy("AdminOnly", policy =>
+    options.AddPolicy("AccountHolder", policy =>
         policy.RequireClaim("SessionType", "admin", "user"));
 
     options.AddPolicy("GuestAllowed", policy =>
@@ -1245,7 +1245,7 @@ app.UseAuthorization();
 // does not reject it; this middleware then enforces RequireAuthForMetrics when enabled.
 app.UseMiddleware<MetricsAuthenticationMiddleware>();
 
-app.MapOpenApi().RequireAuthorization("AdminOnly");
+app.MapOpenApi().RequireAuthorization("AccountHolder");
 app.MapScalarApiReference("/scalar", options =>
 {
     options.WithOpenApiRoutePattern("/openapi/{documentName}.json");
@@ -1268,7 +1268,7 @@ app.MapScalarApiReference("/scalar", options =>
     // the ones that change something.
     options.SortOperationsByMethod();
 })
-    .RequireAuthorization("AdminOnly")
+    .RequireAuthorization("AccountHolder")
     .Finally(endpointBuilder =>
     {
         for (var index = endpointBuilder.Metadata.Count - 1; index >= 0; index--)

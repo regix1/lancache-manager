@@ -14,7 +14,7 @@ namespace LancacheManager.Controllers;
 [ApiController]
 [Route("api/gc")]
 [RequiresGcManagement]
-[Authorize(Policy = "AdminOnly")]
+[Authorize(Policy = "AccountHolder")]
 public class GcController : ControllerBase
 {
     private readonly SettingsService _gcSettingsService;

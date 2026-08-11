@@ -563,7 +563,7 @@ public sealed class ClientHostnameServiceTests
             .GetCustomAttributes<AuthorizeAttribute>()
             .Select(a => a.Policy)
             .ToList();
-        Assert.Equal(new[] { "AdminOnly" }, togglePolicies);
+        Assert.Equal(new[] { "AccountHolder" }, togglePolicies);
     }
 
     [Fact]

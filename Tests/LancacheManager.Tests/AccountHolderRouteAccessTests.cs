@@ -193,6 +193,138 @@ public sealed class AccountHolderRouteAccessTests
             + body.GetProperty("guestCount").GetInt32());
     }
 
+    /// <summary>
+    /// The client-list, cache-health and schedule reads are refused to a guest and answered to a user,
+    /// and the LAN event reads stay open to a guest. One list drives both callers, so closing a read to a
+    /// guest without leaving it reachable by a user fails here rather than in the browser. [52][53][54]
+    /// </summary>
+    [Fact]
+    public async Task TheClosedReadsRefuseAGuestAndAnswerAUserWhileTheEventReadsStayOpen()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+
+        using var userClient = await CreateUserClientAsync(host);
+        using var guestClient = await CreateGuestClientAsync(host);
+
+        // The routes that carry an id are driven against rows that exist, so a 404 cannot be read as the
+        // 200 a user is owed. Both rows are created through the API by the user whose access is under test.
+        using var groupResponse = await userClient.PostAsJsonAsync(
+            "/api/client-groups",
+            new CreateClientGroupRequest { Nickname = $"route-access-{Guid.NewGuid():N}" });
+        Assert.Equal(HttpStatusCode.Created, groupResponse.StatusCode);
+        var groupId = (await groupResponse.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("id").GetInt64();
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        using var eventResponse = await userClient.PostAsJsonAsync(
+            "/api/events",
+            new CreateEventRequest { Name = $"route-access-{Guid.NewGuid():N}", StartTime = now, EndTime = now + 3600 });
+        Assert.Equal(HttpStatusCode.Created, eventResponse.StatusCode);
+        var eventId = (await eventResponse.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("id").GetInt64();
+
+        var scheduleKey = (await userClient.GetFromJsonAsync<JsonElement>("/api/system/schedules"))
+            .EnumerateArray()
+            .Select(entry => entry.GetProperty("key").GetString())
+            .First(key => !string.IsNullOrEmpty(key));
+
+        // Six client-list reads, four cache-health reads and three schedule reads.
+        string[] closedToAGuest =
+        [
+            "/api/client-groups",
+            $"/api/client-groups/{groupId}",
+            "/api/client-groups/mapping",
+            "/api/clients/hostnames",
+            "/api/stats/clients",
+            "/api/stats/exclusions",
+            "/api/cache",
+            "/api/cache/size/scan/status",
+            "/api/stats/eviction",
+            "/api/stats/eviction/scan/status",
+            "/api/system/schedules",
+            $"/api/system/schedules/{scheduleKey}",
+            $"/api/system/schedules/{scheduleKey}/run-status"
+        ];
+
+        // The LAN event calendar is the read a guest keeps.
+        string[] openToAGuest =
+        [
+            "/api/events",
+            "/api/events/active",
+            "/api/events/calendar",
+            $"/api/events/{eventId}",
+            $"/api/events/{eventId}/downloads"
+        ];
+
+        Assert.Equal(13, closedToAGuest.Length);
+        Assert.Equal(5, openToAGuest.Length);
+
+        foreach (var route in closedToAGuest)
+        {
+            using var guestResponse = await guestClient.GetAsync(route);
+            using var userResponse = await userClient.GetAsync(route);
+
+            Assert.True(
+                guestResponse.StatusCode == HttpStatusCode.Forbidden,
+                $"GET {route} answered a guest {(int)guestResponse.StatusCode}, not 403.");
+            Assert.True(
+                userResponse.StatusCode == HttpStatusCode.OK,
+                $"GET {route} answered a user {(int)userResponse.StatusCode}, not 200.");
+        }
+
+        foreach (var route in openToAGuest)
+        {
+            using var guestResponse = await guestClient.GetAsync(route);
+
+            Assert.True(
+                guestResponse.StatusCode == HttpStatusCode.OK,
+                $"GET {route} answered a guest {(int)guestResponse.StatusCode}, not 200.");
+        }
+    }
+
+    /// <summary>
+    /// The guest-config reads that used to answer anyone who could reach the port now need a session, and
+    /// a guest's session is enough for them. [55]
+    /// </summary>
+    [Fact]
+    public async Task TheGuestConfigReadsNeedASessionAndAnswerAGuestThatHasOne()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+
+        using var anonymousClient = host.Application.CreateClient();
+        using var guestClient = await CreateGuestClientAsync(host);
+
+        string[] guestConfigReads =
+        [
+            "/api/auth/guest/status",
+            "/api/auth/guest/config",
+            "/api/auth/guest/prefill/config",
+            "/api/auth/guest/epic-prefill/config",
+            "/api/auth/guest/battlenet-prefill/config",
+            "/api/auth/guest/riot-prefill/config",
+            "/api/auth/guest/xbox-prefill/config"
+        ];
+
+        Assert.Equal(7, guestConfigReads.Length);
+
+        foreach (var route in guestConfigReads)
+        {
+            using var anonymousResponse = await anonymousClient.GetAsync(route);
+            using var guestResponse = await guestClient.GetAsync(route);
+
+            Assert.True(
+                anonymousResponse.StatusCode == HttpStatusCode.Unauthorized,
+                $"GET {route} answered a caller with no session {(int)anonymousResponse.StatusCode}, not 401.");
+            Assert.True(
+                guestResponse.StatusCode == HttpStatusCode.OK,
+                $"GET {route} answered a guest {(int)guestResponse.StatusCode}, not 200.");
+        }
+    }
+
     private static void AssertSamePrefillAccess(JsonElement admin, JsonElement user, string source)
     {
         foreach (var field in PrefillEnabledFields)
@@ -296,6 +428,37 @@ public sealed class AccountHolderRouteAccessTests
         try
         {
             await PromoteToUserAsync(host, await SessionIdAsync(client));
+            return client;
+        }
+        catch
+        {
+            client.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// A client carrying a real guest session's cookie. The session is minted by the service the guest
+    /// sign-in endpoint calls, and the cookie is round-tripped through the writer so the cookie name stays
+    /// out of this file.
+    /// </summary>
+    private static async Task<HttpClient> CreateGuestClientAsync(EndpointAuthorizationHost host)
+    {
+        var client = host.Application.CreateClient();
+
+        try
+        {
+            using var scope = host.Application.Services.CreateScope();
+            var sessions = scope.ServiceProvider.GetRequiredService<SessionService>();
+            var guest = await sessions.CreateGuestSessionAsync(new DefaultHttpContext());
+            Assert.NotNull(guest);
+
+            var cookieWriter = new DefaultHttpContext();
+            sessions.SetSessionCookie(cookieWriter, guest!.Value.RawToken, DateTime.UtcNow.AddDays(1));
+            client.DefaultRequestHeaders.Add(
+                "Cookie",
+                cookieWriter.Response.Headers.SetCookie.ToString().Split(';')[0]);
+
             return client;
         }
         catch

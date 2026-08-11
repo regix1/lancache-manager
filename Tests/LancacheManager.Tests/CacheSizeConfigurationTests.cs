@@ -143,7 +143,7 @@ public sealed class CacheSizeConfigurationTests
             .GetMethod(nameof(DatasourceConfigurationController.SetCacheSizeAsync))!;
 
         var authorize = method.GetCustomAttributes<AuthorizeAttribute>()
-            .Single(attribute => attribute.Policy == "AdminOnly");
+            .Single(attribute => attribute.Policy == "AccountHolder");
         var route = method.GetCustomAttribute<HttpPutAttribute>();
 
         Assert.NotNull(authorize);
