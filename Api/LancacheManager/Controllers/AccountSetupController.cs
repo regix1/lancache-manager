@@ -64,14 +64,24 @@ public class AccountSetupController : ControllerBase
         {
             // A missing key and a wrong one are answered identically. Nothing here can tell the two
             // callers apart usefully, and the endpoint is reachable by anyone who can reach the port.
-            return StatusCode(StatusCodes.Status401Unauthorized, ApiResponse.Error("A valid API key is required"));
+            return StatusCode(
+                StatusCodes.Status401Unauthorized,
+                new AccountSetupRefusalResponse
+                {
+                    StageKey = AccountSetupRefusalResponse.ApiKeyRequired,
+                    Error = "A valid API key is required"
+                });
         }
 
         if (!_claimWindow.IsOpen)
         {
             return StatusCode(
                 StatusCodes.Status403Forbidden,
-                ApiResponse.Error("The window for creating the first account has closed. Restart the application to reopen it."));
+                new AccountSetupRefusalResponse
+                {
+                    StageKey = AccountSetupRefusalResponse.ClaimWindowClosed,
+                    Error = "The window for creating the first account has closed. Restart the application to reopen it."
+                });
         }
 
         await using var context = await _dbContextFactory.CreateDbContextAsync();
@@ -80,7 +90,11 @@ public class AccountSetupController : ControllerBase
         // Two requests can both pass it, which is why the insert below is allowed to be the decider.
         if (await context.UserAccounts.AnyAsync())
         {
-            return Conflict(ApiResponse.Error("An account already exists on this installation"));
+            return Conflict(new AccountSetupRefusalResponse
+            {
+                StageKey = AccountSetupRefusalResponse.AccountExists,
+                Error = "An account already exists on this installation"
+            });
         }
 
         var account = new UserAccount
@@ -112,7 +126,11 @@ public class AccountSetupController : ControllerBase
             }
 
             _logger.LogWarning(ex, "A concurrent request created the first account; this one was refused");
-            return Conflict(ApiResponse.Error("An account already exists on this installation"));
+            return Conflict(new AccountSetupRefusalResponse
+            {
+                StageKey = AccountSetupRefusalResponse.AccountExists,
+                Error = "An account already exists on this installation"
+            });
         }
 
         // No actor: the caller proved the API key and has neither an account nor, necessarily, a

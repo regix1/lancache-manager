@@ -889,6 +889,26 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+    // A rejected request otherwise completes with no content at all, so a caller that reads the
+    // response as JSON reads a parse failure instead of the reason it was refused. Set on the
+    // options rather than on a policy, so every policy registered here answers the same way. [87]
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        // A fixed window reports how long is left before it reopens. A limiter that reports nothing
+        // leaves the header off rather than sending a guess the caller would wait on.
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            context.HttpContext.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds))
+                .ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        await context.HttpContext.Response.WriteAsJsonAsync(new RateLimitExceededResponse
+        {
+            StageKey = "errors.rateLimit.tooManyRequests",
+            Error = "Too many requests from this address. Wait for the limit to reset and try again."
+        }, cancellationToken);
+    };
+
     // Rate limit for authentication endpoints (login, guest sessions, key regeneration, setup repair)
     options.AddPolicy("auth", context => CallerWindow(context, permitLimit: 5, TimeSpan.FromMinutes(1)));
 

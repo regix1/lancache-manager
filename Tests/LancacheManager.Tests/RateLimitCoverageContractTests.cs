@@ -1,5 +1,8 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
+using System.Text.Json;
+using System.Threading.RateLimiting;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -9,6 +12,7 @@ using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Tests;
 
@@ -176,6 +180,124 @@ public sealed class RateLimitCoverageContractTests
     }
 
     /// <summary>
+    /// A refused request answers with the same JSON shape as every other refusal in this API. The
+    /// limiter writes no body on its own, so a caller that reads the response as JSON reads a parse
+    /// failure where the reason should be. [87]
+    /// </summary>
+    [Fact]
+    public async Task ThrottledRequestsAnswerWithAJsonBody()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var client = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(client);
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await SendAsync(host.Application.Server, "10.0.5.1", "POST", "/api/auth/guest");
+        }
+
+        var throttled = await SendAndReadAsync(host.Application.Server, "10.0.5.1", "/api/auth/guest");
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, throttled.StatusCode);
+        Assert.StartsWith("application/json", throttled.ContentType ?? string.Empty, StringComparison.Ordinal);
+
+        using var document = JsonDocument.Parse(throttled.Body);
+
+        Assert.Equal(
+            "errors.rateLimit.tooManyRequests",
+            document.RootElement.GetProperty("stageKey").GetString());
+
+        Assert.NotEmpty(document.RootElement.GetProperty("error").GetString() ?? string.Empty);
+
+        // The fixed window reports the time left before it reopens, so the caller is told how long
+        // to wait instead of retrying into the same refusal.
+        Assert.NotEmpty(throttled.RetryAfter);
+        Assert.InRange(int.Parse(throttled.RetryAfter, CultureInfo.InvariantCulture), 1, 60);
+    }
+
+    /// <summary>
+    /// The body is written once on the limiter options rather than on a policy, so the steam-auth
+    /// policy answers exactly as the auth policy does and a policy added later inherits it without
+    /// anyone remembering to wire it up. [87b]
+    /// </summary>
+    [Fact]
+    public async Task EveryLimiterPolicyAnswersWithTheSameBody()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var client = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(client);
+
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            await SendAsync(host.Application.Server, "10.0.6.1", "POST", "/api/steam-auth/login");
+        }
+
+        var throttled = await SendAndReadAsync(host.Application.Server, "10.0.6.1", "/api/steam-auth/login");
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, throttled.StatusCode);
+
+        using var document = JsonDocument.Parse(throttled.Body);
+
+        Assert.Equal(
+            "errors.rateLimit.tooManyRequests",
+            document.RootElement.GetProperty("stageKey").GetString());
+    }
+
+    /// <summary>
+    /// The writer sits on the limiter options rather than on a policy, and a limiter that reports no
+    /// retry time leaves the header off instead of sending a guess the caller would wait on. Both
+    /// fixed windows registered today report one, so this is the only way to reach that path. [87]
+    /// </summary>
+    [Fact]
+    public async Task ARefusalWithNoRetryTimeSendsNoRetryAfterHeader()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var client = host.Application.CreateClient();
+
+        await host.AssertIsolationAsync(client);
+
+        var onRejected = host.Application.Services
+            .GetRequiredService<IOptions<RateLimiterOptions>>().Value.OnRejected;
+
+        Assert.NotNull(onRejected);
+
+        var body = new MemoryStream();
+        var context = new DefaultHttpContext { RequestServices = host.Application.Services };
+        context.Response.Body = body;
+
+        await onRejected(
+            new OnRejectedContext { HttpContext = context, Lease = new LeaseWithoutRetryTime() },
+            CancellationToken.None);
+
+        Assert.False(context.Response.Headers.ContainsKey("Retry-After"));
+
+        using var document = JsonDocument.Parse(Encoding.UTF8.GetString(body.ToArray()));
+
+        Assert.Equal(
+            "errors.rateLimit.tooManyRequests",
+            document.RootElement.GetProperty("stageKey").GetString());
+    }
+
+    /// <summary>
+    /// A refused lease from a limiter that publishes no retry time. A fixed window always publishes
+    /// one; a concurrency limiter, which a later policy could use, publishes none.
+    /// </summary>
+    private sealed class LeaseWithoutRetryTime : RateLimitLease
+    {
+        public override bool IsAcquired => false;
+
+        public override IEnumerable<string> MetadataNames => Array.Empty<string>();
+
+        public override bool TryGetMetadata(string metadataName, out object? metadata)
+        {
+            metadata = null;
+            return false;
+        }
+    }
+
+    /// <summary>
     /// The coverage rule, as one test rather than one check per route: a route that takes a password
     /// or that any caller can reach without a session has to sit behind a per-address limiter, and
     /// the routes already there have to stay there. [9d]
@@ -300,6 +422,34 @@ public sealed class RateLimitCoverageContractTests
 
         return context.Response.StatusCode;
     }
+
+    /// <summary>
+    /// Sends one request with the response body captured, which is how the limiter's own reply gets
+    /// read rather than only counted. <see cref="SendAsync"/> stays status-only for the tests above.
+    /// </summary>
+    private static async Task<RejectedResponse> SendAndReadAsync(TestServer server, string callerAddress, string path)
+    {
+        var body = new MemoryStream();
+
+        var context = await server.SendAsync(request =>
+        {
+            request.Connection.RemoteIpAddress = IPAddress.Parse(callerAddress);
+            request.Request.Method = "POST";
+            request.Request.Scheme = "http";
+            request.Request.Host = new HostString("localhost");
+            request.Request.Path = path;
+            request.Response.Body = body;
+        });
+
+        return new RejectedResponse(
+            context.Response.StatusCode,
+            context.Response.ContentType,
+            context.Response.Headers.RetryAfter.ToString(),
+            Encoding.UTF8.GetString(body.ToArray()));
+    }
+
+    /// <summary>The parts of a refused request's reply these tests assert on.</summary>
+    private sealed record RejectedResponse(int StatusCode, string? ContentType, string RetryAfter, string Body);
 
     private sealed record RouteRateLimit(
         string Method,

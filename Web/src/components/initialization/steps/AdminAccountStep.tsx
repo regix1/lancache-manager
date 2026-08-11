@@ -29,13 +29,15 @@ interface ValidationFieldError {
 
 /**
  * Every shape POST /api/account-setup/first-admin can answer with. `success` comes from
- * MessageResponse on the way through, `error` from ErrorResponse and ConflictResponse, and `errors`
- * only from the password rules failing in ValidationFilter, whose own `error` is the unhelpful
- * "Validation failed".
+ * MessageResponse on the way through, `error` from AccountSetupRefusalResponse and ErrorResponse,
+ * and `errors` only from the password rules failing in ValidationFilter, whose own `error` is the
+ * unhelpful "Validation failed". `stageKey` rides beside `error` on every refusal the endpoint
+ * decides itself, naming the reason as an i18n key so it can be read in the operator's language.
  */
 interface CreateAccountResponse {
   success?: boolean;
   error?: string;
+  stageKey?: string;
   errors?: ValidationFieldError[];
 }
 
@@ -165,11 +167,15 @@ export const AdminAccountStep: React.FC = () => {
           void refreshSetupStatus();
         }, 1500);
       } else {
-        setSubmitError(
+        // The endpoint's own refusals travel as an i18n key beside the English sentence, so the
+        // reason is read in the operator's language. The sentence is what a key this build has no
+        // translation for falls back to, which is also what the password rules and any other
+        // response shape land on, since neither carries a key.
+        const sentence =
           data.errors?.[0]?.message ||
-            data.error ||
-            t('initialization.adminAccount.errors.createFailed')
-        );
+          data.error ||
+          t('initialization.adminAccount.errors.createFailed');
+        setSubmitError(data.stageKey ? t(data.stageKey, { defaultValue: sentence }) : sentence);
       }
     } catch (error: unknown) {
       setSubmitError(getErrorMessage(error) || t('initialization.adminAccount.errors.network'));

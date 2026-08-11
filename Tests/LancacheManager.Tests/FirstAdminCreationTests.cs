@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -73,9 +74,47 @@ public sealed class FirstAdminCreationTests : IDisposable
         var result = await controller.CreateFirstAdminAsync(NewRequest("operator", _apiKeyService.GetApiKey()));
 
         Assert.Equal(StatusCodes.Status409Conflict, StatusOf(result));
+        Assert.Equal(AccountSetupRefusalResponse.AccountExists, StageKeyOf(result));
 
         await using var context = database.Factory.CreateDbContext();
         Assert.Equal("existing", (await context.UserAccounts.SingleAsync()).Username);
+    }
+
+    /// <summary>
+    /// The other way this installation turns out to be owned: the count found nothing and the insert
+    /// found the row anyway. Same refusal as the count's, so it says the same thing rather than
+    /// leaving the operator to work out why one 409 reads differently from the other. [88]
+    ///
+    /// Seeding from inside the save is what makes the order certain. Two live requests reach this
+    /// handler by racing, which is why TwoSimultaneousCreatesLeaveExactlyOneAccount asserts the
+    /// outcome rather than which of the two refusals produced it.
+    /// </summary>
+    [Fact]
+    public async Task CreateIsRefusedWhenTheAccountArrivesDuringTheWrite()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        await using (var context = new AppDbContext(options))
+        {
+            await context.Database.EnsureCreatedAsync();
+        }
+
+        var interrupted = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(connection)
+            .AddInterceptors(new AccountArrivesDuringSave(options))
+            .Options;
+
+        var controller = NewController(new TestDbContextFactory(interrupted), _apiKeyService);
+
+        var result = await controller.CreateFirstAdminAsync(NewRequest("operator", _apiKeyService.GetApiKey()));
+
+        Assert.Equal(StatusCodes.Status409Conflict, StatusOf(result));
+        Assert.Equal(AccountSetupRefusalResponse.AccountExists, StageKeyOf(result));
+
+        await using var after = new AppDbContext(options);
+        Assert.Equal("first", (await after.UserAccounts.SingleAsync()).Username);
     }
 
     /// <summary>
@@ -93,6 +132,7 @@ public sealed class FirstAdminCreationTests : IDisposable
         var result = await controller.CreateFirstAdminAsync(NewRequest("operator", _apiKeyService.GetApiKey()));
 
         Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(result));
+        Assert.Equal(AccountSetupRefusalResponse.ClaimWindowClosed, StageKeyOf(result));
 
         await using var context = database.Factory.CreateDbContext();
         Assert.Empty(context.UserAccounts);
@@ -132,6 +172,7 @@ public sealed class FirstAdminCreationTests : IDisposable
         var result = await controller.CreateFirstAdminAsync(NewRequest("operator", apiKey));
 
         Assert.Equal(StatusCodes.Status401Unauthorized, StatusOf(result));
+        Assert.Equal(AccountSetupRefusalResponse.ApiKeyRequired, StageKeyOf(result));
 
         await using var context = database.Factory.CreateDbContext();
         Assert.Empty(context.UserAccounts);
@@ -194,6 +235,9 @@ public sealed class FirstAdminCreationTests : IDisposable
 
         var statuses = results.Select(StatusOf).OrderBy(status => status).ToArray();
         Assert.Equal(new[] { StatusCodes.Status200OK, StatusCodes.Status409Conflict }, statuses);
+        Assert.Equal(
+            AccountSetupRefusalResponse.AccountExists,
+            StageKeyOf(results.Single(result => StatusOf(result) == StatusCodes.Status409Conflict)));
 
         await using var context = database.Factory.CreateDbContext();
         Assert.True(await context.UserAccounts.SingleAsync() is { IsMainAdmin: true });
@@ -317,6 +361,45 @@ public sealed class FirstAdminCreationTests : IDisposable
 
     private static int StatusOf(ActionResult<MessageResponse> result) =>
         Assert.IsAssignableFrom<ObjectResult>(result.Result).StatusCode ?? 0;
+
+    private static string StageKeyOf(ActionResult<MessageResponse> result) =>
+        Assert.IsType<AccountSetupRefusalResponse>(
+            Assert.IsAssignableFrom<ObjectResult>(result.Result).Value).StageKey;
+
+    /// <summary>
+    /// Puts the account in the table between the count that found none and the insert that runs into
+    /// it, on the one connection both share. IX_UserAccounts_IsMainAdmin is what the insert then
+    /// breaks (AppDbContext.cs:222-226), which is the shape a request that lost the race sees.
+    /// </summary>
+    private sealed class AccountArrivesDuringSave(DbContextOptions<AppDbContext> options) : SaveChangesInterceptor
+    {
+        private bool _arrived;
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_arrived)
+            {
+                _arrived = true;
+
+                await using var context = new AppDbContext(options);
+                context.UserAccounts.Add(new UserAccount
+                {
+                    Id = Guid.NewGuid(),
+                    Username = "first",
+                    PasswordHash = "hash",
+                    Role = SessionType.Admin,
+                    IsMainAdmin = true,
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+                await context.SaveChangesAsync(cancellationToken);
+            }
+
+            return await base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+    }
 
     /// <summary>
     /// A SQLite database on disk, so two requests can hold two connections against it at once and the
