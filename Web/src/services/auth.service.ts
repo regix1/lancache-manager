@@ -38,14 +38,12 @@ interface AuthStatusResponse {
   riotPrefillExpiresAt: string | null;
   xboxPrefillEnabled: boolean;
   xboxPrefillExpiresAt: string | null;
-  token?: string;
 }
 
 interface LoginResponse {
   success: boolean;
   sessionType: SessionType;
   expiresAt: string;
-  token?: string;
   error?: string;
 }
 
@@ -58,7 +56,6 @@ class AuthService {
   public authMode: AuthMode = 'unauthenticated';
   public sessionType: SessionType | null = null;
   public sessionId: string | null = null;
-  private sessionToken: string | null = null;
 
   async checkAuth(): Promise<AuthStatusResponse> {
     const controller = new AbortController();
@@ -95,15 +92,6 @@ class AuthService {
         this.authMode = 'unauthenticated';
       }
 
-      // Store token for SignalR accessTokenFactory (survives page refresh via rotation)
-      if (data.token) {
-        this.sessionToken = data.token;
-      } else if (!data.isAuthenticated) {
-        // Session is no longer valid - clear stale token so SignalR stops
-        // reconnecting with invalid credentials after session expiry/server restart
-        this.sessionToken = null;
-      }
-
       return data;
     } catch (error: unknown) {
       if (error instanceof Error && error.name === 'AbortError') {
@@ -114,7 +102,6 @@ class AuthService {
       this.authMode = 'unauthenticated';
       this.sessionType = null;
       this.sessionId = null;
-      this.sessionToken = null;
       this.authChecked = true;
 
       return {
@@ -178,7 +165,6 @@ class AuthService {
         this.authMode = 'authenticated';
         // The role comes from the account that signed in, so a user session is not recorded as admin.
         this.sessionType = data.sessionType;
-        this.sessionToken = data.token || null;
       }
 
       return { success: data.success, message: data.error };
@@ -209,7 +195,6 @@ class AuthService {
         this.isAuthenticated = true;
         this.authMode = 'guest';
         this.sessionType = 'guest';
-        this.sessionToken = data.token || null;
       }
 
       return { success: data.success, message: data.error };
@@ -232,7 +217,6 @@ class AuthService {
       this.authMode = 'unauthenticated';
       this.sessionType = null;
       this.sessionId = null;
-      this.sessionToken = null;
     }
   }
 
@@ -250,10 +234,6 @@ class AuthService {
 
   isGuestModeActive(): boolean {
     return this.authMode === 'guest';
-  }
-
-  getSessionToken(): string | null {
-    return this.sessionToken;
   }
 }
 

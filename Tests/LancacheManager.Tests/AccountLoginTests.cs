@@ -759,10 +759,14 @@ public sealed class AccountLoginTests : IDisposable
     private async Task<(string RawToken, UserSession Session)> SignInAsync(SignIn sign, string username)
     {
         var result = await sign.Controller.LoginAsync(NewLogin(username, Password, _apiKeyService.GetApiKey()));
-        var body = Assert.IsType<LoginResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
-        Assert.NotNull(body.Token);
+        Assert.IsType<LoginResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
 
-        var session = await sign.Sessions.ValidateSessionAsync(body.Token!);
+        // The cookie is the only place the token is answered in, so it is where the caller's browser and
+        // this helper both read it from.
+        var rawToken = SessionTokenFromCookies(sign.Request);
+        Assert.NotNull(rawToken);
+
+        var session = await sign.Sessions.ValidateSessionAsync(rawToken!);
         Assert.NotNull(session);
 
         // The request handler publishes the session it resolved, which is where the change-password
@@ -770,7 +774,7 @@ public sealed class AccountLoginTests : IDisposable
         // header holding only what the next call writes.
         sign.Request.Items["Session"] = session;
         sign.Request.Response.Headers.Remove("Set-Cookie");
-        return (body.Token!, session!);
+        return (rawToken!, session!);
     }
 
     private async Task<UserAccount> NewAccountAsync(

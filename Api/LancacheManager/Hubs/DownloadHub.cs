@@ -39,7 +39,7 @@ public class DownloadHub : Hub
     public async Task JoinAuthenticatedGroupAsync()
     {
         var httpContext = Context.GetHttpContext();
-        var rawToken = httpContext != null ? SessionService.TokenFromRequest(httpContext) : null;
+        var rawToken = httpContext != null ? SessionService.TokenFromCookie(httpContext) : null;
 
         if (string.IsNullOrEmpty(rawToken))
         {
@@ -64,7 +64,7 @@ public class DownloadHub : Hub
         var httpContext = Context.GetHttpContext();
 
         // Validate session from the WebSocket handshake cookie
-        var rawToken = httpContext != null ? SessionService.TokenFromRequest(httpContext) : null;
+        var rawToken = httpContext != null ? SessionService.TokenFromCookie(httpContext) : null;
 
         if (!string.IsNullOrEmpty(rawToken))
         {

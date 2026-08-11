@@ -53,9 +53,6 @@ public class AuthStatusResponse
 
     /// <summary>When Xbox prefill access expires for this session. Null when <see cref="XboxPrefillEnabled"/> is false.</summary>
     public DateTime? XboxPrefillExpiresAt { get; set; }
-
-    /// <summary>A freshly rotated session token for the SignalR accessTokenFactory. Null when <see cref="IsAuthenticated"/> is false.</summary>
-    public string? Token { get; set; }
 }
 
 public class LoginRequest
@@ -81,9 +78,6 @@ public class LoginResponse
     public bool Success { get; set; }
     public SessionType SessionType { get; set; }
     public DateTime ExpiresAt { get; set; }
-
-    /// <summary>The raw session token to store client-side. Null when <see cref="Success"/> is false.</summary>
-    public string? Token { get; set; }
 }
 
 public class SessionDto

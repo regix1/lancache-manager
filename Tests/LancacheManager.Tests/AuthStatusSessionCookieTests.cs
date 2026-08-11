@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Platform;
@@ -72,10 +73,9 @@ public sealed class AuthStatusSessionCookieTests : IDisposable
         var context = RequestFor(session);
         context.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
 
-        var status = await StatusAsync(service, database, context);
+        await StatusAsync(service, database, context);
 
         Assert.Null(IssuedSessionCookie(context));
-        Assert.Null(status.Token);
         Assert.Equal(storedToken, await StoredTokenHashAsync(database, session.Id));
     }
 
@@ -128,10 +128,9 @@ public sealed class AuthStatusSessionCookieTests : IDisposable
         context.Request.Headers.Cookie = $"{CookieName}={created.Value.RawToken}";
         context.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
 
-        var status = await StatusAsync(service, database, context);
+        await StatusAsync(service, database, context);
 
         Assert.Null(IssuedSessionCookie(context));
-        Assert.Equal(created.Value.RawToken, status.Token);
         Assert.NotNull(await service.ValidateSessionAsync(created.Value.RawToken));
     }
 
@@ -150,12 +149,37 @@ public sealed class AuthStatusSessionCookieTests : IDisposable
         Assert.NotNull(shared);
 
         var context = RequestFor(shared!.Value.Session);
-        var status = await StatusAsync(service, database, context);
+        await StatusAsync(service, database, context);
 
         var issued = IssuedSessionCookie(context);
         Assert.NotNull(issued);
-        Assert.Equal(issued, status.Token);
         Assert.NotNull(await service.ValidateSessionAsync(issued!));
+    }
+
+    /// <summary>
+    /// The cookie is HttpOnly so that script cannot read the session token. Answering the same token in
+    /// the body of this response undoes that, so the body is checked for the token as a value rather than
+    /// for a field by name: a token that reappears under any name is the same leak. [77b]
+    /// </summary>
+    [Fact]
+    public async Task CookieCaller_IsAnsweredABodyCarryingNoRawToken()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewSessionService(database.Factory, authenticationEnabled: true);
+        var created = await service.CreateAdminSessionAsync(
+            _apiKeyService.GetApiKey(), new DefaultHttpContext());
+        Assert.NotNull(created);
+
+        var context = RequestFor(created!.Value.Session);
+        context.Request.Headers.Cookie = $"{CookieName}={created.Value.RawToken}";
+
+        var status = await StatusAsync(service, database, context);
+        var body = JsonSerializer.Serialize(status);
+
+        var issued = IssuedSessionCookie(context);
+        Assert.NotNull(issued);
+        Assert.DoesNotContain(issued!, body, StringComparison.Ordinal);
+        Assert.DoesNotContain(created.Value.RawToken, body, StringComparison.Ordinal);
     }
 
     private async Task AssertCookieCallerIsRotatedAsync(
@@ -164,12 +188,11 @@ public sealed class AuthStatusSessionCookieTests : IDisposable
         var context = RequestFor(session);
         context.Request.Headers.Cookie = $"{CookieName}={rawToken}";
 
-        var status = await StatusAsync(service, database, context);
+        await StatusAsync(service, database, context);
 
         var issued = IssuedSessionCookie(context);
         Assert.NotNull(issued);
         Assert.NotEqual(rawToken, issued);
-        Assert.Equal(issued, status.Token);
         Assert.NotNull(await service.ValidateSessionAsync(issued!));
     }
 

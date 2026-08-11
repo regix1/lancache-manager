@@ -81,9 +81,11 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       return;
     }
 
-    // Don't connect without a valid authenticated session token.
-    // This avoids repeated unauthenticated negotiate/handshake churn.
-    if (!authService.getSessionToken()) {
+    // Don't connect without a session. The hub authenticates from the session cookie, which is
+    // HttpOnly and so unreadable here, and this avoids repeated unauthenticated negotiate/handshake
+    // churn. checkAuth/login/logout keep isAuthenticated in step with whether that cookie names a
+    // live session.
+    if (!authService.isAuthenticated) {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
@@ -129,8 +131,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
       const connection = new signalR.HubConnectionBuilder()
         .withUrl(`${SIGNALR_BASE}/downloads`, {
-          withCredentials: true,
-          accessTokenFactory: () => authService.getSessionToken() || ''
+          withCredentials: true
         })
         .withAutomaticReconnect(new InfiniteBackoffRetryPolicy(() => isPageVisibleRef.current))
         // Increase timeout to prevent disconnections during heavy processing
@@ -242,9 +243,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
     }
 
     const handleAuthSessionUpdated = () => {
-      const hasToken = Boolean(authService.getSessionToken());
-
-      if (!hasToken) {
+      if (!authService.isAuthenticated) {
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;

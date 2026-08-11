@@ -246,9 +246,8 @@ public class SessionService
 
     /// <summary>
     /// Keeps the cached shared auth-disabled token equal to the one now stored. Callers holding no cookie
-    /// (the hubs reading access_token, and any request that arrives without one) are handed this cached
-    /// token, so leaving the rotated-away token here means they authenticate only until the previous
-    /// token's 30-second grace runs out and are rejected from then on. [1]
+    /// are handed this cached token, so leaving the rotated-away token here means they authenticate only
+    /// until the previous token's 30-second grace runs out and are rejected from then on. [1]
     /// </summary>
     private static async Task ReplaceAuthDisabledAdminTokenAsync(Guid sessionId, string rawToken)
     {
@@ -827,19 +826,6 @@ public class SessionService
     public static string? TokenFromCookie(HttpContext httpContext)
     {
         return httpContext.Request.Cookies[CookieName];
-    }
-
-    /// <summary>
-    /// Gets session token from cookie first, then falls back to query string access_token.
-    /// The query string fallback supports mobile browsers where cookies aren't sent with WebSocket upgrades.
-    /// </summary>
-    public static string? TokenFromRequest(HttpContext httpContext)
-    {
-        var token = httpContext.Request.Cookies[CookieName];
-        if (!string.IsNullOrEmpty(token))
-            return token;
-
-        return httpContext.Request.Query["access_token"].FirstOrDefault();
     }
 
     // --- Guest Configuration (persisted via StateService) ---

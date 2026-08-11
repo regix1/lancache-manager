@@ -166,7 +166,8 @@ public class AuthController : ControllerBase
         // Backward-compat: prefillEnabled is true if any service is active
         var prefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled || riotPrefillEnabled || xboxPrefillEnabled;
 
-        // Token rotation: provide a fresh token for SignalR accessTokenFactory (mobile support).
+        // Token rotation: the browser leaves here holding a fresh cookie, so a token that leaked from an
+        // earlier response is short-lived rather than good for the life of the session.
         // Not for a caller carrying the key: SessionAuthenticationHandler resolves a session for it only
         // while authentication is enabled and the header is present (SessionAuthenticationHandler.cs:65-67),
         // that is one session every key caller shares (SessionService.cs:50), and no copy of its token is
@@ -176,14 +177,10 @@ public class AuthController : ControllerBase
         // The key authenticates each of its requests on its own. With authentication disabled the header is
         // never read and the session is the shared one whose cookie the browser runs on, so that path keeps
         // rotating. [11]
-        string? token = null;
-        if (session != null)
+        var authenticatedWithApiKey = authenticationEnabled && Request.Headers.ContainsKey("X-Api-Key");
+        if (session != null && !authenticatedWithApiKey)
         {
-            var authenticatedWithApiKey = authenticationEnabled && Request.Headers.ContainsKey("X-Api-Key");
-            var rotatedToken = authenticatedWithApiKey
-                ? null
-                : await _sessionService.RotateSessionTokenAsync(session, HttpContext);
-            token = rotatedToken ?? SessionService.TokenFromCookie(HttpContext);
+            await _sessionService.RotateSessionTokenAsync(session, HttpContext);
         }
 
         // authenticationEnabled was resolved above (it gates the admin-session mint). When disabled,
@@ -215,8 +212,7 @@ public class AuthController : ControllerBase
             RiotPrefillEnabled = riotPrefillEnabled,
             RiotPrefillExpiresAt = riotPrefillExpiresAt,
             XboxPrefillEnabled = xboxPrefillEnabled,
-            XboxPrefillExpiresAt = xboxPrefillExpiresAt,
-            Token = token
+            XboxPrefillExpiresAt = xboxPrefillExpiresAt
         });
     }
 
@@ -344,8 +340,7 @@ public class AuthController : ControllerBase
         {
             Success = true,
             SessionType = session.SessionType,
-            ExpiresAt = DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc),
-            Token = rawToken
+            ExpiresAt = DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc)
         });
     }
 
@@ -547,8 +542,7 @@ public class AuthController : ControllerBase
         {
             Success = true,
             SessionType = session.SessionType,
-            ExpiresAt = DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc),
-            Token = rawToken
+            ExpiresAt = DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc)
         });
     }
 

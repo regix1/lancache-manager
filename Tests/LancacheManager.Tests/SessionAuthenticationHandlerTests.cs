@@ -53,12 +53,11 @@ public sealed class SessionAuthenticationHandlerTests
     }
 
     /// <summary>
-    /// The hubs do not go through the request handler. DownloadHub reads the cookie or the access_token
-    /// query and calls ValidateSessionAsync itself, and the five prefill daemon hubs read the cookie and do
-    /// the same. Both of those are the call this rotation used to break.
+    /// The hubs do not go through the request handler. All six read the cookie and call
+    /// ValidateSessionAsync themselves, and that is the call this rotation used to break.
     /// </summary>
     [Fact]
-    public async Task RotatedSharedSession_AuthenticatesAHubReadingEitherTheCookieOrTheQuery()
+    public async Task RotatedSharedSession_AuthenticatesAHubReadingTheCookie()
     {
         ResetSharedAuthDisabledSession();
         await using var database = await TestDatabase.CreateAsync();
@@ -77,18 +76,10 @@ public sealed class SessionAuthenticationHandlerTests
         var fromCookie = SessionService.TokenFromCookie(cookieRequest);
         Assert.NotNull(fromCookie);
 
-        var queryRequest = new DefaultHttpContext();
-        queryRequest.Request.QueryString = QueryString.Create("access_token", current.Value.RawToken);
-        var fromQuery = SessionService.TokenFromRequest(queryRequest);
-        Assert.NotNull(fromQuery);
-
         var cookieSession = await service.ValidateSessionAsync(fromCookie!);
-        var querySession = await service.ValidateSessionAsync(fromQuery!);
 
         Assert.NotNull(cookieSession);
-        Assert.NotNull(querySession);
         Assert.Equal(SessionType.Admin, cookieSession!.SessionType);
-        Assert.Equal(SessionType.Admin, querySession!.SessionType);
     }
 
     /// <summary>
