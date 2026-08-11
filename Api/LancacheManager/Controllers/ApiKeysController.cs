@@ -1,3 +1,4 @@
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using LancacheManager.Infrastructure.Services;
@@ -22,6 +23,8 @@ public class ApiKeysController : ControllerBase
     private readonly SteamKit2Service _steamKit2Service;
     private readonly SteamAuthStorageService _steamAuthStorage;
     private readonly StateService _stateService;
+    private readonly SessionService _sessionService;
+    private readonly IdentityAuditService _identityAuditService;
     private readonly IConfiguration _configuration;
     private readonly AuthenticationHelper _authenticationHelper;
     private readonly ILogger<ApiKeysController> _logger;
@@ -31,6 +34,8 @@ public class ApiKeysController : ControllerBase
         SteamKit2Service steamKit2Service,
         SteamAuthStorageService steamAuthStorage,
         StateService stateService,
+        SessionService sessionService,
+        IdentityAuditService identityAuditService,
         IConfiguration configuration,
         AuthenticationHelper authenticationHelper,
         ILogger<ApiKeysController> logger)
@@ -39,6 +44,8 @@ public class ApiKeysController : ControllerBase
         _steamKit2Service = steamKit2Service;
         _steamAuthStorage = steamAuthStorage;
         _stateService = stateService;
+        _sessionService = sessionService;
+        _identityAuditService = identityAuditService;
         _configuration = configuration;
         _authenticationHelper = authenticationHelper;
         _logger = logger;
@@ -84,6 +91,10 @@ public class ApiKeysController : ControllerBase
     /// This logs out all Steam sessions and revokes all device registrations. When authentication
     /// is disabled, the current API key is still required so an open authorization policy cannot
     /// rotate the credential that protects database recovery.
+    ///
+    /// It also ends every signed-in session, the caller's own included, because each of them was
+    /// opened against the key that has just stopped being valid. The new key travels in the response
+    /// so the caller can read it on the way out. [48][49]
     /// </remarks>
     [HttpPost("regenerate")]
     [EnableRateLimiting("auth")]
@@ -118,16 +129,39 @@ public class ApiKeysController : ControllerBase
         var (oldKey, newKey) = _apiKeyService.RegenerateApiKey();
         _apiKeyService.DisplayApiKey(_configuration);
 
-        _logger.LogWarning(
-            "API key regenerated | Steam PICS: {SteamLogout} | Steam Web API Key: {WebApiKey}",
-            steamWasAuthenticated ? "Logged out" : "Cleared",
-            hadSteamWebApiKey ? "Removed" : "None");
-
-        return Ok(new ApiKeyRegenerateResponse
+        // Built before anything is revoked. The caller signs in with the key, so the session making
+        // this request is one of the ones about to end, and a rotation that only confirms itself
+        // leaves that admin outside the screen that was going to show them the key they now need.
+        // [49]
+        var response = new ApiKeyRegenerateResponse
         {
             Success = true,
             Message = "API key regenerated successfully.",
-            Warning = "Check container logs for the new API key."
-        });
+            ApiKey = newKey,
+            Warning = "Every signed-in session was ended. Sign in again with this key."
+        };
+
+        // Read while the rows still exist. An X-Api-Key caller and a caller running with
+        // authentication disabled both run as a shared session that belongs to no account, so the
+        // account half of the actor is null for them. [29c]
+        var session = HttpContext.GetUserSession();
+        await _identityAuditService.RecordAsync(
+            IdentityAuditEvent.ApiKeyRotated,
+            session?.AccountId,
+            session?.Id,
+            targetAccountId: null);
+
+        // Guests included: every one of these sessions was opened against the key that has just
+        // stopped being valid. Only the session rows go, so every account can sign in again with the
+        // new key. [48]
+        var endedSessions = await _sessionService.ClearAllSessionsAsync();
+
+        _logger.LogWarning(
+            "API key regenerated | Sessions ended: {EndedSessions} | Steam PICS: {SteamLogout} | Steam Web API Key: {WebApiKey}",
+            endedSessions,
+            steamWasAuthenticated ? "Logged out" : "Cleared",
+            hadSteamWebApiKey ? "Removed" : "None");
+
+        return Ok(response);
     }
 }

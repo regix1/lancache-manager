@@ -27,12 +27,14 @@ public sealed class RateLimitCoverageContractTests
     private static readonly Dictionary<string, string> ThrottledActions = new(StringComparer.Ordinal)
     {
         ["AuthController.Login"] = "auth",
+        ["AuthController.ChangePassword"] = "auth",
         ["AuthController.StartGuest"] = "auth",
         ["SetupController.SetCredentials"] = "auth",
         ["SetupController.SetExternalCredentials"] = "auth",
         ["ApiKeysController.RegenerateApiKey"] = "auth",
         ["SteamAuthController.Login"] = "steam-auth",
-        ["AccountSetupController.CreateFirstAdmin"] = "auth"
+        ["AccountSetupController.CreateFirstAdmin"] = "auth",
+        ["AccountSetupController.RecoverMainAdminPassword"] = "auth"
     };
 
     /// <summary>
@@ -58,6 +60,7 @@ public sealed class RateLimitCoverageContractTests
         await host.AssertIsolationAsync(client);
 
         var apiKey = host.Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
+        var (username, password) = await host.NewAccountAsync();
 
         for (var attempt = 0; attempt < 5; attempt++)
         {
@@ -68,7 +71,11 @@ public sealed class RateLimitCoverageContractTests
         }
 
         var accepted = await SendAsync(
-            host.Application.Server, "10.0.0.2", "POST", "/api/auth/login", body: $$"""{"apiKey":"{{apiKey}}"}""");
+            host.Application.Server,
+            "10.0.0.2",
+            "POST",
+            "/api/auth/login",
+            body: $$"""{"apiKey":"{{apiKey}}","username":"{{username}}","password":"{{password}}"}""");
 
         Assert.Equal(StatusCodes.Status200OK, accepted);
     }

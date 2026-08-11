@@ -94,14 +94,26 @@ public class SessionService
             ActivityDomains.UserSession, sessionId.ToString(), ActivityAspects.Present, present);
     }
 
-    public async Task<(string RawToken, UserSession Session)?> CreateAdminSessionAsync(string apiKey, HttpContext httpContext)
+    /// <summary>
+    /// Creates the session a sign-in runs on, after checking the API key.
+    /// </summary>
+    /// <param name="apiKey">The installation's API key. Checked with the existing constant-time compare.</param>
+    /// <param name="httpContext">The request the session is created for.</param>
+    /// <param name="account">
+    /// The account that signed in, whose id and role the session row carries. Null for a caller that
+    /// proved only the key and has no account: the three existing session shapes that work that way -
+    /// a guest, an <c>X-Api-Key</c> caller and the session used while authentication is disabled - all
+    /// leave it null and stay administrators. [49g]
+    /// </param>
+    public async Task<(string RawToken, UserSession Session)?> CreateAdminSessionAsync(
+        string apiKey, HttpContext httpContext, UserAccount? account = null)
     {
         if (!_apiKeyService.ValidateApiKey(apiKey))
         {
             return null;
         }
 
-        var (rawToken, session) = await PersistAdminSessionAsync(httpContext);
+        var (rawToken, session) = await PersistAdminSessionAsync(httpContext, account);
 
         _logger.LogInformation("Created admin session {SessionId} for IP {IP}", session.Id, session.IpAddress);
         return (rawToken, session);
@@ -109,11 +121,15 @@ public class SessionService
 
     /// <summary>
     /// Writes one admin session row and reports its presence. The three callers differ only in what they
-    /// log and what they cache afterwards, so the row is built in one place: an admin session always
-    /// carries <see cref="SessionType.Admin"/> and the never-expires sentinel, and stores the hash of a
-    /// freshly generated token.
+    /// log and what they cache afterwards, so the row is built in one place: the session carries the
+    /// never-expires sentinel and stores the hash of a freshly generated token.
+    ///
+    /// An account is what decides the session's role and the account it belongs to. Without one the
+    /// session is an administrator with no account behind it, which is what the two shared sessions and
+    /// the key-only sign-in are.
     /// </summary>
-    private async Task<(string RawToken, UserSession Session)> PersistAdminSessionAsync(HttpContext httpContext)
+    private async Task<(string RawToken, UserSession Session)> PersistAdminSessionAsync(
+        HttpContext httpContext, UserAccount? account = null)
     {
         var (rawToken, tokenHash) = GenerateSessionToken();
 
@@ -121,7 +137,8 @@ public class SessionService
         {
             Id = Guid.NewGuid(),
             SessionTokenHash = tokenHash,
-            SessionType = SessionType.Admin,
+            SessionType = account?.Role ?? SessionType.Admin,
+            AccountId = account?.Id,
             IpAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             UserAgent = httpContext.Request.Headers.UserAgent.ToString(),
             CreatedAtUtc = DateTime.UtcNow,

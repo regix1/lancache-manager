@@ -558,6 +558,9 @@ builder.Services.AddScoped<SessionService>();
 // both of which are singletons themselves. Scoped would also make it uninjectable into ApiKeyService,
 // which is a singleton and owns the key rotation this records. [29e]
 builder.Services.AddSingleton<IdentityAuditService>();
+// Singleton because the count has to be shared by every request: one per scope would reset on each
+// sign-in attempt and never reach the threshold. [43]
+builder.Services.AddSingleton<AccountLockout>();
 // Hosted so the host constructs it at startup: the window it opens is measured from that moment,
 // and a singleton built on first injection would instead start the clock at the first request.
 builder.Services.AddSingletonHostedService<AccountClaimWindow>();

@@ -145,4 +145,83 @@ public class AccountSetupController : ControllerBase
 
         return Ok(MessageResponse.Ok("Account created"));
     }
+
+    /// <summary>
+    /// Sets a new password for the account that owns the installation.
+    /// </summary>
+    /// <remarks>
+    /// The main administrator cannot be deleted, disabled or demoted by anybody, and this
+    /// application sends no mail, so a forgotten password has no other way back: without this the
+    /// installation is unreachable and the operator's only remedy is the database. The API key is
+    /// what proves the caller owns the installation, read from the body rather than the X-Api-Key
+    /// header so that narrowing the header leaves this working. [49b][49f]
+    ///
+    /// It writes one column. The account is selected by the main-administrator flag rather than by
+    /// anything the caller sends, and role and flag are read from the stored row and left alone, so
+    /// there is no argument here that promotes anybody, unseats the main administrator, or reaches
+    /// another account. [49c]
+    ///
+    /// SessionService arrives on the action rather than the constructor because only this endpoint
+    /// needs it, the way SessionsController.cs:313-314 takes its lookup services.
+    /// </remarks>
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    [HttpPost("recover-main-admin")]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageResponse>> RecoverMainAdminPasswordAsync(
+        [FromBody] AccountCredentialsRequest request,
+        [FromServices] SessionService sessionService)
+    {
+        if (!_apiKeyService.ValidateApiKey(request.ApiKey))
+        {
+            return StatusCode(
+                StatusCodes.Status401Unauthorized,
+                new AccountSetupRefusalResponse
+                {
+                    StageKey = AccountSetupRefusalResponse.ApiKeyRequired,
+                    Error = "A valid API key is required"
+                });
+        }
+
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+
+        // Trimmed to match how the name was stored (CreateFirstAdminAsync above), so a pasted name
+        // carrying a trailing space is the same name rather than an unexplained refusal. Case is
+        // left to the column: Username is citext (AppDbContext.cs:209-211), which is what makes the
+        // unique index treat "Admin" and "admin" as one person.
+        var username = request.Username.Trim();
+
+        var account = await context.UserAccounts
+            .SingleOrDefaultAsync(a => a.IsMainAdmin && a.Username == username);
+
+        if (account == null)
+        {
+            // Either the installation has no main administrator yet or the caller named somebody
+            // else. Both are the same answer: this endpoint resets one account and that was not it.
+            return NotFound(new AccountSetupRefusalResponse
+            {
+                StageKey = AccountSetupRefusalResponse.MainAdminNotFound,
+                Error = "No main administrator account is registered under that name"
+            });
+        }
+
+        account.PasswordHash = _passwordHasher.HashPassword(account, request.Password);
+        await context.SaveChangesAsync();
+
+        // A password reached this endpoint because somebody lost it, which is also the shape of
+        // somebody else having found it. Sessions it already opened would otherwise outlive the
+        // reset and keep the intruder signed in. [49e]
+        await sessionService.RevokeAccountSessionsAsync(account.Id);
+
+        // No actor: the caller proved the API key and has neither an account nor a session. [29c]
+        await _identityAuditService.RecordAsync(
+            IdentityAuditEvent.MainAdminPasswordRecovered,
+            performedByAccountId: null,
+            performedBySessionId: null,
+            targetAccountId: account.Id);
+
+        _logger.LogInformation("Password recovered for main administrator {Username}", account.Username);
+
+        return Ok(MessageResponse.Ok("Password reset"));
+    }
 }

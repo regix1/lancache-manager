@@ -49,6 +49,19 @@ public class AuthStatusResponse
 public class LoginRequest
 {
     public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The account signing in. Matched against the stored username case-insensitively, because the
+    /// column is citext (AppDbContext.cs:209-211) and two names differing only in case are one
+    /// account. [38]
+    /// </summary>
+    public string Username { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The account's password. Required alongside the key and the username: all three are checked, so
+    /// holding the installation's key is no longer a sign-in on its own. [38][39]
+    /// </summary>
+    public string Password { get; set; } = string.Empty;
 }
 
 public class LoginResponse
@@ -110,6 +123,13 @@ public class ApiKeyStatusResponse
 public class ApiKeyRegenerateResponse
 {
     public bool Success { get; set; }
+
+    /// <summary>
+    /// The key that works from now on. Rotation ends every session including the caller's own, so this
+    /// answer is the last one that reaches them and has to carry the key they need to sign back in. [49]
+    /// </summary>
+    public string ApiKey { get; set; } = string.Empty;
+
     public string Message { get; set; } = string.Empty;
     public string Warning { get; set; } = string.Empty;
 }

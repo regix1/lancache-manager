@@ -70,6 +70,8 @@ public sealed class DisabledAuthKeyGateTests : IDisposable
             steamKit2Service: null!,
             steamAuthStorage: null!,
             stateService: null!,
+            sessionService: null!,
+            identityAuditService: null!,
             configuration: _configuration,
             authenticationHelper: _authenticationHelper,
             logger: NullLogger<ApiKeysController>.Instance)

@@ -5,16 +5,19 @@ using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -62,7 +65,12 @@ public sealed class EndpointAuthorizationContractTests
 
     private static readonly HashSet<string> PublicActions = new(StringComparer.Ordinal)
     {
+        // Both account-setup routes are anonymous on purpose and read the API key from the request
+        // body. Creating the first admin happens before any account exists to sign in as, and
+        // recovering the main admin's password is the way back in when nobody can sign in at all, so
+        // an [Authorize] on either one would be a lockout rather than a guard. [49b][49f]
         "AccountSetupController.CreateFirstAdmin",
+        "AccountSetupController.RecoverMainAdminPassword",
         "AuthController.GetStatus",
         "AuthController.Login",
         "AuthController.StartGuest",
@@ -436,17 +444,15 @@ public sealed class EndpointAuthorizationContractTests
     }
 
     [Fact]
-    public async Task DocumentationRoutesAllowAnAdminSessionEstablishedWithTheApiKey()
+    public async Task DocumentationRoutesAllowAnAdminSession()
     {
         using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
         using var isolationClient = host.Application.CreateClient();
-        using var client = host.Application.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
         await host.AssertIsolationAsync(isolationClient);
 
         var apiKey = host.Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
-        using var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { ApiKey = apiKey });
-        Assert.Equal(System.Net.HttpStatusCode.OK, loginResponse.StatusCode);
+        using var client = await host.CreateAdminClientAsync();
 
         using (var scalarRedirect = await client.GetAsync("/scalar"))
         {
@@ -1233,7 +1239,10 @@ internal sealed class EndpointAuthorizationHost : IDisposable
         try
         {
             var apiKey = Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
-            using var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { ApiKey = apiKey });
+            var (username, password) = await NewAccountAsync();
+            using var loginResponse = await client.PostAsJsonAsync(
+                "/api/auth/login",
+                new LoginRequest { ApiKey = apiKey, Username = username, Password = password });
             Assert.Equal(System.Net.HttpStatusCode.OK, loginResponse.StatusCode);
 
             return client;
@@ -1243,6 +1252,35 @@ internal sealed class EndpointAuthorizationHost : IDisposable
             client.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// One admin account to sign in as, hashed by the application's own hasher so the sign-in accepts
+    /// it. Signing in takes the API key, a username and a password, so a host that hands out a
+    /// signed-in client has to hand out an account too. Each call gets a name of its own because the
+    /// username index is unique and one host mints several clients.
+    /// </summary>
+    public async Task<(string Username, string Password)> NewAccountAsync()
+    {
+        const string password = "Endpoint-Contract-9";
+
+        var account = new UserAccount
+        {
+            Id = Guid.NewGuid(),
+            Username = $"endpoint-contract-{Guid.NewGuid():N}",
+            Role = SessionType.Admin,
+            CreatedAtUtc = DateTime.UtcNow
+        };
+        account.PasswordHash = Application.Services
+            .GetRequiredService<IPasswordHasher<UserAccount>>()
+            .HashPassword(account, password);
+
+        var dbContextFactory = Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using var context = await dbContextFactory.CreateDbContextAsync();
+        context.UserAccounts.Add(account);
+        await context.SaveChangesAsync();
+
+        return (account.Username, password);
     }
 
     public async Task AssertIsolationAsync(HttpClient client)

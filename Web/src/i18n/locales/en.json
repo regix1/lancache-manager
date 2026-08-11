@@ -7138,7 +7138,8 @@
     "accountSetup": {
       "apiKeyRequired": "A valid API key is required.",
       "claimWindowClosed": "The window for creating the first account has closed. Restart the application to reopen it.",
-      "accountExists": "An account already exists on this installation."
+      "accountExists": "An account already exists on this installation.",
+      "mainAdminNotFound": "No main administrator account is registered under that name."
     },
     "conflict": {
       "duplicate": "Operation already in progress for this item.",
@@ -7148,6 +7149,15 @@
       "globalOperationActive": "A global operation (cache clear or database reset) is in progress. All other operations are blocked.",
       "cacheFileScanActive": "A cache file scan is in progress. Wait for it to finish before starting cache operations.",
       "heavyOperationActive": "Another data operation is running. This one has been queued and will start when it finishes."
+    },
+    "login": {
+      "invalidCredentials": "Invalid API key, username or password."
+    },
+    "password": {
+      "accountRequired": "This session is not signed in as an account.",
+      "incorrect": "The current password is incorrect.",
+      "locked": "Too many failed password attempts. Try again later.",
+      "rejected": "The new password does not meet the password requirements."
     },
     "rateLimit": {
       "tooManyRequests": "Too many requests from this address. Wait for the limit to reset and try again."

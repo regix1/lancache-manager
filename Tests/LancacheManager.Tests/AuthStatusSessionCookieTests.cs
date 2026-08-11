@@ -191,7 +191,11 @@ public sealed class AuthStatusSessionCookieTests : IDisposable
             NullLogger<AuthController>.Instance,
             database.Factory,
             _stateService,
-            signalR: null!)
+            signalR: null!,
+            apiKeyService: null!,
+            passwordHasher: null!,
+            accountLockout: null!,
+            identityAuditService: null!)
         {
             ControllerContext = new ControllerContext { HttpContext = context }
         };

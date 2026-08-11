@@ -5,7 +5,9 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
+using LancacheManager.Validators;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -22,20 +24,39 @@ public class AuthController : ControllerBase
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly StateService _stateService;
     private readonly ISignalRNotificationService _signalR;
+    private readonly ApiKeyService _apiKeyService;
+    private readonly IPasswordHasher<UserAccount> _passwordHasher;
+    private readonly AccountLockout _accountLockout;
+    private readonly IdentityAuditService _identityAuditService;
 
     public AuthController(
         SessionService sessionService,
         ILogger<AuthController> logger,
         IDbContextFactory<AppDbContext> dbContextFactory,
         StateService stateService,
-        ISignalRNotificationService signalR)
+        ISignalRNotificationService signalR,
+        ApiKeyService apiKeyService,
+        IPasswordHasher<UserAccount> passwordHasher,
+        AccountLockout accountLockout,
+        IdentityAuditService identityAuditService)
     {
         _sessionService = sessionService;
         _logger = logger;
         _dbContextFactory = dbContextFactory;
         _stateService = stateService;
         _signalR = signalR;
+        _apiKeyService = apiKeyService;
+        _passwordHasher = passwordHasher;
+        _accountLockout = accountLockout;
+        _identityAuditService = identityAuditService;
     }
+
+    /// <summary>
+    /// A hash of a password nobody holds, verified against when the username names no account.
+    /// Static so it is produced once and then reused: the point is to spend the same time on the
+    /// compare as a real account does, not to spend it building something to compare with.
+    /// </summary>
+    private static string? _absentAccountHash;
 
     /// <summary>
     /// Returns session and setup status for the current request.
@@ -178,9 +199,17 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Exchanges an API key for an admin session cookie.
+    /// Signs an account in with the installation's API key, a username and a password.
     /// </summary>
     /// <remarks>
+    /// All three are required and all three are checked before anything is answered. The key alone
+    /// used to be a sign-in; it is now one of three things a caller has to hold. [38][39]
+    ///
+    /// Every way this can fail is answered identically - the same status and the same body - because a
+    /// caller who can tell them apart learns which usernames exist, which passwords are close, and
+    /// whether their guessing is having an effect. That includes an account locked by too many recent
+    /// failures, which is the one that would otherwise confirm a username outright. [44]
+    ///
     /// If the browser already held a guest session, that session is revoked first so the upgrade
     /// does not leave two live sessions for the same browser.
     /// </remarks>
@@ -190,9 +219,50 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<LoginResponse>> LoginAsync([FromBody] LoginRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.ApiKey))
+        var account = await FindAccountAsync(request.Username);
+
+        // The password is verified before anything else is decided, and against a throwaway hash when
+        // there is no account, so an unknown username costs the same PBKDF2 work as a real one. Skipping
+        // it would answer in a few milliseconds instead of a few hundred, which is a username oracle
+        // that no shared error message hides. This mirrors what ApiKeyService.ValidateApiKey:107-112
+        // does for a key of the wrong length. [44]
+        var password = VerifyPassword(account, request.Password);
+        var passwordMatched = password is PasswordVerificationResult.Success
+            or PasswordVerificationResult.SuccessRehashNeeded;
+        var keyMatched = _apiKeyService.ValidateApiKey(request.ApiKey);
+
+        // Checked after the password rather than instead of it, for the same reason: a locked account
+        // that answered without hashing would be recognisable by how fast it refused.
+        var locked = account != null && _accountLockout.IsLocked(account.Id);
+
+        if (account == null || account.IsDisabled || !passwordMatched || !keyMatched || locked)
         {
-            return BadRequest(ApiResponse.Required("API key"));
+            if (account != null && !account.IsDisabled && !locked && keyMatched && !passwordMatched)
+            {
+                // Only a wrong password against a real, usable account is counted, and only from a
+                // caller who held the installation's key. An unknown username names nobody to count
+                // against, and a caller without the key is not making a credible attempt on this
+                // account - counting those would let anyone lock any account they can name, without
+                // ever holding the key. Both are the per-IP limiter's to bound instead. [43]
+                _accountLockout.RecordFailure(account.Id);
+            }
+
+            _logger.LogWarning("Failed login attempt from {IP}", HttpContext.Connection.RemoteIpAddress);
+
+            // No session and, when the username was unknown, no account either. [29c]
+            await _identityAuditService.RecordAsync(
+                IdentityAuditEvent.LoginFailed,
+                performedByAccountId: account?.Id,
+                performedBySessionId: null,
+                targetAccountId: account?.Id);
+
+            return StatusCode(
+                StatusCodes.Status401Unauthorized,
+                new CredentialRefusalResponse
+                {
+                    StageKey = CredentialRefusalResponse.InvalidCredentials,
+                    Error = "Invalid API key, username or password"
+                });
         }
 
         // If this browser has an existing guest session, revoke it before upgrading
@@ -207,14 +277,38 @@ public class AuthController : ControllerBase
             }
         }
 
-        var result = await _sessionService.CreateAdminSessionAsync(request.ApiKey, HttpContext);
+        var result = await _sessionService.CreateAdminSessionAsync(request.ApiKey, HttpContext, account);
         if (result == null)
         {
-            _logger.LogWarning("Failed login attempt from {IP}", HttpContext.Connection.RemoteIpAddress);
-            return Unauthorized(ApiResponse.Error("Invalid API key"));
+            // The key checked above is the key this rechecks, so the two disagree only when the key was
+            // rotated in between - ApiKeyService.RegenerateApiKey replaces it for the whole process.
+            // The caller is told what everyone else is told, having genuinely arrived with a key that no
+            // longer works.
+            _logger.LogWarning("Login lost a race with an API key rotation");
+            return StatusCode(
+                StatusCodes.Status401Unauthorized,
+                new CredentialRefusalResponse
+                {
+                    StageKey = CredentialRefusalResponse.InvalidCredentials,
+                    Error = "Invalid API key, username or password"
+                });
         }
 
         var (rawToken, session) = result.Value;
+
+        _accountLockout.Clear(account.Id);
+        await StampSignInAsync(
+            account.Id,
+            request.Password,
+            rewriteHash: password == PasswordVerificationResult.SuccessRehashNeeded);
+
+        // The account is the actor and the target: it is the identity the event is about. [49h]
+        await _identityAuditService.RecordAsync(
+            IdentityAuditEvent.LoginSucceeded,
+            performedByAccountId: account.Id,
+            performedBySessionId: session.Id,
+            targetAccountId: account.Id);
+
         _sessionService.SetSessionCookie(HttpContext, rawToken, session.ExpiresAtUtc);
 
         // Broadcast session created
@@ -231,6 +325,127 @@ public class AuthController : ControllerBase
             ExpiresAt = DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc),
             Token = rawToken
         });
+    }
+
+    /// <summary>
+    /// Changes the password of the account the caller is signed in as.
+    /// </summary>
+    /// <remarks>
+    /// Only your own, and only with the current password: a session that has been left open on a shared
+    /// machine is not permission to change what the password is.
+    ///
+    /// A wrong current password counts against the same per-account limit a failed sign-in does. Without
+    /// that, an attacker holding any live session guesses here instead of at the sign-in screen and the
+    /// lockout never fires. [43b]
+    ///
+    /// The session's token is replaced on success and the one the caller arrived with stops working,
+    /// so a stolen cookie does not outlive the password it was obtained under. [46]
+    /// </remarks>
+    [EnableRateLimiting("auth")]
+    [HttpPost("password")]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageResponse>> ChangePasswordAsync([FromBody] ChangePasswordRequest request)
+    {
+        // [Authorize] answers a caller with no session at all, which is a 401 and no body. What reaches
+        // here without an account is a session that has one of the two shapes that never had one: a
+        // caller carrying only the API key, and the shared session used while authentication is
+        // disabled. Neither has a password to change. [47]
+        var session = HttpContext.GetUserSession();
+        if (session?.AccountId is not { } accountId)
+        {
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                new CredentialRefusalResponse
+                {
+                    StageKey = CredentialRefusalResponse.AccountRequired,
+                    Error = "This session is not signed in as an account"
+                });
+        }
+
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var account = await context.UserAccounts.FirstOrDefaultAsync(a => a.Id == accountId);
+        if (account == null)
+        {
+            // The account was deleted while this session was open. SessionService.ValidateSessionAsync
+            // rejects such a session on its next request, so this is the same answer arriving here
+            // first rather than a state of its own. [29]
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                new CredentialRefusalResponse
+                {
+                    StageKey = CredentialRefusalResponse.AccountRequired,
+                    Error = "This session is not signed in as an account"
+                });
+        }
+
+        if (_accountLockout.IsLocked(accountId))
+        {
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                new CredentialRefusalResponse
+                {
+                    StageKey = CredentialRefusalResponse.AccountLocked,
+                    Error = "Too many failed password attempts. Try again later."
+                });
+        }
+
+        var current = _passwordHasher.VerifyHashedPassword(account, account.PasswordHash, request.CurrentPassword);
+        if (current == PasswordVerificationResult.Failed)
+        {
+            _accountLockout.RecordFailure(accountId);
+            return StatusCode(
+                StatusCodes.Status401Unauthorized,
+                new CredentialRefusalResponse
+                {
+                    StageKey = CredentialRefusalResponse.PasswordIncorrect,
+                    Error = "The current password is incorrect"
+                });
+        }
+
+        // The rules the account was created under, run against the replacement, so a password that
+        // could not have been chosen at sign-up cannot be arrived at by changing to it. The single
+        // validator is the one place those rules live, which is why this builds one rather than
+        // restating them. [26]
+        var proposed = new AccountCredentialsRequestValidator().Validate(
+            new AccountCredentialsRequest { Username = account.Username, Password = request.NewPassword });
+        if (!proposed.IsValid)
+        {
+            return BadRequest(new CredentialRefusalResponse
+            {
+                StageKey = CredentialRefusalResponse.PasswordRejected,
+                Error = proposed.Errors[0].ErrorMessage
+            });
+        }
+
+        account.PasswordHash = _passwordHasher.HashPassword(account, request.NewPassword);
+        await context.SaveChangesAsync();
+
+        _accountLockout.Clear(accountId);
+
+        // The session survives the change and gets a new token, rather than being revoked: signing the
+        // person out of the screen they just used is not what changing a password is for. What must not
+        // survive is the token they arrived with, which was obtained under the old password. [46]
+        //
+        // Rotation on its own does neither reliably. It declines while a previous rotation is inside
+        // its 30-second grace period - and /api/auth/status rotates on a schedule, so that window is
+        // open often - which would leave the token untouched. And it then puts the arriving token into
+        // that same grace window, which keeps a stolen copy working for another 30 seconds. Closing the
+        // window on both sides of the call is what makes the turnover certain and immediate.
+        await EndPreviousTokenGraceAsync(context, session.Id);
+        var rotated = await _sessionService.RotateSessionTokenAsync(session, HttpContext);
+        await EndPreviousTokenGraceAsync(context, session.Id);
+
+        if (rotated == null)
+        {
+            // Reached when the session row is gone, which is what regenerating the API key does to
+            // every session (SessionService.ClearAllSessionsAsync). The password is already changed and
+            // the caller has to sign in again, which is what the missing row means anyway.
+            _logger.LogWarning("Session {SessionId} was gone before its token could be replaced", session.Id);
+        }
+
+        _logger.LogInformation("Password changed for account {AccountId}", accountId);
+
+        return Ok(MessageResponse.Ok("Password changed"));
     }
 
     /// <summary>
@@ -1059,6 +1274,95 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Finds the account a username names. The column is citext, so the comparison is
+    /// case-insensitive at the database and "Admin" and "admin" are the same person - which is the
+    /// same rule the unique index enforces (AppDbContext.cs:213-217).
+    /// </summary>
+    private async Task<UserAccount?> FindAccountAsync(string username)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            return null;
+        }
+
+        var trimmed = username.Trim();
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        return await context.UserAccounts.FirstOrDefaultAsync(a => a.Username == trimmed);
+    }
+
+    /// <summary>
+    /// Verifies a password, spending the same work whether or not the username named anybody.
+    /// </summary>
+    /// <remarks>
+    /// An unknown username that returned without hashing would answer in a few milliseconds where a
+    /// known one takes a few hundred, which tells a caller which usernames exist no matter how
+    /// carefully the two are given the same message. Verifying against a hash nobody holds is what
+    /// closes that, and it is the same move ApiKeyService.ValidateApiKey:107-112 makes for a key of
+    /// the wrong length. [44]
+    ///
+    /// The stand-in hash is produced by the injected hasher so it carries the configured iteration
+    /// count: the count is read out of the hash itself, so a cheaper one would be a cheaper compare
+    /// and would leak the same thing. Two requests arriving before it exists each build one and one
+    /// wins, which costs a hash rather than a fault.
+    /// </remarks>
+    private PasswordVerificationResult VerifyPassword(UserAccount? account, string password)
+    {
+        if (account != null)
+        {
+            return _passwordHasher.VerifyHashedPassword(account, account.PasswordHash, password);
+        }
+
+        _absentAccountHash ??= _passwordHasher.HashPassword(new UserAccount(), Guid.NewGuid().ToString());
+        _passwordHasher.VerifyHashedPassword(new UserAccount(), _absentAccountHash, password);
+        return PasswordVerificationResult.Failed;
+    }
+
+    /// <summary>
+    /// Records the sign-in on the account row: the time it happened, and a replacement hash when the
+    /// stored one was written at a lower iteration count than the application now configures.
+    /// </summary>
+    /// <remarks>
+    /// One <c>SaveChangesAsync</c> covers both, so an installation whose hasher was stepped up cannot
+    /// end up with a rewritten hash and no record of the sign-in, or the reverse. The rehash is the
+    /// only moment the raw password is in hand, which is why it happens here rather than on a sweep.
+    /// [42]
+    /// </remarks>
+    private async Task StampSignInAsync(Guid accountId, string password, bool rewriteHash)
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var account = await context.UserAccounts.FirstOrDefaultAsync(a => a.Id == accountId);
+        if (account == null)
+        {
+            // The account was deleted between the sign-in and this write. The session it just minted is
+            // rejected on its next request by SessionService.ValidateSessionAsync, so there is nothing
+            // to stamp and nothing left to sign in as. [29]
+            return;
+        }
+
+        account.LastLoginAtUtc = DateTime.UtcNow;
+        if (rewriteHash)
+        {
+            account.PasswordHash = _passwordHasher.HashPassword(account, password);
+        }
+
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Ends the grace period a token rotation leaves behind, so the previous token stops working now
+    /// rather than in thirty seconds. Only the password change needs this: everywhere else the grace
+    /// period is what keeps a caller's in-flight requests and open tabs alive. [46]
+    /// </summary>
+    private static async Task EndPreviousTokenGraceAsync(AppDbContext context, Guid sessionId)
+    {
+        await context.UserSessions
+            .Where(s => s.Id == sessionId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.PreviousSessionTokenHash, (string?)null)
+                .SetProperty(x => x.PreviousTokenValidUntilUtc, (DateTime?)null));
+    }
+
     private async Task EmitDefaultPrefillGrantsAsync(
         IReadOnlyList<GuestPrefillGrantResult> grants,
         string service)
@@ -1077,6 +1381,20 @@ public class AuthController : ControllerBase
 }
 
 // Request models
+public class ChangePasswordRequest
+{
+    /// <summary>
+    /// The password the account has now. Required, so a session left open on a shared machine is not
+    /// on its own permission to change what the password is.
+    /// </summary>
+    public string CurrentPassword { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The replacement, held to the same rules an account is created under.
+    /// </summary>
+    public string NewPassword { get; set; } = string.Empty;
+}
+
 public class GuestDurationRequest
 {
     // null = clear UI override (revert to env/appsettings default).

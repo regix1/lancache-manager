@@ -19,6 +19,13 @@ public class AccountSetupRefusalResponse
     /// </summary>
     public const string AccountExists = "errors.accountSetup.accountExists";
 
+    /// <summary>
+    /// The name a password recovery was asked for does not belong to the main administrator, or the
+    /// installation has no main administrator yet. One key for both, because recovery resets exactly
+    /// one account and everything else is the same refusal from the caller's side. [49c]
+    /// </summary>
+    public const string MainAdminNotFound = "errors.accountSetup.mainAdminNotFound";
+
     public string StageKey { get; set; } = string.Empty;
 
     public string Error { get; set; } = string.Empty;
