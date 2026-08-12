@@ -61,7 +61,7 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
         type: 'generic',
         status: 'running',
         message,
-        details: { notificationType: 'info' }
+        details: { serviceKey: 'depotMapping' }
       });
     }
   };
@@ -82,7 +82,11 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
       return;
     }
     webApiCardIdRef.current = null;
-    updateNotification(id, { status, message, details: { notificationType: variant, cancelled } });
+    updateNotification(id, {
+      status,
+      message,
+      details: { notificationType: variant, cancelled, serviceKey: 'depotMapping' }
+    });
     scheduleAutoDismiss(id);
   };
 

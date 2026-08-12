@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
-import { useNotifications } from '@contexts/notifications';
+import { NOTIFICATION_IDS, useNotifications } from '@contexts/notifications';
 import { getErrorMessage } from '@utils/error';
 import type { NotificationVariant } from '../types/operations';
 import type { SteamAuthActions, SteamLoginFlowState } from './steamAuthTypes';
@@ -71,11 +71,12 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     loginStatusNotifications = false
   } = options;
   const { t } = useTranslation();
-  const { addNotification, updateNotification, scheduleAutoDismiss } = useNotifications();
+  const { addNotification, updateNotification, removeNotification, scheduleAutoDismiss } =
+    useNotifications();
 
-  // Id of the login-status card while a login this hook started is still live. Steam has no
-  // backend-driven mapping card to share (unlike Epic/Xbox), so the lifecycle lives in one
-  // 'generic' card updated in place; null once the card settled (signed in/cancelled/failed).
+  // Id of the login-status card while a login this hook started is still live. The card is the
+  // depot_mapping singleton, the same one the PICS rebuild drives after a successful sign-in, so
+  // one card covers the whole flow; null once the card settled (signed in/cancelled/failed).
   const loginCardIdRef = useRef<string | null>(null);
 
   const upsertLoginCard = (message: string): void => {
@@ -85,11 +86,17 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     if (loginCardIdRef.current) {
       updateNotification(loginCardIdRef.current, { status: 'running', message });
     } else {
+      // A terminal card on this singleton id - the previous attempt this hook settled, or a depot
+      // mapping run that just finished - makes addNotification refuse to seed a running card over
+      // it for a few seconds. Signing in again straight after cancelling is ordinary, so drop the
+      // old card first; otherwise the new sign-in, which can wait minutes for a mobile
+      // confirmation, shows nothing at all.
+      removeNotification(NOTIFICATION_IDS.DEPOT_MAPPING);
       loginCardIdRef.current = addNotification({
-        type: 'generic',
+        type: 'depot_mapping',
         status: 'running',
         message,
-        details: { notificationType: 'info' }
+        details: { serviceKey: 'depotMapping' }
       });
     }
   };
@@ -105,7 +112,11 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       return;
     }
     loginCardIdRef.current = null;
-    updateNotification(id, { status, message, details: { notificationType: variant, cancelled } });
+    updateNotification(id, {
+      status,
+      message,
+      details: { notificationType: variant, cancelled, serviceKey: 'depotMapping' }
+    });
     scheduleAutoDismiss(id);
   };
 
@@ -231,8 +242,10 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     );
 
     let requestTimeout: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
     try {
       requestTimeout = setTimeout(() => {
+        timedOut = true;
         controller.abort();
       }, REQUEST_TIMEOUT_MS);
 
@@ -318,6 +331,16 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         notifyLoginFailure(errorMessage);
         resetAuthForm();
         onError?.(errorMessage);
+      } else if (timedOut && loginCardIdRef.current) {
+        // The request outlived REQUEST_TIMEOUT_MS and aborted itself, so nothing else will ever
+        // settle the card and it would spin forever. The other two aborts deliberately leave the
+        // card alone: closing the modal settles it as cancelled first, and switching to manual
+        // Steam Guard entry keeps the same card for the next submit.
+        settleLoginCard(
+          'failed',
+          t('signalr.steamLogin.signInFailed', { errorDetail: 'Request timed out' }),
+          'error'
+        );
       }
       return false;
     } finally {

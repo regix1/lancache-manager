@@ -37,4 +37,38 @@ public static class PrefillSessionExpiryGates
         !session.IsPersistent &&
         session.Status == DaemonSessionStatus.Active &&
         IsExpired(session.ExpiresAt, nowUtc);
+
+    /// <summary>
+    /// True for an active session whose tracked login has been left unanswered past its deadline -
+    /// the person opened the sign-in, never finished it, and closed the tab. Both existing login
+    /// deadlines run in the browser, so nothing else ends that attempt: the session stays
+    /// <see cref="DaemonAuthState.LoggingIn"/> and its card stays on the bar.
+    ///
+    /// The deadline is the daemon's own <see cref="CredentialChallenge.ExpiresAt"/> when it sent one,
+    /// falling back to <paramref name="fallbackTimeout"/> measured from
+    /// <see cref="DaemonSession.LoginStartedAtUtc"/>. <see cref="CredentialChallenge.ExpiresAt"/> is a
+    /// non-nullable <see cref="DateTime"/>, so a payload with no <c>expiresAt</c> field deserializes to
+    /// <c>default</c>, which is <c>0001-01-01</c> and therefore always in the past. Treating that as a
+    /// real deadline would cancel every live login the first time this runs, so a default value counts
+    /// as "no deadline sent" and takes the fallback instead.
+    ///
+    /// An untracked login (no <see cref="DaemonSession.LoginStartedAtUtc"/>) is left alone: the headless
+    /// self-auth path raises no card and ends its own attempt.
+    /// </summary>
+    public static bool ShouldCancelAbandonedLogin(DaemonSession session, DateTime nowUtc, TimeSpan fallbackTimeout)
+    {
+        if (session.Status != DaemonSessionStatus.Active ||
+            session.AuthState != DaemonAuthState.LoggingIn ||
+            session.LoginStartedAtUtc is not { } startedAtUtc)
+        {
+            return false;
+        }
+
+        var challengeExpiresAt = session.PendingLoginChallenge?.ExpiresAt;
+        var deadline = challengeExpiresAt is { } expiresAt && expiresAt != default
+            ? expiresAt
+            : startedAtUtc + fallbackTimeout;
+
+        return IsExpired(deadline, nowUtc);
+    }
 }

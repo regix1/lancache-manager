@@ -342,7 +342,7 @@ export const AdminAccountStep: React.FC = () => {
         )}
       </div>
 
-      {/* Primary API key Input */}
+      {/* API key Input */}
       <div>
         <label className="form-field-label">{t('initialization.adminAccount.apiKeyLabel')}</label>
         <input

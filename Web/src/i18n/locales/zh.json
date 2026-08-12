@@ -186,7 +186,8 @@
         "operationHistoryCleanup": "操作历史清理",
         "performanceOptimization": "性能优化",
         "dashboardCacheWarmer": "仪表盘缓存预热",
-        "bulkRemoval": "批量移除"
+        "bulkRemoval": "批量移除",
+        "prefillLogin": "预填充登录"
       },
       "cacheFilesDeleted": "已删除 {{formattedCount}} 个缓存文件",
       "cacheFilesDeleted_other": "已删除 {{formattedCount}} 个缓存文件",
@@ -210,6 +211,7 @@
       "cancelScheduledPrefill": "取消计划预填充",
       "cancelEvictionRemoval": "取消淘汰移除",
       "cancelBulkRemoval": "取消批量移除",
+      "cancelPrefillLogin": "取消登录",
       "cancelOperationAria": "取消操作",
       "forceKillOperation": "再次点击以强制终止",
       "cancelOperationFailed": "取消操作失败",
@@ -3983,7 +3985,9 @@
           "description": "刷新用于命名缓存中 Xbox 下载的 Xbox / 微软商店目录。从已认证的 Xbox 预填充会话读取已拥有的游戏列表和每个文件的 CDN 模式，无需进行预填充下载。",
           "summary": "保持 Xbox 目录为最新。",
           "gain": "已拥有的 Xbox 游戏会按计划映射到其缓存下载，因此在真实 Xbox 或 PC 上下载的游戏无需启动预填充即可被命名",
-          "loss": "新获得的 Xbox 游戏可能不会出现在游戏列表中，直到下次计划刷新或守护进程登录"
+          "loss": "新获得的 Xbox 游戏可能不会出现在游戏列表中，直到下次计划刷新或守护进程登录",
+          "signInWaitingLabel": "Xbox 登录",
+          "signInWaitingHelp": "正在等待你批准设备代码。在登录完成、取消或过期之前，立即运行将保持不可用。"
         },
         "logRotation": {
           "displayName": "日志轮换",
@@ -4542,7 +4546,8 @@
       "loginRequired": "需要登录 {{service}}",
       "canUsePrefill": "您现在可以使用预填充命令",
       "authenticateToAccess": "验证身份以访问您的游戏库",
-      "loginToService": "登录 {{service}}"
+      "loginToService": "登录 {{service}}",
+      "waitingForSignIn": "正在等待 {{service}} 登录"
     },
     "activityLog": {
       "title": "活动日志",
@@ -6519,8 +6524,8 @@
       "passwordPlaceholder": "至少 12 个字符",
       "confirmPasswordLabel": "确认密码",
       "confirmPasswordPlaceholder": "请再次输入密码",
-      "apiKeyLabel": "主 API 密钥",
-      "apiKeyPlaceholder": "输入主 API 密钥",
+      "apiKeyLabel": "API 密钥",
+      "apiKeyPlaceholder": "输入 API 密钥",
       "apiKeyHint": "该密钥会打印在容器日志中，并保存在 /data/security/api_key.txt。它用于证明本次安装归您所有，因此他人无法抢先创建第一个账户。",
       "strengthWeak": "弱",
       "strengthMedium": "中",
@@ -6543,7 +6548,7 @@
         "passwordSameAsUsername": "密码不能与用户名相同",
         "confirmPasswordRequired": "请确认您的密码",
         "passwordsDoNotMatch": "两次输入的密码不一致",
-        "apiKeyRequired": "主 API 密钥是必需的",
+        "apiKeyRequired": "API 密钥是必需的",
         "tooManyAttempts": "尝试次数过多。请等待一分钟后重试。",
         "createFailed": "创建账户失败。请重试。",
         "network": "网络错误。请检查您的网络连接。"

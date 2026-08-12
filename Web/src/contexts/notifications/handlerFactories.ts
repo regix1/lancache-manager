@@ -153,6 +153,11 @@ interface StartedHandlerConfig<T> {
   getDetails?: (event: T) => UnifiedNotification['details'];
   /** If true, always replace existing notification (for restartable operations) */
   replaceExisting?: boolean;
+  /**
+   * Progress semantics for the card this handler creates. Left unset the card is determinate at
+   * the 0% below, which is a lie for an operation that starts by waiting on a person.
+   */
+  progressMode?: NotificationProgressMode;
   /** Extra notification ids to remove when this operation starts */
   additionalIdsToRemove?: string[];
 }
@@ -238,6 +243,7 @@ export function createStartedHandler<T>(
         message: config.getMessage?.(event) ?? config.defaultMessage,
         startedAt: new Date(),
         progress: 0,
+        progressMode: config.progressMode,
         details: config.getDetails?.(event)
       };
 

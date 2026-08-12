@@ -27,6 +27,14 @@ public class ServiceScheduleInfo
     /// incremental is viable, so its presence alone answers "is a full scan required right now".
     /// </summary>
     public FullScanRequirement? PendingFullScan { get; set; }
+
+    /// <summary>
+    /// Set only on the Xbox mapping schedule, and only while its sign-in is waiting for the user to
+    /// approve a device code. The wait registers a tracked XboxMapping operation, which is what turns
+    /// <see cref="IsRunning"/> true and greys out Run Now, so its presence alone answers "why is this
+    /// row busy when no refresh was scheduled". Null on every other service.
+    /// </summary>
+    public bool? AwaitingSignIn { get; set; }
 }
 
 /// <summary>

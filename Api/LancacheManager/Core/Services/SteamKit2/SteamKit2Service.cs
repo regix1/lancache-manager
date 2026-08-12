@@ -51,6 +51,11 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private readonly ConcurrentDictionary<Guid, string> _depotRunFailures = new();
     private DepotScanMode _activeDepotScanMode;
     private int _rebuildActive;
+
+    // A sign-in now outlives the request that started it, so a second submit can arrive while the
+    // first credentials poll is still waiting on a phone tap. Without this guard that second submit
+    // would register a second depotMapping operation and the bar would show two sign-in cards.
+    private int _loginActive;
     private bool _disposed;
     private bool _initialized;
 

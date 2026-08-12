@@ -29,12 +29,26 @@ public partial class XboxCatalogMappingService
     // auth surfaces reuse the SAME validity window as the Integrations card (single source of truth).
     public static readonly TimeSpan XboxLoginValidity = TimeSpan.FromDays(90);
 
+    /// <summary>Stage key the sign-in card and the auth-state event both carry during the approval wait.</summary>
+    private const string XboxAwaitingSignInStageKey = "signalr.xbox.mapping.authenticating";
+
     // Serializes auth-state mutations so a completing login and a logout cannot interleave.
     private readonly SemaphoreSlim _authSessionLock = new(1, 1);
-    // Serializes the login-start sequence so two near-simultaneous clicks can't both register a poll
-    // CTS; an abandoned prior login is superseded inside, never blocked (single admin, last-writer-wins).
+    // Serializes the login-start sequence so two near-simultaneous clicks can't both register a
+    // reporter; an abandoned prior login is superseded inside, never blocked (single admin,
+    // last-writer-wins).
     private readonly SemaphoreSlim _loginStartLock = new(1, 1);
-    private CancellationTokenSource? _loginPollCts;
+
+    // The in-flight sign-in's tracked operation, so a logout and the modal's cancel can stop it. Held
+    // apart from _currentMappingReporter because a scheduled refresh writes that field too
+    // (Scheduling.cs:50), and cancelling a sign-in must never stop a catalog refresh.
+    private MappingOperationReporter? _loginReporter;
+
+    // True only while the device-code poll waits for the person to approve, not for the whole login:
+    // _loginReporter stays set through the catalog harvest that follows approval, so a Schedules row
+    // driven off that field would claim a sign-in is pending during an ordinary refresh. Volatile
+    // because the poll runs on its own task and the schedule registry reads this on a request thread.
+    private volatile bool _awaitingSignIn;
 
     /// <summary>True once a saved/just-completed MSA session is active. Drives the auth-status surface.</summary>
     public bool IsAuthenticated => _isAuthenticated;
@@ -44,6 +58,14 @@ public partial class XboxCatalogMappingService
 
     /// <summary>The authenticated account's Xbox user id (xuid), captured for diagnostics.</summary>
     public string? Xuid => _xuid;
+
+    /// <summary>
+    /// True while a device-code login is waiting for the user to approve it in their browser.
+    /// <c>ServiceScheduleRegistry</c> reads this by reflection to tell the xboxMapping row why Run Now
+    /// is disabled, so it has to stay a property named exactly this and typed exactly <c>bool</c> -
+    /// a field, a method or a <c>bool?</c> reads back as absent and the row silently says nothing.
+    /// </summary>
+    public bool AwaitingSignIn => _awaitingSignIn;
 
     /// <summary>Returns the current auth snapshot for the REST <c>auth-status</c> endpoint.</summary>
     public XboxMappingAuthStatus GetAuthStatus()
@@ -71,34 +93,44 @@ public partial class XboxCatalogMappingService
         // Single admin, last-writer-wins: a prior login that was abandoned (modal closed without
         // approving) is SUPERSEDED here rather than blocking this one, so re-clicking Login always works
         // and never 409s. The short lock only guards two truly-simultaneous starts from racing to
-        // register their poll CTS - it does not block an abandoned-then-retry.
+        // register their reporter - it does not block an abandoned-then-retry.
         await _loginStartLock.WaitAsync(ct);
         try
         {
             // Cancel any stale in-flight login poll before starting a fresh one. The old poll loop observes
-            // the cancellation, emits a terminal "cancelled" event, and disposes its own CTS in its finally.
+            // the cancellation, emits a terminal "cancelled" event, and disposes its own reporter in its
+            // finally.
             try
             {
-                _loginPollCts?.Cancel();
+                _loginReporter?.RequestCancellation();
             }
             catch (ObjectDisposedException)
             {
                 // Old poll already finished.
             }
 
-            // Register the login CTS BEFORE the device-code request and link it to shutdown, so a logout
-            // (or host shutdown) can cancel the flow even during RequestDeviceCodeAsync, and so the entire
-            // background poll - which outlives this HTTP request - is cancelled when the host stops. The poll
-            // is deliberately NOT tied to the request token: it must keep running after the POST returns.
-            var pollCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
-            _loginPollCts = pollCts;
+            // Build the login's reporter BEFORE the device-code request so ONE tracked operation covers the
+            // whole sign-in, and link its token to shutdown, so a logout (or host shutdown) can cancel the
+            // flow even during RequestDeviceCodeAsync, and so the entire background poll - which outlives
+            // this HTTP request - is cancelled when the host stops. The poll is deliberately NOT tied to the
+            // request token: it must keep running after the POST returns. The operation is registered at the
+            // top of the poll instead of here, so it never exists outside _refreshGate.
+            _refreshShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
+            var reporter = new MappingOperationReporter(
+                _notifications,
+                _operationTracker,
+                MappingOperations.Xbox,
+                _refreshShowNotification,
+                _shutdownCts.Token,
+                _logger);
+            _loginReporter = reporter;
 
             try
             {
                 // The device-code request itself is also cancellable by the HTTP request that triggered it,
-                // via a short-lived linked source that does not affect the long-lived poll CTS.
+                // via a short-lived linked source that does not affect the long-lived login token.
                 XboxDeviceCodeResponse deviceCode;
-                using (var requestCts = CancellationTokenSource.CreateLinkedTokenSource(pollCts.Token, ct))
+                using (var requestCts = CancellationTokenSource.CreateLinkedTokenSource(reporter.Token, ct))
                 {
                     deviceCode = await _authClient.RequestDeviceCodeAsync(requestCts.Token);
                 }
@@ -110,29 +142,26 @@ public partial class XboxCatalogMappingService
                     ? XblRequestSigner.FromPkcs8Base64(authData.DeviceKeyPkcs8)
                     : XblRequestSigner.CreateNew();
 
-                var operationId = Guid.NewGuid();
-
-                // Device-code grant: the BACKEND polls. Fire-and-forget the poll loop; it disposes pollCts
-                // and emits auth-state plus a tracked mapping lifecycle when it finishes.
-                _ = Task.Run(() => RunLoginPollAsync(deviceCode, signer, operationId, pollCts), CancellationToken.None);
+                // Device-code grant: the BACKEND polls. Fire-and-forget the poll loop; it registers the
+                // tracked operation and emits auth-state, and disposes the reporter when it finishes.
+                _ = Task.Run(() => RunLoginPollAsync(deviceCode, signer, reporter), CancellationToken.None);
 
                 return new XboxDeviceCodeChallenge
                 {
                     UserCode = deviceCode.UserCode ?? string.Empty,
                     VerificationUri = deviceCode.VerificationUri ?? string.Empty,
                     ExpiresIn = deviceCode.ExpiresIn,
-                    Interval = deviceCode.Interval,
-                    OperationId = operationId
+                    Interval = deviceCode.Interval
                 };
             }
             catch
             {
-                // The poll loop never started, so dispose the CTS here so the user can retry.
-                if (ReferenceEquals(_loginPollCts, pollCts))
+                // The poll loop never started, so dispose the reporter here so the user can retry.
+                if (ReferenceEquals(_loginReporter, reporter))
                 {
-                    _loginPollCts = null;
+                    _loginReporter = null;
                 }
-                pollCts.Dispose();
+                await reporter.DisposeAsync();
                 throw;
             }
         }
@@ -143,39 +172,48 @@ public partial class XboxCatalogMappingService
     }
 
     /// <summary>
-    /// Background poll loop for a started device-code login. On approval it runs the full token chain +
-    /// catalog harvest, merges into the shared catalog, resolves downloads, persists credentials, and
-    /// emits a terminal auth-state event and, after approval, a tracked mapping lifecycle.
+    /// Background poll loop for a started device-code login. It holds the catalog-mapping gate and the
+    /// login's tracked operation for the whole wait; on approval it runs the full token chain + catalog
+    /// harvest, merges into the shared catalog, resolves downloads, persists credentials, and emits a
+    /// terminal auth-state event.
     /// </summary>
     private async Task RunLoginPollAsync(
-        XboxDeviceCodeResponse deviceCode, XblRequestSigner signer, Guid operationId, CancellationTokenSource pollCts)
+        XboxDeviceCodeResponse deviceCode, XblRequestSigner signer, MappingOperationReporter reporter)
     {
-        var ct = pollCts.Token;
-        MappingOperationReporter? reporter = null;
         var refreshGateHeld = false;
         try
         {
-            await EmitAuthStateAsync(
-                operationId,
-                "waiting",
-                "signalr.xbox.mapping.authenticating",
-                "Waiting for Microsoft sign-in...");
-
-            var msaToken = await _authClient.PollForTokenAsync(deviceCode, ct);
-
-            await _refreshGate.WaitAsync(ct);
+            // The sign-in holds the gate for the whole approval wait, because it registers its XboxMapping
+            // operation before the wait and a scheduled tick registering a second one beside it would break
+            // the one-card/one-operation contract the gate exists to hold. The wait is bounded: the device
+            // code carries its own expiry and PollForTokenAsync stops at that deadline.
+            await _refreshGate.WaitAsync(reporter.Token);
             refreshGateHeld = true;
 
-            _refreshShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
-            reporter = new MappingOperationReporter(
-                _notifications,
-                _operationTracker,
-                MappingOperations.Xbox,
-                _refreshShowNotification,
-                ct,
-                _logger);
             _currentMappingReporter = reporter;
-            await reporter.StartAsync(CreateXboxMappingContext());
+
+            // The card the user watches while approving is the one this started event creates, and it
+            // shows the started stage key, so that key is the waiting one rather than the generic
+            // starting one. The reporter's own progress events take the message over after approval.
+            await reporter.StartAsync(CreateXboxMappingContext(), XboxAwaitingSignInStageKey);
+
+            XboxMsaTokenResponse msaToken;
+            _awaitingSignIn = true;
+            try
+            {
+                await EmitAuthStateAsync(
+                    reporter.OperationId,
+                    "waiting",
+                    XboxAwaitingSignInStageKey,
+                    "Waiting for Microsoft sign-in...");
+
+                msaToken = await _authClient.PollForTokenAsync(deviceCode, reporter.Token);
+            }
+            finally
+            {
+                _awaitingSignIn = false;
+            }
+
             await reporter.ReportAsync(
                 25,
                 "signalr.xboxMapping.collecting",
@@ -246,7 +284,7 @@ public partial class XboxCatalogMappingService
                 success: true,
                 context: CreateXboxMappingContext(resolved: resolved));
             await EmitAuthStateAsync(
-                operationId,
+                reporter.OperationId,
                 "completed",
                 "signalr.xbox.mapping.completed",
                 $"Xbox login complete - {harvest.CdnInfos.Count} games");
@@ -257,16 +295,13 @@ public partial class XboxCatalogMappingService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Xbox mapping login cancelled");
-            if (reporter is not null)
-            {
-                await reporter.CompleteAsync(
-                    success: false,
-                    cancelled: true,
-                    context: CreateXboxMappingContext());
-            }
+            await reporter.CompleteAsync(
+                success: false,
+                cancelled: true,
+                context: CreateXboxMappingContext());
 
             await EmitAuthStateAsync(
-                operationId,
+                reporter.OperationId,
                 "cancelled",
                 "signalr.xbox.mapping.cancelled",
                 "Xbox login cancelled");
@@ -274,16 +309,13 @@ public partial class XboxCatalogMappingService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Xbox mapping login failed");
-            if (reporter is not null)
-            {
-                await reporter.CompleteAsync(
-                    success: false,
-                    error: ex.Message,
-                    context: CreateXboxMappingContext(errorDetail: ex.Message));
-            }
+            await reporter.CompleteAsync(
+                success: false,
+                error: ex.Message,
+                context: CreateXboxMappingContext(errorDetail: ex.Message));
 
             await EmitAuthStateAsync(
-                operationId,
+                reporter.OperationId,
                 "failed",
                 "signalr.xbox.mapping.failed",
                 "Xbox login failed",
@@ -293,13 +325,10 @@ public partial class XboxCatalogMappingService
         {
             try
             {
-                if (reporter is not null)
+                await reporter.DisposeAsync();
+                if (ReferenceEquals(_currentMappingReporter, reporter))
                 {
-                    await reporter.DisposeAsync();
-                    if (ReferenceEquals(_currentMappingReporter, reporter))
-                    {
-                        _currentMappingReporter = null;
-                    }
+                    _currentMappingReporter = null;
                 }
             }
             finally
@@ -310,11 +339,10 @@ public partial class XboxCatalogMappingService
                 }
 
                 signer.Dispose();
-                if (ReferenceEquals(_loginPollCts, pollCts))
+                if (ReferenceEquals(_loginReporter, reporter))
                 {
-                    _loginPollCts = null;
+                    _loginReporter = null;
                 }
-                pollCts.Dispose();
             }
         }
     }
@@ -327,7 +355,7 @@ public partial class XboxCatalogMappingService
     {
         try
         {
-            _loginPollCts?.Cancel();
+            _loginReporter?.RequestCancellation();
         }
         catch (ObjectDisposedException)
         {
@@ -363,7 +391,7 @@ public partial class XboxCatalogMappingService
     {
         try
         {
-            _loginPollCts?.Cancel();
+            _loginReporter?.RequestCancellation();
         }
         catch (ObjectDisposedException)
         {

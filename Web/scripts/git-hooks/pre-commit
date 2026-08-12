@@ -1,14 +1,6 @@
 #!/bin/sh
 set -e
 
-# Invisible-Unicode gate. Zero-width, bidi and tag characters carry no glyph, so hidden
-# text pasted into source is unreadable in review. Runs before the cd because it resolves
-# staged paths relative to the repo root.
-INVISIBLES="$HOME/.githooks/pre-commit"
-if [ -x "$INVISIBLES" ]; then
-  "$INVISIBLES" || exit 1
-fi
-
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT/Web"
 

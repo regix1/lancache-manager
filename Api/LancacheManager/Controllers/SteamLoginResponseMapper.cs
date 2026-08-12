@@ -12,13 +12,14 @@ public static class SteamLoginResponseMapper
     /// <summary>
     /// Builds the standard success response after credentials were persisted by the caller.
     /// </summary>
-    public static SteamLoginResponse CreateSuccessResponse(string username) =>
+    public static SteamLoginResponse CreateSuccessResponse(string username, Guid? operationId) =>
         new()
         {
             Success = true,
             Message = "Authentication successful",
             AuthMode = "authenticated",
-            Username = username
+            Username = username,
+            OperationId = operationId
         };
 
     /// <summary>
@@ -38,7 +39,8 @@ public static class SteamLoginResponseMapper
             return new OkObjectResult(new SteamLoginResponse
             {
                 RequiresTwoFactor = true,
-                Message = "Two-factor authentication required"
+                Message = "Two-factor authentication required",
+                OperationId = result.OperationId
             });
         }
 
@@ -47,7 +49,8 @@ public static class SteamLoginResponseMapper
             return new OkObjectResult(new SteamLoginResponse
             {
                 RequiresEmailCode = true,
-                Message = "Email verification code required"
+                Message = "Email verification code required",
+                OperationId = result.OperationId
             });
         }
 
@@ -57,7 +60,8 @@ public static class SteamLoginResponseMapper
             {
                 SessionExpired = true,
                 RequiresTwoFactor = true,
-                Message = result.Message ?? "Session expired. Please enter your 2FA code instead."
+                Message = result.Message ?? "Session expired. Please enter your 2FA code instead.",
+                OperationId = result.OperationId
             });
         }
 

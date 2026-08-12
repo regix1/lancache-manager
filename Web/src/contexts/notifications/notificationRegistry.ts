@@ -461,7 +461,8 @@ const CANCEL_TOOLTIP = {
   xboxGameMapping: 'common.notifications.cancelXboxGameMapping',
   battleNetGameMapping: 'common.notifications.cancelBattleNetGameMapping',
   riotGameMapping: 'common.notifications.cancelRiotGameMapping',
-  bulkRemoval: 'common.notifications.cancelBulkRemoval'
+  bulkRemoval: 'common.notifications.cancelBulkRemoval',
+  prefillLogin: 'common.notifications.cancelPrefillLogin'
 } as const;
 
 export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
@@ -1643,6 +1644,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     wiring: 'special',
     cancelKind: 'serverOp',
     cancelTooltipKey: CANCEL_TOOLTIP.databaseReset,
+    // The reset is already marked as processing before its operationId is registered, so a page
+    // load in that window recovers a running card with no id (see createNotification below). The
+    // id then arrives on a progress tick, which is exactly what a deferred cancel needs, so the
+    // card keeps its X through that window.
+    allowsDeferredCancel: true,
     recovery: {
       kind: 'simple',
       translationValidation: {
@@ -1716,6 +1722,25 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     wiring: 'special',
     cancelKind: 'clientQueue',
     cancelTooltipKey: CANCEL_TOOLTIP.bulkRemoval,
+    recovery: { kind: 'none' }
+  },
+
+  // ========== Prefill Login (special; card raised by the login hooks) ==========
+  // Metadata-only entry, same reason as bulk_removal above: the card is created by
+  // usePrefillSteamAuth / usePersistentXboxAuth while a daemon sign-in waits on the
+  // person, and this entry exists so UniversalNotificationBar's cancel-config loop is
+  // the single source for its cancel wiring. cancelKind 'serverOp' → the X posts to
+  // /api/operations/{id}/cancel using details.operationId, which the login challenge
+  // carries; a card without one simply shows no X. No SignalR events (the hooks own
+  // the card's whole life) and no recovery (a reload ends the browser side of the
+  // sign-in, and the server's own sweep ends the daemon side).
+  {
+    type: 'prefill_login',
+    id: 'prefill_login',
+    storageKey: '',
+    wiring: 'special',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.prefillLogin,
     recovery: { kind: 'none' }
   }
 ];

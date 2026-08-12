@@ -315,6 +315,16 @@ public abstract partial class PrefillDaemonServiceBase
 
     protected async Task NotifyAuthStateChangeAsync(DaemonSession session)
     {
+        // Every ending of a login comes through here - the daemon's own success broadcast, a fail-fast,
+        // the user cancelling, a logout, a login command that never reached the daemon, and the headless
+        // abandon - so this is the single place a login's card gets closed. LoggingIn is the one state
+        // that is not an ending: it is the broadcast that opens the flow. Done first so a broadcast
+        // failure further down cannot leave a card running for a login that is already over.
+        if (session.AuthState != DaemonAuthState.LoggingIn)
+        {
+            CompleteLoginOperation(session);
+        }
+
         // Single robust point covering every login path (interactive + auto-login): once a
         // session transitions to Authenticated, it no longer needs a re-login. Clear the flag
         // here so a previously-flagged persistent container stops reporting needs-relogin.
@@ -365,6 +375,10 @@ public abstract partial class PrefillDaemonServiceBase
 
     private async Task NotifyCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)
     {
+        // Stamped once here so both broadcasts below carry the login's operation id, matching what the
+        // login call's own return value carries.
+        challenge.OperationId = session.LoginOperationId?.ToString();
+
         await BroadcastToSubscribersAsync(session, EventCredentialChallenge,
             new { sessionId = session.Id, challenge });
 

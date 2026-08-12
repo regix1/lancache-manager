@@ -1,7 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
-import { useNotifications, type NotificationStatus } from '@contexts/notifications';
+import {
+  NOTIFICATION_IDS,
+  useNotifications,
+  type NotificationStatus
+} from '@contexts/notifications';
 import { getErrorMessage } from '@utils/error';
 
 interface UseEpicMappingAuthOptions {
@@ -35,7 +39,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   const { onSuccess, onError, loginStatusNotifications = false } = options;
 
   const { t } = useTranslation();
-  const { addNotification } = useNotifications();
+  const { addNotification, removeNotification } = useNotifications();
 
   const [loading, setLoading] = useState(false);
   const [needsAuthorizationCode, setNeedsAuthorizationCode] = useState(false);
@@ -54,6 +58,13 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       if (!loginStatusNotifications) {
         return;
       }
+      if (status === 'running') {
+        // A back-out leaves a terminal card on this singleton id, and addNotification refuses to
+        // replace one that landed seconds ago. Signing in again straight after cancelling is
+        // ordinary, so drop the old card first - otherwise the new sign-in, which waits on the
+        // user pasting an authorization code, shows nothing at all.
+        removeNotification(NOTIFICATION_IDS.EPIC_GAME_MAPPING);
+      }
       addNotification({
         type: 'epic_game_mapping',
         status,
@@ -62,7 +73,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
         ...(error !== undefined ? { error } : {})
       });
     },
-    [loginStatusNotifications, addNotification]
+    [loginStatusNotifications, addNotification, removeNotification]
   );
 
   const resetAuthForm = useCallback(() => {

@@ -39,4 +39,10 @@ export interface ServiceScheduleInfo {
   supportsNotifications: boolean;
   /** Present on the Steam depot mapping schedule only, and only while a full scan is required. */
   pendingFullScan?: PendingFullScan | null;
+  /**
+   * Present on the Xbox mapping schedule only, and only while its sign-in is waiting for the user to
+   * approve a device code. That wait is what makes `isRunning` true, so this is what the row shows
+   * instead of leaving Run Now greyed out with no reason.
+   */
+  awaitingSignIn?: boolean | null;
 }

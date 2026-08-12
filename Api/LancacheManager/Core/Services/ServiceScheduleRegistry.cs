@@ -770,6 +770,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // an incremental scan; every other service reads back null. Same reflection route as
             // SupportsNotifications above, so the registry keeps its distance from the concrete types.
             PendingFullScan = (FullScanRequirement?)GetPropertyValue(service.GetType(), service, "PendingFullScan", typeof(FullScanRequirement)),
+            // Only the Xbox mapping service declares this one, and only while its device-code sign-in
+            // is waiting for approval. That wait is what put the row into the running state above, so
+            // the row needs it to say why Run Now is unavailable. Same reflection route again.
+            AwaitingSignIn = (bool?)GetPropertyValue(service.GetType(), service, "AwaitingSignIn", typeof(bool)),
         };
     }
 

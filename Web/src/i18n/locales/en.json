@@ -186,7 +186,8 @@
         "operationHistoryCleanup": "Operation History Cleanup",
         "performanceOptimization": "Performance Optimization",
         "dashboardCacheWarmer": "Dashboard Cache Warmer",
-        "bulkRemoval": "Bulk Removal"
+        "bulkRemoval": "Bulk Removal",
+        "prefillLogin": "Prefill Sign-In"
       },
       "cacheFilesDeleted": "{{formattedCount}} cache file deleted",
       "cacheFilesDeleted_other": "{{formattedCount}} cache files deleted",
@@ -210,6 +211,7 @@
       "cancelScheduledPrefill": "Cancel scheduled prefill",
       "cancelEvictionRemoval": "Cancel eviction removal",
       "cancelBulkRemoval": "Cancel bulk removal",
+      "cancelPrefillLogin": "Cancel sign-in",
       "cancelOperationAria": "Cancel operation",
       "forceKillOperation": "Click again to force kill",
       "cancelOperationFailed": "Failed to cancel operation",
@@ -3983,7 +3985,9 @@
           "description": "Refreshes the Xbox / Microsoft Store catalog used to name Xbox downloads in your cache. Reads the owned-games list and per-file CDN patterns from your authenticated Xbox prefill session, with no prefill download required.",
           "summary": "Keeps the Xbox catalog up to date.",
           "gain": "Owned Xbox games are mapped to their cached downloads on a schedule, so titles downloaded on a real Xbox or PC are named without starting a prefill",
-          "loss": "Newly acquired Xbox games may not appear in the game list until the next scheduled refresh or a daemon login"
+          "loss": "Newly acquired Xbox games may not appear in the game list until the next scheduled refresh or a daemon login",
+          "signInWaitingLabel": "Xbox sign-in",
+          "signInWaitingHelp": "Waiting for you to approve the device code. Run Now stays unavailable until the sign-in finishes, is cancelled, or expires."
         },
         "logRotation": {
           "displayName": "Log Rotation",
@@ -4542,7 +4546,8 @@
       "loginRequired": "{{service}} Login Required",
       "canUsePrefill": "You can now use prefill commands",
       "authenticateToAccess": "Authenticate to access your game library",
-      "loginToService": "Login to {{service}}"
+      "loginToService": "Login to {{service}}",
+      "waitingForSignIn": "Waiting for {{service}} sign-in"
     },
     "activityLog": {
       "title": "Activity Log",
@@ -6553,8 +6558,8 @@
       "passwordPlaceholder": "At least 12 characters",
       "confirmPasswordLabel": "Confirm Password",
       "confirmPasswordPlaceholder": "Confirm your password",
-      "apiKeyLabel": "Primary API key",
-      "apiKeyPlaceholder": "Enter the primary API key",
+      "apiKeyLabel": "API key",
+      "apiKeyPlaceholder": "Enter the API key",
       "apiKeyHint": "The key is printed in the container log and stored at /data/security/api_key.txt. It proves you own this installation, so nobody else can claim the first account.",
       "strengthWeak": "Weak",
       "strengthMedium": "Medium",
@@ -6577,7 +6582,7 @@
         "passwordSameAsUsername": "Password cannot be the same as the username",
         "confirmPasswordRequired": "Please confirm your password",
         "passwordsDoNotMatch": "Passwords do not match",
-        "apiKeyRequired": "Primary API key is required",
+        "apiKeyRequired": "API key is required",
         "tooManyAttempts": "Too many attempts. Wait a minute and try again.",
         "createFailed": "Failed to create the account. Please try again.",
         "network": "Network error. Please check your connection."

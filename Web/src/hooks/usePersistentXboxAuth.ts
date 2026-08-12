@@ -1,4 +1,6 @@
 import { useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNotifications } from '@contexts/notifications';
 import { usePersistentPrefillAuth } from './usePersistentPrefillAuth';
 import { useErrorHandler } from './useErrorHandler';
 import {
@@ -37,7 +39,17 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
     service: 'Xbox'
   });
   const { notifyError } = useErrorHandler();
+  const { addNotification, removeNotification } = useNotifications();
+  const { t } = useTranslation();
   const pollGenerationRef = useRef(0);
+  const loginCardIdRef = useRef<string | null>(null);
+
+  const endLoginCard = useCallback(() => {
+    if (!loginCardIdRef.current) return;
+
+    removeNotification(loginCardIdRef.current);
+    loginCardIdRef.current = null;
+  }, [removeNotification]);
 
   const pollUntilAuthenticated = useCallback(
     async (generation: number): Promise<boolean> => {
@@ -88,19 +100,33 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
 
     const challenge = await coreActions.start();
     if (challenge?.credentialType === 'device-code') {
-      void pollUntilAuthenticated(generation).catch((err: unknown) => {
-        // A 404 (session gone - diagnostic ADDENDUM) or any other poll failure already ends this
-        // loop via the throw from coreActions.poll() and surfaces via state.error or
-        // state.sessionUnavailableState; silent here to avoid a duplicate notification.
-        notifyError('Xbox persistent login poll failed', err, {
-          silent: true,
-          logLabel: 'usePersistentXboxAuth pollUntilAuthenticated'
-        });
+      // The bar shows this wait for as long as the poll runs, which outlives a dismissed modal -
+      // that is the point, since a dismissed device code is exactly the sign-in a person forgets.
+      // No progress key: the wait has no denominator, so the card sweeps.
+      loginCardIdRef.current = addNotification({
+        type: 'prefill_login',
+        status: 'running',
+        message: t('prefill.auth.waitingForSignIn', {
+          service: t('management.schedules.services.scheduledPrefill.config.services.xbox')
+        }),
+        details: { operationId: challenge.operationId }
       });
+
+      void pollUntilAuthenticated(generation)
+        .catch((err: unknown) => {
+          // A 404 (session gone - diagnostic ADDENDUM) or any other poll failure already ends this
+          // loop via the throw from coreActions.poll() and surfaces via state.error or
+          // state.sessionUnavailableState; silent here to avoid a duplicate notification.
+          notifyError('Xbox persistent login poll failed', err, {
+            silent: true,
+            logLabel: 'usePersistentXboxAuth pollUntilAuthenticated'
+          });
+        })
+        .finally(endLoginCard);
     }
 
     return challenge;
-  }, [coreActions, pollUntilAuthenticated, notifyError]);
+  }, [coreActions, pollUntilAuthenticated, notifyError, addNotification, endLoginCard, t]);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
     await startLogin();
@@ -109,13 +135,18 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
 
   const resetAuthForm = useCallback(() => {
     pollGenerationRef.current += 1;
+    endLoginCard();
     coreActions.resetAuthForm();
-  }, [coreActions]);
+  }, [coreActions, endLoginCard]);
 
   const cancelLogin = useCallback(async (): Promise<void> => {
     pollGenerationRef.current += 1;
+    // Drop the card here rather than waiting for the poll's own finally: the loop only notices the
+    // bumped generation after its in-flight long poll returns, so the card would sit there for
+    // seconds after the person already cancelled.
+    endLoginCard();
     await coreActions.cancel();
-  }, [coreActions]);
+  }, [coreActions, endLoginCard]);
 
   const cancelPendingRequest = useCallback(() => {
     void cancelLogin();

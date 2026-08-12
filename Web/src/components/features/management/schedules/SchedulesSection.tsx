@@ -550,6 +550,10 @@ const ScheduleRow = memo(function ScheduleRow({
 
   const isDepotMapping = service.key === 'depotMapping';
   const isCacheReconciliation = service.key === 'cacheReconciliation';
+  // The Xbox sign-in registers a tracked XboxMapping operation for the whole device-code wait, which
+  // is what turns isRunningOrPending true below and greys out Run Now. Without this the button looks
+  // broken for up to 15 minutes, so the row says which one of the two is holding it.
+  const isAwaitingSignIn = service.key === 'xboxMapping' && service.awaitingSignIn === true;
   // Server truth (isRunningDot) catches a run started by the scheduler itself, another browser
   // tab, or already in progress before this page loaded; isPendingRun covers the ~1.5s gap
   // between this click's POST resolving and that flag arriving over SignalR. Run Now gates on
@@ -855,13 +859,17 @@ const ScheduleRow = memo(function ScheduleRow({
           </div>
 
           <div className="schedule-cell-actions" onClick={stopRowToggle}>
+            {/* Sign-in first: a waiting sign-in also reads as running, and "already running" would
+            send the user looking for a catalog refresh that is not happening. */}
             <Tooltip
               content={
-                isRunningOrPending
-                  ? t('management.schedules.runNowAlreadyRunning', {
-                      service: t(`management.schedules.services.${service.key}.displayName`)
-                    })
-                  : t('management.schedules.runNow')
+                isAwaitingSignIn
+                  ? t('management.schedules.services.xboxMapping.signInWaitingHelp')
+                  : isRunningOrPending
+                    ? t('management.schedules.runNowAlreadyRunning', {
+                        service: t(`management.schedules.services.${service.key}.displayName`)
+                      })
+                    : t('management.schedules.runNow')
               }
               className="schedule-action-slot"
             >
@@ -995,6 +1003,21 @@ const ScheduleRow = memo(function ScheduleRow({
                     {t('management.schedules.services.depotMapping.showFullScanPrompt')}
                   </Button>
                 </div>
+              </div>
+            )}
+
+            {/* Only while the sign-in is still waiting, so the row goes back to its usual shape as
+            soon as the code is approved, cancelled or expires. Nothing to click: the approval
+            happens on Microsoft's page, so this row carries the sentence itself instead of the
+            label-plus-control pair the settings rows use. */}
+            {isAwaitingSignIn && (
+              <div className="schedule-detail-row">
+                <span className="schedule-detail-label">
+                  {t('management.schedules.services.xboxMapping.signInWaitingLabel')}
+                </span>
+                <p className="schedule-detail-summary">
+                  {t('management.schedules.services.xboxMapping.signInWaitingHelp')}
+                </p>
               </div>
             )}
 

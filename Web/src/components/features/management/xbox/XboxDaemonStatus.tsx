@@ -116,6 +116,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
     startLogin,
     cancelLogin
   } = useXboxMappingAuth({
+    loginStatusNotifications: true,
     onSuccess: () => {
       setShowAuthModal(false);
       loadStatus();

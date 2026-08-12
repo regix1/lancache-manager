@@ -62,6 +62,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     // the Prefill Sessions, persistent-container and integration status dots read the one ActivityUpdated event.
     private readonly IActivityRegistry? _activityRegistry;
 
+    // Optional for the same reason as _activityRegistry above: unit tests construct a derived daemon
+    // directly and must keep compiling, while at runtime DI always supplies the singleton. An
+    // interactive login registers one operation here so its notification card carries a real id and
+    // its X reaches CancelLoginAsync. A daemon built without a tracker simply raises no card.
+    private readonly IUnifiedOperationTracker? _operationTracker;
+
     /// <summary>
     /// The lancache server IP most recently injected into a daemon container via the
     /// <c>LANCACHE_IP</c> env var, plus the <see cref="LancacheServerLocation.Source"/> it was located
@@ -96,6 +102,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     // Configuration defaults
     private const int DefaultSessionTimeoutMinutes = 120;
     private const int DefaultStallTimeoutSeconds = 180;
+    private const int DefaultAbandonedLoginTimeoutSeconds = 900;
     private const int DefaultTcpPort = 45555;
 
     // Bounded wait for a session's in-flight daemon event callbacks to finish during teardown (detach or
@@ -409,7 +416,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         IOptionsMonitor<PrefillNetworkOptions> networkOptions,
         ILancacheServerLocator locator,
         IPrefillContainerGatewayFactory containerGatewayFactory,
-        IActivityRegistry? activityRegistry = null)
+        IActivityRegistry? activityRegistry = null,
+        IUnifiedOperationTracker? operationTracker = null)
     {
         _logger = logger;
         _notifications = notifications;
@@ -423,6 +431,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _containerGateway = containerGatewayFactory.Create();
         _isRunningInContainer = bool.TryParse(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), out var inContainer) && inContainer;
         _activityRegistry = activityRegistry;
+        _operationTracker = operationTracker;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -2659,6 +2668,71 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         return StartLoginEntryAsync(sessionId, timeout, onCommandDispatched, cancellationToken);
     }
 
+    /// <summary>
+    /// Raises the tracked operation behind a login's notification card, so the card carries a real id
+    /// and its X ends up in <see cref="CancelLoginAsync"/> rather than in a second cancel of its own.
+    /// Lives here, above <see cref="StartLoginCoreAsync"/>, because the headless self-auth path enters
+    /// the core directly: it runs with nobody present, so it must raise no card. The suppression flag is
+    /// checked as well, since it is what marks a headless attempt while it owns this session's login.
+    /// A resumed login (the modal closed and reopened, so the core answers with the cached challenge)
+    /// keeps the card it already has instead of raising a second one for the same attempt.
+    /// </summary>
+    private void RegisterLoginOperation(DaemonSession session)
+    {
+        if (_operationTracker is null ||
+            session.LoginOperationId is not null ||
+            session.SuppressLoginChallengePublication)
+        {
+            return;
+        }
+
+        // The tracker takes ownership of this source and is its single disposer, so nothing here keeps
+        // a second handle on it: a cancel arrives through the token callback below, not through the
+        // session. Deliberately NOT the session's own CancellationTokenSource - that one is cancelled
+        // and disposed by teardown, and a source is one-shot, so a session that survives a cancelled
+        // login could never start a second one.
+        var loginCancellation = new CancellationTokenSource();
+        session.LoginOperationId = _operationTracker.RegisterOperation(
+            OperationType.PrefillLogin,
+            $"{ServiceName} Prefill Sign-In",
+            loginCancellation);
+        session.LoginStartedAtUtc = DateTime.UtcNow;
+
+        // Cancelling the operation only cancels a token; ending the login is real work, and it has one
+        // tested implementation whose clear-before-round-trip ordering must not be bypassed by a second
+        // cancel route. Detached, so the tracker's synchronous cancel is not held behind the daemon
+        // round-trip that CancelLoginAsync awaits.
+        loginCancellation.Token.Register(() =>
+            FireAndForgetAsync(() => CancelLoginAsync(session.Id), nameof(CancelLoginAsync)));
+    }
+
+    /// <summary>
+    /// Ends the tracked operation raised for this session's login, if there is one, and clears the
+    /// session's handle on it. The terminal mirrors the auth state the attempt landed on: authenticated
+    /// is a success, a fail-fast carries the daemon's own failure text, and every other ending (the user
+    /// cancelling, a logout, a login the sweep gave up on) is reported as cancelled rather than as an
+    /// error the user has to dismiss - the login modal already shows those failures itself.
+    /// Idempotent: the handle is cleared before the tracker is called, so two terminal paths racing on
+    /// one session cannot both hand the tracker the same id.
+    /// </summary>
+    private void CompleteLoginOperation(DaemonSession session)
+    {
+        if (_operationTracker is null || session.LoginOperationId is not { } operationId)
+        {
+            return;
+        }
+
+        session.LoginOperationId = null;
+        session.LoginStartedAtUtc = null;
+
+        var authenticated = session.AuthState == DaemonAuthState.Authenticated;
+        _operationTracker.CompleteOperation(
+            operationId,
+            success: authenticated,
+            error: authenticated ? null : session.LastLoginFailureMessage,
+            cancelled: !authenticated && session.LastLoginFailureMessage is null);
+    }
+
     private async Task<CredentialChallenge?> StartLoginEntryAsync(
         string sessionId,
         TimeSpan? timeout,
@@ -2684,6 +2758,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var abandonedLoginCleanup = new AbandonedLoginCleanupHolder();
         try
         {
+            RegisterLoginOperation(session);
+
             // Public contract unchanged: callers receive the challenge (or null for
             // authenticated / failed-fast / no-response, exactly as before the outcome
             // was made explicit for the headless coordinator).
@@ -2694,10 +2770,29 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 abandonedLoginCleanup,
                 onCommandDispatched,
                 cancellationToken);
+
+            // The challenge is the one object both entry paths already hand the browser, so it carries
+            // the login's operation id out. Stamped on the way back rather than where the challenge is
+            // built, because the core is also reached by the headless path, which registers nothing.
+            if (result.Challenge is { } challenge)
+            {
+                challenge.OperationId = session.LoginOperationId?.ToString();
+            }
+
             return result.Challenge;
         }
         finally
         {
+            // An attempt that came back without leaving the session mid-login - the daemon was already
+            // logged in, so no auth state changed - never reaches the auth-state funnel, and its card
+            // would outlive it. A session still LoggingIn is genuinely mid-flow: the person is answering
+            // the challenge, and the funnel closes the card when they finish (or the sweep does when
+            // they never come back).
+            if (session.AuthState != DaemonAuthState.LoggingIn)
+            {
+                CompleteLoginOperation(session);
+            }
+
             ReleaseLoginLockAfterCleanup(session, abandonedLoginCleanup);
         }
     }
@@ -3157,7 +3252,16 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             return null;
         }
 
-        return await session.Client.WaitForChallengeAsync(timeout, cancellationToken);
+        // A cached challenge served above was already stamped where it was returned or broadcast, but one
+        // that comes straight off the transport here has not been, and the persistent login poll hands
+        // exactly this one back to the browser (PersistentPrefillController.cs:709).
+        var challenge = await session.Client.WaitForChallengeAsync(timeout, cancellationToken);
+        if (challenge is not null)
+        {
+            challenge.OperationId = session.LoginOperationId?.ToString();
+        }
+
+        return challenge;
     }
 
     /// <summary>
@@ -4126,6 +4230,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         ClearPendingLoginChallenge(session);
         session.Client.ClearPendingChallenges();
         session.CancellationTokenSource.Cancel();
+        // A session torn down mid-login never reaches the auth-state funnel, and the session object it
+        // belonged to is already out of _sessions, so nothing later can close its card. Close it here.
+        CompleteLoginOperation(session);
 
         await DrainSessionEventsAsync(session);
 
@@ -4649,10 +4756,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// Single per-tick pass over this daemon's in-memory sessions, called externally once a minute by
     /// <see cref="LancacheManager.Infrastructure.Services.PersistentSessionExpiryService"/> across all
     /// platforms (replaces the old per-instance <see cref="System.Threading.Timer"/>-driven
-    /// <c>CleanupExpiredSessions</c>). Does three things, preserving exact prior behavior:
+    /// <c>CleanupExpiredSessions</c>). Does four things, the first three preserving exact prior behavior:
     /// (1) flags expired persistent sessions <see cref="DaemonSession.NeedsRelogin"/> and pushes a
     /// SignalR update - the container is NEVER torn down; (2) terminates expired non-persistent
-    /// sessions; (3) fails stalled non-persistent prefills via the existing stall watchdog. Termination
+    /// sessions; (3) fails stalled non-persistent prefills via the existing stall watchdog; (4) cancels
+    /// a login nobody came back to answer, which no other clock covers because both of a login's
+    /// existing deadlines run in the browser. Termination
     /// and stall-failure are properly awaited here (no longer fire-and-forget) since this is no longer
     /// constrained by a synchronous <see cref="System.Threading.TimerCallback"/> signature. Per-session
     /// work within each phase runs concurrently via <see cref="Task.WhenAll(IEnumerable{Task})"/>, and
@@ -4665,6 +4774,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var flaggedNeedsRelogin = 0;
         var terminated = 0;
         var stalledFailed = 0;
+        var abandonedLoginsCancelled = 0;
 
         var expiredSessions = _sessions.Values
             .Where(s => s.Status == DaemonSessionStatus.Active && PrefillSessionExpiryGates.IsExpired(s.ExpiresAt, nowUtc))
@@ -4748,7 +4858,37 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         await Task.WhenAll(stalledSessions.Select(ProcessStalledSessionAsync));
 
-        return new PrefillSessionExpiryResult(flaggedNeedsRelogin, terminated, stalledFailed);
+        // Abandoned-login watchdog: both of a login's existing deadlines run in the browser, so a person
+        // who opens the sign-in and closes the tab leaves the session sitting in LoggingIn with a card on
+        // the bar that nothing ever clears. Re-reads _sessions fresh for the same reason the stall phase
+        // above does: the phases before this one can remove entries mid-tick.
+        var abandonedLoginTimeout = TimeSpan.FromSeconds(GetAbandonedLoginTimeoutSeconds());
+        var abandonedLogins = _sessions.Values
+            .Where(s => PrefillSessionExpiryGates.ShouldCancelAbandonedLogin(s, nowUtc, abandonedLoginTimeout))
+            .ToList();
+
+        async Task ProcessAbandonedLoginAsync(DaemonSession session)
+        {
+            try
+            {
+                _logger.LogInformation(
+                    "Login for session {SessionId} went unanswered past its deadline. Cancelling it.",
+                    session.Id);
+                await CancelLoginAsync(session.Id);
+                Interlocked.Increment(ref abandonedLoginsCancelled);
+            }
+            catch (Exception ex)
+            {
+                // Same per-session isolation as the two phases above. A cancel whose daemon round-trip
+                // failed deliberately leaves the login resumable (see CancelLoginAsync), so the next tick
+                // sees it again and tries once more.
+                _logger.LogWarning(ex, "Error cancelling abandoned login for session {SessionId}", session.Id);
+            }
+        }
+
+        await Task.WhenAll(abandonedLogins.Select(ProcessAbandonedLoginAsync));
+
+        return new PrefillSessionExpiryResult(flaggedNeedsRelogin, terminated, stalledFailed, abandonedLoginsCancelled);
     }
 
     /// <summary>
@@ -4965,6 +5105,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         return _configuration.GetValue<int>("Prefill:StallTimeoutSeconds", DefaultStallTimeoutSeconds);
     }
 
+    private int GetAbandonedLoginTimeoutSeconds()
+    {
+        return _configuration.GetValue<int>("Prefill:AbandonedLoginTimeoutSeconds", DefaultAbandonedLoginTimeoutSeconds);
+    }
+
     /// <summary>
     /// Determines if host network mode should be used based on lancache-dns configuration.
     /// Returns true if lancache-dns uses host networking or if explicitly configured.
@@ -5058,7 +5203,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 /// Result of one <see cref="PrefillDaemonServiceBase.ProcessSessionExpiryAsync"/> pass, for
 /// structured logging/diagnostics at the caller (<c>PersistentSessionExpiryService</c>).
 /// </summary>
-public readonly record struct PrefillSessionExpiryResult(int FlaggedNeedsRelogin, int Terminated, int StalledFailed);
+public readonly record struct PrefillSessionExpiryResult(int FlaggedNeedsRelogin, int Terminated, int StalledFailed, int AbandonedLoginsCancelled);
 
 /// <summary>
 /// Result of <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync"/>. <see cref="LoggedOut"/>

@@ -96,7 +96,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
     }
 
     if (authenticationEnabled === false && !form.apiKey.trim()) {
-      newErrors.apiKey = 'Primary API key is required';
+      newErrors.apiKey = 'API key is required';
     }
 
     setErrors(newErrors);
@@ -291,12 +291,12 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
 
       {authenticationEnabled === false && (
         <div>
-          <label className="form-field-label">Primary API key</label>
+          <label className="form-field-label">API key</label>
           <input
             type="password"
             value={form.apiKey}
             onChange={handleInputChange('apiKey')}
-            placeholder="Enter the primary API key"
+            placeholder="Enter the API key"
             className="w-full px-3 py-2.5 themed-input"
             autoComplete="off"
             disabled={isSubmitting}

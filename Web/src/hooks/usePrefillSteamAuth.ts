@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { HubConnection } from '@microsoft/signalr';
 import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler } from './useErrorHandler';
@@ -19,6 +20,12 @@ export interface CredentialChallenge {
   verificationUri?: string;
   createdAt: string;
   expiresAt: string;
+  /**
+   * Tracker id of the daemon sign-in this challenge belongs to. The notification card
+   * carries it so the bar's X cancels through /api/operations/{id}/cancel; a card that
+   * never receives one still shows the wait, just without the X.
+   */
+  operationId?: string;
 }
 
 interface UsePrefillSteamAuthOptions {
@@ -51,8 +58,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     onDeviceConfirmationTimeout,
     serviceId = 'steam'
   } = options;
-  const { addNotification } = useNotifications();
+  const { addNotification, removeNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
+  const { t } = useTranslation();
 
   const [loading, setLoading] = useState(false);
   const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
@@ -96,6 +104,43 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const [deviceUserCode, setDeviceUserCode] = useState('');
   const [deviceVerificationUri, setDeviceVerificationUri] = useState('');
 
+  // Card the notification bar shows while the daemon waits for the person to finish signing in.
+  // This hook owns the card's whole life: no server event raises it and none clears it, so every
+  // path that ends an attempt calls endLoginCard. The platform rides in the message rather than in
+  // a card type per platform, the way the scheduled prefill card names its service.
+  const loginCardIdRef = useRef<string | null>(null);
+  const serviceLabel = t(
+    `management.schedules.services.scheduledPrefill.config.services.${serviceId}`,
+    { defaultValue: serviceId }
+  );
+
+  const showLoginCard = useCallback(
+    (operationId: string | undefined) => {
+      if (loginCardIdRef.current) return;
+
+      loginCardIdRef.current = addNotification({
+        type: 'prefill_login',
+        status: 'running',
+        // No progress key at all: a sign-in has no denominator, and any finite value here
+        // turns the travelling sweep into a bar that sits still for the whole wait.
+        message: t('prefill.auth.waitingForSignIn', { service: serviceLabel }),
+        details: { operationId }
+      });
+    },
+    [addNotification, t, serviceLabel]
+  );
+
+  const endLoginCard = useCallback(() => {
+    if (!loginCardIdRef.current) return;
+
+    removeNotification(loginCardIdRef.current);
+    loginCardIdRef.current = null;
+  }, [removeNotification]);
+
+  // Closing the panel mid-sign-in unmounts this hook, and the card lives on in the notification
+  // context, so drop it here or it stays on screen with nothing left to clear it.
+  useEffect(() => endLoginCard, [endLoginCard]);
+
   // Listen for AuthStateChanged - this is the reliable way to know when login succeeds
   useEffect(() => {
     if (!hubConnection || !sessionId) return;
@@ -120,6 +165,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setWaitingForMobileConfirmation(false);
         setNeedsDeviceCode(false);
         setLoading(false);
+        endLoginCard();
 
         // Note: PrefillPanel's handleAuthStateChanged handles the log entry,
         // so we don't add a notification here to avoid duplicates
@@ -143,6 +189,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setNeedsEmailCode(false);
         setLoading(false);
         setPendingChallenge(null);
+        endLoginCard();
 
         if (wasAuthenticating) {
           addNotification({
@@ -163,7 +210,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     return () => {
       hubConnection.off(eventName, handleAuthStateChanged);
     };
-  }, [hubConnection, sessionId, onSuccess, addNotification, onError, serviceId]);
+  }, [hubConnection, sessionId, onSuccess, addNotification, onError, serviceId, endLoginCard]);
 
   // Listen for credential challenges from the daemon
   useEffect(() => {
@@ -307,6 +354,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setPendingChallenge(null);
         isWaitingForDeviceConfirmationRef.current = false;
         hasStartedAuthRef.current = false;
+        endLoginCard();
 
         addNotification({
           type: 'generic',
@@ -330,7 +378,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     sessionId,
     addNotification,
     onDeviceConfirmationTimeout,
-    notifyError
+    notifyError,
+    endLoginCard
   ]);
 
   // Timeout for the Xbox device-code flow. Unlike Steam's device-confirmation, Xbox sets
@@ -369,6 +418,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       setPendingChallenge(null);
       isWaitingForDeviceConfirmationRef.current = false;
       hasStartedAuthRef.current = false;
+      endLoginCard();
 
       addNotification({
         type: 'generic',
@@ -392,7 +442,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     pendingChallenge,
     addNotification,
     onDeviceConfirmationTimeout,
-    notifyError
+    notifyError,
+    endLoginCard
   ]);
 
   const cancelPendingRequest = useCallback(() => {
@@ -405,11 +456,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     isWaitingForDeviceConfirmationRef.current = false;
     isWaitingForAuthCodeProcessingRef.current = false;
     setPendingChallenge(null);
+    endLoginCard();
     if (deviceConfirmationTimeoutRef.current) {
       clearTimeout(deviceConfirmationTimeoutRef.current);
       deviceConfirmationTimeoutRef.current = null;
     }
-  }, []);
+  }, [endLoginCard]);
 
   const resetAuthForm = useCallback(() => {
     setUsername('');
@@ -431,11 +483,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     isWaitingForDeviceConfirmationRef.current = false;
     isWaitingForAuthCodeProcessingRef.current = false;
     confirmedChallengeIdsRef.current.clear();
+    endLoginCard();
     if (deviceConfirmationTimeoutRef.current) {
       clearTimeout(deviceConfirmationTimeoutRef.current);
       deviceConfirmationTimeoutRef.current = null;
     }
-  }, []);
+  }, [endLoginCard]);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
     if (!sessionId || !hubConnection) {
@@ -629,6 +682,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           sessionId
         );
 
+        showLoginCard(challenge?.operationId);
+
         if (challenge && challenge.credentialType === 'authorization-url') {
           setPendingChallenge(challenge);
           setNeedsAuthorizationCode(true);
@@ -675,6 +730,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         });
         onError?.(errorMessage);
         setLoading(false);
+        endLoginCard();
         return false;
       }
     }
@@ -690,6 +746,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           'StartLoginAsync',
           sessionId
         );
+
+        showLoginCard(challenge?.operationId);
 
         if (challenge && challenge.credentialType === 'device-code') {
           setPendingChallenge(challenge);
@@ -734,6 +792,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         });
         onError?.(errorMessage);
         setLoading(false);
+        endLoginCard();
         return false;
       }
     }
@@ -762,6 +821,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       if (!challenge) {
         throw new Error('No challenge received from daemon');
       }
+
+      showLoginCard(challenge.operationId);
 
       // Daemon flow: username -> password -> (optional 2FA/steamguard/device-confirmation)
       if (challenge.credentialType === 'username') {
@@ -855,6 +916,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       });
       onError?.(errorMessage);
       setLoading(false);
+      endLoginCard();
       return false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -874,7 +936,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     resetAuthForm,
     onSuccess,
     onError,
-    serviceId
+    serviceId,
+    showLoginCard,
+    endLoginCard
   ]);
 
   // Helper to set state based on challenge type

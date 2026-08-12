@@ -42,6 +42,29 @@ public class DaemonSession
     public CredentialChallenge? PendingLoginChallenge { get; set; }
 
     /// <summary>
+    /// Id of the tracked operation raised for the login attempt currently in flight on this session,
+    /// or null when no login is being tracked. It is the notification card's id, so the bar's X and
+    /// <c>POST /api/operations/{id}/cancel</c> can both reach this session's login. Set in
+    /// <c>PrefillDaemonServiceBase.RegisterLoginOperation</c> and cleared by
+    /// <c>PrefillDaemonServiceBase.CompleteLoginOperation</c>. Its presence is also the re-entry guard
+    /// that stops a resumed login (the modal closed and reopened, so <see cref="PendingLoginChallenge"/>
+    /// answers the second call without a daemon command) raising a second card for one attempt.
+    /// Transient - not persisted, not part of <see cref="DaemonSessionDto"/>.
+    /// </summary>
+    public Guid? LoginOperationId { get; set; }
+
+    /// <summary>
+    /// UTC time the tracked login attempt started, or null when no login is being tracked. The
+    /// abandoned-login sweep needs a deadline it can trust: the challenge's own
+    /// <see cref="CredentialChallenge.ExpiresAt"/> is preferred when the daemon sent one, but a daemon
+    /// that never challenged (or sent no expiry) leaves nothing to compare against, so the sweep falls
+    /// back to this plus the configured cap. Written and cleared alongside
+    /// <see cref="LoginOperationId"/>. Transient - not persisted, not part of
+    /// <see cref="DaemonSessionDto"/>.
+    /// </summary>
+    public DateTime? LoginStartedAtUtc { get; set; }
+
+    /// <summary>
     /// The <see cref="CredentialChallenge.ChallengeId"/> of the login challenge most recently answered via
     /// <see cref="PrefillDaemonServiceBase.ProvideCredentialAsync"/> on this session. The daemon delivers each
     /// credential challenge over TWO channels - the <c>WaitForChallengeAsync</c> return value AND the

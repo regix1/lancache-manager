@@ -42,6 +42,7 @@ export type NotificationType =
   | 'performance_optimization'
   | 'dashboard_cache_warmer'
   | 'bulk_removal'
+  | 'prefill_login'
   | 'steam_session_error'
   | 'generic';
 
@@ -283,6 +284,13 @@ export interface RegistryStartedConfig<TEvent = LifecycleEvent> {
   getDetails?: (event: TEvent) => UnifiedNotification['details'];
   /** If true, always replace existing notification (for restartable operations) */
   replaceExisting?: boolean;
+  /**
+   * Progress semantics for the card this event opens. A started card is built with
+   * `progress: 0`, which reads as determinate and freezes the bar at zero for the whole
+   * wait; an operation that starts by waiting on a person sets 'indeterminate' so the
+   * card sweeps until real progress arrives.
+   */
+  progressMode?: UnifiedNotification['progressMode'];
   /** Extra notification ids to remove when this operation starts (migration/cleanup) */
   additionalIdsToRemove?: string[];
 }
@@ -429,10 +437,21 @@ export type RecoveryConfig =
  *   - any other `cancelKind` → `cancelTooltipKey` is REQUIRED, so a cancellable
  *     entry can never compile without the tooltip key that
  *     `UniversalNotificationBar` needs to render its cancel button.
+ *
+ * `allowsDeferredCancel` (read for 'serverOp' only) says this type's first
+ * operationId can arrive on a PROGRESS event, so a click on a running card that
+ * has no id yet is remembered and sent by the bar's watchdog once the id lands.
+ * A type whose only id-bearing event is a Started event cannot do that -
+ * mergeEventDetails strips the cancel flags at the moment that id arrives - so
+ * its cards show no X until they carry an operationId.
  */
 type CancelWiring =
-  | { cancelKind: 'none'; cancelTooltipKey?: never }
-  | { cancelKind: Exclude<CancelKind, 'none'>; cancelTooltipKey: string };
+  | { cancelKind: 'none'; cancelTooltipKey?: never; allowsDeferredCancel?: never }
+  | {
+      cancelKind: Exclude<CancelKind, 'none'>;
+      cancelTooltipKey: string;
+      allowsDeferredCancel?: boolean;
+    };
 
 /**
  * Declarative registry entry describing the full lifecycle of a notification type.

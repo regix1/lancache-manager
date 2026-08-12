@@ -29,8 +29,9 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
         IOptionsMonitor<PrefillNetworkOptions> networkOptions,
         ILancacheServerLocator locator,
         IPrefillContainerGatewayFactory containerGatewayFactory,
-        IActivityRegistry? activityRegistry = null)
-        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator, containerGatewayFactory, activityRegistry)
+        IActivityRegistry? activityRegistry = null,
+        IUnifiedOperationTracker? operationTracker = null)
+        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator, containerGatewayFactory, activityRegistry, operationTracker)
     {
         _mappingService = mappingService;
     }

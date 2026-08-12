@@ -135,33 +135,95 @@ public class XboxScheduledRefreshProgressTests
     [Fact]
     public void PostAuthenticationMapping_UsesTheSharedRefreshGate()
     {
-        var root = FindRepositoryRoot();
-        var source = File.ReadAllText(Path.Combine(
-            root,
-            "Api",
-            "LancacheManager",
-            "Services",
-            "Xbox",
-            "XboxCatalogMappingService.Authentication.cs"));
+        var source = ReadLoginSource();
 
-        var pollIndex = source.IndexOf(
-            "await _authClient.PollForTokenAsync(deviceCode, ct)",
+        var reporterIndex = source.IndexOf(
+            "var reporter = new MappingOperationReporter(",
+            StringComparison.Ordinal);
+        var pollMethodIndex = source.IndexOf(
+            "private async Task RunLoginPollAsync",
             StringComparison.Ordinal);
         var waitIndex = source.IndexOf(
-            "await _refreshGate.WaitAsync(ct)",
+            "await _refreshGate.WaitAsync(reporter.Token)",
             StringComparison.Ordinal);
-        var reporterIndex = source.IndexOf(
-            "reporter = new MappingOperationReporter(",
+        var pollIndex = source.IndexOf(
+            "await _authClient.PollForTokenAsync(deviceCode, reporter.Token)",
             StringComparison.Ordinal);
         var releaseIndex = source.IndexOf(
             "_refreshGate.Release();",
             StringComparison.Ordinal);
+        var logoutIndex = source.IndexOf(
+            "public async Task LogoutAsync()",
+            StringComparison.Ordinal);
 
-        Assert.True(pollIndex >= 0, "post-auth mapping must begin only after token approval");
-        Assert.True(waitIndex > pollIndex, "post-auth mapping must acquire the shared refresh gate");
-        Assert.True(reporterIndex > waitIndex, "the mapping reporter must be created only after serialization");
-        Assert.True(releaseIndex > reporterIndex, "the shared refresh gate must be released during cleanup");
+        Assert.True(reporterIndex >= 0, "the sign-in must own a mapping reporter");
+        Assert.True(pollMethodIndex > reporterIndex,
+            "the reporter must be built in StartLoginAsync, so one operation id covers the whole sign-in");
+        Assert.True(waitIndex > pollMethodIndex, "the sign-in must acquire the shared refresh gate");
+        Assert.True(pollIndex > waitIndex,
+            "the wait for approval must happen under the shared refresh gate, or a scheduled tick registers a second XboxMapping operation beside the sign-in");
+        Assert.True(releaseIndex > pollIndex && releaseIndex < logoutIndex,
+            "the shared refresh gate must be acquired and released inside RunLoginPollAsync, or an early exit leaks it");
     }
+
+    [Fact]
+    public void SignInCardCarriesTheWaitingStageKey()
+    {
+        // The started event now fires before the approval wait, so the card it creates is what the
+        // user reads while approving. It shows the started stage key, so that key has to be the
+        // waiting one and not the generic starting one.
+        var source = ReadLoginSource();
+
+        Assert.Contains(
+            "await reporter.StartAsync(CreateXboxMappingContext(), XboxAwaitingSignInStageKey);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "XboxAwaitingSignInStageKey = \"signalr.xbox.mapping.authenticating\"",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AwaitingSignInMatchesTheScheduleRegistryLookup()
+    {
+        // ServiceScheduleRegistry looks this member up with these exact flags and drops it when the
+        // type is not an exact match. A field, a method or a bool? reads back as absent, and the row
+        // then says nothing at all rather than failing loudly.
+        var property = typeof(XboxCatalogMappingService).GetProperty(
+            "AwaitingSignIn",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+        Assert.NotNull(property);
+        Assert.Equal(typeof(bool), property!.PropertyType);
+
+        using var harness = new Harness();
+        Assert.False((bool)property.GetValue(harness.Service)!);
+
+        // The half the reflection check above cannot see: it pins the property against this test's
+        // own copy of the name, so editing the registry's literal instead would leave both green and
+        // the row silent. Pin the registry's own call site too, so the pair has to move together.
+        Assert.Contains(
+            "GetPropertyValue(service.GetType(), service, \"AwaitingSignIn\", typeof(bool))",
+            ReadScheduleRegistrySource(),
+            StringComparison.Ordinal);
+    }
+
+    private static string ReadLoginSource() => File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(),
+        "Api",
+        "LancacheManager",
+        "Services",
+        "Xbox",
+        "XboxCatalogMappingService.Authentication.cs"));
+
+    private static string ReadScheduleRegistrySource() => File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(),
+        "Api",
+        "LancacheManager",
+        "Core",
+        "Services",
+        "ServiceScheduleRegistry.cs"));
 
     private static string FindRepositoryRoot()
     {

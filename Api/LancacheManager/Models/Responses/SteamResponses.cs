@@ -42,6 +42,12 @@ public class SteamLoginResponse
     public bool RequiresTwoFactor { get; set; }
     public bool RequiresEmailCode { get; set; }
     public bool SessionExpired { get; set; }
+
+    /// <summary>
+    /// The tracked operation the sign-in attempt ran under. Null on the status-report responses,
+    /// which never started one.
+    /// </summary>
+    public Guid? OperationId { get; set; }
 }
 
 /// <summary>

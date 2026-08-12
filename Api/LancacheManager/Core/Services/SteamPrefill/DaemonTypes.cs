@@ -293,6 +293,19 @@ public class CredentialChallenge
     public string? SessionId { get; set; }
 
     /// <summary>
+    /// Manager-side correlation only: the id of the tracked operation raised for the login attempt this
+    /// challenge belongs to (<see cref="DaemonSession.LoginOperationId"/>). The daemon never sends this
+    /// field; the manager stamps it onto every challenge it hands the browser, on both delivery channels
+    /// - the login call's return value and the credential-challenge broadcast - so the login's
+    /// notification card can carry an operation id and show a cancel. Without it the card renders with no
+    /// X, because the bar hides the X on a server-operation card that has no id. Null on any challenge
+    /// parsed straight off the wire, and null for a headless self-auth attempt, which raises no card and
+    /// so registers no operation.
+    /// </summary>
+    [JsonPropertyName("operationId")]
+    public string? OperationId { get; set; }
+
+    /// <summary>
     /// Parses a credential challenge returned inline in a command response (e.g. get-auto-login-challenge).
     /// </summary>
     public static CredentialChallenge? TryParseFromResponse(

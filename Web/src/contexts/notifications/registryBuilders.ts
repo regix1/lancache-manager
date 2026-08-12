@@ -25,6 +25,7 @@ import i18n from '@/i18n';
 import { translateRecoveryStage } from '@utils/stageKeyMessage';
 import { ACTIVE_PROGRESS_PERCENT_CAP, GENERIC_FAILURE_I18N_KEY } from './constants';
 import type {
+  NotificationProgressMode,
   NotificationRegistryEntry,
   NotificationType,
   RecoveryConfig,
@@ -316,11 +317,17 @@ export function buildMappingOperationEntry<
     started: {
       defaultMessage,
       getMessage: stageKeyMessage<TStarted>(`${i18nBase}.starting`),
-      replaceExisting: true
+      replaceExisting: true,
+      // A mapping run registers before its sign-in, so the card can sit here for a quarter of an
+      // hour while a person reads a device code off their phone. The started handler's progress: 0
+      // would draw a bar frozen at nothing for all of it; sweep instead until real progress lands.
+      progressMode: 'indeterminate'
     },
     progress: {
       getMessage: stageKeyMessage<TProgress>(`${i18nBase}.starting`),
       getProgress: cappedProgress,
+      // Ends the sweep above: from the first progress event the percentage is real.
+      getProgressMode: (): NotificationProgressMode => 'determinate',
       getCompletedMessage: stageKeyMessage<TProgress>(`${i18nBase}.completed`),
       getErrorMessage: errorOrStageKeyMessage<TProgress>(`${i18nBase}.failed`),
       supportFastCompletion: true

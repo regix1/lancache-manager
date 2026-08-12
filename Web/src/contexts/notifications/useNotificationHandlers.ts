@@ -60,6 +60,7 @@ function buildStartedHandler(
       getMessage: started.getMessage,
       getDetails: started.getDetails,
       replaceExisting: started.replaceExisting,
+      progressMode: started.progressMode,
       additionalIdsToRemove: started.additionalIdsToRemove
     },
     setNotifications,

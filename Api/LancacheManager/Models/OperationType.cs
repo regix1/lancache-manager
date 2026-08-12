@@ -39,7 +39,8 @@ public enum OperationType
     DashboardCacheWarmer,
     XboxMapping,
     BattleNetMapping,
-    RiotMapping
+    RiotMapping,
+    PrefillLogin
 }
 
 /// <summary>
@@ -109,6 +110,7 @@ public static class OperationTypeExtensions
         OperationType.XboxMapping => "xboxMapping",
         OperationType.BattleNetMapping => "battleNetMapping",
         OperationType.RiotMapping => "riotMapping",
+        OperationType.PrefillLogin => "prefillLogin",
         _ => JsonNamingPolicy.CamelCase.ConvertName(type.ToString())
     };
 

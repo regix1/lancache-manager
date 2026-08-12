@@ -1,3 +1,5 @@
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Models;
 using SteamKit2;
 using SteamKit2.Authentication;
 
@@ -6,15 +8,43 @@ namespace LancacheManager.Core.Services.SteamKit2;
 public partial class SteamKit2Service
 {
     /// <summary>
-    /// Authenticate with Steam using username and password. The cancellation token should be the
-    /// login request's abort signal (HttpContext.RequestAborted): the frontend cancels a login by
-    /// aborting the request, and honoring it here stops the credentials poll immediately instead
-    /// of letting it die minutes later with a spurious error.
+    /// Authenticate with Steam using username and password. The sign-in owns a tracked depot mapping
+    /// operation for its whole life, so its notification card carries a real operation id and the
+    /// cancel on the bar reaches the credentials poll.
+    ///
+    /// The poll no longer takes the login request's abort signal. A mobile confirmation can wait
+    /// minutes for a phone tap, and killing it because the browser went away meant the sign-in the
+    /// user had already approved on their phone was thrown out. Only the tracked operation's own
+    /// token ends the poll early now, which is what the card's cancel and shutdown both go through.
+    /// The response still carries the outcome, because the Steam Guard challenge has no other route
+    /// to the browser.
     /// </summary>
-    public async Task<AuthenticationResult> AuthenticateAsync(string username, string password, string? twoFactorCode = null, string? emailCode = null, bool allowMobileConfirmation = false, CancellationToken ct = default)
+    public async Task<AuthenticationResult> AuthenticateAsync(string username, string password, string? twoFactorCode = null, string? emailCode = null, bool allowMobileConfirmation = false)
     {
+        if (Interlocked.CompareExchange(ref _loginActive, 1, 0) != 0)
+        {
+            return new AuthenticationResult
+            {
+                Success = false,
+                Message = "A Steam sign-in is already in progress."
+            };
+        }
+
+        MappingOperationReporter? reporter = null;
         try
         {
+            // Signing in is an explicit user action, so do not inherit the visibility decision of the
+            // last scheduled crawl - a silent one would leave the sign-in with no card at all.
+            _depotRunShowNotification = EffectiveNotificationMode.AllowsTrigger(RunTrigger.Manual);
+            reporter = CreateDepotMappingReporter(_cancellationTokenSource.Token);
+
+            // This stage key is what the card shows for the whole wait, which runs to a minute while
+            // the user goes and finds their phone. The reporter's default would say "Starting depot
+            // mapping...", which is the wrong thing to read at that moment.
+            await reporter.StartAsync(
+                CreateDepotContext(message: "Waiting for Steam sign-in..."),
+                stageKey: "signalr.steamLogin.waitingSignIn");
+
             var pollResult = await PollCredentialsWithRetryAsync(
                 username,
                 password,
@@ -22,11 +52,16 @@ public partial class SteamKit2Service
                 emailCode,
                 allowMobileConfirmation,
                 "Steam authentication",
-                ct);
+                reporter.Token);
 
             if (!pollResult.Success)
             {
-                return pollResult.Result;
+                // A Steam Guard prompt, a wrong code or an expired confirmation window. The attempt
+                // is over either way; the next submit from the modal starts its own operation.
+                return await CompleteLoginAsync(
+                    reporter,
+                    cancelled: false,
+                    pollResult.Result);
             }
 
             // Store refresh token
@@ -34,7 +69,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Successfully authenticated and saved refresh token");
 
             // Now log on with the fresh refresh token through the shared session engine
-            await _sessionGate.WaitAsync(ct);
+            await _sessionGate.WaitAsync(reporter.Token);
             try
             {
                 // Longer logon timeout for the interactive auth flow (Steam servers can be slow)
@@ -44,40 +79,50 @@ public partial class SteamKit2Service
                     AccessToken = pollResult.RefreshToken!,
                     ShouldRememberPassword = true,
                     LoginID = _steamLoginId
-                }, ct, logonTimeout: TimeSpan.FromMinutes(2));
+                }, reporter.Token, logonTimeout: TimeSpan.FromMinutes(2));
             }
             finally
             {
                 _sessionGate.Release();
             }
 
-            return new AuthenticationResult
-            {
-                Success = true,
-                Message = "Authentication successful"
-            };
+            // Terminal here rather than at the caller, so this operation is finished before the
+            // caller starts the PICS rebuild and its own depotMapping operation.
+            return await CompleteLoginAsync(
+                reporter,
+                cancelled: false,
+                new AuthenticationResult
+                {
+                    Success = true,
+                    Message = "Authentication successful"
+                });
         }
         catch (OperationCanceledException)
         {
-            // The login request was aborted (user closed the modal or left the page). Not an
-            // error - nobody is reading this response.
-            _logger.LogInformation("Steam sign-in cancelled - login request aborted by the client");
-            return new AuthenticationResult
-            {
-                Success = false,
-                Message = "Sign-in was cancelled."
-            };
+            // The tracked operation was cancelled: the card's cancel, or shutdown. Not an error.
+            _logger.LogInformation("Steam sign-in cancelled");
+            return await CompleteLoginAsync(
+                reporter,
+                cancelled: true,
+                new AuthenticationResult
+                {
+                    Success = false,
+                    Message = "Sign-in was cancelled."
+                });
         }
         catch (Exception ex) when (ex is AsyncJobFailedException or SteamConnectionLostException)
         {
             // A CM dropped the auth job or the connection mid-login and the CM-rotation retries
             // were exhausted. Surface a friendly message, not the raw exception text.
             _logger.LogError(ex, "Authentication failed (Steam servers busy): {Message}", ex.Message);
-            return new AuthenticationResult
-            {
-                Success = false,
-                Message = "Steam's servers are busy right now. This is temporary, please wait a moment and try again."
-            };
+            return await CompleteLoginAsync(
+                reporter,
+                cancelled: false,
+                new AuthenticationResult
+                {
+                    Success = false,
+                    Message = "Steam's servers are busy right now. This is temporary, please wait a moment and try again."
+                });
         }
         catch (SteamLogonException ex)
         {
@@ -85,21 +130,65 @@ public partial class SteamKit2Service
             // the second frontend surface (SteamSessionError) in sync with the modal response.
             _logger.LogError(ex, "Authentication failed: {Message}", ex.Message);
             NotifySessionError(ex);
-            return new AuthenticationResult
-            {
-                Success = false,
-                Message = ex.Message
-            };
+            return await CompleteLoginAsync(
+                reporter,
+                cancelled: false,
+                new AuthenticationResult
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Authentication failed");
-            return new AuthenticationResult
-            {
-                Success = false,
-                Message = ex.Message
-            };
+            return await CompleteLoginAsync(
+                reporter,
+                cancelled: false,
+                new AuthenticationResult
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
         }
+        finally
+        {
+            if (reporter is not null)
+            {
+                // Backstop: a path that reached neither the returns above nor a catch still lands on
+                // one terminal here, because the reporter completes itself when it is disposed
+                // unfinished. A sign-in that registers and never completes would leave a card that
+                // never clears, which is worse than the untracked login this replaced.
+                await reporter.DisposeAsync();
+            }
+
+            Interlocked.Exchange(ref _loginActive, 0);
+        }
+    }
+
+    /// <summary>
+    /// Ends the sign-in's tracked operation and stamps its id onto the outcome the caller returns.
+    /// A reporter that never started (the service was disposed mid-request) completes to nothing and
+    /// leaves the id empty, which is the honest answer: no operation was ever registered.
+    /// </summary>
+    private async Task<AuthenticationResult> CompleteLoginAsync(
+        MappingOperationReporter? reporter,
+        bool cancelled,
+        AuthenticationResult result)
+    {
+        if (reporter is null)
+        {
+            return result;
+        }
+
+        var errorDetail = result.Success || cancelled ? null : result.Message;
+        await reporter.CompleteAsync(
+            success: result.Success,
+            error: errorDetail,
+            cancelled: cancelled,
+            context: CreateDepotContext(message: result.Message, errorDetail: errorDetail));
+        result.OperationId = reporter.IsStarted ? reporter.OperationId : null;
+        return result;
     }
 
     /// <summary>
@@ -398,5 +487,11 @@ public partial class SteamKit2Service
         public string? Message { get; set; }
         public string? AccountName { get; set; }
         public string? RefreshToken { get; set; }
+
+        /// <summary>
+        /// The tracked operation the sign-in ran under. Null only when the service was shutting down
+        /// and no operation was ever registered.
+        /// </summary>
+        public Guid? OperationId { get; set; }
     }
 }

@@ -70,21 +70,20 @@ public class SteamAuthController : ControllerBase
     [HttpPost("login")]
     [EnableRateLimiting("steam-auth")]
     [ProducesResponseType(typeof(SteamLoginResponse), StatusCodes.Status200OK)]
-    public async Task<IActionResult> LoginAsync([FromBody] SteamLoginRequest? request, CancellationToken cancellationToken)
+    public async Task<IActionResult> LoginAsync([FromBody] SteamLoginRequest? request)
     {
         // If user provides credentials, they want to authenticate (regardless of current mode)
         if (request != null && !string.IsNullOrEmpty(request.Username) && !string.IsNullOrEmpty(request.Password))
         {
-            // User wants to switch to authenticated mode. The request-abort token flows into the
-            // Steam credentials poll: the frontend cancels a login by aborting this request, and
-            // honoring it stops the poll immediately instead of leaving it to die noisily.
+            // User wants to switch to authenticated mode. No request-abort token is passed on: the
+            // sign-in runs under its own tracked operation, so a browser that goes away mid-poll no
+            // longer throws out a confirmation the user may already have approved on their phone.
             var result = await _steamKit2Service.AuthenticateAsync(
                 request.Username,
                 request.Password,
                 request.TwoFactorCode,
                 request.EmailCode,
-                request.AllowMobileConfirmation,
-                cancellationToken
+                request.AllowMobileConfirmation
             );
 
             if (result.Success)
@@ -94,14 +93,16 @@ public class SteamAuthController : ControllerBase
 
                 _logger.LogInformation("Steam authentication successful for user: {Username}", request.Username);
 
-                // Auto-start PICS rebuild if requested
+                // The sign-in's own operation is already finished by the time AuthenticateAsync
+                // returns, so the rebuild below is the only live depotMapping operation and the card
+                // moves straight from the sign-in to the crawl.
                 if (request.AutoStartPicsRebuild)
                 {
                     _logger.LogInformation("Auto-starting PICS depot mapping rebuild after login");
                     _steamKit2Service.TryStartRebuild();
                 }
 
-                return Ok(SteamLoginResponseMapper.CreateSuccessResponse(request.Username));
+                return Ok(SteamLoginResponseMapper.CreateSuccessResponse(request.Username, result.OperationId));
             }
 
             return SteamLoginResponseMapper.MapChallengeOrFailure(result)!;

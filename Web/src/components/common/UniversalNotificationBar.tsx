@@ -46,6 +46,7 @@ import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 interface CancelConfig {
   cancelKind: CancelKind;
   tooltipKey: string;
+  allowsDeferredCancel: boolean;
 }
 
 /**
@@ -60,7 +61,11 @@ const CANCEL_CONFIG_BY_TYPE: Record<string, CancelConfig> = (() => {
   const map: Record<string, CancelConfig> = {};
   for (const entry of NOTIFICATION_REGISTRY) {
     if (entry.cancelKind !== 'none' && entry.cancelTooltipKey) {
-      map[entry.type] = { cancelKind: entry.cancelKind, tooltipKey: entry.cancelTooltipKey };
+      map[entry.type] = {
+        cancelKind: entry.cancelKind,
+        tooltipKey: entry.cancelTooltipKey,
+        allowsDeferredCancel: entry.allowsDeferredCancel === true
+      };
     }
   }
   return map;
@@ -616,9 +621,18 @@ const UnifiedNotificationItem = ({
       <div className="flex items-center gap-2 flex-shrink-0">
         {/* Cancel button for operations that support cancellation. 'waiting' is cancellable
             too: the queued op is a real tracker registration, so the universal cancel path
-            dequeues it (-> OperationWaitingComplete{cancelled} -> card terminal). */}
+            dequeues it (-> OperationWaitingComplete{cancelled} -> card terminal).
+            A serverOp cancel is an API call keyed by details.operationId - the same field
+            handleCancel bails on - so a card that has none shows no X, unless its registry entry
+            sets allowsDeferredCancel, meaning the id arrives on a later progress event and the
+            watchdog below sends the cancel then. Sign-in cards have neither: their X only set
+            cancelRequested, sent nothing, and then re-labelled itself a force kill. clientQueue
+            cards carry no operation id by design and keep theirs. */}
         {notification.type in CANCEL_CONFIG_BY_TYPE &&
           (notification.status === 'running' || notification.status === 'waiting') &&
+          (CANCEL_CONFIG_BY_TYPE[notification.type].cancelKind !== 'serverOp' ||
+            CANCEL_CONFIG_BY_TYPE[notification.type].allowsDeferredCancel ||
+            Boolean(notification.details?.operationId)) &&
           onCancel && (
             <Tooltip
               content={t(
