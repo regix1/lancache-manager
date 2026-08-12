@@ -113,7 +113,43 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const startLogin = useCallback(async () => {
+    resetAuthForm();
+    setLoading(true);
+    const controller = new AbortController();
+    setAbortController(controller);
+
+    try {
+      // Backend returns the Epic authorization URL directly (no Docker needed)
+      const response = await ApiService.startEpicMappingLogin(controller.signal);
+      setAuthorizationUrl(response.authorizationUrl);
+      setNeedsAuthorizationCode(true);
+      setLoading(false);
+      loginNotificationActiveRef.current = true;
+      pushLoginCard('running', t('signalr.epicMapping.waitingSignIn'));
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        setLoading(false);
+        return;
+      }
+      const message = getErrorMessage(error);
+      onError?.(message);
+      setLoading(false);
+    } finally {
+      setAbortController(null);
+    }
+  }, [resetAuthForm, onError, pushLoginCard, t]);
+
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
+    // The prompt's Continue button and the code box's Submit button share this handler, so the step
+    // the modal is on decides what it means. Until the authorization URL comes back there is no
+    // code to send, and asking Epic for that URL is the only thing left to do - which is also the
+    // retry after a first request that failed. Returning false keeps the modal open for the code.
+    if (!needsAuthorizationCode) {
+      await startLogin();
+      return false;
+    }
+
     if (!authorizationCode.trim()) return false;
 
     setLoading(true);
@@ -148,34 +184,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       setLoading(false);
       setAbortController(null);
     }
-  }, [authorizationCode, onSuccess, onError, pushLoginCard, t]);
-
-  const startLogin = useCallback(async () => {
-    resetAuthForm();
-    setLoading(true);
-    const controller = new AbortController();
-    setAbortController(controller);
-
-    try {
-      // Backend returns the Epic authorization URL directly (no Docker needed)
-      const response = await ApiService.startEpicMappingLogin(controller.signal);
-      setAuthorizationUrl(response.authorizationUrl);
-      setNeedsAuthorizationCode(true);
-      setLoading(false);
-      loginNotificationActiveRef.current = true;
-      pushLoginCard('running', t('signalr.epicMapping.waitingSignIn'));
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        setLoading(false);
-        return;
-      }
-      const message = getErrorMessage(error);
-      onError?.(message);
-      setLoading(false);
-    } finally {
-      setAbortController(null);
-    }
-  }, [resetAuthForm, onError, pushLoginCard, t]);
+  }, [authorizationCode, needsAuthorizationCode, startLogin, onSuccess, onError, pushLoginCard, t]);
 
   const state: EpicAuthState = {
     loading,
