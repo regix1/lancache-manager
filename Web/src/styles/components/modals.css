@@ -230,4 +230,58 @@
       border-left: none;
     }
   }
+
+  /* ==============================================
+   * SERVICE AUTH MODALS
+   * ============================================== */
+
+  /* Every state of every login draws the same three children in the same order: a title, the
+     controls for this step, and the line under them. One rhythm, 16px, declared once, covers the
+     gaps between them and the gaps inside the controls. Tailwind's space-y utilities are kept off
+     these two elements on purpose: .space-y-4 > :not([hidden]) ~ :not([hidden]) ties with a bare
+     local class, and the production build strips @layer and code-splits the CSS, so bundle order
+     would pick the winner. */
+  .login-states > * + *,
+  .login-task > * + * {
+    margin-top: 1rem;
+  }
+
+  /* Four of the states only ask a question and carry no controls at all. The empty middle child
+     takes its own gap with it, so the title sits straight above the line. */
+  .login-states > .login-task:empty {
+    margin-top: 0;
+  }
+
+  /* The line is the one reserved space in the design, and it holds its height whether it carries
+     the live status, the step's note or nothing at all. That is what makes every idle-to-working
+     change move the panel no pixels: the panel is centred by the modal shell, so a height change
+     slides both its edges and the footer buttons out from under the pointer mid-login. */
+  .login-attempt-slot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.5rem;
+  }
+
+  /* The live status of a login attempt on one line. Surface, border and radius come from the
+     shared .well-surface, which declares no flow of its own, so nothing here can tie with it
+     and let bundle order pick the winner. Padding lands the row at 40px, the same height as an
+     md Button: 9px + a 20px line box + 9px + the 1px border on each side, which is exactly the
+     height the slot around it reserves. */
+  .well-surface.login-attempt-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5625rem 0.75rem;
+  }
+
+  /* The row is the live region, so it stays in the page through every state of a login, and the
+     states that wait on nothing leave it with no label. Take away the box rather than the row
+     itself: display:none would drop it out of the accessibility tree, and staying in that tree is
+     the whole reason it is mounted this early. */
+  .well-surface.login-attempt-status:empty {
+    padding: 0;
+    border-width: 0;
+  }
 }

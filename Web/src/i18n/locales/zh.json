@@ -3438,7 +3438,7 @@
       "prometheusConfigSecured": "需要身份验证 - 包含授权标头",
       "prometheusConfigPublic": "公开访问 - 无需身份验证",
       "scrapeIntervalTitle": "抓取间隔",
-      "replaceApiKey": "将\"your-api-key-here\"替换为您 lancache-manager 实例的 API 密钥",
+      "replaceApiKey": "将\"your-api-key-here\"替换为您 LANCache Manager 实例的 API 密钥",
       "portInfo": "端口 80 是内部容器端口。外部访问使用您映射的端口（例如 8080:80）",
       "staleDataWarning": "抓取间隔快于数据刷新 - 您可能会看到过时数据",
       "queryExamples": "Grafana 查询示例",
@@ -5005,12 +5005,14 @@
     },
     "steamAuth": {
       "title": "Steam 账户登录",
-      "connectingTitle": "正在连接 Steam...",
-      "connectingSubtitle": "正在启动登录流程",
-      "containerAccountNotice": "正在登录此容器自己的 Steam 账户。这与您的 lancache-manager Steam 登录是分开的。",
+      "signInTitle": "登录",
+      "connectingSubtitle": "正在等待 Steam",
+      "containerAccountNotice": "这是此容器的 Steam 账户，不是您的 LANCache Manager 登录。",
       "labels": {
         "username": "用户名",
-        "password": "密码"
+        "password": "密码",
+        "emailCode": "邮箱验证码",
+        "guardCode": "验证码"
       },
       "placeholders": {
         "username": "Steam 用户名",
@@ -5018,28 +5020,21 @@
         "guardCode": "XXXXX"
       },
       "mobileConfirmation": {
-        "title": "等待确认",
-        "description": "打开您的 Steam 手机应用并点击批准以完成登录。",
-        "waiting": "等待响应中...",
-        "timeoutPrefill": "如果批准超时，您可能需要点击\"结束会话\"并重试。",
-        "timeoutNormal": "Steam 会话约 2 分钟后过期。如果超时，系统将提示您输入 2FA 代码。"
+        "title": "请在您的手机上批准此次登录",
+        "waiting": "正在等待您的批准"
       },
       "emailVerification": {
-        "title": "邮箱验证",
-        "description": "输入发送到您邮箱的验证码"
+        "title": "请查看您的邮箱"
       },
       "twoFactor": {
-        "title": "双因素认证",
-        "descriptionManual": "输入您的验证器代码",
-        "descriptionAuto": "输入代码或在手机应用上批准",
-        "leaveEmptyHint": "留空并点击确认以使用手机应用批准"
+        "title": "输入您的 Steam Guard 验证码",
+        "leaveEmptyHint": "留空即可改为在手机上批准。"
       },
       "security": {
-        "description": "您的密码仅用于一次认证，绝不会被存储。只有安全的刷新令牌会保存在本地。"
+        "description": "您的密码将发送给 Steam，绝不会被存储。"
       },
       "actions": {
-        "cancelAndTryLater": "取消并稍后重试",
-        "enterCodeManually": "改为手动输入 2FA 代码",
+        "enterCodeManually": "输入 2FA 代码",
         "authenticating": "认证中...",
         "verify": "验证",
         "confirm": "确认",
@@ -5053,19 +5048,16 @@
       }
     },
     "epicAuth": {
-      "title": "Epic Games 认证",
-      "containerAccountNotice": "正在登录此容器自己的 Epic Games 账户。这与您的 lancache-manager Epic Games 登录是分开的。",
+      "title": "Epic Games 账户登录",
+      "containerAccountNotice": "这是此容器的 Epic Games 账户，不是您的 LANCache Manager 登录。",
       "signInTitle": "使用 Epic Games 登录",
-      "signInDescription": "您将被重定向到 Epic Games 以授权访问您的游戏库。登录后，您将收到一个代码并粘贴回此处。",
-      "securityNote": "认证使用 Epic 的官方 OAuth 流程。您的凭据直接在 Epic 网站上输入，绝不会与此应用共享。",
-      "connectingTitle": "正在连接 Epic Games...",
-      "connectingSubtitle": "正在启动授权流程",
-      "enterCodeTitle": "输入授权码",
-      "enterCodeDescription": "点击下方按钮打开 Epic Games 登录，然后粘贴您收到的授权码。",
-      "openEpicLogin": "打开 Epic Games 登录",
+      "signInDescription": "您在 Epic 网站登录，然后将授权码粘贴到此处。",
+      "connectingSubtitle": "正在获取您的登录链接",
+      "enterCodeTitle": "从 Epic 获取您的授权码",
+      "openEpicLogin": "打开登录页面",
       "authorizationCodeLabel": "授权码",
       "authorizationCodePlaceholder": "在此粘贴您的授权码",
-      "authenticatingMessage": "正在与 Epic Games 认证...",
+      "authenticatingMessage": "正在验证您的授权码",
       "actions": {
         "authenticating": "认证中...",
         "submitCode": "提交代码",
@@ -5074,18 +5066,16 @@
       }
     },
     "xboxAuth": {
-      "title": "Xbox 认证",
-      "containerAccountNotice": "正在登录此容器自己的 Xbox 账户。这与您的 lancache-manager Xbox 登录是分开的。",
-      "signInTitle": "使用您的 Microsoft 账户登录",
-      "signInDescription": "您将获得一个短代码，用于在浏览器中的 Microsoft 验证页面上输入。批准后，此应用将连接到您的 Xbox 和 Microsoft Store 库。",
-      "securityNote": "登录使用 Microsoft 的官方设备代码流程。您仅在 Microsoft 网站上输入密码，绝不会与此应用共享。",
-      "connectingTitle": "正在连接 Xbox...",
-      "connectingSubtitle": "正在向 Microsoft 请求设备代码",
-      "enterCodeTitle": "在 Microsoft 上输入代码",
-      "enterCodeDescription": "打开 Microsoft 验证页面并输入下方代码以授权访问。",
-      "userCodeLabel": "您的代码",
-      "openVerification": "打开 Microsoft 验证",
-      "waitingMessage": "正在等待您批准登录...",
+      "title": "Xbox 账户登录",
+      "containerAccountNotice": "这是此容器的 Xbox 账户，不是您的 LANCache Manager 登录。",
+      "signInTitle": "使用 Microsoft 登录",
+      "signInDescription": "您在 Microsoft 网站上输入代码和密码。",
+      "connectingSubtitle": "正在获取您的代码",
+      "enterCodeTitle": "在 Microsoft 页面上输入此代码",
+      "codeCopied": "已复制",
+      "copyFailed": "复制失败",
+      "openVerification": "打开验证页面",
+      "waitingMessage": "正在等待您批准",
       "actions": {
         "connecting": "连接中...",
         "continue": "继续"

@@ -3438,7 +3438,7 @@
       "prometheusConfigSecured": "Authentication required - include authorization header",
       "prometheusConfigPublic": "Public access - no authentication needed",
       "scrapeIntervalTitle": "Scrape Interval",
-      "replaceApiKey": "Replace 'your-api-key-here' with the API key from your lancache-manager instance",
+      "replaceApiKey": "Replace 'your-api-key-here' with the API key from your LANCache Manager instance",
       "portInfo": "Port 80 is the internal container port. External access uses your mapped port (e.g., 8080:80)",
       "staleDataWarning": "Scrape interval is faster than data refresh - you may see stale data",
       "queryExamples": "Grafana Query Examples",
@@ -5005,12 +5005,14 @@
     },
     "steamAuth": {
       "title": "Steam Account Login",
-      "connectingTitle": "Connecting to Steam...",
-      "connectingSubtitle": "Starting the login process",
-      "containerAccountNotice": "Signing in to this container's own Steam account. This is separate from your lancache-manager Steam login.",
+      "signInTitle": "Sign in",
+      "connectingSubtitle": "Waiting for Steam",
+      "containerAccountNotice": "This is the container's Steam account, not your LANCache Manager login.",
       "labels": {
         "username": "Username",
-        "password": "Password"
+        "password": "Password",
+        "emailCode": "Email code",
+        "guardCode": "Code"
       },
       "placeholders": {
         "username": "Steam username",
@@ -5018,28 +5020,21 @@
         "guardCode": "XXXXX"
       },
       "mobileConfirmation": {
-        "title": "Waiting for Confirmation",
-        "description": "Open your Steam Mobile App and tap Approve to complete login.",
-        "waiting": "Waiting for response...",
-        "timeoutPrefill": "If approval times out, you may need to click \"End Session\" and try again.",
-        "timeoutNormal": "Steam sessions expire after ~2 minutes. If it times out, you'll be prompted to enter a 2FA code instead."
+        "title": "Approve the sign-in on your phone",
+        "waiting": "Waiting for your approval"
       },
       "emailVerification": {
-        "title": "Email Verification",
-        "description": "Enter the code sent to your email"
+        "title": "Check your email"
       },
       "twoFactor": {
-        "title": "Two-Factor Authentication",
-        "descriptionManual": "Enter your authenticator code",
-        "descriptionAuto": "Enter code or approve on mobile app",
-        "leaveEmptyHint": "Leave empty and click confirm to use mobile app approval"
+        "title": "Enter your Steam Guard code",
+        "leaveEmptyHint": "Leave it empty to approve on your phone instead."
       },
       "security": {
-        "description": "Your password is used once for authentication and never stored. Only secure refresh tokens are saved locally."
+        "description": "Your password goes to Steam and is never stored."
       },
       "actions": {
-        "cancelAndTryLater": "Cancel and try again later",
-        "enterCodeManually": "Enter 2FA code manually instead",
+        "enterCodeManually": "Enter a 2FA Code",
         "authenticating": "Authenticating...",
         "verify": "Verify",
         "confirm": "Confirm",
@@ -5053,19 +5048,16 @@
       }
     },
     "epicAuth": {
-      "title": "Epic Games Authentication",
-      "containerAccountNotice": "Signing in to this container's own Epic Games account. This is separate from your lancache-manager Epic Games login.",
+      "title": "Epic Games Account Login",
+      "containerAccountNotice": "This is the container's Epic Games account, not your LANCache Manager login.",
       "signInTitle": "Sign in with Epic Games",
-      "signInDescription": "You'll be redirected to Epic Games to authorize access to your game library. After signing in, you'll receive a code to paste back here.",
-      "securityNote": "Authentication uses Epic's official OAuth flow. Your credentials are entered directly on Epic's website and are never shared with this application.",
-      "connectingTitle": "Connecting to Epic Games...",
-      "connectingSubtitle": "Starting the authorization process",
-      "enterCodeTitle": "Enter Authorization Code",
-      "enterCodeDescription": "Click the button below to open Epic Games login, then paste the authorization code you receive.",
-      "openEpicLogin": "Open Epic Games Login",
+      "signInDescription": "You sign in at Epic, then paste a code here.",
+      "connectingSubtitle": "Getting your sign-in link",
+      "enterCodeTitle": "Get your code from Epic",
+      "openEpicLogin": "Open the sign-in page",
       "authorizationCodeLabel": "Authorization Code",
       "authorizationCodePlaceholder": "Paste your authorization code here",
-      "authenticatingMessage": "Authenticating with Epic Games...",
+      "authenticatingMessage": "Checking your code",
       "actions": {
         "authenticating": "Authenticating...",
         "submitCode": "Submit Code",
@@ -5074,18 +5066,16 @@
       }
     },
     "xboxAuth": {
-      "title": "Xbox Authentication",
-      "containerAccountNotice": "Signing in to this container's own Xbox account. This is separate from your lancache-manager Xbox login.",
-      "signInTitle": "Sign in with your Microsoft account",
-      "signInDescription": "You'll get a short code to enter on Microsoft's verification page in your browser. After you approve, this app connects to your Xbox and Microsoft Store library.",
-      "securityNote": "Sign-in uses Microsoft's official device code flow. You enter your password only on Microsoft's website, and it is never shared with this application.",
-      "connectingTitle": "Connecting to Xbox...",
-      "connectingSubtitle": "Requesting a device code from Microsoft",
-      "enterCodeTitle": "Enter the Code on Microsoft",
-      "enterCodeDescription": "Open the Microsoft verification page and enter the code below to authorize access.",
-      "userCodeLabel": "Your Code",
-      "openVerification": "Open Microsoft Verification",
-      "waitingMessage": "Waiting for you to approve sign-in...",
+      "title": "Xbox Account Login",
+      "containerAccountNotice": "This is the container's Xbox account, not your LANCache Manager login.",
+      "signInTitle": "Sign in with Microsoft",
+      "signInDescription": "You enter a code and your password at Microsoft.",
+      "connectingSubtitle": "Getting your code",
+      "enterCodeTitle": "Enter this code on Microsoft's page",
+      "codeCopied": "Copied",
+      "copyFailed": "Copy failed",
+      "openVerification": "Open the verification page",
+      "waitingMessage": "Waiting for you to approve",
       "actions": {
         "connecting": "Connecting...",
         "continue": "Continue"

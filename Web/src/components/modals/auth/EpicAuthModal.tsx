@@ -1,12 +1,12 @@
 import React from 'react';
-import { Shield, ExternalLink, KeyRound } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { StepDot } from './StepDot';
+import { LoginSteps } from './LoginSteps';
+import { LoginAttemptStatus } from './LoginAttemptStatus';
 import { cancelAuthModalLogin } from './authModalCancel';
-import { PersistentLoginCountdown } from './PersistentLoginCountdown';
 import { type EpicAuthState, type EpicAuthActions } from '@hooks/useEpicMappingAuth';
 import { useTranslation } from 'react-i18next';
 
@@ -44,6 +44,9 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
   const { setAuthorizationCode, handleAuthenticate, cancelPendingRequest } = actions;
 
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  // The authorization URL has not come back from the daemon yet.
+  const isConnecting = (loading || isSubmitting) && !needsAuthorizationCode;
 
   const handleCloseModal = () => {
     if (loading || isSubmitting) {
@@ -114,117 +117,77 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
       }
       size="md"
     >
-      <div className="space-y-5">
-        {isKeepPending && (
-          <>
-            <p className="text-xs text-themed-muted text-center">
-              {t('modals.epicAuth.containerAccountNotice')}
-            </p>
-            <PersistentLoginCountdown deadline={loginDeadline} />
-          </>
-        )}
+      <div className="space-y-6">
+        <LoginSteps
+          notice={isKeepPending ? t('modals.epicAuth.containerAccountNotice') : null}
+          deadline={loginDeadline}
+          pastFirstStep={needsAuthorizationCode}
+        />
 
-        {/* Step Indicator */}
-        <div className="flex items-center justify-center gap-2">
-          <StepDot active={!needsAuthorizationCode} completed={needsAuthorizationCode} />
-          <div className="w-8 h-px bg-themed-tertiary" />
-          <StepDot active={needsAuthorizationCode} />
-        </div>
-
-        {/* Content Area */}
-        <div className="min-h-[280px]">
-          {/* Initial state - before StartLogin is called */}
-          {!needsAuthorizationCode && !loading && !isSubmitting && (
-            <div className="space-y-4">
-              <div className="flex flex-col items-center text-center py-6">
-                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 bg-[var(--theme-epic)]">
-                  <EpicIcon size={32} className="text-white" />
-                </div>
-                <h3 className="text-lg font-semibold text-themed-primary mb-2">
-                  {t('modals.epicAuth.signInTitle')}
-                </h3>
-                <p className="text-sm text-themed-secondary max-w-xs">
-                  {t('modals.epicAuth.signInDescription')}
-                </p>
-              </div>
-
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-themed-tertiary">
-                <Shield className="w-4 h-4 mt-0.5 flex-shrink-0 text-success" />
-                <p className="text-xs text-themed-muted leading-relaxed">
-                  {t('modals.epicAuth.securityNote')}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Loading state - waiting for challenge from daemon */}
-          {(loading || isSubmitting) && !needsAuthorizationCode && (
-            <div className="flex flex-col items-center text-center py-12">
-              <LoadingSpinner
-                inline
-                size="sm"
-                className="w-10 h-10 text-[var(--theme-epic)] mb-4"
-              />
-              <h3 className="text-lg font-semibold text-themed-primary mb-2">
-                {t('modals.epicAuth.connectingTitle')}
+        <div className="login-states">
+          {/* Sign-in prompt, and the connect that follows it: the same box either way, so pressing
+              Continue changes the line at the bottom and moves the panel no pixels. */}
+          {!needsAuthorizationCode && (
+            <>
+              <h3 className="text-base font-semibold text-themed-primary text-center">
+                {t('modals.epicAuth.signInTitle')}
               </h3>
-              <p className="text-sm text-themed-muted">{t('modals.epicAuth.connectingSubtitle')}</p>
-            </div>
+              {/* This step's only control is the footer Continue button. */}
+              <div className="login-task" />
+            </>
           )}
 
           {/* Authorization Code Input - shown after user gets the URL */}
           {needsAuthorizationCode && (
-            <div className="space-y-4">
-              <div className="flex flex-col items-center text-center py-2">
-                <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-[var(--theme-epic-subtle)]">
-                  <KeyRound className="w-7 h-7 text-[var(--theme-epic)]" />
+            <>
+              <h3 className="text-base font-semibold text-themed-primary text-center">
+                {t('modals.epicAuth.enterCodeTitle')}
+              </h3>
+              <div className="login-task">
+                {/* Open Epic Login Button */}
+                {authorizationUrl && (
+                  <Button variant="filled" onClick={handleOpenAuthUrl} className="w-full">
+                    <ExternalLink className="w-4 h-4" />
+                    {t('modals.epicAuth.openEpicLogin')}
+                  </Button>
+                )}
+
+                {/* Code Input */}
+                <div>
+                  <label className="form-field-label">
+                    {t('modals.epicAuth.authorizationCodeLabel')}
+                  </label>
+                  <input
+                    type="password"
+                    value={authorizationCode}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setAuthorizationCode(e.target.value)
+                    }
+                    onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) =>
+                      e.key === 'Enter' && handleSubmit()
+                    }
+                    placeholder={t('modals.epicAuth.authorizationCodePlaceholder')}
+                    className="w-full px-3 py-2.5 themed-input font-mono text-sm"
+                    disabled={loading}
+                    autoFocus
+                  />
                 </div>
-                <h3 className="text-base font-semibold text-themed-primary mb-1">
-                  {t('modals.epicAuth.enterCodeTitle')}
-                </h3>
-                <p className="text-sm text-themed-secondary max-w-sm">
-                  {t('modals.epicAuth.enterCodeDescription')}
-                </p>
               </div>
-
-              {/* Open Epic Login Button */}
-              {authorizationUrl && (
-                <Button variant="filled" onClick={handleOpenAuthUrl} className="w-full">
-                  <ExternalLink className="w-4 h-4" />
-                  {t('modals.epicAuth.openEpicLogin')}
-                </Button>
-              )}
-
-              {/* Code Input */}
-              <div>
-                <label className="form-field-label">
-                  {t('modals.epicAuth.authorizationCodeLabel')}
-                </label>
-                <input
-                  type="password"
-                  value={authorizationCode}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setAuthorizationCode(e.target.value)
-                  }
-                  onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) =>
-                    e.key === 'Enter' && handleSubmit()
-                  }
-                  placeholder={t('modals.epicAuth.authorizationCodePlaceholder')}
-                  className="w-full px-3 py-2.5 themed-input font-mono text-sm"
-                  disabled={loading}
-                  autoFocus
-                />
-              </div>
-
-              {/* Submitting state */}
-              {(loading || isSubmitting) && (
-                <div className="flex items-center justify-center gap-2 text-themed-muted">
-                  <LoadingSpinner inline size="sm" />
-                  <span className="text-sm">{t('modals.epicAuth.authenticatingMessage')}</span>
-                </div>
-              )}
-            </div>
+            </>
           )}
+
+          {/* Rendered in every state, including the ones with nothing to say, so the live region
+              is already in the page when the login moves on and its label changes. */}
+          <LoginAttemptStatus
+            label={
+              isConnecting
+                ? t('modals.epicAuth.connectingSubtitle')
+                : needsAuthorizationCode && (loading || isSubmitting)
+                  ? t('modals.epicAuth.authenticatingMessage')
+                  : ''
+            }
+            note={needsAuthorizationCode ? undefined : t('modals.epicAuth.signInDescription')}
+          />
         </div>
 
         {/* Action Buttons */}
