@@ -1183,6 +1183,26 @@ if (apiKeyService.WasNewKeyGenerated && databaseAvailable)
 // This ensures HttpContext.Connection.RemoteIpAddress returns the real client IP
 app.UseForwardedHeaders();
 
+// A proxy that terminates TLS but is not in KnownProxies leaves Request.Scheme as http, because
+// UseForwardedHeaders above ignores X-Forwarded-Proto from an address it does not trust. Setting
+// Security:ForceSecureCookies is the operator stating that TLS ends upstream, so apply that statement
+// to the scheme once here and let everything downstream read one answer to "is this connection
+// secure" instead of each cookie deciding for itself.
+//
+// The framework's antiforgery cookie is why this has to happen before the request reaches MVC:
+// AddAntiforgery gives it CookieSecurePolicy.Always under the same setting, and the framework throws
+// InvalidOperationException whenever that policy meets a request it considers plain HTTP. That throw
+// lands on GET /api/auth/status, which issues the token and is the first call the page makes, so the
+// whole app answers 500 on load rather than only refusing writes.
+if (app.Configuration.GetValue<bool>("Security:ForceSecureCookies"))
+{
+    app.Use((context, next) =>
+    {
+        context.Request.Scheme = Uri.UriSchemeHttps;
+        return next(context);
+    });
+}
+
 // Security headers - applied to every HTTP response (API, SignalR negotiate, static files,
 // SPA fallback). Placed before UseStaticFiles so OnPrepareResponse overrides do not drop these.
 app.Use(async (context, next) =>

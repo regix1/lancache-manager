@@ -49,7 +49,7 @@
 | `Security__ApiKeyPath` | `/data/security/api_key.txt` | 覆盖管理员 API 密钥的读写文件路径。当你从 `/data` 之外绑定挂载密钥时很有用。 |
 | `Security__KnownProxyNetworks` | （空） | 用于 `X-Forwarded-For` 的可信代理网络 CIDR 列表，逗号分隔（例如 `172.16.0.0/12,10.0.0.0/8`）。当 nginx、Traefik 或其他反向代理位于管理器前面时设置此项，客户端 IP 才能被正确报告。回环地址始终受信任。如果代理位于另一台主机或另一个容器上而此项留空，登录限流会把所有客户端都算在代理的地址上，此时一个人反复输错密码就会把其他所有人锁在门外一分钟。 |
 | `Security__TrustAllProxies` | `false` | 无条件信任每一个上游代理。方便本地开发使用。**切勿在暴露于公网的主机上启用**——任何人都能伪造客户端 IP。 |
-| `Security__ForceSecureCookies` | `false` | 即使请求未被识别为 HTTPS，也强制在会话 Cookie 上加 `Secure` 标志。在 TLS 终止型反向代理后运行时启用。 |
+| `Security__ForceSecureCookies` | `false` | 告知管理器 TLS 在你的反向代理处终止。启用后，应用设置的每个 Cookie 都会带上 `Secure` 标志，并且应用会将该连接视为 HTTPS，这样 CSRF 防护的 Cookie 策略就不会再拒绝那些在它看来是通过纯 HTTP 到达的请求。请仅在应用前面的 HTTPS 确实可用之后再开启：若前面没有 TLS，浏览器将不再回传会话 Cookie，任何人都无法登录。同时设置 `Security__KnownProxyNetworks` 仍然值得，这样客户端 IP 和登录速率限制才会准确。 |
 
 并非每项 `/metrics` 设置都有对应的环境变量。指标更新间隔、示例配置中使用的 Prometheus 抓取间隔，以及按游戏统计序列导出的游戏数量，都在管理 → 集成中设置。参见 [Prometheus 指标](prometheus-metrics.md#grafana--prometheus)。
 
