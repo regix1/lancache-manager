@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +26,16 @@ const DEFAULT_OFFSET = 8;
 // instead of the box vanishing on the way. Required for hover content: someone magnifying the screen
 // has to be able to pan across it.
 const HIDE_GRACE_MS = 150;
+
+const SHOW_DELAY_MS = 150;
+
+// One box at a time, shared by every tooltip on the page. Without this, moving along a row of
+// controls leaves the box you just left waiting out its grace period while the next one waits out
+// its delay, so two are on screen at once and the swap reads as a stutter. The neighbour is closed
+// the instant the pointer arrives, and because a tooltip is already being read the replacement skips
+// the delay and appears at once, which is what makes a run along a toolbar feel like one box
+// following the pointer.
+let closeOpenTooltip: (() => void) | null = null;
 
 // True when the trigger, or anything inside it, is painting less text than it holds. Both axes
 // count, because the ellipsis comes from `truncate` on the width or `line-clamp` on the height, and
@@ -154,6 +164,32 @@ export const Tooltip: React.FC<TooltipProps> = ({
   // content conditionally (e.g. only when a control is disabled/read-only), so guard on it.
   const hasContent = content != null && content !== '';
 
+  const closeNow = useCallback((): void => {
+    if (showTimeoutRef.current) {
+      clearTimeout(showTimeoutRef.current);
+      showTimeoutRef.current = null;
+    }
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+    setShow(false);
+  }, []);
+
+  // Claim the page's single open slot while this box is up, and release it on the way down so a
+  // later neighbour does not try to close a tooltip that has already gone.
+  useEffect(() => {
+    if (!show) {
+      return;
+    }
+    closeOpenTooltip = closeNow;
+    return () => {
+      if (closeOpenTooltip === closeNow) {
+        closeOpenTooltip = null;
+      }
+    };
+  }, [show, closeNow]);
+
   // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
@@ -177,13 +213,24 @@ export const Tooltip: React.FC<TooltipProps> = ({
 
     if (addsNothing()) return;
 
+    // A neighbour's box goes at once rather than lingering through its grace period, and its
+    // departure is what earns this one an immediate appearance.
+    const replacingAnother = closeOpenTooltip !== null && closeOpenTooltip !== closeNow;
+    if (replacingAnother) {
+      closeOpenTooltip?.();
+    }
+
     setX(e.clientX);
     setY(e.clientY);
 
-    // Small delay before showing (150ms)
+    if (replacingAnother) {
+      setShow(true);
+      return;
+    }
+
     showTimeoutRef.current = setTimeout(() => {
       setShow(true);
-    }, 150);
+    }, SHOW_DELAY_MS);
   };
 
   // Keyboard reaches the same content, without which a tooltip is mouse-only and the full text
