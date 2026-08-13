@@ -30,7 +30,7 @@ const WEEKDAY_CRON_NUMBERS: Record<WeekdayKey, number> = {
 };
 
 const MINUTES_PER_DAY = 1440;
-const MS_PER_DAY = 86_400_000;
+export const MS_PER_DAY = 86_400_000;
 
 /**
  * Bounds on the occurrence walk. An expression and a window that never intersect (03:00 daily

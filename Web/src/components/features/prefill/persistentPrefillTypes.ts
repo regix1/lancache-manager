@@ -9,6 +9,7 @@ export interface PersistentPrefillContainerDto {
   isAuthenticated: boolean;
   daemonAuthExpiresAtUtc: string | null;
   authExpiresAtUtc: string;
+  createdAtUtc: string;
   authTimeRemainingSeconds: number;
   needsRelogin: boolean;
   isPrefilling?: boolean;

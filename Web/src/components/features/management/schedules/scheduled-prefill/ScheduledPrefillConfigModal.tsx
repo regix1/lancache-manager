@@ -63,6 +63,7 @@ import {
   type ScheduledPrefillEditActionKind,
   type ScheduledPrefillEditSessionServiceId
 } from './scheduledPrefillEditSessionLedger';
+import { MS_PER_DAY } from '../custom-schedule/customSchedulePreview';
 import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
 import { usePersistentLoginChallengeSignalR } from './usePersistentLoginChallengeSignalR';
 import type {
@@ -232,6 +233,31 @@ const validateServiceConfig = (
   return null;
 };
 
+// What saving the validity field would move a container's re-login date to. The server anchors the
+// window on the container's creation instant and never promises a date past the daemon's own token
+// (PersistentPrefillController.ComputeEffectiveRelogin), so the preview does both, or a number typed
+// into the field would promise a window the save cannot deliver.
+const previewReloginWindow = (
+  container: PersistentPrefillContainerDto,
+  validityDays: number
+): PersistentPrefillContainerDto => {
+  const windowEnds = new Date(container.createdAtUtc).getTime() + validityDays * MS_PER_DAY;
+  const tokenExpires = container.daemonAuthExpiresAtUtc
+    ? new Date(container.daemonAuthExpiresAtUtc).getTime()
+    : null;
+  const relogin = tokenExpires !== null && tokenExpires < windowEnds ? tokenExpires : windowEnds;
+  const remainingMs = relogin - Date.now();
+
+  return {
+    ...container,
+    authExpiresAtUtc: new Date(relogin).toISOString(),
+    authTimeRemainingSeconds: remainingMs > 0 ? Math.floor(remainingMs / 1000) : 0,
+    // A container already past its window is inside the new one again, and the save clears the flag
+    // server-side. Leaving it set would put a re-login warning next to a future re-login date.
+    needsRelogin: relogin > Date.now() ? false : container.needsRelogin
+  };
+};
+
 export function ScheduledPrefillConfigModal({
   opened,
   onClose,
@@ -269,7 +295,12 @@ export function ScheduledPrefillConfigModal({
   const [persistentValidityDays, setPersistentValidityDays] = useState(
     DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS
   );
-  const [loadingGlobalSettings, setLoadingGlobalSettings] = useState(false);
+  // The window the server is actually holding, or null while that is unknown: before the settings
+  // request answers, and after it fails. The field above is a draft, and the containers below
+  // preview it only once the two disagree, so an untouched field leaves the real dates alone.
+  // Null also gates the field and the save, because a draft that was never seeded from the server
+  // is a default, not a choice.
+  const [savedValidityDays, setSavedValidityDays] = useState<number | null>(null);
   const [globalSettingsError, setGlobalSettingsError] = useState<string | null>(null);
   const [clearLoginsConfirmOpen, setClearLoginsConfirmOpen] = useState(false);
   const [clearingLogins, setClearingLogins] = useState(false);
@@ -345,17 +376,16 @@ export function ScheduledPrefillConfigModal({
   }, []);
 
   const loadGlobalSettings = useCallback(async (signal?: AbortSignal) => {
-    setLoadingGlobalSettings(true);
     try {
       const validity = await ApiService.getPersistentPrefillValidity(signal);
-      setPersistentValidityDays(clampToBounds(validity.days, PERSISTENT_PREFILL_VALIDITY_BOUNDS));
+      const days = clampToBounds(validity.days, PERSISTENT_PREFILL_VALIDITY_BOUNDS);
+      setPersistentValidityDays(days);
+      setSavedValidityDays(days);
       setGlobalSettingsError(null);
     } catch (error: unknown) {
       if (!isAbortError(error)) {
         setGlobalSettingsError(getErrorMessage(error));
       }
-    } finally {
-      setLoadingGlobalSettings(false);
     }
   }, []);
 
@@ -497,6 +527,8 @@ export function ScheduledPrefillConfigModal({
     }
     setConfig(null);
     setPersistentContainers(null);
+    setPersistentValidityDays(DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS);
+    setSavedValidityDays(null);
     setValidationError(null);
     setSaveError(null);
     setPersistentError(null);
@@ -733,11 +765,18 @@ export function ScheduledPrefillConfigModal({
       const serviceId = getPersistentServiceId(serviceKey);
       const container = persistentContainerByService.get(serviceId);
       if (container) {
-        map.set(serviceKey, container);
+        // Typing a new validity moves each container's re-login date as the number changes, rather
+        // than leaving the old date on screen until the save round-trips.
+        map.set(
+          serviceKey,
+          savedValidityDays === null || persistentValidityDays === savedValidityDays
+            ? container
+            : previewReloginWindow(container, persistentValidityDays)
+        );
       }
     }
     return map;
-  }, [persistentContainerByService]);
+  }, [persistentContainerByService, persistentValidityDays, savedValidityDays]);
 
   const selectedGamesCountByServiceKey = useMemo(() => {
     const counts = {} as Record<ScheduledPrefillServiceKey, number>;
@@ -1485,20 +1524,27 @@ export function ScheduledPrefillConfigModal({
       // ONE save button for the whole modal: persist the schedule config and the
       // persistent-login validity together (the validity field no longer carries
       // its own Save).
-      const nextValidityDays = clampToBounds(
-        persistentValidityDays,
-        PERSISTENT_PREFILL_VALIDITY_BOUNDS
-      );
-      await Promise.all([
-        ApiService.updateScheduledPrefillConfig(config),
-        ApiService.updatePersistentPrefillValidity({ days: nextValidityDays })
-      ]);
+      // Only send a validity the reader could actually see and change. When the settings request
+      // never answered, the field holds a default rather than the server's number, and sending it
+      // would overwrite a window nobody chose.
+      const nextValidityDays =
+        savedValidityDays === null
+          ? null
+          : clampToBounds(persistentValidityDays, PERSISTENT_PREFILL_VALIDITY_BOUNDS);
+      const requests: Promise<unknown>[] = [ApiService.updateScheduledPrefillConfig(config)];
+      if (nextValidityDays !== null) {
+        requests.push(ApiService.updatePersistentPrefillValidity({ days: nextValidityDays }));
+      }
+      await Promise.all(requests);
       editSessionRetiredRef.current = true;
       const committedEditSession = editSessionRef.current;
       if (committedEditSession) {
         discardCommittedEditSession(sessionStorage, committedEditSession.editSessionId);
       }
       editSessionRef.current = null;
+      if (nextValidityDays !== null) {
+        setSavedValidityDays(nextValidityDays);
+      }
       setPersistentLoginTarget(null);
       await Promise.resolve(onSaved?.());
       onClose();
@@ -1696,7 +1742,7 @@ export function ScheduledPrefillConfigModal({
                               max={PERSISTENT_PREFILL_VALIDITY_BOUNDS.max}
                               step={1}
                               value={persistentValidityDays}
-                              disabled={loadingGlobalSettings || editSessionActionsDisabled}
+                              disabled={savedValidityDays === null || editSessionActionsDisabled}
                               aria-label={t(`${baseKey}.settings.persistentValidityLabel`)}
                               onChange={handlePersistentValidityDaysChange}
                             />

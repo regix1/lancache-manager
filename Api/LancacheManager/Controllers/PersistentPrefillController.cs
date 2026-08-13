@@ -260,6 +260,9 @@ public class PersistentPrefillController : ControllerBase
                     IsRunning = isRunning,
                     IsAuthenticated = isAuthenticated,
                     AuthExpiresAtUtc = effectiveRelogin,
+                    // The field's contract is a UTC instant, so the kind is stated at the boundary
+                    // rather than left to whatever the value happened to arrive with.
+                    CreatedAtUtc = DateTime.SpecifyKind(session.CreatedAt, DateTimeKind.Utc),
                     AuthTimeRemainingSeconds = remainingSeconds,
                     NeedsRelogin = session.NeedsRelogin,
                     DaemonAuthExpiresAtUtc = daemonAuthExpiresAtUtc,
@@ -1439,6 +1442,13 @@ public sealed class PersistentPrefillSessionDto
 
     /// <summary>UTC instant at which the persistent login validity expires (DaemonSession.ExpiresAt).</summary>
     public required DateTime AuthExpiresAtUtc { get; init; }
+
+    /// <summary>
+    /// UTC instant the session was created. The validity window is anchored here rather than on the
+    /// login, so the UI can show what a changed window would move the re-login date to before the
+    /// change is saved (see <see cref="PrefillDaemonServiceBase.UpdatePersistentSessionExpiryAsync"/>).
+    /// </summary>
+    public required DateTime CreatedAtUtc { get; init; }
 
     /// <summary>Seconds remaining until <see cref="AuthExpiresAtUtc"/> (0 once elapsed).</summary>
     public required long AuthTimeRemainingSeconds { get; init; }
