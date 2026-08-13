@@ -1014,7 +1014,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           <div className="mgmt-row__body">
             <div className="session-row__titleline">
               <Tooltip content={parsedUA.title} position="top" className="block min-w-0">
-                <span className="mgmt-row__title truncate">{parsedUA.title}</span>
+                <span className="mgmt-row__title block truncate">{parsedUA.title}</span>
               </Tooltip>
               <span
                 className={`themed-badge session-type-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
@@ -1306,7 +1306,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         <div className="mgmt-row__body">
           <div className="session-row__titleline">
             <Tooltip content={parsedUA.title} position="top" className="block min-w-0">
-              <span className="mgmt-row__title truncate">{parsedUA.title}</span>
+              <span className="mgmt-row__title block truncate">{parsedUA.title}</span>
             </Tooltip>
             <span
               className={`themed-badge session-type-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
